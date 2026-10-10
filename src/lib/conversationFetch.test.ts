@@ -312,7 +312,7 @@ describe("conversation invalidation refresh", () => {
     refresh.stop();
   });
 
-  it("serializes newest reads, gap fills and older pages without delaying an explicit page for a push", async () => {
+  it("starts an older page after the newest read and its gap fill, and never holds the next newest read behind it", async () => {
     const clock = refreshClock();
     const refresh = pushedRefresh();
     const first = Promise.withResolvers<void>();
@@ -336,10 +336,9 @@ describe("conversation invalidation refresh", () => {
     });
     refresh.refresh();
     const older = refresh.page(async () => {
-      active += 1; maxActive = Math.max(maxActive, active);
       reads.push("older");
-      try { await page.promise; return "page"; }
-      finally { active -= 1; }
+      await page.promise;
+      return "page";
     });
     clock.advance(100);
     for (let push = 0; push < 4; push++) refresh.invalidate();
@@ -349,13 +348,16 @@ describe("conversation invalidation refresh", () => {
     gap.resolve();
     await settleRefresh();
     expect(reads).toEqual(["latest", "gap", "older"]);
-    page.resolve();
-    expect(await older).toBe("page");
-    await settleRefresh();
-    expect(reads).toEqual(["latest", "gap", "older"]);
+    // the older page is still loading: the pushed newest read keeps its own 2 s deadline
     clock.advance(1900);
     await settleRefresh();
     expect(reads).toEqual(["latest", "gap", "older", "latest"]);
+    // and an explicit refresh (a clear, a send) does not wait for it either
+    refresh.refresh();
+    await settleRefresh();
+    expect(reads).toEqual(["latest", "gap", "older", "latest", "latest"]);
+    page.resolve();
+    expect(await older).toBe("page");
     expect(maxActive).toBe(1);
     refresh.stop();
   });

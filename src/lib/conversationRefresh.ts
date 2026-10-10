@@ -5,7 +5,8 @@ const BACKSTOP_MS = 10_000;
  * without them (an older bridge, a tab that let go of its pane) reads at that cadence. */
 const INVALIDATION_MS = 2000;
 
-/** One serial lane for newest pages, their gap fills and explicitly requested older pages. */
+/** One serial lane for newest pages and their gap fills; an older page starts in it, after the
+ * newest read before it, but never holds the next newest read back. */
 export class ConversationRefresh {
   private read: (() => Promise<void>) | null = null;
   private pending = false;
@@ -52,7 +53,9 @@ export class ConversationRefresh {
     void this.drain();
   }
 
-  /** An explicitly requested older page uses the same lane as the newest page and its gap fills. */
+  /** An explicitly requested older page starts once the newest read in flight (and its gap fill)
+   * has settled, so a history change found there drops it first. A slow older page never delays
+   * the newest page: a clear or a new turn still shows while it loads, and its caller discards it. */
   page<T>(read: () => Promise<T>): Promise<T> {
     const { promise, resolve, reject } = Promise.withResolvers<T>();
     this.pages.push(async () => {
@@ -88,7 +91,7 @@ export class ConversationRefresh {
       while (true) {
         const page = this.pages.shift();
         if (page !== undefined) {
-          await page();
+          void page();
           continue;
         }
         if (this.read === null || (!this.pending && !this.invalidated)) break;

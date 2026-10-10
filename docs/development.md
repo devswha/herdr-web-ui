@@ -136,7 +136,9 @@ Newest-page refreshes are single-flight. Push-triggered reads start at least 2 s
 monotonic elapsed time, with one trailing refresh at a fixed deadline: continuous writes cannot
 keep postponing it. A push after idle reads immediately. Initial display, explicit sends,
 status/history repairs, reconnect and visibility return bypass that delay but not serialization.
-Older pages and gap fills use the same serial lane. A visible Chat with pushes retains a 10 s
+Gap fills run inside the newest read. An older page starts once the newest read in flight has
+settled, so a history change found there drops it first, but it never holds the next newest read
+back: a clear or a new turn shows while a slow older page loads. A visible Chat with pushes retains a 10 s
 backstop for lost notifications; without pushes (an older bridge, a released pane) the backstop
 is the former 2 s poll. Hidden Chat starts no new automatic reads or queued
 pagination work; returning preserves held history and scroll. Pending work never follows a
