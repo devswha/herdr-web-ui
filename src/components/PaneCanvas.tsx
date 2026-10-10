@@ -211,7 +211,8 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
     const cell = lastCells.current.get(id);
     return !shownIds.has(id) && cell ? [{ ...cell, retained: true }] : [];
   })];
-  const zoomed = layout?.zoomed ? pane?.pane_id ?? layout.focused_pane_id : null;
+  // herdr's zoomed pane, whatever the web selected: the selection follows it (App)
+  const zoomed = layout?.zoomed ? layout.focused_pane_id : null;
   return <PaneSubmitContext.Provider value={submits}><PaneAwayContext.Provider value={awayReleased}><div className={`pane-canvas${!pane && presented ? " is-pending" : ""}`} ref={canvas} aria-busy={!pane && presented ? true : undefined}>
     {cells.length === 0 && renderPane(pane, true)}
     {mountedCells.map((cell) => {
