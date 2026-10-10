@@ -466,13 +466,21 @@ export function directoryKey(cwd: string): string {
 
 /** Whether two cwds are one directory by `directoryKey`; POSIX ones only when they are equal. */
 export function sameDirectory(left: string, right: string): boolean {
-  return directoryKey(left) === directoryKey(right);
+  if (directoryKey(left) === directoryKey(right)) return true;
+  if (process.platform !== "win32") return false;
+  try {
+    // bigint: a Windows file ID is 64-bit, and two of them can round to one number
+    const a = statSync(left, { bigint: true });
+    const b = statSync(right, { bigint: true });
+    return a.isDirectory() && b.isDirectory() && a.dev === b.dev && a.ino === b.ino;
+  } catch { return false; }
 }
 
 /** The other Codex panes herdr shows in this pane's directory, in any spelling `sameDirectory` takes. */
 export function codexPeersIn(panes: readonly HerdrPane[], paneId: string, cwd: string): HerdrPane[] {
-  return panes.filter((pane) => pane.pane_id !== paneId && pane.cwd != null && sameDirectory(pane.cwd, cwd)
-    && (pane.agent ?? pane.agent_session?.agent) === "codex");
+  // the agent first: sameDirectory can ask the file system, and only Codex panes need it
+  return panes.filter((pane) => pane.pane_id !== paneId && (pane.agent ?? pane.agent_session?.agent) === "codex"
+    && pane.cwd != null && sameDirectory(pane.cwd, cwd));
 }
 
 /**
@@ -481,7 +489,14 @@ export function codexPeersIn(panes: readonly HerdrPane[], paneId: string, cwd: s
  * stays on Codex's own binary cwd index.
  */
 export function storedCwdCondition(cwd: string): { where: string; params: string[] } {
-  const params = [...new Set(storedCwds(cwd).flatMap((spelling) => {
+  // Windows resolves an existing directory to its on-disk casing. Herdr may report the
+  // shell's spelling while Codex stores the canonical spelling in its binary cwd index.
+  // Keep both: the original is needed when Codex recorded it before a rename or via a link.
+  let canonical = cwd;
+  if (process.platform === "win32") {
+    try { canonical = realpathSync.native(cwd); } catch { /* A removed cwd still has its reported spelling. */ }
+  }
+  const params = [...new Set([cwd, canonical].flatMap((path) => storedCwds(path)).flatMap((spelling) => {
     const drive = /^((?:\\\\\?\\)?)([A-Za-z])(:\\.*)$/s.exec(spelling);
     return drive ? [`${drive[1]}${drive[2]!.toUpperCase()}${drive[3]}`, `${drive[1]}${drive[2]!.toLowerCase()}${drive[3]}`] : [spelling];
   }))];

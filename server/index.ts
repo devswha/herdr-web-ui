@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -14,7 +14,10 @@ import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
+import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
+import { compressResponse } from "./compress.ts";
+import { sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
@@ -32,13 +35,17 @@ import { fileResponse, locateFile } from "./file-view.ts";
 import {
   agentManifests,
   agentPrompt,
+  agentRename,
   agentStart,
   HerdrError,
   herdrSocketPath,
   integrationList,
+  paneClear,
   paneClose,
   paneGet,
+  paneMove,
   paneRead,
+  paneResize,
   paneScroll,
   paneScrollInfo,
   paneFind,
@@ -46,6 +53,9 @@ import {
   paneRename,
   paneSendKeys,
   paneSendText,
+  paneSplit,
+  paneSwap,
+  paneZoom,
   ping,
   pluginActionInvoke,
   pluginActionList,
@@ -179,6 +189,9 @@ const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-inp
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+
+/** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
+const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
 /** pane.read's own enums; a read outside them is refused here rather than sent to herdr as a guess (the generated types are open-ended) */
 const READ_SOURCES = new Set<ReadSource>(["detection", "recent", "recent_unwrapped", "visible"]);
 const READ_FORMATS = new Set<ReadFormat>(["ansi", "text"]);
@@ -1402,10 +1415,12 @@ export function createServer(
     hostname,
 
     async fetch(request, bunServer) {
+      // the route's answer, gzipped for a browser that takes it (server/compress.ts)
+      return compressResponse(request, await (async (): Promise<Response | undefined> => {
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/agent/rename" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -1474,7 +1489,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/|plugins\/actions$|plugin\/action$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/|agent\/rename$|plugins\/actions$|plugin\/action$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
@@ -1928,6 +1943,50 @@ export function createServer(
         }
       }
 
+      // herdr's `pane move`: into another tab, a new tab or a new workspace. herdr emits
+      // pane.moved, and the collector's session-changed broadcast redraws every client.
+      if (pathname === "/api/pane/move") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: unknown;
+        try {
+          payload = await request.json();
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const parsed = parseMoveRequest(payload);
+        if ("problem" in parsed) return badRequest(parsed.problem.code, parsed.problem.message);
+        try {
+          const moved = await paneMove(parsed.params);
+          // a pane that left its workspace answers to a new id: what its chat parsed under the
+          // old one is released (server/conversation.ts) and read again under the new
+          if (moved.previous_pane_id !== moved.pane.pane_id) forgetPaneTranscriptState(moved.previous_pane_id);
+          return jsonResponse(moved satisfies PaneMoved);
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/agent/rename") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: Partial<Record<keyof AgentRenameRequest, unknown>>;
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
+        if (payload.name !== null && typeof payload.name !== "string") return badRequest("invalid_name", "name must be a string, or null to clear it");
+        // the rule and the uniqueness are herdr's: its refusal comes back as it is
+        try {
+          await agentRename(payload.pane_id, payload.name);
+          return jsonResponse({ ok: true });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
       if (pathname === "/api/pane/commands" || pathname === "/api/pane/files") {
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         const paneId = url.searchParams.get("pane_id");
@@ -2107,9 +2166,10 @@ export function createServer(
           const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb);
           // The chat polls every 2s: an unchanged conversation answers 304 with no body.
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
-          const etag = `"${version}"`;
+          // weak: the same answer goes out gzipped or plain (compress.ts), which are not the same bytes
+          const etag = `W/"${version}"`;
           const headers = { etag, "cache-control": "no-store" };
-          if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+          if (request.headers.get("if-none-match")?.replace(/^W\//, "") === etag.slice(2)) return new Response(null, { status: 304, headers });
           return jsonResponse(conversation, 200, headers);
         } catch (error) {
           if (error instanceof HistoryChanged || error instanceof DevinHistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
@@ -2166,6 +2226,55 @@ export function createServer(
         }
       }
 
+      // herdr's own layout operations, as its TUI has them: prefix+v and prefix+- (split), prefix+z
+      // (zoom), prefix+shift+hjkl (swap), its resize mode, and pane clear. Each is one herdr RPC. No
+      // answer carries the layout: a new pane reaches every client through the collector's
+      // pane.created subscription and a moved border, zoom or swap through its layout.updated one,
+      // both as session-changed, the same way the TUI's own changes do.
+      if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { pane_id?: unknown; direction?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
+        const paneId = payload.pane_id;
+        try {
+          if (pathname === "/api/pane/split") {
+            if (payload.direction !== "right" && payload.direction !== "down") return badRequest("invalid_direction", "direction must be right or down");
+            if (payload.focus !== undefined && typeof payload.focus !== "boolean") return badRequest("invalid_focus", "focus must be a boolean");
+            const pane = await paneSplit(paneId, payload.direction, payload.focus === true);
+            return jsonResponse({ ok: true, pane } satisfies PaneSplit);
+          }
+          if (pathname === "/api/pane/zoom") {
+            if (payload.mode !== undefined && payload.mode !== "toggle" && payload.mode !== "on" && payload.mode !== "off") return badRequest("invalid_mode", "mode must be toggle, on or off");
+            const zoom = await paneZoom(paneId, payload.mode ?? "toggle");
+            return jsonResponse({ ok: true, zoomed: zoom.zoomed, changed: zoom.changed, reason: zoom.reason } satisfies PaneZoomed);
+          }
+          if (pathname === "/api/pane/clear") {
+            await paneClear(paneId);
+            return jsonResponse({ ok: true });
+          }
+          if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
+          if (pathname === "/api/pane/swap") {
+            const swap = await paneSwap(paneId, payload.direction);
+            return jsonResponse({ ok: true, changed: swap.changed, reason: swap.reason, target_pane_id: swap.target_pane_id } satisfies PaneSwapped);
+          }
+          // a share of the split the border belongs to, as herdr counts it, and no more than the
+          // half herdr would quietly cap it to (shared/protocol.ts); its own default when absent
+          if (payload.amount !== undefined && !(typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0 && payload.amount <= 0.5)) {
+            return badRequest("invalid_amount", "amount must be a number above 0 and at most 0.5");
+          }
+          const resize = await paneResize(paneId, payload.direction, payload.amount);
+          return jsonResponse({ ok: true, changed: resize.changed, reason: resize.reason } satisfies PaneResized);
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
       if (pathname === "/api/pane/image") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
         let payload: { pane_id?: string; content_type?: string; data_base64?: string; name?: string };
@@ -2212,6 +2321,7 @@ export function createServer(
 
       // static client - public even when the API is gated, so the login UI can load
       return serveStatic(pathname);
+      })());
     },
 
     websocket: {
@@ -2398,21 +2508,30 @@ export function createServer(
               // The turn is taken before herdr is asked what it can do: a message sent while
               // that answer is on its way must not overtake the typing.
               if (terminalAttachKnown === false || (!attachment && terminalAttachKnown === null)) {
+                // an attach this client is not a member of owns this pane's screen, and typing
+                // here would reach past it — the same refusal the pty branch below makes. A
+                // pane with no attachment at all is left as it was: that is the key bar, and
+                // an older bridge's composer send, neither of which attaches first.
+                if (attachment && !attachment.clients.has(client)) {
+                  send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
+                  break;
+                }
                 const text = message.text;
                 // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
                 const origin = attachment?.clients.has(client) ? attachment : undefined;
                 const claim = client.data.attached.get(message.pane_id);
                 const roles = client.data.roles;
                 // checked again right before herdr is written to: its connect is awaited (#545)
+                // and into the same attach, or still none: one made while this waited is someone else's (#732)
                 const allowed = () => mayType(client) && client.data.roles === roles && client.data.attached.get(message.pane_id) === claim
-                  && (!origin || (attachments.get(message.pane_id) === origin && origin.clients.has(client)));
+                  && sameAttachment(origin, attachments.get(message.pane_id), client);
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
                   if (await terminalAttach()) { inputFailed(); return; }
                   // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
                   const shaped = await mirrorInput(text, async () => (await paneContext(message.pane_id)).agent);
                   if (client.data.attached.get(message.pane_id) !== claim
-                    || (origin && (attachments.get(message.pane_id) !== origin || !origin.clients.has(client)))) { inputFailed(); return; }
+                    || !sameAttachment(origin, attachments.get(message.pane_id), client)) { inputFailed(); return; }
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);

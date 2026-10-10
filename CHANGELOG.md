@@ -8,6 +8,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- herdr's pane layout operations from the web: a tab's menu (right-click a tab, or its chevron;
+  a bottom sheet on a phone) now offers **Split right** and **Split down** (herdr's prefix+v and
+  prefix+-), **Zoom pane** (prefix+z), **Swap left / right / up / down** with the pane's
+  neighbours (prefix+shift+hjkl), **Wider / Narrower / Taller / Shorter** (herdr's resize mode)
+  and **Clear pane**. A tab of several panes heads the menu with a small map of its layout, drawn
+  from herdr's own pane rects: a cell opens its pane, the open pane is marked in the accent and the
+  zoomed one carries the zoom glyph. The command palette has **Split pane right / down**, the same
+  **and open it** (herdr's `--focus`; a plain split keeps the pane you are on, like `--no-focus`)
+  and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
+  one herdr RPC each, also on remote PCs.
+  ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
   Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
   ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
@@ -22,6 +33,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   come first. A missing or outdated one shows its `herdr integration install …` command with a
   Copy button; the page only reads herdr's state and never installs or removes anything.
   ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
+- **Move pane to…** in a tab's menu on the tab strip and in a workspace row's ⋯ menu moves the
+  pane into another tab of its workspace, a new tab there or in another workspace, or a workspace
+  of its own, as herdr's `pane move` does; on a phone the places are a bottom sheet. The app stays
+  on the moved pane, also under the new id herdr gives a pane that changes workspace, and the lens
+  and unsent drafts kept for it follow. `POST /api/pane/move` carries it, on a remote PC too.
+  ([#734](https://github.com/devswha/herdr-web-ui/pull/734))
 - The command palette now lists panes the way herdr's Goto picker does: one row per pane under
   its workspace's heading (a linked worktree's branch beside the name), with status chips above
   the list — **All**, **INPUT**, **RUN**, **READY**, **DONE** and **BG**, each with its count — and
@@ -31,6 +48,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   herdr's own keys (`b`, `w`, `i`, `d`, `a` for a filter, `/` for the search) work while the
   focus is on the list or the chips, never while typing.
   ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
+- **Agent name…** in a workspace row's menu, next to Rename pane, and in the new `⋯` menu of an
+  Agents row sets or clears the live name herdr addresses the agent by (`herdr agent rename`,
+  what `herdr agent prompt <name>` takes). The dialog checks herdr's rule as you type, shows
+  herdr's own refusal when another agent holds the name, and the Agents row shows the name on its
+  second line. A name set from herdr's terminal UI or CLI shows in the web the same way.
+  ([#736](https://github.com/devswha/herdr-web-ui/pull/736))
 - **Deep links.** The address now says where you are, and opens there: the PC, the workspace (by id and a short slug of its name, so `?ws=w2K-herdr-web-ui&pane=w2K:p1&view=chat` reads like the place), the pane and its lens, an open file, a Settings page and group (`&settings=about&section=updates`), the New workspace dialog with its fields filled (`?new=workspace&cwd=…&name=…&agent=…`; a link never creates anything), and a collapsed sidebar (`&sidebar=hidden`). Opening another pane is a history entry, so Back returns to the last one. A link to a pane that has closed opens its workspace, a link to nothing open says so, and **Copy link** in the header's More menu copies the address on a phone.
   ([#675](https://github.com/devswha/herdr-web-ui/pull/675) by @phirschybar)
 
@@ -40,10 +63,22 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- Codex conversations on Windows resolve the transcript even when the pane's working directory
+  uses different letter casing from Codex's stored path. The lookup verifies the directory on
+  disk before considering its canonical spelling, so another pane's chat is not substituted.
+  ([#740](https://github.com/devswha/herdr-web-ui/pull/740) by @antonydoyle)
+- The browser demo keeps each row's own split when resizing a grid and keeps deeply split
+  panes visible and resizable. ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Workspace and tab changes, pane moves and layout updates made in herdr's terminal UI
   now refresh the web immediately through coalesced lifecycle events instead of waiting
   for the five-second poll. Pane status subscriptions follow moved pane IDs.
   ([#725](https://github.com/devswha/herdr-web-ui/pull/725))
+- Typing no longer reaches a pane that another connection is attached to, on a PC where typing
+  goes through herdr instead of a terminal. The other path already refused it; this one did not,
+  so a second tab or a second bridge could type into a pane someone else was attached to. A pane
+  nobody is attached to is unaffected, which is what keeps the key bar and an older bridge's
+  composer working.
+  ([#732](https://github.com/devswha/herdr-web-ui/pull/732) by @pt-act)
 - A numeric custom tab name remains visible when tabs before it close ([#723](https://github.com/devswha/herdr-web-ui/pull/723)).
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
@@ -303,6 +338,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   [#599](https://github.com/devswha/herdr-web-ui/pull/599))
 
 ### Changed
+- The server gzips its JSON and text answers for a browser that accepts it. A conversation page
+  of a couple of megabytes, fetched on every session switch and polled while it changes, goes over
+  the wire at about a quarter of its size, and the app's script at about a third; over a slow link
+  such as a relayed Tailscale connection a switch to a long session is about twice as fast.
+  ([#615](https://github.com/devswha/herdr-web-ui/pull/615) by @Haeminway1)
 - The default mobile terminal key bar puts Esc, Tab and Ctrl+C first, before the held modifiers
   and arrows. Saved layouts keep their order. ([#607](https://github.com/devswha/herdr-web-ui/pull/607))
 - **Settings → Shortcuts** explains which keys control the app and marks known browser/OS
