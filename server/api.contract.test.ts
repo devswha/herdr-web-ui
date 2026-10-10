@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
 import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
@@ -616,6 +616,20 @@ describe("workspace and discovery endpoints", () => {
     expect(agents.some((agent) => agent.kind === "claude")).toBeTrue();
     expect(agents.some((agent) => agent.kind === "omp")).toBeTrue();
     expect(agents.map((agent) => agent.label)).toEqual([...agents.map((agent) => agent.label)].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("lists herdr's integrations as integration.list reports them, and refuses anything but GET", async () => {
+    const res = await fetch(`${base()}/api/integrations`);
+    expect(res.status).toBe(200);
+    const { integrations } = (await res.json()) as IntegrationsResponse;
+    const fromHerdr = (await herdrRpc<IntegrationsResponse>("integration.list", {})).integrations;
+    expect(integrations).toEqual(fromHerdr);
+    const claude = integrations.find((integration) => integration.target === "claude");
+    expect(claude).toMatchObject({ label: "claude", command: "claude" });
+    for (const integration of integrations) expect(["not_installed", "current", "outdated"]).toContain(integration.state);
+    const post = await fetch(`${base()}/api/integrations`, { method: "POST" });
+    expect(post.status).toBe(400);
+    expect(((await post.json()) as ApiError).error.code).toBe("method_not_allowed");
   });
 
   it("offers omo and gjc, which herdr cannot start, exactly when they are on PATH", async () => {
