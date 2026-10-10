@@ -8,6 +8,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Chat: `SendUserFile` calls** show their caption and the files they name as openable links,
+  the same way any other tool's file path already opens, instead of the call's raw JSON.
 - **Settings → Agent integrations** lists herdr's integration for each agent it supports and
   says whether it is installed, older than the running herdr, or missing. Agents found on the PC
   come first. A missing or outdated one shows its `herdr integration install …` command with a
