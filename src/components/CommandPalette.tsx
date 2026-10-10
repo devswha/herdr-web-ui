@@ -1,12 +1,13 @@
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { Bell, FolderOpen, LoaderCircle, LockKeyhole, MessageSquarePlus, Monitor, PanelLeft, Plus, Puzzle, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
+import { Bell, Columns2, FolderOpen, LoaderCircle, LockKeyhole, Maximize2, MessageSquarePlus, Minimize2, Monitor, PanelLeft, Plus, Puzzle, RefreshCw, Rows2, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
 import type { HerdrPane, PluginActions, SessionSnapshot } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
 import { paneStatus, STATUS_WORD } from "../lib/status.ts";
+import { zoomMode } from "../lib/layoutMap.ts";
 import type { AppActions, PaneView } from "../lib/actions.ts";
 import { FILTER_KEYS, filterPanesByStatus, groupByWorkspace, offeredPluginActions, parseQuery, rankPanes, recentPanes, STATUS_FILTERS, statusCounts, type OfferedPluginAction, type PaletteStatusFilter } from "../lib/paletteSearch.ts";
 import { Ownership, runPluginActionToEnd } from "../lib/pluginRun.ts";
@@ -196,10 +197,27 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     setRecentPaneIds((current) => rememberPane(selectedPaneId, current, machineId));
   }, [selectedPaneId]);
 
+  // the selected pane's tab, for herdr's layout actions: a zoom means something only among several panes
+  const selectedTab = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId)?.tab_id ?? null;
+  const tabPanes = selectedTab === null ? 0 : (snapshot?.panes.filter((pane) => pane.tab_id === selectedTab).length ?? 0);
+  const tabLayout = selectedTab === null ? undefined : snapshot?.layouts?.find((layout) => layout.tab_id === selectedTab);
+  // the mode the zoom item names, never a toggle (lib/layoutMap.ts): herdr focuses the pane and
+  // then sets the tab's flag, so a toggle on a pane other than the one shown alone would unzoom the tab
+  const zoom = tabLayout !== undefined && selectedPaneId !== null ? zoomMode(tabLayout, selectedPaneId) : null;
+  const { splitPane, zoomPane } = actions;
+
   const paletteActions = useMemo<PaletteAction[]>(() => [
     { id: "new", label: t("New workspace"), icon: MessageSquarePlus, shortcut: "new-session", run: actions.openNewSession },
     // in the selected pane's workspace: nothing to add a tab to without one
     ...(selectedPaneId !== null ? [{ id: "new-tab", label: t("New tab"), icon: Plus, run: () => actions.openNewTab() }] : []),
+    // herdr's prefix+v and prefix+-: the new pane is opened here only when asked, as herdr's --focus
+    ...(splitPane ? [
+      { id: "split-right", label: t("Split pane right"), icon: Columns2, run: () => splitPane("right") },
+      { id: "split-down", label: t("Split pane down"), icon: Rows2, run: () => splitPane("down") },
+      { id: "split-right-open", label: t("Split pane right and open it"), icon: Columns2, run: () => splitPane("right", true) },
+      { id: "split-down-open", label: t("Split pane down and open it"), icon: Rows2, run: () => splitPane("down", true) },
+    ] : []),
+    ...(zoomPane && zoom && tabPanes > 1 ? [{ id: "zoom", label: t(zoom === "off" ? "Unzoom pane" : "Zoom pane"), icon: zoom === "off" ? Minimize2 : Maximize2, run: () => zoomPane(zoom) }] : []),
     { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view", run: actions.toggleView },
     { id: "sidebar", label: t("Toggle sidebar"), icon: PanelLeft, shortcut: "toggle-sidebar", run: actions.toggleSidebar },
     { id: "theme", label: t("Toggle theme"), icon: SunMoon, run: actions.toggleTheme },
@@ -209,7 +227,7 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     ...(actions.lock ? [{ id: "lock", label: t("Sign out"), icon: LockKeyhole, run: actions.lock }] : []),
     ...(actions.openFiles ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: actions.openFiles }] : []),
     { id: "refresh", label: t("Refresh"), icon: RefreshCw, run: actions.refresh },
-  ], [actions, view, t, selectedPaneId]);
+  ], [actions, splitPane, zoomPane, tabPanes, zoom, view, t, selectedPaneId]);
 
   const allPanes: readonly HerdrPane[] = snapshot?.panes ?? [];
   const workspaces = snapshot?.workspaces ?? [];
