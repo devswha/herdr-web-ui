@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, PluginActionResult, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -88,14 +88,16 @@ import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
+import { pluginActionResult, pluginPaneContext } from "./plugin-actions.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
 /** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
 const PLUGIN_ACTION_WAIT_MS = 5_000;
-/** The end of a failed plugin command's output that reaches the browser. */
-const PLUGIN_OUTPUT_CHARS = 2_000;
+/** How far back in herdr's plugin command log a run is looked for. */
+const PLUGIN_LOG_LIMIT = 50;
+const livePaneIds = async (): Promise<string[]> => (await sessionSnapshot()).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
  * for a retry. A read of more lines than an idle alt-screen agent (Codex) shows, like the
@@ -378,6 +380,8 @@ export function createServer(
     voice?: VoiceService;
     machines?: boolean;
     registerBridge?: boolean;
+    /** PLUGIN_ACTION_WAIT_MS; a test shortens it to see a run that outlasts the wait */
+    pluginActionWaitMs?: number;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
     /** SUBMIT_DELAY_MS; a test lengthens it to hold a second message behind the first */
@@ -1464,7 +1468,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/|tab\/|plugins\/actions$|plugin\/action$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
@@ -1842,8 +1846,22 @@ export function createServer(
         }
       }
 
+      if (pathname === "/api/plugin/action" && request.method === "GET") {
+        const pluginId = url.searchParams.get("plugin_id");
+        const logId = url.searchParams.get("log_id");
+        if (!pluginId) return badRequest("missing_plugin_id", "plugin_id is required");
+        if (!logId) return badRequest("missing_log_id", "log_id is required");
+        try {
+          const log = (await pluginLogList(pluginId, PLUGIN_LOG_LIMIT)).find((entry) => entry.log_id === logId);
+          if (!log) throw new HerdrError("plugin_log_not_found", `plugin log ${logId} not found`);
+          return jsonResponse(await pluginActionResult(log, livePaneIds));
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
       if (pathname === "/api/plugin/action") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use GET or POST");
         let payload: { plugin_id?: unknown; action_id?: unknown; pane_id?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
@@ -1855,46 +1873,21 @@ export function createServer(
         if (typeof payload.action_id !== "string" || payload.action_id.length === 0) return badRequest("missing_action_id", "action_id is required");
         if (payload.pane_id !== undefined && (typeof payload.pane_id !== "string" || payload.pane_id.length === 0)) return badRequest("invalid_pane_id", "pane_id must be a pane's ID");
         try {
-          const before = await sessionSnapshot();
           let context: PluginInvocationContext | undefined;
           if (payload.pane_id !== undefined) {
-            const pane = before.panes.find((entry) => entry.pane_id === payload.pane_id);
+            const snapshot = await sessionSnapshot();
+            const pane = snapshot.panes.find((entry) => entry.pane_id === payload.pane_id);
             // herdr would run the action with whatever ID it was handed
             if (!pane) throw new HerdrError("pane_not_found", `pane ${payload.pane_id} not found`);
-            const workspace = before.workspaces.find((entry) => entry.workspace_id === pane.workspace_id);
-            const tab = before.tabs.find((entry) => entry.tab_id === pane.tab_id);
-            const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
-            // every field herdr would otherwise take from its own focus (server/herdr/client.ts)
-            context = {
-              workspace_id: pane.workspace_id,
-              ...(workspace ? { workspace_label: workspace.label } : {}),
-              ...(workspace?.worktree ? { worktree: workspace.worktree } : {}),
-              ...(cwd === undefined ? {} : { workspace_cwd: cwd, focused_pane_cwd: cwd }),
-              tab_id: pane.tab_id,
-              ...(tab ? { tab_label: tab.label } : {}),
-              focused_pane_id: pane.pane_id,
-              ...(pane.agent ? { focused_pane_agent: pane.agent } : {}),
-              focused_pane_status: pane.agent_status,
-              invocation_source: "herdr-web-ui",
-            };
+            context = pluginPaneContext(snapshot, pane);
           }
           const invoked = await pluginActionInvoke(payload.plugin_id, payload.action_id, context);
           let log = invoked.log;
-          for (const deadline = Date.now() + PLUGIN_ACTION_WAIT_MS; log.status === "running" && Date.now() < deadline;) {
+          for (const deadline = Date.now() + (options.pluginActionWaitMs ?? PLUGIN_ACTION_WAIT_MS); log.status === "running" && Date.now() < deadline;) {
             await Bun.sleep(100);
-            log = (await pluginLogList(payload.plugin_id, 50)).find((entry) => entry.log_id === invoked.log.log_id) ?? log;
+            log = (await pluginLogList(payload.plugin_id, PLUGIN_LOG_LIMIT)).find((entry) => entry.log_id === invoked.log.log_id) ?? log;
           }
-          const after = await sessionSnapshot();
-          const focused = after.focused_pane_id ?? null;
-          const failed = log.status === "failed";
-          const said = failed ? (log.error || log.stderr || log.stdout || "").trim() : "";
-          const body: PluginActionResult = {
-            status: failed ? "failed" : log.status === "succeeded" ? "succeeded" : "running",
-            exit_code: log.exit_code ?? null,
-            output: said === "" ? null : said.slice(-PLUGIN_OUTPUT_CHARS),
-            opened_pane_id: focused !== null && !before.panes.some((entry) => entry.pane_id === focused) && after.panes.some((entry) => entry.pane_id === focused) ? focused : null,
-          };
-          return jsonResponse(body);
+          return jsonResponse(await pluginActionResult(log, livePaneIds));
         } catch (error) {
           return errorResponse(error);
         }

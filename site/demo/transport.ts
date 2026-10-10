@@ -439,11 +439,13 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/pane/input" || path === "/api/pane/keys") return json({ ok: true });
   if (path === "/api/plugins/actions") return json({ plugins: PLUGINS } satisfies PluginActionsResponse);
   if (path === "/api/plugin/action") {
+    // nothing here is ever left running, so no run is asked about again
+    if (method === "GET") return error("plugin_log_not_found", "plugin log not found", 404);
     const body = await bodyOf(init, input);
     const known = PLUGINS.some((plugin) => plugin.plugin_id === body["plugin_id"] && plugin.actions.some((action) => action.action_id === body["action_id"]));
     if (!known) return error("plugin_action_not_found", "plugin action not found", 404);
     // the demo runs nothing: the action reads as done
-    return json({ status: "succeeded", exit_code: 0, output: null, opened_pane_id: null } satisfies PluginActionResult);
+    return json({ log_id: "demo", status: "succeeded", exit_code: 0, output: null, opened_pane_id: null } satisfies PluginActionResult);
   }
   if (path === "/api/pane/rename") {
     const body = await bodyOf(init, input);
