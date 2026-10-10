@@ -36,6 +36,7 @@ import { useMachineId } from "../lib/machineContext.tsx";
 import { lineDiff } from "../lib/diff.ts";
 import { formatTokens } from "../lib/compose.ts";
 import { formatElapsed, taskCallItems, taskResultMarkdown } from "../lib/omoTasks.ts";
+import { sendUserFileCall } from "../lib/sendUserFile.ts";
 
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 const ChatPaneContext = createContext<string | null>(null);
@@ -230,6 +231,12 @@ function ToolInputView({ part }: { part: ToolPartType }) {
     return <div className="chat-tool-io">{str("file_path") !== undefined && <ToolFile path={str("file_path")!} />}{edits.map((item, index) =>
       <EditDiff key={index} before={typeof item["old_string"] === "string" ? item["old_string"] : ""} after={typeof item["new_string"] === "string" ? item["new_string"] : ""} />)}</div>;
   }
+  // SendUserFile: the files it names, openable where the viewer already opens any other path
+  const sendUserFile = sendUserFileCall(parsed);
+  if (sendUserFile !== null) return <div className="chat-tool-io">
+    {sendUserFile.caption.length > 0 && <p className="chat-tool-io-meta">{sendUserFile.caption}</p>}
+    {sendUserFile.files.map((file) => <ToolFile key={file} path={file} />)}
+  </div>;
   const editScript = str("input");
   if (editScript !== undefined) return <pre className="chat-tool-io chat-diff">{editScript.split("\n").map((line, index) => <span key={index} className={ompEditLineClass(line)}>{line}{"\n"}</span>)}</pre>;
   const content = str("content");
