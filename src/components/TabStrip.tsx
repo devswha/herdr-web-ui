@@ -270,7 +270,6 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
     setPicker(picker?.tab.tab_id === tab.tab_id ? null : { anchor: event.currentTarget, tab });
   };
 
-  // a tab's menu: its panes when it has several, then its name, where its pane can move, and its close
   const layoutOf = (tab: HerdrTab): PaneLayoutSnapshot | undefined => snapshot.layouts?.find((layout) => layout.tab_id === tab.tab_id);
   // herdr says in words why a layout call changed nothing: the pane has no neighbour on that
   // side, no border that could move that way, or the tab has one pane
@@ -297,7 +296,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   };
 
   // a tab's menu: its panes when it has several, herdr's layout operations on the pane it
-  // opens, then its name and its close
+  // opens, then its name, where its pane can move, and its close
   const pickerItems = (tab: HerdrTab): RowMenuItem[] => {
     // the tab may have changed under the open menu: the items act on what it is now
     const now = tabs.find((candidate) => candidate.tab_id === tab.tab_id) ?? tab;
@@ -340,11 +339,10 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         current: pane.pane_id === selectedPane.pane_id,
         run: () => onSelectPane(pane.pane_id),
       })) : []),
-      { id: "rename-tab", label: t("Rename tab"), icon: Pencil, divider: own.length > 1, run: () => beginRename(now) },
-      // the pane the tab opens: the open one on the open tab
-      { id: "move-pane", label: t("Move pane to…"), icon: FolderInput, run: () => { const pane = paneFor(now); if (anchor && pane) setMoving({ anchor, pane }); } },
       ...layoutItems,
       { id: "rename-tab", label: t("Rename tab"), icon: Pencil, divider: true, run: () => beginRename(now) },
+      // the pane the tab opens: the open one on the open tab
+      { id: "move-pane", label: t("Move pane to…"), icon: FolderInput, run: () => { if (anchor && target) setMoving({ anchor, pane: target }); } },
       { id: "close-tab", label: t("Close tab"), icon: X, danger: true, divider: true, run: () => requestClose(now) },
     ];
   };
@@ -437,7 +435,6 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         </button>
         {error && <span className="tab-strip-error" role="alert">{error}</span>}
       </div>
-      {picker && <RowMenu anchor={picker.anchor} title={panesOf(picker.tab).length > 1 ? t("Panes in {tab}", { tab: nameOf(picker.tab) }) : nameOf(picker.tab)} items={pickerItems(picker.tab)} align="start" onClose={() => setPicker(null)} />}
       {moving && <MovePaneMenu anchor={moving.anchor} align="start" snapshot={snapshot} pane={moving.pane} paneTitle={displayPaneTitle(moving.pane)} onMoved={(moved) => onPaneMoved(moved.previous_pane_id, moved.pane.pane_id)} onError={(reason) => setError(t("Move failed: {reason}", { reason }))} onClose={() => setMoving(null)} />}
       {picker && (() => {
         const title = panesOf(picker.tab).length > 1 ? t("Panes in {tab}", { tab: nameOf(picker.tab) }) : nameOf(picker.tab);

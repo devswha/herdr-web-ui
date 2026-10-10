@@ -1390,7 +1390,7 @@ try {
   await strip.getByRole("tab", { name: "second", exact: true }).click({ button: "right" });
   const tabMenu = page.getByRole("menu", { name: "second", exact: true });
   await tabMenu.waitFor();
-  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Rename tab", "Move pane to…", "Close tab"]);
+  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Move pane to…", "Close tab"]);
   // a tab of one pane: herdr's split and clear for that pane, then the tab's own name and close
   assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Close tab"]);
   await tabMenu.getByRole("menuitem", { name: "Rename tab", exact: true }).click();
@@ -1419,7 +1419,7 @@ try {
   await phoneStrip.getByRole("button", { name: "Actions for build", exact: true }).tap();
   const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
   await tabSheet.waitFor();
-  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Rename tab", "Move pane to…", "Close tab"]);
+  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Move pane to…", "Close tab"]);
   await tabSheet.locator(".row-sheet-item", { hasText: "Move pane to…" }).tap();
   assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Close tab"]);
   await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
