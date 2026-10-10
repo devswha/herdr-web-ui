@@ -11,17 +11,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Drag tabs to reorder them within their workspace without changing the selected pane. The tab
   menu offers **Move tab left / right**, including on phones; Alt+Shift+Left/Right moves a focused
   tab. The order is saved by herdr and shared with its TUI.
+  ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Terminal search highlights native matches in the visible grid, and a scrollbar navigates
   herdr's shared history by dragging or keyboard. Search counts and previous/next navigation stay
   available on older bridges; automatic highlighting requires the new range response.
+  ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - The command palette searches panes across all connected PCs, including PC names, workspace
   branches and tab labels. Results and Recent entries retain their owning PC, and selecting one
   switches directly to it. App and plugin actions still target the currently selected PC.
+  ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Native pane layout operations are available from the web and remote PCs. Pane menus offer
   split, zoom and swap with the focused pane; split boundaries resize herdr's actual layout.
   The command palette also offers split and zoom actions. The bridge exposes pane split, zoom,
   swap, resize and clear endpoints.
-  ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
+  ([#726](https://github.com/devswha/herdr-web-ui/pull/726), [#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
   Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
   ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
@@ -41,7 +44,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   of its own, as herdr's `pane move` does; on a phone the places are a bottom sheet. The app stays
   on the moved pane, also under the new id herdr gives a pane that changes workspace, and the lens
   and unsent drafts kept for it follow. `POST /api/pane/move` carries it, on a remote PC too.
-  ([#734](https://github.com/devswha/herdr-web-ui/pull/734))
+  ([#734](https://github.com/devswha/herdr-web-ui/pull/734), [#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - The command palette now lists panes the way herdr's Goto picker does: one row per pane under
   its workspace's heading (a linked worktree's branch beside the name), with status chips above
   the list — **All**, **INPUT**, **RUN**, **READY**, **DONE** and **BG**, each with its count — and
@@ -52,22 +55,26 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   focus is on the list or the chips, never while typing.
   ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
 - Live agent names set through `herdr agent rename` appear in the Agents list, including changes
-  from another client. ([#736](https://github.com/devswha/herdr-web-ui/pull/736))
+  from another client. ([#736](https://github.com/devswha/herdr-web-ui/pull/736), [#747](https://github.com/devswha/herdr-web-ui/pull/747))
 
 ### Changed
 - Agents rows are selection-only: removed their ellipsis menu and name-editing dialog. The list
   keeps its existing names, status, folding and click-to-open behavior.
+  ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Desktop tabs use a right-click menu in place of inline close and dropdown buttons. Touch and
   narrow layouts offer the same menu through an ellipsis beside the selected tab; keyboard users
   can open it with Shift+F10.
+  ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Workspace right-click and ⋯ menus share herdr’s workspace/worktree actions. Right-click opens
   at the pointer without changing pane selection or input focus; sidebar layout stays the same.
   Pane renaming stays in the pane menu, and Move pane to… is available through header More.
+  ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Split tabs now show every pane together in herdr's layout, with focused borders and draggable
   split boundaries. Right-click a pane for herdr's pane menu without changing focus; splits open
   the new pane, Swap with focused pane preserves the original focus, and zoom restores the same
   layout. Tab menus contain tab creation, renaming, reordering and closing, and the strip stays visible
   for a single pane. Each pane retains its own terminal connection, chat lens and unsent draft.
+  ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
   rebuilding a whole-session snapshot. Layout and transcript peer checks keep their snapshots.
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
