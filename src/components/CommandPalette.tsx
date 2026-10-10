@@ -57,8 +57,9 @@ interface PaletteSectionView {
 
 /**
  * The picked row, by what it is (its section and its pane or action) and by where it stood. A
- * roster change that moves the row (a pane before it left the filter) carries the pick with it;
- * one that takes the row away leaves the pick at its place, so the keyboard loses nothing.
+ * roster change that moves the row (a pane before it left the filter) carries the pick with it
+ * and tells its place again; one that takes the row away leaves the pick on the row now at its
+ * place, among the rows that stayed, so the keyboard loses nothing.
  */
 interface PaletteSelection {
   key: string | null;
@@ -124,6 +125,8 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
   const [rowFocusRequest, setRowFocusRequest] = useState(0);
   // the row the focus is on, told from one the focus left, for a roster change that takes it out of the list
   const focusedRow = useRef<HTMLElement | null>(null);
+  // the rows as the last roster listed them: where a row that left stood among the rows that stayed
+  const previousRowKeys = useRef<readonly string[]>([]);
   // the branch inventory is read only while the palette is open: the sidebar keeps its own
   const { branches } = useWorktreeBranches(snapshot, open && online);
 
@@ -229,16 +232,31 @@ export function CommandPalette({ open, onClose, snapshot, online, selectedPaneId
     (document.getElementById("palette-item-0") ?? inputRef.current)?.focus();
   }, [rowFocusRequest]);
 
-  // A row that leaves the list while the focus is on it (its pane's status changed under a filter)
-  // would leave the focus on the page body, where no palette key reaches: the row now at the
+  // The roster changed under the pick. A picked row that stayed tells its place again; one that
+  // left hands the pick to the row now at its place, counted over the rows before it that stayed
+  // (its old place would be one row too low once a row before it had left earlier, or left with
+  // it). A row that leaves the list while the focus is on it (its pane's status changed under a
+  // filter) would leave the focus on the page body, where no palette key reaches: the row at the
   // pick's place takes it, the search when none is left. A row that stays keeps its element, and
   // with it the focus, by its key.
   useLayoutEffect(() => {
+    const before = previousRowKeys.current;
+    previousRowKeys.current = rowKeys;
     if (!open) return;
+    let index = activeIndex;
+    if (selection.key !== null) {
+      const wasAt = pickedAt < 0 ? before.indexOf(selection.key) : -1;
+      if (wasAt >= 0) {
+        const stayed = new Set(rowKeys);
+        index = Math.min(before.slice(0, wasAt).filter((key) => stayed.has(key)).length, Math.max(0, itemCount - 1));
+      }
+      const key = rowKeys[index] ?? null;
+      if (key !== selection.key || index !== selection.index) setSelection({ key, index });
+    }
     const row = focusedRow.current;
     if (!row || row.isConnected) return;
     focusedRow.current = null;
-    (document.getElementById(`palette-item-${activeIndex}`) ?? inputRef.current)?.focus();
+    (document.getElementById(`palette-item-${index}`) ?? inputRef.current)?.focus();
   }, [rowKeys]);
 
   if (!open) return null;
