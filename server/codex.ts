@@ -2,9 +2,15 @@
  * conversation records belong in chat; developer prompts and terminal chrome do not. */
 import { Database } from "bun:sqlite";
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, sep } from "node:path";
+import nodePath, { isAbsolute, join, type PlatformPath } from "node:path";
 import type { ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
+import { patchFiles, patchText } from "../shared/patch.ts";
+import { processStartedAt } from "./process-start.ts";
+import { codexImageParts } from "./codex-images.ts";
+import { codexReadCall, codexReadSkills, selectedSkill } from "./skill-activity.ts";
+import { trimOutput } from "./tool-output.ts";
 import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
 
 type RecordValue = Record<string, unknown>;
@@ -14,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function contextOnly(text: string): boolean {
   const value = text.trim();
-  return (value.startsWith("# AGENTS.md instructions for ") && value.includes("</INSTRUCTIONS>"))
+  return (/^# AGENTS\.md instructions(?: for [^\r\n]+)?\r?\n\s*<INSTRUCTIONS>[\s\S]*<\/INSTRUCTIONS>(?:\s*<environment_context>[\s\S]*<\/environment_context>)?$/.test(value))
     || /^<(environment_context|permissions instructions|turn_aborted|subagent_notification)>[\s\S]*<\/\1>$/.test(value);
 }
 
@@ -43,6 +49,11 @@ function questionTitles(args: RecordValue): string[] {
     : [];
 }
 
+/** A tool call's output as Codex recorded it, as text. */
+export function codexOutputText(value: unknown): string {
+  return contentText(value);
+}
+
 function contentText(value: unknown, user = false): string {
   if (typeof value === "string") return user && contextOnly(value) ? "" : value;
   if (!Array.isArray(value)) return "";
@@ -59,100 +70,356 @@ function entries(text: string): RecordValue[] {
   });
 }
 
-export function parseCodexTranscript(text: string, maxTurns = 100): ConversationTurn[] {
-  const turns: ConversationTurn[] = [];
-  const tools = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
-  // The same message can occur in both event_msg and response_item. Pair those
-  // copies only; repeated user messages in the same stream are real turns.
-  const messages: { role: string; text: string; source: string; ts: string; paired: boolean; part: Extract<ConversationPart, { kind: "text" }> }[] = [];
-  let startedAt: string | undefined;
+/** Memory blocks are metadata unless the answer quotes them in Markdown code. */
+function withoutMemoryCitations(text: string): string {
+  const opening = "<oai-mem-citation>";
+  const closing = "</oai-mem-citation>";
+  if (!text.includes(opening)) return text.trimEnd();
+
+  type Line = { kind: "line"; index: number; quoteDepth: number; indent: number; listIndent?: number; blank: boolean };
+  type Token = Line | { kind: "fence"; index: number; marker: string; info: string; line: Line }
+    | { kind: "ticks"; index: number; size: number } | { kind: "citation"; index: number };
+  const tokens: Token[] = [];
+  const quote = /[ \t]*>[ \t]?/y;
+  for (const match of text.matchAll(/([^\r\n]*)(?:\r\n?|\n|$)/g)) {
+    const source = match[1]!;
+    let offset = 0;
+    let quoteDepth = 0;
+    quote.lastIndex = 0;
+    while (quote.exec(source)) { offset = quote.lastIndex; quoteDepth++; }
+    const indent = /^[ \t]*/.exec(source.slice(offset))![0].length;
+    const content = source.slice(offset + indent);
+    const list = /^(?:[-+*]|\d+[.)])[ \t]+/.exec(content);
+    const line: Line = { kind: "line", index: match.index!, quoteDepth, indent,
+      ...(list ? { listIndent: indent + list[0].length } : {}), blank: content.trim() === "" };
+    tokens.push(line);
+    const body = content.slice(list?.[0].length ?? 0);
+    const marker = /^(`{3,}|~{3,})/.exec(body)?.[0];
+    const info = marker ? body.slice(marker.length) : "";
+    // A backtick fence's info string cannot contain backticks.
+    if (marker && (marker[0] !== "`" || !info.includes("`"))) tokens.push({ kind: "fence",
+      index: match.index! + offset + indent + (list?.[0].length ?? 0), marker, info, line });
+    for (const token of source.matchAll(/`+|<oai-mem-citation>/g)) {
+      tokens.push(token[0] === opening ? { kind: "citation", index: match.index! + token.index! }
+        : { kind: "ticks", index: match.index! + token.index!, size: token[0].length });
+    }
+  }
+  const closes = new Map<number, number>();
+  const pairs: number[] = [];
+  // Index matching runs once: unmatched delimiters must not repeatedly scan the tail.
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const token = tokens[i]!;
+    if (token.kind !== "ticks") {
+      if (token.kind === "line") closes.clear();
+      continue;
+    }
+    let backslashes = 0;
+    for (let at = token.index - 1; at >= 0 && text[at] === "\\"; at--) backslashes++;
+    const length = token.size - (backslashes % 2);
+    pairs[i] = length > 0 ? closes.get(length) ?? -1 : -1;
+    // Inside a code span a backslash does not escape its closing backticks.
+    closes.set(token.size, i);
+  }
+  const parts: string[] = [];
+  const listIndents: number[] = [];
+  let quoteDepth = 0;
+  let kept = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!;
+    if (token.kind === "line") {
+      if (token.quoteDepth !== quoteDepth) { listIndents.length = 0; quoteDepth = token.quoteDepth; }
+      if (token.blank) continue;
+      while (listIndents.length > 0 && listIndents.at(-1)! > token.indent) listIndents.pop();
+      if (token.listIndent !== undefined) listIndents.push(token.listIndent);
+      continue;
+    }
+    if (token.kind === "fence") {
+      const within = token.line.listIndent ?? listIndents.at(-1) ?? 0;
+      const indent = token.line.listIndent === undefined ? token.line.indent - within : 0;
+      if (indent < 0 || indent > 3) continue;
+      // An unfinished fence remains code until its quote/list container ends.
+      for (i++; i < tokens.length; i++) {
+        const end = tokens[i]!;
+        if (end.kind === "line" && (end.quoteDepth < token.line.quoteDepth
+          || (within > 0 && end.quoteDepth === token.line.quoteDepth && !end.blank && end.indent < within))) { i--; break; }
+        if (end.kind === "fence" && end.line.quoteDepth === token.line.quoteDepth && end.marker[0] === token.marker[0]
+          && end.marker.length >= token.marker.length && /^[ \t]*$/.test(end.info)) {
+          // Skip the closing line's raw backtick/citation tokens too.
+          while (i + 1 < tokens.length && tokens[i + 1]!.kind !== "line") i++;
+          break;
+        }
+      }
+      continue;
+    }
+    const pair = pairs[i];
+    if (pair !== undefined && pair >= 0) { i = pair; continue; }
+    if (token.kind !== "citation") continue;
+    parts.push(text.slice(kept, token.index));
+    const close = text.indexOf(closing, token.index + opening.length);
+    kept = close === -1 ? text.length : close + closing.length;
+    // Metadata contents cannot open code spans or fences in the surrounding answer.
+    while (i + 1 < tokens.length && tokens[i + 1]!.index < kept) i++;
+  }
+  parts.push(text.slice(kept));
+  return parts.join("").trimEnd();
+}
+
+
+/**
+ * Whether a Codex tool output says the call failed. Codex records no flag: its command
+ * runner writes the exit code into the output, and a script or patch its own verdict. A
+ * script that completed is judged as a whole, however its commands went.
+ */
+export function codexCallFailed(output: string): boolean {
+  const head = output.slice(0, 2000);
+  if (/^Script completed\b/m.test(head)) return false;
+  if (/^Script failed\b/m.test(head) || /apply_patch verification failed/.test(head)) return true;
+  const code = /^(?:Process exited with code|Exit code:) (\d+)$/m.exec(head) ?? /"exit_code":\s*(\d+)/.exec(head);
+  return code !== null && code[1] !== "0";
+}
+
+interface CodexParseState {
+  turns: ConversationTurn[];
+  tools: Map<string, Extract<ConversationPart, { kind: "tool" }>>;
+  messages: { role: string; text: string; source: string; ts: string; paired: boolean; part: Extract<ConversationPart, { kind: "text" }>; turn: ConversationTurn }[];
+  startedAt?: string;
+  skillEvents?: Set<string>;
+  activeTurnId?: string;
+}
+
+/** Complete records are folded once; snapshots detach mutable tools from prior HTTP answers. */
+export function createCodexTranscriptParser(state: CodexParseState = { turns: [], tools: new Map(), messages: [] }) {
+  const { turns, tools, messages } = state;
   const assistant = (ts: string): ConversationTurn => {
     let turn = turns.at(-1);
     if (turn?.role !== "assistant") {
-      turn = { role: "assistant", ts: startedAt || ts || null, parts: [] };
+      turn = { role: "assistant", ts: state.startedAt || ts || null, parts: [] };
       turns.push(turn);
     }
     if (ts) turn.end_ts = ts;
     return turn;
   };
-  const message = (role: "user" | "assistant", text: string, source: string, ts: string, phase?: "commentary" | "final_answer"): void => {
-    const body = role === "user" ? questionReply(text) ?? text : text;
-    if (!body.trim()) return;
+  const message = (role: "user" | "assistant", text: string, source: string, ts: string, phase?: "commentary" | "final_answer", images: ConversationPart[] = []): void => {
+    const body = role === "user" ? questionReply(text) ?? text
+      : withoutMemoryCitations(text);
+    if (!body.trim() && images.length === 0) return;
     const duplicate = messages.slice(-8).reverse().find((other) => !other.paired && other.role === role && other.text === body
       && other.source !== source && (other.ts === ts || Math.abs(Date.parse(other.ts) - Date.parse(ts)) <= 1000));
     if (duplicate) {
       duplicate.paired = true;
       if (phase) duplicate.part.phase = phase;
+      // Prefer the event's local paths over a response's inline copies of the same images.
+      if (images.length > 0 && (source === "event" || !duplicate.turn.parts.some((part) => part.kind === "image"))) {
+        duplicate.turn.parts = [...images, ...duplicate.turn.parts.filter((part) => part.kind !== "image")];
+      }
       return;
     }
     const part: Extract<ConversationPart, { kind: "text" }> = { kind: "text", text: body, ...(phase ? { phase } : {}) };
-    if (role === "user") turns.push({ role, ts: ts || null, parts: [part] });
-    else assistant(ts).parts.push(part);
-    messages.push({ role, text: body, source, ts, paired: false, part });
+    const turn = role === "user" ? { role, ts: ts || null, parts: [...images, ...(body.trim() ? [part] : [])] } : assistant(ts);
+    if (role === "user") turns.push(turn);
+    else turn.parts.push(part);
+    messages.push({ role, text: body, source, ts, paired: false, part, turn });
+    if (messages.length > 8) messages.shift();
   };
 
-  for (const entry of entries(text)) {
-    const payload = record(entry.payload);
-    const ts = string(entry.timestamp);
-    if (entry.type === "event_msg") {
-      if (payload.type === "task_started") startedAt = string(payload.started_at) || ts;
-      if (payload.type === "task_complete" || payload.type === "turn_aborted") {
-        const turn = turns.at(-1);
-        if (turn?.role === "assistant" && ts) turn.end_ts = ts;
-        startedAt = undefined;
-      }
-      if (payload.type === "user_message" && (!payload.kind || payload.kind === "plain")) {
-        message("user", contentText(payload.message, true), "event", ts);
-      }
-      if (payload.type === "agent_message") {
-        message("assistant", contentText(payload.message), "event", ts,
-          payload.phase === "commentary" || payload.phase === "final_answer" ? payload.phase : undefined);
-      }
-      continue;
-    }
-    if (entry.type !== "response_item") continue;
-    if (payload.type === "message") {
-      if (payload.role === "user") message("user", contentText(payload.content, true), "response", ts);
-      else if (payload.role === "assistant") {
-        const body = contentText(payload.content);
-        if (payload.channel === "analysis") {
-          if (body.trim()) assistant(ts).parts.push({ kind: "thinking", text: body });
-        } else if (!payload.recipient || payload.recipient === "all") {
-          message("assistant", body, "response", ts,
+  const write = (text: string): void => {
+    for (const entry of entries(text)) {
+      const payload = record(entry.payload);
+      const ts = string(entry.timestamp);
+      if (entry.type === "event_msg") {
+        if (payload.type === "item_completed" && (!state.activeTurnId || !payload.turn_id || payload.turn_id === state.activeTurnId)) {
+          const item = record(payload.item);
+          const id = string(item.id);
+          const skills = codexReadSkills(item);
+          if (id && skills.length > 0 && !state.skillEvents?.has(id)) {
+            (state.skillEvents ??= new Set()).add(id);
+            if (state.skillEvents.size > 512) state.skillEvents.delete(state.skillEvents.values().next().value!);
+            for (const skill of skills) {
+              const turn = assistant(ts);
+              const existing = [...turn.parts].reverse().find((part) => part.kind === "tool" && part.skill?.path === skill.path);
+              if (existing?.kind === "tool" && existing.skill) existing.skill.status = skill.status;
+              else turn.parts.push({ kind: "skill", skill });
+            }
+          }
+        }
+        if (payload.type === "task_started") {
+          state.startedAt = string(payload.started_at) || ts;
+          state.activeTurnId = string(payload.turn_id) || undefined;
+        }
+        if (payload.type === "task_complete" || payload.type === "turn_aborted") {
+          const turn = turns.at(-1);
+          if (turn?.role === "assistant" && ts) turn.end_ts = ts;
+          state.startedAt = undefined;
+        }
+        if (payload.type === "user_message" && (!payload.kind || payload.kind === "plain")) {
+          message("user", contentText(payload.message, true), "event", ts, undefined, codexImageParts(entry));
+        }
+        if (payload.type === "agent_message") {
+          message("assistant", contentText(payload.message), "event", ts,
             payload.phase === "commentary" || payload.phase === "final_answer" ? payload.phase : undefined);
         }
+        continue;
       }
-    } else if (payload.type === "reasoning") {
-      const body = contentText(payload.summary);
-      if (body.trim()) assistant(ts).parts.push({ kind: "thinking", text: body });
-    } else if (payload.type === "function_call" || payload.type === "custom_tool_call") {
-      const name = string(payload.name) || "tool";
-      const raw = payload.type === "function_call" ? payload.arguments : payload.input;
-      let args = record(raw);
-      if (typeof raw === "string") { try { args = record(JSON.parse(raw)); } catch { /* Freeform tool input. */ } }
-      const summary = /^request_user_input/.test(name) && questionTitles(args).length > 0
-        ? questionTitles(args).join(" · ")
-        : [args.cmd, args.command, args.file_path, args.path, args.pattern, args.description, args.url].find((v) => typeof v === "string");
-      const part: Extract<ConversationPart, { kind: "tool" }> = {
-        kind: "tool", name, summary: (string(summary) || name).slice(0, 120),
-        input: Object.keys(args).length ? JSON.stringify(args, null, 2) : string(raw), output: "",
-      };
-      assistant(ts).parts.push(part);
-      if (typeof payload.call_id === "string") tools.set(payload.call_id, part);
-    } else if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
-      const tool = tools.get(string(payload.call_id));
-      if (!tool) continue;
-      const output = contentText(payload.output);
-      tool.output = output.length > 4000 ? `${output.slice(0, 4000)}\n… trimmed` : output;
-      tools.delete(string(payload.call_id));
-      const turn = turns.at(-1);
-      if (turn?.role === "assistant" && ts) turn.end_ts = ts;
+      if (entry.type !== "response_item") continue;
+      if (payload.type === "message") {
+        if (payload.role === "user") {
+          const content = Array.isArray(payload.content) ? payload.content : [{ type: "input_text", text: payload.content }];
+          const skills = content.flatMap((block) => {
+            const skill = selectedSkill(string(record(block).text));
+            return skill ? [skill] : [];
+          });
+          const visible = content.filter((block) => !selectedSkill(string(record(block).text)));
+          message("user", contentText(visible, true), "response", ts, undefined, codexImageParts(entry));
+          for (const skill of skills) {
+            const turn = assistant(ts);
+            if (!turn.parts.some((part) => part.kind === "skill" && part.skill.name === skill.name && part.skill.path === skill.path)) turn.parts.push({ kind: "skill", skill });
+          }
+        } else if (payload.role === "assistant") {
+          const body = contentText(payload.content);
+          if (payload.channel === "analysis") {
+            if (body.trim()) assistant(ts).parts.push({ kind: "thinking", text: body });
+          } else if (!payload.recipient || payload.recipient === "all") {
+            message("assistant", body, "response", ts,
+              payload.phase === "commentary" || payload.phase === "final_answer" ? payload.phase : undefined);
+          }
+        }
+      } else if (payload.type === "reasoning") {
+        const body = contentText(payload.summary);
+        if (body.trim()) assistant(ts).parts.push({ kind: "thinking", text: body });
+      } else if (payload.type === "function_call" || payload.type === "custom_tool_call") {
+        const name = string(payload.name) || "tool";
+        const raw = payload.type === "function_call" ? payload.arguments : payload.input;
+        let args = record(raw);
+        if (typeof raw === "string") { try { args = record(JSON.parse(raw)); } catch { /* Freeform tool input. */ } }
+        // a patch, bare or in an exec script, is summed up by the files it touches
+        const patch = typeof raw === "string" ? patchText(raw) : null;
+        const summary = patch !== null && patchFiles(patch).length > 0 ? patchFiles(patch).join(", ")
+          : /^request_user_input/.test(name) && questionTitles(args).length > 0
+          ? questionTitles(args).join(" · ")
+          : [args.cmd, args.command, args.file_path, args.path, args.pattern, args.description, args.url].find((v) => typeof v === "string");
+        const part: Extract<ConversationPart, { kind: "tool" }> = {
+          kind: "tool", name, summary: (string(summary) || name).slice(0, 120),
+          input: Object.keys(args).length ? JSON.stringify(args, null, 2) : string(raw), output: "",
+        };
+        const skill = codexReadCall(name, args);
+        if (skill) part.skill = skill;
+        assistant(ts).parts.push(part);
+        if (typeof payload.call_id === "string") tools.set(payload.call_id, part);
+      } else if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
+        const tool = tools.get(string(payload.call_id));
+        if (!tool) continue;
+        const output = contentText(payload.output);
+        trimOutput(tool, output, string(payload.call_id));
+        if (codexCallFailed(output)) tool.error = true;
+        if (tool.skill) tool.skill.status = tool.error ? "failed" : "loaded";
+        tools.delete(string(payload.call_id));
+        const turn = turns.at(-1);
+        if (turn?.role === "assistant" && ts) turn.end_ts = ts;
+      }
     }
-  }
-  return turns.filter((turn) => turn.parts.length > 0).slice(-maxTurns);
+  };
+  return {
+    write,
+    snapshot(tail = ""): ConversationTurn[] {
+      // A valid final line without a newline is visible now, but is not committed:
+      // the writer can still extend it before the next poll.
+      if (tail.trim()) {
+        const preview = createCodexTranscriptParser(structuredClone(state));
+        preview.write(tail);
+        return preview.snapshot();
+      }
+      return structuredClone(turns.filter((turn) => turn.parts.length > 0));
+    },
+  };
+}
+
+export function parseCodexTranscript(text: string, maxTurns = 100): ConversationTurn[] {
+  const parser = createCodexTranscriptParser();
+  parser.write(text);
+  return parser.snapshot().slice(-maxTurns);
 }
 
 export const defaultCodexHome = (): string => process.env["CODEX_HOME"] || join(homedir(), ".codex");
+
+/** What processCodexHome found, by pid and argv, and when (PROCESS_HOME_TTL_MS). */
+const processHomes = new Map<string, { home: string | null; at: number }>();
+/**
+ * A chat polls every 2 s and macOS reads the environment with a `ps` spawn: a process's
+ * environment does not change, so its answer is kept. A pid reused by another process
+ * carries other arguments or comes after this; ponytail: a reused pid with the same argv
+ * inside it reads the old store until it runs out.
+ */
+const PROCESS_HOME_TTL_MS = 30_000;
+
+/**
+ * The CODEX_HOME in a process's environment: /proc on Linux, `ps -E` (same user only) on macOS,
+ * kept for PROCESS_HOME_TTL_MS under the process's pid and argv.
+ */
+export async function processCodexHome(pid: number, argv: readonly string[] = []): Promise<string | null> {
+  const key = `${pid}\0${argv.join("\0")}`;
+  const known = processHomes.get(key);
+  if (known && Date.now() - known.at < PROCESS_HOME_TTL_MS) return known.home;
+  const home = await readProcessCodexHome(pid);
+  processHomes.delete(key);
+  processHomes.set(key, { home, at: Date.now() });
+  if (processHomes.size > 256) processHomes.delete(processHomes.keys().next().value!);
+  return home;
+}
+
+async function readProcessCodexHome(pid: number): Promise<string | null> {
+  let home: string | null = null;
+  try {
+    if (process.platform === "linux") {
+      home = (await readFile(`/proc/${pid}/environ`, "utf8")).split("\0").find((entry) => entry.startsWith("CODEX_HOME="))?.slice(11) || null;
+    } else if (process.platform === "darwin") {
+      const child = Bun.spawn(["/bin/ps", "-E", "-ww", "-p", String(pid), "-o", "command="], { stdout: "pipe", stderr: "ignore" });
+      const timer = setTimeout(() => child.kill(), 3000);
+      try {
+        // the environment follows the arguments, space-separated: the last match is the
+        // environment's, and its value runs to the next `NAME=` (a path may hold spaces).
+        // ponytail: a value holding ` NAME=` is cut there, and with none in the environment an
+        // argument spelled CODEX_HOME=/path would be taken. /proc on Linux has neither problem
+        const text = await new Response(child.stdout).text();
+        await child.exited;
+        home = codexHomeInPsLine(text);
+      } finally { clearTimeout(timer); }
+    }
+  } catch { home = null; }
+  return home !== null && (await isCodexHomeDir(home)) ? home : null;
+}
+
+/** An absolute path to a directory that is there: `ps` cannot tell an argument from the environment, a store can be checked. */
+async function isCodexHomeDir(home: string): Promise<boolean> {
+  if (!isAbsolute(home)) return false;
+  try { return (await stat(home)).isDirectory(); } catch { return false; }
+}
+
+/**
+ * CODEX_HOME in one `ps -E -o command=` line: the environment follows the arguments,
+ * space-separated, so the last assignment is taken and its value runs to the next `NAME=`
+ * (a path may hold spaces). A value holding ` NAME=` is cut there; an argument spelled
+ * `CODEX_HOME=/path` is taken when the environment has none, which the directory check above
+ * narrows. /proc on Linux has neither problem.
+ */
+export function codexHomeInPsLine(text: string): string | null {
+  return [...text.matchAll(/(?:^|\s)CODEX_HOME=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)/g)].at(-1)?.[1] || null;
+}
+
+/**
+ * The store a pane's Codex writes to. A launcher can start Codex with its own CODEX_HOME (a
+ * harness keeps one per profile), so a single store for the whole server misses those panes:
+ * an explicit `configured` store wins, then the pane's Codex process's own, then the default.
+ */
+export async function paneCodexHome(paneId: string, configured?: string): Promise<string> {
+  if (configured) return configured;
+  try {
+    // the first Codex listed decides, with or without a home of its own: a child or wrapper it
+    // started with another CODEX_HOME writes to a store that is not this pane's conversation
+    const [first] = (await codexProcessesOf(paneId)).list;
+    if (first !== undefined) return (await processCodexHome(first.pid, first.argv)) ?? defaultCodexHome();
+  } catch { /* herdr busy: the default store */ }
+  return defaultCodexHome();
+}
 
 /** The session_meta payload on a rollout's first line, or null when the file is not a rollout. */
 function rolloutHeader(path: string): RecordValue | null {
@@ -165,12 +432,81 @@ function rolloutHeader(path: string): RecordValue | null {
   } finally { closeSync(fd); }
 }
 
+/**
+ * A Windows path without the `\\?\` prefix that Codex on Windows stores in `threads` (`cwd`,
+ * `rollout_path`), as Rust's canonical paths carry it: `\\?\D:\x` is `D:\x` and
+ * `\\?\UNC\host\share` is `\\host\share` (#518). Any other path, `\\?\Volume{…}\` included, is
+ * returned as it is: without its prefix it would read as a relative path.
+ */
+export function withoutVerbatimPrefix(path: string): string {
+  if (!path.startsWith("\\\\?\\")) return path;
+  const rest = path.slice(4);
+  if (/^UNC\\/i.test(rest)) return `\\\\${rest.slice(4)}`;
+  return /^[A-Za-z]:\\/.test(rest) ? rest : path;
+}
+
+/** The `cwd` values Codex may have stored for a directory: as given, and on Windows also with `\\?\`. */
+export function storedCwds(cwd: string): [string, string] {
+  const plain = withoutVerbatimPrefix(cwd);
+  if (/^[A-Za-z]:\\/.test(plain)) return [plain, `\\\\?\\${plain}`];
+  if (/^\\\\[^\\?.]/.test(plain)) return [plain, `\\\\?\\UNC\\${plain.slice(2)}`];
+  return [cwd, cwd];
+}
+
+/**
+ * A Windows cwd in one spelling for every way Codex and herdr may write it: without `\\?\` and
+ * with an upper-case drive letter (`d:\work` and `\\?\D:\work` are `D:\work`). The rest is
+ * compared as it is: a Windows directory can be case-sensitive, and nothing short of the file
+ * system tells `app` from `App`, so a cwd stored in another letter case finds nothing (#587).
+ */
+export function directoryKey(cwd: string): string {
+  const plain = withoutVerbatimPrefix(cwd);
+  return /^[a-z]:\\/.test(plain) ? plain[0]!.toUpperCase() + plain.slice(1) : plain;
+}
+
+/** Whether two cwds are one directory by `directoryKey`; POSIX ones only when they are equal. */
+export function sameDirectory(left: string, right: string): boolean {
+  return directoryKey(left) === directoryKey(right);
+}
+
+/** The other Codex panes herdr shows in this pane's directory, in any spelling `sameDirectory` takes. */
+export function codexPeersIn(panes: readonly HerdrPane[], paneId: string, cwd: string): HerdrPane[] {
+  return panes.filter((pane) => pane.pane_id !== paneId && pane.cwd != null && sameDirectory(pane.cwd, cwd)
+    && (pane.agent ?? pane.agent_session?.agent) === "codex");
+}
+
+/**
+ * Codex's `WHERE` condition for the threads of a directory, and its parameters: each spelling
+ * `storedCwds` gives, with the drive letter in either case. Exact comparisons, so the lookup
+ * stays on Codex's own binary cwd index.
+ */
+export function storedCwdCondition(cwd: string): { where: string; params: string[] } {
+  const params = [...new Set(storedCwds(cwd).flatMap((spelling) => {
+    const drive = /^((?:\\\\\?\\)?)([A-Za-z])(:\\.*)$/s.exec(spelling);
+    return drive ? [`${drive[1]}${drive[2]!.toUpperCase()}${drive[3]}`, `${drive[1]}${drive[2]!.toLowerCase()}${drive[3]}`] : [spelling];
+  }))];
+  return { where: `cwd IN (${params.map(() => "?").join(", ")})`, params };
+}
+
+/**
+ * Whether the canonical `file` lies inside the canonical store `root`. Either may carry the
+ * Windows `\\?\` prefix without the other (a prefixed CODEX_HOME, #587), or its drive letter in
+ * another case: it is not another root. Past the drive letter the comparison is exact, as
+ * `directoryKey` has it: a case-sensitive directory's `Sessions` is not `sessions`.
+ */
+export function rolloutInsideStore(root: string, file: string, paths: PlatformPath = nodePath): boolean {
+  const key = (path: string) => directoryKey(paths.normalize(withoutVerbatimPrefix(path)));
+  const base = key(root);
+  const inside = base.endsWith(paths.sep) ? base : `${base}${paths.sep}`;
+  const path = key(file);
+  return path.length > inside.length && path.startsWith(inside);
+}
+
 /** File access is constrained by canonical paths, including symlink targets. */
 export function codexRolloutPath(path: string, codexHome: string): string | null {
   try {
-    const canonical = realpathSync(path);
-    const rel = relative(realpathSync(join(codexHome, "sessions")), canonical);
-    if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !canonical.endsWith(".jsonl")) return null;
+    const canonical = realpathSync(withoutVerbatimPrefix(path));
+    if (!rolloutInsideStore(realpathSync(join(codexHome, "sessions")), canonical) || !canonical.endsWith(".jsonl")) return null;
     if (!statSync(canonical).isFile()) return null;
     const metadata = rolloutHeader(canonical);
     // A child Codex can be in the foreground process group too. Its rollout
@@ -289,6 +625,21 @@ export function forgetHistoryChains(): void {
 /** Drops one rollout's remembered chain: its next read resolves it again. */
 export function forgetHistoryChain(path: string): void {
   historyChains.delete(path);
+}
+
+/** Everything remembered about one rollout: its chain, its question scan and any scan in flight. */
+export function forgetCodexStateFor(path: string): void {
+  historyChains.delete(path);
+  questionScans.delete(path);
+  questionScansInFlight.delete(path);
+}
+
+/** Every remembered chain and question scan: the next read resolves each one again. */
+export function forgetAllCodexState(): void {
+  historyChains.clear();
+  questionScans.clear();
+  questionScansInFlight.clear();
+  linesBeforeCut.clear();
 }
 
 /** Lines before a cut, per file identity and cut: the bytes before a cut never change. */
@@ -431,6 +782,21 @@ export function codexHistoryTail(path: string, budget: number, home = defaultCod
 
 const normalizeDisplay = (text: string): string => text.normalize("NFKC").replace(/[^\p{L}\p{N}]/gu, "");
 
+/**
+ * What of an answer to look for on screen: its last 160 letters and digits. Codex shows a
+ * markdown link as its label and the target relative to the cwd ("label (docs/x.md)" for
+ * `[label](/repo/docs/x.md)`), so the text is cut at link targets, and the anchor is the end of
+ * the last piece long enough. Without links, that is the end of the whole text.
+ */
+function answerAnchor(text: string): string | null {
+  const pieces = text.split(/\]\([^)\s]*\)/);
+  for (let index = pieces.length - 1; index >= 0; index--) {
+    const anchor = normalizeDisplay(pieces[index]!).slice(-160);
+    if (anchor.length >= 64 && new Set(anchor).size >= 12) return anchor;
+  }
+  return null;
+}
+
 /** Shared app-server TUIs do not hold rollout descriptors. For read-only display,
  * require a unique substantial assistant-message match in this pane's output.
  * Directory recency alone is never evidence: multiple panes can share a cwd. */
@@ -442,11 +808,209 @@ export function matchCodexTranscript(screen: string, candidates: { path: string;
     const prose = parseCodexTranscript(candidate.text).filter((turn) => turn.role === "assistant")
       .flatMap((turn) => turn.parts).filter((part) => part.kind === "text").slice(-8);
     if (prose.some((part) => {
-      const anchor = normalizeDisplay(part.text).slice(-160);
-      return anchor.length >= 64 && new Set(anchor).size >= 12 && display.includes(anchor);
+      const anchor = answerAnchor(part.text);
+      return anchor !== null && display.includes(anchor);
     })) matching.add(candidate.path);
   }
   return matching.size === 1 ? [...matching][0]! : null;
+}
+
+/**
+ * A text cut at its markdown link targets: each stretch of text with the target that follows it
+ * ("" after the last). A scan, not a split at /\]\([^)\s]*\)/: that rescans to the end of the
+ * text from every "](" no ")" closes, quadratic in a text full of them.
+ */
+function cutAtLinkTargets(text: string): { text: string; target: string }[] {
+  const pieces: { text: string; target: string }[] = [];
+  let start = 0;
+  let search = 0;
+  for (let at = text.indexOf("](", search); at >= 0; at = text.indexOf("](", search)) {
+    let end = at + 2;
+    while (end < text.length && text[end] !== ")" && !/\s/.test(text[end]!)) end++;
+    // unclosed: no "](" before `end` is closed either, so all of it stays text
+    if (text[end] !== ")") { search = end; continue; }
+    pieces.push({ text: text.slice(start, at), target: text.slice(at + 2, end) });
+    start = search = end + 1;
+  }
+  pieces.push({ text: text.slice(start), target: "" });
+  return pieces;
+}
+
+/**
+ * An answer as the screen shows it, for matchShortCodexAnswers: its last 160 letters and digits.
+ * null for one with a link: Codex shows `[label](target)` as "label (target)" with the target its
+ * own way, so the answer is not one run of text there, and its pieces alone are short common words.
+ */
+function shownAnswer(text: string): string | null {
+  return cutAtLinkTargets(text).length > 1 ? null : normalizeDisplay(text).slice(-160);
+}
+
+/**
+ * A rollout's newest answers on screen, newest lowest: whole answers taken from the end of the
+ * rollout one after another (the very newest may be skipped: it may not be rendered yet, or hold
+ * a link), each at least 16 letters and digits, found bottom-up in order, until at least two of
+ * them hold 64 with 12 distinct. The answers that did, or null. A gap ends the run: an answer of
+ * the rollout not on screen means the screen is not showing this rollout's end.
+ */
+function newestAnswersShown(display: string, answers: string[]): string[] | null {
+  const newest = answers.slice(-5).map(shownAnswer).reverse();
+  for (const skip of [0, 1]) {
+    let before = display.length;
+    const shown: string[] = [];
+    for (const answer of newest.slice(skip, skip + 4)) {
+      const at = answer === null || answer.length < 16 || answer.length > before ? -1 : display.lastIndexOf(answer, before - answer.length);
+      if (at < 0) break;
+      before = at;
+      shown.push(answer!);
+      const joined = shown.join("");
+      if (shown.length >= 2 && joined.length >= 64 && new Set(joined).size >= 12) return shown;
+    }
+  }
+  return null;
+}
+
+/**
+ * The last resort for a pane nothing else ties to a rollout (codexTranscriptPath): a session
+ * whose answers are all short never has an anchor for matchCodexTranscript, yet its newest
+ * answers on screen together say as much as one long one (#283). Weaker evidence, so it gives
+ * up readily: every candidate must have been read whole (none `cut`: past the read budget, or
+ * continuing another rollout, whose answers it shares), only one may show that way, and no other
+ * may have said any of the answers it showed, alone or inside a longer one.
+ */
+export function matchShortCodexAnswers(screen: string, candidates: { path: string; text: string; cut?: boolean }[]): string | null {
+  if (candidates.some((candidate) => candidate.cut)) return null;
+  const lastHeader = screen.lastIndexOf("OpenAI Codex (v");
+  const display = normalizeDisplay(lastHeader >= 0 ? screen.slice(lastHeader) : screen);
+  // every turn of what was read, not the newest 100: an answer said long ago is said
+  const answers = candidates.map((candidate) => parseCodexTranscript(candidate.text, Infinity).filter((turn) => turn.role === "assistant")
+    .flatMap((turn) => turn.parts).flatMap((part) => part.kind === "text" ? [part.text] : []));
+  let found: { index: number; shown: string[] } | null = null;
+  for (const [index, own] of answers.entries()) {
+    const shown = newestAnswersShown(display, own);
+    if (shown === null) continue;
+    if (found !== null) return null;
+    found = { index, shown };
+  }
+  if (found === null) return null;
+  const { index: only, shown } = found;
+  for (const [index, other] of answers.entries()) {
+    if (index === only) continue;
+    const said = normalizeDisplay(other.join("\n"));
+    if (shown.some((answer) => said.includes(answer))) return null;
+    // an answer of the other with links shows as its text around them, the targets Codex's own
+    // way: when that text is all in a shown answer, in order, the screen may be showing the other
+    // every such answer of what was read, however short its text or many its links: one left
+    // unchecked is one the screen may be showing
+    for (const text of other) {
+      const pieces = cutAtLinkTargets(text);
+      if (pieces.length < 2) continue;
+      const around = pieces.map((piece) => normalizeDisplay(piece.text)).filter((piece) => piece !== "");
+      if (around.length === 0) continue;
+      if (shown.some((answer) => { let from = 0; return around.every((piece) => { const at = answer.indexOf(piece, from); from = at + piece.length; return at >= 0; }); })) return null;
+    }
+  }
+  return candidates[only]!.path;
+}
+
+interface CodexExchange { user: string; assistant: string }
+interface CodexFirstExchangeCandidate {
+  path: string;
+  text: string;
+  firstUserMessage?: string | null;
+  createdAtMs?: number;
+}
+
+const normalizePrompt = (text: string): string => text.trim().replace(/\s+/g, " ");
+
+/** User/assistant exchanges as recorded, retaining later prompts as competing evidence. */
+function codexExchanges(text: string): CodexExchange[] {
+  const turns = parseCodexTranscript(text, Infinity);
+  const exchanges: CodexExchange[] = [];
+  let user: string | null = null;
+  let assistant: string[] = [];
+  const finish = () => {
+    if (user !== null) exchanges.push({ user, assistant: assistant.join("\n") });
+  };
+  for (const turn of turns) {
+    const prose = turn.parts.flatMap((part) => part.kind === "text" ? [part.text] : []).join("\n");
+    if (turn.role === "user") {
+      finish();
+      user = prose;
+      assistant = [];
+    } else if (user !== null && prose !== "") assistant.push(prose);
+  }
+  finish();
+  return exchanges;
+}
+
+/** The first top-level prompt and its following assistant output, after this TUI's header. */
+function displayedFirstExchange(screen: string): CodexExchange | null {
+  const header = screen.lastIndexOf("OpenAI Codex (v");
+  if (header < 0) return null;
+  const lines = screen.slice(header).split(/\r?\n/);
+  let promptAt = -1;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (/^•(?:[ \t]|$)/.test(line)) return null;
+    if (/^›[ \t]+/.test(line)) { promptAt = index; break; }
+  }
+  if (promptAt < 0) return null;
+  let answerAt = -1;
+  for (let index = promptAt + 1; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (/^›[ \t]+/.test(line)) return null;
+    if (/^•(?:[ \t]|$)/.test(line)) { answerAt = index; break; }
+  }
+  if (answerAt < 0) return null;
+  const user = lines.slice(promptAt, answerAt).map((line, index) => index === 0 ? line.slice(1) : line).join("\n");
+  const nextPrompt = lines.findIndex((line, index) => index > answerAt && /^›(?:[ \t]|$)/.test(line));
+  const response = lines.slice(answerAt, nextPrompt < 0 ? undefined : nextPrompt)
+    .map((line) => /^•/.test(line) ? line.slice(1) : line).join("\n");
+  return { user, assistant: response };
+}
+
+function matchingCodexExchanges(screen: string, candidates: readonly CodexFirstExchangeCandidate[]): { candidate: CodexFirstExchangeCandidate; index: number }[] {
+  const shown = displayedFirstExchange(screen);
+  if (shown === null) return [];
+  const prompt = normalizePrompt(shown.user);
+  const answer = normalizePrompt(shown.assistant);
+  if (normalizeDisplay(prompt).length < 8 || normalizeDisplay(answer).length < 16) return [];
+  const matches: { candidate: CodexFirstExchangeCandidate; index: number }[] = [];
+  for (const candidate of candidates) {
+    for (const [index, exchange] of codexExchanges(candidate.text).entries()) {
+      const recordedPrompt = normalizePrompt(exchange.user);
+      const recordedAnswer = normalizePrompt(exchange.assistant);
+      if (recordedPrompt === prompt && recordedAnswer !== ""
+        && (answer.includes(recordedAnswer) || recordedAnswer.includes(answer))) {
+        matches.push({ candidate, index });
+      }
+    }
+  }
+  return matches;
+}
+
+/** Match a submitted first prompt and its answer only when no competing exchange explains it. */
+export function matchCodexFirstExchange(
+  screen: string,
+  candidates: readonly CodexFirstExchangeCandidate[],
+  startedAtMs: number,
+): string | null {
+  if (!Number.isFinite(startedAtMs)) return null;
+  if (candidates.filter((candidate) => typeof candidate.createdAtMs === "number"
+    && candidate.createdAtMs >= startedAtMs).length !== 1) return null;
+  const matches = matchingCodexExchanges(screen, candidates);
+  if (matches.length !== 1) return null;
+  const match = matches[0]!;
+  const first = codexExchanges(match.candidate.text)[0];
+  const storedPrompt = normalizePrompt(match.candidate.firstUserMessage ?? "");
+  const shown = displayedFirstExchange(screen);
+  if (match.index !== 0 || first === undefined || shown === null
+    || normalizeDisplay(storedPrompt).length < 8
+    || normalizePrompt(first.user) !== storedPrompt
+    || normalizePrompt(first.assistant) !== normalizePrompt(shown.assistant)
+    || typeof match.candidate.createdAtMs !== "number"
+    || !Number.isFinite(match.candidate.createdAtMs) || match.candidate.createdAtMs < startedAtMs) return null;
+  return match.candidate.path;
 }
 
 /** `codex resume <thread>`: the thread a TUI was started on, straight from its command line. */
@@ -463,20 +1027,6 @@ export function resumedThread(argvs: readonly (readonly string[])[]): string | n
 const boundRollouts = new Map<string, { processes: string; path: string; at: number }>();
 
 /**
- * When a process started, in ms since the epoch: Linux counts it in /proc (USER_HZ
- * ticks after boot). null where that is not readable, as on macOS.
- */
-function processStartedAt(pid: number): number | null {
-  try {
-    const ticks = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").pop()!.split(" ")[19]);
-    const boot = Number(readFileSync("/proc/stat", "utf8").match(/^btime (\d+)$/m)?.[1]);
-    return Number.isFinite(ticks) && Number.isFinite(boot) ? boot * 1000 + ticks * 10 : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Threads begun in this cwd since `since` (seconds) that this pane's Codex may have moved
  * on to (/new), as their rollouts. Only interactive threads count: subagents (often with
  * a NULL agent_role) and `codex exec` runs share their parent's cwd but never replace the
@@ -484,9 +1034,10 @@ function processStartedAt(pid: number): number | null {
  */
 function newerThreads(db: Database, cwd: string, since: number, except: string | null, paneId: string, home: string, firsts?: Map<string, string>): string[] {
   const first = db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : "";
-  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, [string, number]>(
-    `SELECT id, rollout_path${first} FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
-  ).all(cwd, since);
+  const { where, params } = storedCwdCondition(cwd);
+  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, (string | number)[]>(
+    `SELECT id, rollout_path${first} FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
+  ).all(...params, since);
   return theirs(rows.flatMap((row) => {
     if (row.id === except) return [];
     const path = codexRolloutPath(row.rollout_path, home) ?? row.rollout_path;
@@ -510,13 +1061,50 @@ function theirs(rollouts: string[], paneId: string, claimed: ReadonlySet<string>
   return rollouts.filter((rollout) => !elsewhere.has(rollout) && !claimed.has(rollout));
 }
 
-/** A pane's Codex processes: the ones whose command line names codex, and their pids as one key. */
+/** Interpreter options that run code or load a module: whatever follows is not the script. */
+const CODE_OPTIONS = new Set(["eval", "print", "require", "import", "loader", "experimental-loader", "input-type"]);
+/** Interpreter and shell options that take no value, so the script may follow them directly. */
+const VALUELESS_OPTIONS = new Set([
+  "", "no-warnings", "no-deprecation", "trace-warnings", "trace-deprecation", "pending-deprecation", "throw-deprecation",
+  "enable-source-maps", "preserve-symlinks", "preserve-symlinks-main", "expose-gc", "abort-on-uncaught-exception",
+  "experimental-strip-types", "experimental-transform-types", "experimental-vm-modules", "experimental-require-module",
+  "no-experimental-fetch", "harmony", "bun", "smol", "hot", "watch", "noprofile", "norc", "posix", "login",
+]);
+
+/** A pane's Codex executables (or interpreter scripts), and their pids as one key. */
 async function codexProcessesOf(paneId: string): Promise<{ list: { pid: number; argv?: string[] }[]; key: string }> {
   const processInfo = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>(
     "pane.process_info", { pane_id: paneId },
   );
   const list = (processInfo.process_info?.foreground_processes ?? [])
-    .filter((process) => process.argv?.some((arg) => /(?:^|\/)codex(?:\.js)?$/.test(arg)));
+    .map((foreground) => {
+      if (foreground.argv?.length || process.platform !== "linux") return foreground;
+      // herdr can report only pid/name. Read this process, never infer argv from
+      // its name; an exited or inaccessible process provides no binding evidence.
+      try {
+        return { ...foreground, argv: readFileSync(`/proc/${foreground.pid}/cmdline`, "utf8").split("\0") };
+      } catch { return foreground; }
+    })
+    .filter(({ argv = [] }) => {
+      const executable = argv[0] ?? "";
+      const codex = /(?:^|[\\/])codex(?:\.js|\.exe|\.opencodex-real)?$/;
+      if (codex.test(executable)) return true;
+      // `node codex.js` and shell shebangs name the script after the interpreter and its
+      // `--flag` options (`node --no-warnings codex.js`). Only options known to take no
+      // value may precede the script, plus `--name=value` forms that do not run code: an
+      // option that takes the next argument (`--title x`, `-e`, `-c`) or one that evaluates
+      // code or loads a module ends the search, since what follows it is not the script.
+      // Later arguments (echo, etc.) are not executables.
+      if (!/(?:^|[\\/])(?:node|bun|sh|bash|dash|zsh)(?:\.exe)?$/.test(executable)) return false;
+      let script = 1;
+      for (; argv[script]?.startsWith("--"); script++) {
+        const option = argv[script] ?? "";
+        const name = option.slice(2, option.includes("=") ? option.indexOf("=") : undefined);
+        if (CODE_OPTIONS.has(name)) return false;
+        if (!option.includes("=") && !VALUELESS_OPTIONS.has(name)) return false;
+      }
+      return codex.test(argv[script] ?? "");
+    });
   return { list, key: list.map((process) => process.pid).sort((left, right) => left - right).join(",") };
 }
 
@@ -540,9 +1128,7 @@ const CLAIM_CHECK_MS = 5000;
 async function claimedByOtherPanes(paneId: string, cwd: string, threads: string[], own: string[], firsts: ReadonlyMap<string, string>, home: string, sessionPanes?: HerdrPane[]): Promise<Set<string>> {
   const claimed = new Set<string>();
   const key = `${paneId}\0${[...threads].sort().join("\0")}`;
-  const panes = (sessionPanes ?? (await sessionSnapshot()).panes)
-    .filter((pane) => pane.pane_id !== paneId && pane.cwd === cwd && (pane.agent ?? pane.agent_session?.agent) === "codex")
-    .slice(0, 8);
+  const panes = codexPeersIn(sessionPanes ?? (await sessionSnapshot()).panes, paneId, cwd).slice(0, 8);
   // a pane that appeared since is looked at at once
   const last = claimChecks.get(key);
   const seen = panes.map((pane) => pane.pane_id).join();
@@ -559,7 +1145,9 @@ async function claimedByOtherPanes(paneId: string, cwd: string, threads: string[
     try {
       const theirsNow = boundRollouts.get(pane.pane_id)?.path;
       const screen = await paneRead({ paneId: pane.pane_id, source: "recent", lines: 400, stripAnsi: true });
-      const shown = matchCodexTranscript(screen.text, [...candidates, ...known, ...(theirsNow && !threads.includes(theirsNow) && !own.includes(theirsNow) ? tail(theirsNow) : [])]);
+      const possible = [...new Map([...candidates, ...known, ...(theirsNow && !threads.includes(theirsNow) && !own.includes(theirsNow) ? tail(theirsNow) : [])]
+        .map((candidate) => [candidate.path, candidate])).values()];
+      const shown = matchCodexTranscript(screen.text, possible);
       if (shown === null || !threads.includes(shown)) continue;
       // and the thread's first message shows there too: typed in that pane, not only its answer
       // quoted or pasted there (a thread whose first message is gone from that screen stays unclaimed)
@@ -577,9 +1165,113 @@ async function claimedByOtherPanes(paneId: string, cwd: string, threads: string[
   return claimed;
 }
 
+/** Whether another Codex pane in this cwd was started as `codex resume <thread>`. */
+async function resumedElsewhere(paneId: string, cwd: string, thread: string, sessionPanes?: HerdrPane[]): Promise<boolean> {
+  const panes = codexPeersIn(sessionPanes ?? (await sessionSnapshot()).panes, paneId, cwd);
+  for (const pane of panes) {
+    try {
+      if (resumedThread((await codexProcessesOf(pane.pane_id)).list.map((process) => process.argv ?? [])) === thread) return true;
+    } catch { /* a pane closed meanwhile */ }
+  }
+  return false;
+}
+
+interface CodexThreadRow {
+  rolloutPath: string;
+  firstUserMessage: string | null;
+  createdAtMs: number;
+}
+
+const SHORT_THREAD_LIMIT = 32;
+const SHORT_ROLLOUT_LIMIT = 1024 * 1024;
+
+/** Short matching needs every competing exchange, so incomplete or unsafe rows disable it. */
+function safeShortThreads(rows: readonly CodexThreadRow[], home: string): CodexFirstExchangeCandidate[] | null {
+  if (rows.length === 0 || rows.length > SHORT_THREAD_LIMIT) return null;
+  const candidates: CodexFirstExchangeCandidate[] = [];
+  for (const row of rows) {
+    const path = codexRolloutPath(row.rolloutPath, home);
+    if (path === null) return null;
+    try {
+      const stat = statSync(path);
+      const header = rolloutHeader(path);
+      if (!stat.isFile() || stat.size <= 0 || stat.size > SHORT_ROLLOUT_LIMIT || header === null
+        || Object.keys(record(header.history_base)).length > 0) return null;
+      const text = readRange(path, 0, stat.size);
+      const after = statSync(path);
+      if (Buffer.byteLength(text, "utf8") !== stat.size
+        || after.size !== stat.size || after.ino !== stat.ino || after.mtimeMs !== stat.mtimeMs
+        || !text.endsWith("\n")) return null;
+      const lines = text.slice(0, -1).split(/\r?\n/);
+      if (lines.length === 0 || lines.some((line) => {
+        try { JSON.parse(line); return false; } catch { return true; }
+      })) return null;
+      const exchanges = codexExchanges(text);
+      const stored = normalizePrompt(row.firstUserMessage ?? "");
+      if (stored !== "" && (exchanges[0] === undefined || normalizePrompt(exchanges[0].user) !== stored)) return null;
+      candidates.push({
+        path,
+        text,
+        firstUserMessage: row.firstUserMessage,
+        createdAtMs: row.createdAtMs,
+      });
+    } catch { return null; }
+  }
+  return candidates;
+}
+
+/**
+ * The prompt is not ownership evidence on its own. Require its submitted answer,
+ * compare older conversations too, and decline while another same-directory Codex
+ * pane could own the thread. No weak binding or cached peer claim survives a poll.
+ */
+async function shortThreadFromProcess(
+  paneId: string, cwd: string, home: string, screen: string,
+  processes: readonly { pid: number }[], panes?: HerdrPane[],
+): Promise<string | null> {
+  const starts = processes.map(({ pid }) => processStartedAt(pid));
+  if (starts.length === 0 || starts.some((start) => start === null || !Number.isFinite(start))) return null;
+  const startedAt = Math.min(...starts as number[]);
+  const notBefore = startedAt + 1000;
+  let db: Database | undefined;
+  try {
+    const peers = panes ?? (await sessionSnapshot()).panes;
+    if (peers.some((pane) => pane.pane_id !== paneId
+      && (pane.agent ?? pane.agent_session?.agent) === "codex"
+      && (pane.cwd == null || sameDirectory(pane.cwd, cwd)))) return null;
+    db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
+    const columns = new Set(db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('threads')").all().map((column) => column.name));
+    if (!columns.has("first_user_message") || !columns.has("source")) return null;
+    const created = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000)" : "created_at * 1000";
+    // The 33rd row disables this bounded lookup, never establishes uniqueness.
+    const { where, params } = storedCwdCondition(cwd);
+    const rows = db.query<CodexThreadRow, string[]>(
+      `SELECT rollout_path AS rolloutPath, first_user_message AS firstUserMessage, ${created} AS createdAtMs
+       FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} LIMIT 33`,
+    ).all(...params);
+    if (rows.length > SHORT_THREAD_LIMIT || rows.some((row) => !Number.isFinite(row.createdAtMs))) return null;
+    // Process starts are only estimated to second precision; require a full second of margin.
+    const begun = rows.filter((row) => row.createdAtMs >= notBefore);
+    if (begun.length !== 1) return null;
+    const candidates = safeShortThreads(rows, home);
+    if (candidates === null) return null;
+    const path = matchCodexFirstExchange(screen, candidates, notBefore);
+    return path !== null && theirs([path], paneId).length === 1 ? path : null;
+  } catch { return null; }
+  finally { db?.close(); }
+}
+
 /**
  * The rollout a pane's Codex writes, or null when nothing tells. `panes`: the session's
  * panes, when the caller has them (saves a snapshot, and closed panes' bindings go).
+ *
+ * The thread id herdr has for a Codex pane is a hint, not proof: Codex's SessionStart
+ * hook reports it, and since Codex 0.157 that hook runs in the app-server daemon every
+ * Codex TUI shares. The daemon keeps the environment of the TUI that started it, so each
+ * TUI's thread is reported to that first pane (live-verified 2026-09-26 with Codex
+ * 0.157.1: a pane resumed on thread A left the daemon's own pane holding A). What
+ * shows on screen decides first; the id is used only when nothing does and no other
+ * pane owns that thread.
  */
 export async function codexTranscriptPath(paneId: string, cwd: string, home = defaultCodexHome(), panes?: HerdrPane[]): Promise<string | null> {
   if (panes !== undefined) {
@@ -593,23 +1285,26 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   const { list: codexProcesses, key: processes } = await codexProcessesOf(paneId);
   const resumed = resumedThread(codexProcesses.map((process) => process.argv ?? []));
   const open = new Set<string>();
+  if (globalThis.process.platform === "darwin" && codexProcesses.length > 0) {
+    // lsof is available on macOS, where /proc does not exist. Keep the same
+    // canonical-store and unambiguous-open-file checks as the Linux path. One run
+    // for every Codex process of the pane (a wrapper and the binary are two), and
+    // -b keeps lsof off the stat calls it does not need for a name: a chat polls this
+    // every 2 s, and each run costs about 20 ms of process start and kernel walk
+    const child = Bun.spawn(["/usr/sbin/lsof", "-nPbw", "-a", "-p", codexProcesses.map((process) => process.pid).join(","), "-Fn"], { stdout: "pipe", stderr: "ignore" });
+    const timer = setTimeout(() => child.kill(), 3000);
+    try {
+      const text = await new Response(child.stdout).text();
+      await child.exited;
+      for (const line of text.split("\n")) {
+        if (!line.startsWith("n") || !line.endsWith(".jsonl")) continue;
+        const path = codexRolloutPath(line.slice(1), home);
+        if (path) open.add(path);
+      }
+    } finally { clearTimeout(timer); }
+  }
   for (const process of codexProcesses) {
-    if (globalThis.process.platform === "darwin") {
-      // lsof is available on macOS, where /proc does not exist. Keep the same
-      // canonical-store and unambiguous-open-file checks as the Linux path.
-      const child = Bun.spawn(["/usr/sbin/lsof", "-nP", "-a", "-p", String(process.pid), "-Fn"], { stdout: "pipe", stderr: "ignore" });
-      const timer = setTimeout(() => child.kill(), 3000);
-      try {
-        const text = await new Response(child.stdout).text();
-        await child.exited;
-        for (const line of text.split("\n")) {
-          if (!line.startsWith("n") || !line.endsWith(".jsonl")) continue;
-          const path = codexRolloutPath(line.slice(1), home);
-          if (path) open.add(path);
-        }
-      } finally { clearTimeout(timer); }
-      continue;
-    }
+    if (globalThis.process.platform === "darwin") continue;
     let descriptors: string[];
     try { descriptors = readdirSync(`/proc/${process.pid}/fd`); } catch { continue; }
     for (const descriptor of descriptors.slice(0, 512)) {
@@ -632,11 +1327,17 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   const bound = boundRollouts.get(paneId);
   const boundHere = bound !== undefined && bound.processes === processes && processes !== "" ? bound : undefined;
   let boundNewer: string[] = [];
+  /** the rollout of the thread herdr has for this pane */
+  let reported: string | null = null;
+  /** whether every interactive thread in this cwd is among the candidates */
+  let listed = false;
   try {
     db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
     if (session?.value && UUID.test(session.value)) {
-      const row = db.query<{ rollout_path: string }, [string]>("SELECT rollout_path FROM threads WHERE id = ?").get(session.value);
-      return row ? codexRolloutPath(row.rollout_path, home) : null;
+      const first = db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : "";
+      const row = db.query<{ rollout_path: string; first_user_message?: string | null }, [string]>(`SELECT rollout_path${first} FROM threads WHERE id = ?`).get(session.value);
+      reported = row ? codexRolloutPath(row.rollout_path, home) : null;
+      if (reported !== null && typeof row?.first_user_message === "string") firsts.set(reported, row.first_user_message);
     }
     if (resumed !== null) {
       const row = db.query<{ rollout_path: string }, [string]>("SELECT rollout_path FROM threads WHERE id = ?").get(resumed);
@@ -655,14 +1356,15 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // the same guard for a match: after /new the process writes a thread begun since
     // (created_at has whole seconds, so one begun in the match's second counts too)
     if (boundHere !== undefined) boundNewer = newerThreads(db, cwd, Math.floor(boundHere.at / 1000), null, paneId, home, firsts);
-    const rows = db.query<{ rollout_path: string }, [string]>(
+    const { where, params } = storedCwdCondition(cwd);
+    const rows = db.query<{ rollout_path: string }, string[]>(
       // a burst of `codex exec` runs must not push the pane's own thread out of the 32
-      `SELECT rollout_path FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 32`,
-    ).all(cwd);
-    paths = [...new Set([...paths, ...rows.flatMap((row) => {
-      const path = codexRolloutPath(row.rollout_path, home);
-      return path ? [path] : [];
-    })])];
+      `SELECT rollout_path FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
+    ).all(...params);
+    const rollouts = rows.slice(0, 32).map((row) => codexRolloutPath(row.rollout_path, home));
+    // a thread whose rollout is gone or outside the store is still a conversation of this cwd
+    listed = rows.length <= 32 && !rollouts.includes(null);
+    paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rollouts.filter((path): path is string => path !== null)])];
   } catch { /* Older installations can still resolve their open descriptors. */ }
   finally { db?.close(); }
   const screen = paths.length ? await paneRead({ paneId, source: "recent", lines: 400, stripAnsi: true }) : null;
@@ -681,13 +1383,16 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   // rollout it was last matched to, while no thread begun since in this cwd leaves it
   // unsure: one another Codex pane here shows is that pane's. The binding is kept even
   // when unsure, so it holds again once that thread turns out to be another pane's.
-  // Failing that, the thread it was resumed on, under the same rule.
-  const unsure = [...new Set([...boundNewer, ...(resumedPath !== null ? resumedNewer : [])])];
+  // Failing that, the thread herdr has for this pane, unless another pane shows it, is
+  // bound to it, or was resumed on it. Failing that, the thread it was resumed on, under
+  // the same rule as the binding.
+  const unsure = [...new Set([...boundNewer, ...(resumedPath !== null ? resumedNewer : []), ...(reported !== null ? [reported] : [])])];
   if (unsure.length > 0) {
     const own = [boundHere?.path, resumedPath].filter((path): path is string => typeof path === "string");
     const claimed = await claimedByOtherPanes(paneId, cwd, unsure, own, firsts, home, panes);
     boundNewer = theirs(boundNewer, paneId, claimed);
     resumedNewer = theirs(resumedNewer, paneId, claimed);
+    if (reported !== null && (theirs([reported], paneId, claimed).length === 0 || await resumedElsewhere(paneId, cwd, session!.value!, panes))) reported = null;
   }
   if (boundHere !== undefined && boundNewer.length === 0 && codexRolloutPath(boundHere.path, home) !== null) {
     // a pane in use stays among the kept ones
@@ -695,5 +1400,23 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     boundRollouts.set(paneId, boundHere);
     return boundHere.path;
   }
-  return resumedNewer.length === 0 ? resumedPath : null;
+  if (reported !== null) return reported;
+  if (resumed !== null) return resumedNewer.length === 0 ? resumedPath : null;
+  // Nothing ties this pane to a rollout at all: no session herdr names, no resume, no match by a
+  // long answer for this process, and so no /new to be unsure about. Short answers on screen may
+  // tell (#283). Never remembered as a binding: what it shows is read again each time, and only a
+  // long answer binds the pane for when its screen no longer tells.
+  if (screen === null || session?.value || boundHere !== undefined) return null;
+  // and only against every conversation this pane may be running, read whole: one left out of
+  // the 32 or one whose rollout is gone may be what said the same short lines
+  if (!listed || candidates.length !== paths.length) return null;
+  // read from each rollout itself, nothing remembered: one that continues another (a fork, a
+  // backtrack) shares that one's answers, and one past the budget was not read whole
+  let cut: boolean[];
+  try {
+    cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
+  } catch { return null; }
+  const short = matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
+  if (short !== null) return short;
+  return shortThreadFromProcess(paneId, cwd, home, screen.text, codexProcesses, panes);
 }

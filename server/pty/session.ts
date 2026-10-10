@@ -15,7 +15,8 @@ export interface PtySessionOptions {
 
 /**
  * A command running on a real PTY, hosted by a Node sidecar (see pty-host.mjs for
- * why output flow control currently needs node-pty).
+ * why output flow control currently needs node-pty, and why it is the prebuilt
+ * @lydell/node-pty distribution of it).
  */
 export class PtySession {
   readonly exited: Promise<void>;
@@ -61,20 +62,21 @@ export class PtySession {
     }
   }
 
-  private send(frame: Record<string, unknown>): void {
-    if (this.closed) return;
+  private send(frame: Record<string, unknown>): boolean {
+    if (this.closed) return false;
     const sink = this.proc.stdin;
-    if (!sink || typeof sink === "number" || !("write" in sink)) return;
+    if (!sink || typeof sink === "number" || !("write" in sink)) return false;
     try {
       sink.write(`${JSON.stringify(frame)}\n`);
       sink.flush();
+      return true;
     } catch {
-      /* host already gone */
+      return false; // host already gone
     }
   }
 
-  write(data: string): void {
-    this.send({ t: "i", d: data });
+  write(data: string): boolean {
+    return this.send({ t: "i", d: data });
   }
 
   resize(cols: number, rows: number): void {

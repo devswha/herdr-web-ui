@@ -1,4 +1,7 @@
+/* above every scrim dialog whenever it is open, Settings raised above a preview included: it takes
+   focus and Escape. A showModal() dialog (MachineDialog) sits in the browser's top layer instead. */
 .palette-scrim {
+  z-index: var(--z-palette);
   align-items: flex-start;
   padding-top: var(--palette-top);
 }
@@ -121,10 +124,19 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
 
+  [data-keyboard] .command-palette {
+    padding-bottom: 0;
+  }
+
   .palette-search {
     position: sticky;
     top: 0;
     z-index: var(--z-popover);
     padding-top: var(--space-4);
   }
+}
+
+/* a phone-width screen is touched, not typed on: the key hints only take the row's room */
+@media (max-width: 480px) {
+  .palette-shortcut { display: none; }
 }

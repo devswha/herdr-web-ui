@@ -1,16 +1,24 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   HerdrError,
+  herdrRpc,
   paneRead,
+  paneSendKeys,
+  paneSendText,
   ping,
   sessionSnapshot,
   subscribeEvents,
+  workspaceClose,
+  workspaceCreate,
 } from "./client.ts";
 
 /**
  * Exercised against the REAL running herdr server: this client exists to speak a
  * live socket protocol, so a mocked socket would prove nothing about it.
- * STRICTLY READ-ONLY - no pane is written to, created, or closed here.
+ * Only the polling regression creates/writes a pane, in its own workspace.
  */
 
 describe("ping", () => {
@@ -46,6 +54,60 @@ describe("sessionSnapshot", () => {
 });
 
 describe("paneRead", () => {
+  it("polls recent text without sending scroll events into an idle alternate-screen TUI", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-passive-read-"));
+    let workspaceId: string | undefined;
+    try {
+      const input = join(root, "input.log");
+      const fixture = join(root, "tui.ts");
+      writeFileSync(input, "");
+      writeFileSync(fixture, `
+        import { appendFileSync } from "node:fs";
+        process.stdin.setRawMode(true);
+        process.stdin.on("data", (chunk) => appendFileSync(${JSON.stringify(input)}, chunk));
+        process.stdout.write("\\x1b[?1049h\\x1b[?1000h\\x1b[?1006h\\x1b[2J\\x1b[H"
+          + "\\x1b[31mA saved answer on the desktop.\\x1b[0m\\r\\n"
+          + "\\x1b]8;;https://example.invalid\\x07A saved link\\x1b]8;;\\x07\\r\\n"
+          + "\\r\\n› ");
+      `);
+      const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-passive-read" });
+      workspaceId = created.workspace.workspace_id;
+      const paneId = created.root_pane.pane_id;
+      const quote = (text: string) => `'${text.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
+      await paneSendText(paneId, `${process.platform === "win32" ? "& " : ""}${quote(process.execPath)} ${quote(fixture)}`);
+      await paneSendKeys(paneId, ["enter"]);
+      const deadline = Date.now() + 5000;
+      while (!(await paneRead({ paneId, source: "visible" })).text.includes("A saved answer on the desktop.")) {
+        if (Date.now() > deadline) throw new Error(`alternate-screen TUI did not start: ${(await paneRead({ paneId, source: "visible" })).text}`);
+        await Bun.sleep(25);
+      }
+      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "idle" });
+      const before = (await paneRead({ paneId, source: "visible" })).text;
+      for (const source of ["recent", "recent_unwrapped"] as const) {
+        for (let poll = 0; poll < 2; poll++) {
+          const read = await paneRead({ paneId, source, lines: 400 });
+          expect(read.text).toContain("A saved answer on the desktop.");
+          expect(read.text).toContain("A saved link");
+          expect(read.text).not.toContain("\x1b");
+          expect(read.format).toBe("text");
+          expect(read.source).toBe(source);
+        }
+        const raw = await paneRead({ paneId, source, lines: 400, stripAnsi: false });
+        expect(raw.text).toContain("A saved answer on the desktop.");
+        expect(raw.text).toContain("\x1b");
+        expect(raw.format).toBe("text");
+      }
+      expect(readFileSync(input, "utf8")).toBe("");
+      expect((await paneRead({ paneId, source: "visible" })).text).toBe(before);
+      const styled = await paneRead({ paneId, source: "recent", format: "ansi", lines: 400 });
+      expect(styled.text).toContain("\x1b");
+      expect(styled.format).toBe("ansi");
+    } finally {
+      if (workspaceId) await workspaceClose(workspaceId);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it("returns terminal text for a live pane and echoes its id", async () => {
     const snapshot = await sessionSnapshot();
     const pane = snapshot.panes[0];

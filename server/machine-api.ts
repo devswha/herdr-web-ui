@@ -4,29 +4,60 @@ import { canSendSecret, sameOrigin } from "./machine-security.ts";
 import { isJsonObject, jsonResponse } from "./http.ts";
 
 const fail = (code: string, message: string, status: number) => jsonResponse({ error: { code, message } }, status);
-export const MACHINE_PROXY_PATH = /^(?:session|agents|pane\/(?:read|conversation|commands|files|prompt|prompt\/answer|input|keys|close|rename|image)|workspace\/(?:create|rename|move|close|directories))$/;
+export const MACHINE_PROXY_PATH = /^(?:session|agents|integrations|pane\/(?:read|scroll|selection|conversation(?:\/image|\/tool-output)?|commands|files|omo-tasks|prompt|prompt\/answer|input|keys|close|rename|image)|workspace\/(?:create|rename|move|close|directories)|worktree\/(?:create|list|open|remove)|tab\/(?:create|rename|close)|fs\/(?:stat|file))$/;
 
-export async function handleMachineRequest(request: Request, manager: MachineManager): Promise<Response> {
+
+/**
+ * A PC that could not be reached. A timed-out or aborted call is not a broken connection:
+ * the PC is there and the answer did not come in time (or the client gave up first), so it
+ * says so, and the cause is logged either way — the cause is the only thing that tells a
+ * slow PC from an offline one.
+ */
+function transportFailure(id: string, path: string, error: unknown): Response {
+  const timedOut = error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError");
+  console.error(`machine proxy ${id}${path}: ${timedOut ? "timed out" : "unreachable"}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+  return timedOut
+    ? fail("machine_timeout", "The PC did not answer in time; retry after reconnecting", 504)
+    : fail("machine_unavailable", "The PC connection was interrupted; retry after reconnecting", 502);
+}
+
+export async function handleMachineRequest(request: Request, manager: MachineManager, onRevoke?: (close: () => void) => () => void): Promise<Response> {
   const url = new URL(request.url);
-  if (!sameOrigin(request)) return fail("invalid_origin", "Use PC controls from this app", 403);
+  // A PC's file opens as this PC's /api/fs/file does, from any navigation: reading it changes
+  // nothing, and Chrome on Android shows a PDF in the viewer's frame as an "Open" button whose
+  // navigation is cross-site. Every other PC route still answers only this app.
+  const fileRead = ["GET", "HEAD"].includes(request.method) && /^\/api\/machines\/[^/]+\/fs\/file$/.test(url.pathname);
+  if (!fileRead && !sameOrigin(request)) return fail("invalid_origin", "Use PC controls from this app", 403);
   if (!["GET", "HEAD"].includes(request.method) && request.headers.get("x-herdr-machine") !== "1") return fail("invalid_machine_request", "Use PC controls from this app", 403);
+  // an empty segment is never a route: dropping it would forward `<id>//fs/file` as `fs/file`
+  if (url.pathname.includes("//")) return fail("not_found", "not found", 404);
   const parts = url.pathname.slice("/api/machines".length).split("/").filter(Boolean);
   try {
     if (!parts.length && request.method === "GET") return jsonResponse({ machines: manager.list() });
     if (parts[0] === "events" && parts.length === 1 && request.method === "GET") {
       let stop: (() => void) | undefined;
-      let heartbeat: ReturnType<typeof setInterval>;
+      let unwatchDevice: (() => void) | undefined;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let close = () => {};
+      const cleanup = () => {
+        stop?.(); unwatchDevice?.(); clearInterval(heartbeat);
+        request.signal.removeEventListener("abort", close);
+      };
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           let closed = false;
-          const close = () => { if (closed) return; closed = true; stop?.(); clearInterval(heartbeat); try { controller.close(); } catch {} };
+          close = () => { if (closed) return; closed = true; cleanup(); try { controller.close(); } catch {} };
+          unwatchDevice = onRevoke?.(close);
+          if (closed) return;
           const send = (text: string) => { if (closed) return; if ((controller.desiredSize ?? 0) < -4) { close(); return; } try { controller.enqueue(encoder.encode(text)); } catch { close(); } };
           stop = manager.subscribe((event) => send(`data: ${JSON.stringify(event)}\n\n`));
+          if (closed) { cleanup(); return; }
           heartbeat = setInterval(() => send(": heartbeat\n\n"), 15_000);
           request.signal.addEventListener("abort", close, { once: true });
+          if (request.signal.aborted) close();
         },
-        cancel() { stop?.(); clearInterval(heartbeat); },
+        cancel() { close(); },
       });
       return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" } });
     }
@@ -73,14 +104,29 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
       const ifNoneMatch = request.headers.get("if-none-match");
       if (ifNoneMatch) headers.set("if-none-match", ifNoneMatch);
       const abort = new AbortController();
+      if (path === "fs/file") {
+        // a file (a video, say) streams through, with its ranges, never held here; it can
+        // play for longer than any request timeout
+        const range = request.headers.get("range");
+        if (range) headers.set("range", range);
+        try {
+          const response = await fetch(`${endpoint.url}/api/${path}${url.search}`, { method: request.method, headers, redirect: "error", signal: request.signal });
+          const passed = new Headers({ "cache-control": "private, no-store" });
+          for (const name of ["content-type", "content-length", "content-range", "accept-ranges", "content-disposition", "content-security-policy", "x-content-type-options"]) {
+            const value = response.headers.get(name);
+            if (value) passed.set(name, value);
+          }
+          return new Response(response.body, { status: response.status, headers: passed });
+        } catch (error) { return transportFailure(id, path, error); }
+      }
       const untrack = manager.trackTerminal(id, () => abort.abort());
       try {
-        const response = await fetch(`${endpoint.url}/api/${path}${url.search}`, { method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "error", signal: AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(75_000)]) });
+        const response = await fetch(`${endpoint.url}/api/${path}${url.search}`, { method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "error", signal: AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(path === "worktree/create" ? 165_000 : 75_000)]) });
         const etag = response.headers.get("etag");
         return new Response(response.status === 304 ? null : await response.arrayBuffer(), { status: response.status, headers: {
           "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store", ...(etag ? { etag } : {}),
         } });
-      } catch { return fail("machine_unavailable", "The PC connection was interrupted; retry after reconnecting", 502); }
+      } catch (error) { return transportFailure(id, path, error); }
       finally { untrack(); }
     }
     return fail("not_found", "Unknown PC endpoint", 404);

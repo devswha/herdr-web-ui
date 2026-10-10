@@ -1,4 +1,5 @@
-import { fetchPushKey, registerPushSubscription, unregisterPushSubscription } from "./api.ts";
+import type { AlertPrefs } from "../../shared/notify-policy.ts";
+import { fetchPushKey, registerPushSubscription, sendTestPush, unregisterPushSubscription } from "./api.ts";
 
 /**
  * This device's web push subscription: pane alerts that arrive with the app closed.
@@ -13,6 +14,17 @@ const WORKER_READY_TIMEOUT_MS = 10_000;
 
 export function pushSupported(): boolean {
   return typeof navigator !== "undefined" && "serviceWorker" in navigator && typeof globalThis.PushManager !== "undefined";
+}
+
+/** Test the existing subscription without repairing it first, so stale registrations stay visible. */
+export async function testDevicePush(): Promise<"sent" | "unsupported" | "permission" | "missing"> {
+  if (!pushSupported()) return "unsupported";
+  if (globalThis.Notification?.permission !== "granted") return "permission";
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return "missing";
+  await sendTestPush(subscription.endpoint);
+  return "sent";
 }
 
 function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
@@ -44,6 +56,8 @@ async function workerRegistration(): Promise<ServiceWorkerRegistration | null> {
 
 /** The subscription being made right now, shared by every caller that arrives meanwhile. */
 let pending: Promise<string | null> | null = null;
+// Preserve click order across registration/removal, even when a prior operation fails.
+let operations: Promise<unknown> = Promise.resolve();
 
 /**
  * Subscribes this device (reusing a live subscription) and registers it with the server.
@@ -55,14 +69,17 @@ let pending: Promise<string | null> | null = null;
  * subscriptions and keep only the later one, so the confirmation push could go to a
  * dead endpoint. Concurrent callers therefore share one attempt.
  */
-export function ensurePushSubscription(): Promise<string | null> {
-  pending ??= subscribeDevice().finally(() => {
-    pending = null;
+export function ensurePushSubscription(alerts?: AlertPrefs): Promise<string | null> {
+  if (pending) return pending;
+  const request = operations.catch(() => undefined).then(() => subscribeDevice(alerts)).finally(() => {
+    if (pending === request) pending = null;
   });
-  return pending;
+  pending = request;
+  operations = request;
+  return request;
 }
 
-async function subscribeDevice(): Promise<string | null> {
+async function subscribeDevice(alerts?: AlertPrefs): Promise<string | null> {
   if (!pushSupported() || globalThis.Notification?.permission !== "granted") return null;
   const registration = await workerRegistration();
   if (!registration) return null;
@@ -74,12 +91,20 @@ async function subscribeDevice(): Promise<string | null> {
     subscription = null;
   }
   subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-  await registerPushSubscription(subscription.toJSON());
+  await registerPushSubscription(subscription.toJSON(), alerts);
   return subscription.endpoint;
 }
 
 /** Stops pushes to this device: the server forgets it first, then the browser drops it. */
-export async function removePushSubscription(): Promise<void> {
+export function removePushSubscription(): Promise<void> {
+  // A later enable must enqueue a new registration after this removal, not join the old one.
+  pending = null;
+  const request = operations.catch(() => undefined).then(unsubscribeDevice);
+  operations = request;
+  return request;
+}
+
+async function unsubscribeDevice(): Promise<void> {
   if (!pushSupported()) return;
   const registration = await navigator.serviceWorker.getRegistration();
   const subscription = await registration?.pushManager.getSubscription();

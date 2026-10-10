@@ -6,6 +6,16 @@
  * key bar (KeyBar.css) leaves, and clips so a pending refit never paints over it.
  */
 
+/* Nerd Font icons (the FONT_STACK note in PaneTerminal.tsx). The range is the private use
+   area alone, so the browser fetches the file only once a pane prints an icon, and a heart,
+   a lightning bolt or a box line keeps the system font's glyph */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("../fonts/SymbolsNerdFontMono-Regular.woff2") format("woff2");
+  font-display: block;
+  unicode-range: U+E000-F8FF, U+F0000-FFFFD;
+}
+
 .terminal-stack {
   display: flex;
   flex-direction: column;
@@ -28,6 +38,14 @@
   overscroll-behavior: contain;
 }
 
+/* a grid that is not this browser's own (observing, or mirrored from a PC that cannot attach)
+   can be larger than the mount: it scrolls instead of clipping, so every cell can be reached.
+   A finger pans it through PaneTerminal's touch handlers (touch-action stays none), a mouse
+   by wheel or scrollbar */
+.pane-terminal[data-adopted-grid] {
+  overflow: auto;
+}
+
 .pane-terminal .xterm {
   padding: var(--space-2) var(--space-2) 0;
 }
@@ -41,6 +59,14 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* Under the chat lens a prompt card and the held messages can take the stack's whole height (a
+   phone with its keyboard up). The transcript's box then reaches zero, and its scroller, which
+   keeps its own padding, must not paint over what stands under it. The xterm mount is not
+   resized by this. */
+.terminal-stack.is-chat > .terminal-surface {
+  overflow: hidden;
 }
 
 /* no pane selected: the mount keeps its size (the fit needs it) but never paints, so its
@@ -82,6 +108,21 @@
   height: var(--space-6);
 }
 
+.terminal-placeholder.is-restore-error {
+  padding: 0 var(--space-4);
+  text-align: center;
+}
+
+.terminal-placeholder.is-restore-error svg {
+  color: var(--status-blocked);
+}
+
+/* herdr's own words: what failed and what to do about it */
+.terminal-placeholder-detail {
+  max-width: 36rem;
+  font-size: var(--fs-sm);
+}
+
 /* the banners stack in one top-right column: any state combination (warning XOR
    review, observe alongside either) renders without collisions, and the column lets
    clicks pass through to the pty except where the review banner re-enables them */
@@ -115,6 +156,18 @@
 .terminal-banner-warning {
   border-color: var(--status-working);
   color: var(--status-working);
+}
+
+/* a banner's own action takes clicks back from the pass-through column */
+.terminal-banner-action {
+  pointer-events: auto;
+}
+
+/* not a fault: a lens herdr does not offer on this PC yet */
+.terminal-banner-soon {
+  border-color: var(--accent);
+  color: var(--text);
+  background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-elevated);
 }
 
 .terminal-banner-output-error {
@@ -165,7 +218,7 @@
   color: var(--text);
 }
 
-.terminal-banner-draft .draft-dropped {
+.terminal-banner-draft .draft-truncated {
   color: var(--text-dim);
 }
 
@@ -215,6 +268,7 @@
   }
 
   .terminal-banner-observe,
+  .terminal-banner-soon,
   .terminal-banner-warning {
     max-width: min(36ch, 100%);
     text-align: right;

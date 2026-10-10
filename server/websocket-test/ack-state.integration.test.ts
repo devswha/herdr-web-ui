@@ -27,7 +27,13 @@ function message(socket: WebSocket): Promise<Record<string, unknown>> {
       try {
         const parsed: unknown = JSON.parse(String(event.data));
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("websocket frame must be an object");
-        resolvePromise(parsed as Record<string, unknown>);
+        const frame = parsed as Record<string, unknown>;
+        // Upstream announces an attachment's readiness with a broadcast input-ready frame; it is not scenario data.
+        if (frame["type"] === "input-ready") {
+          socket.addEventListener("message", onMessage, { once: true });
+          return;
+        }
+        resolvePromise(frame);
       } catch (error) {
         rejectPromise(error);
       }

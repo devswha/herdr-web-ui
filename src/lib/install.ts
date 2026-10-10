@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { t } from "./i18n.ts";
 
 interface InstallChoice {
   outcome: "accepted" | "dismissed";
@@ -64,12 +65,12 @@ export interface InstallEnvironment {
 export function installHelp(env: InstallEnvironment): string {
   const ua = env.userAgent;
   const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && env.maxTouchPoints > 1);
-  if (ios) return "Tap the Share button, then Add to Home Screen.";
-  if (!env.secure) return "Open this page over HTTPS (or on localhost) to install it.";
-  if (/Firefox\//.test(ua) && !/Android/.test(ua)) return "Firefox on desktop can't install web apps. Open this page in Chrome or Edge.";
-  if (/Android/.test(ua)) return "Open the browser menu, then Install app or Add to Home screen.";
-  if (/Safari\//.test(ua) && !/Chrome\/|Chromium\/|Edg\//.test(ua)) return "Choose File, then Add to Dock.";
-  return "Use the install icon in the address bar, or the browser menu's Install option.";
+  if (ios) return t("Tap the Share button, then Add to Home Screen.");
+  if (!env.secure) return t("Open this page over HTTPS (or on localhost) to install it.");
+  if (/Firefox\//.test(ua) && !/Android/.test(ua)) return t("Firefox on desktop can't install web apps. Open this page in Chrome or Edge.");
+  if (/Android/.test(ua)) return t("Open the browser menu, then Install app or Add to Home screen.");
+  if (/Safari\//.test(ua) && !/Chrome\/|Chromium\/|Edg\//.test(ua)) return t("Choose File, then Add to Dock.");
+  return t("Use the install icon in the address bar, or the browser menu's Install option.");
 }
 
 function currentInstallHelp(): string {

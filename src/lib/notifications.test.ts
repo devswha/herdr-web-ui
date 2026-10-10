@@ -1,6 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentStatus } from "../../shared/protocol.ts";
-import { shouldNotifyStatus } from "./notifications.ts";
+import { alertStatus, alertsAllow, shouldNotifyStatus } from "./notifications.ts";
+
+describe("alertStatus", () => {
+  it("takes a pane at rest that waits on its turn's background work for working, and leaves the rest as they are", () => {
+    expect(["done", "idle", "unknown"].map((status) => alertStatus(status, true))).toEqual(["working", "working", "working"]);
+    expect(alertStatus("blocked", true)).toBe("blocked");
+    expect(alertStatus("done", false)).toBe("done");
+    expect(alertStatus("done", undefined)).toBe("done");
+    // a wait that ends with no new turn is a finish
+    expect(shouldNotifyStatus(alertStatus("done", true), alertStatus("done", false))).toBe(true);
+  });
+});
 
 describe("shouldNotifyStatus", () => {
   it("notifies when a known pane becomes blocked", () => {
@@ -27,5 +38,15 @@ describe("shouldNotifyStatus", () => {
 
   it("carries unknown future statuses through without notifying", () => {
     expect(shouldNotifyStatus("working", "teleporting" as AgentStatus)).toBe(false);
+  });
+});
+
+describe("alertsAllow", () => {
+  it("lets through what the device chose, and nothing that is not an alert", () => {
+    expect(alertsAllow({ input: true, done: "off" }, "blocked")).toBe(true);
+    expect(alertsAllow({ input: false, done: "always" }, "blocked")).toBe(false);
+    expect(alertsAllow({ input: false, done: "long" }, "done")).toBe(true);
+    expect(alertsAllow({ input: true, done: "off" }, "done")).toBe(false);
+    expect(alertsAllow({ input: true, done: "always" }, "working")).toBe(false);
   });
 });

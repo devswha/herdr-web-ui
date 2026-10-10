@@ -2,7 +2,7 @@ import type { HealthAuth, ServerMessage, SessionSnapshot } from "./protocol.ts";
 
 export const LOCAL_MACHINE = "local";
 export const BRIDGE_PROTOCOL = 1;
-export const REMOTE_BUNDLE_VERSION = "2";
+export const REMOTE_BUNDLE_VERSION = "24";
 export interface PaneTarget { machine_id: string; pane_id: string }
 export type MachineState = "connecting" | "connected" | "reconnecting" | "disconnected" | "error";
 export interface SshTarget {
@@ -24,9 +24,23 @@ export interface Machine {
   /** a bridge update running for this PC right now (in the background, or from its dialog) */
   updating?: MachineUpdate | null;
   snapshot: SessionSnapshot | null;
-  herdr?: { version: string; protocol: number };
+  herdr?: HerdrIdentity;
 }
-export type MachineAction = "update_bridge" | "setup";
+/**
+ * The herdr behind a PC, as its bridge can serve it. terminal_attach is false on a Windows
+ * host: herdr has no `terminal attach` there yet (herdrdev/herdr#4821), and it is false on
+ * any bridge whose runtime cannot run the PTY sidecar (the win32 bundle ships none). Such a
+ * PC's panes have the chat lens and a mirrored terminal (terminal_mirror). Absent on older
+ * bridges, which are never Windows.
+ */
+export interface HerdrIdentity {
+  version: string;
+  protocol: number;
+  terminal_attach?: boolean;
+  /** without attach, the terminal lens shows the pane's screen repainted a few times a second (server/mirror.ts) */
+  terminal_mirror?: boolean;
+}
+export type MachineAction = "update_bridge" | "setup" | "bridge_conflict";
 export interface MachineUpdate { job_id: string; step: string; progress: SetupProgress | null }
 /**
  * Where a bridge install is. download (the web server fetching the bundle) and upload (the
@@ -47,6 +61,17 @@ export interface SetupJob {
   challenge: SetupChallenge | null;
   installations: string[];
   error: string | null;
+  /**
+   * set on a failed job when retrying as-is cannot connect: the user has to update the
+   * bridge or approve setup. The dialog turns "update_bridge" into its update-and-connect
+   * button, which a PC that was never registered cannot get from the sidebar.
+   */
+  action_required?: MachineAction | null;
+  /**
+   * ssh's latest stderr lines while the connection is being made, null otherwise. Some of them
+   * ask the user to act while ssh keeps waiting (Tailscale SSH's browser check URL).
+   */
+  ssh_output: string | null;
   target: SshTarget;
   progress?: SetupProgress | null;
 }
@@ -60,7 +85,7 @@ export interface BridgeIdentity {
   bundle_version: string;
   socket_path: string;
   socket_id: string;
-  herdr: { version: string; protocol: number };
+  herdr: HerdrIdentity;
 }
 
 /** Local storage keeps its historical keys; remote IDs occupy a separate namespace. */

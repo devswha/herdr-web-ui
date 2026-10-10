@@ -5,13 +5,13 @@ import { ENDED_NOTIFICATION_BODY, paneNotificationTag, statusNotificationBody } 
  * Tab alerts: Web Notifications for pane status transitions while this page is open
  * but hidden. A device with a push subscription (lib/push.ts) gets the same alerts from
  * the server instead, and App skips these. Notification exists only in secure contexts
- * (https or localhost) - a plain-http LAN deployment reports "unsupported" and the UI
- * hides the bell entirely.
+ * (https or localhost) - a plain-http LAN deployment reports "unsupported", and the bell
+ * there switches only the in-app alerts.
  *
  * The transition policy is shared with the server (shared/notify-policy.ts).
  */
 
-export { shouldNotifyStatus } from "../../shared/notify-policy.ts";
+export { alertStatus, alertsAllow, shouldNotifyStatus } from "../../shared/notify-policy.ts";
 
 export type NotificationState = "unsupported" | "default" | "granted" | "denied";
 

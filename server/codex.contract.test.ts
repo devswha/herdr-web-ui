@@ -53,6 +53,8 @@ it("serves native Codex conversations and invalidates replaced files even at the
   writeFileSync(rollout, transcript(`${answerPrefix}Answer one`));
   const first = await read();
   expect(first.source).toBe("codex-transcript");
+  expect(first.history_id).toBeString();
+  expect((await read()).history_id).toBe(first.history_id);
   expect(first.metadata).toEqual({ model: "codex-test-model", reasoning_effort: "xhigh" });
   expect((await read()).metadata).toEqual(first.metadata); // cached response keeps metadata
   expect(first.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
@@ -60,7 +62,9 @@ it("serves native Codex conversations and invalidates replaced files even at the
   expect(first.turns.at(-1)?.parts[0]).toMatchObject({ text: `${answerPrefix}Answer one`, phase: "final_answer" });
   writeFileSync(`${rollout}.new`, transcript(`${answerPrefix}Answer two`));
   renameSync(`${rollout}.new`, rollout);
-  expect((await read()).turns.at(-1)?.parts[0]).toMatchObject({ text: `${answerPrefix}Answer two` });
+  const replaced = await read();
+  expect(replaced.history_id).not.toBe(first.history_id);
+  expect(replaced.turns.at(-1)?.parts[0]).toMatchObject({ text: `${answerPrefix}Answer two` });
   rmSync(rollout);
   expect(await read()).toEqual({ source: "scrollback", turns: [] });
 });
@@ -82,4 +86,32 @@ it("answers an unchanged conversation with a bodyless 304 and a changed one in f
   expect(changed.status).toBe(200);
   expect(changed.headers.get("etag")).not.toBe(etag);
   expect(((await changed.json()) as ConversationResponse).turns.at(-1)?.parts[0]).toMatchObject({ text: `${answerPrefix}Answer two` });
+});
+
+it("serves a native image-only Codex turn through the pane-scoped image API", async () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH1sAAAAASUVORK5CYII=", "base64");
+  const imagePath = join(root, "shot.png");
+  writeFileSync(imagePath, png);
+  writeFileSync(rollout, `${transcript(`${answerPrefix}Answer one`)}\n${JSON.stringify({ type: "event_msg", timestamp: "2026-09-27T00:00:00Z", payload: { type: "user_message", message: "", local_images: [imagePath] } })}`);
+  const conversation = await read();
+  const image = conversation.turns.at(-1)?.parts[0];
+  expect(image?.kind).toBe("image");
+  if (image?.kind !== "image") throw new Error("missing image");
+  const url = `http://127.0.0.1:${server.port}/api/pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: image.ref })}`;
+  const response = await fetch(url);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("image/png");
+  expect(response.headers.get("cache-control")).toContain("no-store");
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
+  writeFileSync(rollout, transcript(`${answerPrefix}Answer one`));
+  expect((await fetch(url)).status).toBe(404);
+});
+
+it("serves skill activity without shipping the selected skill's instruction body", async () => {
+  const envelope = { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "<skill>\n<name>review</name>\n<path>/project/skills/review/SKILL.md</path>\nPRIVATE SKILL INSTRUCTIONS\n</skill>" }] } };
+  writeFileSync(rollout, `${transcript(`${answerPrefix}Answer one`)}\n${JSON.stringify(envelope)}`);
+  const conversation = await read();
+  expect(conversation.source).toBe("codex-transcript");
+  expect(conversation.turns.at(-1)?.parts).toContainEqual({ kind: "skill", skill: { name: "review", path: "/project/skills/review/SKILL.md", evidence: "instructions", status: "loaded" } });
+  expect(JSON.stringify(conversation)).not.toContain("PRIVATE SKILL INSTRUCTIONS");
 });

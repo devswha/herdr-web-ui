@@ -80,6 +80,18 @@ export async function paneSendText(_paneId: string, _text: string): Promise<void
 export async function agentPrompt(_target: string, _text: string): Promise<void> { throw new FakeBoundaryError("agent.prompt"); }
 export async function paneSendKeys(_paneId: string, _keys: string[]): Promise<void> { throw new FakeBoundaryError("pane.send_keys"); }
 export async function paneClose(_paneId: string): Promise<void> { throw new FakeBoundaryError("pane.close"); }
+export async function paneGet(_paneId: string, _socketPath?: string): Promise<never> { throw new FakeBoundaryError("pane.get"); }
+export async function paneScroll(_paneId: string, _offsetFromBottom: number, _socketPath?: string): Promise<never> { throw new FakeBoundaryError("pane.scroll"); }
+export async function paneScrollInfo(_paneId: string, _socketPath?: string): Promise<never> { throw new FakeBoundaryError("pane.scroll_info"); }
+export async function paneSelectionRead(_paneId: string, _anchor: unknown, _cursor: unknown, _socketPath?: string): Promise<never> { throw new FakeBoundaryError("pane.selection_read"); }
+export async function tabCreate(_options: { workspaceId: string; cwd?: string; label?: string }): Promise<never> { throw new FakeBoundaryError("tab.create"); }
+export async function tabRename(_tabId: string, _label: string, _socketPath?: string): Promise<void> { throw new FakeBoundaryError("tab.rename"); }
+export async function tabClose(_tabId: string, _socketPath?: string): Promise<void> { throw new FakeBoundaryError("tab.close"); }
+export async function worktreeCreate(_options: { workspaceId: string; branch: string; base?: string; label?: string; path?: string }): Promise<never> { throw new FakeBoundaryError("worktree.create"); }
+export async function worktreeList(_workspaceId: string, _socketPath?: string): Promise<never> { throw new FakeBoundaryError("worktree.list"); }
+export async function worktreeOpen(_options: { workspaceId: string; path?: string; branch?: string; label?: string }): Promise<never> { throw new FakeBoundaryError("worktree.open"); }
+export async function worktreeRemove(_workspaceId: string, _force: boolean, _socketPath?: string): Promise<never> { throw new FakeBoundaryError("worktree.remove"); }
+export async function integrationList(_socketPath?: string): Promise<{ integrations: never[] }> { return { integrations: [] }; }
 
 export function subscribeEvents(_subscriptions: HerdrSubscription[], handlers: SubscribeHandlers): Subscription {
   handlers.onStarted?.();

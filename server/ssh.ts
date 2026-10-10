@@ -9,6 +9,32 @@ import { chunksOf } from "./remote-bundle.ts";
 /** A file streamed to a remote command's stdin, with how much of it went so far. */
 export interface StreamInput { path: string; onProgress?(done: number): void; onUploaded?(): void }
 
+/**
+ * What ssh said last, for the setup dialog: some messages ask the user to act while ssh keeps
+ * waiting (Tailscale SSH's browser check URL), and the exit error is too late for those.
+ * Control characters go (a terminal's colours and cursor moves mean nothing in a dialog).
+ */
+export function recentSshOutput(text: string, maxLines = 8, maxBytes = 2048): string {
+  const lines = text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r\n?/g, "\n").replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").split("\n").map((line) => line.trimEnd()).filter((line) => line !== "");
+  const tail = lines.slice(-maxLines).join("\n");
+  return tail.length > maxBytes ? tail.slice(-maxBytes) : tail;
+}
+
+/**
+ * What PowerShell 5 says on stderr over a pipe: its error records serialized as CLIXML, the
+ * text in `<S S="Error">` elements with `_x000D__x000A_` for newlines. The words, nothing else.
+ */
+export function decodeClixml(stderr: string): string {
+  const lines: string[] = [];
+  for (const [, text] of stderr.matchAll(/<S S="Error">([^<]*)<\/S>/g)) {
+    const decoded = text!.replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+    lines.push(decoded);
+  }
+  const message = lines.join("").replace(/\r\n/g, "\n").trim();
+  return message || stderr.replace(/#< CLIXML[\s\S]*/, "").trim() || "PowerShell failed";
+}
+
 export class SshConnection {
   private dir = mkdtempSync(join(tmpdir(), "herdr-ssh-"));
   private control = join(this.dir, "control");
@@ -20,18 +46,24 @@ export class SshConnection {
   private stderr = "";
   usedSecret = false;
   onExit: (() => void) | null = null;
+  /** ssh's recent stderr while the master connection is still being established */
+  onOutput: ((text: string) => void) | null = null;
 
   constructor(readonly target: SshTarget, readonly stateDir: string, readonly keyPath?: string, readonly keyOnly = false) {
     chmodSync(this.dir, 0o700);
     mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   }
-  private base(): string[] {
-    const args = ["ssh", "-S", this.control, "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
+  /** the options ssh and sftp share; the port flag differs (`-p` is sftp's preserve-times) */
+  private options(): string[] {
+    const args = ["-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"];
     if (this.keyOnly) args.push("-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none");
-    if (this.target.port) args.push("-p", String(this.target.port));
+    if (this.target.port) args.push("-o", `Port=${this.target.port}`);
     if (this.target.identity_file) args.push("-i", this.target.identity_file.replace(/^~\//, homedir() + "/"));
     if (this.keyPath && existsSync(this.keyPath)) args.push("-i", this.keyPath);
     return args;
+  }
+  private base(): string[] {
+    return ["ssh", "-S", this.control, ...this.options()];
   }
   async start(challenge?: (prompt: string, hostKey: boolean) => Promise<string>): Promise<void> {
     const askPath = join(this.dir, "ask");
@@ -64,7 +96,8 @@ export class SshConnection {
     const proc = this.master = Bun.spawn(args, { stdin: "ignore", stdout: "ignore", stderr: "pipe", env: { ...process.env, SSH_ASKPASS: helper, SSH_ASKPASS_REQUIRE: "force", DISPLAY: "herdr:0", HERDR_ASKPASS_SOCKET: askPath } });
     void (async () => {
       const reader = proc.stderr.getReader();
-      try { for (;;) { const { done, value } = await reader.read(); if (done) break; this.stderr = (this.stderr + new TextDecoder().decode(value)).slice(-8192); } } finally { reader.releaseLock(); }
+      const decoder = new TextDecoder();
+      try { for (;;) { const { done, value } = await reader.read(); if (done) break; this.stderr = (this.stderr + decoder.decode(value, { stream: true })).slice(-8192); this.onOutput?.(recentSshOutput(this.stderr)); } } finally { reader.releaseLock(); }
     })();
     void proc.exited.then(() => { if (!this.closed) this.onExit?.(); });
     const until = Date.now() + (challenge ? 300_000 : 25_000);
@@ -73,11 +106,43 @@ export class SshConnection {
       if (proc.exitCode !== null || Date.now() > until) throw new Error(this.stderr.trim() || "SSH connection timed out");
       await Bun.sleep(100);
     }
+    this.onOutput = null;
   }
   async run(script: string, input?: Uint8Array | StreamInput, timeout = 90_000): Promise<string> {
     if (this.closed) throw new Error("SSH connection closed");
     // BatchMode prevents an expired master from unexpectedly opening a new password prompt.
     return this.exec([...this.base(), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-T", this.target.destination, "sh -c " + shellQuote(script)], input, timeout);
+  }
+  /**
+   * A script for a Windows host. OpenSSH there hands the command to cmd or PowerShell,
+   * whichever is the account's default shell, and the two quote differently; a base64
+   * `-EncodedCommand` passes through both untouched. Output comes back as UTF-8 with Unix
+   * newlines whatever the host's code page (Korean Windows answers in CP949 otherwise).
+   */
+  async runPowerShell(script: string, input?: Uint8Array | StreamInput, timeout = 90_000): Promise<string> {
+    if (this.closed) throw new Error("SSH connection closed");
+    // no progress bars: over a pipe PowerShell 5 serializes them to stderr as CLIXML
+    const encoded = Buffer.from(`[Console]::OutputEncoding = [Text.Encoding]::UTF8\n$ProgressPreference = 'SilentlyContinue'\n${script}`, "utf16le").toString("base64");
+    try {
+      const out = await this.exec([...this.base(), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-T", this.target.destination, `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`], input, timeout);
+      return out.replace(/\r\n/g, "\n");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("#< CLIXML")) throw new Error(decodeClixml(error.message), { cause: error });
+      throw error;
+    }
+  }
+  /**
+   * A file to a Windows host, by sftp over the same connection. Its stdin cannot carry it:
+   * PowerShell's console host owns a redirected stdin (5.1 never reads it for the script, 7
+   * recodes it as text), and the account's default shell decides which of the two is in the
+   * way. sftp is a subsystem, so neither is. The remote path is a Windows one; Windows
+   * sftp-server spells a drive-absolute path `/C:/Users/...` (a bare `C:/...` is relative).
+   */
+  async upload(localPath: string, remotePath: string, timeout = 30 * 60_000): Promise<void> {
+    if (this.closed) throw new Error("SSH connection closed");
+    if (/[\r\n"]/.test(localPath + remotePath)) throw new Error("Invalid characters for a remote path");
+    const remote = "/" + remotePath.replaceAll("\\", "/");
+    await this.exec(["sftp", ...this.options(), "-o", `ControlPath=${this.control}`, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-b", "-", this.target.destination], new TextEncoder().encode(`put "${localPath}" "${remote}"\n`), timeout);
   }
   async forward(port: number, remotePort: number): Promise<void> {
     await this.exec([...this.base(), "-O", "forward", "-L", `127.0.0.1:${port}:127.0.0.1:${remotePort}`, this.target.destination]);
@@ -109,6 +174,8 @@ export class SshConnection {
       return out;
     } finally { clearTimeout(timer); this.children.delete(proc); }
   }
+  /** whether the master connection still stands: false once ssh exited (the PC went away), was killed (Bun then sets only signalCode) or was closed */
+  connected(): boolean { return !this.closed && this.master !== null && this.master.exitCode === null && this.master.signalCode === null; }
   close(): void {
     if (this.closed) return;
     this.closed = true;

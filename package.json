@@ -1,7 +1,7 @@
 {
   "name": "herdr-web-ui",
   "private": true,
-  "version": "0.3.7",
+  "version": "0.4.5",
   "type": "module",
   "description": "Browser version of the herdr terminal - live herdr workspaces, panes and agents in a web UI",
   "license": "MIT",
@@ -14,26 +14,37 @@
     "build": "vite build",
     "server": "bun run server/index.ts",
     "start": "bun run build && bun run server/managed.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
+    "check": "bun scripts/check.ts",
     "test": "bun test",
+    "test:unit": "bun scripts/ci-tests.ts unit",
+    "test:integration": "bun scripts/ci-tests.ts integration",
     "test:websocket": "bun --config=bunfig.websocket.toml test --isolate server/output-window.test.ts server/websocket-test/fake-herdr-client.test.ts server/websocket-test/fake-pty-session.test.ts server/websocket-test/create-server-harness.test.ts server/websocket-test/create-server.smoke.integration.test.ts server/websocket-test/ack-replay.integration.test.ts server/websocket-test/ack-state.integration.test.ts server/websocket-test/reattach-reconnect.integration.test.ts server/websocket-test/backpressure-stall.integration.test.ts server/websocket-test/protocol-guards.integration.test.ts",
     "test:websocket:mutations": "bun --config=bunfig.websocket.toml test --isolate server/websocket-test/mutation-source.test.ts server/websocket-test/mutation-controls.integration.test.ts",
     "test:ui": "bun run build && bun scripts/ui-regression.ts",
+    "test:ui": "bun run build && bun scripts/ui-regression.ts && bun scripts/sticky-modifiers-regression.ts",
     "generate:types": "bun run scripts/generate-protocol-types.ts",
     "build:remote": "bun run scripts/build-remote-bundle.ts",
+    "build:site": "bun scripts/build-site.ts",
     "test:ssh": "bun run scripts/ssh-integration.ts"
   },
   "dependencies": {
+    "@lydell/node-pty": "1.1.0",
+    "@tanstack/highlight": "^1.0.0",
     "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-unicode-graphemes": "0.4.0",
+    "@xterm/addon-web-links": "0.11.0",
+    "@xterm/xterm": "5.5.0",
+    "katex": "^0.18.9",
     "lucide-react": "^1.47.0",
-    "node-pty": "^1.1.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
+    "@types/katex": "^0.16.8",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/web-push": "^3.6.4",
@@ -41,5 +52,8 @@
     "playwright-core": "^1.49.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
+  },
+  "patchedDependencies": {
+    "@xterm/xterm@5.5.0": "patches/@xterm%2Fxterm@5.5.0.patch"
   }
 }

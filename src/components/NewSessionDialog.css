@@ -36,109 +36,31 @@
   flex: none;
 }
 
-.dir-browser {
-  display: flex;
-  flex-direction: column;
-  border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  overflow: hidden;
-}
-
-.dir-browser-bar {
+/* New tab: the folder is the workspace's, shown as a fact in a dashed box, not asked for */
+.new-session-folder {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  border-bottom: var(--hairline) solid var(--border);
-}
-
-/* a long path keeps its end, the part that says where you are */
-.dir-browser-path {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding-inline: var(--space-1);
-  overflow: hidden;
-  direction: rtl;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-strong);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-}
-
-.dir-browser-list {
-  max-height: calc(var(--control-h) * 7);
-  margin: 0;
-  padding: var(--space-1) 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  list-style: none;
-}
-
-.dir-browser-item {
-  width: 100%;
+  gap: var(--space-2);
   min-height: var(--control-h);
   padding: 0 var(--space-3);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
+  border: var(--hairline) dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-dim);
   font-size: var(--fs-sm);
-  text-align: left;
-  cursor: pointer;
 }
 
-.dir-browser-item:hover:not(:disabled),
-.dir-browser-item:focus-visible {
-  background: var(--bg-hover);
-  color: var(--text-strong);
+.new-session-folder svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
-.dir-browser-item svg {
-  flex: none;
-  width: var(--icon-size);
-  height: var(--icon-size);
-  color: var(--accent);
-}
-
-.dir-browser-item span {
+.new-session-folder span {
+  min-width: 0;
   overflow: hidden;
+  color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dir-browser-note {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-}
-
-.dir-browser-error {
-  color: var(--status-blocked);
-}
-
-.dir-browser-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border-top: var(--hairline) solid var(--border);
-}
-
-.dir-browser-hidden {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-  cursor: pointer;
 }
 
 @media (pointer: coarse) {
@@ -147,13 +69,79 @@
   .new-session-modal .btn {
     height: var(--touch-target);
   }
+}
 
-  .dir-browser-item {
-    min-height: var(--touch-target);
-  }
+/* the agent picker: a select whose rows show each agent's mark */
+.agent-picker {
+  position: relative;
+}
 
-  .dir-browser-bar .icon-button {
-    width: var(--touch-target);
+.agent-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-picker-trigger:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.agent-picker-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-picker-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--text-dim);
+}
+
+.agent-picker .agent-mark,
+.agent-picker-shell {
+  display: inline-flex;
+  flex: none;
+}
+
+.agent-picker-shell svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-dim);
+}
+
+.agent-picker-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  overflow-y: auto;
+}
+
+/* aria-selected is the chosen agent (bold); the keyboard/pointer row is data-active and carries
+   the highlight, which the shared menu gives aria-selected elsewhere */
+.agent-picker-menu .menu-item[aria-selected="true"] {
+  background: transparent;
+  color: var(--text);
+}
+
+.agent-picker-menu .menu-item[data-active] {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.agent-picker-menu .menu-item[aria-selected="true"] .menu-item-main {
+  font-weight: 600;
+}
+
+@media (pointer: coarse) {
+  .new-session-modal .agent-picker-trigger,
+  .agent-picker-menu .menu-item {
     height: var(--touch-target);
   }
 }

@@ -26,7 +26,13 @@ function message(socket: WebSocket, diagnostic: string): Promise<WsFrame> {
         rejectPromise(new Error("WebSocket frame has no string type"));
         return;
       }
-      resolvePromise(parsed as WsFrame);
+      const frame = parsed as WsFrame;
+      // Upstream announces an attachment's readiness with a broadcast input-ready frame; it is not scenario data.
+      if (frame.type === "input-ready") {
+        socket.addEventListener("message", onMessage);
+        return;
+      }
+      resolvePromise(frame);
     };
     const onClose = () => { cleanup(); rejectPromise(new Error(`${diagnostic}: socket closed`)); };
     const onError = () => { cleanup(); rejectPromise(new Error(`${diagnostic}: socket errored`)); };

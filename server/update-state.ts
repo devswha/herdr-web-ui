@@ -11,8 +11,8 @@ export function defaultStateDir(): string {
 }
 
 /** One update state per source checkout and port, so two checkouts or ports never share builds. */
-export function updateStateDir(root: string, port: number): string {
-  return join(resolve(defaultStateDir()), "updates",
+export function updateStateDir(root: string, port: number, stateDir = defaultStateDir()): string {
+  return join(resolve(stateDir), "updates",
     createHash("sha256").update(`${resolve(root)}:${port}`).digest("hex").slice(0, 16));
 }
 

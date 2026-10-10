@@ -8,16 +8,18 @@
  * reading outside their project directory, and a path inside the project keeps the
  * attachment visible (and git-ignorable) next to the conversation. A pane without a
  * known cwd falls back to the OS temp dir - the path still works, it just may cost
- * the agent a read-permission prompt.
+ * the agent a read-permission prompt. `HERDR_WEB_PASTE_DIR` sends every attachment to
+ * one directory instead, for those who would rather keep them out of the working tree.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { HerdrError, sessionSnapshot } from "./herdr/client.ts";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { paneGet } from "./herdr/client.ts";
+import { MAX_ATTACHMENT_BYTES } from "../shared/attachments.ts";
 
-/** Decode ceiling: screenshots land in the 0.1-2MB range; 8MB leaves headroom. */
-export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+/** Decode ceiling: the limit the browser checks a file against before it uploads. */
+export const MAX_IMAGE_BYTES = MAX_ATTACHMENT_BYTES;
 
 /**
  * A file that is not one of the image types keeps its own name (sanitised), so the agent
@@ -31,6 +33,18 @@ function storedName(name: string | undefined): { base: string; extension: string
     base: (dot > 0 ? clean.slice(0, dot) : clean) || "file",
     extension: /^[a-z0-9]{1,10}$/.test(extension) ? extension : "bin",
   };
+}
+
+/** Where a pane's attachments go: `HERDR_WEB_PASTE_DIR` when set, else `<cwd>/.herdr-web-ui`. */
+export function pasteDirectory(cwd: string | null | undefined): string {
+  const override = process.env["HERDR_WEB_PASTE_DIR"]?.trim();
+  if (override) {
+    // the plugin's env file is not a shell: expand a leading ~ here, before either separator.
+    // The separators are dropped with it: a leading one would make the rest an absolute path
+    const home = /^~(?:[\\/]+(.*))?$/s.exec(override);
+    return home ? resolve(homedir(), home[1] ?? "") : resolve(override);
+  }
+  return join(cwd ?? join(tmpdir(), "herdr-web-ui"), ".herdr-web-ui");
 }
 
 const EXTENSIONS: Record<string, string> = {
@@ -79,11 +93,9 @@ export async function savePaneImage(options: {
     throw new PasteImageError("image_too_large", `file exceeds ${MAX_IMAGE_BYTES} bytes`, 413);
   }
 
-  const snapshot = await sessionSnapshot();
-  const pane = snapshot.panes.find((candidate) => candidate.pane_id === options.paneId);
-  if (!pane) throw new HerdrError("pane_not_found", `pane ${options.paneId} not found`);
+  const pane = await paneGet(options.paneId);
 
-  const directory = join(pane.cwd ?? join(tmpdir(), "herdr-web-ui"), ".herdr-web-ui");
+  const directory = pasteDirectory(pane.cwd);
   mkdirSync(directory, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
   const unique = `${stamp}-${crypto.randomUUID().slice(0, 8)}`;

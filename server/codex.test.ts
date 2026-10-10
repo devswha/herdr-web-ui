@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { codexHistoryTail, codexRolloutPath, forgetHistoryChains, matchCodexTranscript, parseCodexTranscript, resumedThread, unansweredCodexQuestions } from "./codex.ts";
+import { join, posix, win32 } from "node:path";
+import { Database } from "bun:sqlite";
+import { codexCallFailed, codexHistoryTail, codexHomeInPsLine, codexRolloutPath, processCodexHome, forgetHistoryChains, matchCodexFirstExchange, matchCodexTranscript, matchShortCodexAnswers, parseCodexTranscript, codexPeersIn, resumedThread, rolloutInsideStore, sameDirectory, storedCwdCondition, storedCwds, unansweredCodexQuestions, withoutVerbatimPrefix } from "./codex.ts";
+import type { HerdrPane } from "../shared/protocol.ts";
 import { splitTurn } from "../src/lib/workBlocks.ts";
 
 const ts = "2026-09-22T01:00:00.000Z";
@@ -13,7 +15,172 @@ const message = (role: string, text: string, phase?: string) => item({
 });
 const jsonl = (...records: unknown[]) => records.map((record) => JSON.stringify(record)).join("\n");
 
+describe("a Codex process's own store", () => {
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("reads CODEX_HOME from the process's environment, and nothing from one without it", async () => {
+    // not a system binary: macOS shows no environment of those (Codex is not one)
+    const sleeper = (env: Record<string, string | undefined>) =>
+      Bun.spawn([process.execPath, "-e", "console.log('up'); await Bun.sleep(5000)"], { env, stdout: "pipe" });
+    // the stores are directories that are there: a value that names none is no store (macOS reads it from `ps`)
+    const withHome = sleeper({ ...process.env, CODEX_HOME: tmpdir() });
+    const without = sleeper(Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "CODEX_HOME")));
+    // a macOS home folder can hold a space; a variable after it ends the value
+    const spaced = sleeper({ ...process.env, CODEX_HOME: join(tmpdir(), "harness codex test"), AFTER_CODEX_HOME: "x" });
+    mkdirSync(join(tmpdir(), "harness codex test"), { recursive: true });
+    try {
+      // all have started (exec'd) before their environment is read
+      for (const child of [withHome, without, spaced]) await child.stdout.getReader().read();
+      expect(await processCodexHome(withHome.pid)).toBe(tmpdir());
+      expect(await processCodexHome(without.pid)).toBeNull();
+      expect(await processCodexHome(spaced.pid)).toBe(join(tmpdir(), "harness codex test"));
+    } finally { withHome.kill(); without.kill(); spaced.kill(); }
+  });
+
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("keeps a process's store under its pid and argv, and reads it again for other arguments", async () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-codex-home-"));
+    const child = Bun.spawn([process.execPath, "-e", "console.log('up'); await Bun.sleep(5000)"], { env: { ...process.env, CODEX_HOME: home }, stdout: "pipe" });
+    try {
+      await child.stdout.getReader().read();
+      expect(await processCodexHome(child.pid, ["codex", "--first"])).toBe(home);
+      // the store goes away: the same pid and argv are answered from what was read, without reading again
+      rmSync(home, { recursive: true, force: true });
+      expect(await processCodexHome(child.pid, ["codex", "--first"])).toBe(home);
+      // other arguments under that pid are another process as far as the cache knows: read again
+      expect(await processCodexHome(child.pid, ["codex", "--second"])).toBeNull();
+      // Even matching pid/argv must be re-read at the deadline, without a real 30-second sleep.
+      const expiredAt = Date.now() + 30_001;
+      const clock = spyOn(Date, "now").mockReturnValue(expiredAt);
+      try {
+        expect(await processCodexHome(child.pid, ["codex", "--first"])).toBeNull();
+      } finally { clock.mockRestore(); }
+    } finally { child.kill(); rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe("CODEX_HOME in a ps -E line", () => {
+  it("takes the last assignment, keeps spaces in it, and ends it at the next variable", () => {
+    expect(codexHomeInPsLine("node /opt/codex/bin/codex.js --model x PATH=/usr/bin CODEX_HOME=/Users/alice/Codex Profiles/work TERM=xterm")).toBe("/Users/alice/Codex Profiles/work");
+    expect(codexHomeInPsLine("codex CODEX_HOME=/tmp/arg HOME=/Users/alice CODEX_HOME=/Users/alice/.codex-work")).toBe("/Users/alice/.codex-work");
+    expect(codexHomeInPsLine("codex exec HOME=/Users/alice TERM=xterm")).toBeNull();
+    expect(codexHomeInPsLine("codex CODEX_HOME= HOME=/Users/alice")).toBeNull();
+  });
+});
+
 describe("Codex conversation records", () => {
+  it("hides memory citations before pairing display/model answers in either order", () => {
+    const citation = "<oai-mem-citation>\n<citation_entries>\nMEMORY.md:1-2|note=[context]\n</citation_entries>\n<rollout_ids>\nthread-id\n</rollout_ids>\n</oai-mem-citation>";
+    for (const reverse of [false, true]) {
+      const pair = [message("assistant", `Done\n${citation}`, "final_answer"), event({ type: "agent_message", message: "Done" })];
+      if (reverse) pair.reverse();
+      expect(parseCodexTranscript(jsonl(...pair))).toEqual([
+        { role: "assistant", ts, end_ts: ts, parts: [{ kind: "text", text: "Done", phase: "final_answer" }] },
+      ]);
+    }
+  });
+
+  it("hides multiple and unfinished memory blocks without dropping surrounding prose", () => {
+    expect(parseCodexTranscript(jsonl(
+      message("assistant", "Before<oai-mem-citation>one</oai-mem-citation> after<oai-mem-citation>two</oai-mem-citation>", "final_answer"),
+      event({ type: "agent_message", message: "Next\n<oai-mem-citation>unfinished" }),
+      message("assistant", "<oai-mem-citation>metadata only</oai-mem-citation>"),
+    ))[0]?.parts).toEqual([
+      { kind: "text", text: "Before after", phase: "final_answer" },
+      { kind: "text", text: "Next" },
+    ]);
+    expect(parseCodexTranscript(jsonl(message("assistant", "<oai-mem-citation>unfinished")))).toEqual([]);
+  });
+
+  it("preserves memory markup quoted by a user or returned by a tool", () => {
+    const text = "<oai-mem-citation>quoted metadata</oai-mem-citation>";
+    const turns = parseCodexTranscript(jsonl(
+      message("user", text),
+      item({ type: "function_call", call_id: "read", name: "read", arguments: "{}" }),
+      item({ type: "function_call_output", call_id: "read", output: text }),
+    ));
+    expect(turns[0]?.parts).toEqual([{ kind: "text", text }]);
+    expect(turns[1]?.parts[0]).toMatchObject({ kind: "tool", output: text });
+  });
+
+  it("preserves literal memory tags in inline code and code fences", () => {
+    const examples = [
+      "Match the literal tag `<oai-mem-citation>` in the parser.\nKeep this explanatory paragraph.",
+      "The block is `<oai-mem-citation>sample</oai-mem-citation>`.",
+      "Use `` `<oai-mem-citation>` `` to quote the tag.",
+      "A backslash inside code is literal: `<oai-mem-citation>\\` and prose follows.",
+      "Example:\n```xml\n<oai-mem-citation>sample</oai-mem-citation>\n```\nExplanation follows.",
+      "Example:\n  ~~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n  ~~~\nStill code.\n  ~~~~~\nExplanation follows.",
+      "Example:\n````xml\n<oai-mem-citation>sample</oai-mem-citation>\n```\nStill code.\n````\nExplanation follows.",
+      "An unfinished example:\n```xml\n<oai-mem-citation>literal tag",
+      "An unfinished example:\n~~~xml\n<oai-mem-citation>literal tag",
+    ];
+    for (const text of examples) {
+      expect(parseCodexTranscript(jsonl(message("assistant", text, "final_answer")))[0]?.parts).toEqual([
+        { kind: "text", text, phase: "final_answer" },
+      ]);
+    }
+  });
+
+  it("removes metadata around code examples before pairing their display records", () => {
+    const example = "Before `<oai-mem-citation>` after\n~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n~~~\nDone";
+    const response = "<oai-mem-citation>first</oai-mem-citation>" + example + "\n<oai-mem-citation>unfinished";
+    for (const reverse of [false, true]) {
+      const pair = [message("assistant", response, "final_answer"), event({ type: "agent_message", message: example })];
+      if (reverse) pair.reverse();
+      expect(parseCodexTranscript(jsonl(...pair))[0]?.parts).toEqual([
+        { kind: "text", text: example, phase: "final_answer" },
+      ]);
+    }
+    const mixed = "Before\n<oai-mem-citation>hidden</oai-mem-citation>\n```xml\n<oai-mem-citation>literal</oai-mem-citation>\n```\n<oai-mem-citation>also hidden</oai-mem-citation>\nAfter";
+    expect(parseCodexTranscript(jsonl(message("assistant", mixed)))[0]?.parts).toEqual([
+      { kind: "text", text: "Before\n\n```xml\n<oai-mem-citation>literal</oai-mem-citation>\n```\n\nAfter" },
+    ]);
+    const payload = "Before<oai-mem-citation>\n~~~xml\n`unclosed\n</oai-mem-citation>After\n<oai-mem-citation>hidden too</oai-mem-citation>";
+    expect(parseCodexTranscript(jsonl(message("assistant", payload)))[0]?.parts).toEqual([{ kind: "text", text: "BeforeAfter" }]);
+  });
+
+  it("preserves fences inside quotes and lists only within their containers", () => {
+    const hidden = "<oai-mem-citation>actual metadata</oai-mem-citation>";
+    const examples = [
+      "> ```xml\n> <oai-mem-citation>literal tag\n> explanation",
+      "> > ~~~xml\n> > <oai-mem-citation>literal tag\n> > explanation",
+      "> > ```xml\n> > <oai-mem-citation>literal tag\n> > ```\n> Quote continues.",
+      "- Example:\n  ```xml\n  <oai-mem-citation>literal tag\n  explanation",
+      "- ~~~xml\n  <oai-mem-citation>literal tag\n  ~~~\n  Item continues.",
+      "1. Example:\n   - ```xml\n     <oai-mem-citation>literal tag\n     explanation",
+      "> - Example:\n>   ```xml\n>   <oai-mem-citation>literal tag\n>   explanation",
+    ];
+    for (const example of examples) {
+      const text = `${example}\nOutside\n${hidden}`;
+      expect(parseCodexTranscript(jsonl(message("assistant", text)))[0]?.parts).toEqual([{ kind: "text", text: `${example}\nOutside` }]);
+    }
+    const nested = "> > ```xml\n> > <oai-mem-citation>literal tag\n> Parent quote\n> " + hidden;
+    expect(parseCodexTranscript(jsonl(message("assistant", nested)))[0]?.parts).toEqual([
+      { kind: "text", text: "> > ```xml\n> > <oai-mem-citation>literal tag\n> Parent quote\n>" },
+    ]);
+    const crlf = "> ```xml\r\n> <oai-mem-citation>literal tag\r\nOutside\r\n" + hidden;
+    expect(parseCodexTranscript(jsonl(message("assistant", crlf)))[0]?.parts).toEqual([
+      { kind: "text", text: "> ```xml\r\n> <oai-mem-citation>literal tag\r\nOutside" },
+    ]);
+  });
+
+  it("does not let escaped, unmatched or cross-paragraph backticks hide metadata", () => {
+    for (const text of [
+      "An unmatched ` delimiter.\n<oai-mem-citation>hidden</oai-mem-citation>",
+      "An escaped \\` delimiter.\n<oai-mem-citation>hidden</oai-mem-citation>\nA second \\` delimiter.",
+      "First `\n\n<oai-mem-citation>hidden</oai-mem-citation>\n\nSecond `",
+    ]) {
+      const expected = text.replace("<oai-mem-citation>hidden</oai-mem-citation>", "").trimEnd();
+      expect(parseCodexTranscript(jsonl(message("assistant", text)))[0]?.parts).toEqual([{ kind: "text", text: expected }]);
+    }
+  });
+
+  it("bounds citation parsing with many unmatched backtick lengths", () => {
+    const text = "Unmatched delimiters: " + Array.from({ length: 1000 }, (_, i) => "`".repeat(i + 1) + " x ").join("");
+    const transcript = jsonl(message("assistant", `${text}<oai-mem-citation>hidden</oai-mem-citation>`));
+    const started = performance.now();
+    expect(parseCodexTranscript(transcript)[0]?.parts).toEqual([{ kind: "text", text: text.trimEnd() }]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("hides injected context, metadata and developer messages while preserving the real request", () => {
     const turns = parseCodexTranscript(jsonl(
       { type: "session_meta", payload: { base_instructions: "internal system prompt" } },
@@ -28,6 +195,32 @@ describe("Codex conversation records", () => {
     expect(turns).toHaveLength(2);
     expect(turns[0]?.parts).toEqual([{ kind: "text", text: "Fix chat" }]);
     expect(turns[1]?.parts).toEqual([{ kind: "text", text: "Fixed", phase: "final_answer" }]);
+  });
+
+  it("hides complete directory-less AGENTS envelopes in event and model records", () => {
+    for (const newline of ["\n", "\r\n"]) {
+      const injected = ["# AGENTS.md instructions", "", "<INSTRUCTIONS>", "Synthetic rules", "</INSTRUCTIONS>"].join(newline);
+      const turns = parseCodexTranscript(jsonl(
+        message("user", injected), event({ type: "user_message", message: injected }),
+        message("user", "Check fixture"), message("assistant", "Ready", "final_answer"),
+      ));
+      expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
+      expect(turns[0]?.parts).toEqual([{ kind: "text", text: "Check fixture" }]);
+    }
+  });
+
+  it("preserves incomplete, similar and user-extended AGENTS messages", () => {
+    for (const text of [
+      "# AGENTS.md instructions\nExplain this",
+      "# AGENTS.md instructions-extra\n<INSTRUCTIONS>example</INSTRUCTIONS>",
+      "# AGENTS.md instructions\nexample</INSTRUCTIONS>",
+      "# AGENTS.md instructions\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain why this rule is wrong.",
+      "# AGENTS.md instructions for /project\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain.",
+    ]) {
+      for (const record of [message("user", text), event({ type: "user_message", message: text })]) {
+        expect(parseCodexTranscript(jsonl(record))[0]?.parts).toEqual([{ kind: "text", text }]);
+      }
+    }
   });
 
   it("pairs duplicate display/model records in either order but keeps genuine repeated prompts", () => {
@@ -183,7 +376,8 @@ describe("Codex rollout resolution", () => {
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
   it("accepts files inside the store and rejects traversal, external symlinks, missing files and directories", () => {
-    const root = mkdtempSync(join(tmpdir(), "herdr-codex-path-")); roots.push(root);
+    // an accepted rollout comes back canonical; macOS's tmpdir is a symlink into /private
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-codex-path-"))); roots.push(root);
     const home = join(root, "codex"); const sessions = join(home, "sessions");
     mkdirSync(sessions, { recursive: true });
     const path = join(sessions, "rollout.jsonl"); writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { source: "cli", thread_source: "user" } }));
@@ -197,6 +391,96 @@ describe("Codex rollout resolution", () => {
     expect(codexRolloutPath(path, home)).toBeNull();
     writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { source: "cli", thread_source: "subagent" } }));
     expect(codexRolloutPath(path, home)).toBeNull();
+  });
+
+  it("reads the Windows paths Codex stores with the \\\\?\\ prefix as the plain ones herdr reports (#518)", () => {
+    expect(withoutVerbatimPrefix("\\\\?\\D:\\work\\app")).toBe("D:\\work\\app");
+    expect(withoutVerbatimPrefix("\\\\?\\UNC\\host\\share\\app")).toBe("\\\\host\\share\\app");
+    for (const path of ["D:\\work\\app", "\\\\host\\share\\app", "/home/user/app", "relative\\\\?\\app", "", "\\\\?\\Volume{0a1b}\\codex", "\\\\?\\GLOBALROOT\\Device\\x", "\\\\?\\out.jsonl"]) {
+      expect(withoutVerbatimPrefix(path)).toBe(path);
+    }
+    expect(storedCwds("D:\\work\\app")).toEqual(["D:\\work\\app", "\\\\?\\D:\\work\\app"]);
+    expect(storedCwds("\\\\?\\D:\\work\\app")).toEqual(["D:\\work\\app", "\\\\?\\D:\\work\\app"]);
+    expect(storedCwds("\\\\host\\share\\app")).toEqual(["\\\\host\\share\\app", "\\\\?\\UNC\\host\\share\\app"]);
+    // a POSIX cwd is looked up as it is, and only so
+    expect(storedCwds("/home/user/app")).toEqual(["/home/user/app", "/home/user/app"]);
+    expect(storedCwds("\\\\.\\pipe\\x")).toEqual(["\\\\.\\pipe\\x", "\\\\.\\pipe\\x"]);
+  });
+
+  it("keeps a rollout inside a store whose root alone carries the \\\\?\\ prefix, or whose rollout alone does (#587)", () => {
+    const root = "D:\\codex\\sessions";
+    const rollout = "D:\\codex\\sessions\\2026\\10\\10\\rollout.jsonl";
+    expect(rolloutInsideStore(`\\\\?\\${root}`, rollout, win32)).toBe(true);
+    expect(rolloutInsideStore(root, `\\\\?\\${rollout}`, win32)).toBe(true);
+    expect(rolloutInsideStore("\\\\?\\UNC\\host\\share\\codex\\sessions", "\\\\host\\share\\codex\\sessions\\x.jsonl", win32)).toBe(true);
+    for (const outside of ["D:\\codex\\other.jsonl", "\\\\?\\D:\\codex\\sessions\\..\\other.jsonl", "E:\\codex\\sessions\\x.jsonl", root]) {
+      expect(rolloutInsideStore(`\\\\?\\${root}`, outside, win32)).toBe(false);
+    }
+    // only the prefix and the drive letter's case are one spelling: past it a case-sensitive
+    // directory may be another one, and a sibling that shares the name's start is outside
+    expect(rolloutInsideStore("\\\\?\\c:\\codex\\sessions", "C:\\codex\\sessions\\x.jsonl", win32)).toBe(true);
+    for (const outside of ["C:\\codex\\Sessions\\other.jsonl", "C:\\Codex\\sessions\\other.jsonl", "C:\\codex\\sessions2\\x.jsonl"]) {
+      expect(rolloutInsideStore("\\\\?\\C:\\codex\\sessions", outside, win32)).toBe(false);
+      expect(rolloutInsideStore("C:\\codex\\sessions", outside, win32)).toBe(false);
+    }
+    // POSIX paths are compared as they are
+    expect(rolloutInsideStore("/home/u/.codex/sessions", "/home/u/.codex/sessions/x.jsonl", posix)).toBe(true);
+    for (const outside of ["/home/u/.codex/x.jsonl", "/home/u/.codex/sessions", "/home/u/.Codex/sessions/x.jsonl", "/home/u/.codex/sessions2/x.jsonl", "/home/u/.codex/sessions/../x.jsonl"]) {
+      expect(rolloutInsideStore("/home/u/.codex/sessions", outside, posix)).toBe(false);
+    }
+  });
+
+  const threadsDb = () => {
+    const db = new Database(":memory:");
+    // Codex's own cwd index (state migration 0027), binary collation
+    db.run("CREATE TABLE threads (id TEXT, cwd TEXT, archived INTEGER, updated_at_ms INTEGER)");
+    db.run("CREATE INDEX idx_threads_archived_cwd_updated_at_ms ON threads(archived, cwd, updated_at_ms DESC, id DESC)");
+    const rows: [string, string][] = [["a", "\\\\?\\d:\\work\\app"], ["b", "d:\\work\\app"], ["c", "D:\\work\\app2"], ["d", "/home/u/app"], ["e", "/home/u/App"], ["f", "\\\\?\\UNC\\host\\share\\app"], ["g", "\\\\?\\d:\\Work\\app"], ["h", "D:\\WORK\\APP"]];
+    for (let n = 0; n < 33; n++) rows.push([`x${String(n).padStart(2, "0")}`, "D:\\work\\App"]);
+    for (const [id, cwd] of rows) db.run("INSERT INTO threads VALUES (?, ?, 0, ?)", [id, cwd, id.startsWith("x") ? 2 : 1]);
+    return db;
+  };
+
+  it("finds the threads of a Windows cwd stored with another drive-letter case, never another directory's (#587)", () => {
+    const db = threadsDb();
+    try {
+      const ids = (cwd: string) => {
+        const { where, params } = storedCwdCondition(cwd);
+        return db.query<{ id: string }, string[]>(`SELECT id FROM threads WHERE ${where} ORDER BY updated_at_ms DESC, id LIMIT 32`).all(...params).map((row) => row.id).sort();
+      };
+      expect(ids("D:\\work\\app")).toEqual(["a", "b"]);
+      expect(ids("\\\\?\\D:\\work\\app")).toEqual(["a", "b"]);
+      expect(ids("d:\\work\\app")).toEqual(["a", "b"]);
+      // another letter case past the drive may be another, case-sensitive directory: no answer
+      // rather than its conversation, and its 33 newer threads do not crowd out the 32
+      expect(ids("D:\\work\\App")).toHaveLength(32);
+      expect(ids("D:\\work\\App").every((id) => id.startsWith("x"))).toBe(true);
+      expect(ids("\\\\host\\share\\app")).toEqual(["f"]);
+      expect(ids("\\\\HOST\\share\\app")).toEqual([]);
+      expect(ids("/home/u/app")).toEqual(["d"]);
+      expect(ids("/home/u/APP")).toEqual([]);
+    } finally { db.close(); }
+  });
+
+  it("looks threads up on Codex's binary cwd index, not by a scan of every thread (#587)", () => {
+    const db = threadsDb();
+    try {
+      for (const cwd of ["D:\\work\\app", "/home/u/app"]) {
+        const { where, params } = storedCwdCondition(cwd);
+        const plan = db.query<{ detail: string }, string[]>(`EXPLAIN QUERY PLAN SELECT id FROM threads WHERE ${where} AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 33`)
+          .all(...params).map((row) => row.detail).join("\n");
+        expect(plan).toMatch(/SEARCH threads USING (?:COVERING )?INDEX idx_threads_archived_cwd_updated_at_ms \(archived=\? AND cwd=\?\)/);
+      }
+    } finally { db.close(); }
+  });
+
+  it("counts a Codex pane in another spelling of the same Windows directory as a peer, by the same rule as the queries (#587)", () => {
+    const pane = (pane_id: string, cwd: string | null) => ({ pane_id, workspace_id: "w", tab_id: "t", terminal_id: pane_id, agent: "codex", agent_status: "idle", cwd, focused: false, revision: 0 }) as HerdrPane;
+    const panes = [pane("self", "D:\\work\\app"), pane("drive", "d:\\work\\app"), pane("prefixed", "\\\\?\\d:\\work\\app"), pane("sibling", "D:\\work\\App"), pane("unknown", null), { ...pane("shell", "D:\\work\\app"), agent: "shell" } as HerdrPane];
+    expect(codexPeersIn(panes, "self", "D:\\work\\app").map((peer) => peer.pane_id)).toEqual(["drive", "prefixed"]);
+    expect(codexPeersIn([pane("self", "/home/u/app"), pane("posix", "/home/u/App"), pane("twin", "/home/u/app")], "self", "/home/u/app").map((peer) => peer.pane_id)).toEqual(["twin"]);
+    expect(sameDirectory("d:\\work\\app", "\\\\?\\D:\\work\\app")).toBe(true);
+    expect(sameDirectory("D:\\work\\app", "D:\\Work\\app")).toBe(false);
   });
 
   /** Rollouts as Codex 0.156 writes them: one record per line, ordinals running on from the cut a rollout starts at. */
@@ -302,8 +586,301 @@ describe("Codex rollout resolution", () => {
     expect(matchCodexTranscript("Done", [{ path: "short", text: jsonl(message("assistant", "Done")) }])).toBeNull();
   });
 
+  it("matches an answer that links a file, which Codex shows as the label and a path relative to the cwd", () => {
+    const linked = `${answer} [The report](/home/user/repo/output/test/REPORT.md)`;
+    const candidates = [{ path: "linked", text: jsonl(message("assistant", linked, "final_answer")) }];
+    expect(matchCodexTranscript(`• ${answer} The report (output/test/REPORT.md)`, candidates)).toBe("linked");
+    // a link in the middle: the end after it is what is looked for
+    const middle = `See [the report](/home/user/repo/REPORT.md) for the numbers. ${answer}`;
+    expect(matchCodexTranscript(`• See the report (REPORT.md) for the numbers. ${answer}`, [{ path: "middle", text: jsonl(message("assistant", middle)) }])).toBe("middle");
+    expect(matchCodexTranscript("• The report (output/test/REPORT.md)", candidates)).toBeNull();
+  });
+
+  // issue #283: no answer of this session reaches 64 letters and digits (40, 29 and 38)
+  const short = [
+    "세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen 스킬을 사용할게요.",
+    "세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요.",
+    "imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n[합친 이미지 다운로드](/home/user/repo/.herdr-web-ui/combined-20261002.png)",
+  ];
+  const shortRollout = jsonl(
+    message("user", "이거 세개 사진 합처서 하나의 이미지로 만들어줘."),
+    message("assistant", short[0]!, "commentary"), message("assistant", short[1]!, "commentary"), message("assistant", short[2]!, "final_answer"),
+  );
+  const shortScreen = [
+    "› 이거 세개 사진 합처서 하나의 이미지로 만들어줘.",
+    "• 세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen\n  스킬을 사용할게요.",
+    "• 세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요.",
+    "• imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n  합친 이미지 다운로드 (.herdr-web-ui/combined-20261002.png)",
+  ];
+  const answered = (...texts: string[]) => jsonl(...texts.map((text) => message("assistant", text)));
+  const bullets = (...texts: string[]) => texts.map((text) => `• ${text}`).join("\n");
+
+  it("reads a session whose answers are all short by its newest answers shown together, in order", () => {
+    const candidates = [
+      { path: "short", text: shortRollout },
+      { path: "other", text: jsonl(message("assistant", answer, "final_answer")) },
+    ];
+    // the long-answer match alone, as every caller but the last resort uses it, still says nothing
+    expect(matchCodexTranscript(shortScreen.join("\n\n"), candidates)).toBeNull();
+    expect(matchShortCodexAnswers(shortScreen.join("\n\n"), candidates)).toBe("short");
+    // the newest answer not rendered yet: the two before it are enough together
+    expect(matchShortCodexAnswers(shortScreen.slice(0, 3).join("\n\n"), candidates)).toBe("short");
+    // one short answer alone is too little, and so are the same lines out of order
+    expect(matchShortCodexAnswers(shortScreen[2]!, candidates)).toBeNull();
+    expect(matchShortCodexAnswers([shortScreen[3], shortScreen[2], shortScreen[1]].join("\n\n"), candidates)).toBeNull();
+    // older answers with the newest two missing from the screen are not this rollout's end
+    expect(matchShortCodexAnswers(shortScreen.slice(0, 2).join("\n\n"), candidates)).toBeNull();
+  });
+
+  it("does not read short answers that two rollouts share, or ones above the welcome card", () => {
+    const shared = [{ path: "one", text: shortRollout }, { path: "two", text: jsonl(message("user", "다시 해줘"), ...short.map((text) => message("assistant", text))) }];
+    expect(matchShortCodexAnswers(shortScreen.join("\n\n"), shared)).toBeNull();
+    expect(matchShortCodexAnswers(`${shortScreen.join("\n\n")}\nOpenAI Codex (v1.0)\nNew session`, [shared[0]!])).toBeNull();
+  });
+
+  // the review of #284: each case once bound the wrong rollout, or lost the right one
+  const looked = "I'll look at the file and run the tests.";
+  const changed = "I'll make the change and verify the result.";
+  it("does not take a fork's inherited answers for its parent", () => {
+    const fixes = Array.from({ length: 8 }, (_, index) => `Fixed test ${index}.`);
+    const candidates = [{ path: "parent", text: answered(looked, changed) }, { path: "fork", text: answered(looked, changed, ...fixes) }];
+    const screen = bullets(looked, changed, ...fixes);
+    expect(matchCodexTranscript(screen, candidates)).toBeNull();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+  });
+
+  it("does not count the links of one answer as several answers, wherever they point", () => {
+    const linked = "[Open the project report](/other/0.md)\n[Download the updated image](/other/1.md)\n[Review the verification results](/other/2.md)";
+    const candidates = [{ path: "linked", text: answered(linked) }];
+    const screen = "• Open the project report (my/0.md)\n  Download the updated image (my/1.md)\n  Review the verification results (my/2.md)";
+    expect(matchCodexTranscript(screen, candidates)).toBeNull();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+  });
+
+  it("keeps a unique long-answer match when another rollout shares its short answers", () => {
+    const candidates = [{ path: "real", text: answered(looked, changed, answer) }, { path: "unrelated", text: answered(looked, changed) }];
+    expect(matchCodexTranscript(bullets(looked, changed, answer), candidates)).toBe("real");
+  });
+
+  const migrated = "The migration script now rewrites every legacy record in place.";
+  it("needs 64 letters and digits together, 16 in each answer and 12 distinct", () => {
+    const read = (...texts: string[]) => matchShortCodexAnswers(bullets(...texts), [{ path: "short", text: answered(...texts) }]);
+    // 29 + 34 = 63, and 29 + 36 = 65
+    expect(read("The build finished without errors.", "All checks on the feature branch pass now.")).toBeNull();
+    expect(read("The build finished without errors.", "All checks on the feature branch pass again.")).toBe("short");
+    // 14 + 53 = 67 with an answer below 16, and the same with one of 16
+    expect(read("Updated the docs", migrated)).toBeNull();
+    expect(read("Updated the README", migrated)).toBe("short");
+    // 18 + 29 + 31 = 78 from 10 distinct letters
+    expect(read("The tests have passed.", "Tests passed. The tests have passed.", "Ha, the tests passed; these have passed.")).toBeNull();
+  });
+
+  // the second review of #284
+  const inspect = "I'll inspect the file and run the tests.";
+  it("does not read short answers another rollout said inside longer ones", () => {
+    const candidates = [
+      { path: "wrong", text: answered(inspect, changed) },
+      { path: "real", text: answered(`Sure. ${inspect}`, `Sure. ${changed}`, "Done.", "Done.") },
+    ];
+    expect(matchShortCodexAnswers(bullets(`Sure. ${inspect}`, `Sure. ${changed}`, "Done.", "Done."), candidates)).toBeNull();
+  });
+
+  it("does not take a fork for its parent however many turns ago it inherited the answers", () => {
+    const later = Array.from({ length: 51 }, () => [message("user", "continue"), message("assistant", "Done.")]).flat();
+    const candidates = [
+      { path: "parent", text: answered(inspect, changed) },
+      { path: "fork", text: jsonl(message("assistant", inspect), message("assistant", changed), ...later) },
+    ];
+    const screen = [bullets(inspect, changed), ...Array.from({ length: 51 }, () => "› continue\n• Done.")].join("\n");
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    // and a rollout read only from its end may have said them before: no answer then
+    expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done."), cut: true }])).toBeNull();
+    expect(matchShortCodexAnswers(bullets(inspect, changed), [candidates[0]!, { path: "fork", text: answered("Done.") }])).toBe("parent");
+  });
+
+  // the third review of #284
+  it("takes no answer with a link for evidence: the screen shows its target its own way", () => {
+    const linked = ["The [build results](reports/build-results.md) are ready for review.", "All [feature branch checks](reports/check-results.md) passed the verification."];
+    // the pane's own conversation said the words after the links, as answers of its own, and
+    // the user's prompts hold the labels: the linked rollout's pieces add up on that screen
+    const own = ["are ready for review.", "passed the verification.", "Done.", "Done."];
+    const screen = "› The build results?\n• are ready for review.\n› All feature branch checks?\n• passed the verification.\n› next\n• Done.\n› next\n• Done.";
+    expect(matchShortCodexAnswers(screen, [{ path: "linked", text: answered(...linked) }, { path: "own", text: answered(...own) }])).toBeNull();
+    expect(matchShortCodexAnswers("• The build results (reports/build-results.md) are ready for review.\n• All feature branch checks (reports/check-results.md) passed the verification.", [{ path: "linked", text: answered(...linked) }])).toBeNull();
+    // the newest answer may hold one: the two before it still tell (the report's own case ends in a download link)
+    const report = ["The build finished without errors this time.", "All checks on the feature branch pass again.", "Here is [the image](out/merged.png)."];
+    expect(matchShortCodexAnswers(bullets(report[0]!, report[1]!, "Here is the image (out/merged.png)."), [{ path: "report", text: answered(...report) }])).toBe("report");
+  });
+
+  it("reads no short answers that another rollout's linked answers show as", () => {
+    // the pane's own rollout says them with links, which Codex shows as "label (path)": the screen
+    // reads exactly like an older rollout's plain answers
+    const live = ["The [build results](/repo/reports/build.md) are ready for review.", "All [feature checks](/repo/reports/check.md) passed verification."];
+    const older = ["The build results (reports/build.md) are ready for review.", "All feature checks (reports/check.md) passed verification."];
+    const screen = bullets(...older);
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }])).toBe("older");
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "live", text: answered(...live) }])).toBeNull();
+    // also with labels of a few letters, after many later answers, and with many links in one answer
+    const terse = ["[Build](/repo/reports/feature-branch-build-results.md)", "[Checks](/repo/reports/feature-branch-check-results.md)"];
+    const shownTerse = ["Build (reports/feature-branch-build-results.md)", "Checks (reports/feature-branch-check-results.md)"];
+    expect(matchShortCodexAnswers(bullets(...shownTerse), [{ path: "older", text: answered(...shownTerse) }, { path: "live", text: answered(...terse) }])).toBeNull();
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "live", text: answered(...live, ...Array.from({ length: 220 }, () => "Done.")) }])).toBeNull();
+    // a linked answer of another rollout that says something else vetoes nothing
+    expect(matchShortCodexAnswers(screen, [{ path: "older", text: answered(...older) }, { path: "else", text: answered("See [the notes](docs/notes.md) for the migration plan.") }])).toBe("older");
+  });
+
+  it("reads no short answers when a rollout was not read whole, the one that shows them included", () => {
+    const texts = ["The build finished without errors this time.", "All checks on the feature branch pass again."];
+    const screen = bullets(...texts);
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts) }])).toBe("only");
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts), cut: true }])).toBeNull();
+    expect(matchShortCodexAnswers(screen, [{ path: "only", text: answered(...texts) }, { path: "other", text: answered("Done."), cut: true }])).toBeNull();
+  });
+
+  it("does not read short answers when two rollouts show that way, sharing nothing", () => {
+    const first = ["The build finished without errors.", "All checks on the feature branch pass again."];
+    const second = ["Updated the README", migrated];
+    const candidates = [{ path: "first", text: answered(...first) }, { path: "second", text: answered(...second) }];
+    // the second's answers below, and the first's between them: each is found bottom-up
+    expect(matchShortCodexAnswers(bullets(first[0]!, second[0]!, first[1]!, second[1]!), candidates)).toBeNull();
+    expect(matchShortCodexAnswers(bullets(second[0]!, second[1]!), candidates)).toBe("second");
+  });
+
+  it("reads short answers in bounded time however many unclosed links the answers hold", () => {
+    const many = answered(...Array.from({ length: 450 }, () => "](".repeat(1000)));
+    const candidates = Array.from({ length: 32 }, (_, index) => ({ path: `unclosed-${index}`, text: many }));
+    const screen = Array.from({ length: 400 }, () => "q".repeat(120)).join("\n");
+    const started = performance.now();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it("reads short answers in bounded time however many links a large answer has", () => {
+    const huge = answered("[abcdefghijklmnop](/a)".repeat(40_000));
+    const candidates = Array.from({ length: 32 }, (_, index) => ({ path: `large-${index}`, text: huge }));
+    const screen = Array.from({ length: 400 }, () => "q".repeat(120)).join("\n");
+    const started = performance.now();
+    expect(matchShortCodexAnswers(screen, candidates)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("does not bind using user context, tool output or a previous session above the welcome card", () => {
     expect(matchCodexTranscript(answer, [{ path: "user", text: jsonl(message("user", answer)) }])).toBeNull();
     expect(matchCodexTranscript(`${answer}\nOpenAI Codex (v1.0)\nNew session`, [{ path: "old", text: jsonl(message("assistant", answer)) }])).toBeNull();
+  });
+});
+
+describe("Codex submitted first exchange", () => {
+  const started = Date.parse("2026-10-03T00:00:00Z");
+  const prompt = "Check fixture";
+  const answer = "The fixture is ready for inspection.";
+  const screen = `OpenAI Codex (v1.0)\n\n› ${prompt}\n\n• ${answer}\n\n› `;
+  const row = (path = "new", createdAtMs = started, firstUserMessage = prompt, reply = answer) => ({
+    path, createdAtMs, firstUserMessage,
+    text: jsonl(message("user", firstUserMessage), message("assistant", reply, "final_answer")),
+  });
+
+  it("matches a complete first prompt and one answer, including whitespace wrapping", () => {
+    expect(matchCodexFirstExchange(screen, [row()], started)).toBe("new");
+    expect(matchCodexFirstExchange(screen.replace(prompt, "Check\n  fixture"), [row()], started)).toBe("new");
+    expect(matchCodexFirstExchange(screen, [row(), row("old", started - 60_000, "Other fixture", "Different answer")], started)).toBe("new");
+  });
+
+  it("requires exact prompt punctuation and the full answer", () => {
+    for (const shown of [
+      screen.replace(prompt, "Check-fixture"), screen.replace(prompt, "Check fixture again"),
+      screen.replace(answer, "The fixture is ready"), screen.replace(answer, "Ready"),
+    ]) expect(matchCodexFirstExchange(shown, [row()], started)).toBeNull();
+  });
+
+  it("rejects composers, indented quotes, later turns and a missing welcome card", () => {
+    for (const shown of [
+      `OpenAI Codex (v1.0)\n› ${prompt}`,
+      screen.replace(`› ${prompt}`, `    › ${prompt}`),
+      screen.replace(`› ${prompt}`, `• Earlier output\n› ${prompt}`),
+      screen.replace(`› ${prompt}`, `› Earlier prompt\n• Earlier reply\n› ${prompt}`),
+      screen.slice(screen.indexOf("›")),
+      `${screen}\nOpenAI Codex (v1.0)\n› Other fixture`,
+    ]) expect(matchCodexFirstExchange(shown, [row()], started)).toBeNull();
+  });
+
+  it("keeps older later exchanges and longer answers as competing evidence", () => {
+    const old = {
+      ...row("old", started - 60_000, "Original request", "Original reply"),
+      text: jsonl(message("user", "Original request"), message("assistant", "Original reply"),
+        message("user", prompt), message("assistant", answer)),
+    };
+    expect(matchCodexFirstExchange(screen, [row(), old], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [old], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [row(), row("old", started - 60_000, prompt, `${answer} More details.`)], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [row(), row("other")], started)).toBeNull();
+  });
+
+  it("does not admit pre-start timestamps, missing prompt metadata or tiny answers", () => {
+    for (const time of [started - 1, Infinity, NaN]) {
+      expect(matchCodexFirstExchange(screen, [row("new", time)], started)).toBeNull();
+    }
+    for (const time of [Infinity, NaN]) expect(matchCodexFirstExchange(screen, [row()], time)).toBeNull();
+    expect(matchCodexFirstExchange(screen, [{ ...row(), firstUserMessage: "" }], started)).toBeNull();
+    expect(matchCodexFirstExchange(screen.replace(answer, "Ready"), [row("new", started, prompt, "Ready")], started)).toBeNull();
+  });
+});
+
+describe("Codex tool calls that failed, and patches", () => {
+  it("reads a failure from the output Codex records, judging a completed script as a whole", () => {
+    expect(codexCallFailed("Chunk ID: 1\nWall time: 0.0 seconds\nProcess exited with code 1\nOutput:\n")).toBe(true);
+    expect(codexCallFailed("Process exited with code 0\nOutput:\nok")).toBe(false);
+    expect(codexCallFailed('{"output":"boom","metadata":{"exit_code":2}}')).toBe(true);
+    expect(codexCallFailed("Script failed\nError: x")).toBe(true);
+    expect(codexCallFailed("apply_patch verification failed: Failed to find expected lines in /x")).toBe(true);
+    expect(codexCallFailed("Script completed\nProcess exited with code 1")).toBe(false);
+    expect(codexCallFailed("{\"accepted\":true}")).toBe(false);
+  });
+
+  it("marks the failed call and sums a patch up by its files", () => {
+    const patch = "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-x\n+y\n*** End Patch\n";
+    const turns = parseCodexTranscript(jsonl(
+      { type: "response_item", payload: { type: "custom_tool_call", call_id: "p", name: "apply_patch", input: patch } },
+      { type: "response_item", payload: { type: "custom_tool_call_output", call_id: "p", output: "Success. Updated the following files:\nM src/a.ts" } },
+      { type: "response_item", payload: { type: "function_call", call_id: "c", name: "exec_command", arguments: JSON.stringify({ cmd: "false" }) } },
+      { type: "response_item", payload: { type: "function_call_output", call_id: "c", output: "Process exited with code 1\nOutput:\n" } },
+    ));
+    const tools = turns.flatMap((turn) => turn.parts).filter((part) => part.kind === "tool");
+    expect(tools.map((tool) => [tool.summary, tool.error === true])).toEqual([["src/a.ts", false], ["false", true]]);
+  });
+});
+
+describe("incremental Codex records", () => {
+  it("pairs citation-bearing answers across writes and previews without changing earlier snapshots", async () => {
+    const { createCodexTranscriptParser } = await import("./codex.ts");
+    const parser = createCodexTranscriptParser();
+    const text = "Match `<oai-mem-citation>` literally.\nThe answer continues.";
+    parser.write(jsonl(event({ type: "agent_message", message: text })));
+    const earlier = parser.snapshot();
+    const response = jsonl(message("assistant", `${text}\n<oai-mem-citation>internal metadata</oai-mem-citation>`, "final_answer"));
+    const expected: ReturnType<typeof parseCodexTranscript> = [{ role: "assistant", ts, end_ts: ts, parts: [{ kind: "text", text, phase: "final_answer" }] }];
+    expect(parser.snapshot(response)).toEqual(expected);
+    expect(earlier[0]?.parts).toEqual([{ kind: "text", text }]);
+    expect(parser.snapshot()).toEqual(earlier);
+    parser.write(response);
+    expect(parser.snapshot()).toEqual(expected);
+  });
+
+  it("pairs duplicates and tool results across writes without mutating earlier snapshots", async () => {
+    const { createCodexTranscriptParser } = await import("./codex.ts");
+    const parser = createCodexTranscriptParser();
+    const first = jsonl(event({ type: "task_started" }), message("user", "Inspect"), item({ type: "function_call", call_id: "long", name: "exec_command", arguments: '{"cmd":"pwd"}' }));
+    parser.write(first);
+    const previous = parser.snapshot();
+    const previousJSON = JSON.stringify(previous);
+    const second = jsonl(item({ type: "function_call_output", call_id: "long", output: "done" }), event({ type: "agent_message", message: "Finished" }));
+    parser.write(second);
+    const final = jsonl(message("assistant", "Finished", "final_answer"), event({ type: "task_complete" }));
+    expect(parser.snapshot(final)).toEqual(parseCodexTranscript(`${first}\n${second}\n${final}`));
+    expect(JSON.stringify(previous)).toBe(previousJSON);
+    expect(parser.snapshot()).toEqual(parseCodexTranscript(`${first}\n${second}`));
+    parser.write(final);
+    expect(parser.snapshot()).toEqual(parseCodexTranscript(`${first}\n${second}\n${final}`));
+    expect(parser.snapshot().at(-1)?.parts.at(-1)).toMatchObject({ phase: "final_answer", text: "Finished" });
   });
 });

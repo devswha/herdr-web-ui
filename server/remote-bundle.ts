@@ -2,8 +2,6 @@ import { createHash } from "node:crypto";
 import { access, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
-import { shellQuote } from "./machine-security.ts";
-import type { SshConnection } from "./ssh.ts";
 
 export interface BundleManifest {
   version: string;
@@ -11,7 +9,7 @@ export interface BundleManifest {
 }
 interface BundleSourceOptions { manifest?: string; directory?: string }
 export async function bundleManifestSource(platform: string, options: BundleSourceOptions = {}): Promise<string> {
-  if (!/^(linux|darwin)-(x64|arm64)$/.test(platform)) throw new Error(`Unsupported bundle platform: ${platform}`);
+  if (!/^((linux|darwin)-(x64|arm64)|win32-x64)$/.test(platform)) throw new Error(`Unsupported bundle platform: ${platform}`);
   const configured = options.manifest ?? process.env["HERDR_WEB_BUNDLE_MANIFEST"];
   if (configured) return configured;
   // Development installs can distribute locally built runtimes without publishing
@@ -128,14 +126,4 @@ export async function bundleFile(platform: string, signal: AbortSignal, options:
   return { path, sha256: asset.sha256, size: (await stat(path)).size };
 }
 
-export const REMOTE_PATH = 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
-export const BUNDLE_DIR = `.local/share/herdr-web-ui/remote-v${REMOTE_BUNDLE_VERSION}`;
 export type InstallStage = "download" | "upload" | "install";
-export async function installBundle(ssh: SshConnection, platform: string, signal: AbortSignal, options: { cacheDir?: string; onProgress?(stage: InstallStage, done: number, total: number | null): void } = {}): Promise<void> {
-  const report = options.onProgress ?? (() => {});
-  const asset = await bundleFile(platform, signal, { cacheDir: options.cacheDir, onProgress: (done, total) => report("download", done, total) });
-  report("upload", 0, asset.size);
-  // Verify on BOTH hosts, extract into staging and atomically rename. No user-wide
-  // Bun/Node/herdr installation is changed; the complete runtime lives in this dir.
-  await ssh.run(`set -eu; umask 077; base="$HOME/.local/share/herdr-web-ui"; mkdir -p "$base"; mkdir "$base/install.lock" || { printf 'Another installation is in progress; retry shortly\\n' >&2; exit 1; }; tmp=$(mktemp -d "$base/install.XXXXXX"); trap 'rm -rf "$tmp"; rmdir "$base/install.lock"' EXIT HUP INT TERM; cat > "$tmp/bundle.tgz"; if command -v sha256sum >/dev/null; then actual=$(sha256sum "$tmp/bundle.tgz" | cut -d ' ' -f 1); else actual=$(shasum -a 256 "$tmp/bundle.tgz" | cut -d ' ' -f 1); fi; test "$actual" = ${shellQuote(asset.sha256)}; mkdir "$tmp/runtime"; tar xzf "$tmp/bundle.tgz" -C "$tmp/runtime"; test -x "$tmp/runtime/bin/bun"; test -x "$tmp/runtime/bin/node"; test -x "$tmp/runtime/bin/herdr"; "$tmp/runtime/bin/bun" --version; "$tmp/runtime/bin/herdr" --version; "$tmp/runtime/bin/node" "$tmp/runtime/server/pty/smoke.mjs"; release="$HOME/${BUNDLE_DIR}-${asset.sha256.slice(0, 16)}"; if test ! -d "$release"; then mv "$tmp/runtime" "$release"; fi; ln -s "$release" "$tmp/current"; if test -d "$HOME/${BUNDLE_DIR}" && test ! -L "$HOME/${BUNDLE_DIR}"; then mv "$HOME/${BUNDLE_DIR}" "$HOME/${BUNDLE_DIR}-legacy-$(date +%s)"; fi; "$release/bin/bun" -e 'require("node:fs").renameSync(process.argv[1], process.argv[2])' "$tmp/current" "$HOME/${BUNDLE_DIR}"`, { path: asset.path, onProgress: (done) => report("upload", done, asset.size), onUploaded: () => report("install", 0, null) }, 30 * 60_000);
-}

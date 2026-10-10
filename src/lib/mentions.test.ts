@@ -55,3 +55,14 @@ describe("applyCompletion", () => {
     });
   });
 });
+
+describe("$ skills", () => {
+  it("opens where a word starts with $, only when skills are asked for", () => {
+    expect(activeTrigger("use $dee", 8, { skills: true })).toEqual({ kind: "slash", prefix: "$", query: "dee", start: 4, end: 8 });
+    expect(activeTrigger("$", 1, { skills: true })).toEqual({ kind: "slash", prefix: "$", query: "", start: 0, end: 1 });
+    expect(activeTrigger("use $dee", 8)).toBeNull();
+    // a price or a shell variable inside a word is no skill
+    expect(activeTrigger("cost5$x", 7, { skills: true })).toBeNull();
+    expect(applyCompletion("use $dee now", { kind: "slash", prefix: "$", query: "dee", start: 4, end: 8 }, "$deepinit ")).toEqual({ text: "use $deepinit  now", caret: 14 });
+  });
+});

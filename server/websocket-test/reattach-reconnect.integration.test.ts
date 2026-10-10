@@ -26,6 +26,8 @@ function message(socket: WebSocket, diagnostic: string, predicate: (frame: Frame
         const parsed: unknown = JSON.parse(String(event.data));
         if (typeof parsed !== "object" || parsed === null || !("type" in parsed) || typeof parsed.type !== "string") throw new Error("frame has no string type");
         const frame = parsed as Frame;
+        // Upstream announces an attachment's readiness with a broadcast input-ready frame; it is not scenario data.
+        if (frame.type === "input-ready") return;
         if (!predicate(frame)) return;
         cleanup();
         resolvePromise(frame);

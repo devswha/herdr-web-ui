@@ -5,13 +5,15 @@ import { createServer as tcpServer } from "node:net";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { BRIDGE_PROTOCOL, LOCAL_MACHINE, REMOTE_BUNDLE_VERSION, type BridgeIdentity, type Machine, type MachineAction, type MachineEvent, type MachineSettings, type SetupAction, type SetupJob, type SetupProgress, type SetupRequest, type SshTarget } from "../shared/machines.ts";
-import type { ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { ServerMessage, SessionSnapshot, HerdrPane } from "../shared/protocol.ts";
 import type { PushService } from "./push.ts";
+import { alertStatus } from "../shared/notify-policy.ts";
 import type { BridgeDescriptor } from "./bridge.ts";
 import { sessionSnapshot } from "./herdr/client.ts";
 import { labelOmoPanes } from "./conversation.ts";
-import { shellQuote, validateTarget } from "./machine-security.ts";
-import { BUNDLE_DIR, installBundle, REMOTE_PATH } from "./remote-bundle.ts";
+import type { CompletionTracker } from "./completion.ts";
+import { validateTarget } from "./machine-security.ts";
+import { detectHost, HERDR_INSTALL_CMD } from "./remote-host.ts";
 import { SshConnection } from "./ssh.ts";
 
 interface StoredMachine { id: string; name: string; target: SshTarget; enabled: boolean; snapshot?: SessionSnapshot | null }
@@ -26,7 +28,11 @@ interface Runtime {
   attempts: number;
   generation: number;
   refreshing: boolean;
+  refreshQueued: boolean;
+  snapshotRevision: number;
   terminals: Set<() => void>;
+  /** the user cancelled this PC's bridge update: it is not started again on its own until the PC connects */
+  updateCancelled?: boolean;
 }
 interface JobState {
   update: boolean;
@@ -44,6 +50,23 @@ interface JobState {
 }
 const DEFAULT_SETTINGS: MachineSettings = { auto_update_bridges: true };
 
+/** The step a job shows between an approve/answer and the next stage() the setup reaches. */
+export function actionStep(action: "approve" | "answer"): string {
+  return action === "approve" ? "Installing on this PC…" : "Connecting with SSH keys and ssh-agent…";
+}
+
+/**
+ * Why a bridge refused verification, read from its error envelope. Only the code is trusted:
+ * the bridge's own message carries paths of that PC and is never shown.
+ */
+function verificationFailure(status: number, body: unknown): string {
+  const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+  // a bridge older than `socket_missing` answers a missing socket with 500 internal_error and stat's ENOENT
+  if (error?.code === "socket_missing" || error?.code === "internal_error" && typeof error.message === "string" && error.message.startsWith("ENOENT")) return "herdr is not running for this session on the PC (its socket is missing). Start herdr there, then reconnect.";
+  if (error?.code === "connect_failed") return "herdr is not answering on the PC (its socket is there, but nothing listens). Restart herdr there, then reconnect.";
+  return `Bridge verification failed (${status}). Reconnect after checking the remote bridge.`;
+}
+
 async function freePort(): Promise<number> {
   const server = tcpServer();
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
@@ -52,9 +75,66 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+/** A bundle newer than this app's: never this app's to replace, whichever app started it. */
+function newerBundle(version: unknown): boolean {
+  return typeof version === "string" && /^\d+$/.test(version) && Number(version) > Number(REMOTE_BUNDLE_VERSION);
+}
+/**
+ * ssh's refusals: the PC answered, and only a password or a new host key gets past them. The
+ * remote denial reads "user@host: Permission denied (publickey,…)."; a local key file ssh cannot
+ * read ("Identity file … not accessible: Permission denied.") is only a warning before it connects.
+ */
+const SSH_REFUSED = /Permission denied \(|Host key verification failed|IDENTIFICATION HAS CHANGED|Too many authentication failures/i;
+const newerBridge = (version: string): string => `This PC uses a newer bridge (v${version}); this app requires v${REMOTE_BUNDLE_VERSION}. Update this app, then reconnect. The remote bridge was left running.`;
+const INDEPENDENT_BRIDGE = "This socket uses an independently managed web server. Update it through its own Settings, then reconnect; it was left running.";
+
 /** A connection that retrying cannot fix: the PC waits for the user instead of reconnecting. */
 export class MachineActionRequired extends Error {
   constructor(message: string, readonly action: MachineAction) { super(message); }
+}
+
+
+/**
+ * Which agent each pane runs, as a status collector heard it, and whether a report of it is news:
+ * an agent named anew, or another one. A pane first heard of as a shell is not: the roster's own
+ * read of it showed as much. The roster is read on a timer and patched by status frames, which
+ * name no agent, so news is the one cue to read it again at once (#537, #555).
+ */
+export class AgentNews {
+  private heard = new Map<string, string | null>();
+  hear(panes: readonly Pick<HerdrPane, "pane_id" | "agent">[]): boolean {
+    let news = false;
+    for (const pane of panes) {
+      const agent = pane.agent ?? null;
+      const before = this.heard.get(pane.pane_id);
+      this.heard.set(pane.pane_id, agent);
+      if (before !== agent && !(before === undefined && agent === null)) news = true;
+    }
+    return news;
+  }
+  /** a pane that ended: its id used again is a pane heard of for the first time */
+  forget(paneId: string): void { this.heard.delete(paneId); }
+  /** only the panes a roster still lists */
+  keepOnly(panes: readonly Pick<HerdrPane, "pane_id">[]): void {
+    const open = new Set(panes.map((pane) => pane.pane_id));
+    for (const paneId of [...this.heard.keys()]) if (!open.has(paneId)) this.heard.delete(paneId);
+  }
+}
+
+/**
+ * A bridge's part (createServer without `machines`): its connection server reads this PC's roster
+ * again on every pane-status, pane-exited and session-changed frame (MachineManager.observe), so an
+ * agent named in a status event reaches it with that event's frame. An agent first seen in a
+ * snapshot the status collector reconciles from has no frame behind it: `tell` sends one (#555).
+ * A reconcile leaves out panes heard of since its snapshot was asked for, so it never prunes.
+ */
+export function bridgeAgentNews(tell: () => void) {
+  const news = new AgentNews();
+  return {
+    status(panes: readonly Pick<HerdrPane, "pane_id" | "agent">[]): void { news.hear(panes); },
+    reconciled(panes: readonly Pick<HerdrPane, "pane_id" | "agent">[]): void { if (news.hear(panes)) tell(); },
+    ended(paneId: string): void { news.forget(paneId); },
+  };
 }
 
 export class MachineManager {
@@ -63,6 +143,10 @@ export class MachineManager {
   private listeners = new Set<(event: MachineEvent) => void>();
   private stopped = false;
   private localBusy = false;
+  private localRefreshQueued = false;
+  private localRevision = 0;
+  /** each local pane's agent as herdr last named it to the status collector */
+  private heardAgents = new AgentNews();
   private localTimer: ReturnType<typeof setInterval>;
   private saveTimer?: ReturnType<typeof setTimeout>;
   private statePath: string;
@@ -75,7 +159,7 @@ export class MachineManager {
   private autoQueued = new Set<string>();
   private emitTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(readonly stateDir: string, private push: PushService) {
+  constructor(readonly stateDir: string, private push: PushService, private completions: CompletionTracker, private readLocal: () => Promise<SessionSnapshot> = () => this.completions.readSnapshot(sessionSnapshot, labelOmoPanes)) {
     this.statePath = join(stateDir, "machines.json");
     this.sshDir = join(stateDir, "ssh");
     this.settingsPath = join(stateDir, "machine-settings.json");
@@ -98,7 +182,7 @@ export class MachineManager {
     this.localTimer = setInterval(() => void this.refreshLocal(), 5000);
     this.localTimer.unref();
   }
-  private runtime(machine: Machine): Runtime { return { machine, attempts: 0, generation: 0, refreshing: false, terminals: new Set() }; }
+  private runtime(machine: Machine): Runtime { return { machine, attempts: 0, generation: 0, refreshing: false, refreshQueued: false, snapshotRevision: 0, terminals: new Set() }; }
   list(): Machine[] { return [this.local, ...[...this.machines.values()].map((r) => r.machine)]; }
   subscribe(listener: (event: MachineEvent) => void): () => void {
     this.listeners.add(listener);
@@ -110,18 +194,52 @@ export class MachineManager {
     for (const listener of this.listeners) listener(event ?? { type: "machines", machines: this.list() });
   }
   localMessage(message: ServerMessage): void {
+    if (["pane-status", "session-changed", "pane-exited"].includes(message.type)) {
+      this.localRevision++;
+      if (this.localBusy) this.localRefreshQueued = true;
+    }
     this.emit({ type: "machine-message", machine_id: LOCAL_MACHINE, message });
+    // its id used again is a pane heard of for the first time
+    if (message.type === "pane-exited") this.heardAgents.forget(message.pane_id);
     if (message.type === "pane-status" && this.local.snapshot) {
-      this.local.snapshot = { ...this.local.snapshot, panes: this.local.snapshot.panes.map((p) => p.pane_id === message.pane_id ? { ...p, agent_status: message.agent_status } : p) };
+      this.local.snapshot = { ...this.local.snapshot, panes: this.local.snapshot.panes.map((p: HerdrPane) => p.pane_id === message.pane_id ? paneAfterStatus(p, message) : p) };
     }
     if (message.type === "session-changed" || message.type === "pane-exited") void this.refreshLocal();
   }
+  /**
+   * Which agent local panes run, as the status collector heard it: in an event (that pane), or
+   * in the snapshot it reconciles from. The roster is read on a timer and patched by status
+   * frames, which name no agent, so an agent herdr names anew would show up to 5 s late. A page
+   * that opens the pane meanwhile takes it for a shell: it opens the terminal lens, and attaching
+   * there fits the shared grid to that page. Read again now.
+   */
+  localAgents(panes: readonly Pick<HerdrPane, "pane_id" | "agent">[]): void {
+    if (this.heardAgents.hear(panes)) void this.refreshLocal();
+  }
   async refreshLocal(): Promise<void> {
-    if (this.localBusy || this.stopped) return;
+    if (this.stopped) return;
+    if (this.localBusy) { this.localRefreshQueued = true; return; }
     this.localBusy = true;
-    try { this.local.snapshot = await labelOmoPanes(await sessionSnapshot()); this.local.state = "connected"; this.local.error = null; }
-    catch (e) { this.local.state = "error"; this.local.error = String(e instanceof Error ? e.message : e); }
-    finally { this.localBusy = false; this.emit(); }
+    try {
+      do {
+        this.localRefreshQueued = false;
+        const revision = this.localRevision;
+        try {
+          const snapshot = await this.readLocal();
+          if (this.stopped) break;
+          // A newer event already patched the roster. Never publish this older load.
+          if (revision !== this.localRevision) { this.localRefreshQueued = true; continue; }
+          this.local.snapshot = snapshot; this.local.state = "connected"; this.local.error = null;
+          // a pane the roster no longer lists is gone: the same id later is a pane heard of anew
+          this.heardAgents.keepOnly(snapshot.panes);
+        } catch (e) {
+          if (this.stopped) break;
+          if (revision !== this.localRevision) { this.localRefreshQueued = true; continue; }
+          this.local.state = "error"; this.local.error = String(e instanceof Error ? e.message : e);
+        }
+        this.emit();
+      } while (this.localRefreshQueued && !this.stopped);
+    } finally { this.localBusy = false; }
   }
   private saveSoon(): void {
     if (this.saveTimer || this.stopped) return;
@@ -153,9 +271,11 @@ export class MachineManager {
    * and SSH uses the PC's saved key only. A PC that needs a password fails with the reason,
    * and its dialog stays the way in.
    */
-  updateBridge(id: string): SetupJob {
+  updateBridge(id: string, scheduled = false): SetupJob {
     const runtime = this.machines.get(id);
     if (!runtime) throw new Error("PC not found");
+    // the user's own Update bridge takes back an earlier Cancel; a scheduled one does not
+    if (!scheduled) runtime.updateCancelled = false;
     return this.setup({ ...runtime.machine.target!, machine_id: id, update_remote: true }, { auto: true });
   }
   setup(request: SetupRequest, options: { auto?: boolean } = {}): SetupJob {
@@ -169,8 +289,9 @@ export class MachineManager {
     const id = randomUUID();
     const machineId = existing?.machine.id ?? randomUUID();
     const auto = options.auto === true && request.update_remote === true && !!existing;
-    const job: JobState = { update: request.update_remote === true, auto, public: { id, machine_id: machineId, target, phase: "connecting", step: "Connecting with SSH keys and ssh-agent…", challenge: null, installations: [], error: null, progress: null }, abort: new AbortController(), timer: setTimeout(() => this.cancelJob(id), 600_000), stageStartedAt: Date.now(), finished: Promise.resolve() };
+    const job: JobState = { update: request.update_remote === true, auto, public: { id, machine_id: machineId, target, phase: "connecting", step: "Connecting with SSH keys and ssh-agent…", challenge: null, installations: [], error: null, ssh_output: null, progress: null }, abort: new AbortController(), timer: setTimeout(() => this.cancelJob(id), 600_000), stageStartedAt: Date.now(), finished: Promise.resolve() };
     if (job.update && existing) job.runtime = existing;
+    if (job.update && existing && !auto) existing.updateCancelled = false;
     job.timer.unref();
     this.jobs.set(id, job);
     if (this.jobs.size > 40) for (const [key, j] of this.jobs) if (["connected", "failed", "cancelled"].includes(j.public.phase) && key !== id) { this.jobs.delete(key); break; }
@@ -183,6 +304,9 @@ export class MachineManager {
     runtime.abort = job.abort;
     const generation = ++runtime.generation;
     this.showUpdate(job);
+    // ssh's own words reach the dialog while it waits, not only in the error it ends with
+    ssh.onOutput = (text) => { if (job.public.phase === "connecting" || job.public.phase === "authentication") job.public.ssh_output = text || null; };
+    let reached = false;
     job.finished = (async () => {
       try {
         // an automatic update never asks: a PC that needs a password says so and waits
@@ -192,6 +316,7 @@ export class MachineManager {
           job.public.step = host ? "Verify the server fingerprint" : "SSH authentication required";
           return this.wait(job);
         });
+        reached = true;
         this.stage(job, "checking", "Checking the remote environment…");
         await this.prepare(runtime, job);
         if (job.abort.signal.aborted || runtime.generation !== generation || this.stopped) throw new Error("Setup cancelled");
@@ -203,17 +328,33 @@ export class MachineManager {
         this.emit();
       } catch (e) {
         const ownsRuntime = runtime.generation === generation;
+        const error = e instanceof Error ? e.message : String(e);
+        // an update of a registered PC that could not reach it (switched off, asleep, off the
+        // network, or gone in the middle) learned nothing about its bridge: the PC waits as
+        // offline, and the version check runs again once it answers. Read before disconnect
+        // closes the connection.
+        const unreachable = ownsRuntime && job.update && !!existing && !(e instanceof MachineActionRequired) && (reached ? !ssh.connected() : !SSH_REFUSED.test(error));
         if (ownsRuntime) this.disconnect(runtime);
-        if (job.public.phase !== "cancelled") {
+        // a cancelled update (its Cancel, a closed dialog, the setup's time limit) says nothing
+        // about the bridge either: the PC tries again on its own, and only a version check on a PC
+        // that answers asks for the update again, without starting the cancelled one by itself
+        if (job.public.phase === "cancelled") {
+          if (ownsRuntime && job.update && existing && runtime.machine.enabled && !this.stopped) { runtime.machine.error = null; runtime.machine.action_required = null; runtime.updateCancelled = true; this.retryLater(runtime); }
+        } else {
           job.public.phase = "failed"; job.public.step = "Connection failed";
-          job.public.error = e instanceof Error ? e.message : String(e);
-          // a failed bridge update keeps its button: the bridge is still out of date, and the
-          // error says why this attempt failed (no network, a password needed, …)
-          if (ownsRuntime) { runtime.machine.state = "error"; runtime.machine.error = job.public.error; runtime.machine.action_required = e instanceof MachineActionRequired ? e.action : job.update && existing ? "update_bridge" : null; }
+          job.public.error = error;
+          if (ownsRuntime && unreachable && runtime.machine.enabled) { runtime.machine.error = error; runtime.machine.action_required = null; this.retryLater(runtime); }
+          // a failed bridge update on a PC that answered keeps its button: the bridge is still
+          // out of date, and the error says why this attempt failed (a password needed, …)
+          else if (ownsRuntime) { runtime.machine.state = "error"; runtime.machine.error = error; runtime.machine.action_required = e instanceof MachineActionRequired ? e.action : job.update && existing ? "update_bridge" : null; }
+          // the dialog reads the job, not the PC: a first connect that failed on the version
+          // check has no machine to carry action_required, and an interrupted update keeps
+          // offering itself even when the PC was never registered
+          job.public.action_required = e instanceof MachineActionRequired ? e.action : job.update ? "update_bridge" : null;
           this.emit();
         }
       } finally {
-        clearTimeout(job.timer); job.public.challenge = null; job.pending = undefined; job.ssh = undefined;
+        clearTimeout(job.timer); job.public.challenge = null; job.public.ssh_output = null; job.pending = undefined; job.ssh = undefined;
         if (job.runtime) { job.runtime.machine.updating = null; this.emit(); }
       }
     })();
@@ -221,10 +362,12 @@ export class MachineManager {
   }
   private stage(job: JobState, phase: SetupJob["phase"], step: string): void {
     if (job.abort.signal.aborted) throw new Error("Setup cancelled");
-    job.public.phase = phase; job.public.step = step; job.public.challenge = null;
+    job.public.phase = phase; job.public.step = step; job.public.challenge = null; job.public.ssh_output = null;
     // approved: from here on the install's own timeouts apply, not the setup's 10 minutes
     if (phase === "installing") clearTimeout(job.timer);
-    if (phase === "starting") this.progress(job, "restart", 0, null);
+    // byte progress belongs to the stage that reported it: a step without its own bytes (the SSH
+    // key registration after a bundle install, a first bridge start) shows its own text instead
+    job.public.progress = null;
     this.showUpdate(job);
   }
   /** A stage's bytes so far; a new stage restarts the clock its rate is measured on. */
@@ -260,13 +403,16 @@ export class MachineManager {
     } else throw new Error("Unknown setup action");
     const pending = job.pending;
     job.pending = undefined; job.public.challenge = null;
+    // the step moves with the phase right here: the response to this request is serialized
+    // before prepare resumes, and must not still carry the question that was just answered
     job.public.phase = action.action === "approve" ? "installing" : "connecting";
+    job.public.step = actionStep(action.action);
     pending.resolve(action.action === "answer" ? action.answer : "approved");
   }
   private cancelJob(id: string): void {
     const job = this.jobs.get(id);
     if (!job || ["connected", "failed", "cancelled"].includes(job.public.phase)) return;
-    job.public.phase = "cancelled"; job.public.step = "Cancelled"; job.public.challenge = null;
+    job.public.phase = "cancelled"; job.public.step = "Cancelled"; job.public.challenge = null; job.public.ssh_output = null;
     job.abort.abort(); job.pending?.reject(new Error("Setup cancelled")); job.pending = undefined;
     job.ssh?.close(); clearTimeout(job.timer);
   }
@@ -274,35 +420,51 @@ export class MachineManager {
     const generation = runtime.generation;
     const ssh = runtime.ssh!;
     const session = runtime.machine.target!.session;
-    const inspection = await ssh.run(REMOTE_PATH + `printf '%s\\n' "$(uname -s)" "$(uname -m)" "$(cd -P "$HOME" && pwd -P)" "\${XDG_CONFIG_HOME:-$HOME/.config}" "$(command -v herdr || true)"; test -x "$HOME/${BUNDLE_DIR}/bin/bun" && printf 'bundle-ready\\n' || true; for d in "$HOME/.local/share/herdr-web-ui/remote-v"*; do if test -x "$d/bin/bun"; then printf 'bundle-older\\n'; break; fi; done; for f in "$HOME/.config/herdr-web-ui/bridges/"*.json; do test ! -f "$f" || cat "$f"; printf '\\n'; done`);
-    const [os, arch, home, xdgConfig, herdrPath, ...lines] = inspection.split("\n");
-    if (!home?.startsWith("/") || !["Linux", "Darwin"].includes(os ?? "") || !["x86_64", "aarch64", "arm64"].includes(arch ?? "")) throw new Error("Only Linux/macOS x64 and arm64 PCs are supported");
-    const platform = `${os === "Darwin" ? "darwin" : "linux"}-${arch === "x86_64" ? "x64" : "arm64"}`;
+    const { host, inspection } = await detectHost(ssh, session);
+    const { platform, expectedSocket } = inspection;
+    let { herdrPath } = inspection;
     if (herdrPath) {
-      const version = await ssh.run(`${shellQuote(herdrPath)} --version`);
+      const version = await host.herdrVersion(ssh, herdrPath);
       const match = /herdr (\d+)\.(\d+)\.(\d+)/.exec(version);
       if (!match || Number(match[1]) === 0 && Number(match[2]) < 9) throw new Error("The installed herdr is incompatible. Update it explicitly to 0.9+ before connecting; it was left unchanged.");
     }
-    // the same XDG_CONFIG_HOME rule remote-entry.ts and herdr itself follow
-    const herdrConfig = `${xdgConfig?.startsWith("/") ? xdgConfig : `${home}/.config`}/herdr`;
-    const nominalSocket = session ? `${herdrConfig}/sessions/${session}/herdr.sock` : `${herdrConfig}/herdr.sock`;
-    const expectedSocket = await ssh.run(`socket=${shellQuote(nominalSocket)}; if test -d "\${socket%/*}"; then cd -P "\${socket%/*}" && printf '%s/herdr.sock' "$PWD"; else printf '%s' "$socket"; fi`);
-    const descriptors: BridgeDescriptor[] = lines.flatMap((line) => { try { const d = JSON.parse(line); return d.socket_path === expectedSocket ? [d] : []; } catch { return []; } });
-    let descriptor = descriptors.find((d) => d.bridge_protocol === BRIDGE_PROTOCOL && d.bundle_version === REMOTE_BUNDLE_VERSION);
-    if (job?.update && !descriptor) descriptor = descriptors[0];
-    if (descriptors.length && !descriptor) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    const descriptors = inspection.descriptors.filter((d) => d.socket_path === expectedSocket);
+    let descriptor = descriptors.find((d) => d.bridge_protocol === BRIDGE_PROTOCOL && d.bundle_version === REMOTE_BUNDLE_VERSION) ?? descriptors[0];
+    // a descriptor whose bridge is gone (a crash, a reboot, a Windows kill): the next bridge
+    // replaces it, but until then it is still the first one listed
+    let stalePid: number | null = null;
     if (descriptor) {
       if (!Number.isInteger(descriptor.pid) || descriptor.pid < 1) throw new Error("Invalid bridge process identity");
-      const live = await ssh.run(`kill -0 ${descriptor.pid} 2>/dev/null && printf live || true`);
-      if (live !== "live") descriptor = undefined;
+      if (!(await host.alive(ssh, descriptor.pid))) { stalePid = descriptor.pid; descriptor = undefined; }
     }
-    const hasBundle = lines.includes("bundle-ready");
+    // Update is idempotent: another app may have finished it while this dialog was open.
+    // Prove the live endpoint is compatible; a descriptor or installed directory alone is not enough.
+    let update = job?.update === true;
+    let currentBridge: Awaited<ReturnType<MachineManager["verify"]>> | undefined;
+    if (descriptor && update && descriptor.bridge_protocol === BRIDGE_PROTOCOL && descriptor.bundle_version === REMOTE_BUNDLE_VERSION) {
+      try { currentBridge = await this.verify(ssh, descriptor, expectedSocket); }
+      catch (error) {
+        if (error instanceof MachineActionRequired && error.action === "update_bridge") {
+          throw new MachineActionRequired("The running bridge is incompatible with this app. Another app may have reconnected with a different version. Update or disconnect the other app, then reconnect here. The remote bridge was left running.", "bridge_conflict");
+        }
+        throw error;
+      }
+      update = false;
+    }
+    // an independently managed web server is not this app's to update or to wait for: it keeps
+    // its own message below, whatever its version
+    if (descriptor && descriptor.managed_remote && newerBundle(descriptor.bundle_version)) throw new MachineActionRequired(newerBridge(descriptor.bundle_version), "bridge_conflict");
+    if (descriptor && (update || descriptor.bridge_protocol !== BRIDGE_PROTOCOL || descriptor.bundle_version !== REMOTE_BUNDLE_VERSION)) {
+      if (!descriptor.managed_remote) throw new MachineActionRequired(INDEPENDENT_BRIDGE, "setup");
+      if (!update) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    }
+    const hasBundle = inspection.bundleReady;
     // a runtime from another bundle version and no bridge running (the PC rebooted since): an update
-    if (!descriptor && !hasBundle && lines.includes("bundle-older") && !job) throw new MachineActionRequired("This PC has the bridge runtime of a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    if (!descriptor && !hasBundle && inspection.bundleOlder && !job) throw new MachineActionRequired("This PC has the bridge runtime of a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
     const installs: string[] = [];
-    if (job?.update) installs.push("Download and verify the bridge runtime, then restart this bridge (herdr sessions keep running)");
-    if (!descriptor && !hasBundle) installs.push("Private web bridge bundle (Bun, Node and node-pty; no build tools needed)");
-    if (!descriptor && !herdrPath) installs.push("Bundled herdr 0.9.1 (existing installations are preserved)");
+    if (update) installs.push("Download and verify the bridge runtime, then restart this bridge (herdr sessions keep running)");
+    if (!descriptor && !hasBundle) installs.push(host.bundleDescription);
+    if (!descriptor && !herdrPath) installs.push(host.installHerdr ? `herdr 0.9.3 through its own installer (${HERDR_INSTALL_CMD})` : "Bundled herdr 0.9.3 (existing installations are preserved)");
     if (!descriptor && job) installs.push("Start the loopback bridge and, only if absent, the herdr daemon");
     if (ssh.usedSecret) installs.push("Register a dedicated SSH public key for automatic reconnection");
     if (installs.length) {
@@ -313,7 +475,8 @@ export class MachineManager {
         this.stage(job, "approval", "Review the changes on this PC");
         await this.wait(job);
       }
-      if (job.update || !descriptor && !hasBundle) { this.stage(job, "installing", `Installing verified ${platform} bundle…`); await installBundle(ssh, platform, job.abort.signal, { cacheDir: join(this.stateDir, "bundles"), onProgress: (stage, done, total) => this.progress(job, stage, done, total) }); }
+      if (update || !descriptor && !hasBundle) { this.stage(job, "installing", `Installing verified ${platform} bundle…`); await host.installBundle(ssh, platform, job.abort.signal, { cacheDir: join(this.stateDir, "bundles"), onProgress: (stage, done, total) => this.progress(job, stage, done, total) }); }
+      if (!descriptor && !herdrPath && host.installHerdr) { this.stage(job, "installing", "Installing herdr with its own installer…"); herdrPath = await host.installHerdr(ssh); }
       if (ssh.usedSecret) {
         this.stage(job, "installing", "Registering the app SSH key…");
         const path = join(this.sshDir, runtime.machine.id);
@@ -323,48 +486,67 @@ export class MachineManager {
         }
         chmodSync(path, 0o600);
         const publicKey = readFileSync(path + ".pub", "utf8").trim();
-        await ssh.run(`set -eu; umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; key=${shellQuote("no-agent-forwarding,no-X11-forwarding,no-pty " + publicKey)}; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf '\\n%s\\n' "$key" >> "$HOME/.ssh/authorized_keys"; chmod 600 "$HOME/.ssh/authorized_keys"`);
+        await host.authorizeKey(ssh, "no-agent-forwarding,no-X11-forwarding,no-pty " + publicKey);
         // A separate master proves the new key actually works without a password.
         const proof = new SshConnection({ ...runtime.machine.target!, identity_file: path }, this.sshDir, path, true);
-        try { await proof.start(); await proof.run("true"); } finally { proof.close(); }
+        try { await proof.start(); await (host.kind === "windows" ? proof.runPowerShell("Write-Output ok") : proof.run("true")); } finally { proof.close(); }
       }
     }
-    if (job?.update && descriptor) {
+    if (update && job && descriptor) {
       if (!descriptor.managed_remote) throw new Error("This socket uses an independently managed web server. Update it through its own Settings; it was left running.");
       const verified = await this.verify(ssh, descriptor, expectedSocket, true);
-      if (!verified.identity.managed_remote || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
+      if (verified.identity.managed_remote !== true || verified.identity.pid !== descriptor.pid) throw new Error("Bridge process verification failed; no process was stopped");
+      // the descriptor was checked above; the version the running bridge itself answers decides
+      if (newerBundle(verified.identity.bundle_version)) throw new MachineActionRequired(newerBridge(verified.identity.bundle_version), "bridge_conflict");
+      if (job.abort.signal.aborted || runtime.generation !== generation || this.stopped) throw new Error("Setup cancelled");
       this.stage(job, "starting", "Restarting the verified remote bridge…");
-      await ssh.run(`kill -TERM ${descriptor.pid}`);
-      await Bun.sleep(2500);
+      this.progress(job, "restart", 0, null);
+      await host.stop(ssh, descriptor.pid);
+      // Wait for this verified process to leave; its descriptor may remain after a crash.
+      const deadline = Date.now() + 10_000;
+      while (await host.alive(ssh, descriptor.pid)) {
+        if (job.abort.signal.aborted || this.stopped) throw new Error("Setup cancelled");
+        if (Date.now() >= deadline) throw new Error("The old bridge did not stop; retry the update after checking it on the PC");
+        await Bun.sleep(100);
+      }
+      stalePid = descriptor.pid;
       descriptor = undefined;
     }
     if (!descriptor) {
+      if (job?.abort.signal.aborted || runtime.generation !== generation || this.stopped) throw new Error("Setup cancelled");
       if (job) this.stage(job, "starting", "Starting the remote bridge…");
-      await ssh.run(REMOTE_PATH + `umask 077; mkdir -p "$HOME/.config/herdr-web-ui/bridges"; HERDR_REMOTE_SESSION=${shellQuote(session ?? "")} HERDR_WEB_HERDR_BIN=${shellQuote(herdrPath || `${home}/${BUNDLE_DIR}/bin/herdr`)} nohup "$HOME/${BUNDLE_DIR}/bin/bun" "$HOME/${BUNDLE_DIR}/server/remote-entry.ts" </dev/null >>"$HOME/.config/herdr-web-ui/bridges/bridge.log" 2>&1 &`);
+      await host.start(ssh, { session, herdrPath, inspection });
       for (let i = 0; i < 40; i++) {
         if (job?.abort.signal.aborted || this.stopped) throw new Error("Setup cancelled");
-        const out = await ssh.run(`for f in "$HOME/.config/herdr-web-ui/bridges/"*.json; do test ! -f "$f" || cat "$f"; printf '\\n'; done`);
-        descriptor = out.split("\n").flatMap((line) => { try { const d = JSON.parse(line); return d.socket_path === expectedSocket ? [d] : []; } catch { return []; } })[0];
+        descriptor = (await host.descriptors(ssh)).find((d) => d.socket_path === expectedSocket && d.pid !== stalePid);
         if (descriptor) break;
         await Bun.sleep(250);
       }
-      if (!descriptor) throw new Error("Bridge did not start. Check ~/.config/herdr-web-ui/bridges/bridge.log on the PC.");
+      if (!descriptor) throw new Error(`Bridge did not start. Check ${host.logHint} on the PC.`);
     }
-    const verified = await this.verify(ssh, descriptor, expectedSocket);
+    const verified = currentBridge ?? await this.verify(ssh, descriptor, expectedSocket);
     if (runtime.generation !== generation || this.stopped || job?.abort.signal.aborted) throw new Error("Setup cancelled");
     runtime.endpoint = verified.endpoint;
     runtime.machine.herdr = verified.identity.herdr;
   }
-  private async verify(ssh: SshConnection, descriptor: BridgeDescriptor, expectedSocket: string, allowOldBundle = false): Promise<{ endpoint: { url: string; token: string }; identity: BridgeIdentity }> {
+  private async verify(ssh: SshConnection, descriptor: BridgeDescriptor, expectedSocket: string, forReplacement = false): Promise<{ endpoint: { url: string; token: string }; identity: BridgeIdentity }> {
     if (!Number.isInteger(descriptor.port) || descriptor.port < 1 || descriptor.port > 65535 || typeof descriptor.token !== "string" || !/^[a-f0-9]{64}$/.test(descriptor.token)) throw new Error("Invalid bridge credentials");
     const port = await freePort();
     await ssh.forward(port, descriptor.port);
     const endpoint = { url: `http://127.0.0.1:${port}`, token: descriptor.token };
     const response = await fetch(`${endpoint.url}/api/bridge`, { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(`Bridge verification failed (${response.status}). Reconnect after checking the remote bridge.`);
+    if (!response.ok) throw new Error(verificationFailure(response.status, await response.json().catch(() => null)));
     const identity: BridgeIdentity = await response.json();
-    if (identity.bridge_protocol !== BRIDGE_PROTOCOL || !allowOldBundle && identity.bundle_version !== REMOTE_BUNDLE_VERSION) throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
-    if (identity.socket_path !== expectedSocket || !identity.socket_id || identity.herdr.protocol < 22) throw new Error("Remote bridge/socket is incompatible; update it explicitly");
+    // An approved replacement only reads this stable identity endpoint. It never uses the
+    // old bridge's pane protocol; the new bridge must pass the strict version check below.
+    if (!forReplacement && (identity.bridge_protocol !== BRIDGE_PROTOCOL || identity.bundle_version !== REMOTE_BUNDLE_VERSION)) {
+      // what runs decides, not its descriptor: a server this app does not manage, or a newer
+      // bridge, is not something an update from here can fix
+      if (identity.managed_remote === false) throw new MachineActionRequired(INDEPENDENT_BRIDGE, "setup");
+      if (newerBundle(identity.bundle_version)) throw new MachineActionRequired(newerBridge(identity.bundle_version), "bridge_conflict");
+      throw new MachineActionRequired("This PC runs a bridge from a different version. Update the bridge to reconnect; herdr sessions keep running.", "update_bridge");
+    }
+    if (identity.socket_path !== expectedSocket || typeof identity.socket_id !== "string" || !identity.socket_id || !Number.isInteger(identity.herdr?.protocol) || identity.herdr.protocol < 22) throw new Error("Remote bridge/socket is incompatible; update it explicitly");
     return { endpoint, identity };
   }
   endpoint(id: string): { url: string; token: string } | undefined {
@@ -377,26 +559,46 @@ export class MachineManager {
     return () => runtime?.terminals.delete(close);
   }
   private async refresh(runtime: Runtime): Promise<void> {
-    if (!runtime.endpoint || runtime.refreshing) return;
+    if (!runtime.endpoint || this.stopped) return;
+    if (runtime.refreshing) { runtime.refreshQueued = true; return; }
     runtime.refreshing = true;
     const endpoint = runtime.endpoint;
     const generation = runtime.generation;
     try {
-      const r = await fetch(endpoint.url + "/api/session", { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.timeout(15_000) });
-      if (!r.ok) throw new Error(`Remote herdr unavailable (${r.status})`);
-      const { snapshot } = await r.json() as { snapshot: SessionSnapshot };
-      if (generation !== runtime.generation || this.stopped) return;
-      runtime.machine.snapshot = snapshot; runtime.machine.error = null;
-      this.saveSoon();
-      this.push.seed(snapshot.panes, runtime.machine.id, runtime.machine.name);
-      this.emit();
-    } finally { runtime.refreshing = false; }
+      do {
+        runtime.refreshQueued = false;
+        const revision = runtime.snapshotRevision;
+        try {
+          const r = await fetch(endpoint.url + "/api/session", { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.timeout(15_000) });
+          if (!r.ok) throw new Error(`Remote herdr unavailable (${r.status})`);
+          const { snapshot } = await r.json() as { snapshot: SessionSnapshot };
+          if (generation !== runtime.generation || this.stopped) return;
+          if (revision !== runtime.snapshotRevision) { runtime.refreshQueued = true; continue; }
+          runtime.machine.snapshot = snapshot; runtime.machine.error = null;
+          this.saveSoon();
+          this.push.seed(forAlerts(snapshot.panes), runtime.machine.id, runtime.machine.name);
+          this.emit();
+        } catch (e) {
+          if (generation !== runtime.generation || this.stopped) return;
+          if (revision !== runtime.snapshotRevision) { runtime.refreshQueued = true; continue; }
+          throw e;
+        }
+      } while (runtime.refreshQueued && generation === runtime.generation && !this.stopped);
+    } finally {
+      runtime.refreshing = false;
+      // A reconnect can request its first load while the old connection is still
+      // finishing. Start that queued load with the new generation's error handler.
+      if (runtime.refreshQueued && generation !== runtime.generation && runtime.endpoint && !this.stopped) {
+        const nextGeneration = runtime.generation;
+        void this.refresh(runtime).catch((e) => this.lost(runtime, nextGeneration, e));
+      }
+    }
   }
   private async observe(runtime: Runtime): Promise<void> {
     const generation = runtime.generation;
     await this.refresh(runtime);
     if (generation !== runtime.generation || this.stopped) throw new Error("Connection cancelled");
-    runtime.machine.state = "connected"; runtime.machine.action_required = null; runtime.attempts = 0;
+    runtime.machine.state = "connected"; runtime.machine.action_required = null; runtime.attempts = 0; runtime.updateCancelled = false;
     const endpoint = runtime.endpoint!;
     const ws = authenticatedWebSocket(endpoint.url.replace("http:", "ws:") + "/ws", endpoint.token);
     runtime.observer = ws;
@@ -405,10 +607,11 @@ export class MachineManager {
       if (generation !== runtime.generation || this.stopped) return;
       let message: ServerMessage;
       try { message = JSON.parse(String(event.data)); } catch { return; }
-      if (message.type === "snapshot") { runtime.machine.snapshot = message.snapshot; this.push.seed(message.snapshot.panes, runtime.machine.id, runtime.machine.name); this.emit(); }
+      if (["snapshot", "pane-status", "pane-exited", "session-changed"].includes(message.type)) runtime.snapshotRevision++;
+      if (message.type === "snapshot") { runtime.machine.snapshot = message.snapshot; this.push.seed(forAlerts(message.snapshot.panes), runtime.machine.id, runtime.machine.name); this.emit(); }
       if (message.type === "pane-status") {
-        if (runtime.machine.snapshot) runtime.machine.snapshot = { ...runtime.machine.snapshot, panes: runtime.machine.snapshot.panes.map((p) => p.pane_id === message.pane_id ? { ...p, agent_status: message.agent_status } : p) };
-        void this.push.onStatus(message.pane_id, message.agent_status, runtime.machine.id).catch(() => {});
+        if (runtime.machine.snapshot) runtime.machine.snapshot = { ...runtime.machine.snapshot, panes: runtime.machine.snapshot.panes.map((p) => p.pane_id === message.pane_id ? paneAfterStatus(p, message) : p) };
+        void this.push.onStatus(message.pane_id, alertStatus(message.agent_status, message.background_wait), runtime.machine.id).catch(() => {});
       }
       if (message.type === "pane-exited") void this.push.onEnded(message.pane_id, runtime.machine.id).catch(() => {});
       this.emit({ type: "machine-message", machine_id: runtime.machine.id, message });
@@ -428,9 +631,13 @@ export class MachineManager {
       runtime.machine.state = "error"; runtime.machine.action_required = error.action;
       this.emit();
       // SSH itself just worked without a password, so the update can run unattended
-      if (error.action === "update_bridge" && this.preferences.auto_update_bridges) this.queueAutoUpdate(runtime.machine.id);
+      if (error.action === "update_bridge" && this.preferences.auto_update_bridges && !runtime.updateCancelled) this.queueAutoUpdate(runtime.machine.id);
       return;
     }
+    this.retryLater(runtime);
+  }
+  /** a disconnected PC tries again on its own, waiting longer after each failed try */
+  private retryLater(runtime: Runtime): void {
     runtime.machine.state = "reconnecting";
     const delay = Math.min(60_000, 1000 * 2 ** Math.min(runtime.attempts++, 6));
     runtime.retry = setTimeout(() => void this.reconnect(runtime), delay); runtime.retry.unref();
@@ -453,16 +660,18 @@ export class MachineManager {
     this.autoQueued.add(id);
     this.autoChain = this.autoChain.then(async () => {
       const runtime = this.machines.get(id);
-      // still wanted: the PC may have been updated by hand, removed or disabled meanwhile
-      if (this.stopped || !runtime?.machine.enabled || runtime.machine.action_required !== "update_bridge" || !this.preferences.auto_update_bridges) return;
+      // still wanted: the PC may have been updated by hand, removed, disabled or its update
+      // cancelled meanwhile
+      if (this.stopped || !runtime?.machine.enabled || runtime.machine.action_required !== "update_bridge" || runtime.updateCancelled || !this.preferences.auto_update_bridges) return;
       if ([...this.jobs.values()].some((j) => j.public.machine_id === id && !["connected", "failed", "cancelled"].includes(j.public.phase))) return;
-      const job = this.updateBridge(id);
+      const job = this.updateBridge(id, true);
       await this.jobs.get(job.id)?.finished;
     }).catch((e) => { console.error("Automatic bridge update failed:", e instanceof Error ? e.message : String(e)); })
       .finally(() => { this.autoQueued.delete(id); });
   }
   private disconnect(runtime: Runtime): void {
     runtime.generation++;
+    runtime.refreshQueued = false;
     clearTimeout(runtime.retry); clearInterval(runtime.poll);
     runtime.abort?.abort(); runtime.abort = undefined;
     runtime.observer?.close(); runtime.observer = undefined;
@@ -499,4 +708,19 @@ export class MachineManager {
     for (const runtime of this.machines.values()) this.disconnect(runtime);
     this.listeners.clear();
   }
+}
+
+/**
+ * A pane after a status frame: a frame that names a count of background tasks replaces
+ * it; one that names none leaves it. Every frame says whether the pane waits on its turn's work.
+ */
+export function paneAfterStatus(p: HerdrPane, message: Extract<ServerMessage, { type: "pane-status" }>): HerdrPane {
+  const { background_tasks: before, background_wait: _waited, ...pane } = p;
+  const tasks = message.background_tasks === undefined ? before : message.background_tasks > 0 ? message.background_tasks : undefined;
+  return { ...pane, agent_status: message.agent_status, ...(tasks === undefined ? {} : { background_tasks: tasks }), ...(message.background_wait ? { background_wait: true } : {}) };
+}
+
+/** A remote PC's panes as its alerts take them: one waiting on its turn's background work is working. */
+function forAlerts(panes: readonly HerdrPane[]): HerdrPane[] {
+  return panes.map((pane) => pane.background_wait ? { ...pane, agent_status: alertStatus(pane.agent_status, true) } : pane);
 }
