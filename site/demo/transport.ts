@@ -11,8 +11,9 @@
  * type; agent panes show one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentStatus, ConversationTurn, Machine, MachineEvent, PendingMessage, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationTurn, Machine, MachineEvent, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, ServerMessage, SessionSnapshot, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
+import { neighborPane } from "../../src/lib/layoutMap.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { CHATS, PROMPT, SPECS } from "./fixtures.ts";
 import machinesFixture from "./fixtures/machines.json";
@@ -501,6 +502,88 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     }
     structureChanged();
     return json({ ok: true });
+  }
+  // herdr's layout operations on the demo's own layouts: a split halves the pane's rect for a new
+  // shell pane, a zoom flips the tab's flag (and focuses the pane, as herdr does), a swap exchanges
+  // two rects, a resize moves the border on that side by herdr's share of the area (the opposite
+  // one when the pane has no neighbour there), and a clear has nothing to clear
+  if (path === "/api/pane/split" || path === "/api/pane/zoom" || path === "/api/pane/swap" || path === "/api/pane/resize" || path === "/api/pane/clear") {
+    const body = await bodyOf(init, input);
+    const pane = paneOf(String(body["pane_id"] ?? ""));
+    const snap = snapshot();
+    const layout = pane ? snap.layouts.find((candidate) => candidate.tab_id === pane.tab_id) : undefined;
+    const cell = layout?.panes.find((candidate) => candidate.pane_id === pane?.pane_id);
+    if (!pane || !layout || !cell) return error("pane_not_found", "pane not found", 404);
+    if (path === "/api/pane/clear") return json({ ok: true });
+    if (path === "/api/pane/split") {
+      const direction = body["direction"];
+      if (direction !== "right" && direction !== "down") return error("invalid_direction", "direction must be right or down", 400);
+      const focus = body["focus"] === true;
+      const serial = (nextWorkspace++).toString(36);
+      const made: Pane = { ...structuredClone(pane), pane_id: `${pane.workspace_id}:p${serial}`, terminal_id: `${pane.workspace_id}:term${serial}`, label: null, title: null, agent: null, agent_session: null, agent_status: "unknown", focused: focus, terminal_title: null, terminal_title_stripped: null, revision: 1 };
+      snap.panes.push(made);
+      const { rect } = cell;
+      const first = direction === "right" ? Math.floor(rect.width / 2) : Math.floor(rect.height / 2);
+      cell.rect = direction === "right" ? { ...rect, width: first } : { ...rect, height: first };
+      layout.panes.push({ pane_id: made.pane_id, focused: focus, rect: direction === "right" ? { x: rect.x + first, y: rect.y, width: rect.width - first, height: rect.height } : { x: rect.x, y: rect.y + first, width: rect.width, height: rect.height - first } });
+      layout.splits.push({ id: `split_${layout.splits.length}_${pane.pane_id}`, direction, ratio: 0.5, rect });
+      if (focus) {
+        layout.focused_pane_id = made.pane_id;
+        for (const candidate of layout.panes) candidate.focused = candidate.pane_id === made.pane_id;
+        for (const candidate of snap.panes) if (candidate.tab_id === pane.tab_id) candidate.focused = candidate.pane_id === made.pane_id;
+        snap.focused_pane_id = made.pane_id;
+      }
+      const tab = snap.tabs.find((candidate) => candidate.tab_id === pane.tab_id);
+      if (tab) tab.pane_count += 1;
+      const workspace = snap.workspaces.find((candidate) => candidate.workspace_id === pane.workspace_id);
+      if (workspace) workspace.pane_count += 1;
+      structureChanged();
+      return json({ ok: true, pane: made } satisfies PaneSplit);
+    }
+    if (path === "/api/pane/zoom") {
+      const mode = body["mode"] ?? "toggle";
+      if (mode !== "toggle" && mode !== "on" && mode !== "off") return error("invalid_mode", "mode must be toggle, on or off", 400);
+      if (layout.panes.length < 2) return json({ ok: true, zoomed: false, changed: false, reason: "single_pane" } satisfies PaneZoomed);
+      const zoomed = mode === "toggle" ? !layout.zoomed : mode === "on";
+      if (zoomed === layout.zoomed) return json({ ok: true, zoomed, changed: false, reason: zoomed ? "already_zoomed" : "already_unzoomed" } satisfies PaneZoomed);
+      layout.zoomed = zoomed;
+      if (zoomed) {
+        layout.focused_pane_id = pane.pane_id;
+        for (const candidate of layout.panes) candidate.focused = candidate.pane_id === pane.pane_id;
+      }
+      structureChanged();
+      return json({ ok: true, zoomed, changed: true, reason: null } satisfies PaneZoomed);
+    }
+    const direction = body["direction"];
+    if (direction !== "left" && direction !== "right" && direction !== "up" && direction !== "down") return error("invalid_direction", "direction must be left, right, up or down", 400);
+    const beside = (side: PaneDirection) => { const id = neighborPane(layout, pane.pane_id, side); return id === null ? undefined : layout.panes.find((candidate) => candidate.pane_id === id); };
+    if (path === "/api/pane/swap") {
+      const other = beside(direction);
+      if (!other) return json({ ok: true, changed: false, reason: "no_neighbor", target_pane_id: null } satisfies PaneSwapped);
+      [cell.rect, other.rect] = [other.rect, cell.rect];
+      structureChanged();
+      return json({ ok: true, changed: true, reason: null, target_pane_id: other.pane_id } satisfies PaneSwapped);
+    }
+    const opposite: Record<PaneDirection, PaneDirection> = { left: "right", right: "left", up: "down", down: "up" };
+    const horizontal = direction === "left" || direction === "right";
+    const step = Math.max(1, Math.round((horizontal ? layout.area.width : layout.area.height) * 0.05));
+    const own = beside(direction);
+    const other = own ?? beside(opposite[direction]);
+    if (!other) return json({ ok: true, changed: false, reason: "unchanged" } satisfies PaneResized);
+    // the border between the two moves `direction`-wards: the pane on the far side of it gives up `step`
+    const [grows, shrinks] = own ? [cell, other] : [other, cell];
+    const towardStart = direction === "left" || direction === "up";
+    if (horizontal) {
+      if (shrinks.rect.width <= step) return json({ ok: true, changed: false, reason: "unchanged" } satisfies PaneResized);
+      grows.rect = { ...grows.rect, width: grows.rect.width + step, ...(towardStart ? { x: grows.rect.x - step } : {}) };
+      shrinks.rect = { ...shrinks.rect, width: shrinks.rect.width - step, ...(towardStart ? {} : { x: shrinks.rect.x + step }) };
+    } else {
+      if (shrinks.rect.height <= step) return json({ ok: true, changed: false, reason: "unchanged" } satisfies PaneResized);
+      grows.rect = { ...grows.rect, height: grows.rect.height + step, ...(towardStart ? { y: grows.rect.y - step } : {}) };
+      shrinks.rect = { ...shrinks.rect, height: shrinks.rect.height - step, ...(towardStart ? {} : { y: shrinks.rect.y + step }) };
+    }
+    structureChanged();
+    return json({ ok: true, changed: true, reason: null } satisfies PaneResized);
   }
   if (path === "/api/tab/rename") {
     const body = await bodyOf(init, input);
