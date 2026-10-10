@@ -8,16 +8,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
-- herdr's pane layout operations from the web: a tab's menu (right-click a tab, or its chevron;
-  a bottom sheet on a phone) now offers **Split right** and **Split down** (herdr's prefix+v and
-  prefix+-), **Zoom pane** (prefix+z), **Swap left / right / up / down** with the pane's
-  neighbours (prefix+shift+hjkl), **Wider / Narrower / Taller / Shorter** (herdr's resize mode)
-  and **Clear pane**. A tab of several panes heads the menu with a small map of its layout, drawn
-  from herdr's own pane rects: a cell opens its pane, the open pane is marked in the accent and the
-  zoomed one carries the zoom glyph. The command palette has **Split pane right / down**, the same
-  **and open it** (herdr's `--focus`; a plain split keeps the pane you are on, like `--no-focus`)
-  and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
-  one herdr RPC each, also on remote PCs.
+- Drag tabs to reorder them within their workspace without changing the selected pane. The tab
+  menu offers **Move tab left / right**, including on phones; Alt+Shift+Left/Right moves a focused
+  tab. The order is saved by herdr and shared with its TUI.
+- Terminal search highlights native matches in the visible grid, and a scrollbar navigates
+  herdr's shared history by dragging or keyboard. Search counts and previous/next navigation stay
+  available on older bridges; automatic highlighting requires the new range response.
+- The command palette searches panes across all connected PCs, including PC names, workspace
+  branches and tab labels. Results and Recent entries retain their owning PC, and selecting one
+  switches directly to it. App and plugin actions still target the currently selected PC.
+- Native pane layout operations are available from the web and remote PCs. Pane menus offer
+  split, zoom and swap with the focused pane; split boundaries resize herdr's actual layout.
+  The command palette also offers split and zoom actions. The bridge exposes pane split, zoom,
+  swap, resize and clear endpoints.
   ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
 - Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
   Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
@@ -33,7 +36,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   come first. A missing or outdated one shows its `herdr integration install …` command with a
   Copy button; the page only reads herdr's state and never installs or removes anything.
   ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
-- **Move pane to…** in a tab's menu on the tab strip and in a workspace row's ⋯ menu moves the
+- **Move pane to…** in the header's More menu moves the
   pane into another tab of its workspace, a new tab there or in another workspace, or a workspace
   of its own, as herdr's `pane move` does; on a phone the places are a bottom sheet. The app stays
   on the moved pane, also under the new id herdr gives a pane that changes workspace, and the lens
@@ -48,14 +51,23 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   herdr's own keys (`b`, `w`, `i`, `d`, `a` for a filter, `/` for the search) work while the
   focus is on the list or the chips, never while typing.
   ([#721](https://github.com/devswha/herdr-web-ui/pull/721))
-- **Agent name…** in a workspace row's menu, next to Rename pane, and in the new `⋯` menu of an
-  Agents row sets or clears the live name herdr addresses the agent by (`herdr agent rename`,
-  what `herdr agent prompt <name>` takes). The dialog checks herdr's rule as you type, shows
-  herdr's own refusal when another agent holds the name, and the Agents row shows the name on its
-  second line. A name set from herdr's terminal UI or CLI shows in the web the same way.
-  ([#736](https://github.com/devswha/herdr-web-ui/pull/736))
+- Live agent names set through `herdr agent rename` appear in the Agents list, including changes
+  from another client. ([#736](https://github.com/devswha/herdr-web-ui/pull/736))
 
 ### Changed
+- Agents rows are selection-only: removed their ellipsis menu and name-editing dialog. The list
+  keeps its existing names, status, folding and click-to-open behavior.
+- Desktop tabs use a right-click menu in place of inline close and dropdown buttons. Touch and
+  narrow layouts offer the same menu through an ellipsis beside the selected tab; keyboard users
+  can open it with Shift+F10.
+- Workspace right-click and ⋯ menus share herdr’s workspace/worktree actions. Right-click opens
+  at the pointer without changing pane selection or input focus; sidebar layout stays the same.
+  Pane renaming stays in the pane menu, and Move pane to… is available through header More.
+- Split tabs now show every pane together in herdr's layout, with focused borders and draggable
+  split boundaries. Right-click a pane for herdr's pane menu without changing focus; splits open
+  the new pane, Swap with focused pane preserves the original focus, and zoom restores the same
+  layout. Tab menus contain tab creation, renaming, reordering and closing, and the strip stays visible
+  for a single pane. Each pane retains its own terminal connection, chat lens and unsent draft.
 - Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
   rebuilding a whole-session snapshot. Layout and transcript peer checks keep their snapshots.
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
@@ -157,7 +169,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#684](https://github.com/devswha/herdr-web-ui/pull/684) by @sma505)
 - Workspaces can be reordered on a phone or tablet: hold a row until it lifts, drag it, and let
   go where the line shows. Before, a long press on iOS showed the system's drag preview but
-  dropped nothing. The row's ⋯ menu also has Move up and Move down.
+  dropped nothing. Alt+Up/Down also moves a focused row one step.
   ([#679](https://github.com/devswha/herdr-web-ui/pull/679) by @jiunshinn)
 - A task list (`- [x] done`, `- [ ] open`) in the chat shows a checked or empty box in place of
   its bullet, instead of the brackets.

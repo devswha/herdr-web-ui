@@ -59,6 +59,9 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
         super(url, protocols);
         (window as unknown as { socket_: WebSocket }).socket_ = this;
         this.addEventListener("message", (event) => { try { frames.push({ dir: "in", type: JSON.parse(String(event.data)).type }); } catch {} });
+        // A keyed pane mount releases its lease by closing this connection, not by sending
+        // detach for the next pane on a reused socket. Keep that lifecycle evidence too.
+        this.addEventListener("close", () => frames.push({ dir: "in", type: "socket-closed" }));
       }
       override send(data: string): void { try { const frame = JSON.parse(data); frames.push({ dir: "out", type: frame.type, keep_size: frame.keep_size }); } catch {} super.send(data); }
     }
@@ -350,12 +353,15 @@ export async function checkBackgroundTabKeepsTerminalSize(browser: Browser, orig
     const nextBefore = await nextSize();
     assert.notEqual(nextBefore, desktopSize, "the next pane starts at a size the window would change");
     const switching = (await sizing(desktop)).length;
+    const watchesBeforeSwitch = (await framesOf(desktop)).filter((frame) => frame.dir === "out" && frame.type === "watch").length;
     await workspaceClose(created.workspace.workspace_id);
     await desktop.locator(`.terminal-stack[data-pane-owner="${nextPane}"]`).waitFor({ state: "attached", timeout: 15_000 });
     await Bun.sleep(NO_RESIZE_WAIT_MS);
     assert.deepEqual((await sizing(desktop)).slice(switching), [], "a background move to the next pane attaches nothing");
     assert.equal(await nextSize(), nextBefore, "a background move to the next pane leaves its grid");
     assert.equal(await viewOnly(desktop).count(), 1, "the window on the next pane is still view only");
+    assert.ok((await framesOf(desktop)).filter((frame) => frame.dir === "out" && frame.type === "watch").length > watchesBeforeSwitch,
+      "the replacement keyed terminal starts a watch without acquiring an attach");
     console.log(`PASS a desktop window moving on to the next pane in the background leaves its grid at ${nextBefore}`);
 
     // the user comes back to it: the window takes the focus, attaches, and takes the grid
@@ -401,6 +407,9 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
     const waitDetach = (page: Page, count = 1) => page.waitForFunction((n) =>
       (window as unknown as { frames_: Frame[] }).frames_.filter((f) => f.dir === "out" && f.type === "detach").length >= n,
     count, { timeout: 10_000 });
+    const waitSocketClose = (page: Page) => page.waitForFunction(() =>
+      (window as unknown as { frames_: Frame[] }).frames_.some((frame) => frame.type === "socket-closed"),
+    undefined, { timeout: 10_000 });
     const sent = async (page: Page, start = 0) => (await framesOf(page)).slice(start)
       .filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
     const scenarios = ["mount", "switch", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
@@ -548,9 +557,10 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
               await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
               await waitWire("out", "attach", 2);
               await page.locator(`.terminal-stack[data-pane-owner="${next}"]`).waitFor({ state: "attached" });
+              await waitSocketClose(page);
               await page.clock.runFor(0);
-              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 1,
-                "pane B gets its own release delay, not pane A's queue-held state");
+              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 0,
+                "pane A closes its own connection; pane B starts its own release delay");
               await waitWire("in", "input-ready", 2);
               await page.clock.runFor(900);
               await page.evaluate(() => {
@@ -560,10 +570,10 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
                 window.dispatchEvent(new Event("blur"));
               });
               await page.clock.runFor(100);
-              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 1,
+              assert.equal((await recorded()).filter((f) => f.dir === "out" && f.type === "detach").length, 0,
                 "pane A's orphaned timer cannot shorten pane B's new delay");
               await page.clock.runFor(900);
-              await waitWire("out", "detach", 2);
+              await waitWire("out", "detach", 1);
             } else {
               assert.ok(releaseSubmit, "the explicit Send is waiting at the server boundary");
               releaseSubmit();
@@ -616,14 +626,19 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
             await page.locator(`.pane-select[title^="${next} — "]`).evaluate((button: HTMLElement) => button.click());
             await attached(page, 2);
             assert.deepEqual(await sent(page, before), [{ dir: "out", type: "attach", keep_size: true }]);
+            await waitSocketClose(page); // the old keyed pane releases its connection
             await page.clock.runFor(1000);
-            await waitDetach(page, 2); // old-pane cleanup plus new-pane release
+            await waitDetach(page); // the new pane still releases after its own full delay
           } else if (scenario === "resume") {
             await page.clock.runFor(1000);
             await waitDetach(page);
             await page.locator(".terminal-banner", { hasText: "View only while you use another window" }).waitFor();
             const before = (await framesOf(page)).length;
-            await page.evaluate(() => window.dispatchEvent(new Event("pointerdown")));
+            // Resume only the pane that was explicitly touched; a window-level event no
+            // longer has a target once several independent terminals can be mounted.
+            await page.locator(`.terminal-stack[data-pane-owner="${first}"]`).evaluate((stack) => {
+              stack.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }));
+            });
             await attached(page, 2);
             assert.deepEqual(await sent(page, before), [{ dir: "out", type: "attach", keep_size: true }],
               "an inactive pointer resume must not resize the shared grid");

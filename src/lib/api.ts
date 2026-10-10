@@ -8,11 +8,14 @@ import type {
   CreateWorkspaceRequest,
   DirectoryListing,
   FileInfo,
+  FocusPaneRequest,
   HealthAuth,
   IntegrationsResponse,
   InteractivePrompt,
   MovePaneDestination,
   MovePaneRequest,
+  MoveTabRequest,
+  TabMoved,
   OmoActivity,
   OpenWorktreeRequest,
   PairedDevice,
@@ -33,6 +36,7 @@ import type {
   RemoveWorktreeRequest,
   ResizePaneRequest,
   SessionSnapshot,
+  SetSplitRatioRequest,
   SlashCommand,
   SplitPaneDirection,
   SplitPaneRequest,
@@ -429,6 +433,11 @@ export async function closePane(paneId: string, machineId = "local"): Promise<vo
   await sendJson(machinePath(machineId, "pane/close"), "POST", { pane_id: paneId });
 }
 
+/** POST /api/pane/focus: herdr brings this pane and its tab/workspace to the front. */
+export async function focusPane(paneId: string, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "pane/focus"), "POST", { pane_id: paneId } satisfies FocusPaneRequest);
+}
+
 /** POST /api/pane/rename: sets the pane's label in herdr (an empty label clears it). */
 export async function renamePane(paneId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/rename"), "POST", { pane_id: paneId, label });
@@ -469,6 +478,17 @@ export async function zoomPane(paneId: string, mode: ZoomPaneRequest["mode"] = "
 export async function swapPane(paneId: string, direction: PaneDirection, machineId = "local"): Promise<PaneSwapped> {
   const response = await sendJson(machinePath(machineId, "pane/swap"), "POST", { pane_id: paneId, direction } satisfies SwapPaneRequest);
   return (await response.json()) as PaneSwapped;
+}
+
+/** POST /api/pane/swap: swap this pane with an explicit pane, keeping herdr's same-tab rule. */
+export async function swapPaneWith(paneId: string, targetPaneId: string, machineId = "local"): Promise<PaneSwapped> {
+  const response = await sendJson(machinePath(machineId, "pane/swap"), "POST", { pane_id: paneId, target_pane_id: targetPaneId } satisfies SwapPaneRequest);
+  return (await response.json()) as PaneSwapped;
+}
+
+/** POST /api/layout/ratio: set the split identified by its binary path to the dragged ratio. */
+export async function setSplitRatio(tabId: string, path: boolean[], ratio: number, machineId = "local"): Promise<void> {
+  await sendJson(machinePath(machineId, "layout/ratio"), "POST", { tab_id: tabId, path, ratio } satisfies SetSplitRatioRequest);
 }
 
 /** POST /api/pane/resize: the border the pane shares with a neighbour moves that way, by herdr's default share (0.05) of the split the border belongs to. */
@@ -560,6 +580,13 @@ export async function createTab(request: CreateTabRequest, machineId = "local"):
 /** POST /api/tab/rename: the tab's name in herdr; an empty one is refused. */
 export async function renameTab(tabId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "tab/rename"), "POST", { tab_id: tabId, label });
+}
+
+/** Move within its workspace without changing the selected pane or tab. */
+export async function moveTab(tabId: string, insertIndex: number, machineId = "local"): Promise<TabMoved> {
+  const request: MoveTabRequest = { tab_id: tabId, insert_index: insertIndex };
+  const response = await sendJson(machinePath(machineId, "tab/move"), "POST", request);
+  return (await response.json()) as TabMoved;
 }
 
 /** POST /api/tab/close: the tab and every pane in it; a workspace's last tab takes the workspace with it. */

@@ -404,10 +404,10 @@ One set for both themes: the card is island black wherever it shows.
 - Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
-  A row offers Rename workspace, Rename pane (the pane it opens), Agent name… (only while herdr
-  lists a live agent in that pane), Move pane to…, New tab,
-  New worktree, Open worktree…, then Close workspace under a hairline. A worktree workspace has no worktree items and
-  ends in **Delete worktree checkout…** after Close workspace. The
+  Both the button and right-click offer the same native workspace actions: Rename workspace,
+  Close workspace/group, New/Open worktree for repository roots, Delete worktree checkout for
+  linked worktrees, and Expand/Collapse for a group. Pane renaming stays in the pane menu;
+  Move pane to… is in header More. The
   danger item takes `--status-blocked`. The popover is as tall as its items, up to the room on
   its side of the button (it scrolls only on a screen too short for it). At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
@@ -415,25 +415,21 @@ One set for both themes: the card is island black wherever it shows.
   92% of the screen cannot hold them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
-  A right-click anywhere on a workspace or pane row opens the same menu under the row's `⋯`
-  (the menu key and Shift+F10 too, as the browser sends them); a name field being edited keeps
-  the browser's own menu, and a finger's long press is left alone (it picks a workspace row up
-  to be moved, and the `⋯` is always shown on touch). An Agents row with a live agent has the same
-  `⋯` and right-click menu, with Agent name… alone; PC headers and the other agent rows have no
-  menu, so they keep the browser's.
-- **Agent name…** opens a 440px dialog (`.agent-name-modal`) for the live name herdr addresses
-  the agent by (`herdr agent rename`): one mono field, herdr's rule checked as it is typed (an
-  `aria-invalid` field with the rule under it in `--status-blocked`, Save name disabled), a hint
-  that reads the command back (`herdr agent prompt <name>`), **Clear name** while the agent has
-  one, and herdr's own refusal (a name another agent holds) in its words under the field.
+  A workspace right-click opens at the pointer and leaves pane selection and keyboard focus
+  unchanged. It follows herdr's workspace scope: Rename, Close workspace/group, repository
+  worktree actions, and Expand/Collapse for a group. Dismissal restores the prior focus. The
+  explicit `⋯` uses those same actions at its button. An edited name keeps the browser's paste menu;
+  touch long press still reorders. Agents and PC headers keep the browser's context menu.
+  Agent rows only select their pane; they have no secondary action button or app context menu.
+
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
   confirmed close, focus lands on the header's workspace-list toggle.
-- The tab strip's pane picker is the same menu: one item per pane of the tab, the agent's mark
-  (or the shell glyph) and the pane's title, the open pane named in the strong colour
-  (`aria-current`). A tab of several panes heads it with the layout map (below), in the
-  popover's header and in the sheet's head under the title.
-- **Move pane to…** (a row's menu, a tab's menu) opens the same menu again under the same button
+- Tab and pane menus follow herdr's target scopes. A tab's menu contains New tab, Rename tab
+  and Close tab, plus Move tab left/right when a neighbouring position exists and no move is pending.
+  The pane's own context menu carries pane actions; it opens at the pointer
+  without changing which pane is focused. The pane header's ellipsis opens the same menu on touch.
+- **Move pane to…** (header More) opens a menu under the header button
   (`MovePaneMenu`): a dim uppercase MOVE TO micro label with the pane's name under it
   (`.move-pane-head`), then New tab and the workspace's other tabs, every other workspace under
   a hairline, and New workspace under another. A pick moves the pane at once (`POST
@@ -489,7 +485,7 @@ One set for both themes: the card is island black wherever it shows.
   then ready); a folded worktree parent rolls up its whole group.
   Clicking its name opens the
   selected pane in that workspace, else the last viewed pane, else the pane herdr has focused,
-  else its first pane. Tabs and panes are selected from the tab strip and command palette.
+  else its first pane. Tabs are selected from the tab strip; panes are selected on the canvas or from the command palette.
 - A top-level workspace row starts with a folder glyph in the grid's leading cell, under the
   PC's monitor; the row's mark and name follow it. For a repository workspace with linked
   worktree workspaces that folder is the group's fold, a button (`.workspace-toggle`) in
@@ -560,7 +556,7 @@ One set for both themes: the card is island black wherever it shows.
   On a touch screen (`pointer: coarse`) the browser's drag is off: a long press (400ms, still
   within 8px) lifts the row (`.is-lifted`: `--bg-elevated` with `--shadow-card`), it follows
   the finger, the list scrolls near its edges, and a 2px `--accent` line (`data-drop`) shows
-  where it lands. The row menu's Move up and Move down do the same one step at a time.
+  where it lands. Alt+Up/Down moves the focused row one step at a time.
   Dragging is disabled while a name field is open. Each workspace's `⋯` opens its row menu
   (`.row-menu-toggle`: no width at rest; shown on hover, focus, selection and while its menu is
   open; always on touch). Inline server failures
@@ -615,56 +611,53 @@ One set for both themes: the card is island black wherever it shows.
   instead of asking for one, and its name is the tab's (optional; the placeholder is the number
   herdr gives it). Submit calls `POST /api/tab/create` with the same agent launch.
 
-### Tab strip (`.tab-strip`)
-- herdr's tab row, over the pane: shown once the selected pane's workspace has more than one
-  pane (a second tab, or a tab split in the TUI), never for a lone pane. One `role="tab"` per tab
-  in herdr's order, named by its label, or **Tab n** while herdr still names it by its number;
-  a 7px dot before the name in the state's colour for working, blocked and done. The open tab
-  (the selected pane's) is underlined 2px in `--accent` and in the strong colour; the others are
-  dim. Arrow keys move between tabs. A tab opens the pane last viewed in it, else the one herdr
-  has focused there, else its first; a tab with several panes has a chevron beside its name that
-  opens a pane picker (the row menu). The strip ends in a `+` that opens the New tab dialog.
-  The open tab is scrolled into view when the selection comes from elsewhere (the sidebar, the
-  palette, an alert), and the `+` stays at the strip's end while the tabs scroll under it.
-- A tab is renamed and closed on the strip, as herdr's prefix+shift+t and prefix+shift+x. With
-  a mouse: a 20px `x` (`.tab-strip-close`) after the name, visible on the open tab and on the
-  one under the pointer or the focus, its place kept in every tab so widths do not move; a
-  double-click on the name swaps it for a field (`.tab-strip-rename`: Enter saves, Escape and a
-  blur leave the name, an empty field changes nothing because herdr would keep the empty name);
-  a right-click opens the tab's menu under its left edge; the middle button closes. With keys
-  on a focused tab: F2 and Delete. On a touch screen there is no `x`: the open tab carries the
-  chevron, and the menu is the bottom sheet. The menu lists the tab's panes when it has
-  several, then herdr's layout operations on the pane the tab opens (the open pane on the open
-  tab): **Split right**, **Split down** (prefix+v, prefix+-), **Zoom pane** / **Unzoom pane**
-  (prefix+z, a checkbox item; it sends the mode it names, never herdr's toggle, which would
-  unzoom a tab zoomed on another pane) and **Swap left / right / up / down** (prefix+shift+hjkl), only for
-  the sides the pane has a neighbour on, **Wider / Narrower / Taller / Shorter** (the resize
-  mode, by herdr's own share of the split the border belongs to), only for an axis the pane shares with a neighbour, and
-  **Clear pane**; then **Rename tab**, **Move pane to…** (the same pane), then **Close tab** in the
-  danger colour under a hairline.
-  A split keeps the open pane, as herdr's `--no-focus` keeps its focus. herdr's "nothing
-  changed" answers (no neighbour on that side, a border that cannot move) read as a line of
-  `--status-blocked` text at the strip's end, like a refusal.
-- The layout map (`.layout-map`, components/LayoutMap.tsx): the tab's area as a box of the
-  area's columns over its rows (a terminal cell counts twice as tall as wide), held between
-  1.2:1 and 3:1 and no taller than 96px in the popover (so the items under it stand on a
-  short screen) or 140px in the sheet, `--radius-md`. Each pane is a `.layout-map-cell`
-  button at its rect's place and size in percent, `--bg-hover` with a hairline of the menu's
-  surface (`--bg-elevated`) between cells and `--radius-sm` corners; `--border-strong` under the
-  pointer. The open pane's cell (`.is-current`, `aria-current`) is the `--accent-tint` wash
-  edged in `--accent`, and the pane herdr zooms carries a 12px Maximize2 glyph (`.is-zoomed`),
-  named "(zoomed)" for assistive tech. A cell opens its pane and closes the menu. Nothing in it
-  is to the terminal's scale: the rects are herdr's layout, not the attached terminal's size.
-- A close is immediate, as herdr's, and the tab beside it opens. It asks first (the confirm
-  dialog) only when it costs more than the tab: an agent in it is working or blocked, or it is
-  the workspace's last tab, which takes the workspace with it. A refusal shows in the dialog, or
-  as a line of `--status-blocked` text at the strip's end for six seconds.
-- The underline runs under the whole tab (`.tab-strip-item.is-active`), its `x` included. A tab
-  herdr names itself reads **Tab n** by its place in the row: herdr relabels it when a tab
-  before it closes.
-- `--control-h` tall on a hairline over `--bg-panel`, scrolling sideways without a scrollbar;
-  touch grows the buttons to `--touch-target`, and puts the pane picker beside its tab's name
-  instead of pulling it over the name's padding. The same strip on a phone.
+### Tab strip and pane canvas
+- The tab strip is shown even for one pane, as herdr's TUI shows its single tab and `+`.
+  Tabs retain their names, status dots, active underline, keyboard navigation, rename field and
+  close confirmation. A right-click opens tab actions at the pointer, including Move tab left/right
+  when a neighbouring position exists. Desktop tabs have no close or dropdown buttons. Touch and narrow layouts show a `⋯` beside
+  the selected tab for the same menu; Shift+F10 or the menu key opens it from a focused tab.
+  Pane actions are not tab actions.
+- Mouse dragging previews an accent insertion line, with edge scrolling for an overflowing strip.
+  The snapshot's tab order is authoritative: a tab's stable `number` is not its place. A drop calls
+  `tab.move` with an insertion boundary before removal, within that workspace and PC. The visible
+  order changes with herdr's snapshot, keeping selection and keyboard focus; a refusal shows an
+  inline error. One request waits for acknowledgement before another move is accepted. Escape,
+  a tab-list change or leaving the workspace cancels an unsent drag. Touch keeps native sideways
+  scrolling and uses Move tab left/right in the selected tab's menu; Alt+Shift+Left/Right provides
+  the same adjacent moves only while a tab has keyboard focus.
+- `PaneCanvas` draws every pane in the active tab at `layouts[].panes[].rect`, normalized to
+  the layout's own area. Panes share thin, square boundaries: `--border-strong` when inactive,
+  `--accent` around the selected pane. The compact header names its pane and provides the
+  ellipsis for touch and keyboard access. A lone or zoomed pane is borderless; its menu button
+  stays at the top-right (visible on hover/focus, always on touch).
+- A left click or keyboard focus selects the actual pane. Right-click opens the clicked pane's
+  menu without changing the selected pane: Rename pane, Clear pane name when named, Swap with
+  focused pane when another is selected, Split right, Split down, Zoom/Unzoom pane, the
+  right-click policy, Close pane. It appears at the pointer, clamped to the window. Up/Down
+  stop at the ends, hover selects, Enter acts, Escape and an outside click dismiss.
+- Split selects the new pane (`focus:true`), like the TUI. Swap exchanges the right-clicked
+  pane with the previously selected pane and retains the latter's focus. A close confirms when
+  the pane is busy or is the last pane of the workspace. Rename is herdr's label; clearing it
+  returns to its automatic title. Herdr owns every resulting layout and name.
+- Zoom uses herdr's zoom flag and focused pane. The other panes keep their mounted terminals
+  hidden, preserving connections and drafts; unzoom restores their rectangles. Explicit pane
+  navigation also calls `pane.focus`, so choosing another pane in a zoomed tab reveals it.
+- Drag the actual split boundary to resize, with an 8px hit region and native 0.1–0.9 ratio
+  limits. Its keyboard separator accepts arrow keys. `layout.set_split_ratio` receives the
+  binary path (false first, true second), at most 30 times a second, one request in flight;
+  release flushes the final ratio. A tab/topology change cancels the drag.
+- Every pane keeps its own xterm, connection, input ownership, lens, chat state and file-path
+  context. Only the active pane may take keyboard focus after an asynchronous operation.
+- Switching tabs retains an outgoing terminal only while its explicit submit awaits a receipt;
+  its chat/input UI is unmounted and its grid is not resized. The receipt settles the original
+  draft before the connection is released. No input is replayed. A canvas that already released
+  its panes while away opens a replacement as view-only until the user returns.
+  A newly split pane awaiting its first snapshot does not unmount its siblings. Geometry is
+  fitted inside each rendered pane; layout rectangles are never used as PTY dimensions.
+- Plain right-click can be passed to a mouse-reporting terminal when enabled for that pane.
+  Modified clicks, pane frames and non-reporting/read-only terminals still open the menu.
+  Native app shortcuts stay Mod+Shift in the browser, so Ctrl+key continues to reach the PTY.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
@@ -1025,7 +1018,8 @@ One set for both themes: the card is island black wherever it shows.
   Amber only; `--danger` stays for errors.
 
 ### Command palette
-- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
+- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes across all connected PCs
+  and the selected PC's actions. PC names participate in search. Recent panes
   lead an empty query; arrows in the search field cycle through visible results, Enter activates
   and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
   with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
@@ -1034,21 +1028,29 @@ One set for both themes: the card is island black wherever it shows.
   With a pane selected they add herdr's **Split pane right / down**, the same **and open it**
   (herdr's `--focus`: the new pane is opened here only then) and, in a tab of several panes,
   **Zoom pane** / **Unzoom pane**.
-- Rows are grouped as herdr's Goto picker groups them: a `.menu-heading` per workspace (its name, a
-  linked worktree's branch in mono when the name does not say it, the row count), Recent (up to
+- Rows are grouped as herdr's Goto picker groups them: a `.menu-heading` per PC/workspace (PC
+  name when multiple PCs are registered, workspace name, a linked worktree's branch in mono when
+  the name does not say it, the row count), Recent (up to
   three, an unsearched and unfiltered list only) before the workspaces, Actions last. The
-  workspaces stand in the roster's order (a move in the sidebar moves the section); a search puts
+  workspaces stand in PC then roster order (a move in the sidebar moves the section); a search puts
   the best match's workspace first, and finds a tab by the name the strip shows it under ("Tab 2").
   A row's subtitle is "tab · folder" (the tab only in a workspace with several), "workspace · folder"
-  under Recent.
+  under Recent, with the owning PC shown when more than one is registered. A result selects its
+  captured PC and pane together. Disconnected PCs and stale recent targets are omitted.
+- Branch inventories are read only while the palette is open, under each connected PC's own
+  `MachineContext`, and accepted only for that PC's current workspace signature. Recent entries
+  store both machine and pane IDs; existing per-PC history migrates into the combined list.
+  New workspace, pane operations and plugin actions keep the selected PC's context and are not
+  retargeted by hovering or searching another PC's panes.
 - Status chips (`.palette-filter`, a `radiogroup`) sit between the search and the list: All, then
-  INPUT, RUN, READY, DONE, BG in `STATUS_WORD`'s words with their counts over the whole roster. The
+  INPUT, RUN, READY, DONE, BG in `STATUS_WORD`'s words with counts over all connected PCs. The
   checked chip takes its badge's tint and text (All and READY the neutral hover fill); a chip no
   pane answers to keeps a dashed edge. A chip is `--control-h` minus `--space-2` tall, and on a
   coarse pointer `--control-h` minus 2px with a `--touch-target` hit area. The row scrolls sideways
   without a scrollbar where it does not fit. A status filter leaves the actions out; `>` at the
   start of the query shows the actions alone and hides the chips.
-- The footer (`.palette-footer`) names the picked row's place (workspace › tab) and its path in
+- The footer (`.palette-footer`) names the picked row's place (PC › workspace › tab, omitting
+  the PC for a single-PC roster) and its path in
   mono; on a desktop it also carries the `.kbd` hints for Left/Right (workspace) and `>` (actions).
 - Keys: Left and Right step to the previous or next section from a row, or from the search field
   while the caret sits at the text's edge; inside the text they move the caret. herdr's picker
@@ -1133,6 +1135,22 @@ One set for both themes: the card is island black wherever it shows.
   Enter searches backward initially, then advances forward; Shift+Enter goes backward.
   Escape closes the bar and returns desktop focus to the terminal without changing its viewport.
   Searches are explicit, literal and supplied by herdr; no browser scrollback is added.
+- `TerminalViewportTools` paints accent overlays for native, inclusive cell ranges after checking
+  the corresponding text and cell widths in xterm's current attach buffer. The current result has
+  a stronger fill and outline. The native response supplies at most 1024 ranges around a result;
+  the match count remains exact, and highlighting covers that returned window rather than every
+  match in unlimited history. Output, reflow and stale responses invalidate highlight data.
+- Automatic refresh uses `jump:false` only after an explicit search response includes both
+  `matches` and `scroll`. Older bridges can ignore unknown request fields, so they receive no
+  automatic search POST. Their explicit count and previous/next navigation remain unchanged.
+  Read-only views also send no automatic search POST and cannot drag the history scrollbar.
+- The separate history scrollbar sits in a reserved gutter alongside the grid and is hidden
+  when herdr reports no scrollback. Dragging the thumb, clicking the track or its focused arrows,
+  Page Up/Down and Home/End call `pane.scroll`; this moves the shared viewport for every client,
+  including the TUI. Pending pointer moves are coalesced, requests retain their owning PC/pane,
+  and a failed request displays an error instead of inventing a local history position.
+- Explicit Find cancels unsent scrollbar offsets and waits for a native scroll already sent;
+  the scrollbar is disabled until that search ends, so an older drag cannot overwrite its result.
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount clips its own gutter and hides the unused xterm scrollbar.
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.

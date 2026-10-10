@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -7,6 +7,8 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
+import { ViewportIntentGate } from "../lib/viewportIntent.ts";
+import { PanePresentedContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
@@ -21,10 +23,12 @@ import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scroll
 import { parseOsc52 } from "../lib/osc52.ts";
 import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { PaneAwayContext } from "../lib/paneAwayContext.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar } from "./KeyBar.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
 import { FindBar } from "./FindBar.tsx";
+import { TerminalViewportTools, type TerminalSearchState } from "./TerminalViewportTools.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
@@ -78,6 +82,8 @@ export interface PaneTerminalProps {
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
   findRequest?: number;
+  /** Only the selected tile may take keyboard focus after async work or a lens change. */
+  active?: boolean;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
   autoSelected?: boolean;
   /** xterm font size (settings) */
@@ -120,6 +126,7 @@ export function PaneTerminal({
   machineName = "",
   view,
   findRequest = 0,
+  active = true,
   autoSelected = false,
   terminalFontSize,
   terminalWheelSpeed,
@@ -132,15 +139,27 @@ export function PaneTerminal({
   onServerMessage,
 }: PaneTerminalProps) {
   const t = useT();
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const openFile = useContext(OpenFileContext);
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
   const machineId = useMachineId();
+  const submitRetention = useContext(PaneSubmitContext);
+  const presented = useContext(PanePresentedContext);
+  const presentedRef = useRef(presented); presentedRef.current = presented;
+  const awayReleased = useContext(PaneAwayContext);
   const { answerPanePrompt, uploadPaneImage } = useMachineApi();
   const uploadFileRef = useRef(uploadPaneImage);
   uploadFileRef.current = uploadPaneImage;
   const chatView = view === "chat";
   const [findOpen, setFindOpen] = useState(false);
+  const [terminal, setTerminal] = useState<Terminal | null>(null);
+  const [searchState, setSearchState] = useState<TerminalSearchState | null>(null);
+  const viewportId = useId();
+  const viewportIntent = useMemo(() => new ViewportIntentGate(), [machineId, paneId]);
+  const viewportSearching = useSyncExternalStore(viewportIntent.subscribe, viewportIntent.isSearching, viewportIntent.isSearching);
+  const [mouseReporting, setMouseReporting] = useState(false);
   const findOpenRef = useRef(findOpen);
   findOpenRef.current = findOpen;
   const lastFindRequest = useRef(findRequest);
@@ -148,8 +167,10 @@ export function PaneTerminal({
   useLayoutEffect(() => {
     if (findRequest !== lastFindRequest.current) {
       lastFindRequest.current = findRequest;
-      findOpenRef.current = true;
-      setFindOpen(true);
+      if (findRequest > 0 && activeRef.current) {
+        findOpenRef.current = true;
+        setFindOpen(true);
+      }
     }
   }, [findRequest]);
   const chatViewRef = useRef(chatView);
@@ -197,7 +218,7 @@ export function PaneTerminal({
     setModifiers(NO_STICKY_MODIFIERS);
     barKeyRef.current = null;
   }, []);
-  useLayoutEffect(clearModifiers, [paneId, chatView, clearModifiers]);
+  useLayoutEffect(clearModifiers, [paneId, chatView, active, clearModifiers]);
   // observe mode: the ref is what onData and the resize listeners read mid-stream
   const observeRef = useRef(false);
   // a mirrored pane (no terminal attach on its PC): the grid is the pane's own in herdr, adopted like an observer's
@@ -335,7 +356,7 @@ export function PaneTerminal({
   // tells a key, a mouse and a tap by the press itself (lib/promptAnswer.ts), so a key on a
   // tablet hands the focus on and a tap on a touch-screen laptop does not.
   const onPromptAnswered = useCallback((toMessageBox: boolean) => {
-    if (toMessageBox && (chatViewRef.current || !findOpenRef.current)) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
+    if (activeRef.current && toMessageBox && (chatViewRef.current || !findOpenRef.current)) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
   }, []);
   // only the pick of that pane and prompt: an answer that comes back late must not take another's
   const clearPendingAnswer = useCallback((pane: string, promptId?: string) => {
@@ -375,8 +396,16 @@ export function PaneTerminal({
   onRoleAckRef.current = onRoleAck;
 
   useEffect(() => {
-    onConnectionChangeRef.current?.(connected);
-  }, [connected]);
+    if (active) onConnectionChangeRef.current?.(connected);
+  }, [connected, active]);
+
+  useEffect(() => {
+    if (active) onRoleAckRef.current?.(observing ? "observe" : "interact");
+    else {
+      termRef.current?.blur();
+      if (stackRef.current?.contains(document.activeElement) && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    }
+  }, [active, observing]);
 
   const noteClipboard = useCallback((note: string) => {
     if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
@@ -535,6 +564,7 @@ export function PaneTerminal({
       return reporting;
     });
     termRef.current = term;
+    setTerminal(term);
     fitRef.current = fit;
 
     // A grid that is not this browser's own (observing, or mirrored from a PC that cannot
@@ -900,6 +930,7 @@ export function PaneTerminal({
             return;
           }
           setOutputReady(true);
+          setMouseReporting(term.modes.mouseTrackingMode !== "none" && !fixedGridRef.current);
           followCursor();
           const lines: string[] = [];
           const buffer = term.buffer.active;
@@ -945,7 +976,7 @@ export function PaneTerminal({
             /* not laid out yet */
           }
           const pane = paneRef.current;
-          if (pane) socket.resize(pane, term.cols, term.rows, true);
+          if (pane && presentedRef.current) socket.resize(pane, term.cols, term.rows, true);
         }
         panned = false;
         followCursor();
@@ -1119,9 +1150,9 @@ export function PaneTerminal({
         const paths: string[] = [];
         for (const file of files) paths.push(await uploadFileRef.current(pane, file));
         // An upload can finish after the user has switched panes or lost input access.
-        if (paneRef.current !== pane || chatViewRef.current || !socket.connected || term.options.disableStdin) return;
+        if (paneRef.current !== pane || !activeRef.current || chatViewRef.current || !socket.connected || term.options.disableStdin) return;
         pasteText(paths.map((path) => `'${path.replaceAll("'", "'\\''")}'`).join(" ") + " ");
-        if (!findOpenRef.current) term.focus();
+        if (activeRef.current && !findOpenRef.current) term.focus();
       } catch (error) {
         if (paneRef.current === pane) noteClipboard(error instanceof Error ? error.message : String(error));
       }
@@ -1153,7 +1184,7 @@ export function PaneTerminal({
       const text = event.dataTransfer.getData("text/plain");
       if (text) {
         pasteText(text);
-        term.focus();
+        if (activeRef.current) term.focus();
       }
     };
     host.addEventListener("paste", onFilePaste, { capture: true });
@@ -1178,7 +1209,7 @@ export function PaneTerminal({
         }
         // the chat lens covers the grid: a phone's viewport or keyboard must not resize the
         // shared pty under another device (#361); the switch back to the terminal refits
-        if (chatViewRef.current) return;
+        if (chatViewRef.current || !presentedRef.current) return;
         try {
           fit.fit();
         } catch {
@@ -1246,7 +1277,7 @@ export function PaneTerminal({
     // connections never do this: they own no geometry to re-assert.
     const refit = (): void => {
       const current = paneRef.current;
-      if (!current || observeRef.current || fixedGridRef.current || chatViewRef.current) return;
+      if (!current || observeRef.current || fixedGridRef.current || chatViewRef.current || !presentedRef.current) return;
       try {
         fit.fit();
       } catch {
@@ -1264,6 +1295,7 @@ export function PaneTerminal({
     // focus only while it is clicked into.
     const embedded = window.self !== window.top;
     const queueWaits = (pane: string): boolean => {
+      if (submitRetention?.has(pane)) return true;
       if ([...pendingSubmissionsRef.current].some((submission) => submission.pane === pane
         && submission.socket === socket && submission.epoch === pendingEpochRef.current)) return true;
       const owner = paneStorageId(machineId, pane);
@@ -1289,6 +1321,9 @@ export function PaneTerminal({
       }
       socket.detach(current);
       if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, current), pendingScopeRef.current);
+      // Only an actual release marks the canvas. A queue-held pane never transfers that
+      // ownership or skips the next pane's normal initial attach/release delay.
+      if (awayReleased) awayReleased.current = true;
       setReleased(true);
       watch(current);
     };
@@ -1311,6 +1346,7 @@ export function PaneTerminal({
       if (current && releasedRef.current && watchingRef.current) socket.watch(current, cols, rows);
     });
     const resume = (): void => {
+      if (!presentedRef.current) return;
       setReleased(false);
       const current = paneRef.current;
       if (!current) return;
@@ -1351,6 +1387,8 @@ export function PaneTerminal({
     };
     leaveRef.current = leave;
     const back = (): void => {
+      if (!presentedRef.current) return;
+      if (inUse() && awayReleased) awayReleased.current = false;
       cancelLeave();
       if (releasedRef.current) resume();
       else refit();
@@ -1360,8 +1398,8 @@ export function PaneTerminal({
       else leave();
     };
     // a click or a tap is the user here, whatever the window says about its focus
-    const onPointer = (): void => {
-      if (releasedRef.current) back();
+    const onPointer = (event: PointerEvent): void => {
+      if (releasedRef.current && stackRef.current?.contains(event.target as Node)) back();
     };
     window.addEventListener("focus", back);
     window.addEventListener("blur", leave);
@@ -1420,6 +1458,7 @@ export function PaneTerminal({
       term.element?.remove();
       disposeAfterPendingFrame(term);
       termRef.current = null;
+      setTerminal((current) => current === term ? null : current);
       socketRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one terminal for the mount; theme/font follow in their own effect
@@ -1455,7 +1494,7 @@ export function PaneTerminal({
       // a chosen font loads after every attach: out of use (a reload behind another app), only
       // this grid fits, and the refit takes the pane once the user is here
       const pane = paneRef.current;
-      if (pane && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
+      if (pane && presentedRef.current && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
     };
     if (fontFamily === TERMINAL_FONT_STACK) apply();
     else void loadFontStack(fontFamily, terminalFontSize).then(apply);
@@ -1484,8 +1523,8 @@ export function PaneTerminal({
     // this runs on every load too, right after the attach: out of use (a reload behind another
     // app), only this grid fits, and the refit takes the pane once the user is here
     const pane = paneRef.current;
-    if (pane && term && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
-    if (!autoSelected && !coarseRef.current && !findOpenRef.current) term?.focus();
+    if (pane && term && presentedRef.current && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
+    if (activeRef.current && !autoSelected && !coarseRef.current && !findOpenRef.current) term?.focus();
   }, [chatView]);
 
   // Reset synchronously on pane changes: old composition timers must never see the new pane.
@@ -1495,6 +1534,7 @@ export function PaneTerminal({
     const fit = fitRef.current;
     if (!socket || !term) return;
     setEnded(false);
+    setMouseReporting(false);
     setInputReady(false);
     setInputError(null);
     setComposing(false);
@@ -1529,7 +1569,12 @@ export function PaneTerminal({
       }
       if (pendingScopeRef.current !== null) pendingMessages.suspend(paneStorageId(machineId, paneId), pendingScopeRef.current);
     };
-    // a tab that let go of its pane while out of use watches the next one, and attaches it when the user is back
+    // A fresh keyed terminal inherits a prior release only within this PC's canvas and
+    // while the browser remains away. Initial inactive loads still attach with keep_size
+    // and get their normal release delay; no queued input or connection state is inherited.
+    if (awayReleased && (inUse() || !releaseAwayRef.current)) awayReleased.current = false;
+    if (releaseAwayRef.current && !inUse() && awayReleased?.current) setReleased(true);
+    // A tab that let go watches its replacement until the user returns.
     if (releasedRef.current) {
       watchRef.current(paneId);
       return leavePane;
@@ -1547,7 +1592,7 @@ export function PaneTerminal({
     if (away) leaveRef.current();
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
-    if (!chatViewRef.current && !autoSelected && !coarseRef.current && !findOpenRef.current) term.focus();
+    if (activeRef.current && !chatViewRef.current && !autoSelected && !coarseRef.current && !findOpenRef.current) term.focus();
     return leavePane;
   }, [paneId]);
 
@@ -1555,13 +1600,19 @@ export function PaneTerminal({
   useEffect(() => { releaseRef.current(); }, [pending]);
 
 
+  // A sibling already mounted in the split canvas becomes the keyboard target only on an
+  // explicit navigation. Clicking inside it leaves focus on the actual clicked control.
+  useEffect(() => {
+    if (active && !autoSelected && !chatViewRef.current && !coarseRef.current && !findOpenRef.current) termRef.current?.focus();
+  }, [active, autoSelected]);
+
   // the user picked the pane App had switched to on its own (the same row or lens again,
   // which changes neither the pane nor the lens): the grid takes the keyboard now
   const autoSelectedRef = useRef(autoSelected);
   useEffect(() => {
     const wasAuto = autoSelectedRef.current;
     autoSelectedRef.current = autoSelected;
-    if (wasAuto && !autoSelected && !chatViewRef.current && !coarseRef.current && !findOpenRef.current) termRef.current?.focus();
+    if (activeRef.current && wasAuto && !autoSelected && !chatViewRef.current && !coarseRef.current && !findOpenRef.current) termRef.current?.focus();
   }, [autoSelected]);
 
   // key-bar taps go through xterm so the onData -> socket path above is reused
@@ -1628,6 +1679,7 @@ export function PaneTerminal({
     const epoch = pendingEpochRef.current;
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery);
     if (sent === null) return null;
+    const releaseSubmit = submitRetention?.retain(pane);
     const submission = delivery === "queue" ? { pane, socket, epoch } : null;
     if (submission) pendingSubmissionsRef.current.add(submission);
     term.scrollToBottom();
@@ -1661,11 +1713,11 @@ export function PaneTerminal({
       rememberGreeting(owner, afterSettled(delivery === "immediate" ? greetingMemory(owner) : afterSend(greetingMemory(owner)), true, history)); redrawGreeting();
       throw error;
     }).finally(() => {
-      if (!submission) return;
-      pendingSubmissionsRef.current.delete(submission);
+      if (submission) pendingSubmissionsRef.current.delete(submission);
+      releaseSubmit?.();
       if (paneRef.current === pane && socketRef.current === socket && pendingEpochRef.current === epoch) releaseRef.current();
     });
-  }, [onChatSuggestion, machineId]);
+  }, [onChatSuggestion, machineId, submitRetention]);
 
   const sendComposerText = useCallback((text: string, delivery: "queue" | "immediate" = "immediate"): false | Promise<true | string> => {
     const result = submitComposerMessage(text, delivery);
@@ -1683,9 +1735,13 @@ export function PaneTerminal({
     const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
     const sent = socket.submit(pane, message, payload, true);
     if (sent === null) return false;
+    const releaseSubmit = submitRetention?.retain(pane);
     term.scrollToBottom();
-    return sent.then((result) => (result.ok ? true : submitNote(result.code, result.message)));
-  }, []);
+    return sent.then((result) => (result.ok ? true : submitNote(result.code, result.message))).finally(() => {
+      releaseSubmit?.();
+      if (paneRef.current === pane && socketRef.current === socket) releaseRef.current();
+    });
+  }, [submitRetention]);
 
   const pressEnter = useCallback((): boolean => {
     const socket = socketRef.current;
@@ -1973,17 +2029,20 @@ export function PaneTerminal({
           </div>
         )}
       </div>
-      {findOpen && !chatView && paneId !== null && (
-        <FindBar key={paneId} paneId={paneId} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
-          onClose={() => { setFindOpen(false); if (!coarse) termRef.current?.focus(); }} />
+      {presented && findOpen && !chatView && paneId !== null && (
+        <FindBar key={paneId} paneId={paneId} viewportIntent={viewportIntent} onResult={setSearchState} activePane={active} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
+          onClose={() => { setFindOpen(false); if (activeRef.current && !coarse) termRef.current?.focus(); }} />
       )}
       <div className="terminal-surface">
         {/* xterm hides its rendered rows from assistive technology, so the region around the
             visible grid carries the pane's name: a screen reader announces which pane
             this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
             stop on the wrapper would only be an empty one ahead of it. */}
-        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
-        {paneId !== null && chatView && (
+        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}${!chatView && paneId !== null ? " has-viewport-tools" : ""}`} ref={hostRef} id={viewportId} data-mouse-reporting={mouseReporting && !observing && !held && !secretActive && connected && !chatView ? "" : undefined} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
+        {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
+          enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
+          interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}
+        {presented && paneId !== null && chatView && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">
               <p>{t("The chat can't be shown. The terminal still works.")}</p>
@@ -2018,7 +2077,7 @@ export function PaneTerminal({
       </div>
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
           Codex question known (heldByOpenQueue), and Send now must not type into one */}
-      {paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
+      {presented && paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
         <section className={`composer-queue${readyForQueue ? " is-ready" : ""}${heldHidden ? " is-folded" : ""}`} aria-label={t("Queued messages")}>
           {(() => {
             // one caption line: the sentence says the state
@@ -2085,8 +2144,9 @@ export function PaneTerminal({
           </ol>
         </section>
       )}
-      {paneId !== null && chatView && !observing && queueOwner !== null && pending.length > 0 && <PendingMessages
+      {presented && paneId !== null && chatView && !observing && queueOwner !== null && pending.length > 0 && <PendingMessages
         key={`pending-${queueOwner}`}
+        active={active}
         messages={pending.map((message) => !message.serverOwned || pendingMessages.isOwned(queueOwner, message.id, pendingScopeRef.current)
           ? message : { ...message, serverOwned: false, state: "uncertain" as const })}
         connected={connected}
@@ -2100,19 +2160,20 @@ export function PaneTerminal({
           open), directly over the input card, on the same column. ChatView renders the card into
           it. It is a live region of its own, since the card is no longer inside the transcript's
           log: a prompt that arrives is announced, as it was there. */}
-      {paneId !== null && chatView && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" />}
+      {presented && paneId !== null && chatView && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
-      {paneId !== null && secretActive && !observing && !ended && connected && outputReady && <SecretInput
-        key={`${paneId}:${secret.prompt}`} prompt={secret.prompt}
+      {presented && paneId !== null && secretActive && !observing && !ended && connected && outputReady && <SecretInput
+        key={`${paneId}:${secret.prompt}`} prompt={secret.prompt} active={active}
         onSend={(value) => socketRef.current?.sendSecret(paneId, secret.prompt, value) ?? null}
         onCancel={() => { if (socketRef.current?.connected) socketRef.current.sendInput(paneId, "\u0003"); }}
       />}
-      {paneId !== null && chatView && !secretActive && !observing && !ended && (
+      {presented && paneId !== null && chatView && !secretActive && !observing && !ended && (
         <Composer
           key={paneId}
           paneId={paneId}
-          autoFocus={!autoSelected && !coarse}
+          autoFocus={active && !autoSelected && !coarse}
+          active={active}
           agent={agent}
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}
@@ -2135,8 +2196,8 @@ export function PaneTerminal({
           onUploadImage={uploadImage}
         />
       )}
-      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
-      {paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
+      {presented && paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
+      {presented && paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
         modifiers={modifiers} onToggleModifier={toggleModifier} items={settings.keyBarItems}
         {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -13,7 +13,7 @@ import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
-import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
@@ -40,8 +40,10 @@ import {
   HerdrError,
   herdrSocketPath,
   integrationList,
+  layoutSetSplitRatio,
   paneClear,
   paneClose,
+  paneFocus,
   paneGet,
   paneMove,
   paneRead,
@@ -55,6 +57,7 @@ import {
   paneSendText,
   paneSplit,
   paneSwap,
+  paneSwapWith,
   paneZoom,
   ping,
   pluginActionInvoke,
@@ -66,6 +69,7 @@ import {
   tabClose,
   tabCreate,
   tabRename,
+  tabMove,
   workspaceClose,
   workspaceCreate,
   workspaceMove,
@@ -1362,6 +1366,8 @@ export function createServer(
     },
     // a finish reported as done, now in front at herdr's terminal: seen, idle again
     onFocus: (paneId) => {
+      // The split canvas follows herdr's focused pane (also the sole visible pane while zoomed).
+      broadcastAll({ type: "session-changed" });
       if (!completions.seen(paneId)) return;
       pending.status(paneId, "idle"); drainPending(paneId);
       broadcastAll(paneStatus(paneId, "idle"));
@@ -1826,9 +1832,9 @@ export function createServer(
       }
 
       // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it
-      if (pathname === "/api/tab/rename" || pathname === "/api/tab/close") {
+      if (pathname === "/api/tab/rename" || pathname === "/api/tab/close" || pathname === "/api/tab/move") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { tab_id?: unknown; label?: unknown };
+        let payload: { tab_id?: unknown; label?: unknown; insert_index?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -1836,7 +1842,15 @@ export function createServer(
         }
         if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
         if (typeof payload.tab_id !== "string" || payload.tab_id.length === 0) return badRequest("missing_tab_id", "tab_id is required");
+        if (pathname === "/api/tab/move" && (typeof payload.insert_index !== "number" || !Number.isSafeInteger(payload.insert_index) || payload.insert_index < 0)) {
+          return badRequest("invalid_index", "insert_index must be a non-negative safe integer");
+        }
         try {
+          if (pathname === "/api/tab/move") {
+            const moved = await tabMove(payload.tab_id, payload.insert_index as number);
+            broadcastAll({ type: "session-changed" });
+            return jsonResponse({ ok: true, tabs: moved.tabs } satisfies TabMoved);
+          }
           if (pathname === "/api/tab/rename") {
             // herdr would keep an empty label as the tab's name, and its own tab row would show nothing
             const label = typeof payload.label === "string" ? payload.label.trim() : "";
@@ -2062,6 +2076,7 @@ export function createServer(
         if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
         if (typeof payload.query !== "string" || payload.query.length === 0 || payload.query.length > 1024) return badRequest("invalid_query", "query must contain 1 to 1024 characters");
         if (payload.direction !== "forward" && payload.direction !== "backward") return badRequest("invalid_direction", "direction must be forward or backward");
+        if (payload.jump !== undefined && typeof payload.jump !== "boolean") return badRequest("invalid_jump", "jump must be a boolean");
         const point = (value: unknown): value is { row: number; col: number } =>
           isJsonObject(value) && isCount(value.row) && value.row <= 0xffffffff && isCount(value.col) && value.col <= 0xffff;
         const previous = payload.previous;
@@ -2072,11 +2087,12 @@ export function createServer(
         try {
           return jsonResponse(await paneFind({
             pane_id: payload.pane_id, query: payload.query, direction: payload.direction,
+            ...(typeof payload.jump === "boolean" ? { jump: payload.jump } : {}),
             ...(isJsonObject(previous) && point(previous.start) && point(previous.end) ? { previous: { start: previous.start, end: previous.end } } : {}),
             ...(isCount(payload.content_revision) ? { content_revision: payload.content_revision } : {}),
           }));
         } catch (error) {
-          if (error instanceof HerdrError && error.code === "stale_content") return jsonResponse({ error: { code: error.code, message: error.message } }, 409);
+          if (error instanceof HerdrError && error.code === "stale_content") return conflictResponse(error.code, error.message);
           return errorResponse(error);
         }
       }
@@ -2226,14 +2242,29 @@ export function createServer(
         }
       }
 
+      if (pathname === "/api/layout/ratio") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { tab_id?: unknown; path?: unknown; ratio?: unknown };
+        try { payload = (await request.json()) as typeof payload; }
+        catch { return badRequest("invalid_json", "request body must be JSON"); }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.tab_id !== "string" || !payload.tab_id.trim()) return badRequest("missing_tab_id", "tab_id is required");
+        if (!Array.isArray(payload.path) || !payload.path.every((step) => typeof step === "boolean")) return badRequest("invalid_path", "path must be an array of booleans");
+        if (typeof payload.ratio !== "number" || !Number.isFinite(payload.ratio) || payload.ratio < 0.1 || payload.ratio > 0.9) return badRequest("invalid_ratio", "ratio must be a number from 0.1 to 0.9");
+        try {
+          await layoutSetSplitRatio(payload.tab_id, payload.path, payload.ratio);
+          return jsonResponse({ ok: true });
+        } catch (error) { return errorResponse(error); }
+      }
+
       // herdr's own layout operations, as its TUI has them: prefix+v and prefix+- (split), prefix+z
       // (zoom), prefix+shift+hjkl (swap), its resize mode, and pane clear. Each is one herdr RPC. No
       // answer carries the layout: a new pane reaches every client through the collector's
       // pane.created subscription and a moved border, zoom or swap through its layout.updated one,
       // both as session-changed, the same way the TUI's own changes do.
-      if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear") {
+      if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear" || pathname === "/api/pane/focus") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: unknown; direction?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
+        let payload: { pane_id?: unknown; direction?: unknown; target_pane_id?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -2243,6 +2274,10 @@ export function createServer(
         if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
         const paneId = payload.pane_id;
         try {
+          if (pathname === "/api/pane/focus") {
+            await paneFocus(paneId);
+            return jsonResponse({ ok: true });
+          }
           if (pathname === "/api/pane/split") {
             if (payload.direction !== "right" && payload.direction !== "down") return badRequest("invalid_direction", "direction must be right or down");
             if (payload.focus !== undefined && typeof payload.focus !== "boolean") return badRequest("invalid_focus", "focus must be a boolean");
@@ -2258,11 +2293,17 @@ export function createServer(
             await paneClear(paneId);
             return jsonResponse({ ok: true });
           }
-          if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
           if (pathname === "/api/pane/swap") {
-            const swap = await paneSwap(paneId, payload.direction);
+            if (payload.target_pane_id !== undefined && payload.direction !== undefined) return badRequest("invalid_pane_swap", "provide exactly one of direction or target_pane_id");
+            if (payload.target_pane_id !== undefined) {
+              if (typeof payload.target_pane_id !== "string" || !payload.target_pane_id.trim()) return badRequest("invalid_target_pane_id", "target_pane_id must be a non-empty string");
+            } else if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
+            const swap = typeof payload.target_pane_id === "string"
+              ? await paneSwapWith(paneId, payload.target_pane_id)
+              : await paneSwap(paneId, payload.direction as PaneDirection);
             return jsonResponse({ ok: true, changed: swap.changed, reason: swap.reason, target_pane_id: swap.target_pane_id } satisfies PaneSwapped);
           }
+          if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
           // a share of the split the border belongs to, as herdr counts it, and no more than the
           // half herdr would quietly cap it to (shared/protocol.ts); its own default when absent
           if (payload.amount !== undefined && !(typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0 && payload.amount <= 0.5)) {
