@@ -19,8 +19,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
   one herdr RPC each, also on remote PCs, and the server now follows herdr's `layout.updated`
   events, so a zoom, swap or resize made in the TUI reaches every browser at once.
+  ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
+- **Settings → Agent integrations** lists herdr's integration for each agent it supports and
+  says whether it is installed, older than the running herdr, or missing. Agents found on the PC
+  come first. A missing or outdated one shows its `herdr integration install …` command with a
+  Copy button; the page only reads herdr's state and never installs or removes anything.
+  ([#722](https://github.com/devswha/herdr-web-ui/pull/722))
+
+### Changed
+- Single-pane input, file discovery and image upload lookups ask herdr for that pane instead of
+  rebuilding a whole-session snapshot. Layout and transcript peer checks keep their snapshots.
+  ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- A numeric custom tab name remains visible when tabs before it close ([#723](https://github.com/devswha/herdr-web-ui/pull/723)).
 - A request that carries a session cookie but states no `Origin` is now read as cross-site rather
   than same-origin, so a header that went missing is no longer trusted as though a browser had
   sent it. What genuinely cannot state one keeps working — a same-origin read such as the PC

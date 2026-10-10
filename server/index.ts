@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -35,8 +35,10 @@ import {
   agentStart,
   HerdrError,
   herdrSocketPath,
+  integrationList,
   paneClear,
   paneClose,
+  paneGet,
   paneRead,
   paneResize,
   paneScroll,
@@ -201,8 +203,7 @@ function expandedDirectory(value: string): string | null {
 }
 
 async function paneContext(paneId: string): Promise<{ agent: string | null; cwd: string }> {
-  const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-  if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
+  const pane = await paneGet(paneId);
   const cwd = pane.foreground_cwd ?? pane.cwd;
   if (!cwd) throw new HerdrError("cwd_not_found", `pane ${paneId} has no working directory`);
   return { agent: pane.agent ?? pane.agent_session?.agent ?? null, cwd };
@@ -510,7 +511,10 @@ export function createServer(
     // the terminal's input line stands in for the keyboard: it types what the user wrote, an
     // answer into an open menu included, where agent.prompt would refuse
     if (!fromTerminal) {
-      const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+      const pane = await paneGet(paneId).catch((error: unknown) => {
+        if (error instanceof HerdrError && error.code === "pane_not_found") return undefined;
+        throw error;
+      });
       inTime();
       if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
         const [live, colors] = await claudeBoxReads(paneId);
@@ -551,7 +555,10 @@ export function createServer(
 
   /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
   async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> {
-    const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+    const pane = await paneGet(paneId).catch((error: unknown) => {
+      if (error instanceof HerdrError && error.code === "pane_not_found") return undefined;
+      throw error;
+    });
     if ((pane?.agent ?? pane?.agent_session?.agent) !== "codex") return false;
     // A collapsed queue in scrollback must not bypass an approval on the live screen.
     return codexQuestionsCollapsed((await paneRead({ paneId, source: "detection", format: "text" })).text);
@@ -779,8 +786,7 @@ export function createServer(
     loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
     lookupTitle: async (paneId) => {
-      const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-      return pane ? paneTitle(pane) : undefined;
+      return paneTitle(await paneGet(paneId));
     },
   });
 
@@ -1392,7 +1398,7 @@ export function createServer(
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/integrations" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -1461,7 +1467,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
@@ -1570,6 +1576,16 @@ export function createServer(
             .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
           return jsonResponse({ agents });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      // read only: installing one changes an agent's own hooks, which stays the user's call in a terminal
+      if (pathname === "/api/integrations") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        try {
+          return jsonResponse({ integrations: await integrationList() } satisfies IntegrationsResponse);
         } catch (error) {
           return errorResponse(error);
         }
@@ -1866,11 +1882,10 @@ export function createServer(
           // a Claude pane's subagents, read from its session's files; nothing for any other pane.
           // Its transcript is found here if the background lookup has not got to it yet
           // (for a second at most: a slow herdr answers with what is known, and the next ask has the rest)
-          // An unknown pane costs a fresh herdr snapshot too; the client bounds its discovery retries.
+          // An unknown pane costs a fresh herdr lookup too; the client bounds its discovery retries.
           if (claudeAgents.sessionOf(paneId) === null) {
             await within(1000, (async () => {
-              const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-              if (pane) await claudeAgents.ensure(pane);
+              await claudeAgents.ensure(await paneGet(paneId));
             })());
           }
           const claude = claudeAgents.sessionOf(paneId);
