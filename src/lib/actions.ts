@@ -22,6 +22,7 @@ export interface AppActions {
    */
   openNewTab: (target?: { machineId: string; workspaceId: string }) => void;
   openPalette: () => void;
+  openFind: () => void;
   openSettings: () => void;
   /** the Add PC dialog, from Settings → Remote PCs and the palette; Settings closes first */
   openAddPc: () => void;

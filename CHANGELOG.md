@@ -19,6 +19,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   and **Zoom pane**. Behind them are `POST /api/pane/split`, `zoom`, `swap`, `resize` and `clear`,
   one herdr RPC each, also on remote PCs.
   ([#726](https://github.com/devswha/herdr-web-ui/pull/726))
+- Find literal text in a pane's history from **Find in terminal** in More or Mod+Shift+F.
+  Previous/next controls show the match count and move herdr's shared viewport, including its TUI.
+  ([#729](https://github.com/devswha/herdr-web-ui/pull/729))
 - The command palette lists the actions of the herdr plugins installed on the PC under **Plugin
   actions** and runs one against the selected pane, with that pane's workspace and tab as its
   context. The row shows that it is running, a command that fails says why above the list, and a
