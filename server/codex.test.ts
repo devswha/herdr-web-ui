@@ -462,6 +462,22 @@ describe("Codex rollout resolution", () => {
     } finally { db.close(); }
   });
 
+  it.skipIf(process.platform !== "win32")("finds Codex's canonical casing when Herdr reports another spelling of the same directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-codex-cwd-"));
+    const actual = join(root, "Recorde");
+    mkdirSync(actual);
+    const reported = join(root, "recorde");
+    const canonical = realpathSync.native(reported);
+    const db = new Database(":memory:");
+    try {
+      db.run("CREATE TABLE threads (id TEXT, cwd TEXT)");
+      db.run("INSERT INTO threads VALUES (?, ?)", ["own", `\\\\?\\${canonical}`]);
+      const { where, params } = storedCwdCondition(reported);
+      expect(db.query<{ id: string }, string[]>(`SELECT id FROM threads WHERE ${where}`).all(...params)).toEqual([{ id: "own" }]);
+      expect(sameDirectory(reported, canonical)).toBe(true);
+    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("looks threads up on Codex's binary cwd index, not by a scan of every thread (#587)", () => {
     const db = threadsDb();
     try {
