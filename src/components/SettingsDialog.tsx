@@ -19,7 +19,8 @@ import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
 import type { AgentIntegration, HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
-import { useMachineApi } from "../lib/machineContext.tsx";
+import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { loadIntegrations, outcomeFor, type IntegrationsResult } from "../lib/integrations.ts";
 import type { VoiceStatus } from "../../shared/voice.ts";
 import { dictationLocale, VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
@@ -496,19 +497,19 @@ function UsagePage() {
 function IntegrationsPage() {
   const t = useT();
   const api = useMachineApi();
-  const [integrations, setIntegrations] = useState<AgentIntegration[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const machineId = useMachineId();
+  const [result, setResult] = useState<IntegrationsResult | null>(null);
   useEffect(() => {
     let live = true;
-    api.fetchIntegrations().then(
-      (list) => { if (live) setIntegrations(list); },
-      (cause: unknown) => { if (live) setError(cause instanceof Error ? cause.message : String(cause)); },
-    );
+    void loadIntegrations(api.fetchIntegrations).then((outcome) => { if (live) setResult({ machineId, outcome }); });
     return () => { live = false; };
-  }, [api]);
+  }, [api, machineId]);
+  const outcome = outcomeFor(result, machineId);
   const note = t("herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.");
-  if (error !== null) return <SettingsGroup note={note}><p className="settings-item settings-hint" role="alert">{error}</p></SettingsGroup>;
-  if (integrations === null) return <SettingsGroup note={note}><p className="settings-item settings-hint" role="status">{t("Loading…")}</p></SettingsGroup>;
+  if (outcome === null) return <SettingsGroup note={note}><p className="settings-item settings-hint" role="status">{t("Loading…")}</p></SettingsGroup>;
+  if (outcome.kind === "unsupported") return <SettingsGroup><p className="settings-item settings-hint" role="status">{t("This PC's bridge does not offer agent integrations yet. It will after its next runtime update.")}</p></SettingsGroup>;
+  if (outcome.kind === "error") return <SettingsGroup note={note}><p className="settings-item settings-hint" role="alert">{outcome.message}</p></SettingsGroup>;
+  const { integrations } = outcome;
   // agents on the PC's PATH first, in herdr's order: the rest can wait until one is installed
   const groups = [
     { title: undefined, rows: integrations.filter((integration) => integration.available) },

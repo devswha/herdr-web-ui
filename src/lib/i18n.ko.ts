@@ -866,4 +866,5 @@ export const KO: Record<string, string> = {
   "Installed, but older than this herdr: run this to update it": "설치되어 있지만 이 herdr보다 오래되었습니다. 이 명령으로 업데이트하세요",
   "Not installed": "설치되지 않음",
   "Copy the command for {name}": "{name} 명령 복사",
+  "This PC's bridge does not offer agent integrations yet. It will after its next runtime update.": "이 PC의 브리지는 아직 에이전트 통합을 제공하지 않습니다. 다음 런타임 업데이트 후에 사용할 수 있습니다.",
 };

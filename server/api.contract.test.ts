@@ -2344,6 +2344,10 @@ describe("PC management API", () => {
     expect(data.machines[0]).toMatchObject({ id: "local", kind: "local" });
     const local = await fetch(`${base()}/api/machines/local/session`);
     expect(local.status).toBe(200);
+    const viaAlias = await fetch(`${base()}/api/machines/local/integrations`);
+    expect(viaAlias.status).toBe(200);
+    const direct = await fetch(`${base()}/api/integrations`);
+    expect(await viaAlias.json()).toEqual(await direct.json());
   });
   it("rejects CSRF, malformed targets and remote forwarding outside the allowlist", async () => {
     for (const headers of [{}, { "x-herdr-machine": "1", origin: "https://evil.invalid" }, { "x-herdr-machine": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
