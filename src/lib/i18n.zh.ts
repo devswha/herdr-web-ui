@@ -10,6 +10,15 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Find in terminal": "在终端中查找",
+  "Previous match": "上一个匹配",
+  "Next match": "下一个匹配",
+  "Close search": "关闭搜索",
+  "Searching…": "搜索中…",
+  "No matches": "无匹配",
+  "{current} of {total}": "第 {current} 个，共 {total} 个",
+  "Pane changed. Search again.": "窗格内容已更改，请重新搜索。",
+  "Search moves the pane for every client.": "搜索会移动所有已连接客户端的窗格视图。",
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Paused while you use another window": "使用其他窗口时已暂停",
