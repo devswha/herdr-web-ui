@@ -7,6 +7,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-11
+
 ### Added
 - Drag tabs to reorder them within their workspace without changing the selected pane. The tab
   menu offers **Move tab left / right**, including on phones; Alt+Shift+Left/Right moves a focused
@@ -58,6 +60,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   from another client. ([#736](https://github.com/devswha/herdr-web-ui/pull/736), [#747](https://github.com/devswha/herdr-web-ui/pull/747))
 
 ### Changed
+- The server gzips its JSON and text answers for a browser that accepts it. A conversation page
+  of a couple of megabytes, fetched on every session switch and polled while it changes, goes over
+  the wire at about a quarter of its size, and the app's script at about a third; over a slow link
+  such as a relayed Tailscale connection a switch to a long session is about twice as fast.
+  ([#615](https://github.com/devswha/herdr-web-ui/pull/615) by @Haeminway1)
 - Agents rows are selection-only: removed their ellipsis menu and name-editing dialog. The list
   keeps its existing names, status, folding and click-to-open behavior.
   ([#747](https://github.com/devswha/herdr-web-ui/pull/747))
@@ -80,6 +87,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#724](https://github.com/devswha/herdr-web-ui/pull/724))
 
 ### Fixed
+- A screen reader no longer reads a pane's id out as the terminal's name.
+  ([#695](https://github.com/devswha/herdr-web-ui/pull/695) by @pt-act)
 - Pending messages remain available for **Send now** after switching tabs, workspaces or PCs.
   Pane attachments share their PC's connection, so leaving a pane stops automatic delivery while
   its server-owned hold receipt still arrives. Real disconnections and reloads never resume a
@@ -112,6 +121,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   push subscribe — as does any client that proves itself with `x-herdr-machine`. A browser is
   unaffected: it always states an `Origin` on a cross-origin request, and `SameSite=Strict`
   already covered what this closes.
+  ([#697](https://github.com/devswha/herdr-web-ui/pull/697) by @pt-act)
 - A remote PC that is switched off or asleep while its bridge update runs, or whose update was
   cancelled, now shows **Reconnecting…** instead of asking for a bridge update it cannot run.
   Once the PC answers, the version check runs again and, if the bridge is still out of date, the
@@ -127,6 +137,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   (`~/.claude` and a `~/.claude-*` copy) now says its chat is unavailable instead of showing
   `~/.claude`'s session.
   ([#714](https://github.com/devswha/herdr-web-ui/pull/714))
+
+### Maintenance
+- A few herdr-backed check runs can share a PC, one per checkout, so parallel worktrees no longer
+  wait on one lock; integration results are counted through bun's colour codes; three more
+  entry-point scripts are typechecked.
+  ([#738](https://github.com/devswha/herdr-web-ui/pull/738), [#733](https://github.com/devswha/herdr-web-ui/pull/733) by @pt-act, [#696](https://github.com/devswha/herdr-web-ui/pull/696) by @pt-act)
+- The remote-PC runtime is now version 25: every saved PC asks for **Update bridge…** once.
 
 ## [0.4.5] - 2026-10-09
 
@@ -363,11 +380,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   [#599](https://github.com/devswha/herdr-web-ui/pull/599))
 
 ### Changed
-- The server gzips its JSON and text answers for a browser that accepts it. A conversation page
-  of a couple of megabytes, fetched on every session switch and polled while it changes, goes over
-  the wire at about a quarter of its size, and the app's script at about a third; over a slow link
-  such as a relayed Tailscale connection a switch to a long session is about twice as fast.
-  ([#615](https://github.com/devswha/herdr-web-ui/pull/615) by @Haeminway1)
 - The default mobile terminal key bar puts Esc, Tab and Ctrl+C first, before the held modifiers
   and arrows. Saved layouts keep their order. ([#607](https://github.com/devswha/herdr-web-ui/pull/607))
 - **Settings → Shortcuts** explains which keys control the app and marks known browser/OS
@@ -2859,7 +2871,10 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/devswha/herdr-web-ui/compare/v0.4.5...v0.4.6
+[0.4.5]: https://github.com/devswha/herdr-web-ui/compare/v0.4.4...v0.4.5
+[0.4.4]: https://github.com/devswha/herdr-web-ui/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/devswha/herdr-web-ui/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/devswha/herdr-web-ui/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/devswha/herdr-web-ui/compare/v0.4.0...v0.4.1
