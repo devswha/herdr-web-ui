@@ -66,6 +66,17 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
  *         for the new-session dialog)
+ *  GET    /api/plugins/actions           -> PluginActionsResponse (plugin.list + plugin.action.list:
+ *         every installed plugin with its enabled state and the manifest actions this PC's
+ *         platform can run; herdr lists a disabled plugin's actions too, and refuses to run them)
+ *  POST   /api/plugin/action { plugin_id, action_id, pane_id? } -> PluginActionResult
+ *         (plugin.action.invoke. With pane_id the action gets that pane's workspace, tab and pane as
+ *         its context, since herdr fills a field the caller left out from its OWN focus, not from
+ *         the pane named; without it herdr uses its focus throughout. herdr answers as soon as the
+ *         command started, so the server waits a few seconds for its log entry: `running` means it
+ *         had not ended by then, not that it failed. A failed command is a 200 with status
+ *         `failed`; a refused invoke is herdr's own error: plugin_not_found,
+ *         plugin_action_not_found, plugin_disabled, platform_unsupported)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
@@ -399,6 +410,56 @@ export interface ConversationResponse {
    * agent that keeps no entry tree.
    */
   abandoned?: { count: number; branches: number; summary: string | null };
+}
+
+/** Where a plugin manifest says an action applies. herdr may add more, so it stays open. */
+export type PluginActionContext = "global" | "workspace" | "tab" | "pane" | "selection" | (string & {});
+
+/** One manifest action of a herdr plugin. Its command line stays on the server. */
+export interface PluginAction {
+  /** local to its plugin: herdr's global name is `<plugin_id>.<action_id>` */
+  action_id: string;
+  title: string;
+  description: string | null;
+  /** empty when the manifest names none */
+  contexts: PluginActionContext[];
+}
+
+/** GET /api/plugins/actions: one installed plugin and the actions this PC can run. */
+export interface PluginActions {
+  plugin_id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  /** herdr refuses a disabled plugin's actions (`plugin_disabled`) */
+  enabled: boolean;
+  actions: PluginAction[];
+}
+
+export interface PluginActionsResponse {
+  plugins: PluginActions[];
+}
+
+/** POST /api/plugin/action. Without `pane_id` herdr runs the action in its own focus. */
+export interface PluginActionRequest {
+  plugin_id: string;
+  action_id: string;
+  pane_id?: string;
+}
+
+/** POST /api/plugin/action: what herdr's plugin command log said by the time the server answered. */
+export interface PluginActionResult {
+  /** `running`: the command had not ended when the wait ran out */
+  status: "running" | "succeeded" | "failed";
+  exit_code: number | null;
+  /** a failed command's own words (spawn error, else the end of stderr, else of stdout); null otherwise */
+  output: string | null;
+  /**
+   * A pane that did not exist before the action and that herdr focuses after it: what an action
+   * opening a plugin pane with focus leaves behind. herdr's invoke answer names no pane, and a
+   * popup has no pane ID, so this is null for both.
+   */
+  opened_pane_id: string | null;
 }
 
 /** GET /api/agents: one agent kind herdr can start (`agent.start` kind), with a display label. */

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, PluginActionResult, PluginActionsResponse, ClientMessage, ClientRole, HealthAuth, HerdrPane, PendingMessage, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -44,6 +44,11 @@ import {
   paneSendKeys,
   paneSendText,
   ping,
+  pluginActionInvoke,
+  pluginActionList,
+  pluginList,
+  pluginLogList,
+  type PluginInvocationContext,
   sessionSnapshot,
   tabClose,
   tabCreate,
@@ -85,6 +90,12 @@ import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
+/** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
+const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
+/** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
+const PLUGIN_ACTION_WAIT_MS = 5_000;
+/** The end of a failed plugin command's output that reaches the browser. */
+const PLUGIN_OUTPUT_CHARS = 2_000;
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
  * for a retry. A read of more lines than an idle alt-screen agent (Codex) shows, like the
@@ -1384,7 +1395,7 @@ export function createServer(
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -1803,6 +1814,87 @@ export function createServer(
             await tabClose(payload.tab_id);
           }
           return jsonResponse({ ok: true });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/plugins/actions") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        try {
+          const [plugins, actions] = await Promise.all([pluginList(), pluginActionList()]);
+          const body: PluginActionsResponse = {
+            plugins: plugins.map((plugin) => ({
+              plugin_id: plugin.plugin_id,
+              name: plugin.name,
+              version: plugin.version,
+              description: plugin.description ?? null,
+              enabled: plugin.enabled,
+              // herdr lists another platform's actions too and refuses them: platform_unsupported
+              actions: actions
+                .filter((action) => action.plugin_id === plugin.plugin_id && (!action.platforms || action.platforms.includes(PLUGIN_PLATFORM)))
+                .map((action) => ({ action_id: action.action_id, title: action.title, description: action.description ?? null, contexts: action.contexts ?? [] })),
+            })),
+          };
+          return jsonResponse(body);
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/plugin/action") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { plugin_id?: unknown; action_id?: unknown; pane_id?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.plugin_id !== "string" || payload.plugin_id.length === 0) return badRequest("missing_plugin_id", "plugin_id is required");
+        if (typeof payload.action_id !== "string" || payload.action_id.length === 0) return badRequest("missing_action_id", "action_id is required");
+        if (payload.pane_id !== undefined && (typeof payload.pane_id !== "string" || payload.pane_id.length === 0)) return badRequest("invalid_pane_id", "pane_id must be a pane's ID");
+        try {
+          const before = await sessionSnapshot();
+          let context: PluginInvocationContext | undefined;
+          if (payload.pane_id !== undefined) {
+            const pane = before.panes.find((entry) => entry.pane_id === payload.pane_id);
+            // herdr would run the action with whatever ID it was handed
+            if (!pane) throw new HerdrError("pane_not_found", `pane ${payload.pane_id} not found`);
+            const workspace = before.workspaces.find((entry) => entry.workspace_id === pane.workspace_id);
+            const tab = before.tabs.find((entry) => entry.tab_id === pane.tab_id);
+            const cwd = pane.foreground_cwd ?? pane.cwd ?? undefined;
+            // every field herdr would otherwise take from its own focus (server/herdr/client.ts)
+            context = {
+              workspace_id: pane.workspace_id,
+              ...(workspace ? { workspace_label: workspace.label } : {}),
+              ...(workspace?.worktree ? { worktree: workspace.worktree } : {}),
+              ...(cwd === undefined ? {} : { workspace_cwd: cwd, focused_pane_cwd: cwd }),
+              tab_id: pane.tab_id,
+              ...(tab ? { tab_label: tab.label } : {}),
+              focused_pane_id: pane.pane_id,
+              ...(pane.agent ? { focused_pane_agent: pane.agent } : {}),
+              focused_pane_status: pane.agent_status,
+              invocation_source: "herdr-web-ui",
+            };
+          }
+          const invoked = await pluginActionInvoke(payload.plugin_id, payload.action_id, context);
+          let log = invoked.log;
+          for (const deadline = Date.now() + PLUGIN_ACTION_WAIT_MS; log.status === "running" && Date.now() < deadline;) {
+            await Bun.sleep(100);
+            log = (await pluginLogList(payload.plugin_id, 50)).find((entry) => entry.log_id === invoked.log.log_id) ?? log;
+          }
+          const after = await sessionSnapshot();
+          const focused = after.focused_pane_id ?? null;
+          const failed = log.status === "failed";
+          const said = failed ? (log.error || log.stderr || log.stdout || "").trim() : "";
+          const body: PluginActionResult = {
+            status: failed ? "failed" : log.status === "succeeded" ? "succeeded" : "running",
+            exit_code: log.exit_code ?? null,
+            output: said === "" ? null : said.slice(-PLUGIN_OUTPUT_CHARS),
+            opened_pane_id: focused !== null && !before.panes.some((entry) => entry.pane_id === focused) && after.panes.some((entry) => entry.pane_id === focused) ? focused : null,
+          };
+          return jsonResponse(body);
         } catch (error) {
           return errorResponse(error);
         }
