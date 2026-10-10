@@ -15,6 +15,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   push subscribe — as does any client that proves itself with `x-herdr-machine`. A browser is
   unaffected: it always states an `Origin` on a cross-origin request, and `SameSite=Strict`
   already covered what this closes.
+- A remote PC that is switched off or asleep while its bridge update runs, or whose update was
+  cancelled, now shows **Reconnecting…** instead of asking for a bridge update it cannot run.
+  Once the PC answers, the version check runs again and, if the bridge is still out of date, the
+  update follows; a cancelled update comes back as the **Update bridge** button only.
+  ([#716](https://github.com/devswha/herdr-web-ui/pull/716))
+- An OmO pane whose turn ended on a model error (the provider gave up after its retries, or
+  timed out) now reads READY instead of DONE, and no "work finished" alert fires for it. A retry
+  that answers afterwards still finishes the turn as DONE, with its alert.
+  ([#715](https://github.com/devswha/herdr-web-ui/pull/715))
 - On Windows, a Codex chat is found when `CODEX_HOME` carries the `\\?\` prefix, or when Codex
   stored the working directory with a drive letter in another case than herdr reports
   (`\\?\d:\work\app` for `D:\work\app`). A Claude pane whose process two stores both claim

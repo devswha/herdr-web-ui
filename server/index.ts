@@ -24,7 +24,7 @@ import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { ClaudeSubagentStatus, claudeSubagents, within } from "./claude-subagents.ts";
 import { BackgroundWait } from "./background-wait.ts";
-import { CompletionTracker } from "./completion.ts";
+import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
@@ -782,7 +782,7 @@ export function createServer(
   const omo = new OmoStatus({
     discover: (panes) => omoPanes(panes),
     snapshot: sessionSnapshot,
-    onChange: (paneId, derived, background, turn) => omoChanged(paneId, derived, background, turn),
+    onChange: (paneId, derived, background, turn, rest) => omoChanged(paneId, derived, background, turn, rest),
     // herdr called it `claude` or `pi` until now: what it finished under that name is its own
     onFound: (paneId) => completions.adopt(paneId, "omo", OMO_ALIASES),
   });
@@ -1249,11 +1249,12 @@ export function createServer(
   };
 
   /** Status of EVERY pane, attached or not: one collector feeds all connected clients and web push. */
-  function omoChanged(paneId: string, derived: AgentStatus, background: number, turn: boolean): void {
+  function omoChanged(paneId: string, derived: AgentStatus, background: number, turn: boolean, rest: OmoRest | undefined): void {
     // OmO's own turn, which herdr's status never shows: back at work, its form has had its answer
     if (turn && derived === "working") promptWaitEnded(paneId);
-    // a background task starting or ending is no turn: the status stands, and nothing is alerted
-    const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
+    // a background task starting or ending is no turn: the status stands, and nothing is alerted.
+    // A turn that ended in an error is at rest, not finished; an answer after it is a finish (#687)
+    const status = turn ? completions.observe(paneId, derived, "omo", rest) : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
     if (turn) { pending.status(paneId, status); drainPending(paneId); }
     broadcastAll(paneStatus(paneId, status, { background_tasks: background }));
     if (turn) push.onStatus(paneId, status).catch(logPushError);
