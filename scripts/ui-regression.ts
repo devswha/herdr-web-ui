@@ -312,7 +312,7 @@ try {
   await page.mouse.move(0, 0);
   await page.setViewportSize(paletteViewport);
   console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
-  await checkPaletteKeys(page, { paneA, paneB, workspaceB: workspaces[1]! });
+  await checkPaletteKeys(page, { workspaceId: workspaces[1]! });
 
   // Hold a real machines response, then deliver a newer status through herdr/SSE.
   const badge = page.locator(".pane-item.is-selected .badge");
