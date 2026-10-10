@@ -1299,7 +1299,29 @@ try {
   await childHeader.locator(".row-menu-toggle").click();
   const childMenu = page.getByRole("menu");
   await childMenu.waitFor();
-  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "Move pane to…", "New tab", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
+  // the row's pane was reported as a codex agent above, so herdr lists it and the menu offers its name
+  assert.deepEqual(await childMenu.getByRole("menuitem").allTextContents(), ["Rename workspace", "Rename pane", "Agent name…", "Move pane to…", "New tab", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
+  // Agent name… opens the dialog on the row's agent. The palette opens over it and takes the keyboard:
+  // its Escape closes the palette alone (both listen on the window), the draft stays, and the next
+  // Escape closes the dialog and hands the focus back to the row's ⋯.
+  await childMenu.getByRole("menuitem", { name: "Agent name…", exact: true }).click();
+  const nameDialog = page.getByRole("dialog", { name: /^Agent name · / });
+  await nameDialog.waitFor();
+  const nameField = nameDialog.locator(".agent-name-input");
+  await until(() => nameField.evaluate((field) => field === document.activeElement), "the name field takes the focus");
+  await nameField.fill("reviewer-draft");
+  await page.keyboard.press("ControlOrMeta+Shift+K");
+  const paletteOverDialog = page.getByRole("dialog", { name: "Command palette", exact: true });
+  await paletteOverDialog.waitFor();
+  await page.keyboard.press("Escape");
+  await paletteOverDialog.waitFor({ state: "hidden" });
+  assert.equal(await nameDialog.isVisible(), true, "Escape on the palette over the dialog closes the palette alone");
+  assert.equal(await nameField.inputValue(), "reviewer-draft", "the dialog keeps its draft under the palette");
+  await page.keyboard.press("Escape");
+  await nameDialog.waitFor({ state: "detached" });
+  await until(() => childHeader.locator(".row-menu-toggle").evaluate((toggle) => toggle === document.activeElement), "the closed dialog hands the focus back to the row's menu button");
+  await childHeader.locator(".row-menu-toggle").click();
+  await childMenu.waitFor();
   await childMenu.getByRole("menuitem", { name: "Delete worktree checkout…", exact: true }).click();
   const deleteConfirm = page.getByRole("alertdialog");
   await deleteConfirm.waitFor();
@@ -1390,9 +1412,8 @@ try {
   await strip.getByRole("tab", { name: "second", exact: true }).click({ button: "right" });
   const tabMenu = page.getByRole("menu", { name: "second", exact: true });
   await tabMenu.waitFor();
+  // a tab of one pane: herdr's split and clear for that pane, then the tab's own name, where its pane can move, and its close
   assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Move pane to…", "Close tab"]);
-  // a tab of one pane: herdr's split and clear for that pane, then the tab's own name and close
-  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Close tab"]);
   await tabMenu.getByRole("menuitem", { name: "Rename tab", exact: true }).click();
   await tabName.fill("build");
   await page.keyboard.press("Enter");
@@ -1421,8 +1442,6 @@ try {
   await tabSheet.waitFor();
   assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Move pane to…", "Close tab"]);
   await tabSheet.locator(".row-sheet-item", { hasText: "Move pane to…" }).tap();
-  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Split right", "Split down", "Clear pane", "Rename tab", "Close tab"]);
-  await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
   await tabSheet.waitFor({ state: "detached" });
   const moveSheet = tabPhonePage.getByRole("dialog", { name: /^Move .+ to$/ });
   await moveSheet.waitFor();
