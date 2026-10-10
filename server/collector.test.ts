@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { HerdrPane } from "../shared/protocol.ts";
 import { HerdrError, type EventFrame } from "./herdr/client.ts";
-import { parseFocusFrame, parseStatusFrame, parseStructureFrame, startStatusCollector, type StatusCollectorDeps, type StatusCollectorHandlers } from "./collector.ts";
+import { parseFocusFrame, parseLayoutFrame, parseStatusFrame, parseStructureFrame, startStatusCollector, type StatusCollectorDeps, type StatusCollectorHandlers } from "./collector.ts";
 
 /**
  * Frame shapes are the live wire format observed against herdr protocol 22 (see
@@ -45,6 +45,14 @@ describe("parseStructureFrame", () => {
     expect(parseStructureFrame({ data: { type: "workspace_closed" } })).toBeNull();
     expect(parseStructureFrame({ data: { type: "pane_exited", pane_id: 42 } })).toBeNull();
     expect(parseStructureFrame({})).toBeNull();
+  });
+});
+
+describe("parseLayoutFrame", () => {
+  it("knows a layout_updated frame and nothing else", () => {
+    expect(parseLayoutFrame({ event: "layout_updated", data: { type: "layout_updated", layout: { tab_id: "w1:t1", zoomed: true } } })).toBe(true);
+    expect(parseLayoutFrame({ data: { type: "pane_focused", pane_id: "w1:p1" } })).toBe(false);
+    expect(parseLayoutFrame({})).toBe(false);
   });
 });
 
@@ -123,6 +131,7 @@ function fakeHerdr(initial: HerdrPane[]) {
     status: () => subscriptions.filter((s) => s.types[0] === "pane.agent_status_changed" && !s.closedByCollector).at(-1),
     lifecycle: () => subscriptions.filter((s) => s.types.includes("pane.created")).at(-1)!,
     lifecycles: () => subscriptions.filter((s) => s.types.includes("pane.created")),
+    layout: () => subscriptions.filter((s) => s.types.includes("layout.updated")).at(-1)!,
   };
 }
 
@@ -630,5 +639,40 @@ describe("startStatusCollector recovery", () => {
     await tick(60);
     expect(herdr.subscriptions.length).toBe(subscriptions);
     expect(log.resyncs).toEqual([]);
+  });
+});
+
+describe("startStatusCollector layout changes", () => {
+  it("tells the clients of a moved layout on its own connection, without a snapshot", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "idle"), paneOf("w1:p2", "idle")]);
+    const { log, handlers } = recorder();
+    const collector = startStatusCollector(handlers, herdr.deps);
+    await tick();
+    herdr.status()!.start();
+    await tick(20);
+    // a connection of its own, apart from the pane lifecycle one
+    expect(herdr.layout().types).toEqual(["layout.updated"]);
+    expect(herdr.layout()).not.toBe(herdr.lifecycle());
+    const calls = herdr.snapshotCalls();
+    const structure = log.structure;
+    herdr.layout().emit({ event: "layout_updated", data: { type: "layout_updated", layout: { tab_id: "w1:t1", zoomed: true, panes: [] } } });
+    await tick(20);
+    // the pane set is as it was: the clients are told to read the snapshot, the collector takes none
+    expect(log.structure).toBe(structure + 1);
+    expect(herdr.snapshotCalls()).toBe(calls);
+    collector.stop();
+  });
+
+  it("loses no pane exit when an older herdr refuses the layout type", async () => {
+    const herdr = fakeHerdr([paneOf("w1:p1", "working")]);
+    const ended: string[] = [];
+    const { handlers } = recorder();
+    const collector = startStatusCollector({ ...handlers, onPaneEnded: (paneId) => ended.push(paneId) }, herdr.deps);
+    await tick();
+    herdr.layout().drop("invalid_request");
+    await tick(10);
+    herdr.lifecycle().emit({ event: "pane_exited", data: { type: "pane_exited", pane_id: "w1:p1" } });
+    expect(ended).toEqual(["w1:p1"]);
+    collector.stop();
   });
 });

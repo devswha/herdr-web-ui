@@ -138,6 +138,16 @@ export function parseFocusFrame(frame: EventFrame): string | null {
   return data?.type === "pane_focused" && typeof data.pane_id === "string" ? data.pane_id : null;
 }
 
+/**
+ * Layout frames: `{event:"layout_updated", data:{type:"layout_updated", layout}}` for a tab whose
+ * split borders, zoom, pane order or focus changed (herdr 0.9.3 sends one for each). True when
+ * the frame is one; the layout itself is read from the next snapshot, never from the frame.
+ */
+export function parseLayoutFrame(frame: EventFrame): boolean {
+  const data = frame.data as { type?: unknown } | undefined;
+  return data?.type === "layout_updated";
+}
+
 /** Structure frames: `{event:"pane_exited"|"pane_created"|"pane_closed", data:{type, pane_id?}}`. */
 export function parseStructureFrame(frame: EventFrame): StructureEvent | null {
   const data = frame.data as { type?: unknown; pane_id?: unknown } | undefined;
@@ -224,6 +234,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
   let backstopTimer: ReturnType<typeof setInterval> | null = null;
   let lifecycleSubscription: { close: () => void } | null = null;
   let focusSubscription: { close: () => void } | null = null;
+  let layoutSubscription: { close: () => void } | null = null;
   /** status events were lost: the next snapshot after a new subscription starts resyncs */
   let recovering = false;
   /** each status subscription's number: a resync counts only for the one still open */
@@ -478,6 +489,20 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
     );
   }
 
+  // A tab's layout moved (a split's border, a zoom, a swap, herdr's focus): the pane set is as it
+  // was, so no reconcile, but the clients draw the layout and are told to read it again. Its own
+  // connection too: an older herdr that refuses the type must not cost pane exits either.
+  layoutSubscription = resilientSubscription(
+    deps,
+    [{ type: "layout.updated" }],
+    (frame) => {
+      if (parseLayoutFrame(frame)) handlers.onStructureChange();
+    },
+    // a layout change missed meanwhile shows in the snapshot the clients read on the next change
+    () => {},
+    () => stopped,
+  );
+
   void reconcile();
   backstopTimer = setInterval(() => void reconcile(), deps.backstopMs);
 
@@ -489,6 +514,7 @@ export function startStatusCollector(handlers: StatusCollectorHandlers, override
       if (backstopTimer !== null) clearInterval(backstopTimer);
       lifecycleSubscription?.close();
       focusSubscription?.close();
+      layoutSubscription?.close();
       closeStatusSubscription();
     },
   };
