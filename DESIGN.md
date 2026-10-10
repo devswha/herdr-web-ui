@@ -986,6 +986,25 @@ One set for both themes: the card is island black wherever it shows.
   with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
 - Actions cover new workspace, lens/sidebar/theme, settings, notifications, lock and refresh, with
   `.kbd` hints resolved from this browser's shortcut settings; disabled bindings have no hint.
+- Rows are grouped as herdr's Goto picker groups them: a `.menu-heading` per workspace (its name, a
+  linked worktree's branch in mono when the name does not say it, the row count), Recent (up to
+  three, an unsearched and unfiltered list only) before the workspaces, Actions last. A row's
+  subtitle is "tab · folder" (the tab only in a workspace with several), "workspace · folder" under
+  Recent.
+- Status chips (`.palette-filter`, a `radiogroup`) sit between the search and the list: All, then
+  INPUT, RUN, READY, DONE, BG in `STATUS_WORD`'s words with their counts over the whole roster. The
+  checked chip takes its badge's tint and text (All and READY the neutral hover fill); a chip no
+  pane answers to keeps a dashed edge. A chip is `--control-h` minus `--space-2` tall, and on a
+  coarse pointer `--control-h` minus 2px with a `--touch-target` hit area. The row scrolls sideways
+  without a scrollbar where it does not fit. A status filter leaves the actions out; `>` at the
+  start of the query shows the actions alone and hides the chips.
+- The footer (`.palette-footer`) names the picked row's place (workspace › tab) and its path in
+  mono; on a desktop it also carries the `.kbd` hints for Left/Right (workspace) and `>` (actions).
+- Keys: Left and Right step to the previous or next section from a row, or from the search field
+  while the caret sits at the text's edge; inside the text they move the caret. herdr's picker
+  letters (`b` `w` `i` `d` `a` for a filter, `/` back to the search) act only while the focus is
+  outside the search field, so they never take a letter from a query. Left and Right on the chips
+  move the filter. Below 640px the sheet is one fixed height, the chips and footer staying put.
 
 ### Settings dialog
 - A Settings shortcut opened over a file preview places Settings above it (`--z-modal + 2`, one
