@@ -88,8 +88,13 @@ export const KO: Record<string, string> = {
   "Increase chat font size": "채팅 글자 크게",
   "Chat font": "채팅 글꼴",
   "Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.": "메시지 본문에 적용되며 코드는 고정폭 글꼴을 유지합니다. 쉼표로 구분하며 앞에서부터 차례로 사용합니다. 이 기기에 없는 글꼴은 기본 글꼴로 대체합니다.",
+  "File viewer": "파일 뷰어",
+  "Wrap long lines": "긴 줄 바꿈",
   "Highlight code": "코드 구문 강조",
   "Colors code by its language. Off, code is plain text.": "코드를 언어에 맞게 색으로 구분합니다. 끄면 코드가 일반 텍스트로 표시됩니다.",
+  "Markdown width": "Markdown 너비",
+  "Full width": "전체 너비",
+  "Show source": "소스 보기",
   "Shortcuts": "단축키",
   "Phone": "폰",
   "Devices": "기기",
@@ -354,12 +359,17 @@ export const KO: Record<string, string> = {
   // ---- files ----
   "Files": "파일",
   "Close files": "파일 닫기",
-  "Showing the first {shown} of {total}.": "전체 {total} 중 처음 {shown}만 보입니다.",
+  "Showing the first {shown}": "처음 {shown}만 표시",
   "Open in a new tab": "새 탭에서 열기",
+  "This image is {size}; open it in a new tab to view it.": "이 이미지는 {size}입니다. 보려면 새 탭에서 여세요.",
+  "Raw": "원본",
+  "Copy file": "파일 복사",
+  "File copied": "파일 복사됨",
   "Download": "내려받기",
   "Close file": "파일 닫기",
   "No readable file at this path.": "이 경로에 읽을 수 있는 파일이 없습니다.",
   "The file could not be opened.": "파일을 열 수 없습니다.",
+  "This preview can't be shown.": "이 미리보기는 표시할 수 없습니다.",
   "Open {path}": "{path} 열기",
 
   // ---- PC dialog ----
@@ -496,6 +506,8 @@ export const KO: Record<string, string> = {
   "Show all {n} lines": "{n}줄 모두 보기",
   "Too long to highlight": "너무 길어 강조 표시를 생략했습니다",
   "Empty task": "빈 할 일",
+  "Too long to preview": "너무 길어 미리보기를 생략했습니다",
+  "Too many lines to number": "줄이 너무 많아 줄 번호를 생략했습니다",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "재연결 중… 메시지는 여기에 보관되고 대기열에 넣지 않습니다",

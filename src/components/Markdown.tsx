@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 
 import { foldCode, mathNestsTooDeep, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
@@ -187,7 +187,19 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
   })}</>;
 }
 
-export function Markdown({ children, className }: { children: string; className?: string }) {
+/**
+ * Markdown rendered. Both props are strings, so `memo` skips a parent's re-render: a long plan in
+ * the file viewer is not rendered again every time the app polls.
+ */
+export const Markdown = memo(function Markdown({ children, className }: { children: string; className?: string }) {
   const blocks = useMemo(() => parseMarkdown(children), [children]);
+  return <ParsedMarkdown blocks={blocks} className={className} />;
+});
+
+/**
+ * Markdown parsed elsewhere, rendered as `Markdown` renders its text: the file viewer parses a file
+ * in a worker, so a file the parser is slow on cannot hold the page.
+ */
+export const ParsedMarkdown = memo(function ParsedMarkdown({ blocks, className }: { blocks: MarkdownBlock[]; className?: string }) {
   return <div className={className === undefined ? "markdown" : `markdown ${className}`}><Blocks blocks={blocks} /></div>;
-}
+});

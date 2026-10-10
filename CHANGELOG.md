@@ -167,6 +167,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   longer than 2 s, or is over 100 KB, stays plain and says so. **Settings → Chat → Highlight code**
   turns it off.
   ([#671](https://github.com/devswha/herdr-web-ui/pull/671) by @aNNdii)
+- The file viewer renders a Markdown file as a **Preview**, with **Show source** for its text, and
+  shows every text file as highlighted code with line numbers. **Raw** opens the file in a new tab
+  and **Copy** copies it; a file cut short says so in its size (`256 KB of 1.3 MB`), and a warning
+  sign there marks it, or one too long to color, to number or to preview, with the reason as its
+  tooltip. No file can freeze the page: the Preview is parsed in a worker, and one that takes
+  longer than 2 s or would draw too much opens as its source; past 20 000 lines code is one text,
+  without line numbers; a Preview that cannot be drawn says so and offers its source. A Markdown
+  preview has the chat's font size and font, and by default the width of the chat of the pane that
+  opened it. **Settings → Chat → File viewer** sets line wrapping and the Markdown width.
+  ([#429](https://github.com/devswha/herdr-web-ui/pull/429) by @aNNdii)
 
 ### Changed
 - Website and installer publishing waits for CI and the site build to pass on the same commit.
@@ -184,6 +194,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   letters such as `KR`, worked out by the receiver's host, and nothing finer. No IP address is
   stored and the message itself is unchanged. The notice, Settings → About and the guide say so.
   ([#663](https://github.com/devswha/herdr-web-ui/pull/663))
+- A file the viewer cannot show has no Open in new tab, only Download.
+  ([#429](https://github.com/devswha/herdr-web-ui/pull/429) by @aNNdii)
 
 ### Fixed
 - The working arc in the sidebar is drawn thirty times a second instead of five, so a working

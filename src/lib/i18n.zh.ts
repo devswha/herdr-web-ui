@@ -92,8 +92,13 @@ export const ZH: Record<string, string> = {
   "Increase chat font size": "增大聊天字号",
   "Chat font": "聊天字体",
   "Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.": "用于消息正文，代码仍使用等宽字体。以逗号分隔，按顺序使用。此设备上没有的字体会回退到默认字体。",
+  "File viewer": "文件查看器",
+  "Wrap long lines": "长行自动换行",
   "Highlight code": "代码语法高亮",
   "Colors code by its language. Off, code is plain text.": "按语言为代码着色。关闭后代码以纯文本显示。",
+  "Markdown width": "Markdown 宽度",
+  "Full width": "全宽",
+  "Show source": "显示源代码",
   "Shortcuts": "快捷键",
   "Phone": "手机",
   "Devices": "设备",
@@ -358,12 +363,17 @@ export const ZH: Record<string, string> = {
   // ---- files ----
   "Files": "文件",
   "Close files": "关闭文件",
-  "Showing the first {shown} of {total}.": "显示 {total} 项中的前 {shown} 项。",
+  "Showing the first {shown}": "显示前 {shown}",
   "Open in a new tab": "在新标签页中打开",
+  "This image is {size}; open it in a new tab to view it.": "此图片大小为 {size}，请在新标签页中打开查看。",
+  "Raw": "原始文件",
+  "Copy file": "复制文件",
+  "File copied": "文件已复制",
   "Download": "下载",
   "Close file": "关闭文件",
   "No readable file at this path.": "此路径下没有可读取的文件。",
   "The file could not be opened.": "无法打开该文件。",
+  "This preview can't be shown.": "无法显示此预览。",
   "Open {path}": "打开 {path}",
 
   // ---- PC dialog ----
@@ -500,6 +510,8 @@ export const ZH: Record<string, string> = {
   "Show all {n} lines": "显示全部 {n} 行",
   "Too long to highlight": "内容过长，未做语法高亮",
   "Empty task": "空任务",
+  "Too long to preview": "内容过长，未显示预览",
+  "Too many lines to number": "行数过多，未显示行号",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "正在重连… 消息保留在此处，不会加入队列",
