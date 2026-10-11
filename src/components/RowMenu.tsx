@@ -2,6 +2,7 @@
  * The ⋯ menu of a sidebar row. On a desktop it is a popover under its button, drawn through a
  * portal at fixed coordinates: the roster scrolls, and a menu inside it would be cut off at the
  * list's edge. At phone width it is the modal primitive, which is already a bottom sheet there.
+ * The system Back closes the sheet (lib/sheetHistory.ts).
  * Escape, a press outside, focus leaving it (the palette opening over it, a Tab out) and, on a
  * desktop, a scroll of what holds the button or a resize close it. Focus goes back to the button when the menu goes,
  * unless what an item mounted (a rename field, a confirm) takes it first: the button is focused
@@ -15,6 +16,8 @@ import "./RowMenu.css";
 
 import { useT } from "../lib/i18n.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
+import { SHEET_QUERY, useSheetSwipe } from "../lib/sheets.ts";
+import { useSheetHistory } from "../lib/sheetHistory.ts";
 
 export interface RowMenuItem {
   id: string;
@@ -52,8 +55,6 @@ interface Props {
   onClose: () => void;
 }
 
-/** where the menu is the bottom sheet; a caller that lays its header out for the sheet reads the same line */
-export const SHEET_QUERY = "(max-width: 640px)";
 const GAP = 4;
 const EDGE = 8;
 const POPOVER_ITEMS = '[role="menuitem"], [role="menuitemcheckbox"]';
@@ -64,6 +65,9 @@ export function RowMenu({ anchor, point, restoreFocusTo, title, subtitle, header
   const t = useT();
   const sheet = useMediaQuery(SHEET_QUERY);
   const surface = useRef<HTMLDivElement>(null);
+  useSheetSwipe(surface, sheet ? onClose : null);
+  // Back closes the sheet, not the pane under it
+  useSheetHistory(sheet, onClose);
   const [place, setPlace] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   // where the button was when the menu was placed: a scroll that leaves it there is not a reason to close
   const placedAt = useRef<{ top: number; left: number } | null>(null);

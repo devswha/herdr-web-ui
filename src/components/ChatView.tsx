@@ -43,7 +43,7 @@ import { sendUserFileCall } from "../lib/sendUserFile.ts";
 const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
-import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
@@ -94,7 +94,9 @@ export interface ChatViewProps {
 }
 
 interface ChatState {
+  activity?: ConversationResponse["activity"];
   source: "conversation" | "scrollback";
+  conversationSource?: string;
   turns: ConversationTurn[];
   messages: TranscriptMessage[];
   truncated: boolean;
@@ -215,6 +217,8 @@ function PatchView({ patch }: { patch: string }) {
 }
 
 function ToolInputView({ part }: { part: ToolPartType }) {
+  const t = useT();
+  if (part.arguments_omitted) return <pre className="chat-tool-io">{t("Arguments omitted (too large)")}</pre>;
   // a todo call shows the list as it stood after it, when the agent answered with it
   const after = isTodoTool(part.name) ? parseTodoAnswer(part.output) : null;
   if (after !== null && after.length > 0) return <TodoList items={after} />;
@@ -293,7 +297,7 @@ function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const whole = useWholeOutput(part.output_ref);
-  const summary = todoCallSummary(part) ?? part.summary;
+  const summary = part.arguments_omitted ? t("Arguments omitted (too large)") : todoCallSummary(part) ?? part.summary;
   // reads the call's input: once per call, not on every poll of the transcript
   const verb = useMemo(() => toolVerb({ name: part.name, input: part.input }, summary), [part.name, part.input, summary]);
   // the list is the answer of a todo call: its raw text would say it twice
@@ -543,6 +547,41 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
   return <Turn paneId={paneId} turn={turn} live={false} waiting={false} showThinking={false} />;
 }
 
+/** Optional terminal output must never hold initial display or transcript polling. */
+function TerminalFallback({ paneId }: { paneId: string }) {
+  const { fetchPaneTranscript } = useMachineApi();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const visible = usePageVisible();
+  useEffect(() => {
+    if (!open || !visible) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const read = async (): Promise<void> => {
+      try {
+        const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES);
+        if (cancelled) return;
+        setText(toTranscriptMessages(result.text).filter((message) => message.role !== "status").map((message) => message.text).join("\n\n"));
+        setError(null);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        if (!cancelled) timer = window.setTimeout(() => void read(), PROMPT_POLL_MS);
+      }
+    };
+    void read();
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [paneId, open, visible, fetchPaneTranscript]);
+  return <details className="chat-terminal-fallback" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary>{t("Conversation unavailable — show terminal output")}</summary>
+    {text !== null && <pre>{text}</pre>}
+    {text === null && error === null && <p className="chat-inline-state" role="status">{t("Loading…")}</p>}
+    {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{error}</p>}
+  </details>;
+}
+
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
 export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
   const t = useT();
@@ -551,11 +590,15 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   // polls pause while the page is hidden and pick up at once when it is back
   const visible = usePageVisible();
   /** the answer last laid out: an unchanged poll (a 304) hands back this very object */
-  const lastAnswer = useRef<unknown>(null);
+  const lastAnswer = useRef<ConversationResponse | null>(null);
   const [conversationRefresh] = useState(() => new ConversationRefresh());
   const onMetadataRef = useRef(onMetadata);
   onMetadataRef.current = onMetadata;
   const [state, setState] = useState<ChatState>(EMPTY_STATE);
+  // Native Grok/Agy events can arrive while Herdr still reports ready/done. This is display
+  // feedback only: sending, queuing and stopping retain the server's input authority.
+  const activity = state.activity ?? (agentStatus === "working" ? "working" : "idle");
+  const workStatus = state.activity !== undefined && agentStatus !== "blocked" ? activity === "idle" ? "idle" : "working" : agentStatus;
   const [error, setError] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [newMessages, setNewMessages] = useState(false);
@@ -707,8 +750,16 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
         onMetadataRef.current?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
         setAbandoned(conversation.abandoned ?? null);
         let next: ChatState;
-        if (conversation.source !== "scrollback") next = { source: "conversation", turns: conversation.turns, messages: [], truncated: false };
+        if (conversation.source !== "scrollback") next = { source: "conversation", conversationSource: conversation.source, turns: conversation.turns, messages: [], truncated: false, activity: conversation.activity };
+        else if (agent !== null) next = { source: "scrollback", turns: [], messages: [], truncated: false };
         else {
+          // The reader has rejected this history. Hide it before the separate terminal
+          // request, which may wait or fail; a transport error must not revive those turns.
+          if (lastAnswer.current?.source !== "scrollback") {
+            setState((previous) => previous.source === "conversation"
+              ? { source: "scrollback", turns: [], messages: [], truncated: false } : previous);
+            signature.current = ""; lastAnswer.current = null;
+          }
           const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES);
           if (cancelled || generation !== olderGeneration.current) return;
           next = { source: "scrollback", turns: [], messages: toTranscriptMessages(result.text).filter((message) => message.role !== "status"), truncated: result.truncated === true };
@@ -740,13 +791,13 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
       onConversationWatch?.(paneId, false);
       conversationRefresh.stop();
     };
-  }, [paneId, fetchPaneConversation, fetchPaneTranscript, conversationRefresh, visible, onConversationWatch]);
+  }, [paneId, fetchPaneConversation, fetchPaneTranscript, conversationRefresh, visible, onConversationWatch, agent]);
 
   // Sends, status/history repairs and visibility return read immediately without cancelling
   // the answer in flight. The reader is installed before this effect requests its first read.
   useEffect(() => {
     if (visible) conversationRefresh.refresh();
-  }, [paneId, refreshKey, pollKey, visible, fetchPaneConversation, fetchPaneTranscript, conversationRefresh, onConversationWatch]);
+  }, [paneId, refreshKey, pollKey, visible, fetchPaneConversation, fetchPaneTranscript, conversationRefresh, onConversationWatch, agent]);
 
   // Mount/visibility return already read immediately; only a changed push key invalidates.
   useEffect(() => {
@@ -868,7 +919,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   useLayoutEffect(() => {
     const node = scroller.current;
     if (node !== null && stickToBottom.current) node.scrollTop = node.scrollHeight;
-  }, [state, prompt]);
+  }, [state, prompt, agentStatus, connected, ended]);
 
   // A resized composer, a raised keyboard or a narrower window shrinks the view
   // without a scroll event; a reader at the end stays at the end, at once. So does a
@@ -934,7 +985,10 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   }, [turns, restored]);
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
-  const empty = state.source === "conversation" ? turns.length === 0 : state.messages.length === 0;
+  // the last turn is an open work block, whose head already says the agent works
+  const lastShownTurn = state.source === "conversation" ? shownTurns.at(-1) : undefined;
+  const workBlockLive = lastShownTurn !== undefined && isLiveWorkTurn(lastShownTurn, true, workStatus, finishedBeforeSend);
+  const empty = state.source === "conversation" ? turns.length === 0 : agent === null && state.messages.length === 0;
   const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, older: typeof olderCursor === "string", abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
   // the scrollback standing in says nothing of the conversation: it has no history to compare
   const known = loaded && error === null && !ended && state.source === "conversation";
@@ -947,7 +1001,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   useLayoutEffect(() => () => onRead?.(paneId, null), [onRead, paneId]);
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
-    <div className="chat-transcript">
+    <div className="chat-transcript" data-conversation-source={state.conversationSource}>
       {/* the conversation below is not all the file holds: a /tree left these behind, and pi moved
           its leaf without writing anything, so nothing here could say they were ever there. First
           in the transcript, because paging back would otherwise drop them under their own heading */}
@@ -972,18 +1026,23 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
       {state.source === "conversation"
         ? shownTurns.map((turn, index) => {
             const last = index === shownTurns.length - 1;
-            const live = isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend);
+            const live = isLiveWorkTurn(turn, last, workStatus, finishedBeforeSend);
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
               <Turn paneId={paneId} turn={turn} live={live} waiting={isWaitingWorkTurn(live, agentStatus)} showThinking={settings.showThinking} />
             </RenderBoundary>;
           })
         : agent !== null
-          ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{state.messages.map((message) => message.text).join("\n\n")}</pre></details>
+          ? <TerminalFallback key={paneId} paneId={paneId} />
           : state.messages.map((message, index) => <FallbackTurn key={index} paneId={paneId} message={message} />)}
       {!ended && !connected && <p className="chat-inline-state" role="status">{t("Reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? t("locked — the token gate is asking again") : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
-      {loaded && empty && error === null && prompt === null && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {loaded && error === null && agent === "grok" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Grok chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
+      {loaded && error === null && agent === "agy" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Antigravity chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
+      {/* A native turn's activity, where no open work block says it: before the turn has an assistant
+          or tool row, and while it thinks (a work block's head says Working). One Working at a time. */}
+      {state.activity !== undefined && connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && (activity === "thinking" || !workBlockLive) && <p className="chat-activity" role="status"><CircleDot aria-hidden="true" />{activity === "thinking" ? t("Thinking…") : t("Working…")}</p>}
+      {loaded && empty && error === null && prompt === null && (state.activity === undefined || activity === "idle") && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
