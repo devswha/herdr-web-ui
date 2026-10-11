@@ -41,18 +41,19 @@ function shellSize(paneId: string): () => Promise<string> {
   let asked = 0;
   return async () => {
     const marker = `size-${++asked}`;
-    await paneSendText(paneId, `echo ${marker} $(stty size)`);
+    // the answer is bracketed and matched anywhere: a prompt and command that fill the row exactly
+    // leave it on the same line of the read, and the command's own "$(stty size)" is no answer
+    await paneSendText(paneId, `echo "<${marker}:$(stty size)>"`);
     await paneSendKeys(paneId, ["Enter"]);
     const deadline = Date.now() + 10_000;
+    let text = "";
     while (Date.now() < deadline) {
-      const text = (await paneRead({ paneId, source: "recent", lines: 80, stripAnsi: true })).text;
-      // not anchored at a line start: a prompt and command that fill the row exactly leave the
-      // answer on the same line of the read; the command's own "$(stty size)" is no answer
-      const found = [...text.matchAll(new RegExp(`${marker} (\\d+ \\d+)\\s*$`, "gm"))].at(-1);
+      text = (await paneRead({ paneId, source: "recent", lines: 80, stripAnsi: true })).text;
+      const found = [...text.matchAll(new RegExp(`<${marker}:(\\d+ \\d+)>`, "g"))].at(-1);
       if (found) return found[1]!;
       await Bun.sleep(100);
     }
-    throw new Error(`no ${marker} answer from the pane`);
+    throw new Error(`no ${marker} answer from the pane; it reads:\n${text.slice(-1200)}`);
   };
 }
 
