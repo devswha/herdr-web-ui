@@ -2924,6 +2924,13 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
   return cursor && !grey;
 }
 
+/** Positive proof of an ordinary empty input box, never absence of a readable box. */
+export function claudeInputEmpty(live: string, colors: string | null): boolean {
+  const box = claudeInputBox(live);
+  return box !== null && box !== "clipped" && box.plain[0]?.startsWith("❯") === true
+    && !claudeInputDraft(live, colors);
+}
+
 /** What empties a one-row Claude input box: the row after the cursor, then before it (measured on 2.1.295; Ctrl+Y puts it back). */
 export const CLAUDE_CLEAR_INPUT_KEYS = ["ctrl+k", "ctrl+u"];
 

@@ -52,6 +52,7 @@ export function sameMessage(a: string, b: string): boolean {
   return bare(a) !== "" && bare(a) === bare(b);
 }
 export function submitNote(code: string, message: string): string {
+  if (code === "submit_partial") return t("Not confirmed: the terminal draft was cleared or may have changed. Your message stayed here. Check the terminal before sending again.");
   if (code === "agent_blocked") return t("Not sent: the agent is waiting for an answer in the terminal. Answer it first.");
   if (code === "read_only") return t("Not sent: this view only watches the pane.");
   if (code === "input_draft") return t("Not sent: Claude Code's input box in the terminal is not empty. Send or clear it there, then send this message.");

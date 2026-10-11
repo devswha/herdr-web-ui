@@ -25,6 +25,7 @@ describe("composerMessage and submitNote", () => {
     expect(submitNote("pending_input_unsupported", "x")).toBe("Update this PC to send messages in the next turn. Your draft stayed here.");
     expect(submitNotTyped("submit_changed")).toBe(false);
     expect(submitNotTyped("pending_uncertain")).toBe(false);
+    expect(submitNotTyped("submit_partial")).toBe(false);
   });
 
   it("offers to clear a terminal draft only when the server named one", () => {
