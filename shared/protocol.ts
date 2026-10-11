@@ -153,9 +153,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         known yet. server_time: that PC's clock, which the times are on)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
- *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
+ *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null, restored: string | null }
  *         (the agent's TUI question/approval menu currently on screen, parsed from the visible pane
- *         text; with no menu, the next prompt Claude Code suggests, grey in its empty input box)
+ *         text; with no menu, the next prompt Claude Code suggests, grey in its empty input box, and
+ *         `restored`: the chat's last message when Claude Code put it back as typed text in that box,
+ *         as it does for a send cancelled before any reply; older servers send neither)
  *  POST   /api/pane/prompt/answer { pane_id, prompt_id, option_index?, option_indices?, custom_text? }
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
@@ -962,6 +964,11 @@ export type ClientMessage =
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole }
+  /** whether this page is in use: visible and focused. While any connection of a server says
+   * so, that server sends no web push to any device (#751). Sent on connect and on every change,
+   * also through a remote PC's socket (the connection server reads it there too); an older
+   * server ignores it, so it needs no feature. */
+  | { type: "presence"; active: boolean }
   /** a read-only view of the pane at this grid, for a tab out of use (feature "watch"); never resizes the pane */
   | { type: "watch"; pane_id: string; cols: number; rows: number }
   | { type: "unwatch"; pane_id: string };

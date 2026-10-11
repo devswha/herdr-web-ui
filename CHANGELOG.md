@@ -11,6 +11,22 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - **Chat: `SendUserFile` calls** show their caption and the files they name as openable links,
   the same way any other tool's file path already opens, instead of the call's raw JSON.
   ([#730](https://github.com/devswha/herdr-web-ui/pull/730) by @bluzername, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
+- Settings → Terminal sets the cursor shape (block, bar or underline) and whether it blinks, for
+  every terminal pane. A program in the pane that sets its own cursor style (DECSCUSR) can still
+  change it, as before this setting existed.
+  ([#731](https://github.com/devswha/herdr-web-ui/pull/731) by @bluzername, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- Holding an arrow in the touch key bar repeats it until release, including held modifiers and
+  saved arrow combinations. A tap still sends one key, and swiping sideways scrolls the row
+  without sending a key.
+  ([#719](https://github.com/devswha/herdr-web-ui/pull/719) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- On a phone, a two-finger pinch on the terminal changes its font size live (10–22 px), with a
+  badge showing the size; the shared pty resizes once, when a finger lifts.
+  ([#713](https://github.com/devswha/herdr-web-ui/pull/713) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
+  choice, a typed answer for its "Other" row and for an open question, and ticks for a question
+  that takes several answers. Text already on its answer line is cleared first, so it does not
+  join the answer.
+  ([#750](https://github.com/devswha/herdr-web-ui/pull/750) by @DarkoKuzmanovic, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
@@ -30,6 +46,47 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
   Settings choice applies again to every pane.
   ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
+- A Claude pane that used an agent team no longer counts its teammates as running after they
+  shut down: a teammate that approved its lead's shutdown request reads as completed, so the
+  pane's running count and the agent list show only what still runs.
+  ([#744](https://github.com/devswha/herdr-web-ui/pull/744) by @Haeminway1, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- A Claude Code multiple-choice question stays a multiple choice once a row is ticked in the
+  terminal (Claude Code 2.1.296 draws the tick as `[✔]`), its options no longer carry the box, and
+  the card stays up with the cursor on its **Submit** row. A pick there used to untick the row
+  instead of answering.
+  ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- A Claude `/model` list whose hint a narrow pane wraps inside a word or over more than six lines
+  is still recognised, so a pending message waits instead of pressing Enter on it, and the same
+  words quoted in Claude's output no longer hold pending messages.
+  ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Push alerts no longer reach every device while you are using the app: while any window of it
+  is visible and focused, on any device, no device gets an alert. Alerts resume once no window
+  is in use, and **Send test** still always sends.
+  ([#759](https://github.com/devswha/herdr-web-ui/pull/759))
+- A click in the terminal while an arrow key is still on its way to herdr reaches the program as
+  a click, instead of being typed into it as the raw characters of a mouse report.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- OmO's side panel no longer draws a dotted line under its file, goal and memory rows in the
+  terminal: a link the app cannot open is no longer underlined.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- The Agents list no longer repeats an agent's kind beside the mark that already shows it, so
+  workspace and tab names keep the room on a narrow sidebar. The kind stays in the row's tooltip
+  and is still read out by screen readers; an agent without a mark of its own keeps the word.
+  ([#761](https://github.com/devswha/herdr-web-ui/pull/761))
+- A chat message stopped right after sending, before Claude Code answered, is no longer stuck: the
+  message goes back into the message box to edit and send again, as Claude Code puts it back in its
+  own input box, instead of staying in the chat as sent and the next send failing with "Claude
+  Code's input box in the terminal is not empty". The new send replaces that copy in the terminal
+  and stays in the same conversation, and the cancelled message is not shown beside it. A draft you
+  typed or changed in the terminal is still never replaced.
+  ([#741](https://github.com/devswha/herdr-web-ui/pull/741) by @Haeminway1,
+  [#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- **Send now** on a Claude Code pane that is working sends the message at once, as Ctrl+Enter in
+  the terminal does, instead of leaving it in Claude Code's own queue until the turn ends.
+  ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- A pending chat message is no longer typed, or committed, after its connection lost the right to
+  send it while herdr was being reached: refused before the paste it stays unsent, after it the
+  message is marked for a check in the terminal. ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
 
 ## [0.4.6] - 2026-10-11
 

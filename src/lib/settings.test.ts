@@ -27,6 +27,19 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
+it("keeps the terminal cursor at a block that blinks unless a saved shape or blink says otherwise", () => {
+  expect(DEFAULT_SETTINGS.terminalCursorStyle).toBe("block");
+  expect(DEFAULT_SETTINGS.terminalCursorBlink).toBe(true);
+  expect(sanitizeSettings({}).terminalCursorStyle).toBe("block");
+  expect(sanitizeSettings({}).terminalCursorBlink).toBe(true);
+  expect(sanitizeSettings({ terminalCursorStyle: "bar" }).terminalCursorStyle).toBe("bar");
+  expect(sanitizeSettings({ terminalCursorStyle: "underline" }).terminalCursorStyle).toBe("underline");
+  // a value no shape answers for falls back, never breaking the UI on a stale or hand-edited record
+  expect(sanitizeSettings({ terminalCursorStyle: "pipe" }).terminalCursorStyle).toBe("block");
+  expect(sanitizeSettings({ terminalCursorBlink: false }).terminalCursorBlink).toBe(false);
+  expect(sanitizeSettings({ terminalCursorBlink: "false" }).terminalCursorBlink).toBe(true);
+});
+
 it("keeps sidebar rows on two lines unless one line was chosen", () => {
   expect(sanitizeSettings({}).sidebarRows).toBe("two");
   expect(sanitizeSettings({ sidebarRows: "one" }).sidebarRows).toBe("one");

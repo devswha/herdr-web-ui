@@ -511,3 +511,22 @@ it("sends no conversation-watch to a bridge without the feature, and reports no 
   expect(client.conversationPushes()).toBe(false);
   client.close();
 });
+
+it("tells the server whether the page is in use: on connect, on a change, and again after a reconnect", () => {
+  const presence = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "presence");
+  const client = new HerdrSocket("ws://test/ws");
+  client.setPresence(true);
+  client.connect();
+  const first = FakeSocket.last;
+  first.open();
+  expect(first.sent.map((frame) => frame.type)).toEqual(["role", "presence"]);
+  client.setPresence(true);
+  client.setPresence(false);
+  expect(presence(first)).toEqual([{ type: "presence", active: true }, { type: "presence", active: false }]);
+  first.disconnect();
+  client.connect();
+  const second = FakeSocket.last;
+  second.open();
+  expect(presence(second)).toEqual([{ type: "presence", active: false }]);
+  client.close();
+});

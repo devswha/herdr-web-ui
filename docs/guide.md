@@ -271,6 +271,10 @@ Only devices in your tailnet can open that address. Your own devices get in with
 To check alerts later, choose **Settings → Alerts → Send test**. The result tells you
 whether the test was sent or failed; a missing subscription offers **Turn alerts on again**.
 
+While the app is in front on any device, its window visible and focused, no alert goes to any
+device: you are already looking at the change. Alerts resume once no window of the app is in use.
+The test push is always sent.
+
 On a phone:
 - Agent panes open in the chat.
 - The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl+C, Ctrl, Alt, Shift, Enter, arrows).

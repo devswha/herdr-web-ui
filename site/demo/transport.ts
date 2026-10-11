@@ -1235,6 +1235,9 @@ class DemoSocket extends EventTarget {
         if (this.mode === "observe") this.holdPending(undefined, "read_only", "This connection now only watches. Pending messages will not be sent automatically.");
         this.push({ type: "role-ack", mode: this.mode });
         break;
+      case "presence":
+        // the demo sends no alerts, so whether the page is in use holds nothing back
+        break;
       case "attach":
         if (message.pane_id) { this.resizeGrid(message.pane_id, message.cols, message.rows); this.attach(message.pane_id); }
         break;

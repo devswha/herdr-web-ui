@@ -17,7 +17,7 @@ import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jso
 import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
-import { sameAttachment } from "./input-guard.ts";
+import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
@@ -81,7 +81,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, claudeRestoredDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, lastChatSubmitted, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -190,6 +190,12 @@ const MAX_WAITING_KEYS = 256;
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
+/** between the two Esc presses that empty Claude Code's restored copy of the chat's message */
+const RESTORED_CLEAR_GAP_MS = 200;
+/** after them, before the box is read again */
+const RESTORED_CLEAR_SETTLE_MS = 300;
+/** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
+const RESTORED_CLEAR_RESERVE_MS = 2_000;
 const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
@@ -309,6 +315,18 @@ interface SocketData {
   mode: ClientRole;
   /** how often `mode` changed: a switch away and back during an await is still a change */
   roles: number;
+}
+
+/** A `presence` frame's answer, or null for any other frame. A relayed frame is only parsed when it can be one. */
+function presenceOf(raw: string | Buffer): boolean | null {
+  const text = String(raw);
+  if (!text.includes("\"presence\"")) return null;
+  try {
+    const message = JSON.parse(text) as { type?: unknown; active?: unknown };
+    return message?.type === "presence" ? message.active === true : null;
+  } catch {
+    return null;
+  }
 }
 
 type Client = ServerWebSocket<SocketData>;
@@ -450,6 +468,8 @@ export function createServer(
   // herdr releases its exclusive attach slot only after the old process exits.
   const retiringAttachments = new Map<string, Promise<void>>();
   const clients = new Set<Client>();
+  /** connections whose page is in use (`presence`), relayed ones included: while any is, no web push goes out */
+  const present = new Set<Client>();
   type PendingLease = { attachment: PaneAttachment; pty: PtySession | MirrorSession; authority: object };
   const pendingAuthorities = new WeakMap<Client, Map<string, object>>();
   type PendingItem = PendingRecord<Client, PendingLease>;
@@ -558,9 +578,8 @@ export function createServer(
       });
       inTime();
       if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
-        const [live, colors] = await claudeBoxReads(paneId);
+        await freeClaudeBox(paneId, pane?.agent_status === "working", authorize, arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
         inTime();
-        if (claudeInputDraft(live, colors)) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
       }
       try {
         await agentPrompt(paneId, closeMention(text));
@@ -700,6 +719,35 @@ export function createServer(
     return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
   }
 
+  /**
+   * The box check both chat sends share: a Claude Code input box that is not known to be empty is
+   * refused, except the chat's own last message, which Claude puts back as typed text when the send
+   * right after it is cancelled. That copy, while the agent is not working, two Esc presses empty
+   * again — never Ctrl+C, which would arm "press Ctrl-C again to exit" — then the box is read once
+   * more before the send. Every other draft, and a box still not empty after them, refuses as before.
+   * `authorize` throws once the sender may no longer send: it is asked before each Esc, and again
+   * right before herdr is written to. A send with less than RESTORED_CLEAR_RESERVE_MS left before its
+   * `deadline` clears nothing: it would erase the copy, then time out without sending.
+   */
+  async function freeClaudeBox(paneId: string, working: boolean, authorize: () => void, deadline: number): Promise<void> {
+    const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
+    const [live, colors] = await claudeBoxReads(paneId);
+    if (!claudeInputDraft(live, colors)) return;
+    if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
+      throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+    }
+    if (deadline - Date.now() < RESTORED_CLEAR_RESERVE_MS) throw new HerdrError("submit_timeout", "Too little time was left to clear Claude Code's input box and send; nothing was typed");
+    // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
+    // rewind dialog instead
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
+    await Bun.sleep(RESTORED_CLEAR_GAP_MS);
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
+    await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
+    if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+  }
+
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
@@ -717,21 +765,30 @@ export function createServer(
       // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
       // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
       // read comes after the colors, so text typed between the two is in the box and holds the message.
-      if (context.identity.agent === "claude" && claudeInputDraft(...await claudeBoxReads(paneId))) {
-        throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
-      }
+      if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working, () => authorizePending(owner, paneId, lease), arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
+      // asked again right before herdr is written to: its connect is awaited (#666)
+      const allowed = (): boolean => {
+        try { authorizePending(owner, paneId, lease); return true; } catch { return false; }
+      };
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
       wrote = true;
-      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`);
+      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`, undefined, allowed).catch((error: unknown) => {
+        // a paste the guard refused was never written: the message is unsent, not uncertain
+        if (error instanceof HerdrError && error.code === "cancelled") { wrote = false; authorizePending(owner, paneId, lease); }
+        throw error;
+      });
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
       const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
       if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
       authorizePending(owner, paneId, lease);
-      committing(!automatic && beforeEnter.working);
-      await paneSendKeys(paneId, ["Enter"]);
+      const steering = !automatic && beforeEnter.working;
+      committing(steering);
+      // Claude Code queues what Enter commits during a turn; Ctrl+Enter sends it now (#737). herdr
+      // encodes the key as the pane asked, and as a plain CR for a program that asked for nothing.
+      await paneSendKeys(paneId, [steering && beforeEnter.identity.agent === "claude" ? "ctrl+enter" : "Enter"], undefined, allowed);
       noteSubmitted(paneId, text);
       return { ok: true };
     } catch (error) {
@@ -827,6 +884,7 @@ export function createServer(
     now: options.statusNow,
     loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
+    inUse: () => present.size > 0,
     lookupTitle: async (paneId) => {
       return paneTitle(await paneGet(paneId));
     },
@@ -2401,6 +2459,7 @@ export function createServer(
             client.data.closing = true;
             killWatches(client);
             clients.delete(client);
+            present.delete(client);
             for (const paneId of client.data.attached.keys()) detach(paneId, client);
             client.data.attached.clear();
             client.data.conversationInterests.clear();
@@ -2422,7 +2481,12 @@ export function createServer(
 
       async message(client, raw) {
         if (stopped || client.data.closing) return;
+        // read here for a relayed connection too: alerts for every PC go out from this server
+        const presence = presenceOf(raw);
+        if (presence === true) present.add(client);
+        else if (presence === false) present.delete(client);
         if (client.data.relay) { client.data.relay.message(raw); return; }
+        if (presence !== null) return;
         let message: ClientMessage;
         try {
           message = JSON.parse(String(raw)) as ClientMessage;
@@ -2633,8 +2697,18 @@ export function createServer(
                 send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                 break;
               }
+              const typedIntoPty = (text: string) => {
+                lastTyped.set(message.pane_id, Date.now());
+                if (text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
+                if (lastTyped.size > 64) {
+                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
+                }
+              };
               if (paneQueues.has(message.pane_id)) {
                 const text = message.text;
+                // a click or a wheel (a click replayed behind a held arrow) is the attach's own mouse:
+                // herdr encodes it for the program's mouse mode, send_text would type its bytes (#667)
+                const mouse = isMouseReport(text);
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
                 const claim = client.data.attached.get(message.pane_id);
@@ -2649,15 +2723,16 @@ export function createServer(
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
+                  if (mouse) {
+                    if (!allowed() || !pty.write(text)) { inputFailed(); return; }
+                    typedIntoPty(text);
+                    return;
+                  }
                   return paneSendText(message.pane_id, text, undefined, allowed);
                 }).catch(inputFailed);
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
-                lastTyped.set(message.pane_id, Date.now());
-                if (message.text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
-                if (lastTyped.size > 64) {
-                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
-                }
+                typedIntoPty(message.text);
               }
               break;
             }
@@ -2958,6 +3033,7 @@ export function createServer(
       close(client) {
         client.data.unwatchDevice?.();
         client.data.closing = true;
+        present.delete(client);
         if (client.data.relay) { client.data.relay.close(); return; }
         killWatches(client);
         pending.close(client);
