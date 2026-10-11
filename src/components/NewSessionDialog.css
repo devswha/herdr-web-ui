@@ -42,11 +42,11 @@
   min-width: 0;
 }
 
+/* only the chips that fit are drawn (RecentFolderChips), so the row clips nothing: a focused chip's ring shows whole */
 .new-session-folder-chips {
   display: flex;
   flex-wrap: nowrap;
   gap: var(--space-2);
-  overflow: hidden;
 }
 
 .new-session-folder-chips > .new-session-folder-chip { flex: none; }
@@ -57,14 +57,19 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* the chips' own widths, measured where nothing sees them (RecentFolderChips) */
+/* the chips' own widths, measured where nothing sees them (RecentFolderChips): the measuring row
+   is as wide as every chip, so it sits in a clipped box the size of the frame and adds no overflow */
+.new-session-folder-measure-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .new-session-folder-measure {
   display: flex;
   gap: var(--space-2);
-  position: absolute;
-  inset: 0 auto auto 0;
-  visibility: hidden;
-  pointer-events: none;
   width: max-content;
 }
 

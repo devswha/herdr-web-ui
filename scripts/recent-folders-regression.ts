@@ -194,6 +194,8 @@ try {
           assert.deepEqual(await offered(), [project, "/older/one", other, "/older/two"]);
           if (width !== 390) assert.equal(new Set(await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top))).size, 1, "a wider screen keeps one row too, the rest under +N");
           if (width !== 390) assert.equal(await more.count(), 1, "four folders with a long name are more than the row holds: +N lists the rest");
+          // the measuring row behind the chips adds no width the dialog could scroll to
+          assert.equal(await dialog.locator(".modal-body").evaluate((node) => node.scrollWidth <= node.clientWidth), true, "the dialog never scrolls sideways");
           if (width === 390) assert.equal(new Set(await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top))).size, 1, "a phone keeps them on one row");
           failCreate = true;
           await pickFolder(other);

@@ -74,10 +74,13 @@ export function RecentFolderChips({ folders, disabled, labelledBy, basename, onP
         +{rest.length}
       </button>}
     </div>
-    {/* every chip and a "+N" one, drawn where nothing sees them, for their widths */}
-    {!swipe && <div ref={measure} className="new-session-folder-measure" aria-hidden="true">
-      {folders.map((path) => <span key={path} className="btn new-session-folder-chip"><FolderOpen aria-hidden="true" /><span>{basename(path)}</span></span>)}
-      <span className="btn new-session-folder-chip new-session-folder-more">+{folders.length}</span>
+    {/* every chip and a "+N" one, drawn where nothing sees them, for their widths: inside a clipped
+        box the size of the row, so the long row they make never scrolls the dialog sideways */}
+    {!swipe && <div className="new-session-folder-measure-clip" aria-hidden="true">
+      <div ref={measure} className="new-session-folder-measure">
+        {folders.map((path) => <span key={path} className="btn new-session-folder-chip"><FolderOpen aria-hidden="true" /><span>{basename(path)}</span></span>)}
+        <span className="btn new-session-folder-chip new-session-folder-more">+{folders.length}</span>
+      </div>
     </div>}
     {menu && rest.length > 0 && <RowMenu anchor={menu} title={t("Recent folders")} variant="paths" onClose={() => setMenu(null)}
       items={rest.map((path) => ({ id: path, label: basename(path), hint: path, title: path, icon: FolderOpen, run: () => onPick(path) }))} />}
