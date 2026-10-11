@@ -18,7 +18,9 @@ try {
   const policy = (await serveStatic("/")).headers.get("content-security-policy");
   assert.ok(policy, "build the app before its enforcing CSP regression");
   const terminalReads: string[] = [];
-  let structured = false, resolveAgent!: () => void;
+  let structured = false, resolveAgent!: () => void, agentReadArrived!: () => void;
+  // resolved by the server's handler: a browser-side waitForRequest can win the race against it
+  const agentRead = new Promise<void>((resolve) => { agentReadArrived = resolve; });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const url = new URL(request.url), pane = url.searchParams.get("pane_id");
     if (url.pathname === "/api/pane/prompt") return Response.json({ prompt: null });
@@ -26,7 +28,7 @@ try {
     if (url.pathname === "/api/pane/read") {
       terminalReads.push(pane ?? "");
       const response = () => Response.json({ read: { text: pane === "shell" ? "Shell inline output" : "OLD AGENT TERMINAL", truncated: false } });
-      if (pane === "agent") return new Promise<Response>((resolve) => { resolveAgent = () => resolve(response()); });
+      if (pane === "agent") return new Promise<Response>((resolve) => { resolveAgent = () => resolve(response()); agentReadArrived(); });
       return response();
     }
     if (url.pathname === "/favicon.ico") return new Response(null, { status: 204 });
@@ -42,12 +44,15 @@ try {
   await summary.waitFor();
   await page.getByText("Loading conversation…", { exact: true }).waitFor({ state: "detached" });
   assert.equal(terminalReads.length, 0, "a hidden terminal read cannot hold the initial chat");
+  assert.equal(await page.locator(".chat-empty").count(), 0, "the terminal disclosure is no empty conversation");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-fallback-closed.png") });
   }
-  const terminal = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/pane/read");
-  await summary.click(); await terminal;
+  await summary.click();
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([agentRead, new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error("opening the disclosure never read the agent terminal")), 10_000); })]);
+  clearTimeout(deadline);
   assert.ok(terminalReads.includes("agent"));
   structured = true;
   await page.evaluate(() => window.chatFallbackQA.refresh());
