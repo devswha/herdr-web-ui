@@ -9,11 +9,12 @@ import { toolVerb } from "../src/lib/toolVerbs.ts";
 import type { ConversationTurn } from "../shared/protocol.ts";
 import { parseAgyTranscript } from "./agy.ts";
 import { agyStoreFromLocks } from "./agy-store.ts";
+import * as agyStore from "./agy-store.ts";
 import * as herdr from "./herdr/client.ts";
 import { forgetHistoryChains } from "./codex.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import * as omo from "./omo.ts";
-import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 
 let mockedPanes: HerdrPane[] = [];
 let mockedProcesses: { argv?: unknown }[] = [];
@@ -1631,5 +1632,16 @@ describe("Agy native ledger through shared paging", () => {
     page();
     db.exec("DROP TABLE steps");
     expect(page).toThrow(ConversationUnavailable);
+  });
+  it("falls back when the transcript path cannot be inspected", async () => {
+    const loop = join(root, "loop"); symlinkSync(loop, loop);
+    const pane = { pane_id: "agy-pane", cwd: root, agent: "agy" } as HerdrPane;
+    const store = spyOn(agyStore, "resolveAgyStore").mockResolvedValue({ root, session: "test", path: loop, pid: 2, started: "test" });
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { foreground_processes: [] } } as never);
+    try {
+      await expect(paneTranscript(pane.pane_id, undefined, { panes: [pane] } as SessionSnapshot)).rejects.toMatchObject({
+        name: "ConversationUnavailable", message: "transcript_missing",
+      });
+    } finally { store.mockRestore(); rpc.mockRestore(); }
   });
 });

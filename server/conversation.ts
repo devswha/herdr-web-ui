@@ -1214,7 +1214,10 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     if (agent === "agy") {
       const found = await resolveAgyStore(pane);
       if (!found) throw new ConversationUnavailable("no_session_path");
-      if (!statSync(found.path, { throwIfNoEntry: false })) {
+      let transcriptExists: boolean;
+      try { transcriptExists = !!statSync(found.path, { throwIfNoEntry: false }); }
+      catch { throw new ConversationUnavailable("transcript_missing"); }
+      if (!transcriptExists) {
         if (agyCatalog(found.path).size !== 0 || !sameAgyStore(found, await resolveAgyStore(pane))) throw new ConversationUnavailable("transcript_missing");
         throw new ConversationNotStarted(found.session, "agy-transcript", found.path);
       }
