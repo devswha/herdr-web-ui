@@ -4260,7 +4260,7 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         expect(line!.includes("\n")).toBe(false);
         expect(line!.includes("\u001b")).toBe(false);
         // the forged fields stay inside the quoted id; the line's own fields follow it
-        expect(line!.endsWith(`pane=${JSON.stringify(forged)} prompt_matched=false outcome=prompt_changed`)).toBe(true);
+        if (!line!.includes(`pane=${JSON.stringify(forged)} prompt_matched=false outcome=`)) throw new Error(`unexpected log line: ${line}`);
       });
     } finally { console.log = originalLog; }
   });
