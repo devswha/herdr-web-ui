@@ -5,6 +5,7 @@
  * `--term-*` tokens of each theme for PaneTerminal's theme object.
  */
 
+import { REPORTED_SETTINGS, type ReportedSetting } from "../../shared/telemetry.ts";
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
@@ -67,6 +68,14 @@ export interface Settings {
   sidebarRows: SidebarRows;
   /** The Agents list's order. Activity is display-only: herdr's own order never changes. */
   agentOrder: AgentOrder;
+  /** In the Workspaces order, each workspace's agents sit in a card under its name. */
+  agentCards: boolean;
+  /** Each agent row carries a star that keeps it on top of the Agents list. */
+  agentPins: boolean;
+  /** A plan opens as a flow of boxes with a switch to its list; off, as the list alone. */
+  planFlow: boolean;
+  /** The header carries the selected pane's plan count, which opens the plan. */
+  planButton: boolean;
   /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
   quietOpenedDone: boolean;
   /** the chrome color family, keyed as data-palette in src/styles.css */
@@ -89,6 +98,8 @@ export interface Settings {
   /** a desktop tab out of use for a moment detaches its pane (PaneTerminal's release) and only watches it, so herdr's own
    *  window keeps the pane at its size; paused where the server cannot watch. Off: the tab keeps the pane and its size. */
   releasePaneAway: boolean;
+  /** a split pane under 80 columns draws in a smaller font to reach them (lib/narrowPaneFont.ts). Off: every pane keeps terminalFontSize. */
+  narrowPaneFont: boolean;
   /** chat text size in px (its body text; the rest scales with it); null follows the density */
   chatFontSize: number | null;
   /** fonts tried before the UI font in the chat's prose (code stays mono), as a CSS font-family list; "" keeps the UI font */
@@ -141,6 +152,11 @@ export interface Settings {
   highlightCode: boolean;
 }
 
+/** The appearance settings that differ from their defaults, by name: what the anonymous counts tell (shared/telemetry.ts). */
+export function changedSettings(settings: Settings): ReportedSetting[] {
+  return REPORTED_SETTINGS.filter((name) => settings[name] !== DEFAULT_SETTINGS[name]);
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   terminalInputMode: "auto",
   keyBarExtras: ["alt"],
@@ -150,6 +166,10 @@ export const DEFAULT_SETTINGS: Settings = {
   density: "comfortable",
   sidebarRows: "two",
   agentOrder: "workspace",
+  agentCards: false,
+  agentPins: false,
+  planFlow: true,
+  planButton: true,
   quietOpenedDone: false,
   palette: "amber",
   terminalFontSize: 13,
@@ -159,6 +179,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontFamily: "",
   paneClipboard: true,
   releasePaneAway: false,
+  narrowPaneFont: true,
   chatFontSize: null,
   chatFontFamily: "",
   chatWidth: "default",
@@ -303,6 +324,10 @@ export function sanitizeSettings(raw: unknown): Settings {
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarRows: record["sidebarRows"] === "one" || record["sidebarRows"] === "two" ? record["sidebarRows"] : DEFAULT_SETTINGS.sidebarRows,
     agentOrder: record["agentOrder"] === "workspace" || record["agentOrder"] === "activity" ? record["agentOrder"] : DEFAULT_SETTINGS.agentOrder,
+    agentCards: record["agentCards"] === true,
+    agentPins: record["agentPins"] === true,
+    planFlow: record["planFlow"] !== false,
+    planButton: record["planButton"] !== false,
     quietOpenedDone: record["quietOpenedDone"] === true,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" || record["palette"] === "forest" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
@@ -319,6 +344,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     terminalFontFamily: sanitizeFontFamily(record["terminalFontFamily"]),
     paneClipboard: typeof record["paneClipboard"] === "boolean" ? record["paneClipboard"] : DEFAULT_SETTINGS.paneClipboard,
     releasePaneAway: typeof record["releasePaneAway"] === "boolean" ? record["releasePaneAway"] : DEFAULT_SETTINGS.releasePaneAway,
+    narrowPaneFont: typeof record["narrowPaneFont"] === "boolean" ? record["narrowPaneFont"] : DEFAULT_SETTINGS.narrowPaneFont,
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
