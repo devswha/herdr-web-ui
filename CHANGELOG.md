@@ -11,6 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Push alerts no longer reach every device while you are using the app: while any window of it
   is visible and focused, on any device, no device gets an alert. Alerts resume once no window
   is in use, and **Send test** still always sends.
+  ([#759](https://github.com/devswha/herdr-web-ui/pull/759))
 
 ## [0.4.6] - 2026-10-11
 
