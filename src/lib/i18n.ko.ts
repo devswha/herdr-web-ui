@@ -6,7 +6,10 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 채팅을 사용할 수 없습니다. 터미널을 열어 작업 상태와 도구 호출을 확인하세요.",
   "Chat read timed out.": "대화 읽기 시간이 초과되었습니다.",
+  "Thinking…": "생각 중…",
+  "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grok 채팅을 사용할 수 없습니다. 터미널을 열어 작업 상태와 도구 호출을 확인하세요.",
   "Find in terminal": "터미널에서 찾기",
   "Previous match": "이전 결과",
   "Next match": "다음 결과",
