@@ -7,6 +7,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- A phone showing one pane of a split tab no longer resizes the tab's other panes to its own
+  screen: they stay mounted behind the one shown and now keep the size the pty has, so a PC
+  drawing the split keeps its own sizes. A pane shown again on the phone takes its size then.
+
 ## [0.4.7] - 2026-10-12
 
 ### Added
