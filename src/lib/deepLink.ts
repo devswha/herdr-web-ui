@@ -79,6 +79,11 @@ const named = (value: string | null): string | null => {
   return trimmed ? trimmed : null;
 };
 
+/** Relative file links need a pane; an absolute file can outlive the pane that wrote it. */
+export function fileFromLink(link: Pick<AppLink, "file" | "pane">): string | null {
+  return link.file && (link.pane || /^(?:\/|[A-Za-z]:[\\/])/.test(link.file)) ? link.file : null;
+}
+
 /** The place an address names. Every field is optional in an address; a missing PC is the local one. */
 export function readLink(search: string): AppLink {
   const query = new URLSearchParams(search);
@@ -123,7 +128,8 @@ export function linkSearch(link: AppLink, current = ""): string {
   if (link.workspace) query.set("ws", link.workspaceSlug ? `${link.workspace}-${link.workspaceSlug}` : link.workspace);
   if (link.pane) query.set("pane", link.pane);
   if (link.pane && link.view) query.set("view", link.view);
-  if (link.pane && link.file) query.set("file", link.file);
+  const file = fileFromLink(link);
+  if (file) query.set("file", file);
   if (link.settings) query.set("settings", link.settings);
   if (link.settings && link.section) query.set("section", link.section);
   if (link.sidebar) query.set("sidebar", link.sidebar);

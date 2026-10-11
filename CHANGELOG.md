@@ -84,6 +84,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres)
 
 ### Fixed
+- Markdown files opened in a new tab keep their rendered preview instead of showing source.
+  The link stays on the file's PC without requiring its original pane; Open raw file and Download
+  still provide the original contents.
 - Chat hides a rejected conversation immediately, even when reading its terminal fallback
   is slow or fails, so removed history does not remain on screen.
   ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
