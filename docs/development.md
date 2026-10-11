@@ -469,12 +469,3 @@ input regression matrix.
 | [`docs/`](.) | Remote PCs, updates, flow control, chat audit, brand assets and README media (`docs/media/`) |
 | [`site/`](../site/) | The website, built by `scripts/build-site.ts` and deployed by GitHub Pages |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |
-
-### Optional terminal fallback
-
-Agent chats with scrollback fallback finish their conversation read before terminal output is
-requested. The disclosure reads only while open and visible, independently of conversation
-refresh. Non-agent scrollback stays inline. Conversation and terminal HTTP headers/body share
-a 15-second deadline; expired answers cannot update the conversation ETag cache.
-
-Synthetic browser evidence: [preview](screenshots/chat-fallback/terminal-fallback-closed.png).
