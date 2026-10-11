@@ -48,6 +48,7 @@ import { fileUriPath, isWebLink, terminalFileLinkProvider } from "../lib/termina
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 import { terminalLabel } from "../lib/terminalLabel.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
+import { modalOpen } from "../lib/focus.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -1556,7 +1557,7 @@ export function PaneTerminal({
     // app), only this grid fits, and the refit takes the pane once the user is here
     const pane = paneRef.current;
     if (pane && term && presentedRef.current && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
-    if (activeRef.current && !autoSelected && !coarseRef.current && !findOpenRef.current) term?.focus();
+    if (activeRef.current && !autoSelected && !coarseRef.current && !modalOpen() && !findOpenRef.current) term?.focus();
   }, [chatView]);
 
   // Reset synchronously on pane changes: old composition timers must never see the new pane.
@@ -1627,7 +1628,7 @@ export function PaneTerminal({
     if (away) leaveRef.current();
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
-    if (activeRef.current && !chatViewRef.current && !autoSelected && !coarseRef.current && !findOpenRef.current) term.focus();
+    if (activeRef.current && !chatViewRef.current && !autoSelected && !coarseRef.current && !modalOpen() && !findOpenRef.current) term.focus();
     return leavePane;
   }, [paneId]);
 
@@ -1638,7 +1639,7 @@ export function PaneTerminal({
   // A sibling already mounted in the split canvas becomes the keyboard target only on an
   // explicit navigation. Clicking inside it leaves focus on the actual clicked control.
   useEffect(() => {
-    if (active && !autoSelected && !chatViewRef.current && !coarseRef.current && !findOpenRef.current) termRef.current?.focus();
+    if (active && !autoSelected && !chatViewRef.current && !coarseRef.current && !modalOpen() && !findOpenRef.current) termRef.current?.focus();
   }, [active, autoSelected]);
 
   // the user picked the pane App had switched to on its own (the same row or lens again,
@@ -1647,7 +1648,7 @@ export function PaneTerminal({
   useEffect(() => {
     const wasAuto = autoSelectedRef.current;
     autoSelectedRef.current = autoSelected;
-    if (activeRef.current && wasAuto && !autoSelected && !chatViewRef.current && !coarseRef.current && !findOpenRef.current) termRef.current?.focus();
+    if (activeRef.current && wasAuto && !autoSelected && !chatViewRef.current && !coarseRef.current && !modalOpen() && !findOpenRef.current) termRef.current?.focus();
   }, [autoSelected]);
 
   // key-bar taps go through xterm so the onData -> socket path above is reused

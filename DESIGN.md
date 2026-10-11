@@ -458,7 +458,7 @@ One set for both themes: the card is island black wherever it shows.
   are a quiet count beside it (`.background-count`), not a badge.
 
 ### Pill (`.pill`)
-- Mono metadata at `--chip-h`. Offline is the one header pill and uses danger tokens.
+- Mono metadata at `--chip-h`. Offline is the one header pill that stays, and uses danger tokens. A deep link that could not open what it named, and Copy link, say so in a plain `.header-note` pill for a moment (8 s, 1.6 s for Link copied). The note takes the flexible context's place and ellipsizes when narrow, keeping the lens and More controls in view.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**
