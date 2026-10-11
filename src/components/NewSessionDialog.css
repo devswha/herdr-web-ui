@@ -36,17 +36,14 @@
   flex: none;
 }
 
+/* one row of three: a short name is shown whole, and only a long one gives way to an ellipsis */
 .new-session-folder-chips {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, max-content));
   gap: var(--space-2);
-  max-height: calc(var(--touch-target) * 4 + var(--space-2) * 3);
-  overflow-y: auto;
-  padding: var(--space-1);
 }
 
 .new-session-folder-chip {
-  max-width: 100%;
   min-width: 0;
   border-radius: var(--radius-pill);
 }

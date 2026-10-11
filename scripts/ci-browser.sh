@@ -57,7 +57,6 @@ HERDR_DEMO_BUILD="$(mktemp -d)"
 export HERDR_DEMO_BUILD
 run_script scripts/demo-build.ts "$HERDR_DEMO_BUILD"
 run_script scripts/ui-regression.ts
-run_script scripts/recent-folders-regression.ts
 run_script scripts/workspace-rows-regression.ts
 run_script scripts/pending-pane-switch-regression.ts
 run_script scripts/terminal-dispose-browser-qa.ts
@@ -88,5 +87,6 @@ run_script scripts/prompt-dock-demo-regression.ts
 run_script scripts/plugin-actions-demo-regression.ts
 run_script scripts/palette-machines-demo-regression.ts
 run_script scripts/narrow-pane-demo-regression.ts
+run_script scripts/recent-folders-regression.ts
 run_script scripts/machine-dialog-regression.ts
 run_script scripts/machine-conflict-regression.ts

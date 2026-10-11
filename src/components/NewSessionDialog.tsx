@@ -45,6 +45,8 @@ export interface DialogFields {
 
 /** how long the fields rest before the address follows them: Safari refuses a burst of history writes */
 const DRAFT_MS = 400;
+/** as many recent folders as one row holds on a phone */
+const RECENT_FOLDERS_SHOWN = 3;
 
 function directoryBasename(value: string): string {
   const trimmed = value.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -201,13 +203,13 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
           {!tab && recentFolders.length > 0 && <div className="field new-session-recents">
             <span className="field-label" id="new-session-recents">{t("Recent folders")}</span>
             <div className="new-session-folder-chips" role="group" aria-labelledby="new-session-recents">
-              {recentFolders.map((path) => <button type="button" className="btn new-session-folder-chip" key={path}
-                disabled={fieldsDisabled} title={path} aria-label={t("Start a new workspace in {path}", { path })}
-                onClick={() => { setCwd(path); void startWorkspace(path); }}>
+              {recentFolders.slice(0, RECENT_FOLDERS_SHOWN).map((path) => <button type="button" className="btn new-session-folder-chip" key={path}
+                disabled={fieldsDisabled} title={path} aria-label={t("Use folder {path}", { path })}
+                onClick={() => { setCwd(path); setBrowsing(false); }}>
                 <FolderOpen aria-hidden="true" /><span>{directoryBasename(path)}</span>
               </button>)}
             </div>
-            <span className="field-hint">{t("Click a folder to start with the selected agent. Saved after workspaces close.")}</span>
+            <span className="field-hint">{t("Click a folder to put it in Directory. Kept after workspaces close.")}</span>
           </div>}
           <label className="field">
             <span className="field-label">{t("Name")}</span>

@@ -48,6 +48,10 @@ try {
             localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ theme, language: "ko" }));
             localStorage.setItem("herdr-web-ui:new-session-agent", "codex");
             localStorage.setItem("herdr-web-ui:recent-directories:remote", '["/remote-only/project"]');
+            // two older folders, so the snapshot's two make four: one more than the dialog shows
+            if (localStorage.getItem("herdr-web-ui:recent-directories:local") === null) {
+              localStorage.setItem("herdr-web-ui:recent-directories:local", '["/older/one","/older/two"]');
+            }
           }, { theme, project });
           await context.route("**/api/agents", (route) => route.fulfill({ json: { agents: [{ kind: "codex", label: "Codex" }] } }));
           await context.route("**/api/machines/events", (route) => route.abort());
@@ -111,11 +115,16 @@ try {
           };
           await openNew();
           const dialog = page.getByRole("dialog");
-          const chip = dialog.getByRole("button", { name: `${project}에서 새 워크스페이스 시작`, exact: true });
-          const betaChip = dialog.getByRole("button", { name: `${other}에서 새 워크스페이스 시작`, exact: true });
+          const chip = dialog.getByRole("button", { name: `${project} 폴더 사용`, exact: true });
+          const betaChip = dialog.getByRole("button", { name: `${other} 폴더 사용`, exact: true });
           await chip.waitFor();
           await dialog.locator(".agent-picker-trigger", { hasText: "Codex" }).waitFor();
-          assert.equal(await dialog.locator(".new-session-folder-chip").count(), 2);
+          const chips = dialog.locator(".new-session-folder-chip");
+          const submit = dialog.locator('button[type="submit"]');
+          assert.equal(await chips.count(), 3);
+          assert.equal(await dialog.getByRole("button", { name: /older\/two/ }).count(), 0, "the fourth folder is not shown");
+          assert.equal(new Set(await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top))).size, 1, "recent folders stay on one row");
+          assert.equal(await dialog.locator(".new-session-folder-chips").evaluate((node) => node.scrollWidth > node.clientWidth), false);
           assert.equal(await dialog.getByRole("button", { name: /remote-only/ }).count(), 0);
           assert.equal(await chip.getAttribute("title"), project);
           assert.equal(await dialog.locator(".new-session-folder-chip").first().getAttribute("title"), other);
@@ -128,6 +137,9 @@ try {
           const request = page.waitForRequest((request) => request.url().endsWith("/api/workspace/create"));
           const response = page.waitForResponse((response) => response.url().endsWith("/api/workspace/create"));
           await chip.click();
+          assert.equal(await dialog.locator("#new-session-cwd").inputValue(), project);
+          assert.equal(requests, 0, "a chip fills Directory and starts nothing");
+          await submit.click();
           assert.deepEqual((await request).postDataJSON(), { cwd: project, label: null, agent: { kind: "codex" } });
           assert.equal(await chip.isDisabled(), true);
           assert.equal(await dialog.locator(".new-session-folder-chip:not(:disabled)").count(), 0);
@@ -149,25 +161,26 @@ try {
           assert.equal(await dialog.locator(".new-session-folder-chip").first().getAttribute("title"), project);
           failCreate = true;
           await betaChip.click();
+          await submit.click();
           await dialog.getByRole("alert").filter({ hasText: "폴더를 찾을 수 없습니다" }).waitFor();
           assert.equal(await betaChip.isEnabled(), true);
           assert.equal(await dialog.locator(".new-session-folder-chip").first().getAttribute("title"), project);
-          assert.equal(await dialog.locator(".new-session-folder-chip").count(), 2);
+          assert.equal(await chips.count(), 3);
           failCreate = false;
           partialFailure = true;
           const partialResponse = page.waitForResponse((response) => response.url().endsWith("/api/workspace/create"));
-          await betaChip.click();
+          await submit.click();
           const partial: WorkspaceCreated = await (await partialResponse).json();
           await dialog.getByRole("alert").filter({ hasText: "Controlled agent failure" }).waitFor();
           assert.equal(await dialog.locator(".new-session-folder-chip:not(:disabled)").count(), 0);
           assert.equal(await dialog.locator(".new-session-folder-chip").first().getAttribute("title"), project);
           const beforeOpen = requests;
-          await dialog.locator('button[type="submit"]').click();
+          await submit.click();
           await dialog.waitFor({ state: "detached" });
           await page.locator(`.workspace-select[data-pane="${partial.pane_id}"][aria-current="true"]`).waitFor({ state: "attached" });
           assert.equal(requests, beforeOpen, "Open after partial failure never creates another workspace");
           assert.deepEqual(errors, []);
-          console.log(`PASS recent folders ${width} ${theme}: snapshot seed, closed workspace, reload, PC isolation, selected agent, pending, focus trap, failed-start order`);
+          console.log(`PASS recent folders ${width} ${theme}: snapshot seed, closed workspace, reload, PC isolation, three chips on one row, chip fills Directory, pending, focus trap, failed-start order`);
         } finally {
           gate.resolve();
           await context.close();
