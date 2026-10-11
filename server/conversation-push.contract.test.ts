@@ -456,6 +456,9 @@ describe("native conversation invalidation", () => {
     attach(socket);
     watch(socket);
     await socket.changed(paneId);
+    // interest is accepted while the attach is still being created: a pane closed before the
+    // client joined answers the attach with an error, not pty-exit, so wait for the join
+    await socket.waitFor((frame) => frame.type === "pane-geometry" && frame.pane_id === paneId && frame.fixed === true);
     const monitor = monitors.get(paneId)!;
     await workspaceClose(workspaceId);
     workspaceId = "";
