@@ -31,9 +31,10 @@ import { applyPaneStatus } from "./lib/snapshot.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
 import { carryPaneRecords, paneMovePending, paneMovesVersion, subscribePaneMoves } from "./lib/paneMove.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
-import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
+import { alertPrefs, useSettings } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import { useMediaQuery } from "./lib/useMediaQuery.ts";
+import { PaneLenses } from "./lib/paneLens.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
 import {
   notificationState,
@@ -107,16 +108,15 @@ function storeSelection(machineId: string, paneId: string | null): void {
 }
 
 /**
- * The lens a pane opens in: remembered per pane. A pane seen for the first time opens its
- * terminal, except an agent pane on a touch screen, which opens its chat: a phone reads a
- * conversation better than a TUI sized for a desktop. Until the snapshot says whether the
- * pane has an agent (null), a touch screen guesses chat: most panes opened there are agents,
- * and guessing terminal flashed it for the seconds before the snapshot arrived. A PC whose
- * herdr has no terminal attach and no mirror either (an older Windows bridge) always opens
- * its chat: its terminal lens is only a notice, so a remembered choice there is not worth
- * keeping. A mirrored PC counts as having a terminal.
+ * The lens a pane opens in: the one picked for it by hand, remembered per pane, else its default
+ * (lib/paneLens.ts), kept for the page once the pane is known so an agent starting or exiting in
+ * it does not switch the lens under the user. A PC whose herdr has no terminal attach and no
+ * mirror either (an older Windows bridge) always opens its chat: its terminal lens is only a
+ * notice, so a remembered choice there is not worth keeping. A mirrored PC counts as having a
+ * terminal.
  */
-function storedView(paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean, defaultView: DefaultView): PaneView {
+/** `hasAgent`: herdr leaves `agent` out for a shell, so callers compare with `!= null` */
+function storedView(lenses: PaneLenses, paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean): PaneView {
   if (!terminalAttach) return "chat";
   try {
     const stored = window.localStorage.getItem(`herdr-web-ui:view:${paneStorageId(machineId, paneId)}`);
@@ -124,10 +124,7 @@ function storedView(paneId: string, machineId: string, hasAgent: boolean | null,
   } catch {
     /* private mode */
   }
-  // Settings' choice for every pane: chat needs an agent, a shell has no conversation to show
-  if (defaultView === "chat") return hasAgent !== false ? "chat" : "terminal";
-  if (defaultView === "terminal") return "terminal";
-  return hasAgent !== false && window.matchMedia?.("(pointer: coarse)").matches === true ? "chat" : "terminal";
+  return lenses.of(paneStorageId(machineId, paneId), hasAgent, window.matchMedia?.("(pointer: coarse)").matches === true);
 }
 
 function Brand() {
@@ -636,11 +633,13 @@ export function App() {
   // the lens follows the selected pane: each pane remembers its own. It is settled in the render
   // that selects the pane, not in an effect after it: the pane's terminal attaches in that render's
   // layout effect, and an attach in the previous pane's lens resized a pane whose lens is chat
+  // a new Settings default is a new start for every pane's lens
+  const lenses = useMemo(() => new PaneLenses(settings.defaultView), [settings.defaultView]);
   const lensKey = JSON.stringify([selectedPaneId, selectedMachineId, selectedPane !== null, selectedAgent !== null, terminalAttach, settings.defaultView]);
   const notificationView = notificationViewForPane(notificationViewTarget, selectedMachineId, selectedPaneId);
   let view = lens.view;
   if (lens.key !== lensKey) {
-    if (selectedPaneId !== null) view = storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach, settings.defaultView);
+    if (selectedPaneId !== null) view = storedView(lenses, selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach);
     setLens({ key: lensKey, view });
   }
   // a tapped alert's lens is drawn over the pane's own, never stored: once it is gone (the pane or
@@ -741,6 +740,7 @@ export function App() {
       paneMoved: (machineId, previousPaneId, paneId) => {
         if (previousPaneId === paneId) return;
         carryPaneRecords(machineId, previousPaneId, paneId);
+        lenses.move(paneStorageId(machineId, previousPaneId), paneStorageId(machineId, paneId));
         // the new id is selected before a snapshot without the old one can fall the selection
         // back to herdr's focus; a pane moved from the sidebar while another is open stays unselected
         const current = selectionRef.current;
@@ -793,7 +793,7 @@ export function App() {
         void zoomPane(paneId, mode, machineId).then(() => void load()).catch((err) => layoutRefused("pane zoom failed", err));
       } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
   );
 
   useShortcuts(actions, locked === false);
@@ -989,7 +989,7 @@ export function App() {
           {/* the panel sits inside main, so the page keeps its main landmark; it draws no box */}
           <div id={PANE_TABPANEL_ID} className="terminal-tabpanel" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
           <PaneCanvas key={selectedMachineId} snapshot={snapshot} pane={selectedPane} selectedPaneId={selectedPaneId} onSelect={selectPane} onChanged={actions.refresh}
-            isTerminal={(item) => (item.pane_id === selectedPaneId ? view : storedView(item.pane_id, selectedMachineId, item.agent !== null, terminalAttach, settings.defaultView)) === "terminal"}
+            isTerminal={(item) => (item.pane_id === selectedPaneId ? view : storedView(lenses, item.pane_id, selectedMachineId, item.agent != null, terminalAttach)) === "terminal"}
             renderPane={(item, active) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId: selectedMachineId }) : null}>
               <PaneTerminal
                 title={item ? displayPaneTitle(item) : selectedTitle}
@@ -1003,7 +1003,7 @@ export function App() {
                 backgroundWait={item?.background_wait === true}
                 cwd={item?.cwd ?? null}
                 machineName={selectedMachine?.name ?? selectedMachineId}
-                view={active ? view : storedView(item!.pane_id, selectedMachineId, item!.agent !== null, terminalAttach, settings.defaultView)}
+                view={active ? view : storedView(lenses, item!.pane_id, selectedMachineId, item!.agent != null, terminalAttach)}
                 active={active}
                 findRequest={findRequest.paneId === item?.pane_id ? findRequest.serial : 0}
                 autoSelected={autoSelected}
@@ -1029,8 +1029,9 @@ export function App() {
         tab={newTab}
         defaultCwd={newSessionMachineId === selectedMachineId ? selectedPane?.cwd ?? null : null}
         onClose={() => setNewSessionOpen(false)}
-        onCreated={(paneId) => {
+        onCreated={(paneId, agentStarted) => {
           setNewSessionOpen(false);
+          if (agentStarted) lenses.startedAgent(paneStorageId(newSessionMachineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true);
           selectTarget(newSessionMachineId, paneId);
           void load();
         }}

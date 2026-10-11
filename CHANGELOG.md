@@ -13,6 +13,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that takes several answers.
 
 ### Fixed
+- A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
+  agent no longer turns into its chat when an agent starts in it, and an agent pane no longer
+  turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
+  Settings choice applies again to every pane.
+  ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
 - A Claude pane that used an agent team no longer counts its teammates as running after they
   shut down: a teammate that approved its lead's shutdown request reads as completed, so the
   pane's running count and the agent list show only what still runs.
