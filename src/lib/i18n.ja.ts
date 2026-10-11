@@ -54,6 +54,8 @@ export const JA: Record<string, string> = {
   "Amber": "アンバー",
   "Catppuccin": "Catppuccin",
   "Lilac": "ライラック",
+  "Pin agent": "エージェントを固定",
+  "Unpin agent": "エージェントの固定を解除",
   "Forest": "フォレスト",
   "Density": "表示密度",
   "Comfortable": "ゆったり",

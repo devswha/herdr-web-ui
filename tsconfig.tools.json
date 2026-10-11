@@ -15,6 +15,7 @@
     "scripts/file-viewer-regression.ts",
     "scripts/chat-fallback-browser-qa.ts",
     "scripts/chat-fallback-fixture.tsx",
+    "scripts/grok-chat-browser-qa.ts",
     "scripts/file-preview-text-browser-qa.ts",
     "scripts/file-preview-text-fixture.tsx"
   ],
