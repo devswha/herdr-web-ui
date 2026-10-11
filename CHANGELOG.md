@@ -44,6 +44,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 
 ### Fixed
+- A Claude Code chat whose session continued in a new transcript file (the old file holds only
+  a `continued-in` record) now shows the conversation from the file Claude writes to, instead of
+  an empty chat.
+  ([#779](https://github.com/devswha/herdr-web-ui/pull/779) by @vibewriter-hand)
 - A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
   agent no longer turns into its chat when an agent starts in it, and an agent pane no longer
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
