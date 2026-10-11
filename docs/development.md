@@ -469,3 +469,13 @@ input regression matrix.
 | [`docs/`](.) | Remote PCs, updates, flow control, chat audit, brand assets and README media (`docs/media/`) |
 | [`site/`](../site/) | The website, built by `scripts/build-site.ts` and deployed by GitHub Pages |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |
+
+### Bounded text previews
+
+Text previews request the first 256 KiB, then enforce that byte limit locally even if a peer
+ignores Range or the file grew after stat. HTTP errors stay errors. Headers and body share a
+five-second deadline; closing or changing the preview aborts its response. A partial preview
+keeps its download link. `scripts/file-preview-text-browser-qa.ts` exercises the actual viewer
+against synthetic error, oversized and stalled responses in the browser lane.
+
+Synthetic browser evidence: [preview](screenshots/text-preview/text-preview-mobile.png).

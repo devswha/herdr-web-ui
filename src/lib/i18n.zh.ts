@@ -936,4 +936,5 @@ export const ZH: Record<string, string> = {
   "Tab order did not refresh. Try again.": "标签页顺序未更新，请重试。",
   "Terminal scrollback": "终端历史",
   "Scroll failed: {reason}": "滚动失败：{reason}",
+  "Only part of this file is shown. Download it to read the rest.": "仅显示文件的一部分。请下载文件以阅读其余内容。",
 };

@@ -934,4 +934,5 @@ export const JA: Record<string, string> = {
   "Tab order did not refresh. Try again.": "タブの順序が更新されませんでした。もう一度お試しください。",
   "Terminal scrollback": "ターミナル履歴",
   "Scroll failed: {reason}": "スクロールに失敗しました: {reason}",
+  "Only part of this file is shown. Download it to read the rest.": "ファイルの一部のみ表示しています。残りはダウンロードしてお読みください。",
 };

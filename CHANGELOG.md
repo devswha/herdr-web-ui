@@ -44,6 +44,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 
 ### Fixed
+- Keep text file previews within their byte budget when a peer ignores Range, reject HTTP error bodies, and cancel stalled or closed previews.
 - A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
   agent no longer turns into its chat when an agent starts in it, and an agent pane no longer
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new

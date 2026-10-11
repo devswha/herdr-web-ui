@@ -932,4 +932,5 @@ export const KO: Record<string, string> = {
   "Tab order did not refresh. Try again.": "탭 순서가 갱신되지 않았습니다. 다시 시도해 주세요.",
   "Terminal scrollback": "터미널 기록",
   "Scroll failed: {reason}": "스크롤 실패: {reason}",
+  "Only part of this file is shown. Download it to read the rest.": "파일의 일부만 표시됩니다. 나머지는 다운로드해 확인하세요.",
 };
