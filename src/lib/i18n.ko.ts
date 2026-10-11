@@ -6,7 +6,10 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 채팅을 사용할 수 없습니다. 터미널을 열어 작업 상태와 도구 호출을 확인하세요.",
   "Chat read timed out.": "대화 읽기 시간이 초과되었습니다.",
+  "Thinking…": "생각 중…",
+  "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grok 채팅을 사용할 수 없습니다. 터미널을 열어 작업 상태와 도구 호출을 확인하세요.",
   "Find in terminal": "터미널에서 찾기",
   "Previous match": "이전 결과",
   "Next match": "다음 결과",
@@ -16,6 +19,8 @@ export const KO: Record<string, string> = {
   "{current} of {total}": "{total}개 중 {current}",
   "Pane changed. Search again.": "패널 내용이 변경되었습니다. 다시 검색하세요.",
   "Search moves the pane for every client.": "검색하면 연결된 모든 클라이언트의 패널 화면이 이동합니다.",
+  "Recent folders": "최근 폴더",
+  "Use folder {path}": "{path} 폴더 사용",
   "Dismiss": "닫기",
   "Waiting for terminal input…": "터미널 입력 준비 중…",
   "Paused while you use another window": "다른 창을 쓰는 동안 일시 정지됨",

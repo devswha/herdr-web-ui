@@ -1491,6 +1491,53 @@ describe("Agy native ledger through shared paging", () => {
     forgetTranscriptState();
   });
   afterEach(() => { db.close(); forgetTranscriptState(); rmSync(root, { recursive: true, force: true }); });
+  it("tracks native turn boundaries without treating each DONE tool step as completion", () => {
+    expect(page().activity).toBe("idle");
+    // Agy 1.3.3's captured native sequence: user, context, planner call, result,
+    // context, another call/result, then the tool-free final planner answer.
+    add(0, "USER_INPUT", "fictional request");
+    add(1, "EPHEMERAL_MESSAGE", "hidden context");
+    expect(page().activity).toBe("working");
+    add(2, "PLANNER_RESPONSE", "", { thinking: "saved reasoning", tool_calls: [{ name: "run_command", args: { CommandLine: "echo fiction" } }] });
+    add(3, "GENERIC", "fictional output");
+    add(4, "EPHEMERAL_MESSAGE", "hidden context");
+    expect(page().activity).toBe("working");
+    expect(JSON.stringify(page().turns)).not.toContain("saved reasoning");
+    add(5, "PLANNER_RESPONSE", "More work", { tool_calls: [{ name: "view_file", args: { AbsolutePath: "/fiction.txt" } }] });
+    add(6, "GENERIC", "another output");
+    expect(page().activity).toBe("working");
+    add(7, "PLANNER_RESPONSE", "Finished", { tool_calls: [] });
+    expect(page().activity).toBe("idle");
+    add(8, "GENERIC", "late result");
+    add(9, "EPHEMERAL_MESSAGE", "late context");
+    expect(page().activity).toBe("idle");
+    add(10, "USER_INPUT", "next turn");
+    expect(page().activity).toBe("working");
+    // Rewind the new prompt; completion of the retained turn still clears activity.
+    db.exec("DELETE FROM steps WHERE idx >= 10");
+    expect(page().activity).toBe("idle");
+    forgetTranscriptState();
+    expect(page().activity).toBe("idle");
+  });
+  it("does not complete activity from a partial, unadmitted or unfinished planner answer", () => {
+    add(0, "USER_INPUT", "one");
+    add(1, "PLANNER_RESPONSE", "", { thinking: "saved reasoning" });
+    expect(page().activity).toBe("working");
+    add(2, "PLANNER_RESPONSE", "unfinished", { status: "RUNNING" });
+    expect(page().activity).toBe("working");
+    db.exec("INSERT INTO steps VALUES (3)");
+    const final = row(3, "PLANNER_RESPONSE", "complete");
+    appendFileSync(path, final.slice(0, -2));
+    expect(page().activity).toBe("working");
+    appendFileSync(path, final.slice(-2));
+    expect(page().activity).toBe("idle");
+    appendFileSync(path, row(4, "USER_INPUT", "export ahead of DB"));
+    expect(page().activity).toBe("idle");
+    db.exec("INSERT INTO steps VALUES (4)");
+    expect(page().activity).toBe("working");
+    forgetTranscriptState();
+    expect(page().activity).toBe("working");
+  });
   it("renders native messages, multiple planner calls and independent results without guessed pairing", () => {
     add(0, "USER_INPUT", "<USER_REQUEST>Keep <USER_REQUEST>literal</USER_REQUEST> tags</USER_REQUEST>\n<ADDITIONAL_METADATA>hidden</ADDITIONAL_METADATA>");
     add(1, "EPHEMERAL_MESSAGE", "hidden context");

@@ -7,7 +7,10 @@
  * keep their English names.
  */
 export const TR: Record<string, string> = {
+  "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity sohbeti kullanılamıyor. Etkinliği ve araç çağrılarını görmek için Terminal'i açın.",
   "Chat read timed out.": "Sohbet okunurken zaman aşımına uğradı.",
+  "Thinking…": "Düşünüyor…",
+  "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grok sohbeti kullanılamıyor. Etkinliği ve araç çağrılarını görmek için Terminal'i açın.",
   "Find in terminal": "Terminalde ara",
   "Previous match": "Önceki eşleşme",
   "Next match": "Sonraki eşleşme",
@@ -17,6 +20,8 @@ export const TR: Record<string, string> = {
   "{current} of {total}": "{current} / {total}",
   "Pane changed. Search again.": "Panelin içeriği değişti. Yeniden arayın.",
   "Search moves the pane for every client.": "Arama, bağlı tüm istemcilerde panelin kaydırma konumunu değiştirir.",
+  "Recent folders": "Son klasörler",
+  "Use folder {path}": "{path} klasörünü kullan",
   "Dismiss": "Kapat",
   "Waiting for terminal input…": "Terminal girdisi bekleniyor…",
   "Paused while you use another window": "Başka bir pencere kullanırken duraklatıldı",
