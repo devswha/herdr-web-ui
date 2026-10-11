@@ -1,6 +1,8 @@
 name: CI
 on:
   pull_request:
+    # ready_for_review: a draft run skips the heavy checks, so leaving draft must run them.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -72,11 +74,13 @@ jobs:
           key: bun-windows-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-windows-${{ runner.arch }}-${{ env.BUN_VERSION }}-
-      - name: Skip heavy tests on draft PRs
+      # A required check: a draft run must not report it green without running it, or a stale
+      # draft result could satisfy the merge gate. Marking the PR ready reruns CI.
+      - name: Fail on draft PRs (Windows tests not run)
         if: needs.changes.outputs.draft == 'true'
         run: |
-          Write-Host "Draft PR detected, skipping Windows tests"
-          exit 0
+          Write-Host "::error::Draft PR: the Windows install tests did not run. Mark the PR ready for review to run them."
+          exit 1
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-install.test.ps1
         if: needs.changes.outputs.draft != 'true'
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1
@@ -365,10 +369,11 @@ jobs:
             echo "Skipped: only documentation changes"
             exit 0
           fi
-          # On draft PRs, heavy tests are skipped but the job should pass
+          # A required check: a draft run skipped the heavy tests, so it must not report green,
+          # or a stale draft result could satisfy the merge gate. Marking the PR ready reruns CI.
           if [ "${{ needs.changes.outputs.draft }}" = "true" ]; then
-            echo "Draft PR: heavy tests skipped"
-            exit 0
+            echo "::error::Draft PR: integration and browser tests did not run. Mark the PR ready for review to run them."
+            exit 1
           fi
           if [ "${{ needs.integration.result }}" != "success" ]; then
             echo "Integration tests failed"

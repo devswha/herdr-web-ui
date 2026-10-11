@@ -33,7 +33,9 @@ if (suite === "unit") {
   const isCI = !!process.env["CI"];
   const defaultWorkers = isCI ? 4 : Math.min(Math.floor(availableParallelism() / 2), 8);
   const workers = requestedWorkers >= 1 ? Math.floor(requestedWorkers) : defaultWorkers;
-  const effectiveWorkers = Math.min(workers, selected.length);
+  // Each parallel worker merges a file's stdout and stderr through `sh`; without one (native
+  // Windows), the files run serially in one bun process instead.
+  const effectiveWorkers = Bun.which("sh") ? Math.min(workers, selected.length) : 1;
 
   if (effectiveWorkers <= 1) {
     const child = Bun.spawn([process.execPath, "test", ...selected.map((file) => `./${file}`)], {

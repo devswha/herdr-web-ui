@@ -7,8 +7,8 @@
  *   bun run check integration browser   CI's "Integration and browser" job: a build, then the named
  *                                       lanes side by side (either name alone runs that lane)
  *   bun run check full                  fast, then both lanes
- *   bun run check concurrent            build once, then run unit tests + integration + browser all
- *                                       in parallel (faster local full run)
+ *   bun run check concurrent            the steps of full, with the unit tests run side by side
+ *                                       with both lanes instead of before them
  *   bun run check run [--build] <command…>  any command on the same isolated herdr; --build builds
  *                                           dist/ first (a run without it does not build)
  *
@@ -381,18 +381,15 @@ async function main(): Promise<void> {
   }
   const bun = process.execPath;
   const specs: { name: string; command: string[] | null }[] = [];
-  if (todo.concurrent) {
-    specs.push({ name: "build", command: [bun, "run", "build"] });
-    specs.push({ name: "concurrent lanes", command: null });
-  } else if (todo.fast) {
+  if (todo.fast || todo.concurrent) {
     specs.push({ name: "workflow syntax", command: null });
     specs.push({ name: "generated types are fresh", command: [bun, "run", "generate:types", "--check"] });
     specs.push({ name: "typecheck", command: [bun, "run", "typecheck"] });
     specs.push({ name: "build", command: [bun, "run", "build"] });
     specs.push({ name: "unit tests", command: [bun, "run", "test:unit"] });
   }
-  if (todo.lanes.length > 0 && !todo.concurrent) {
-    if (!todo.fast) specs.push({ name: "build", command: [bun, "run", "build"] });
+  if (todo.lanes.length > 0) {
+    if (!todo.fast && !todo.concurrent) specs.push({ name: "build", command: [bun, "run", "build"] });
     specs.push({ name: "lanes", command: [bun, "scripts/ci-lanes.ts", ...todo.lanes.map((lane) => `${lane}=${LANES[lane]}`)] });
   }
   if (todo.command) {
@@ -487,6 +484,9 @@ async function main(): Promise<void> {
   let activeStepFinished: Promise<void> | null = null;
   let ending = false;
   let interruptedBy: NodeJS.Signals | null = null;
+  // `check concurrent` runs the unit tests beside the lanes step, outside `run`'s single `child`.
+  let concurrentUnit: ChildProcess | null = null;
+  let concurrentUnitFinished: Promise<number> | null = null;
   const finalize = (status: CheckReport["status"], exitCode: number): void => {
     const endedAtMs = Date.now();
     let sourceEnd = unavailableSource();
@@ -556,8 +556,12 @@ async function main(): Promise<void> {
         // The step runs in a process group of its own, and a lane starts processes of its own
         // in it: the whole group gets the signal, and has ended before the herdr and the
         // directory it uses are taken away.
-        if (child?.pid !== undefined) await endGroup(child.pid, signal);
+        await Promise.all([
+          child?.pid !== undefined ? endGroup(child.pid, signal) : undefined,
+          concurrentUnit?.pid !== undefined ? endGroup(concurrentUnit.pid, signal) : undefined,
+        ]);
         if (activeStepFinished) await activeStepFinished;
+        if (concurrentUnitFinished) await concurrentUnitFinished;
         cleanup();
         finalize("interrupted", signal === "SIGINT" ? 130 : 143);
         process.exit(signal === "SIGINT" ? 130 : 143);
@@ -726,69 +730,8 @@ async function main(): Promise<void> {
   let code = 0;
   try {
     // A run command shares the same herdr and dist state, so it uses the same lock as named lanes.
-    if (todo.concurrent) {
-      // Concurrent mode: build once, then run unit tests + integration + browser all in parallel
-      code = await build(plain);
-      if (code !== 0 || ending) {
-        // Build failed; don't run tests
-      } else {
-        const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
-        if (!Bun.which(herdr)) throw new Error("concurrent mode needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
-        const herdrVersion = spawnSync(herdr, ["--version"], { encoding: "utf8", env: process.env, timeout: 5_000 });
-        const herdrVersionLine = herdrVersion.stdout?.trim().split(/\r?\n/, 1)[0] ?? "";
-        report.toolchain.herdrVersion = herdrVersion.status === 0 && /^herdr\s+v?\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/i.test(herdrVersionLine)
-          ? herdrVersionLine
-          : null;
-        saveReport();
-        const isolation = isolate(process.env);
-        cleanups.push(isolation.remove);
-        const env: Record<string, string | undefined> = { ...isolation.env, ...identity };
-        const shards = env["HERDR_TEST_SHARDS"]!;
-        const shardCount = /^\d+$/.test(shards) ? Number(shards) : Number.NaN;
-        report.toolchain.herdrTestShards = Number.isSafeInteger(shardCount) ? shardCount : null;
-        saveReport();
-        cleanups.push(() => {
-          for (const session of existsSync(isolation.sessions) ? readdirSync(isolation.sessions) : []) {
-            spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: "ignore", timeout: 10_000 });
-          }
-        });
-        console.log(`\ncheck: herdr session ${env["HERDR_TEST_SESSION"]}, config and state in ${resolve(isolation.sessions, "../../..")}`);
-        console.log(`check: running unit tests, integration and browser in parallel`);
-
-        const laneEnv: Record<string, string | undefined> = { ...env };
-        const unitEnv: Record<string, string | undefined> = { ...plain };
-
-        const unitPromise = (async () => {
-          const unitStep = getStep("unit tests (concurrent)", [bun, "run", "test:unit"]);
-          unitStep.cwd = resolve(cwd);
-          const startedAtMs = Date.now();
-          unitStep.startedAt = new Date(startedAtMs).toISOString();
-          report.currentStep = "unit tests (concurrent)";
-          saveReport();
-          const started = spawn(bun, ["run", "test:unit"], { stdio: ["inherit", "pipe", "pipe"], env: unitEnv, cwd, detached: true });
-          const stdout = createWriteStream(unitStep.stdout, { flags: "w", mode: 0o600 });
-          const stderr = createWriteStream(unitStep.stderr, { flags: "w", mode: 0o600 });
-          started.stdout?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); stdout.write(chunk); });
-          started.stderr?.on("data", (chunk: Buffer) => { process.stderr.write(chunk); stderr.write(chunk); });
-          const exitCode = await new Promise<number>((resolve) => started.on("exit", (c) => resolve(c ?? 1)));
-          stdout.end(); stderr.end();
-          await Promise.all([finished(stdout).catch(() => undefined), finished(stderr).catch(() => undefined)]);
-          const endedAtMs = Date.now();
-          unitStep.endedAt = new Date(endedAtMs).toISOString();
-          unitStep.durationMs = endedAtMs - startedAtMs;
-          unitStep.exitCode = exitCode;
-          unitStep.status = exitCode === 0 ? "success" : "failure";
-          if (exitCode !== 0) report.errors.push(`unit tests (concurrent) exited with code ${exitCode}`);
-          saveReport();
-          return exitCode;
-        })();
-
-        const lanesPromise = run("lanes (concurrent)", [bun, "scripts/ci-lanes.ts", ...todo.lanes.map((lane) => `${lane}=${LANES[lane]}`)], laneEnv);
-
-        const [unitCode, lanesCode] = await Promise.all([unitPromise, lanesPromise]);
-        code = unitCode !== 0 ? unitCode : lanesCode;
-      }
-    } else if (todo.fast) {
+    if (todo.fast || todo.concurrent) {
+      // `concurrent` runs the same pre-steps as `fast`; only the unit tests move beside the lanes.
       const actionlintResult = await actionlint(run, plain, (reason) => skip("workflow syntax", reason), (message) => recordIssue("workflow syntax", message, "failure"));
       code = actionlintResult;
       for (const [label, command] of [
@@ -799,7 +742,78 @@ async function main(): Promise<void> {
         code = await run(label, [...command], plain);
       }
       if (code === 0 && !ending) code = await build(plain);
-      if (code === 0 && !ending) code = await run("unit tests", [bun, "run", "test:unit"], plain);
+      if (todo.fast && code === 0 && !ending) code = await run("unit tests", [bun, "run", "test:unit"], plain);
+    }
+    if (todo.concurrent && code === 0 && !ending) {
+      const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
+      if (!Bun.which(herdr)) throw new Error("concurrent mode needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
+      const herdrVersion = spawnSync(herdr, ["--version"], { encoding: "utf8", env: process.env, timeout: 5_000 });
+      const herdrVersionLine = herdrVersion.stdout?.trim().split(/\r?\n/, 1)[0] ?? "";
+      report.toolchain.herdrVersion = herdrVersion.status === 0 && /^herdr\s+v?\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/i.test(herdrVersionLine)
+        ? herdrVersionLine
+        : null;
+      saveReport();
+      const isolation = isolate(process.env);
+      cleanups.push(isolation.remove);
+      const env: Record<string, string | undefined> = { ...isolation.env, ...identity };
+      const shards = env["HERDR_TEST_SHARDS"]!;
+      const shardCount = /^\d+$/.test(shards) ? Number(shards) : Number.NaN;
+      report.toolchain.herdrTestShards = Number.isSafeInteger(shardCount) ? shardCount : null;
+      saveReport();
+      cleanups.push(() => {
+        for (const session of existsSync(isolation.sessions) ? readdirSync(isolation.sessions) : []) {
+          spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: "ignore", timeout: 10_000 });
+        }
+      });
+      console.log(`\ncheck: herdr session ${env["HERDR_TEST_SESSION"]}, config and state in ${resolve(isolation.sessions, "../../..")}`);
+      console.log("check: running unit tests, integration and browser in parallel");
+
+      // The unit tests run beside `run`'s lanes step: their process group is tracked in
+      // `concurrentUnit` so an interrupt ends it with the lanes, and the step settles on
+      // 'close', once the process has exited and its output pipes have drained.
+      const unitStep = getStep("unit tests", [bun, "run", "test:unit"]);
+      unitStep.cwd = resolve(cwd);
+      const unitStartedAtMs = Date.now();
+      unitStep.startedAt = new Date(unitStartedAtMs).toISOString();
+      saveReport();
+      console.log(`\n=== unit tests: ${sanitizeCommand([bun, "run", "test:unit"]).join(" ")}`);
+      const unitStdout = createWriteStream(unitStep.stdout, { flags: "w", mode: 0o600 });
+      const unitStderr = createWriteStream(unitStep.stderr, { flags: "w", mode: 0o600 });
+      let unitLogsFailed = false;
+      unitStdout.on("error", (error) => { unitLogsFailed = true; console.error(`check: unit stdout log failed: ${error.message}`); });
+      unitStderr.on("error", (error) => { unitLogsFailed = true; console.error(`check: unit stderr log failed: ${error.message}`); });
+      const unit = spawn(bun, ["run", "test:unit"], { stdio: ["inherit", "pipe", "pipe"], env: plain, cwd, detached: true });
+      concurrentUnit = unit;
+      unit.stdout?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); unitStdout.write(chunk); });
+      unit.stderr?.on("data", (chunk: Buffer) => { process.stderr.write(chunk); unitStderr.write(chunk); });
+      concurrentUnitFinished = (async () => {
+        const [exitCode, exitSignal] = await new Promise<[number | null, NodeJS.Signals | null]>((done) => {
+          unit.once("error", (error) => { unitStderr.write(`${error.message}\n`); done([127, null]); });
+          unit.once("close", (closeCode, closeSignal) => done([closeCode, closeSignal]));
+        });
+        concurrentUnit = null;
+        unitStdout.end();
+        unitStderr.end();
+        await Promise.all([finished(unitStdout).catch(() => undefined), finished(unitStderr).catch(() => undefined)]);
+        const endedAtMs = Date.now();
+        unitStep.endedAt = new Date(endedAtMs).toISOString();
+        unitStep.durationMs = endedAtMs - unitStartedAtMs;
+        unitStep.exitCode = ending ? null : exitCode;
+        unitStep.signal = ending ? interruptedBy ?? exitSignal : exitSignal;
+        unitStep.status = ending ? "interrupted" : exitCode === 0 && !unitLogsFailed ? "success" : "failure";
+        if (ending) unitStep.reason = `interrupted by ${interruptedBy ?? exitSignal ?? "signal"}`;
+        else if (exitSignal) unitStep.reason = `process terminated by ${exitSignal}`;
+        else if (unitLogsFailed) unitStep.reason = "could not persist command output logs";
+        if (unitStep.status === "failure") {
+          report.errors.push(exitSignal ? `unit tests terminated by ${exitSignal}` : unitLogsFailed ? "unit tests output logs could not be persisted" : `unit tests exited with code ${exitCode}`);
+        }
+        saveReport();
+        return unitStep.status === "success" ? 0 : exitCode || 1;
+      })();
+
+      const lanesCode = await run("lanes", [bun, "scripts/ci-lanes.ts", ...todo.lanes.map((lane) => `${lane}=${LANES[lane]}`)], env);
+      const unitCode = await concurrentUnitFinished;
+      code = unitCode !== 0 ? unitCode : lanesCode;
     }
     if (code === 0 && needsHerdr && !ending && !todo.concurrent) {
       const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
