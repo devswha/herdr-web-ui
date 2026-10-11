@@ -599,8 +599,8 @@
   --text: #20352a;
   --text-dim: #4f6d5a;
   --text-strong: #15291e;
-  --accent: #2e7a4b;
-  --accent-tint: rgba(46, 122, 75, 0.1);
+  --accent: #2c7648;
+  --accent-tint: rgba(44, 118, 72, 0.1);
   --primary: #397f50;
   --primary-hover: #2f6e44;
   --primary-text: #ffffff;
@@ -620,7 +620,7 @@
   --shadow-card: 0 4px 16px rgba(24, 52, 35, 0.07);
   --term-bg: #f7fbf8;
   --term-fg: #20352a;
-  --term-cursor: #2e7a4b;
+  --term-cursor: #2c7648;
   --term-selection: #cfe5d5;
   --syntax-keyword: #9c4f15;
   --syntax-string: #225f32;
