@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import type { HerdrPane, InteractivePrompt, PromptAnswer } from "../shared/protocol.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
-import { HerdrError, paneRead, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
+import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
 import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
@@ -2793,6 +2793,27 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
 }
 
 /**
+ * The chat's own message back in Claude's box (claudeRestoredDraft), only when the live screen holds
+ * it: a pane scrolled into its history can show an older box with the same words. The viewport read
+ * the route already made is checked first, so a box without the copy costs no further read; then
+ * the live screen's box is read as the send paths read it, with the viewport's colors only where
+ * viewportShowsLive verifies they show that screen.
+ */
+async function restoredOnLiveScreen(paneId: string, viewport: string): Promise<string | null> {
+  const sent = lastChatSubmitted(paneId);
+  const plain = (text: string): string => text.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "");
+  if (claudeRestoredDraft(plain(viewport), viewport, sent) === null) return null;
+  const detection = async (): Promise<string> => (await paneRead({ paneId, source: "detection", format: "text", timeoutMs: SUGGESTION_READ_MS })).text;
+  const before = await detection();
+  if (!claudeInputDraft(before, null)) return null;
+  const scrollBefore = await paneScrollInfo(paneId);
+  const colors = (await paneRead({ paneId, source: "visible", format: "ansi", timeoutMs: SUGGESTION_READ_MS })).text;
+  const scrollAfter = await paneScrollInfo(paneId);
+  const live = await detection();
+  return viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? claudeRestoredDraft(live, colors, sent) : null;
+}
+
+/**
  * The chat's own last message back in Claude Code's input box as typed text, where Claude puts it
  * when the send right before is cancelled: `sent` when the box is a draft (`claudeInputDraft`, so
  * typed text on a verified viewport) holding exactly it — the `❯` of the first row dropped, the
@@ -3073,7 +3094,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       return jsonResponse({
         prompt,
         suggestion: box === null ? null : parseClaudeSuggestion(box),
-        restored: box === null ? null : claudeRestoredDraft(box.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, ""), box, lastChatSubmitted(paneId)),
+        restored: box === null ? null : await restoredOnLiveScreen(paneId, box).catch(() => null),
       });
     }
 

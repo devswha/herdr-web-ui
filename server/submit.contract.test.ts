@@ -306,7 +306,8 @@ describe("WebSocket submit", () => {
       shown = claudeInputScreen("❯ chat message");
       socket.send({ type: "submit", id: 41, pane_id: agent.pane, text: "second message", payload: "second message" });
       expect(await socket.result(41)).toMatchObject({ ok: true });
-      expect(sendKeys.mock.calls).toEqual([[agent.pane, ["esc"]], [agent.pane, ["esc"]]]);
+      // each Esc asks the sender's right again right before herdr is written to
+      expect(sendKeys.mock.calls).toEqual([[agent.pane, ["esc"], undefined, expect.any(Function)], [agent.pane, ["esc"], undefined, expect.any(Function)]]);
       expect(prompt).toHaveBeenLastCalledWith(agent.pane, "second message");
       expect(sendText).not.toHaveBeenCalled();
     } finally {

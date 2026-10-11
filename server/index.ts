@@ -545,7 +545,7 @@ export function createServer(
       });
       inTime();
       if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
-        await freeClaudeBox(paneId, pane?.agent_status === "working");
+        await freeClaudeBox(paneId, pane?.agent_status === "working", authorize);
         inTime();
       }
       try {
@@ -692,8 +692,11 @@ export function createServer(
    * right after it is cancelled. That copy, while the agent is not working, two Esc presses empty
    * again — never Ctrl+C, which would arm "press Ctrl-C again to exit" — then the box is read once
    * more before the send. Every other draft, and a box still not empty after them, refuses as before.
+   * `authorize` throws once the sender may no longer send: it is asked before each Esc, and again
+   * right before herdr is written to.
    */
-  async function freeClaudeBox(paneId: string, working: boolean): Promise<void> {
+  async function freeClaudeBox(paneId: string, working: boolean, authorize: () => void): Promise<void> {
+    const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
     const [live, colors] = await claudeBoxReads(paneId);
     if (!claudeInputDraft(live, colors)) return;
     if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
@@ -701,9 +704,11 @@ export function createServer(
     }
     // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
     // rewind dialog instead
-    await paneSendKeys(paneId, ["esc"]);
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
     await Bun.sleep(RESTORED_CLEAR_GAP_MS);
-    await paneSendKeys(paneId, ["esc"]);
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
     await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
     if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
   }
@@ -725,7 +730,7 @@ export function createServer(
       // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
       // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
       // read comes after the colors, so text typed between the two is in the box and holds the message.
-      if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working);
+      if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working, () => authorizePending(owner, paneId, lease));
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
       // asked again right before herdr is written to: its connect is awaited (#666)

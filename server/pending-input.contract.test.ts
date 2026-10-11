@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createServer } from "./index.ts";
 import * as herdrClient from "./herdr/client.ts";
 import { herdrRpc, paneRead, paneScrollInfo, sessionSnapshot } from "./herdr/client.ts";
-import { parseInteractivePrompt } from "./prompt.ts";
+import { noteSubmitted, parseInteractivePrompt } from "./prompt.ts";
 import type { PendingMessage } from "../shared/protocol.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-pending-"));
@@ -117,7 +117,7 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
   };
   const removed = (id: string, outcome = "sent", reader = socket) => reader.wait((frame) => frame.type === "pending-messages" && frame.pane_id === pane && frame.removed?.some((entry: any) => entry.id === id && entry.outcome === outcome));
   const another = async (attach = true) => { const reader = new Socket(server.port); entry.sockets.push(reader); if (attach) await reader.attach(pane); else await reader.wait((frame) => frame.type === "snapshot"); return reader; };
-  return { pane, socket, bytes, waitBytes, state, showScreen, queue, removed, another };
+  return { pane, port: server.port, socket, bytes, waitBytes, state, showScreen, queue, removed, another };
 }
 
 describe("connection-owned pending input", () => {
@@ -367,6 +367,25 @@ describe("connection-owned pending input", () => {
       && frame.messages.some((item: PendingMessage) => item.id === message.id && item.state === "held"));
     expect(held.messages.find((item: PendingMessage) => item.id === message.id).error.code).toBe("input_draft");
     expect(f.bytes()).toBe("");
+  }, 30_000);
+
+  it("answers `restored` from the live box only: an older box in a scrolled viewport is no restored copy", async () => {
+    const f = await setup("restored-scrolled");
+    const rule = "\u2500".repeat(60);
+    const filler = Array.from({ length: 40 }, (_, index) => `  output line ${index + 1}`).join("\n");
+    const restored = async () => (await (await fetch(`http://localhost:${f.port}/api/pane/prompt?pane_id=${encodeURIComponent(f.pane)}`)).json() as { restored: string | null }).restored;
+    noteSubmitted(f.pane, "run the tests");
+    await f.state("idle");
+    // the older box, in the history, holds the chat's message typed; the live box at the bottom is empty
+    await f.showScreen(`${rule}\n\u276f run the tests\n${rule}\n  [Haiku 4.5] older\n${filler}\n${rule}\n\u276f\u00a0\n${rule}\n  [Haiku 4.5] \u2502 project\n`, "[Haiku 4.5] \u2502 project");
+    const top = (await paneScrollInfo(f.pane))!.max_offset_from_bottom;
+    await herdrRpc("pane.scroll", { pane_id: f.pane, offset_from_bottom: top });
+    expect((await paneRead({ paneId: f.pane, source: "visible", format: "text" })).text).toContain("[Haiku 4.5] older");
+    expect(await restored()).toBeNull();
+    // at the bottom, with the copy in the live box, it is the restored message
+    await herdrRpc("pane.scroll", { pane_id: f.pane, offset_from_bottom: 0 });
+    await f.showScreen(`${rule}\n\u276f run the tests\n${rule}\n  [Haiku 4.5] \u2502 project\n`, "[Haiku 4.5] \u2502 project");
+    expect(await restored()).toBe("run the tests");
   }, 30_000);
 
   it("reads the pane's live screen: a menu drawn below a scrolled viewport still stops Send now", async () => {
