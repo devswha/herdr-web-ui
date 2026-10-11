@@ -11,7 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A pane's plan moved from the header into the background-task button by the message box: the
   button starts with **Plan** and how many steps are done (`2/5`), and opens one list with the
   plan's steps first and the background tasks below. The plan's flow of boxes, its dialog and the
-  **Plan flow** and **Plan count in the header** settings are gone.
+  **Plan flow** and **Plan count in the header** settings are gone. ([#846](https://github.com/devswha/herdr-web-ui/pull/846))
 
 ### Fixed
 - On a phone, the system Back button closes an open ⋯ menu sheet instead of switching to the pane
