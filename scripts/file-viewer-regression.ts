@@ -437,10 +437,24 @@ try {
   assert.equal(await guide.getByRole("button", { name: "Show source", exact: true }).getAttribute("aria-pressed"), "true");
   const sourceText = await guide.locator(".file-viewer-text").innerText();
   assert.match(sourceText, /See \[notes\]\(\.\.\/notes\.txt\)\./);
-  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), sourceText, "the selection is exactly the Markdown source");
-  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  assert.ok(sourceText.endsWith("\n"), "the Markdown source keeps its final newline");
+  assert.equal(await guide.locator(".file-viewer-text code").textContent(), sourceText, "the source DOM keeps its final newline");
+  // Chromium omits the final newline from Selection.toString() even for a plain pre/code.
+  const selected = await page.evaluate((source) => {
+    const selection = window.getSelection()!;
+    const actual = selection.toString();
+    const baseline = document.createElement("pre");
+    const code = document.createElement("code"); code.textContent = source;
+    baseline.append(code); document.body.append(baseline);
+    const range = document.createRange(); range.selectNodeContents(baseline);
+    selection.removeAllRanges(); selection.addRange(range);
+    const expected = selection.toString();
+    baseline.remove(); selection.removeAllRanges();
+    return { actual, expected };
+  }, sourceText);
+  assert.equal(selected.actual, selected.expected, "the selection matches a native pre/code of the Markdown source");
   await guide.getByRole("button", { name: "Copy file", exact: true }).click();
-  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), sourceText, "from Code, Copy selects the source in place");
+  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), selected.expected, "from Code, Copy selects the source in place");
   console.log("PASS When nothing can copy, Copy selects the Markdown source (switching a Preview to Code)");
   await guide.getByRole("button", { name: "Show source", exact: true }).click();
   await guide.getByRole("button", { name: "notes", exact: true }).click();
