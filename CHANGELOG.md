@@ -30,6 +30,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that takes several answers. Text already on its answer line is cleared first, so it does not
   join the answer.
   ([#750](https://github.com/devswha/herdr-web-ui/pull/750) by @DarkoKuzmanovic, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Settings → Appearance → Colors offers **Forest**, a low-saturation green-grey palette for long
+  sessions, in dark and light, with matching terminal and title-bar colors.
+  ([#775](https://github.com/devswha/herdr-web-ui/pull/775) by @vibewriter-hand)
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
