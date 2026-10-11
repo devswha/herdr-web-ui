@@ -705,16 +705,27 @@ export function createServer(
       }
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
+      // asked again right before herdr is written to: its connect is awaited (#666)
+      const allowed = (): boolean => {
+        try { authorizePending(owner, paneId, lease); return true; } catch { return false; }
+      };
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
       wrote = true;
-      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`);
+      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`, undefined, allowed).catch((error: unknown) => {
+        // a paste the guard refused was never written: the message is unsent, not uncertain
+        if (error instanceof HerdrError && error.code === "cancelled") { wrote = false; authorizePending(owner, paneId, lease); }
+        throw error;
+      });
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
       const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
       if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
       authorizePending(owner, paneId, lease);
-      committing(!automatic && beforeEnter.working);
-      await paneSendKeys(paneId, ["Enter"]);
+      const steering = !automatic && beforeEnter.working;
+      committing(steering);
+      // Claude Code queues what Enter commits during a turn; Ctrl+Enter sends it now (#737). herdr
+      // encodes the key as the pane asked, and as a plain CR for a program that asked for nothing.
+      await paneSendKeys(paneId, [steering && beforeEnter.identity.agent === "claude" ? "ctrl+enter" : "Enter"], undefined, allowed);
       noteSubmitted(paneId, text);
       return { ok: true };
     } catch (error) {
