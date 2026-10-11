@@ -18,7 +18,12 @@ function absoluteDirectories(values: readonly unknown[]): string[] {
   return [...new Set(paths)];
 }
 
-/** Folder history belongs to a PC, not its live panes. Missing panes never delete history. */
+/**
+ * Folder history belongs to a PC, not its live panes. Missing panes never delete history.
+ * A folder a workspace was started in goes to the front (`promote`); one only seen in a pane
+ * goes behind what is kept. A pane's folder follows every `cd` of its shell, so a folder seen
+ * there is somewhere a shell has been, not a project that was opened.
+ */
 export class RecentDirectoryStore {
   private readonly memory = new Map<string, string[]>();
   private readonly unsaved = new Set<string>();
@@ -44,7 +49,7 @@ export class RecentDirectoryStore {
     const previous = this.read(machineId);
     const incoming = absoluteDirectories(paths).filter((path) => promote || !previous.includes(path));
     if (!incoming.length) return previous;
-    const next = [...incoming, ...previous.filter((path) => !incoming.includes(path))];
+    const next = promote ? [...incoming, ...previous.filter((path) => !incoming.includes(path))] : [...previous, ...incoming];
     if (next.length === previous.length && next.every((path, index) => path === previous[index])) return previous;
     this.memory.set(machineId, next);
     try {

@@ -158,6 +158,7 @@ export function App() {
     // dialog its address names, on that entry or on the one stepped back to, is the one it closed
     return loadedOnSettingsEntry() ? { ...link, settings: null, section: null } : link;
   });
+  // New workspace's recent folders also know where a PC's panes are: kept behind the folders started in
   useEffect(() => {
     for (const machine of machines) {
       if (machine.state !== "connected" || !machine.snapshot) continue;

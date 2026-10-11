@@ -19,7 +19,6 @@ export const TR: Record<string, string> = {
   "Search moves the pane for every client.": "Arama, bağlı tüm istemcilerde panelin kaydırma konumunu değiştirir.",
   "Recent folders": "Son klasörler",
   "Use folder {path}": "{path} klasörünü kullan",
-  "Click a folder to put it in Directory. Kept after workspaces close.": "Bir klasöre tıklayınca Dizin alanına yazılır. Çalışma alanları kapandıktan sonra da saklanır.",
   "Dismiss": "Kapat",
   "Waiting for terminal input…": "Terminal girdisi bekleniyor…",
   "Paused while you use another window": "Başka bir pencere kullanırken duraklatıldı",

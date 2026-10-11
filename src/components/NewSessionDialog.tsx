@@ -209,7 +209,6 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
                 <FolderOpen aria-hidden="true" /><span>{directoryBasename(path)}</span>
               </button>)}
             </div>
-            <span className="field-hint">{t("Click a folder to put it in Directory. Kept after workspaces close.")}</span>
           </div>}
           <label className="field">
             <span className="field-label">{t("Name")}</span>

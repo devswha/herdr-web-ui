@@ -48,9 +48,9 @@ try {
             localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ theme, language: "ko" }));
             localStorage.setItem("herdr-web-ui:new-session-agent", "codex");
             localStorage.setItem("herdr-web-ui:recent-directories:remote", '["/remote-only/project"]');
-            // two older folders, so the snapshot's two make four: one more than the dialog shows
+            // a folder kept from before: the two the snapshot's panes are in go behind it
             if (localStorage.getItem("herdr-web-ui:recent-directories:local") === null) {
-              localStorage.setItem("herdr-web-ui:recent-directories:local", '["/older/one","/older/two"]');
+              localStorage.setItem("herdr-web-ui:recent-directories:local", '["/older/one"]');
             }
           }, { theme, project });
           await context.route("**/api/agents", (route) => route.fulfill({ json: { agents: [{ kind: "codex", label: "Codex" }] } }));
@@ -121,13 +121,10 @@ try {
           await dialog.locator(".agent-picker-trigger", { hasText: "Codex" }).waitFor();
           const chips = dialog.locator(".new-session-folder-chip");
           const submit = dialog.locator('button[type="submit"]');
-          assert.equal(await chips.count(), 3);
-          assert.equal(await dialog.getByRole("button", { name: /older\/two/ }).count(), 0, "the fourth folder is not shown");
+          assert.deepEqual(await chips.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title"))), ["/older/one", other, project], "folders only seen in panes come behind the one kept");
           assert.equal(new Set(await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top))).size, 1, "recent folders stay on one row");
           assert.equal(await dialog.locator(".new-session-folder-chips").evaluate((node) => node.scrollWidth > node.clientWidth), false);
           assert.equal(await dialog.getByRole("button", { name: /remote-only/ }).count(), 0);
-          assert.equal(await chip.getAttribute("title"), project);
-          assert.equal(await dialog.locator(".new-session-folder-chip").first().getAttribute("title"), other);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
           await dialog.getByRole("button", { name: "창 닫기", exact: true }).focus();
           await page.keyboard.press("Shift+Tab");
@@ -154,11 +151,18 @@ try {
 
           await workspaceClose(created.workspace_id);
           owned.delete(created.workspace_id);
+          // a fourth folder, one more than the dialog shows
+          await page.evaluate(() => {
+            const key = "herdr-web-ui:recent-directories:local";
+            localStorage.setItem(key, JSON.stringify([...JSON.parse(localStorage.getItem(key)!) as string[], "/older/two"]));
+          });
           await page.reload();
           await betaRow.waitFor({ state: "attached" });
           await openNew();
           await chip.waitFor();
-          assert.equal(await dialog.locator(".new-session-folder-chip").first().getAttribute("title"), project);
+          // the folder a workspace was started in is first now; the fourth is not shown
+          assert.deepEqual(await chips.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title"))), [project, "/older/one", other]);
+          assert.equal(await dialog.getByRole("button", { name: /older\/two/ }).count(), 0, "the fourth folder is not shown");
           failCreate = true;
           await betaChip.click();
           await submit.click();
@@ -180,7 +184,7 @@ try {
           await page.locator(`.workspace-select[data-pane="${partial.pane_id}"][aria-current="true"]`).waitFor({ state: "attached" });
           assert.equal(requests, beforeOpen, "Open after partial failure never creates another workspace");
           assert.deepEqual(errors, []);
-          console.log(`PASS recent folders ${width} ${theme}: snapshot seed, closed workspace, reload, PC isolation, three chips on one row, chip fills Directory, pending, focus trap, failed-start order`);
+          console.log(`PASS recent folders ${width} ${theme}: snapshot seed behind kept folders, closed workspace, reload, PC isolation, three chips on one row, chip fills Directory, a start moves its folder first, pending, focus trap, failed-start order`);
         } finally {
           gate.resolve();
           await context.close();

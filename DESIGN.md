@@ -671,8 +671,9 @@ One set for both themes: the card is island black wherever it shows.
 - Recent folders appear as neutral `.btn` chips with `--radius-pill` and `--space-2` gaps: the
   three most recent, on one row that never wraps. Each shows the folder basename with ellipsis
   and the full path in its tooltip and accessible name. Clicking puts the folder in Directory and
-  starts nothing. History is per PC in this browser, seeded from connected snapshots and retained
-  after panes close; only successful workspace starts promote a folder. Pending and partial
+  starts nothing. History is per PC in this browser and retained after panes close. Only a
+  successful workspace start puts its folder first; a folder merely seen in a connected PC's panes
+  goes behind what is kept, since a pane's folder follows every `cd` of its shell. Pending and partial
   failures disable the chips. New tab keeps its workspace folder and shows no recent chips.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
