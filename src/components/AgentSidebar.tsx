@@ -9,7 +9,7 @@ import { agentContext, agentTabName, groupRows, paneMark, sidebarAgents, type Si
 import { useSettings } from "../lib/settings.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
 import { activityOrder } from "../lib/sidebarOrder.ts";
-import { loadSidebarPins, orderPinnedRows, pruneSidebarPins, saveSidebarPins, sidebarPinKey, toggleSidebarPin } from "../lib/sidebarPins.ts";
+import { loadSidebarPins, pruneSidebarPins, saveSidebarPins, sidebarPinKey, splitPinnedRows, toggleSidebarPin } from "../lib/sidebarPins.ts";
 import { AgentMark, hasAgentMark } from "./AgentMark.tsx";
 import { BackgroundBadge, displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import "./AgentSidebar.css";
@@ -64,8 +64,8 @@ interface AgentRow { machine: Machine; entry: SidebarAgent }
 /**
  * All PCs' live agents form a second list; workspace and PC folds do not hide these rows.
  * In the phone's drawer the list starts folded, leaving the room to the workspaces.
- * In herdr's order each workspace's agents on a PC sit in a card under its name; Activity order
- * mixes workspaces, so its rows stand alone.
+ * In herdr's order the pinned agents stand first, then each workspace's other agents on a PC sit in
+ * a card under its name; Activity order mixes workspaces, so its rows stand alone, pinned ones first.
  */
 export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stateWord, onSelect }: AgentSidebarProps) {
   const t = useT();
@@ -80,8 +80,8 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const agents = sidebarAgents(machine.snapshot);
     return (byActivity ? activityOrder(agents, (entry) => entry.pane, activity.seqs(machine.id)) : agents).map((entry): AgentRow => ({ machine, entry }));
   }), [machines, byActivity, activity]);
-  // pins lead: in herdr order a pinned agent tops its card, and its card tops the list
-  const orderedRows = useMemo(() => orderPinnedRows(rows, pinned, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned]);
+  // pins lead: in herdr order the pinned agents stand above the cards, which keep only the others
+  const split = useMemo(() => splitPinnedRows(rows, pinned, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned]);
   useEffect(() => {
     const live = new Set(rows.map(({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)));
     const next = pruneSidebarPins(pinned, live, machines);
@@ -92,7 +92,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     setPinned(next);
     saveSidebarPins(next);
   };
-  const groups = useMemo(() => byActivity ? null : groupRows(orderedRows, ({ machine, entry }) => JSON.stringify([machine.id, entry.workspace.workspace_id])), [orderedRows, byActivity]);
+  const groups = useMemo(() => byActivity ? null : groupRows(split.rest, ({ machine, entry }) => JSON.stringify([machine.id, entry.workspace.workspace_id])), [split, byActivity]);
   // herdr names a PC only beside another: the rows' line, and a card's head, do the same
   const machineName = (machine: Machine): string | null => machines.length > 1 ? machine.name : null;
 
@@ -122,7 +122,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
         {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
         <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} status={online ? activity.status(machine.id, pane) : undefined} />
       </button>
-      <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={t(isPinned ? "Unpin agent" : "Pin agent")} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} onClick={() => setPin(pinKey)}>
+      <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={`${t("Pin agent")}: ${title}`} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} onClick={() => setPin(pinKey)}>
         <Star aria-hidden="true" fill={isPinned ? "currentColor" : "none"} />
       </button>
     </li>;
@@ -136,6 +136,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     </button>
     <div className="agent-list-contents" id={listId} hidden={collapsed}>
       {rows.length === 0 ? <p className="agent-empty" role="status">{t("No agents running")}</p> : <ul className="agent-list">
+        {groups && split.pinned.map((row) => agentItem(row, false))}
         {groups ? groups.map(({ key, rows: members }, index) => {
           const { machine, entry } = members[0]!;
           const headId = `${listId}-group-${index}`;
@@ -148,7 +149,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
             </div>
             <ul className="agent-group-rows" aria-labelledby={headId}>{members.map((row) => agentItem(row, true))}</ul>
           </li>;
-        }) : orderedRows.map((row) => agentItem(row, false))}
+        }) : [...split.pinned, ...split.rest].map((row) => agentItem(row, false))}
       </ul>}
     </div>
   </section>;

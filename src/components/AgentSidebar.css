@@ -129,7 +129,7 @@
 /* its rows dim themselves; the head dims with them */
 .agent-group.is-offline > .agent-group-head { opacity: 0.5; }
 
-/* The entire agent row selects its pane; it has no secondary controls. */
+/* The agent row selects its pane; the star beside it is its only other control. */
 .agent-item {
   display: flex;
   align-items: center;

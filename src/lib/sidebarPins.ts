@@ -15,9 +15,10 @@ function storage(): Storage | null {
 }
 
 export function loadSidebarPins(): string[] {
-  const value = storage()?.getItem(STORAGE_KEY);
-  if (value === undefined || value === null) return [];
   try {
+    // a denied read throws here as well: the sidebar then starts with no pins
+    const value = storage()?.getItem(STORAGE_KEY);
+    if (value === undefined || value === null) return [];
     const parsed: unknown = JSON.parse(value);
     return Array.isArray(parsed) ? [...new Set(parsed.filter((key): key is string => typeof key === "string" && key.length > 0))] : [];
   } catch { return []; }
@@ -43,13 +44,16 @@ export function pruneSidebarPins(keys: readonly string[], liveKeys: ReadonlySet<
   return keys.filter((key) => liveKeys.has(key) || (pinMachineId(key) !== null && loading.has(pinMachineId(key)!)));
 }
 
-/** Pinned rows keep their saved order. Other rows retain the source roster order. */
-export function orderPinnedRows<T>(rows: readonly T[], keys: readonly string[], keyOf: (row: T) => string): T[] {
+/**
+ * Pinned rows in their saved order, and the other rows in the source roster order. herdr order draws
+ * `pinned` above the workspace cards and groups only `rest`, so a pin never lifts its unpinned siblings.
+ */
+export function splitPinnedRows<T>(rows: readonly T[], keys: readonly string[], keyOf: (row: T) => string): { pinned: T[]; rest: T[] } {
   const byKey = new Map(rows.map((row) => [keyOf(row), row]));
   const pinned = keys.flatMap((key) => {
     const row = byKey.get(key);
     return row === undefined ? [] : [row];
   });
   const pinnedKeys = new Set(pinned.map(keyOf));
-  return [...pinned, ...rows.filter((row) => !pinnedKeys.has(keyOf(row)))];
+  return { pinned, rest: rows.filter((row) => !pinnedKeys.has(keyOf(row))) };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { orderPinnedRows, pruneSidebarPins, sidebarPinKey, toggleSidebarPin } from "./sidebarPins.ts";
+import { groupRows } from "./sidebarAgents.ts";
+import { loadSidebarPins, pruneSidebarPins, sidebarPinKey, splitPinnedRows, toggleSidebarPin } from "./sidebarPins.ts";
 
 describe("sidebar agent pins", () => {
   it("keys a pin by PC and pane", () => {
@@ -31,7 +32,29 @@ describe("sidebar agent pins", () => {
 
   it("places pinned rows first and keeps source order for the rest", () => {
     const rows = [{ id: "a" }, { id: "b" }, { id: "c" }];
-    expect(orderPinnedRows(rows, ["c", "a"], (row) => row.id).map((row) => row.id)).toEqual(["c", "a", "b"]);
-    expect(orderPinnedRows(rows, ["missing", "b"], (row) => row.id).map((row) => row.id)).toEqual(["b", "a", "c"]);
+    const order = (keys: string[]) => {
+      const { pinned, rest } = splitPinnedRows(rows, keys, (row) => row.id);
+      return [...pinned, ...rest].map((row) => row.id);
+    };
+    expect(order(["c", "a"])).toEqual(["c", "a", "b"]);
+    expect(order(["missing", "b"])).toEqual(["b", "a", "c"]);
+  });
+
+  it("leaves an unpinned sibling in its card below every pinned agent", () => {
+    // A1 and A2 share workspace A; A2 then B1 are pinned
+    const rows = [{ id: "A1", ws: "A" }, { id: "A2", ws: "A" }, { id: "B1", ws: "B" }, { id: "C1", ws: "C" }];
+    const { pinned, rest } = splitPinnedRows(rows, ["A2", "B1"], (row) => row.id);
+    expect(pinned.map((row) => row.id)).toEqual(["A2", "B1"]);
+    expect(groupRows(rest, (row) => row.ws).map((group) => [group.key, group.rows.map((row) => row.id)])).toEqual([["A", ["A1"]], ["C", ["C1"]]]);
+  });
+
+  it("starts with no pins when storage denies the read", () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem() { throw new Error("denied"); } } });
+    try { expect(loadSidebarPins()).toEqual([]); }
+    finally {
+      if (original) Object.defineProperty(globalThis, "localStorage", original);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
   });
 });
