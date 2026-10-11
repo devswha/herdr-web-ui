@@ -16,9 +16,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
 
 ### Changed
-- The reason a chat message did not go (Claude Code's terminal input box holds a draft, the PC
-  needs an update, the send was not confirmed) is a band on the message box's top edge, as wide as
-  the box, with **Clear it and send** at its end, instead of small red text under the box.
+- **Open in a new tab** on a markdown file opens a page of just the document, with its name, path,
+  **Open raw file** and **Download** above it, instead of a second copy of the whole app with the
+  file viewer over it. A link in the document to another file opens there, from the document's
+  folder, and Back returns. Links made before (`?file=…`) still open the app with the viewer.
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`
   and the linked worktrees a PC has open) and temporary folders such as `/tmp`, and offer up to
   eight folders instead of three on one row: a phone swipes it sideways; a wider screen shows as
@@ -27,6 +28,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   button starts with **Plan** and how many steps are done (`2/5`), and opens one list with the
   plan's steps first and the background tasks below. The plan's flow of boxes, its dialog and the
   **Plan flow** and **Plan count in the header** settings are gone. ([#846](https://github.com/devswha/herdr-web-ui/pull/846))
+- Reuse immutable chat-message revisions across unrelated renders while retaining mutable-caller change detection.
+  ([#788](https://github.com/devswha/herdr-web-ui/pull/788) by @kilhyeonjun)
+- The reason a chat message did not go (Claude Code's terminal input box holds a draft, the PC
+  needs an update, the send was not confirmed) is a band on the message box's top edge, as wide as
+  the box, with **Clear it and send** at its end, instead of small red text under the box.
 
 ### Fixed
 - The file viewer draws the HTML a README is written with (a centered logo, a row of badges and
