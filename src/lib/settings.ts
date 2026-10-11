@@ -5,6 +5,7 @@
  * `--term-*` tokens of each theme for PaneTerminal's theme object.
  */
 
+import { REPORTED_SETTINGS, type ReportedSetting } from "../../shared/telemetry.ts";
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
@@ -71,11 +72,11 @@ export interface Settings {
   agentCards: boolean;
   /** Each agent row carries a star that keeps it on top of the Agents list. */
   agentPins: boolean;
-  /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
   /** A plan opens as a flow of boxes with a switch to its list; off, as the list alone. */
   planFlow: boolean;
   /** The header carries the selected pane's plan count, which opens the plan. */
   planButton: boolean;
+  /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
   quietOpenedDone: boolean;
   /** the chrome color family, keyed as data-palette in src/styles.css */
   palette: Palette;
@@ -149,6 +150,11 @@ export interface Settings {
   highlightCode: boolean;
 }
 
+/** The appearance settings that differ from their defaults, by name: what the anonymous counts tell (shared/telemetry.ts). */
+export function changedSettings(settings: Settings): ReportedSetting[] {
+  return REPORTED_SETTINGS.filter((name) => settings[name] !== DEFAULT_SETTINGS[name]);
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   terminalInputMode: "auto",
   keyBarExtras: ["alt"],
@@ -160,14 +166,14 @@ export const DEFAULT_SETTINGS: Settings = {
   agentOrder: "workspace",
   agentCards: false,
   agentPins: false,
+  planFlow: true,
+  planButton: true,
   quietOpenedDone: false,
   palette: "amber",
   terminalFontSize: 13,
   terminalCursorStyle: "block",
   terminalCursorBlink: true,
   terminalWheelSpeed: 1,
-  planFlow: true,
-  planButton: true,
   terminalFontFamily: "",
   paneClipboard: true,
   releasePaneAway: false,
@@ -317,14 +323,14 @@ export function sanitizeSettings(raw: unknown): Settings {
     agentOrder: record["agentOrder"] === "workspace" || record["agentOrder"] === "activity" ? record["agentOrder"] : DEFAULT_SETTINGS.agentOrder,
     agentCards: record["agentCards"] === true,
     agentPins: record["agentPins"] === true,
+    planFlow: record["planFlow"] !== false,
+    planButton: record["planButton"] !== false,
     quietOpenedDone: record["quietOpenedDone"] === true,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" || record["palette"] === "forest" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     terminalCursorStyle: TERMINAL_CURSOR_STYLES.includes(record["terminalCursorStyle"] as TerminalCursorStyle)
       ? record["terminalCursorStyle"] as TerminalCursorStyle
       : DEFAULT_SETTINGS.terminalCursorStyle,
-    planFlow: record["planFlow"] !== false,
-    planButton: record["planButton"] !== false,
     terminalCursorBlink: typeof record["terminalCursorBlink"] === "boolean" ? record["terminalCursorBlink"] : DEFAULT_SETTINGS.terminalCursorBlink,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))

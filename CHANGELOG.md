@@ -60,6 +60,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#690](https://github.com/devswha/herdr-web-ui/pull/690) by @okcedric)
 
 ### Changed
+- The anonymous install and update counts also name the appearance settings changed from their
+  defaults (theme, density, colors, sidebar rows, Agents order, workspace cards, pin agents and the
+  two plan settings): the names only, never a value, and never a setting you type. The notice is
+  shown once more before anything is sent, and the same switch and environment variables turn it off.
+  ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts))
 - On a phone the app moves and responds like an iPhone app rather than a web page. Menus,
   dialogs, the palette and Settings slide up from the bottom, follow your finger when you drag
   them down, and slide away however they close; the workspace drawer follows your finger too.
