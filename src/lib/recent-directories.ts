@@ -16,7 +16,8 @@ export function passingFolder(path: string, worktrees: readonly string[] = []): 
   if (/\/\.herdr\/worktrees(?:\/|$)/u.test(lexical)) return true;
   if (/^(?:\/private)?\/tmp(?:\/|$)|^\/var\/tmp(?:\/|$)|^(?:\/private)?\/var\/folders\//u.test(lexical)) return true;
   if (/\/AppData\/Local\/Temp(?:\/|$)/iu.test(lexical)) return true;
-  return worktrees.some((root) => lexical === root || lexical.startsWith(`${root.replace(/\/+$/, "")}/`));
+  // roots as the candidate: a Windows root keeps its backslashes until here
+  return worktrees.some((raw) => { const root = directoryPath(raw) ?? raw; return lexical === root || lexical.startsWith(`${root}/`); });
 }
 
 type DirectoryStorage = Pick<Storage, "getItem" | "setItem">;

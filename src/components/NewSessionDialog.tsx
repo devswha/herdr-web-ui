@@ -34,6 +34,8 @@ export interface NewSessionDialogProps {
   prefill?: DialogFields | null;
   /** what the fields say, a moment after they change, for the address */
   onDraft?: (fields: DialogFields) => void;
+  /** the PC's open linked worktree checkouts: no project to offer among the recent folders */
+  worktrees?: readonly string[];
 }
 
 export interface DialogFields {
@@ -53,7 +55,7 @@ function directoryBasename(value: string): string {
   return trimmed.split("/").pop() || value;
 }
 
-export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCreated, machineName, prefill = null, onDraft }: NewSessionDialogProps) {
+export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCreated, machineName, prefill = null, onDraft, worktrees = [] }: NewSessionDialogProps) {
   const t = useT();
   const machineId = useMachineId();
   const { createTab, createWorkspace, fetchAgentKinds } = useMachineApi();
@@ -67,7 +69,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const [browsing, setBrowsing] = useState(false);
   const [recentFolders, setRecentFolders] = useState(() => recentDirectories.read(machineId));
   // folders kept before worktrees and temporary folders were left out are left out here too
-  const shownFolders = recentFolders.filter((path) => !passingFolder(path)).slice(0, RECENT_FOLDERS_SHOWN);
+  const shownFolders = recentFolders.filter((path) => !passingFolder(path, worktrees)).slice(0, RECENT_FOLDERS_SHOWN);
   const firstFieldRef = useRef<HTMLButtonElement>(null);
   const surface = useFocusTrap<HTMLFormElement>(open, { initialFocus: firstFieldRef });
   useSheetSwipe(surface, pending ? null : onClose);

@@ -1266,6 +1266,7 @@ export function App() {
       <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
         key={newSessionMachineId}
         machineName={machines.find((m) => m.id === newSessionMachineId)?.name ?? newSessionMachineId}
+        worktrees={machines.find((m) => m.id === newSessionMachineId)?.snapshot?.workspaces.flatMap((workspace) => workspace.worktree?.is_linked_worktree ? [workspace.worktree.checkout_path] : []) ?? []}
         open={newSessionOpen}
         tab={newTab}
         defaultCwd={newSessionMachineId === selectedMachineId ? selectedPane?.cwd ?? null : null}
