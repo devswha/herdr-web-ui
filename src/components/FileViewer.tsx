@@ -10,6 +10,7 @@ import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
+import { readFilePreviewText } from "../lib/filePreviewText.ts";
 
 /** Bigger images are offered as a download: a phone decodes an image whole. */
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -44,12 +45,17 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const [candidates, setCandidates] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
+  const [textTruncated, setTextTruncated] = useState(false);
+  const [textTotal, setTextTotal] = useState<number | undefined>(undefined);
   // Escape closes it, Tab stays in it, and the focus goes back to the row that opened it
   const surface = useFocusTrap<HTMLElement>(true);
   useEffect(() => setPath(asked), [asked]);
 
   useEffect(() => {
     let cancelled = false;
+    const abort = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    setTextTruncated(false); setTextTotal(undefined);
     setInfo(null); setCandidates(null); setError(null); setText(null); setDirectory(null);
     fetchFileInfo(path, paneId).then(async (next) => {
       if (cancelled) return;
@@ -57,9 +63,12 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       setInfo(next);
       if (next.kind !== "text") return;
       // only the first part of a text file travels: a range, whatever the file's size
-      const response = await fetch(fileUrl(next.path, paneId), { headers: { range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } });
-      const body = await response.text();
-      if (!cancelled) setText(body);
+      deadline = setTimeout(() => abort.abort(), 5_000);
+      try {
+        const response = await fetch(fileUrl(next.path, paneId), { signal: abort.signal, headers: { range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } });
+        const body = await readFilePreviewText(response, TEXT_PREVIEW_BYTES, { signal: abort.signal });
+        if (!cancelled) { setText(body.text); setTextTruncated(body.truncated); setTextTotal(body.total); }
+      } finally { clearTimeout(deadline); }
     }).catch(async (reason: unknown) => {
       if (cancelled) return;
       // a folder is listed from the pane's folder, as a file is found from it
@@ -73,7 +82,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       if (cancelled) return;
       setError(reason instanceof ApiError && reason.status === 404 ? t("No readable file at this path.") : t("The file could not be opened."));
     });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearTimeout(deadline); abort.abort(); };
   }, [path, paneId, fetchFileInfo, fileUrl, fetchDirectories, remote]);
 
   useEffect(() => {
@@ -109,7 +118,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
           <pre className="file-viewer-text">{text}</pre>
-          {info.size > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(info.size) })}</p>}
+          {textTruncated && (textTotal ?? 0) <= TEXT_PREVIEW_BYTES ? <p className="file-viewer-note">{t("Only part of this file is shown. Download it to read the rest.")}</p>
+            : (textTotal ?? info.size) > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(textTotal ?? info.size) })}</p>}
         </>;
       default:
         return <p className="file-viewer-note">{info.mime}, {formatBytes(info.size)}. This file can't be shown here; download it instead.</p>;

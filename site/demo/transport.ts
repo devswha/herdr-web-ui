@@ -523,30 +523,33 @@ const DEMO_FILES = ["src/routes/payments.ts", "src/lib/idempotency.ts", "src/met
 function usageReport(): UsageReport {
   const now = Date.now();
   const at = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
+  // Claude and Codex state a window's length (5 h, 7 days), so the server knows when it began; the others do not
+  const session = (hours: number) => ({ resets_at: at(hours), starts_at: at(hours - 5) });
+  const week = (hours: number) => ({ resets_at: at(hours), starts_at: at(hours - 168) });
   const checked = new Date(now).toISOString();
   return { providers: [
     { id: "claude", key: "claude:demo-claude", account: "sam@example.com", plan: "max", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 38, resets_at: at(2.4) },
-      { kind: "week", scope: null, used_percent: 61, resets_at: at(78) },
-      { kind: "week", scope: "Sonnet", used_percent: 12, resets_at: at(78) },
+      { kind: "session", scope: null, used_percent: 38, ...session(2.4) },
+      { kind: "week", scope: null, used_percent: 61, ...week(78) },
+      { kind: "week", scope: "Sonnet", used_percent: 12, ...week(78) },
     ] },
     { id: "codex", key: "codex:demo-codex-work", account: "sam@work.example", plan: "pro", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 22, resets_at: at(1.2) },
-      { kind: "week", scope: null, used_percent: 84, resets_at: at(97) },
+      { kind: "session", scope: null, used_percent: 22, ...session(1.2) },
+      { kind: "week", scope: null, used_percent: 84, ...week(97) },
     ] },
     { id: "codex", key: "codex:demo-codex-home", account: "sam@example.com", plan: "plus", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 5, resets_at: at(3.1) },
-      { kind: "week", scope: null, used_percent: 31, resets_at: at(140) },
+      { kind: "session", scope: null, used_percent: 5, ...session(3.1) },
+      { kind: "week", scope: null, used_percent: 31, ...week(140) },
     ] },
     { id: "cursor", key: "cursor:demo-cursor", account: "sam@example.com", plan: "pro", problem: null, checked_at: checked, windows: [
-      { kind: "month", scope: null, used_percent: 27, resets_at: at(290) },
-      { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290) },
-      { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290) },
+      { kind: "month", scope: null, used_percent: 27, resets_at: at(290), starts_at: null },
+      { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290), starts_at: null },
+      { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290), starts_at: null },
     ] },
     { id: "opencode", key: "opencode:demo-opencode", account: null, plan: "Go", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 10, resets_at: at(3.2) },
-      { kind: "week", scope: null, used_percent: 28, resets_at: at(18) },
-      { kind: "month", scope: null, used_percent: 15, resets_at: at(520) },
+      { kind: "session", scope: null, used_percent: 10, resets_at: at(3.2), starts_at: null },
+      { kind: "week", scope: null, used_percent: 28, resets_at: at(18), starts_at: null },
+      { kind: "month", scope: null, used_percent: 15, resets_at: at(520), starts_at: null },
     ] },
   ] };
 }
