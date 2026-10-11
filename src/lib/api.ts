@@ -60,6 +60,7 @@ import type { TelemetryStatus } from "../../shared/telemetry.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
+import { chatReadDeadlineMs, withChatReadDeadline } from "./chatReadDeadline.ts";
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
@@ -155,8 +156,8 @@ async function errorFrom(url: string, response: Response): Promise<ApiError> {
   return new ApiError(url, response.status, detail, code);
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
   if (!response.ok) throw await errorFrom(url, response);
   return (await response.json()) as T;
 }
@@ -179,7 +180,7 @@ const wrappedOnly = new Set<string>();
 export async function fetchPaneTranscript(paneId: string, lines: number, machineId = "local"): Promise<PaneReadResult> {
   const read = async (source: "recent" | "recent_unwrapped"): Promise<PaneReadResult> => {
     const query = new URLSearchParams({ pane_id: paneId, source, format: "text", lines: String(lines) });
-    return (await getJson<{ read: PaneReadResult }>(machinePath(machineId, `pane/read?${query.toString()}`))).read;
+    return (await withChatReadDeadline((signal) => getJson<{ read: PaneReadResult }>(machinePath(machineId, `pane/read?${query.toString()}`), { signal }), chatReadDeadlineMs(machineId))).read;
   };
   if (wrappedOnly.has(machineId)) return read("recent");
   try {
@@ -250,15 +251,18 @@ export async function fetchPaneConversation(paneId: string, machineId = "local",
   const url = machinePath(machineId, `pane/conversation?${query.toString()}`);
   const polled = page.before === undefined;
   const known = polled ? conversationAnswers.get(url) : undefined;
-  const response = await fetch(url, { cache: "no-store", ...(known ? { headers: { "if-none-match": known.etag } } : {}) });
+  const { response, body } = await withChatReadDeadline(async (signal) => {
+    const response = await fetch(url, { cache: "no-store", signal, ...(known ? { headers: { "if-none-match": known.etag } } : {}) });
+    if (response.status === 304 && known) return { response, body: known.body };
+    if (!response.ok) throw await errorFrom(url, response);
+    return { response, body: (await response.json()) as ConversationResponse };
+  }, chatReadDeadlineMs(machineId));
+  // Cache changes occur after the bounded read: a late, aborted answer cannot replace it.
   if (response.status === 304 && known) {
-    // the pane being polled stays among the kept answers
     conversationAnswers.delete(url);
     conversationAnswers.set(url, known);
-    return known.body;
+    return body;
   }
-  if (!response.ok) throw await errorFrom(url, response);
-  const body = (await response.json()) as ConversationResponse;
   const etag = response.headers.get("etag");
   if (!polled) return body;
   conversationAnswers.delete(url);

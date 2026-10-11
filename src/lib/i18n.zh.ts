@@ -10,6 +10,7 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Chat read timed out.": "读取对话超时。",
   "Find in terminal": "在终端中查找",
   "Previous match": "上一个匹配",
   "Next match": "下一个匹配",
@@ -55,6 +56,8 @@ export const ZH: Record<string, string> = {
   "Amber": "琥珀",
   "Catppuccin": "Catppuccin",
   "Lilac": "淡紫",
+  "Pin agent": "固定 Agent",
+  "Unpin agent": "取消固定 Agent",
   "Forest": "森林绿",
   "Density": "密度",
   "Comfortable": "宽松",

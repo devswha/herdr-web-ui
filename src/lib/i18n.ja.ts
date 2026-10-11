@@ -8,6 +8,7 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Chat read timed out.": "会話の読み込みがタイムアウトしました。",
   "Find in terminal": "ターミナル内を検索",
   "Previous match": "前の一致",
   "Next match": "次の一致",
@@ -53,6 +54,8 @@ export const JA: Record<string, string> = {
   "Amber": "アンバー",
   "Catppuccin": "Catppuccin",
   "Lilac": "ライラック",
+  "Pin agent": "エージェントを固定",
+  "Unpin agent": "エージェントの固定を解除",
   "Forest": "フォレスト",
   "Density": "表示密度",
   "Comfortable": "ゆったり",
