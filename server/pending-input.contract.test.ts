@@ -66,7 +66,9 @@ class Socket {
 }
 
 beforeAll(() => {
-  writeFileSync(join(root, "record.cjs"), `const fs=require("node:fs");const out=process.argv[2];process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write("\\x1b[?2004h"+(process.argv[3]||"").replace(/\\\\x1b/g,"\\x1b"),()=>fs.writeFileSync(out,""));process.stdin.on("data",c=>fs.appendFileSync(out,JSON.stringify(c.toString("utf8"))+"\\n"));const watch=fs.watch(process.argv[4],()=>process.stdout.write("\\x1b[2J\\x1b[H"+fs.readFileSync(process.argv[4],"utf8")));process.on("exit",()=>watch.close());`);
+  // The recorder polls its screen file: fs.watch can drop the change that follows writeFileSync's
+  // truncation, leaving the cleared screen it read in between up for good.
+  writeFileSync(join(root, "record.cjs"), `const fs=require("node:fs");const out=process.argv[2];process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write("\\x1b[?2004h"+(process.argv[3]||"").replace(/\\\\x1b/g,"\\x1b"),()=>fs.writeFileSync(out,""));process.stdin.on("data",c=>fs.appendFileSync(out,JSON.stringify(c.toString("utf8"))+"\\n"));let shown="";setInterval(()=>{const next=fs.readFileSync(process.argv[4],"utf8");if(next!==shown){shown=next;process.stdout.write("\\x1b[2J\\x1b[H"+next);}},20);`);
   for (const name of ["claude", "codex", "plain"]) { copyFileSync(process.execPath, join(root, name)); chmodSync(join(root, name), 0o755); }
 });
 afterEach(async () => {
@@ -103,10 +105,13 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
     await reader.wait((frame) => frame.type === "pane-status" && frame.pane_id === pane && (value === "idle" || value === "unknown" ? ["idle", "done"].includes(frame.agent_status) : frame.agent_status === value), from);
   };
   // `ending`: what the screen ends with once drawn, for a text taller than the pane
+  // and a new screen that ends as the last one did is told apart by its colors and spacing
   const showScreen = async (text: string, ending = text) => {
+    const drawn = async () => (await paneRead({ paneId: pane, source: "visible", format: "ansi" })).text;
+    const before = await drawn();
     writeFileSync(screenFile, text);
     const deadline = Date.now() + 5_000;
-    while (!(await paneRead({ paneId: pane, source: "visible", format: "text" })).text.trimEnd().endsWith(ending.trimEnd())) {
+    while (await drawn() === before || !(await paneRead({ paneId: pane, source: "visible", format: "text" })).text.trimEnd().endsWith(ending.trimEnd())) {
       if (Date.now() >= deadline) throw new Error("recorder screen did not update");
       await Bun.sleep(25);
     }
@@ -131,6 +136,38 @@ describe("connection-owned pending input", () => {
     expect(receipt.messages.find((message: PendingMessage) => message.id === second.id)?.state).toBe("queued");
     await f.state("working"); await f.state("idle"); await f.removed(second.id); await f.waitBytes(`${paste("second")}\r`);
     expect(f.bytes()).toBe(`${paste(first.text)}\r${paste("second")}\r`);
+  }, 30_000);
+
+  it("keeps a held message through the turn's end and sends it only on Send now", async () => {
+    const f = await setup("hold");
+    expect(f.socket.seen.find((frame) => frame.type === "snapshot")?.features).toContain("pending-hold");
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "hold me", payload: "unused\r", delivery: "hold" });
+    const answer = await f.socket.result(1);
+    expect(answer).toMatchObject({ ok: true, pending: { request_id: 1, state: "held" } });
+    expect(answer.pending.error).toBeUndefined();
+    await f.state("idle");
+    // the turn's end sent nothing: a message typed after it is the first thing the pane gets
+    f.socket.send({ type: "submit", id: 2, pane_id: f.pane, text: "barrier", payload: "barrier", typed: true });
+    expect(await f.socket.result(2)).toMatchObject({ ok: true }); await f.waitBytes("barrier\r");
+    expect(f.bytes()).toBe("barrier\r");
+    f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: answer.pending.id, action: "steer" });
+    expect(await f.socket.action(10)).toMatchObject({ ok: true }); await f.removed(answer.pending.id);
+    await f.waitBytes(`${paste("hold me")}\r`);
+    expect(f.bytes()).toBe(`barrier\r${paste("hold me")}\r`);
+  }, 30_000);
+
+  it("keeps a held message that arrives after the turn ended, typing nothing until Send now", async () => {
+    const f = await setup("hold-ready"); await f.state("idle");
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "late hold", payload: "unused\r", delivery: "hold" });
+    const answer = await f.socket.result(1);
+    expect(answer).toMatchObject({ ok: true, pending: { request_id: 1, state: "held" } });
+    f.socket.send({ type: "submit", id: 2, pane_id: f.pane, text: "barrier", payload: "barrier", typed: true });
+    expect(await f.socket.result(2)).toMatchObject({ ok: true }); await f.waitBytes("barrier\r");
+    expect(f.bytes()).toBe("barrier\r");
+    f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: answer.pending.id, action: "steer" });
+    expect(await f.socket.action(10)).toMatchObject({ ok: true }); await f.removed(answer.pending.id);
+    await f.waitBytes(`${paste("late hold")}\r`);
+    expect(f.bytes()).toBe(`barrier\r${paste("late hold")}\r`);
   }, 30_000);
 
   it("closes a trailing @file mention with a space before its Enter", async () => {

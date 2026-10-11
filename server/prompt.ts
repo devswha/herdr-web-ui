@@ -2924,6 +2924,37 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
   return cursor && !grey;
 }
 
+/** Positive proof of an ordinary empty input box, never absence of a readable box. */
+export function claudeInputEmpty(live: string, colors: string | null): boolean {
+  const box = claudeInputBox(live);
+  return box !== null && box !== "clipped" && box.plain[0]?.startsWith("❯") === true
+    && !claudeInputDraft(live, colors);
+}
+
+/** What empties a one-row Claude input box: the row after the cursor, then before it (measured on 2.1.295; Ctrl+Y puts it back). */
+export const CLAUDE_CLEAR_INPUT_KEYS = ["ctrl+k", "ctrl+u"];
+
+/**
+ * The draft the chat may offer to clear before it sends (claudeInputDraft with the same reads):
+ * typed text on the only row of a `❯` box, read with verified colors, as the user sees it there.
+ * CLAUDE_CLEAR_INPUT_KEYS edit one screen row, so a draft on more rows (a long line wraps), bash
+ * mode, a pasted or image placeholder and a box read without colors are not offered: null.
+ */
+export function claudeClearableDraft(live: string, colors: string | null): string | null {
+  if (colors === null || !claudeInputDraft(live, colors)) return null;
+  const box = claudeInputBox(live);
+  if (box === null || box === "clipped" || box.plain.length !== 1 || !box.plain[0]!.startsWith("❯")) return null;
+  if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain[0]!)) return null;
+  // plain rows trim their right edge for screen parsing. Match the raw row instead: a
+  // trailing space, or another space after Claude's one separator, belongs to the user.
+  const rowText = (row: string): string => row.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "");
+  const row = rowText(box.raw[0]!);
+  const shown = claudeInputBox(colors);
+  if (shown === null || shown === "clipped" || shown.raw.length !== 1 || rowText(shown.raw[0]!) !== row) return null;
+  const draft = row.slice(1).replace(/^[ \u00a0]/, "");
+  return draft.trim() === "" ? null : draft;
+}
+
 /**
  * The chat's own message back in Claude's box (claudeRestoredDraft), only when the live screen holds
  * it: a pane scrolled into its history can show an older box with the same words. The viewport read
