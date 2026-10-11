@@ -7,12 +7,24 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **Settings → Composer → Send queued messages automatically** (on by default). Turned off, a
+  message sent while the agent works waits under the message box until you press **Send now**,
+  instead of going by itself when the turn ends. A PC whose bridge is older than this release
+  still sends it at the turn's end. A held message shown in another tab, or after a reload, asks
+  to be reviewed before Send now, since the tab that held it may still send it.
+  ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
+
 ### Changed
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`
   and the linked worktrees a PC has open) and temporary folders such as `/tmp`, and offer up to
   eight folders instead of three: a phone swipes them sideways on one row, a wider screen wraps them.
 
 ### Fixed
+- On a phone, Back closes every dialog drawn as a sheet the way it closes a ⋯ menu: the plan, the
+  command palette, confirmations, the file list, the worktree dialog, Rename pane and the diagram
+  lightbox. It used to open the pane before under the dialog, which stayed up. A wider screen keeps
+  Back for the panes.
 - On a phone, the system Back button closes an open ⋯ menu sheet instead of switching to the pane
   opened before, which it did since 0.4.7 made each pane a history entry. A sheet closed by Cancel,
   a swipe or one of its items leaves no extra Back step behind.
@@ -23,6 +35,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a phone, a long press on the chat selects text and offers copy as the phone does, instead of
   opening the pane's actions menu; on the terminal it opens no menu either. A right-click, or a
   menu asked for from the keyboard, still opens it.
+- With the system's reduce-motion setting on, a running agent's arc in the sidebar stood still,
+  so RUN looked like BG (the same arc held still). It now fades in and out instead of turning. ([#841](https://github.com/devswha/herdr-web-ui/pull/841))
 
 ## [0.4.7] - 2026-10-12
 
