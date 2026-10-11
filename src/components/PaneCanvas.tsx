@@ -4,13 +4,14 @@ import { createPortal } from "react-dom";
 import type { HerdrPane, PaneLayoutSnapshot, SessionSnapshot } from "../../shared/protocol.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { PaneSubmitRetention } from "../lib/paneSubmitRetention.ts";
-import { PanePresentedContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
+import { PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { PaneAwayContext } from "../lib/paneAwayContext.ts";
 import { ApiError, routeMissing } from "../lib/api.ts";
 import { layoutCells, zoomMode } from "../lib/layoutMap.ts";
 import { layoutTopology, paneContextPress, SOLO_PANE_QUERY, soloPane, splitPath, splitRatioAt } from "../lib/paneCanvas.ts";
 import { useT } from "../lib/i18n.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { displayPaneTitle } from "./Sidebar.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
@@ -277,7 +278,7 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
           <button type="button" className="icon-button pane-frame-menu" aria-label={t("Pane actions for {name}", { name: displayPaneTitle(item) })}
             onClick={(event) => showMenu(item, event.currentTarget)}><Ellipsis aria-hidden="true" /></button>
         </div>
-        <div className="pane-frame-body"><PanePresentedContext.Provider value={!cell.retained}>{renderPane(item, active, alone === null && cells.length > 1)}</PanePresentedContext.Provider></div>
+        <div className="pane-frame-body"><PanePresentedContext.Provider value={!cell.retained}><PaneShownContext.Provider value={alone === null || alone === item.pane_id}>{renderPane(item, active, alone === null && cells.length > 1)}</PaneShownContext.Provider></PanePresentedContext.Provider></div>
       </section>;
     })}
     {alone === null && layout?.splits.map((item) => {
@@ -317,6 +318,7 @@ function PaneRename({ pane, onClose, onSave }: { pane: HerdrPane; onClose: () =>
   const [value, setValue] = useState(pane.label ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  usePhoneSheetBack(() => { if (busy) return false; onClose(); });
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); } };
     window.addEventListener("keydown", key, true);

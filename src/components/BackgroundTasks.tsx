@@ -8,6 +8,7 @@ import { clockOffsetMs, endedSummary, formatElapsed, runGoing, spanMs, taskElaps
 import { formatTokens } from "../lib/compose.ts";
 import { planWaves } from "../lib/plan.ts";
 import { useT } from "../lib/i18n.ts";
+import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import type { OmoRun, OmoRunNode, OmoTask, PlanStep, PlanSummary } from "../../shared/protocol.ts";
 
 const POLL_MS = 3000;
@@ -38,6 +39,8 @@ export function BackgroundTasks({ paneId, count, omo, claude = false, plan = nul
   const t = useT();
   const { fetchPaneOmoActivity, fetchPanePlan } = useMachineApi();
   const [open, setOpen] = useState(false);
+  // a phone's Back closes the list, as it closes the other dialogs there (the plan used to be a sheet)
+  usePhoneSheetBack(() => setOpen(false), open);
   const [seen, setSeen] = useState(count > 0);
   useEffect(() => { if (count > 0) setSeen(true); }, [count]);
   useEffect(() => {
