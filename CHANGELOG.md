@@ -97,6 +97,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
 
 ### Fixed
+- Reloading with Settings open closes Settings whenever the browser gets to its step back; it could
+  come back when the app had drawn itself first, as on a slow device. ([#825](https://github.com/devswha/herdr-web-ui/pull/825))
 - A phone shows a split tab one pane at a time again, at the screen's whole width, instead of
   every pane squeezed into herdr's grid (since 0.4.6). The tab's menu lists the tab's panes to
   switch between them. Wider screens keep the split, and herdr's own layout is not changed.
@@ -171,6 +173,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   takes the unused height, and an empty one follows the folded section directly. The Agents height
   cap, independent scrolling and fixed footer stay unchanged.
   ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
+- Back and Forward after a pane is moved: the move no longer adds a history entry, and Back to an
+  entry from before the move opens the pane under its new id instead of its old workspace. Back to
+  an entry for a PC removed since stays on the pane shown and says the PC is not set up here,
+  instead of selecting the missing PC and leaving the pane blank. Back or Forward that lands
+  elsewhere than its entry named no longer drops the entries after it.
+  ([#804](https://github.com/devswha/herdr-web-ui/pull/804) by @phirschybar)
 
 ## [0.4.6] - 2026-10-11
 
