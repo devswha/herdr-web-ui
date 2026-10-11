@@ -19,6 +19,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Code's input box in the terminal is not empty". The new send replaces that copy in the terminal
   and stays in the same conversation, and the cancelled message is not shown beside it. A draft you
   typed or changed in the terminal is still never replaced.
+  ([#741](https://github.com/devswha/herdr-web-ui/pull/741) by @Haeminway1,
+  [#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- **Send now** on a Claude Code pane that is working sends the message at once, as Ctrl+Enter in
+  the terminal does, instead of leaving it in Claude Code's own queue until the turn ends.
+  ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- A pending chat message is no longer typed, or committed, after its connection lost the right to
+  send it while herdr was being reached: refused before the paste it stays unsent, after it the
+  message is marked for a check in the terminal. ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
 
 ## [0.4.6] - 2026-10-11
 
