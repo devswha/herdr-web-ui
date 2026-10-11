@@ -327,32 +327,67 @@ function codexLine(read: Read, line: string): void {
   } else return;
   const items = row(args)?.["plan"];
   if (!Array.isArray(items)) return;
-  // a step keeps the times and the work it had in the checklists before, found by its words: the
-  // nth step of some words takes what the nth step of those words had, so two of a name share nothing
-  const before = new Map<string, PlanStep[]>();
-  for (const step of read.steps.values()) before.set(step.label, [...before.get(step.label) ?? [], step]);
-  const held = new Map([...read.steps.values()].map((step) => [step, read.work.get(step.id)]));
+  const next = items.slice(0, MAX_STEPS).flatMap((item) => {
+    const label = words(row(item)?.["step"]);
+    const raw = row(item)?.["status"];
+    if (label === null) return [];
+    const status: PlanStep["status"] = typeof raw === "string" && STATUSES.has(raw as PlanStep["status"]) ? raw as PlanStep["status"] : "pending";
+    return [{ label, status }];
+  });
+  const old = [...read.steps.values()];
+  const known = matchSteps(old, next);
+  const held = new Map(old.map((step) => [step, read.work.get(step.id)]));
   read.steps.clear();
   read.work.clear();
   // a checklist that shares no step with the one before is another plan: what was done outside the old one is not this one's
-  if (!items.some((item) => before.has(words(row(item)?.["step"]) ?? ""))) read.outside = work();
-  for (const item of items.slice(0, MAX_STEPS)) {
-    const label = words(row(item)?.["step"]);
-    const raw = row(item)?.["status"];
-    if (label === null) continue;
-    const status: PlanStep["status"] = typeof raw === "string" && STATUSES.has(raw as PlanStep["status"]) ? raw as PlanStep["status"] : "pending";
-    const known = before.get(label)?.shift();
+  if (known.every((step) => step === undefined)) read.outside = work();
+  for (const [index, { label, status }] of next.entries()) {
+    const step = known[index];
     const id = String(read.steps.size + 1);
-    const started = status === "pending" ? null : known?.started_at ?? at;
+    const started = status === "pending" ? null : step?.started_at ?? at;
     read.steps.set(id, {
       id, label, active: null, status, owner: null,
       blocked_by: read.steps.size > 0 ? [String(read.steps.size)] : [],
       started_at: started,
-      ended_at: status === "completed" ? known?.ended_at ?? at : null,
+      ended_at: status === "completed" ? step?.ended_at ?? at : null,
     });
-    const done = known && held.get(known);
+    const done = step && held.get(step);
     if (done !== undefined) read.work.set(id, done);
   }
+}
+
+/**
+ * Which step of the checklist before each step of the next one is: a Codex checklist names its
+ * steps by their words only, so the two are aligned in order (the most steps of the same words,
+ * then the most of the same status), and a step removed or added between two of a name moves no
+ * other step's times or work onto another. Steps left over (one moved past another) pair up by
+ * their words.
+ */
+function matchSteps(old: readonly PlanStep[], next: readonly { label: string; status: PlanStep["status"] }[]): (PlanStep | undefined)[] {
+  const score = (i: number, j: number): number => old[i]!.label !== next[j]!.label ? -1 : old[i]!.status === next[j]!.status ? 3 : 2;
+  // best[i][j]: the best alignment of old[i…] with next[j…]
+  const best = Array.from({ length: old.length + 1 }, () => new Array<number>(next.length + 1).fill(0));
+  for (let i = old.length - 1; i >= 0; i--) {
+    for (let j = next.length - 1; j >= 0; j--) {
+      const pair = score(i, j);
+      best[i]![j] = Math.max(best[i + 1]![j]!, best[i]![j + 1]!, pair < 0 ? 0 : pair + best[i + 1]![j + 1]!);
+    }
+  }
+  const matched: (PlanStep | undefined)[] = new Array(next.length).fill(undefined);
+  for (let i = 0, j = 0; i < old.length && j < next.length;) {
+    const pair = score(i, j);
+    if (pair >= 0 && best[i]![j] === pair + best[i + 1]![j + 1]!) { matched[j] = old[i]; i++; j++; }
+    else if (best[i]![j] === best[i + 1]![j]) i++;
+    else j++;
+  }
+  // a step that moved past another keeps its own too: what is left pairs up by words, in order
+  const left = old.filter((step) => !matched.includes(step));
+  for (const [j, step] of next.entries()) {
+    if (matched[j] !== undefined) continue;
+    const at = left.findIndex((candidate) => candidate.label === step.label);
+    if (at !== -1) matched[j] = left.splice(at, 1)[0];
+  }
+  return matched;
 }
 
 /**

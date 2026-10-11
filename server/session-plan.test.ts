@@ -259,6 +259,23 @@ describe("readPlan (Codex checklist)", () => {
     expect(steps.map((step) => [step.started_at, step.ended_at])).toEqual([[at(1), at(1)], [at(1), at(3)], [at(3), at(5)], [at(5), null]]);
   });
 
+  it("keeps each step's own work when an earlier step of the same words is removed, or steps change places", () => {
+    const f = file("rollout.jsonl");
+    const call = (name: string, minute: number, args: unknown) => f.add({ timestamp: at(minute), type: "response_item", payload: { type: "function_call", name, call_id: `f${minute}`, arguments: JSON.stringify(args) } });
+    const work = () => readPlanDetail("codex-transcript", f.path)!.steps.map((step) => [step.label, step.activity?.recent.map((one) => one.detail) ?? null]);
+    call("update_plan", 1, { plan: [{ step: "Review", status: "in_progress" }, { step: "Fix", status: "pending" }, { step: "Review", status: "pending" }] });
+    call("exec_command", 2, { cmd: "FIRST review" });
+    call("update_plan", 3, { plan: [{ step: "Review", status: "completed" }, { step: "Fix", status: "completed" }, { step: "Review", status: "in_progress" }] });
+    call("exec_command", 4, { cmd: "SECOND review" });
+    expect(work()).toEqual([["Review", ["FIRST review"]], ["Fix", null], ["Review", ["SECOND review"]]]);
+    call("update_plan", 5, { plan: [{ step: "Fix", status: "completed" }, { step: "Review", status: "in_progress" }] });
+    expect(work()).toEqual([["Fix", null], ["Review", ["SECOND review"]]]);
+    expect(readPlanDetail("codex-transcript", f.path)!.steps[1]!.started_at).toBe(at(3));
+    call("update_plan", 6, { plan: [{ step: "Review", status: "in_progress" }, { step: "Fix", status: "completed" }] });
+    expect(work()).toEqual([["Review", ["SECOND review"]], ["Fix", null]]);
+    expect(readPlanDetail("codex-transcript", f.path)!.steps[0]!.started_at).toBe(at(3));
+  });
+
   it("leaves the plan as it was for malformed arguments", () => {
     const f = file("rollout.jsonl");
     f.add({ timestamp: at(1), type: "response_item", payload: { type: "function_call", name: "update_plan", arguments: JSON.stringify({ plan: [{ step: "Only", status: "in_progress" }] }) } });
