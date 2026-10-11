@@ -22,6 +22,7 @@ import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { DevinHistoryChanged } from "./devin.ts";
+import { ConversationMonitor } from "./conversation-monitor.ts";
 import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
@@ -189,7 +190,7 @@ const MAX_WAITING_KEYS = 256;
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -300,6 +301,7 @@ interface SocketData {
   relay?: MachineRelay;
   /** A fresh claim per attach lifetime; deleting it invalidates queued terminal keys. */
   attached: Map<string, object>;
+  conversationInterests: Set<string>;
   watches: Map<string, PaneWatch>;
   output: Map<string, OutputWindow>;
   closing: boolean;
@@ -457,6 +459,21 @@ export function createServer(
   const pendingDrains = new Set<string>();
   type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; message?: string };
   const pendingRequests = new WeakMap<Client, PendingRequestBook<SubmitReply>>();
+  let stopped = false;
+  const conversations = new ConversationMonitor((paneId, signature) => {
+    for (const client of clients) {
+      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) {
+        send(client, { type: "conversation-changed", pane_id: paneId, signature });
+      }
+    }
+  }, options.codexHome, options.devinDbPath, options.opencodeDb);
+
+  function releaseConversation(paneId: string): void {
+    for (const client of clients) {
+      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) return;
+    }
+    conversations.unwatch(paneId);
+  }
   /** each pane's input while a composer message is in flight, one step after another */
   const paneQueues = new Map<string, Promise<unknown>>();
   /** when each pane last got keystrokes through its attach pty */
@@ -762,6 +779,7 @@ export function createServer(
     clients.delete(client);
     for (const paneId of client.data.attached.keys()) detach(paneId, client);
     client.data.attached.clear();
+    client.data.conversationInterests.clear();
     client.data.output.clear();
     client.close(OUTPUT_STALLED_CLOSE_CODE, "terminal output consumer stalled");
   }
@@ -905,7 +923,9 @@ export function createServer(
     // the "terminal ended" screen): a stale entry would read as a live claim in
     // releaseUnclaimed and keep a later, empty pty on this pane running
     for (const member of attachment.clients) member.data.attached.delete(paneId);
+    for (const member of attachment.clients) member.data.conversationInterests.delete(paneId);
     for (const member of attachment.clients) member.data.output.delete(paneId);
+    releaseConversation(paneId);
     const retired = attachment.pty.exited.finally(() => {
       if (retiringAttachments.get(paneId) === retired) retiringAttachments.delete(paneId);
     });
@@ -950,6 +970,7 @@ export function createServer(
     await retiringAttachments.get(paneId);
     const mirrored = !(await terminalAttach());
     const { terminalId, rect } = await terminalInfoFor(paneId);
+    if (stopped) throw new HerdrError("server_stopped", "the web bridge stopped during attachment creation");
     // an observer-first attachment spawns at the pane's own grid (fallback 80x24 when
     // the layout has no rect for it): the attach must not seed the shared pty with a
     // watching phone's viewport
@@ -1260,7 +1281,9 @@ export function createServer(
 
   function detach(paneId: string, client: Client): void {
     holdPending(client, paneId);
+    client.data.conversationInterests.delete(paneId);
     client.data.output.delete(paneId);
+    releaseConversation(paneId);
     const attachment = attachments.get(paneId);
     if (!attachment) return;
     attachment.clients.delete(client);
@@ -1517,13 +1540,13 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -2180,7 +2203,6 @@ export function createServer(
         };
         try {
           const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb);
-          // The chat polls every 2s: an unchanged conversation answers 304 with no body.
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
           // weak: the same answer goes out gzipped or plain (compress.ts), which are not the same bytes
           const etag = `W/"${version}"`;
@@ -2381,6 +2403,7 @@ export function createServer(
             clients.delete(client);
             for (const paneId of client.data.attached.keys()) detach(paneId, client);
             client.data.attached.clear();
+            client.data.conversationInterests.clear();
             client.data.output.clear();
             client.data.relay?.close(1008, "Device access revoked");
             client.close(1008, "Device access revoked");
@@ -2398,7 +2421,7 @@ export function createServer(
       },
 
       async message(client, raw) {
-        if (client.data.closing) return;
+        if (stopped || client.data.closing) return;
         if (client.data.relay) { client.data.relay.message(raw); return; }
         let message: ClientMessage;
         try {
@@ -2462,17 +2485,22 @@ export function createServer(
                 // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
                 attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe" || message.keep_size === true);
               } catch (error) {
-                if (client.data.attached.get(message.pane_id) === claim) client.data.attached.delete(message.pane_id);
+                if (client.data.attached.get(message.pane_id) === claim) {
+                  client.data.attached.delete(message.pane_id);
+                  client.data.conversationInterests.delete(message.pane_id);
+                  releaseConversation(message.pane_id);
+                }
                 throw error;
               }
-              if (client.data.attached.get(message.pane_id) !== claim) {
+              if (stopped || client.data.closing || client.data.attached.get(message.pane_id) !== claim) {
                 releaseUnclaimed(message.pane_id, attachment);
                 break;
               }
-              // a mirror whose pane went away during its first read has already ended: joining
-              // it would leave this client on a terminal that never says anything again
-              if (attachment.mirror && attachments.get(message.pane_id) !== attachment) {
+              // A pane that ended during creation must not gain clients or revive interest.
+              if (attachments.get(message.pane_id) !== attachment) {
                 client.data.attached.delete(message.pane_id);
+                client.data.conversationInterests.delete(message.pane_id);
+                releaseConversation(message.pane_id);
                 send(client, { type: "pty-exit", pane_id: message.pane_id, code: null });
                 break;
               }
@@ -2519,6 +2547,24 @@ export function createServer(
             case "detach": {
               client.data.attached.delete(message.pane_id);
               detach(message.pane_id, client);
+              break;
+            }
+            case "conversation-watch": {
+              if (typeof message.pane_id !== "string" || message.pane_id.trim() === "" || typeof message.enabled !== "boolean") {
+                send(client, { type: "error", code: "invalid_conversation_watch", message: "pane_id must be a nonempty string and enabled must be a boolean" });
+                break;
+              }
+              if (message.enabled) {
+                if (!client.data.attached.has(message.pane_id)) {
+                  send(client, { type: "error", code: "not_attached", message: "conversation interest requires an attached pane", pane_id: message.pane_id });
+                  break;
+                }
+                client.data.conversationInterests.add(message.pane_id);
+                conversations.watch(message.pane_id);
+              } else {
+                client.data.conversationInterests.delete(message.pane_id);
+                releaseConversation(message.pane_id);
+              }
               break;
             }
             case "pty-ack": {
@@ -2911,12 +2957,14 @@ export function createServer(
 
       close(client) {
         client.data.unwatchDevice?.();
+        client.data.closing = true;
         if (client.data.relay) { client.data.relay.close(); return; }
         killWatches(client);
         pending.close(client);
         clients.delete(client);
         for (const paneId of client.data.attached.keys()) detach(paneId, client);
         client.data.attached.clear();
+        client.data.conversationInterests.clear();
         client.data.output.clear();
       },
     },
@@ -2937,6 +2985,8 @@ export function createServer(
     statusReady: collector.ready,
     alertsSettled: () => push.settled(),
     stop: () => {
+      stopped = true;
+      conversations.stop();
       clearInterval(outputTimer);
       collector.stop();
       omo.stop();
