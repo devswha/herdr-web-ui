@@ -16,7 +16,7 @@ import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
-import { followMoved, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
+import { fileFromLink, followMoved, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
@@ -54,6 +54,7 @@ import { useUpdates } from "./lib/updates.ts";
 import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { TelemetryNotice } from "./components/TelemetryControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
+import { PlanButton, PlanDialog } from "./components/PlanDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useFileViewer } from "./lib/useFileViewer.ts";
@@ -153,7 +154,7 @@ export function App() {
     return linksSomewhere(window.location.search) ? readLink(window.location.search) : null;
   });
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
-    if (initialLink && (initialLink.pane || initialLink.workspace)) return initialLink.machine;
+    if (initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink))) return initialLink.machine;
     return storedSelection()?.machine_id ?? "local";
   });
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
@@ -199,18 +200,18 @@ export function App() {
   const [selectedPaneId, setSelectedPaneId] = useState<string | null>(() => {
     if (initialLink?.pane) return initialLink.pane;
     // a link to a workspace opens the pane its row opens, once the roster is in (below)
-    if (initialLink?.workspace) return null;
+    if (initialLink && (initialLink.workspace || fileFromLink(initialLink))) return null;
     return storedSelection()?.pane_id ?? null;
   });
   const [notificationViewTarget, setNotificationViewTarget] = useState<NotificationTarget | null>(
     () => notificationTargetFromSearch(window.location.search),
   );
   // the place a link named, settled against the PC's roster once it is in (lib/deepLink.ts resolveLink)
-  const pendingLink = useRef<AppLink | null>(initialLink && (initialLink.pane || initialLink.workspace) ? initialLink : null);
+  const pendingLink = useRef<AppLink | null>(initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink)) ? initialLink : null);
   // state, not only the ref: what waits on the link landing (the address, its file) runs again when it does
   const [linkLanded, setLinkLanded] = useState(() => pendingLink.current === null);
   // the file a link named, opened over its pane once that pane is shown
-  const pendingFile = useRef<string | null>(initialLink?.pane ? initialLink.file ?? null : null);
+  const pendingFile = useRef<string | null>(initialLink ? fileFromLink(initialLink) : null);
   // a short word in the header: a link that could not open what it named, or a link copied
   const [headerNote, setHeaderNote] = useState<LinkNote | "copied" | null>(null);
   useEffect(() => {
@@ -259,6 +260,7 @@ export function App() {
   }, [moreOpen]);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [movingPane, setMovingPane] = useState<{ machineId: string; paneId: string; anchor: HTMLElement } | null>(null);
   const movingOwner = movingPane ? machines.find((machine) => machine.id === movingPane.machineId) : null;
   const movingLivePane = movingOwner?.state === "connected" ? movingOwner.snapshot?.panes.find((pane) => pane.pane_id === movingPane?.paneId) : null;
@@ -468,7 +470,7 @@ export function App() {
           let changed = false;
           const next = list.map((m) => {
             if (m.id !== machine.id || !m.snapshot) return m;
-            const snapshot = applyPaneStatus(m.snapshot, message.pane_id, message.agent_status, message.background_tasks, message.background_wait === true);
+            const snapshot = applyPaneStatus(m.snapshot, message.pane_id, message.agent_status, message.background_tasks, message.background_wait === true, message.plan);
             if (snapshot === m.snapshot) return m;
             changed = true;
             return { ...m, snapshot };
@@ -618,7 +620,7 @@ export function App() {
           if (landed.pane !== linked.pane) pendingFile.current = null;
           return true;
         }
-        pendingFile.current = null;
+        if (linked.pane || linked.workspace) pendingFile.current = null;
         return false;
       };
       const landed = resolveLink(snapshot, linked);
@@ -747,7 +749,7 @@ export function App() {
   const newSessionOpenRef = useRef(newSessionOpen); newSessionOpenRef.current = newSessionOpen;
   const linkWorkspaceId = selectedPane?.workspace_id ?? (selectedPaneId === null ? null : undefined);
   const linkSlug = slugOf(selectedWorkspace?.label) || null;
-  const linkFile = viewing && viewing.machineId === selectedMachineId && viewing.paneId === selectedPaneId ? viewing.path : null;
+  const linkFile = viewing && viewing.machineId === selectedMachineId && (viewing.paneId === null || viewing.paneId === selectedPaneId) ? viewing.path : null;
   useEffect(() => {
     if (locked !== false || machines.length === 0 || snapshot === null || linkWorkspaceId === undefined || !linkLanded) return;
     const link: AppLink = {
@@ -777,10 +779,10 @@ export function App() {
     // a viewer already up (a reload restores it from its history entry) is the file the address names:
     // the link has nothing left to open, and a Back that closes the viewer must not bring it back
     if (viewing) { pendingFile.current = null; return; }
-    if (path === null || !linkLanded || !selectedPane) return;
+    if (path === null || !linkLanded || locked !== false || selectedMachine?.state !== "connected" || snapshot === null) return;
     pendingFile.current = null;
-    openFile({ path, paneId: selectedPane.pane_id, machineId: selectedMachineId });
-  }, [linkLanded, selectedPane, selectedMachineId, viewing, openFile]);
+    openFile({ path, paneId: selectedPane?.pane_id ?? null, machineId: selectedMachineId });
+  }, [linkLanded, locked, selectedMachine?.state, snapshot, selectedPane, selectedMachineId, viewing, openFile]);
 
   // Back and Forward between panes: the entry's address says which one. Settings' own entries
   // are its module's (lib/settingsHistory.ts)
@@ -1117,6 +1119,8 @@ export function App() {
             </button>
           </div>
         )}
+        {/* the selected pane's plan, in the chat and the terminal alike; an offline PC's cached plan cannot be read */}
+        {settings.planButton && selectedPane && selectedMachine?.state === "connected" && (selectedPane as HerdrPane).plan && <PlanButton plan={(selectedPane as HerdrPane).plan!} onOpen={() => setPlanOpen(true)} />}
         <div className="header-meta">
           {/* speaks only while the bridge is not live; live, it stays in the document for a screen
               reader (and the browser scripts that wait on it), drawn by nothing (styles.css) */}
@@ -1176,7 +1180,8 @@ export function App() {
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
 
-        {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
+        {/* kept on the page closed (styles.css): a swipe that begins on it closes the drawer */}
+        <div className={`scrim${drawerOpen ? " is-open" : ""}`} aria-hidden="true" onClick={() => setDrawerOpen(false)} />
 
         {/* a file path in the chat opens in the viewer, relative to the selected pane's folder */}
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
@@ -1196,7 +1201,7 @@ export function App() {
           <div id={PANE_TABPANEL_ID} className="terminal-tabpanel" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
           <PaneCanvas key={selectedMachineId} snapshot={snapshot} pane={selectedPane} selectedPaneId={selectedPaneId} onSelect={selectPane} onChanged={actions.refresh}
             isTerminal={(item) => (item.pane_id === selectedPaneId ? view : storedView(lenses, item.pane_id, selectedMachineId, item.agent != null, terminalAttach)) === "terminal"}
-            renderPane={(item, active) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId: selectedMachineId }) : null}>
+            renderPane={(item, active, split) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId: selectedMachineId }) : null}>
               <PaneTerminal
                 title={item ? displayPaneTitle(item) : selectedTitle}
                 // Wait for the roster before attaching: the loading placeholder is replaced
@@ -1214,6 +1219,7 @@ export function App() {
                 findRequest={findRequest.paneId === item?.pane_id ? findRequest.serial : 0}
                 autoSelected={autoSelected}
                 terminalFontSize={settings.terminalFontSize}
+                split={split}
                 terminalCursorStyle={settings.terminalCursorStyle}
                 terminalCursorBlink={settings.terminalCursorBlink}
                 terminalWheelSpeed={settings.terminalWheelSpeed}
@@ -1258,6 +1264,7 @@ export function App() {
         paneTitle={displayPaneTitle(movingLivePane)} onMoved={(moved) => actions.paneMoved(movingPane.machineId, moved.previous_pane_id, moved.pane.pane_id)}
         onError={(reason) => setLayoutNotice(t("Move failed: {reason}", { reason }))} onClose={() => setMovingPane(null)} /></MachineContext.Provider>}
       <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} overPreview={viewing !== null} />
+      {planOpen && selectedPane && <PlanDialog paneId={selectedPane.pane_id} title={selectedTitle ?? ""} onClose={() => setPlanOpen(false)} />}
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}

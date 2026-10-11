@@ -20,6 +20,7 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 bun run check fast                  # CI's Fast checks: workflow syntax, generated types, typecheck, build, unit tests
 bun run check integration browser   # CI's Integration and browser: a build, then both lanes side by side
 bun run check full                  # fast, then both lanes
+bun run check concurrent            # full, with the unit tests moved beside both lanes: same steps, less wall time
 bun run check run bun test --timeout 15000 ./server/api.contract.test.ts   # one command on the same isolated herdr
 bun run check run --build bun scripts/ui-regression.ts                     # build and browser script under the same lock
 ```
@@ -44,6 +45,14 @@ checkout. (`check run` runs only its named command unless `--build` is supplied.
 Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
 eight slots again for its checkout and counts every active holder against its requested limit,
 including holders above its candidate range. A busy admission port refuses rather than waits.
+
+`check concurrent` runs the same steps as `check full`: workflow syntax, generated types,
+typecheck and build first, then the unit tests side by side with both lanes instead of before them.
+
+Unit tests run in parallel processes; `UNIT_TEST_WORKERS` sets the count (default: min(cores/2, 8)
+locally, 4 in CI). Each file runs independently in its own process; no shared state between
+processes. The queue is ordered largest file first, so long files start early. Without `sh`
+(native Windows) the files run serially in one process.
 Explicit `CHECK_DIR` and `CHECK_REPORT` paths are claimed exclusively by canonical path, even for
 `fast`, before writing reports, logs or isolated state. Pid markers are released at exit after the
 final report and session cleanup; a dead owner's marker is reclaimed under serialized admission.
@@ -119,6 +128,7 @@ bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quie
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/plugin-actions-demo-regression.ts # a plugin action that ends after the server stopped waiting: the late failure said, a traceback's height on a phone with its keyboard up
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
+bun scripts/narrow-pane-demo-regression.ts    # a split pane under 80 columns: the smaller font, its setting, a zoom, and a pane no font can bring to 80
 ```
 
 `FILE_VIEWER_CASE=landscape-notch` selects a viewer case; `FILE_VIEWER_CSS=/path/to/before.css` compares another stylesheet. These checks use Chromium mobile emulation and synthetic safe-area/keyboard geometry; they cannot verify actual iOS Safari keyboard dismissal or notch insets. The existing `bun scripts/file-viewer-regression.ts` separately checks history with an owned herdr pane. The original `scripts/mobile-viewport-regression.ts` exports `checkMobileViewport` for the real-app `bun run test:ui` suite; it also checks the command palette and xterm focus transitions. The demo runners build the real client into a temporary directory, inject the committed fictional-session transport and serve it only on loopback; they do not use a live herdr session or download website media. Run on its own, each builds the client itself (`scripts/demo-build.ts`); the browser lane builds it once and names the directory in `HERDR_DEMO_BUILD`, and each runner copies that instead. They exercise real-app viewport and alert geometry, but not live herdr connectivity.
