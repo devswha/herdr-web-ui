@@ -295,10 +295,10 @@ describe("WebSocket submit", () => {
     const order: string[] = [];
     const prompt = spyOn(herdr, "agentPrompt").mockImplementation(async () => { order.push("prompt"); });
     const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
-    // Claude draws the emptied box a moment after the keys
+    // The clearing step changes the box before the following read.
     const sendKeys = spyOn(herdr, "paneSendKeys").mockImplementation(async (_pane, keys) => {
       order.push(keys.join(" "));
-      setTimeout(() => { shown = claudeInputScreen("❯\u00a0"); }, 120);
+      shown = claudeInputScreen("❯\u00a0");
     });
     try {
       socket.send({ type: "submit", id: 66, pane_id: agent.pane, text: "이 스킬 pr 올려줘", payload: "이 스킬 pr 올려줘" });
@@ -306,13 +306,106 @@ describe("WebSocket submit", () => {
       expect(sendKeys).not.toHaveBeenCalled();
       socket.send({ type: "submit", id: 67, pane_id: agent.pane, text: "이 스킬 pr 올려줘", payload: "이 스킬 pr 올려줘", clear_draft: "ㅔ" });
       expect(await socket.result(67)).toMatchObject({ ok: true, pane_id: agent.pane });
-      expect(sendKeys).toHaveBeenCalledWith(agent.pane, ["ctrl+k", "ctrl+u"]);
+      expect(sendKeys).toHaveBeenCalledWith(agent.pane, ["ctrl+k", "ctrl+u"], undefined, expect.any(Function));
       expect(prompt).toHaveBeenCalledWith(agent.pane, "이 스킬 pr 올려줘");
       expect(order).toEqual(["ctrl+k ctrl+u", "prompt"]);
       expect(sendText).not.toHaveBeenCalled();
     } finally {
       sendKeys.mockRestore();
       sendText.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("leaves the named draft untouched when too little submit budget remains", async () => {
+    const hurried = createServer({ port: 0, stateDir: join(root, "push-named-hurried"), submitDeadlineMs: 1_000 });
+    const socket = await Socket.connect(hurried.port);
+    const clock = spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    let shown = claudeInputScreen("❯ named draft");
+    const screen = mockClaudeInput(agent.pane, () => shown);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockImplementation(async () => {
+      shown = claudeInputScreen("❯\u00a0");
+    });
+    try {
+      socket.send({ type: "submit", id: 73, pane_id: agent.pane, text: "chat message", payload: "chat message", clear_draft: "named draft" });
+      expect(await socket.result(73)).toMatchObject({ ok: false, code: "submit_timeout" });
+      expect(sendKeys).not.toHaveBeenCalled();
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      clock.mockRestore();
+      socket.close();
+      hurried.stop();
+    }
+  }, 30_000);
+
+  it("reports a partial outcome rather than nothing typed when the deadline expires after clearing", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("❯ named draft");
+    let now = 1_800_000_000_000;
+    const clock = spyOn(Date, "now").mockImplementation(() => now);
+    const screen = mockClaudeInput(agent.pane, () => shown);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockImplementation(async () => {
+      shown = claudeInputScreen("❯\u00a0");
+      now += SUBMIT_DEADLINE_MS + 1;
+    });
+    try {
+      socket.send({ type: "submit", id: 74, pane_id: agent.pane, text: "chat message", payload: "chat message", clear_draft: "named draft" });
+      expect(await socket.result(74)).toMatchObject({ ok: false, code: "submit_partial" });
+      expect(sendKeys).toHaveBeenCalledTimes(1);
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      clock.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("clears nothing when the named draft gained trailing whitespace", async () => {
+    const socket = await Socket.connect();
+    const screen = mockClaudeInput(agent.pane, claudeInputScreen("❯ named draft "));
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 75, pane_id: agent.pane, text: "chat message", payload: "chat message", clear_draft: "named draft" });
+      expect(await socket.result(75)).toMatchObject({ ok: false, code: "input_draft", draft: "named draft " });
+      expect(sendKeys).not.toHaveBeenCalled();
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      prompt.mockRestore();
+      screen.scroll.mockRestore();
+      screen.read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("rechecks the named draft immediately before clearing when text changes after the first observation", async () => {
+    const socket = await Socket.connect();
+    let reads = 0;
+    let cleared = false;
+    const screen = mockClaudeInput(agent.pane, () => cleared ? claudeInputScreen("❯\u00a0")
+      : claudeInputScreen(++reads <= 3 ? "❯ named draft" : "❯ typed since"));
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockImplementation(async () => { cleared = true; });
+    try {
+      socket.send({ type: "submit", id: 76, pane_id: agent.pane, text: "chat message", payload: "chat message", clear_draft: "named draft" });
+      expect(await socket.result(76)).toMatchObject({ ok: false, code: "input_draft", draft: "typed since" });
+      expect(sendKeys).not.toHaveBeenCalled();
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
       prompt.mockRestore();
       screen.scroll.mockRestore();
       screen.read.mockRestore();
@@ -381,6 +474,108 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("clears the chat's own last message Claude put back in its box after a cancel, then sends", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("❯\u00a0");
+    const originalRead = herdr.paneRead;
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const result = await originalRead(options, socketPath);
+      return options.paneId === agent.pane ? { ...result, text: shown } : result;
+    });
+    const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(null);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockImplementation(async (paneId, keys) => {
+      // Claude's Esc on its own restored copy empties the box
+      if (paneId === agent.pane && keys?.[0] === "esc") shown = claudeInputScreen("❯\u00a0");
+    });
+    try {
+      // the first send is what the box's copy is compared against
+      socket.send({ type: "submit", id: 40, pane_id: agent.pane, text: "chat message", payload: "chat message" });
+      expect(await socket.result(40)).toMatchObject({ ok: true });
+      // as on a cancel right after it: Claude removes the turn and puts the text back, typed
+      shown = claudeInputScreen("❯ chat message");
+      socket.send({ type: "submit", id: 41, pane_id: agent.pane, text: "second message", payload: "second message" });
+      expect(await socket.result(41)).toMatchObject({ ok: true });
+      // each Esc asks the sender's right again right before herdr is written to
+      expect(sendKeys.mock.calls).toEqual([[agent.pane, ["esc"], undefined, expect.any(Function)], [agent.pane, ["esc"], undefined, expect.any(Function)]]);
+      expect(prompt).toHaveBeenLastCalledWith(agent.pane, "second message");
+      expect(sendText).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      sendText.mockRestore();
+      prompt.mockRestore();
+      scroll.mockRestore();
+      read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("leaves Claude's restored copy alone when too little of the send's deadline is left to clear it and send", async () => {
+    // a deadline shorter than clearing takes: the Esc presses would erase the copy, then the send time out
+    const hurried = createServer({ port: 0, stateDir: join(root, "push-restored-hurried"), submitDeadlineMs: 1_000 });
+    const socket = await Socket.connect(hurried.port);
+    let shown = claudeInputScreen("\u276f\u00a0");
+    const originalRead = herdr.paneRead;
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const result = await originalRead(options, socketPath);
+      return options.paneId === agent.pane ? { ...result, text: shown } : result;
+    });
+    const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(null);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 44, pane_id: agent.pane, text: "chat message", payload: "chat message" });
+      expect(await socket.result(44)).toMatchObject({ ok: true });
+      shown = claudeInputScreen("\u276f chat message");
+      socket.send({ type: "submit", id: 45, pane_id: agent.pane, text: "second message", payload: "second message" });
+      expect(await socket.result(45)).toMatchObject({ ok: false, code: "submit_timeout" });
+      expect(sendKeys).not.toHaveBeenCalled();
+      expect(prompt).toHaveBeenCalledTimes(1);
+      expect(sendText).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      sendText.mockRestore();
+      prompt.mockRestore();
+      scroll.mockRestore();
+      read.mockRestore();
+      socket.close();
+      hurried.stop();
+    }
+  }, 30_000);
+
+  it("still refuses an immediate Claude chat send over a draft that is not the chat's own message", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("❯\u00a0");
+    const originalRead = herdr.paneRead;
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const result = await originalRead(options, socketPath);
+      return options.paneId === agent.pane ? { ...result, text: shown } : result;
+    });
+    const scroll = spyOn(herdr, "paneScrollInfo").mockResolvedValue(null);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 42, pane_id: agent.pane, text: "chat message", payload: "chat message" });
+      expect(await socket.result(42)).toMatchObject({ ok: true });
+      // the copy back in the box, typed on: the user's now, so it refuses and never presses Esc
+      shown = claudeInputScreen("❯ chat message, edited");
+      socket.send({ type: "submit", id: 43, pane_id: agent.pane, text: "second message", payload: "second message" });
+      expect(await socket.result(43)).toMatchObject({ ok: false, code: "input_draft" });
+      expect(sendKeys).not.toHaveBeenCalled();
+      expect(prompt).toHaveBeenCalledTimes(1);
+      expect(sendText).not.toHaveBeenCalled();
+    } finally {
+      sendKeys.mockRestore();
+      sendText.mockRestore();
+      prompt.mockRestore();
+      scroll.mockRestore();
+      read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
   it("rechecks authorization after reading Claude's input box", async () => {
     const socket = await Socket.connect();
     const entered = deferred();

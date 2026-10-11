@@ -194,7 +194,10 @@ export class MachineManager {
     for (const listener of this.listeners) listener(event ?? { type: "machines", machines: this.list() });
   }
   localMessage(message: ServerMessage): void {
-    if (["pane-status", "session-changed", "pane-exited"].includes(message.type)) {
+    // Structural invalidations queue a follow-up below without discarding the
+    // active read: continuous layout changes must not starve roster publication.
+    // Status/exit patches still outrank any snapshot asked for before them.
+    if (["pane-status", "pane-exited"].includes(message.type)) {
       this.localRevision++;
       if (this.localBusy) this.localRefreshQueued = true;
     }
@@ -607,7 +610,8 @@ export class MachineManager {
       if (generation !== runtime.generation || this.stopped) return;
       let message: ServerMessage;
       try { message = JSON.parse(String(event.data)); } catch { return; }
-      if (["snapshot", "pane-status", "pane-exited", "session-changed"].includes(message.type)) runtime.snapshotRevision++;
+      // session-changed queues one follow-up, but lets the active roster publish.
+      if (["snapshot", "pane-status", "pane-exited"].includes(message.type)) runtime.snapshotRevision++;
       if (message.type === "snapshot") { runtime.machine.snapshot = message.snapshot; this.push.seed(forAlerts(message.snapshot.panes), runtime.machine.id, runtime.machine.name); this.emit(); }
       if (message.type === "pane-status") {
         if (runtime.machine.snapshot) runtime.machine.snapshot = { ...runtime.machine.snapshot, panes: runtime.machine.snapshot.panes.map((p) => p.pane_id === message.pane_id ? paneAfterStatus(p, message) : p) };

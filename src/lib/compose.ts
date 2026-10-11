@@ -46,6 +46,11 @@ export function submitRefusal(code: string, message: string, draft?: string): st
   return submitNote(code, message);
 }
 
+/** The same message as typed, however a terminal wrapped or indented it: equal once all whitespace is gone. */
+export function sameMessage(a: string, b: string): boolean {
+  const bare = (text: string): string => text.replace(/[\s\u00a0]+/gu, "");
+  return bare(a) !== "" && bare(a) === bare(b);
+}
 export function submitNote(code: string, message: string): string {
   if (code === "agent_blocked") return t("Not sent: the agent is waiting for an answer in the terminal. Answer it first.");
   if (code === "read_only") return t("Not sent: this view only watches the pane.");
