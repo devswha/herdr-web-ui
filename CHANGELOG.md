@@ -184,6 +184,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   instead of selecting the missing PC and leaving the pane blank. Back or Forward that lands
   elsewhere than its entry named no longer drops the entries after it.
   ([#804](https://github.com/devswha/herdr-web-ui/pull/804) by @phirschybar)
+- An agent herdr names with an icon-font glyph (a private-use character) no longer shows that glyph as
+  a stray character beside the session's name: its fallback mark takes the first real letter.
+  ([#817](https://github.com/devswha/herdr-web-ui/pull/817) by @foxion37)
 
 ## [0.4.6] - 2026-10-11
 
