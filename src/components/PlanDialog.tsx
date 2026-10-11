@@ -4,6 +4,7 @@ import { Circle, CircleCheck, CircleDot, ListChecks, Workflow, X, type LucidePro
 import "./PlanDialog.css";
 
 import { useMachineApi } from "../lib/machineContext.tsx";
+import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import { clockOffsetMs, formatElapsed, spanMs } from "../lib/omoTasks.ts";
 import { FLOW, flowLayout, planWaves } from "../lib/plan.ts";
 import { useT } from "../lib/i18n.ts";
@@ -46,6 +47,7 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
   const { settings } = useSettings();
   const view = !settings.planFlow ? "steps" : picked ?? (steps?.some((step) => step.blocked_by.length > 0) ? "flow" : "steps");
   const closeRef = useRef<HTMLButtonElement>(null);
+  usePhoneSheetBack(onClose);
 
   useEffect(() => {
     let alive = true;

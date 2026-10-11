@@ -98,6 +98,23 @@ describe("a phone's sheet in the history", () => {
     expect(fake.at()).toBe(start);
   });
 
+  it("keeps the entry of a sheet that refuses Back while busy, and lets it go once it closes", async () => {
+    const start = fake.at();
+    let busy = true;
+    let asked = 0;
+    const leave = hooks.enter(() => { asked += 1; if (busy) return false; });
+    expect(fake.at()).toBe(start + 1);
+    h.back(); await settled();
+    expect(asked).toBe(1);
+    // the dialog stayed: its entry is back over the pane, so the next Back asks it again
+    expect(fake.at()).toBe(start + 1); expect(fake.marks()[start + 1]).toBe(true);
+    busy = false;
+    h.back(); await settled();
+    expect(asked).toBe(2); expect(fake.at()).toBe(start);
+    leave(); await settled();
+    expect(fake.at()).toBe(start);
+  });
+
   it("goes on past the entry of a sheet that Back closed when Forward lands on it", async () => {
     const start = fake.at();
     let closed = 0;

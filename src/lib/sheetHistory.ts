@@ -8,10 +8,13 @@
  * leaves its entry ahead of the app; Forward onto it goes on to the next.
  */
 import { useEffect, useRef } from "react";
+import { SHEET_QUERY } from "./sheets.ts";
+import { useMediaQuery } from "./useMediaQuery.ts";
 
 const KEY = "herdr-web-ui:sheet";
 
-const open = new Map<string, () => void>();
+/** what Back does to each open sheet: false refuses it (the sheet is busy), and the sheet keeps its entry */
+const open = new Map<string, () => boolean | void>();
 const leaving = new Map<string, ReturnType<typeof setTimeout>>();
 /** the address each sheet's entry was made on */
 const addresses = new Map<string, string>();
@@ -36,7 +39,7 @@ function owned(state: unknown): boolean {
 }
 
 /** Makes the sheet's entry (RowMenu's effect on mount; exported for its test). */
-export function enterSheet(onBack: () => void, reuse: string | null): string {
+export function enterSheet(onBack: () => boolean | void, reuse: string | null): string {
   // StrictMode's second mount, or a sheet reopened before its entry went: the same entry
   const timer = reuse === null ? undefined : leaving.get(reuse);
   if (reuse !== null && timer !== undefined && sheetOf(window.history.state) === reuse) {
@@ -90,7 +93,14 @@ if (typeof window !== "undefined") {
     for (const [id, onBack] of [...open]) {
       if (id === landed) continue;
       open.delete(id);
-      onBack();
+      if (onBack() !== false) continue;
+      // the sheet is busy and stays: its entry is made again over where Back landed
+      const base = window.history.state;
+      pushing = true;
+      try { window.history.pushState({ ...(base !== null && typeof base === "object" ? base : {}), [KEY]: id }, ""); }
+      finally { pushing = false; }
+      open.set(id, onBack);
+      addresses.set(id, window.location.href);
     }
     // the entry of a sheet that Back closed lies ahead of the app: Forward lands on it and goes on,
     // and the entry is an ordinary one from here
@@ -103,8 +113,8 @@ if (typeof window !== "undefined") {
   if (sheetOf(window.history.state) !== null) window.history.replaceState(without(window.history.state), "");
 }
 
-/** While `active`, the sheet holds a history entry; Back calls `onBack`. */
-export function useSheetHistory(active: boolean, onBack: () => void): void {
+/** While `active`, the sheet holds a history entry; Back calls `onBack`, which may return false to refuse (a busy sheet keeps its entry). */
+export function useSheetHistory(active: boolean, onBack: () => boolean | void): void {
   const latest = useRef(onBack);
   latest.current = onBack;
   const id = useRef<string | null>(null);
@@ -114,4 +124,14 @@ export function useSheetHistory(active: boolean, onBack: () => void): void {
     id.current = entry;
     return () => leaveSheet(entry);
   }, [active]);
+}
+
+/**
+ * A dialog that is a bottom sheet at phone width: there, while `open`, Back closes it (`onBack`) as
+ * it does a ⋯ menu; `onBack` returning false (the dialog is busy) keeps it and its entry. A wider
+ * screen keeps Back for the panes, with the dialog over them. A dialog that mounts another over
+ * itself (the file list under a file) passes `open` false meanwhile, so the one on top has the entry.
+ */
+export function usePhoneSheetBack(onBack: () => boolean | void, open = true): void {
+  useSheetHistory(useMediaQuery(SHEET_QUERY) && open, onBack);
 }
