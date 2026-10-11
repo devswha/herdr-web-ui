@@ -11,6 +11,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a phone, the system Back button closes an open ⋯ menu sheet instead of switching to the pane
   opened before, which it did since 0.4.7 made each pane a history entry. A sheet closed by Cancel,
   a swipe or one of its items leaves no extra Back step behind.
+- On a phone or other touch screen, a pane shown alone no longer draws its own ellipsis over the
+  chat or terminal, under the header's: its actions (rename, split, zoom, close) are in the tab's
+  ellipsis menu, between the tab's panes and the tab's own actions. A split pane on a wide touch
+  screen keeps its own menu.
 - On a phone, a long press on the chat selects text and offers copy as the phone does, instead of
   opening the pane's actions menu; on the terminal it opens no menu either. A right-click, or a
   menu asked for from the keyboard, still opens it.
