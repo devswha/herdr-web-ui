@@ -7,6 +7,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- Forest color preset with dark and light green-grey surfaces and matching terminal colors.
+
 ### Fixed
 - A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
   agent no longer turns into its chat when an agent starts in it, and an agent pane no longer

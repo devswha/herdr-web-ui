@@ -378,7 +378,15 @@ describe("palette", () => {
     expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
     expect(sanitizeSettings({ palette: "catppuccin" }).palette).toBe("catppuccin");
     expect(sanitizeSettings({ palette: "lilac" }).palette).toBe("lilac");
+    expect(sanitizeSettings({ palette: "forest" }).palette).toBe("forest");
     expect(sanitizeSettings({ palette: "pink" }).palette).toBe("amber");
+  });
+
+  it("preserves Forest through a saved settings round-trip and unrelated edits", () => {
+    const saved = sanitizeSettings({ palette: "forest", theme: "dark" });
+    const reloaded = sanitizeSettings(JSON.parse(JSON.stringify(saved)));
+    expect(reloaded.palette).toBe("forest");
+    expect(sanitizeSettings({ ...reloaded, theme: "light" }).palette).toBe("forest");
   });
 
   const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
@@ -400,6 +408,8 @@ describe("palette", () => {
     { theme: "light", palette: "catppuccin", layers: ['[data-theme="light"][data-palette="catppuccin"]', '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "lilac", layers: ['[data-theme="dark"][data-palette="lilac"]', ":root"] },
     { theme: "light", palette: "lilac", layers: ['[data-theme="light"][data-palette="lilac"]', '[data-theme="light"]', ":root"] },
+    { theme: "dark", palette: "forest", layers: ['[data-theme="dark"][data-palette="forest"]', ":root"] },
+    { theme: "light", palette: "forest", layers: ['[data-theme="light"][data-palette="forest"]', '[data-theme="light"]', ":root"] },
   ] as const;
   const tokens = (layers: readonly string[]) => (name: string): string =>
     layers.map((selector) => block(selector).match(new RegExp(`--${name}: ([^;]+);`))?.[1]).find((value) => value !== undefined)!;

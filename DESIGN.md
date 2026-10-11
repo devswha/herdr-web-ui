@@ -12,7 +12,7 @@ chrome color, amber: focus, the chosen lens, the terminal cursor and the user's 
 buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture. A dark report look, a neutral charcoal one, Catppuccin and lilac are
+changing information architecture. A dark report look, a neutral charcoal one, Catppuccin, lilac and forest are
 opt-in palettes (Settings → Appearance → Colors); amber stays the default and the look before settings load.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
@@ -69,12 +69,12 @@ paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the them
 
 ### Opt-in palettes
 
-`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`, `lilac`) is written as `data-palette`. The
-tables above are amber, the base blocks; the four opt-in palettes override them in
+`settings.palette` (`amber` default, `report`, `charcoal`, `catppuccin`, `lilac`, `forest`) is written as `data-palette`. The
+tables above are amber, the base blocks; the five opt-in palettes override them in
 `[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
-alone parts the bubble from `--bg`: dark amber, dark report, dark charcoal and dark lilac. It is `var(--border)`
+alone parts the bubble from `--bg`: dark amber, dark report, dark charcoal, dark lilac and dark forest. It is `var(--border)`
 where the two surfaces sit close: every light theme (the `[data-theme="light"]` block sets it for
 all palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
 
@@ -114,6 +114,11 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
   `#dcdaf4` / `#a5a2cc` / `#f2f1ff`, a pale lilac accent and primary `#b3abff` with `#17163a` text,
   states working `#85b8ff`, input `#ff94ad`, done `#92d9ab`, terminal `#18172f`, selection
   `#3a3768`. It keeps amber's rounded corners and card shadow, tinted indigo in light.
+
+- **Forest** uses low-saturation green-grey surfaces for long sessions. The full dark and light
+  token values are in the Forest blocks of `src/styles.css`. Both themes use green accents,
+  cyan working states, red input states and green done states. Terminal colors and the browser
+  title bar follow the panel surface. This is a preference, not a claim about medical eye comfort.
 
 ### Terminal theme
 
@@ -222,7 +227,7 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
-- `palette`: `amber`, `report`, `charcoal`, `catppuccin` or `lilac`; default `amber`.
+- `palette`: `amber`, `report`, `charcoal`, `catppuccin`, `lilac` or `forest`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - `sidebarRows`: `one` or `two`; default `two`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.

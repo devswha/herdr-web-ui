@@ -130,6 +130,18 @@ try {
               await body.getByRole("button", { name: copyLabel("codex"), exact: true }).filter({ hasText: label("Copied") }).waitFor();
               assert.equal(await page.evaluate(() => navigator.clipboard.readText()), install("codex"));
             }
+            if (name === "Appearance" && language === "en") {
+              const palette = page.getByLabel("Colors", { exact: true });
+              await palette.selectOption("forest");
+              await page.waitForFunction(() => document.documentElement.dataset.palette === "forest");
+              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).palette), "forest");
+              const colors = await page.evaluate(() => {
+                const root = getComputedStyle(document.documentElement);
+                return { background: root.getPropertyValue("--bg-panel").trim(), text: root.getPropertyValue("--text").trim(), accent: root.getPropertyValue("--accent").trim() };
+              });
+              assert.deepEqual(colors, { background: "#16231d", text: "#d4e5d8", accent: "#8fd3a2" }, "Forest applies its dark surface, text and accent tokens");
+              if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `forest-palette-${width}.png`), fullPage: true });
+            }
             assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }
           await openSettingsPage(page, label("Terminal"), label("Back to settings"));

@@ -53,6 +53,7 @@ export const JA: Record<string, string> = {
   "Amber": "アンバー",
   "Catppuccin": "Catppuccin",
   "Lilac": "ライラック",
+  "Forest": "フォレスト",
   "Density": "表示密度",
   "Comfortable": "ゆったり",
   "Compact": "コンパクト",
