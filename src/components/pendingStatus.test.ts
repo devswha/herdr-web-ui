@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { pendingStatus } from "./PendingMessages.tsx";
+import { pendingStatus as status } from "./PendingMessages.tsx";
+
+const pendingStatus = (message: Parameters<typeof status>[0], busy: boolean) => status(message, busy, String);
 
 describe("pending row status", () => {
   it("says a held message waits for Send now only while this connection holds it on the bridge", () => {
