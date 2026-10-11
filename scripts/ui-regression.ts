@@ -499,14 +499,14 @@ try {
   const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
   // what the running step's time held, and what was done while none ran
   const parserWork = {
-    tools: [{ name: "Bash", count: 5 }, { name: "Edit", count: 3 }, { name: "Agent", count: 1 }],
+    tools: [{ name: "Bash", count: 5 }, { name: "Edit", count: 3 }, { name: "Agent", count: 2 }],
     recent: [
       { at: minutesAgo(6), tool: "Edit", detail: "server/session-plan.ts" },
       { at: minutesAgo(4), tool: "Agent", detail: "Review the parser" },
       { at: minutesAgo(1), tool: "Bash", detail: "bun test server/session-plan.test.ts" },
     ],
     last_at: minutesAgo(1),
-    agents: [{ id: "a1", label: "Review the parser", type: "reviewer" }],
+    agents: [{ id: "a1", label: "Review the parser", type: "reviewer", status: "started" }, { id: null, label: "Lint the parser", type: "linter", status: "failed" }],
     background: [{ id: "b1", command: "bun run build", status: "running" }],
   };
   const outsideWork = { tools: [{ name: "Bash", count: 2 }], recent: [{ at: minutesAgo(30), tool: "Bash", detail: "git status" }], last_at: minutesAgo(30), agents: [], background: [] };
@@ -554,9 +554,11 @@ try {
   const detail = planDialog.getByRole("region", { name: "Step details" });
   await detail.waitFor();
   assert.equal(await parserBox.getAttribute("aria-expanded"), "true");
-  assert.match(await detail.locator(".plan-detail-tools").textContent() ?? "", /^9 tool calls · last action 1m \d+s agoBash 5 · Edit 3 · Agent 1$/);
+  assert.match(await detail.locator(".plan-detail-tools").textContent() ?? "", /^10 tool calls · last action 1m \d+s agoBash 5 · Edit 3 · Agent 2$/);
   assert.deepEqual(await detail.locator(".plan-detail-list").first().locator(".plan-detail-tool").allTextContents(), ["Bash", "Agent", "Edit"], "the last call first");
   await until(async () => (await detail.locator("li", { hasText: "reviewer" }).textContent())?.includes("Review the parserreviewer · running") ?? false, "the subagent's state from the pane's subagent list");
+  // a launch answered with an error is listed as failed, not asked of the subagent list
+  assert.equal(await detail.locator("li.is-failed", { hasText: "Lint the parser" }).textContent(), "Lint the parserlinter · failed");
   assert.match(await detail.locator("li", { hasText: "bun run build" }).textContent() ?? "", /running$/);
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-detail.png") });
   // what was done while no step ran has a detail of its own

@@ -328,9 +328,11 @@ function StepDetail({ boxRef, id, paneId, label, status, meta, active, activity,
               <ul className="plan-detail-list">
                 {activity.agents.map((agent, index) => {
                   const task = agent.id === null ? undefined : agents.get(agent.id);
-                  const facts = [agent.type, task ? agentWords[task.status] : null, task?.tokens == null ? null : t("{n} tokens", { n: formatTokens(task.tokens) })].filter((fact) => fact !== null);
+                  // a launch that failed is no subagent of the list: its state is the launch's
+                  const state = agent.status === "failed" ? "failed" : task?.status;
+                  const facts = [agent.type, state ? agentWords[state] : null, task?.tokens == null ? null : t("{n} tokens", { n: formatTokens(task.tokens) })].filter((fact) => fact !== null);
                   return (
-                    <li key={`${index}-${agent.id ?? ""}`} className={task ? `is-${task.status}` : undefined}>
+                    <li key={`${index}-${agent.id ?? ""}`} className={state ? `is-${state}` : undefined}>
                       <span className="plan-detail-what">{agent.label}</span>
                       {facts.length > 0 && <span className="plan-detail-when">{facts.join(" · ")}</span>}
                     </li>

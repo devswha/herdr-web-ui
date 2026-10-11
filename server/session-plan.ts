@@ -213,7 +213,7 @@ function claudeLine(read: Read, line: string): void {
       const into = running(read);
       record(into, at, name, claudeDetail(name, input));
       if (name === "Agent" || name === "Task") {
-        const agent = { id: null, label: clip(input["description"]) ?? name, type: words(input["subagent_type"]) };
+        const agent: PlanActivity["agents"][number] = { id: null, label: clip(input["description"]) ?? name, type: words(input["subagent_type"]), status: "started" };
         for (const held of into) if (held.agents.length < MAX_STARTED) held.agents.push(agent);
         read.started.set(block["id"], { agent, into });
       } else if (name === "Bash") {
@@ -228,8 +228,8 @@ function claudeLine(read: Read, line: string): void {
     if (start !== undefined) {
       read.started.delete(block["tool_use_id"]);
       if ("agent" in start) {
-        // a launch that failed started no subagent: the call stays counted, the agent goes
-        if (block["is_error"] === true) for (const held of start.into) held.agents = held.agents.filter((agent) => agent !== start.agent);
+        // a launch answered with an error started no subagent: it stays listed, as failed
+        if (block["is_error"] === true) start.agent.status = "failed";
         else start.agent.id = words(answer?.["agentId"]) ?? start.agent.id;
       }
       else {
@@ -312,7 +312,7 @@ function codexLine(read: Read, line: string): void {
       record(into, at, name, codexDetail(name, parsed ?? {}, null));
       // a subagent Codex starts is named by its task; its message is not kept in the clear
       if (name === "spawn_agent") {
-        const agent = { id: null, label: clip(parsed?.["task_name"]) ?? name, type: words(parsed?.["agent_type"]) };
+        const agent: PlanActivity["agents"][number] = { id: null, label: clip(parsed?.["task_name"]) ?? name, type: words(parsed?.["agent_type"]), status: "started" };
         for (const held of into) if (held.agents.length < MAX_STARTED) held.agents.push(agent);
       }
       return;

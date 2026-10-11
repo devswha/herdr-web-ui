@@ -497,8 +497,8 @@ export interface PlanActivity {
   /** the last few calls, oldest first; `detail`: the command, file or pattern it was given */
   recent: { at: string | null; tool: string; detail: string | null }[];
   last_at: string | null;
-  /** the subagents it started (Claude's `Agent` tool); `id` is the agent's once its launch was answered */
-  agents: { id: string | null; label: string; type: string | null }[];
+  /** the subagents it started (Claude's `Agent` tool); `id` is the agent's once its launch was answered; `failed`: its launch was answered with an error */
+  agents: { id: string | null; label: string; type: string | null; status: "started" | "failed" }[];
   /** the commands it left running in the background, and how each ended once that was told */
   background: { id: string; command: string; status: "running" | "completed" | "failed" | "cancelled" }[];
 }

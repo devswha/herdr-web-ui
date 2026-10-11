@@ -832,8 +832,9 @@ One set for both themes: the card is island black wherever it shows.
   hairline card: the step's name and glyph with a close button, the meta line, what a running
   step does now, then `N tool calls · last action … ago` over a tally by tool, the last five
   calls newest first (mono tool name, what it was given, a dim time), the subagents it started
-  (their type, state and tokens from the pane's subagent list) and its background commands (state
-  in `--status-working`, `--status-done` or `--status-blocked`). No percentage: nothing in the
+  (their type, state and tokens from the pane's subagent list; a launch that failed reads `failed`)
+  and its background commands (state in `--status-working`, `--status-done` or `--status-blocked`).
+  No percentage: nothing in the
   transcript measures one. Work done while no step ran opens from a dashed `Work outside the
   steps · N calls` chip under the flow. On a phone the detail is brought into view as it opens.
 

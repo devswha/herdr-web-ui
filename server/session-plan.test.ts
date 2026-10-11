@@ -145,7 +145,7 @@ describe("readPlan (Claude Code task list)", () => {
         { at: at(7), tool: "Bash", detail: "bun run build" },
       ],
       last_at: at(7),
-      agents: [{ id: "a1", label: "Review the diff", type: "reviewer" }],
+      agents: [{ id: "a1", label: "Review the diff", type: "reviewer", status: "started" }],
       background: [{ id: "b1", command: "bun run build", status: "failed" }],
     });
     expect(plan.steps[1]!.activity?.recent).toEqual([{ at: at(10), tool: "Read", detail: "w/README.md" }]);
@@ -156,7 +156,7 @@ describe("readPlan (Claude Code task list)", () => {
     expect(readPlanDetail("claude-transcript", s.path)).toEqual({ steps: [expect.not.objectContaining({ activity: expect.anything() })], outside: null });
   });
 
-  it("counts an Agent call whose launch failed as a call, not as a subagent it started", () => {
+  it("keeps an Agent call whose launch failed as a failed subagent, and counts the call", () => {
     const s = claude();
     const a = s.create("Review", 1);
     s.update({ taskId: a, status: "in_progress" }, 1);
@@ -165,7 +165,10 @@ describe("readPlan (Claude Code task list)", () => {
     const activity = readPlan("claude-transcript", s.path)![0]!.activity!;
     expect(activity.tools).toEqual([{ name: "Agent", count: 2 }]);
     expect(activity.recent.map((call) => call.detail)).toEqual(["Broken review", "Real review"]);
-    expect(activity.agents).toEqual([{ id: "a2", label: "Real review", type: "reviewer" }]);
+    expect(activity.agents).toEqual([
+      { id: null, label: "Broken review", type: "nope", status: "failed" },
+      { id: "a2", label: "Real review", type: "reviewer", status: "started" },
+    ]);
   });
 
   it("keeps a command the person sent to the background, which its answer names", () => {
@@ -224,7 +227,7 @@ describe("readPlan (Codex checklist)", () => {
     call("shell", 3, { command: ["bash", "-lc", "bun test"] });
     f.add({ timestamp: at(4), type: "response_item", payload: { type: "custom_tool_call", call_id: "p4", name: "apply_patch", input: "*** Begin Patch\n*** Update File: src/lib/app.ts\n@@\n-a\n+b\n*** Add File: docs/x.md\n+x\n*** End Patch" } });
     call("spawn_agent", 4, { task_name: "fix_review", agent_type: "reviewer", message: "gAAAA-sealed" });
-    expect(readPlanDetail("codex-transcript", f.path)!.steps[0]!.activity?.agents).toEqual([{ id: null, label: "fix_review", type: "reviewer" }]);
+    expect(readPlanDetail("codex-transcript", f.path)!.steps[0]!.activity?.agents).toEqual([{ id: null, label: "fix_review", type: "reviewer", status: "started" }]);
     call("update_plan", 5, { plan: [{ step: "Fix", status: "completed" }] });
     call("exec_command", 6, { cmd: "git push" });
     let plan = readPlanDetail("codex-transcript", f.path)!;
