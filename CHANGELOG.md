@@ -47,10 +47,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 
 ### Fixed
-- An agent chat without a structured conversation no longer waits on hidden terminal output.
-  Opening the terminal disclosure reads it independently, and chat header and body reads give up
-  after 15 seconds.
-  ([#791](https://github.com/devswha/herdr-web-ui/pull/791) by @kilhyeonjun)
 - A Claude Code chat whose session continued in a new transcript file (the old file holds only
   a `continued-in` record) now shows the conversation from the file Claude writes to, instead of
   an empty chat.
@@ -69,6 +65,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the card stays up with the cursor on its **Submit** row. A pick there used to untick the row
   instead of answering.
   ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- An agent chat without a structured conversation no longer waits on hidden terminal output. Opening the terminal disclosure reads it independently; chat header/body reads have a 15-second deadline.
+  ([#791](https://github.com/devswha/herdr-web-ui/pull/791) by @kilhyeonjun)
 - A Claude `/model` list whose hint a narrow pane wraps inside a word or over more than six lines
   is still recognised, so a pending message waits instead of pressing Enter on it, and the same
   words quoted in Claude's output no longer hold pending messages.
