@@ -8,6 +8,8 @@
  * leaves its entry ahead of the app; Forward onto it goes on to the next.
  */
 import { useEffect, useRef } from "react";
+import { SHEET_QUERY } from "./sheets.ts";
+import { useMediaQuery } from "./useMediaQuery.ts";
 
 const KEY = "herdr-web-ui:sheet";
 
@@ -114,4 +116,12 @@ export function useSheetHistory(active: boolean, onBack: () => void): void {
     id.current = entry;
     return () => leaveSheet(entry);
   }, [active]);
+}
+
+/**
+ * A dialog that is a bottom sheet at phone width: there, while `open`, Back closes it (`onBack`) as
+ * it does a ⋯ menu. A wider screen keeps Back for the panes, with the dialog over them.
+ */
+export function usePhoneSheetBack(onBack: () => void, open = true): void {
+  useSheetHistory(useMediaQuery(SHEET_QUERY) && open, onBack);
 }
