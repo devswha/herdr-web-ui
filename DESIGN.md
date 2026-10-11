@@ -796,6 +796,10 @@ One set for both themes: the card is island black wherever it shows.
 - Markdown supports headings, lists (a task item `- [x]` / `- [ ]` shows a checked or empty box in
   place of its bullet, not clickable), links, quotes, tables, inline/fenced code and code-copy
   actions.
+  Markdown files use the same renderer in the file viewer. **Open in a new tab** opens an
+  app link to the resolved absolute file on its own PC, independent of the originating pane.
+  **Open raw file** (Code glyph) opens the original bytes; Download still saves those bytes.
+  Both use the existing header icon-button primitive, labels and focus states.
   A link keeps `--accent` and a file chip reads in `--text-strong` with a dotted underline; both
   underlines are `--text-dim` at rest and both take the accent on hover and focus-visible.
   Code blocks are `--radius-lg` and never scroll inside: one longer than 30 lines opens at its

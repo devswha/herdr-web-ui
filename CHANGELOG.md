@@ -8,6 +8,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Turkish (Türkçe) UI translation: a full `i18n.tr.ts` dictionary, the language in the Settings menu with browser detection, and a Turkish README. ([#815](https://github.com/devswha/herdr-web-ui/pull/815) by @fitzgpt)
 - Native conversation transcripts for Hermes Agent: turns, thinking blocks, and tool calls are read directly from its SQLite session store. ([#604](https://github.com/devswha/herdr-web-ui/pull/604) by @RikiSanjayaa)
   This server change needs a `REMOTE_BUNDLE_VERSION` bump at release so remote PCs can read Hermes transcripts.
 - **Deep links.** The address now says where you are, and opens there: the PC, the workspace (by id and a short slug of its name, so `?ws=w2K-herdr-web-ui&pane=w2K:p1&view=chat` reads like the place), the pane and its lens, an open file, a Settings page and group (`&settings=about&section=updates`), the New workspace dialog with its fields filled (`?new=workspace&cwd=…&name=…&agent=…`; a link never creates anything), and a collapsed sidebar (`&sidebar=hidden`). Opening another pane is a history entry, so Back returns to the last one. A link to a pane that has closed opens its workspace, a link to nothing open says so, and **Copy link** in the header's More menu copies the address on a phone.
@@ -97,6 +98,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   every pane squeezed into herdr's grid (since 0.4.6). The tab's menu lists the tab's panes to
   switch between them. Wider screens keep the split, and herdr's own layout is not changed.
   ([#819](https://github.com/devswha/herdr-web-ui/pull/819))
+- Markdown files opened in a new tab keep their rendered preview instead of showing source.
+  The link stays on the file's PC without requiring its original pane; Open raw file and Download
+  still provide the original contents. ([#823](https://github.com/devswha/herdr-web-ui/pull/823))
 - Chat hides a rejected conversation immediately, even when reading its terminal fallback
   is slow or fails, so removed history does not remain on screen.
   ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)

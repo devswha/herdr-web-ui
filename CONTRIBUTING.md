@@ -76,8 +76,8 @@ running terminals: see [development](docs/development.md#checks).
   contract test (`server/api.contract.test.ts` for endpoints). A test that needs a live herdr is named
   `*.contract.test.ts`.
 - **herdr wire types:** never edit `shared/herdr-api.generated.ts`; run `bun run generate:types`.
-- **UI text:** every new `t("…")` string needs an entry in `src/lib/i18n.ko.ts`, `i18n.ja.ts` and
-  `i18n.zh.ts`, with the same placeholders. `bun run test:unit` fails on a missing, unused or
+- **UI text:** every new `t("…")` string needs an entry in `src/lib/i18n.ko.ts`, `i18n.ja.ts`,
+  `i18n.zh.ts` and `i18n.tr.ts`, with the same placeholders. `bun run test:unit` fails on a missing, unused or
   untranslated entry.
 - **UI:** component CSS uses the tokens in `src/styles.css` (see [DESIGN.md](DESIGN.md)); attach a
   screenshot or recording from a test or demo session.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, ExternalLink, X } from "lucide-react";
+import { Code, Download, ExternalLink, X } from "lucide-react";
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import { Markdown, MarkdownImageContext } from "./Markdown.tsx";
@@ -14,6 +14,7 @@ import { MAX_INLINE_IMAGE_BYTES, markdownImagePreview } from "../lib/markdownIma
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
 import { readFilePreviewText } from "../lib/filePreviewText.ts";
+import { linkSearch } from "../lib/deepLink.ts";
 
 /** Text shows its first part: the rest is a download away. */
 const TEXT_PREVIEW_BYTES = 256 * 1024;
@@ -38,7 +39,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const { fetchFileInfo, fileUrl, fetchDirectories } = useMachineApi();
   // a remote PC's bridge reads a relative folder from the pane's folder only from its next bundle
   // on; until then it would list the bridge's own folder, so only an absolute or ~/ one is listed there
-  const remote = useMachineId() !== LOCAL_MACHINE;
+  const machineId = useMachineId();
+  const remote = machineId !== LOCAL_MACHINE;
   const [directory, setDirectory] = useState<string | null>(null);
   // the path as given, until a choice among files of that name replaces it
   const [path, setPath] = useState(asked);
@@ -99,6 +101,11 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // the file found (a bare name may have been found deeper in the folder), else as asked
   const url = fileUrl(info?.path ?? path, paneId);
   const filePath = info?.path ?? path;
+  const markdown = info?.kind === "text" && /\.(?:md|markdown)$/i.test(info.name);
+  const previewUrl = `${window.location.pathname}${linkSearch({
+    machine: machineId, workspace: null, pane: null, view: null,
+    file: filePath, settings: null,
+  })}`;
   // images of a markdown file load through the file endpoint, as the file itself does
   const imagePreview = useCallback((src: string) => markdownImagePreview(
     src, filePath, (target) => fetchFileInfo(target, paneId), (target, download) => fileUrl(target, paneId, download),
@@ -124,7 +131,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
-          {/\.(?:md|markdown)$/i.test(info.name)
+          {markdown
             ? <MarkdownImageContext.Provider value={imagePreview}><Markdown className="file-viewer-markdown">{text}</Markdown></MarkdownImageContext.Provider>
             : <pre className="file-viewer-text">{text}</pre>}
           {textTruncated && (textTotal ?? 0) <= TEXT_PREVIEW_BYTES ? <p className="file-viewer-note">{t("Only part of this file is shown. Download it to read the rest.")}</p>
@@ -146,7 +153,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
               <span className="file-viewer-path"><span dir="ltr">{info?.path ?? path}</span></span>
             </p>
           </div>
-          <a className="icon-button" href={url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>
+          <a className="icon-button" href={markdown ? previewUrl : url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>
+          {markdown && <a className="icon-button" href={url} target="_blank" rel="noopener" aria-label={t("Open raw file")} title={t("Open raw file")}><Code aria-hidden="true" /></a>}
           <a className="icon-button" href={fileUrl(info?.path ?? path, paneId, true)} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
           <button type="button" className="icon-button" aria-label={t("Close file")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>

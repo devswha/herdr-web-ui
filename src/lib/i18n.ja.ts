@@ -372,6 +372,7 @@ export const JA: Record<string, string> = {
   "Showing the first {shown} of {total}.": "{total} 件中、最初の {shown} 件を表示しています。",
   "This image is {size}; download it to view.": "この画像は {size} です。表示するにはダウンロードしてください。",
   "Open in a new tab": "新しいタブで開く",
+  "Open raw file": "元のファイルを開く",
   "Download": "ダウンロード",
   "Close file": "ファイルを閉じる",
   "No readable file at this path.": "このパスに読み取り可能なファイルはありません。",
