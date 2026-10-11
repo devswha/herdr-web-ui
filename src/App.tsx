@@ -15,7 +15,7 @@ import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDial
 import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
-import { onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
+import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
 import { isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -153,9 +153,9 @@ export function App() {
     // a link's lens is drawn over its pane's own, as a tapped notification's is (notificationViewTarget below)
     if (!linksSomewhere(window.location.search)) return null;
     const link = readLink(window.location.search);
-    // a load onto an entry Settings left (a reload) steps out of it (lib/settingsHistory.ts), and that
-    // step may land after this is read: the dialog the address still names is the one that load closed
-    return settingsEntry(window.history.state) === null ? link : { ...link, settings: null, section: null };
+    // a load onto an entry Settings left (a reload) steps out of it (lib/settingsHistory.ts): the
+    // dialog its address names, on that entry or on the one stepped back to, is the one it closed
+    return loadedOnSettingsEntry() ? { ...link, settings: null, section: null } : link;
   });
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     if (initialLink && (initialLink.pane || initialLink.workspace)) return initialLink.machine;

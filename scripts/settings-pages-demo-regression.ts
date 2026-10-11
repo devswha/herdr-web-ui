@@ -330,6 +330,18 @@ try {
         assert.equal(await page.evaluate(() => (window as unknown as { settingsShown: boolean }).settingsShown), false, "a reload never shows Settings, however late its step back lands");
         assert.deepEqual(errors, []);
         console.log("PASS the X from the key bar editor and a reload leave no Settings entry in the history");
+
+        // a link to Settings opens it, and a reload there closes it as well: the entry the reload
+        // steps back to is the one the link opened, whose address names Settings still
+        await page.goto(`${url}?settings=about`);
+        await dialog.getByRole("tabpanel", { name: "About", exact: true }).waitFor();
+        await historyHolds(page, "a link to Settings", () => (history.state as Record<string, { page: string; depth: number }> | null)?.["herdr-web-ui:settings"]?.page === "about");
+        await page.reload();
+        await page.locator(".conn-live").waitFor({ state: "attached" });
+        await historyHolds(page, "the reload on a linked Settings", () => (history.state as Record<string, unknown> | null)?.["herdr-web-ui:settings"] === undefined && !new URLSearchParams(window.location.search).has("settings"));
+        assert.equal(await page.locator(".settings-dialog").count(), 0, "a reload closes the Settings a link opened");
+        assert.deepEqual(errors, []);
+        console.log("PASS a link to Settings opens it, and a reload there closes it");
       } finally {
         await phone.close();
       }
