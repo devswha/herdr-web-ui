@@ -28,11 +28,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Antigravity chat reads native messages and tool activity, follows the running process’s
   active conversation, and honors saved rewind boundaries.
   See [compatibility and validation](docs/agy-chat.md).
+  ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
 - Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
   choice, a typed answer for its "Other" row and for an open question, and ticks for a question
   that takes several answers. Text already on its answer line is cleared first, so it does not
   join the answer.
   ([#750](https://github.com/devswha/herdr-web-ui/pull/750) by @DarkoKuzmanovic, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Settings → Appearance → Colors offers **Forest**, a low-saturation green-grey palette for long
+  sessions, in dark and light, with matching terminal and title-bar colors.
+  ([#775](https://github.com/devswha/herdr-web-ui/pull/775) by @vibewriter-hand)
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
@@ -49,6 +53,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - Chat hides a rejected conversation immediately, even when reading its terminal fallback
   is slow or fails, so removed history does not remain on screen.
+  ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
+- A Claude Code chat whose session continued in a new transcript file (the old file holds only
+  a `continued-in` record) now shows the conversation from the file Claude writes to, instead of
+  an empty chat.
+  ([#779](https://github.com/devswha/herdr-web-ui/pull/779) by @vibewriter-hand)
 - A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
   agent no longer turns into its chat when an agent starts in it, and an agent pane no longer
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
