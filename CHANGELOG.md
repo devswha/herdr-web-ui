@@ -37,6 +37,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   is visible and focused, on any device, no device gets an alert. Alerts resume once no window
   is in use, and **Send test** still always sends.
   ([#759](https://github.com/devswha/herdr-web-ui/pull/759))
+- A click in the terminal while an arrow key is still on its way to herdr reaches the program as
+  a click, instead of being typed into it as the raw characters of a mouse report.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- OmO's side panel no longer draws a dotted line under its file, goal and memory rows in the
+  terminal: a link the app cannot open is no longer underlined.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
 
 ## [0.4.6] - 2026-10-11
 
