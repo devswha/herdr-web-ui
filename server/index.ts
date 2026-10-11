@@ -1542,7 +1542,7 @@ export function createServer(
       }
       if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
       if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
-        return handlePortalRequest(request, pathname, options.portal, { here: loopback && !forwarded, port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
+        return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
       }
       if (pathname === "/api/telemetry") return handleTelemetryRequest(request, options.telemetry);
 
@@ -2888,7 +2888,8 @@ export function createServer(
   });
 
   const registration = options.registerBridge ? registerBridge(server.port ?? 0, bridgeToken) : null;
-  // an address left on comes back with the server (an app update restarts it)
+  // a Portal the last server left running stops, and an address left on comes back (an app
+  // update restarts the server)
   void options.portal?.resume({ port: server.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
 
   // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
@@ -2910,7 +2911,7 @@ export function createServer(
       claudeAgents.stop();
       clearInterval(waitTimer);
       machines?.stop();
-      options.portal?.shutdown();
+      void options.portal?.shutdown();
       registration?.close();
       for (const client of clients) killWatches(client);
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
@@ -2923,7 +2924,8 @@ if (import.meta.main) {
   const updates = connectUpdater();
   const version = (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as { version: string }).version;
   const telemetry = new Telemetry({ stateDir: defaultStateDir(), version, env: process.env, fetch, previousVersion: () => updates.installed().previous_version });
-  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal: new PortalService({ stateDir: defaultStateDir() }), telemetry, registerBridge: true });
+  const portal = new PortalService({ stateDir: defaultStateDir() });
+  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true });
   telemetry.start();
   let stopping = false;
   const shutdown = () => {
@@ -2931,8 +2933,9 @@ if (import.meta.main) {
     stopping = true;
     telemetry.stop();
     instance.stop();
-    // Attach sidecars need ~1.2s to release herdr's exclusive client slot.
-    setTimeout(() => process.exit(0), 2000);
+    // Attach sidecars need ~1.2s to release herdr's exclusive client slot; Portal unregisters from
+    // its relay, and the pipes it logs to must outlive it
+    void Promise.all([Bun.sleep(2000), portal.shutdown()]).then(() => process.exit(0));
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

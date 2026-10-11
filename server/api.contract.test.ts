@@ -363,7 +363,7 @@ describe("phone access", () => {
 });
 
 describe("Portal API", () => {
-  it("opens a public address only for this PC itself, and lets any signed-in client close it", async () => {
+  it("opens a public address only behind the token, and closes it again", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-portal-api-"));
     const standIn = join(state, "stand-in-portal");
     writeFileSync(standIn, [
@@ -380,18 +380,12 @@ describe("Portal API", () => {
     const server = createServer({ port: 0, stateDir: state, token: "test-portal-token", portal: new PortalService({ stateDir: state, bin: standIn, fetch: relay }) });
     const url = `http://127.0.0.1:${server.port}/api/portal`;
     const signedIn = { authorization: "Bearer test-portal-token" };
-    // what any proxy on this PC sends, Portal's own address included
-    const proxied = { ...signedIn, "x-forwarded-for": "203.0.113.7" };
     const post = (action: string, headers: Record<string, string>) => fetch(`${url}/${action}`, { method: "POST", headers: { ...headers, "x-herdr-update": "1", "content-type": "application/json" }, body: JSON.stringify({ relay: "relay.example" }) });
     const status = async (headers: Record<string, string> = signedIn) => await (await fetch(url, { headers })).json() as PortalStatus;
     try {
       expect((await fetch(url)).status).toBe(401);
-      expect(await status()).toMatchObject({ supported: true, usable: true, here: true, blocked: null, phase: "idle" });
-      expect(await status(proxied)).toMatchObject({ here: false });
-      const refused = await post("start", proxied);
-      expect(refused.status).toBe(403);
-      expect((await refused.json() as ApiError).error.code).toBe("portal_not_here");
-
+      expect(await status()).toMatchObject({ supported: true, usable: true, blocked: null, phase: "idle" });
+      expect((await post("start", {})).status).toBe(401);
       expect((await post("start", signedIn)).status).toBe(202);
       const deadline = Date.now() + 10_000;
       let running = await status();
@@ -401,7 +395,7 @@ describe("Portal API", () => {
         running = await status();
       }
       expect(running).toMatchObject({ phase: "running", url: "https://herdr-test-0123.relay.example", relay: "https://relay.example" });
-      expect((await post("stop", proxied)).status).toBe(202);
+      expect((await post("stop", signedIn)).status).toBe(202);
       expect((await status()).url).toBeNull();
     } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
   });

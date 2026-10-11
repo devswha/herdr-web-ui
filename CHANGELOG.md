@@ -10,11 +10,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Added
 - **Settings → Phone & devices → Portal** gives this PC a public HTTPS address through
   [Portal](https://github.com/gosuda/portal-tunnel), with no account and no domain of your own.
-  On the PC itself, **Install Portal** downloads Portal's official v2.6.1 release, checked against
-  the digest the app carries, and **Start** runs it in routed mode on a relay you enter, without
-  passing on a visitor's Tailscale login. It starts only with `HERDR_WEB_TOKEN` set. The address
-  and its QR code show on every signed-in device, any device that can type stops it, and one left
-  on comes back when the app restarts.
+  With Portal v2.6.1 or later installed, **Start** runs it on a relay you enter, dropping any
+  `Tailscale-User-Login` header a visitor sends; it starts only with `HERDR_WEB_TOKEN` set. The
+  address and its QR code show on every signed-in device, any device that can type into your
+  terminals can stop it, and an address left on comes back when the app restarts.
 - herdr's pane layout operations from the web: a tab's menu (right-click a tab, or its chevron;
   a bottom sheet on a phone) now offers **Split right** and **Split down** (herdr's prefix+v and
   prefix+-), **Zoom pane** (prefix+z), **Swap left / right / up / down** with the pane's

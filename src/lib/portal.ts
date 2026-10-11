@@ -3,12 +3,12 @@ import type { PortalStatus } from "../../shared/protocol.ts";
 import { fetchPortal, requestPortal } from "./api.ts";
 import { usePageVisible } from "./visibility.ts";
 
-/** the address appears or goes with these, so they are followed closely */
-export const PORTAL_SETTLING: ReadonlySet<PortalStatus["phase"]> = new Set(["installing", "starting", "stopping"]);
+/** the address comes or goes with these, so they are followed closely */
+const SETTLING: ReadonlySet<PortalStatus["phase"]> = new Set(["starting", "stopping"]);
 
 /**
- * Portal's public address, which the server opens on its own PC (server/portal.ts). Asked while
- * Settings → Phone & devices is open.
+ * Portal's public address, which the server opens with the `portal` on its PC (server/portal.ts).
+ * Asked while Settings → Phone & devices is open.
  */
 export function usePortal() {
   const [status, setStatus] = useState<PortalStatus | null>(null);
@@ -31,7 +31,7 @@ export function usePortal() {
       try {
         const next = await fetchPortal();
         if (!stopped) setStatus((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-        if (PORTAL_SETTLING.has(next.phase)) delay = 1_500;
+        if (SETTLING.has(next.phase)) delay = 1_500;
       } catch { /* an older server has no such route, and a restart must not erase the last answer */ }
       if (!stopped) timer = setTimeout(() => void poll(), delay);
     }
@@ -39,14 +39,19 @@ export function usePortal() {
     return () => { stopped = true; clearTimeout(timer); };
   }, [refresh, visible]);
 
-  const request = useCallback(async (action: "install" | "start" | "stop", relay?: string) => {
+  const request = useCallback(async (action: "start" | "stop", relay?: string) => {
     setPending(true); setError(null);
     try {
       await requestPortal(action, relay);
-      if (mounted.current) setRefresh((value) => value + 1);
+      if (mounted.current) {
+        // the server is already on it: the controls follow at once, not at the next answer
+        setStatus((previous) => previous ? { ...previous, phase: action === "start" ? "starting" : "stopping", error: null, ...(action === "stop" ? { url: null } : {}) } : previous);
+        setRefresh((value) => value + 1);
+      }
     } catch (err) {
       if (mounted.current) setError(err instanceof Error ? err.message : String(err));
     } finally { if (mounted.current) setPending(false); }
   }, []);
-  return { status, error, pending, request };
+  const busy = pending || (status !== null && SETTLING.has(status.phase));
+  return { status, error, pending, busy, request };
 }

@@ -1112,6 +1112,11 @@ One set for both themes: the card is island black wherever it shows.
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install (a row of the Phone group) reflects installed, promptable or browser-instructions state;
   About links the repository.
+- Portal, a group of its own between Phone and Devices where the server offers it: while it runs,
+  the address and QR code as the Phone group draws them over a Relay row with Stop; otherwise one
+  hint for what blocks it (no token, serve-only, no `portal` or an old one, with a link to get it)
+  or a wide Relay row whose text field and Start stack on a phone. Starting and stopping are one
+  dim status line; a failure is the server's sentence over Portal's own lines, folded.
 - The running versions are always written, since the sidebar carries none. Updates opens with
   **Running vX.Y.Z (commit)**: the server's version and commit, or the client's own build version
   before the server answers and where it names neither. While the server runs another version than

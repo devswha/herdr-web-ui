@@ -104,7 +104,7 @@ export function fetchPortal(): Promise<PortalStatus> {
   return getJson<PortalStatus>("/api/portal");
 }
 
-export async function requestPortal(action: "install" | "start" | "stop", relay?: string): Promise<void> {
+export async function requestPortal(action: "start" | "stop", relay?: string): Promise<void> {
   const url = `/api/portal/${action}`;
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify(relay === undefined ? {} : { relay }) });
   if (!response.ok) throw await errorFrom(url, response);

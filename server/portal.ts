@@ -1,62 +1,50 @@
 /**
  * Portal (github.com/gosuda/portal-tunnel): an optional public HTTPS address for this server,
- * installed, started and stopped from Settings → Phone & devices. Tailscale stays the private
- * route and is only ever read (tailscale.ts). This is the one place where the app itself changes
- * how it can be reached, so it keeps the guide's rules for a public proxy (docs/guide.md, Behind a
- * reverse proxy) whatever the caller asks:
+ * started and stopped from Settings → Phone & devices with the `portal` already on this PC; the
+ * app never installs it. Tailscale stays the private route and is only ever read (tailscale.ts).
+ * Whatever a request asks, the guide's rules for a public proxy hold (docs/guide.md, Behind a
+ * reverse proxy):
  *
  * - no address without a token, and none while HERDR_WEB_TAILSCALE_SERVE_ONLY says tailscale serve
- *   is the only way in;
+ *   is the only way in, not even one an earlier server left running;
  * - routed mode, which keeps the browser's Host and sends X-Forwarded-For and
  *   X-Forwarded-Proto: https, and drops a visitor's Tailscale-User-Login;
  * - one relay the user picked, discovery off, hidden from the relay's list; the identity file kept
  *   here holds the name, and with it the address, across restarts;
- * - the command is built here, never from the request, and Portal gets none of this server's
- *   environment beyond what running and reaching the relay need: the token stays here;
- * - only this PC itself installs or starts it (index.ts decides who that is); any device signed in
- *   that can type may stop it.
+ * - only the relay's origin comes from the request, and Portal gets none of this server's
+ *   environment beyond what running and reaching the relay need: the token stays here.
  *
- * The binary is the official release checked against the digest pinned below, not against the
- * checksum file beside it, which could be replaced together with the binary. Portal keeps retrying
- * a relay it cannot use and never exits for it (v2.6.1), so readiness has a deadline of its own and
- * the relay's version is asked before the start.
+ * Portal keeps retrying a relay it cannot use and never exits for it (v2.6.1), so the relay's
+ * version is asked first and readiness has a deadline of its own.
  */
-import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PortalStatus } from "../shared/protocol.ts";
-import { isJsonObject, jsonResponse } from "./http.ts";
+import { errorResponse, isJsonObject, jsonResponse } from "./http.ts";
 import { chunksOf } from "./remote-bundle.ts";
 import { updateRequestAllowed } from "./update-api.ts";
+import { windowsProcessTable } from "./windows-processes.ts";
 
 /** the first release with `--strip-request-header` and an address tied to the identity */
-export const PORTAL_VERSION = "v2.6.1";
-const RELEASES = "https://github.com/gosuda/portal-tunnel/releases/download";
-/** The official v2.6.1 binaries and their digests (its checksums.txt), per `${process.platform}-${process.arch}`. */
-const ASSETS: Record<string, readonly [asset: string, sha256: string]> = {
-  "darwin-arm64": ["portal-darwin-arm64", "0b5242aa78f035532a8e2a9b450af82278e9e85e68bf267518c5ad6ad785d910"],
-  "darwin-x64": ["portal-darwin-amd64", "f2071e830a2f1b07c4fb3b046f66499a7a9772c6a3f95cae3d00b84f9b6b0079"],
-  "linux-arm64": ["portal-linux-arm64", "bbc366f21e3d50e9047ce2e185c72895e766e069ccd3b4dc985d15cab65ea066"],
-  "linux-x64": ["portal-linux-amd64", "ca70bdcda37502807e2db82cfd31875eefcf0ccc05146a460b7a86b87d5db789"],
-  "win32-arm64": ["portal-windows-arm64.exe", "fa6ca9eeb20faeed83201527439e1681e841d963c27c9dc2d0f673a02ab0af71"],
-  "win32-x64": ["portal-windows-amd64.exe", "5c1a45007a6307f4d70e124c6d61f57a125ae007b77fd8aa25a484913bfd7a28"],
-};
+const PORTAL_VERSION = "v2.6.1";
 /** a relay that answers but will not take the tunnel is only ever retried, never refused */
 const READY_TIMEOUT_MS = 60_000;
-/** Portal unregisters from the relay on SIGTERM; one that does not stop in this long is killed */
-const STOP_GRACE_MS = 15_000;
+/** Portal unregisters from the relay on SIGTERM; one still running after this is killed, within the 6 s the supervisor gives this server to stop */
+const STOP_GRACE_MS = 4_000;
 const VERSION_TIMEOUT_MS = 2_500;
 /** the panel polls the status; `portal version` is a process each time */
 const VERSION_CACHE_MS = 5_000;
 const RELAY_TIMEOUT_MS = 5_000;
-const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+/** what is still in Portal's pipes when it exits: its last words */
+const PIPE_GRACE_MS = 250;
 /** Portal's last words kept for the panel */
 const OUTPUT_LINES = 30;
 /** what Portal may keep of this server's environment: enough to run and to reach the relay */
 const PORTAL_ENV = ["PATH", "HOME", "USERPROFILE", "SystemRoot", "TMPDIR", "TEMP", "TMP", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"];
 
 type Phase = PortalStatus["phase"];
+type Child = ReturnType<typeof Bun.spawn>;
 interface Guards {
   /** HERDR_WEB_TOKEN is set */
   tokenSet: boolean;
@@ -68,24 +56,27 @@ interface StartRequest extends Guards {
   /** this server's port, Portal's upstream */
   port: number;
 }
-interface SavedState { enabled: boolean; relay: string | null }
+interface SavedState {
+  enabled: boolean;
+  relay: string | null;
+  /** the server that started it: another one on this state directory leaves its Portal alone */
+  port: number | null;
+  /** the Portal last started, so the next server can stop it if it is still running */
+  pid: number | null;
+}
 
 export interface PortalServiceOptions {
-  /** Portal's binary, identity and on/off choice live in its portal/ */
+  /** Portal's identity and on/off choice live in its portal/ */
   stateDir: string;
-  /** the portal to run; unset, HERDR_WEB_PORTAL_BIN, then the one installed here, then `portal` on PATH */
+  /** the portal to run; unset, `portal` from PATH, read at each start */
   bin?: string;
-  /** `${process.platform}-${process.arch}`, which picks the release */
-  platform?: string;
-  /** the release to install; unset, the pinned official one for the platform. Tests pass their own. */
-  release?: { url: string; sha256: string };
   fetch?: typeof fetch;
   /** READY_TIMEOUT_MS and STOP_GRACE_MS; tests shorten them */
   readyTimeoutMs?: number;
   stopGraceMs?: number;
 }
 
-/** "v2.6.1" → [2, 6, 1]; null for anything else. `portal version` prints the tag alone. */
+/** "v2.6.1" → [2, 6, 1]; null for anything else. */
 function parseVersion(text: string): [number, number, number] | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(text.trim());
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
@@ -99,14 +90,15 @@ export function atLeast(version: string, minimum: string): boolean {
   return true;
 }
 
-/** A relay as the user gave it, as an https origin; null for anything with a path, a query or credentials. */
+/** A relay as the user gave it, as an https origin; null for anything with a path, a query, credentials or a second host. */
 export function relayOrigin(input: unknown): string | null {
   if (typeof input !== "string" || input.trim() === "") return null;
   const text = input.trim();
   let url: URL;
   try { url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`); } catch { return null; }
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") return null;
-  return url.origin;
+  // `--relays` takes a comma-separated list, which a URL's host does not refuse
+  return /^[a-z0-9.-]+$/i.test(url.hostname) ? url.origin : null;
 }
 
 /** The address on Portal's "service ready at" line, without the default port; null for any other line. */
@@ -135,16 +127,19 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Portal's last warning or error, else its last line, for a failure that has no words of its own. */
+function lastWords(lines: readonly string[]): string {
+  const line = [...lines].reverse().find((candidate) => /\b(WRN|ERR|FTL)\b/.test(candidate)) ?? lines.at(-1);
+  return line === undefined ? "" : ` Portal said: ${line}`;
+}
+
 async function readVersion(bin: string): Promise<string | null> {
-  let proc: ReturnType<typeof Bun.spawn>;
   try {
-    proc = Bun.spawn([bin, "version"], { stdin: "ignore", stdout: "pipe", stderr: "ignore", env: portalEnv(), windowsHide: true });
-  } catch { return null; }
-  const timer = setTimeout(() => proc.kill(), VERSION_TIMEOUT_MS);
-  try {
+    const proc = Bun.spawn([bin, "version"], { stdin: "ignore", stdout: "pipe", stderr: "ignore", env: portalEnv(), windowsHide: true, timeout: VERSION_TIMEOUT_MS, killSignal: "SIGKILL" });
     const [text, code] = await Promise.all([new Response(proc.stdout as ReadableStream<Uint8Array>).text(), proc.exited]);
-    return code === 0 && parseVersion(text) !== null ? text.trim() : null;
-  } catch { return null; } finally { clearTimeout(timer); }
+    const tag = /\bv?\d+\.\d+\.\d+\S*/.exec(text)?.[0];
+    return code === 0 && tag !== undefined ? tag : null;
+  } catch { return null; }
 }
 
 export class PortalService {
@@ -153,11 +148,11 @@ export class PortalService {
   private url: string | null = null;
   private error: string | null = null;
   private lines: string[] = [];
-  private child: ReturnType<typeof Bun.spawn> | null = null;
-  /** a start between its request and its process (the relay is asked meanwhile): one at a time */
+  private child: Child | null = null;
+  /** a start between its request and its process, or the boot's cleanup: one at a time */
   private launching = false;
-  /** the child the user (or this server's own stop) asked to end: its exit is no failure */
-  private ending: ReturnType<typeof Bun.spawn> | null = null;
+  /** the child asked to end, once: its exit is no failure */
+  private ending: Child | null = null;
   private versionRead: { at: number; bin: string | null; value: Promise<string | null> } | null = null;
   private readonly dir: string;
 
@@ -165,20 +160,11 @@ export class PortalService {
     this.dir = join(options.stateDir, "portal");
   }
 
-  private get platform(): string { return this.options.platform ?? `${process.platform}-${process.arch}`; }
-  private get installedPath(): string { return join(this.dir, "bin", this.platform.startsWith("win32") ? "portal.exe" : "portal"); }
   private get identityPath(): string { return join(this.dir, "identity.json"); }
   private get statePath(): string { return join(this.dir, "state.json"); }
-  private get pidPath(): string { return join(this.dir, "portal.pid"); }
-
-  private release(): { url: string; sha256: string } | null {
-    if (this.options.release) return this.options.release;
-    const asset = ASSETS[this.platform];
-    return asset ? { url: `${RELEASES}/${PORTAL_VERSION}/${asset[0]}`, sha256: asset[1] } : null;
-  }
 
   private bin(): string | null {
-    return this.options.bin ?? (process.env["HERDR_WEB_PORTAL_BIN"] || (existsSync(this.installedPath) ? this.installedPath : Bun.which("portal")));
+    return this.options.bin ?? Bun.which("portal");
   }
 
   private version(fresh = false): Promise<string | null> {
@@ -190,10 +176,10 @@ export class PortalService {
     return value;
   }
 
-  async status(guards: Guards): Promise<Omit<PortalStatus, "here">> {
+  async status(guards: Guards): Promise<PortalStatus> {
     const version = await this.version();
     return {
-      supported: this.release() !== null || this.bin() !== null,
+      supported: true,
       version,
       min_version: PORTAL_VERSION,
       usable: version !== null && atLeast(version, PORTAL_VERSION),
@@ -206,33 +192,25 @@ export class PortalService {
     };
   }
 
-  /** At the server's start: brings the address back if it was on, so an app update does not take it down for good. */
+  /**
+   * At the server's start. A Portal the last server left running is stopped whatever comes next,
+   * so a server that may not open the address does not keep one open; an address that was on
+   * comes back, so an app update does not take it down for good.
+   */
   async resume(request: Omit<StartRequest, "relay">): Promise<void> {
-    const saved = await this.saved();
+    const saved = this.saved();
     this.relay = saved.relay;
+    // a server on another port shares this state directory: what runs is its own
+    if (saved.port !== null && saved.port !== request.port) return;
+    this.launching = true;
+    try { await this.stopLeftover(saved.pid); } finally { this.launching = false; }
     if (saved.enabled && saved.relay !== null && blockedBy(request) === null) this.start({ ...request, relay: saved.relay });
-  }
-
-  install(): "started" | "busy" | "unsupported" {
-    const release = this.release();
-    if (release === null) return "unsupported";
-    if (this.child !== null || this.launching || this.phase === "installing") return "busy";
-    this.phase = "installing";
-    this.error = null;
-    void this.download(release).then(async () => {
-      if (await this.version(true) === null) throw new Error("The downloaded Portal does not run on this PC.");
-      this.phase = "idle";
-    }).catch((error: unknown) => {
-      this.phase = "error";
-      this.error = messageOf(error);
-    });
-    return "started";
   }
 
   start(request: StartRequest): "started" | "busy" | "token_required" | "serve_only" {
     const blocked = blockedBy(request);
     if (blocked !== null) return blocked;
-    if (this.child !== null || this.launching || this.phase === "installing") return "busy";
+    if (this.child !== null || this.launching) return "busy";
     this.phase = "starting";
     this.relay = request.relay;
     this.url = null;
@@ -246,27 +224,33 @@ export class PortalService {
     return "started";
   }
 
-  /** Takes the address down and remembers that it is off. */
+  /** Takes the address down, then remembers that it is off. */
   stop(): void {
-    this.save({ enabled: false, relay: this.relay });
     this.url = null;
     this.error = null;
-    if (this.child === null) {
+    if (this.child !== null) {
+      this.phase = "stopping";
+      this.end(this.child);
+    } else if (this.phase === "starting" || this.phase === "error") {
       // a start still asking its relay ends there
-      if (this.phase === "starting" || this.phase === "error") this.phase = "idle";
-      return;
+      this.phase = "idle";
     }
-    this.phase = "stopping";
-    this.end(this.child);
+    this.save({ enabled: false });
   }
 
-  /** The server is going away: Portal goes with it, and the saved choice stays for the next server. */
-  shutdown(): void {
-    if (this.child !== null) this.end(this.child);
-    else if (this.phase === "starting") this.phase = "idle";
+  /** The server is going away: Portal goes with it, and the saved choice stays for the next server. Settles once Portal has exited. */
+  shutdown(): Promise<void> {
+    const child = this.child;
+    if (child === null) {
+      if (this.phase === "starting") this.phase = "idle";
+      return Promise.resolve();
+    }
+    this.end(child);
+    return child.exited.then(() => undefined);
   }
 
-  private end(child: ReturnType<typeof Bun.spawn>): void {
+  private end(child: Child): void {
+    if (this.ending === child) return;
     this.ending = child;
     child.kill("SIGTERM");
     const killer = setTimeout(() => child.kill("SIGKILL"), this.options.stopGraceMs ?? STOP_GRACE_MS);
@@ -286,10 +270,10 @@ export class PortalService {
     if (bin === null || version === null) throw new Error("Portal is not installed on this PC.");
     if (!atLeast(version, PORTAL_VERSION)) throw new Error(`This PC has Portal ${version}; the app needs ${PORTAL_VERSION} or later.`);
     await this.checkRelay(relay);
-    await this.stopOrphan();
-    // stopped while the relay was asked; from here to the spawn nothing waits, so a stop comes after it
+    // another server of this app on this identity: two Portals keep taking the address from each other
+    await this.stopLeftover(this.saved().pid);
+    // stopped meanwhile; from here to the spawn nothing waits, so a stop comes after it
     if (this.phase !== "starting") return;
-    this.save({ enabled: true, relay });
     const child = Bun.spawn([
       bin, "expose",
       "--http-route", `/=${port}`,
@@ -301,17 +285,14 @@ export class PortalService {
       "--hide",
     ], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: portalEnv(), windowsHide: true });
     this.child = child;
-    // kept after the exit too: stopOrphan checks what runs under a pid before it stops anything
-    writeFileSync(this.pidPath, String(child.pid), { mode: 0o600 });
+    const readyTimeoutMs = this.options.readyTimeoutMs ?? READY_TIMEOUT_MS;
     const deadline = setTimeout(() => {
-      if (this.child !== child || this.phase !== "starting") return;
-      const said = this.lines.filter((line) => /\b(WRN|ERR)\b/.test(line)).at(-1);
-      this.fail(`${relay} did not take the tunnel within ${Math.round((this.options.readyTimeoutMs ?? READY_TIMEOUT_MS) / 1000)} seconds.${said ? ` Portal said: ${said}` : ""}`);
-    }, this.options.readyTimeoutMs ?? READY_TIMEOUT_MS);
-    void this.follow(child.stdout as ReadableStream<Uint8Array>, child);
-    void this.follow(child.stderr as ReadableStream<Uint8Array>, child);
-    void child.exited.then((code) => {
+      if (this.child === child && this.phase === "starting") this.fail(`${relay} did not take the tunnel within ${Math.round(readyTimeoutMs / 1000)} seconds.${lastWords(this.lines)}`);
+    }, readyTimeoutMs);
+    const output = Promise.all([this.follow(child.stdout as ReadableStream<Uint8Array>, child), this.follow(child.stderr as ReadableStream<Uint8Array>, child)]);
+    void child.exited.then(async (code) => {
       clearTimeout(deadline);
+      await Promise.race([output, Bun.sleep(PIPE_GRACE_MS)]);
       if (this.child !== child) return;
       this.child = null;
       this.url = null;
@@ -321,12 +302,14 @@ export class PortalService {
         return;
       }
       this.phase = "error";
-      this.error = `Portal stopped on its own (exit ${code}).${this.lines.length > 0 ? ` It said: ${this.lines.at(-1)}` : ""}`;
+      this.error = `Portal stopped on its own (exit ${code}).${lastWords(this.lines)}`;
     });
+    // a Portal whose pid cannot be kept is one the next server could not stop
+    this.save({ enabled: true, relay, port, pid: child.pid });
   }
 
   /** Portal writes one event a line: the address once a relay takes the tunnel, and why it gave up on one. */
-  private async follow(stream: ReadableStream<Uint8Array>, child: ReturnType<typeof Bun.spawn>): Promise<void> {
+  private async follow(stream: ReadableStream<Uint8Array>, child: Child): Promise<void> {
     const decoder = new TextDecoder();
     let pending = "";
     try {
@@ -341,19 +324,21 @@ export class PortalService {
     } catch { /* the pipe closes with the process */ }
   }
 
-  private line(raw: string, child: ReturnType<typeof Bun.spawn>): void {
-    // NO_COLOR is set; the colors are stripped anyway, a terminal's codes are no use here
+  private line(raw: string, child: Child): void {
+    // NO_COLOR is set; a terminal's codes would be no use here either way
     const line = raw.replace(/\x1b\[[0-9;]*m/g, "").trim();
     if (line === "" || this.child !== child) return;
     this.lines = [...this.lines, line].slice(-OUTPUT_LINES);
     const url = readyUrl(line);
     if (url !== null) {
-      this.url = url;
-      if (this.phase === "starting" || this.phase === "running") this.phase = "running";
+      if (this.phase === "starting" || this.phase === "running") {
+        this.url = url;
+        this.phase = "running";
+      }
       return;
     }
     // the relay refused for good (a name it will not take, an incompatible relay): the process would stay up serving nothing
-    if (line.includes("relay operation failed permanently")) this.fail(line);
+    if (line.includes("relay operation failed permanently") && (this.phase === "starting" || this.phase === "running")) this.fail(line);
   }
 
   /** A relay Portal cannot use is retried for good and silently: ask the relay first. */
@@ -372,23 +357,22 @@ export class PortalService {
   }
 
   /**
-   * A Portal an earlier server of this app started and could not stop (it was killed outright):
-   * two processes with one identity keep taking the address from each other. Only a process
-   * recorded here and running this identity is stopped; Windows has no `ps`, and is left alone.
+   * A Portal on this identity that this server did not start: one a server killed outright left
+   * running, or one another server of this app runs. A pid outlives its process, so only the one
+   * recorded here, and only while its command line is `portal expose` on this identity, is stopped.
    */
-  private async stopOrphan(): Promise<void> {
-    if (process.platform === "win32") return;
-    const pid = Number((await readFile(this.pidPath, "utf8").catch(() => "")).trim());
-    if (!Number.isInteger(pid) || pid <= 0) return;
-    let command = "";
+  private async stopLeftover(pid: number | null): Promise<void> {
+    if (pid === null || pid === this.child?.pid) return;
+    let command: string | null = null;
     try {
-      const ps = Bun.spawn(["ps", "-ww", "-o", "command=", "-p", String(pid)], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
-      command = await new Response(ps.stdout as ReadableStream<Uint8Array>).text();
-    } catch { /* no ps: nothing can be told about the process */ }
-    if (!command.includes(" expose ") || !command.includes(this.identityPath)) {
-      await rm(this.pidPath, { force: true });
-      return;
-    }
+      if (process.platform === "win32") {
+        command = (await windowsProcessTable()).find((row) => row.pid === pid)?.commandLine ?? null;
+      } else {
+        const ps = Bun.spawn(["ps", "-ww", "-o", "command=", "-p", String(pid)], { stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: VERSION_TIMEOUT_MS, killSignal: "SIGKILL" });
+        command = await new Response(ps.stdout as ReadableStream<Uint8Array>).text();
+      }
+    } catch { /* an unreadable process table tells nothing */ }
+    if (command === null || !command.includes(" expose ") || !command.includes(this.identityPath)) return;
     try { process.kill(pid, "SIGTERM"); } catch { return; }
     for (const until = Date.now() + (this.options.stopGraceMs ?? STOP_GRACE_MS); Date.now() < until; await Bun.sleep(100)) {
       try { process.kill(pid, 0); } catch { return; }
@@ -396,79 +380,49 @@ export class PortalService {
     try { process.kill(pid, "SIGKILL"); } catch { /* gone meanwhile */ }
   }
 
-  /** The release to portal/bin/, checked on the way; a partial or mismatched file never takes the name. */
-  private async download(release: { url: string; sha256: string }): Promise<void> {
-    const response = await (this.options.fetch ?? fetch)(release.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
-    if (!response.ok || !response.body) throw new Error(`Portal could not be downloaded (HTTP ${response.status}).`);
-    await mkdir(join(this.dir, "bin"), { recursive: true, mode: 0o700 });
-    const part = `${this.installedPath}.part-${process.pid}-${Date.now()}`;
-    const sink = Bun.file(part).writer();
-    const hash = createHash("sha256");
+  private saved(): SavedState {
     try {
-      for await (const chunk of chunksOf(response.body)) {
-        hash.update(chunk); sink.write(chunk); await sink.flush();
+      const value: unknown = JSON.parse(readFileSync(this.statePath, "utf8"));
+      if (isJsonObject(value)) {
+        const { port, pid } = value;
+        return {
+          enabled: value["enabled"] === true,
+          relay: relayOrigin(value["relay"]),
+          port: typeof port === "number" && Number.isInteger(port) ? port : null,
+          pid: typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : null,
+        };
       }
-      await sink.end();
-      if (hash.digest("hex") !== release.sha256) throw new Error("The download does not match the official Portal release; nothing was installed.");
-      await chmod(part, 0o755);
-      await rename(part, this.installedPath);
-    } catch (error) {
-      try { await sink.end(); } catch { /* already ended */ }
-      await rm(part, { force: true });
-      throw error;
-    }
-  }
-
-  private async saved(): Promise<SavedState> {
-    try {
-      const value: unknown = JSON.parse(await readFile(this.statePath, "utf8"));
-      if (!isJsonObject(value)) return { enabled: false, relay: null };
-      return { enabled: value["enabled"] === true, relay: relayOrigin(value["relay"]) };
-    } catch { return { enabled: false, relay: null }; }
+    } catch { /* none yet, or unreadable: nothing is on */ }
+    return { enabled: false, relay: null, port: null, pid: null };
   }
 
   /** at once, not awaited: a stop and a start's own save never interleave */
-  private save(state: SavedState): void {
+  private save(change: Partial<SavedState>): void {
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const temp = `${this.statePath}.tmp-${process.pid}`;
-    writeFileSync(temp, JSON.stringify(state), { mode: 0o600 });
+    writeFileSync(temp, JSON.stringify({ ...this.saved(), ...change }), { mode: 0o600 });
     renameSync(temp, this.statePath);
   }
 }
 
-/** Who asks, and what this server is: index.ts knows, Portal's rules here decide. */
-export interface PortalRequestContext extends Guards {
-  /** a loopback connection that came through no proxy: this PC itself, the only one that may install or start */
-  here: boolean;
-  port: number;
-}
+const NO_PORTAL: PortalStatus = { supported: false, version: null, min_version: PORTAL_VERSION, usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null };
 
-const NO_PORTAL: Omit<PortalStatus, "here"> = { supported: false, version: null, min_version: PORTAL_VERSION, usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null };
-
-export async function handlePortalRequest(request: Request, pathname: string, portal: PortalService | undefined, context: PortalRequestContext): Promise<Response> {
+/** /api/portal and its actions. What this server is (its port, token and serve-only setting) comes from index.ts. */
+export async function handlePortalRequest(request: Request, pathname: string, portal: PortalService | undefined, context: Omit<StartRequest, "relay">): Promise<Response> {
   const reply = (body: unknown, code = 200) => jsonResponse(body, code, { "cache-control": "no-store" });
   const fail = (code: string, message: string, http: number) => reply({ error: { code, message } }, http);
   if (pathname === "/api/portal" && request.method === "GET") {
     // a server started without the service (tests, an embedding) offers nothing
-    const status = portal ? await portal.status(context) : NO_PORTAL;
-    return reply({ ...status, here: context.here } satisfies PortalStatus);
+    return reply(portal ? await portal.status(context) : NO_PORTAL);
   }
   const action = pathname.slice("/api/portal/".length);
-  if (request.method !== "POST" || (action !== "install" && action !== "start" && action !== "stop")) {
-    return fail("method_not_allowed", "Use GET /api/portal, or POST /api/portal/install, /start or /stop", 405);
+  if (request.method !== "POST" || (action !== "start" && action !== "stop")) {
+    return fail("method_not_allowed", "Use GET /api/portal, or POST /api/portal/start or /stop", 405);
   }
   if (!updateRequestAllowed(request)) return fail("invalid_portal_request", "Use the Portal controls from this app.", 403);
   if (!portal) return fail("portal_unsupported", "This server offers no Portal.", 409);
   if (action === "stop") {
-    portal.stop();
-    return reply({ accepted: true }, 202);
-  }
-  // a public address is opened only by someone at this PC, never through a proxy (Portal's own address included)
-  if (!context.here) return fail("portal_not_here", "Install or start Portal on this PC itself, not through another device or a proxy.", 403);
-  if (action === "install") {
-    const started = portal.install();
-    if (started === "unsupported") return fail("portal_unsupported", "Portal has no release for this PC.", 409);
-    if (started === "busy") return fail("portal_busy", "Portal is busy; try again once it is idle.", 409);
+    try { portal.stop(); } catch (error) { return errorResponse(error); }
     return reply({ accepted: true }, 202);
   }
   let body: unknown = null;
@@ -476,8 +430,8 @@ export async function handlePortalRequest(request: Request, pathname: string, po
   const relay = relayOrigin(isJsonObject(body) ? body["relay"] : undefined);
   if (relay === null) return fail("invalid_relay", "Give the relay as an https address, such as https://relay.example.com.", 400);
   const started = portal.start({ ...context, relay });
-  if (started === "token_required") return fail("token_required", "Set HERDR_WEB_TOKEN before you start Portal: anyone on the internet can open its address.", 409);
-  if (started === "serve_only") return fail("serve_only", "Turn off HERDR_WEB_TAILSCALE_SERVE_ONLY before you start Portal: it says tailscale serve is the only way in.", 409);
+  if (started === "token_required") return fail("token_required", "Set HERDR_WEB_TOKEN and restart the app before you start Portal: anyone on the internet can open its address.", 409);
+  if (started === "serve_only") return fail("serve_only", "Turn off HERDR_WEB_TAILSCALE_SERVE_ONLY and restart the app before you start Portal: it says tailscale serve is the only way in.", 409);
   if (started === "busy") return fail("portal_busy", "Portal is busy; try again once it is idle.", 409);
   return reply({ accepted: true }, 202);
 }
