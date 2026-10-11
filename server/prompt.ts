@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import type { HerdrPane, InteractivePrompt, PromptAnswer } from "../shared/protocol.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
-import { HerdrError, paneRead, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
+import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
 import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
@@ -1345,11 +1345,19 @@ export function removedInvisible(sent: string, shown: string): number {
 const heldCandidates = new Map<string, { text: string; at: number }>();
 /** Long enough to read the card and answer it; a message kept past this is the user's own business */
 const HELD_WINDOW_MS = 10 * 60_000;
+/** What the chat last sent to each pane: Claude Code puts that text back in its input box when the send is cancelled right after it. */
+const chatSent = new Map<string, string>();
 
 /** A message the chat just sent to a pane: one with invisible characters may be held by Claude Code. */
 export function noteSubmitted(paneId: string, text: string): void {
+  chatSent.set(paneId, text);
   if (INVISIBLE_CHAR_RE.test(text)) heldCandidates.set(paneId, { text, at: Date.now() });
   else heldCandidates.delete(paneId);
+}
+
+/** The text of the pane's last successful chat send (noteSubmitted), or none. */
+export function lastChatSubmitted(paneId: string): string | null {
+  return chatSent.get(paneId) ?? null;
 }
 
 /** What the chat sent a pane that Claude Code may be holding, for the readers that ask whether it waits. */
@@ -2917,6 +2925,61 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
 }
 
 /**
+ * The chat's own message back in Claude's box (claudeRestoredDraft), only when the live screen holds
+ * it: a pane scrolled into its history can show an older box with the same words. The viewport read
+ * the route already made is checked first, so a box without the copy costs no further read; then
+ * the live screen's box is read as the send paths read it, with the viewport's colors only where
+ * viewportShowsLive verifies they show that screen.
+ */
+async function restoredOnLiveScreen(paneId: string, viewport: string): Promise<string | null> {
+  const sent = lastChatSubmitted(paneId);
+  const plain = (text: string): string => text.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "");
+  if (claudeRestoredDraft(plain(viewport), viewport, sent) === null) return null;
+  const detection = async (): Promise<string> => (await paneRead({ paneId, source: "detection", format: "text", timeoutMs: SUGGESTION_READ_MS })).text;
+  const before = await detection();
+  if (!claudeInputDraft(before, null)) return null;
+  const scrollBefore = await paneScrollInfo(paneId);
+  const colors = (await paneRead({ paneId, source: "visible", format: "ansi", timeoutMs: SUGGESTION_READ_MS })).text;
+  const scrollAfter = await paneScrollInfo(paneId);
+  const live = await detection();
+  return viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? claudeRestoredDraft(live, colors, sent) : null;
+}
+
+/**
+ * The chat's own last message back in Claude Code's input box as typed text, where Claude puts it
+ * when the send right before is cancelled: `sent` when the box is a draft (`claudeInputDraft`, so
+ * typed text on a verified viewport) holding exactly it — the `❯` of the first row dropped, the
+ * wrapped rows joined with nothing (a split word) or one space (a wrap between words), each row's
+ * own spaces as they are (U+00A0 read as a space). Anything else a
+ * draft could be — bash mode, a clipped box, a `[Pasted text #`/`[Image #` placeholder, other or
+ * edited words — and a box that is no known draft, unverified colors or nothing sent answer null.
+ */
+export function claudeRestoredDraft(live: string, colors: string | null, sent: string | null): string | null {
+  if (sent === null || sent.trim() === "" || colors === null || !claudeInputDraft(live, colors)) return null;
+  const box = claudeInputBox(live);
+  if (box === null || box === "clipped" || !box.plain[0]?.startsWith("❯")) return null;
+  if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain.join(" "))) return null;
+  // each row's own words exactly (the box's U+00A0 as a space), its marker, indentation and padding
+  // aside; where the terminal wrapped, a word split in two joins with nothing between, and a wrap
+  // between words with one space or line break. Any other change to the spaces is the user's edit.
+  const rows = box.plain.map((row, index) => (index === 0 ? row.slice(1) : row).replace(/\u00a0/g, " ").trim());
+  // walked row by row over the set of places the sent text can be at, never a regex: one built from
+  // the rows backtracks exponentially over a box of blank rows
+  const text = sent.replace(/\u00a0/g, " ").trim();
+  let at = new Set([0]);
+  rows.forEach((row, index) => {
+    const next = new Set<number>();
+    for (const from of at) {
+      // a wrap between words leaves one space or line break before the next row; within a word, none
+      const starts = index === 0 ? [from] : /\s/.test(text[from] ?? "") ? [from, from + 1] : [from];
+      for (const start of starts) if (text.startsWith(row, start)) next.add(start + row.length);
+    }
+    at = next;
+  });
+  return at.has(text.length) ? sent : null;
+}
+
+/**
  * Whether a colored viewport read shows the live screen, so claudeInputDraft may take its colors:
  * the viewport at the bottom of the pane's history before and after the colored read, or, only when
  * herdr reports no scroll for either read, the viewport's whole text equal to the live screen; and
@@ -2962,6 +3025,7 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   for (const known of askings.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) askings.delete(known);
   for (const known of answerTurns.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) answerTurns.delete(known);
   for (const known of heldCandidates.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) heldCandidates.delete(known);
+  for (const known of chatSent.keys()) if (!panes.some((candidate) => candidate.pane_id === known)) chatSent.delete(known);
   const pane = panes.find((candidate) => candidate.pane_id === paneId);
   if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
   const agent = pane.agent ?? "";
@@ -3167,15 +3231,20 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       const paneId = url.searchParams.get("pane_id")?.trim();
       if (!paneId) return badRequest("missing_pane_id", "pane_id is required.");
       const { agent, status, prompt } = await readPrompt(paneId, options.codexHome);
-      // no menu up: what Claude suggests typing next, for the composer's placeholder. Only a
-      // nicety: it is read only while Claude waits for the next prompt (a working agent shows
-      // none), and a failed or slow read of it (a herdr without ansi reads, a busy one) leaves
-      // the prompt answer as it is, on time.
-      const suggestion = prompt === null && agent === "claude" && (status === "idle" || status === "done")
+      // no menu up: what Claude suggests typing next, for the composer's placeholder, and the chat's
+      // own last message where Claude put it back into the box on a cancel. Only a nicety: it is read
+      // only while Claude waits for the next prompt (a working agent shows none), and a failed or
+      // slow read of it (a herdr without ansi reads, a busy one) leaves the prompt answer as it is,
+      // on time.
+      const box = prompt === null && agent === "claude" && (status === "idle" || status === "done")
         ? await paneRead({ paneId, source: "visible", format: "ansi", timeoutMs: SUGGESTION_READ_MS })
-          .then((read) => parseClaudeSuggestion(read.text), () => null)
+          .then((read) => read.text, () => null)
         : null;
-      return jsonResponse({ prompt, suggestion });
+      return jsonResponse({
+        prompt,
+        suggestion: box === null ? null : parseClaudeSuggestion(box),
+        restored: box === null ? null : await restoredOnLiveScreen(paneId, box).catch(() => null),
+      });
     }
 
     if (request.method !== "POST") return badRequest("method_not_allowed", "POST is required.");
