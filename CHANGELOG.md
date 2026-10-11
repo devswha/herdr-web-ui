@@ -7,6 +7,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- On a phone, a long press on the chat or terminal selects text and offers copy as the phone does,
+  instead of opening the pane's actions menu. A right-click still opens it.
+
 ## [0.4.7] - 2026-10-12
 
 ### Added
