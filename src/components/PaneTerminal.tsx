@@ -44,7 +44,7 @@ import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fo
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
-import { fileUriPath, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
+import { fileUriPath, hyperlinkFilter, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 import { terminalLabel } from "../lib/terminalLabel.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
@@ -199,6 +199,8 @@ export function PaneTerminal({
   const stackRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  /** OSC 8 links this app cannot open are not drawn (#739); its state ends with `term.reset()` */
+  const hyperlinksRef = useRef(hyperlinkFilter());
   const socketRef = useRef<HerdrSocket | null>(null);
   const paneRef = useRef<string | null>(paneId);
   const onConnectionChangeRef = useRef(onConnectionChange);
@@ -908,6 +910,8 @@ export function PaneTerminal({
       }
       return true;
     });
+    // OSC 8: a hyperlink this app cannot open (OmO's `omo-panel:` rows) is not drawn as one (#739)
+    const osc8 = term.parser.registerOscHandler(8, (payload) => hyperlinksRef.current.handler(payload));
     // modifyOtherKeys (CSI > 4 ; level m): xterm.js has no handler for it, so this one only
     // listens, and Ctrl+Enter is sent as the program asked (see onModifiedEnter)
     const modifyOtherKeys = (final: "m" | "n") => term.parser.registerCsiHandler({ prefix: ">", final }, (params) => {
@@ -1588,6 +1592,7 @@ export function PaneTerminal({
       host.removeEventListener("drop", onDrop);
       offDisconnect();
       osc52.dispose();
+      osc8.dispose();
       modifyOtherKeysSet.dispose();
       modifyOtherKeysOff.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
@@ -1712,6 +1717,7 @@ export function PaneTerminal({
     setDraft(saved);
     draftPaneRef.current = paneId;
     term.reset();
+    hyperlinksRef.current.reset();
     modifyOtherKeysRef.current = 0;
     if (!paneId) return;
     const leavePane = (): void => {

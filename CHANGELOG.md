@@ -19,6 +19,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a phone, a two-finger pinch on the terminal changes its font size live (10–22 px), with a
   badge showing the size; the shared pty resizes once, when a finger lifts.
   ([#713](https://github.com/devswha/herdr-web-ui/pull/713) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
+  choice, a typed answer for its "Other" row and for an open question, and ticks for a question
+  that takes several answers. Text already on its answer line is cleared first, so it does not
+  join the answer.
+  ([#750](https://github.com/devswha/herdr-web-ui/pull/750) by @DarkoKuzmanovic, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
 
 ### Fixed
 - A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
@@ -26,6 +31,33 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
   Settings choice applies again to every pane.
   ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
+- A Claude pane that used an agent team no longer counts its teammates as running after they
+  shut down: a teammate that approved its lead's shutdown request reads as completed, so the
+  pane's running count and the agent list show only what still runs.
+  ([#744](https://github.com/devswha/herdr-web-ui/pull/744) by @Haeminway1, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- A Claude Code multiple-choice question stays a multiple choice once a row is ticked in the
+  terminal (Claude Code 2.1.296 draws the tick as `[✔]`), its options no longer carry the box, and
+  the card stays up with the cursor on its **Submit** row. A pick there used to untick the row
+  instead of answering.
+  ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- A Claude `/model` list whose hint a narrow pane wraps inside a word or over more than six lines
+  is still recognised, so a pending message waits instead of pressing Enter on it, and the same
+  words quoted in Claude's output no longer hold pending messages.
+  ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Push alerts no longer reach every device while you are using the app: while any window of it
+  is visible and focused, on any device, no device gets an alert. Alerts resume once no window
+  is in use, and **Send test** still always sends.
+  ([#759](https://github.com/devswha/herdr-web-ui/pull/759))
+- A click in the terminal while an arrow key is still on its way to herdr reaches the program as
+  a click, instead of being typed into it as the raw characters of a mouse report.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- OmO's side panel no longer draws a dotted line under its file, goal and memory rows in the
+  terminal: a link the app cannot open is no longer underlined.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- The Agents list no longer repeats an agent's kind beside the mark that already shows it, so
+  workspace and tab names keep the room on a narrow sidebar. The kind stays in the row's tooltip
+  and is still read out by screen readers; an agent without a mark of its own keeps the word.
+  ([#761](https://github.com/devswha/herdr-web-ui/pull/761))
 
 ## [0.4.6] - 2026-10-11
 
