@@ -33,6 +33,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Settings → Appearance → Colors offers **Forest**, a low-saturation green-grey palette for long
   sessions, in dark and light, with matching terminal and title-bar colors.
   ([#775](https://github.com/devswha/herdr-web-ui/pull/775) by @vibewriter-hand)
+- Pin agents to the top of the Agents list with the star beside each row; pins keep their order across reloads. ([#778](https://github.com/devswha/herdr-web-ui/pull/778) by @vibewriter-hand)
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
