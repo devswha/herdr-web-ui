@@ -17,7 +17,7 @@ import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jso
 import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
-import { sameAttachment } from "./input-guard.ts";
+import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
@@ -309,6 +309,18 @@ interface SocketData {
   roles: number;
 }
 
+/** A `presence` frame's answer, or null for any other frame. A relayed frame is only parsed when it can be one. */
+function presenceOf(raw: string | Buffer): boolean | null {
+  const text = String(raw);
+  if (!text.includes("\"presence\"")) return null;
+  try {
+    const message = JSON.parse(text) as { type?: unknown; active?: unknown };
+    return message?.type === "presence" ? message.active === true : null;
+  } catch {
+    return null;
+  }
+}
+
 type Client = ServerWebSocket<SocketData>;
 
 /**
@@ -448,6 +460,8 @@ export function createServer(
   // herdr releases its exclusive attach slot only after the old process exits.
   const retiringAttachments = new Map<string, Promise<void>>();
   const clients = new Set<Client>();
+  /** connections whose page is in use (`presence`), relayed ones included: while any is, no web push goes out */
+  const present = new Set<Client>();
   type PendingLease = { attachment: PaneAttachment; pty: PtySession | MirrorSession; authority: object };
   const pendingAuthorities = new WeakMap<Client, Map<string, object>>();
   type PendingItem = PendingRecord<Client, PendingLease>;
@@ -809,6 +823,7 @@ export function createServer(
     now: options.statusNow,
     loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
+    inUse: () => present.size > 0,
     lookupTitle: async (paneId) => {
       return paneTitle(await paneGet(paneId));
     },
@@ -2379,6 +2394,7 @@ export function createServer(
             client.data.closing = true;
             killWatches(client);
             clients.delete(client);
+            present.delete(client);
             for (const paneId of client.data.attached.keys()) detach(paneId, client);
             client.data.attached.clear();
             client.data.output.clear();
@@ -2399,7 +2415,12 @@ export function createServer(
 
       async message(client, raw) {
         if (client.data.closing) return;
+        // read here for a relayed connection too: alerts for every PC go out from this server
+        const presence = presenceOf(raw);
+        if (presence === true) present.add(client);
+        else if (presence === false) present.delete(client);
         if (client.data.relay) { client.data.relay.message(raw); return; }
+        if (presence !== null) return;
         let message: ClientMessage;
         try {
           message = JSON.parse(String(raw)) as ClientMessage;
@@ -2587,8 +2608,18 @@ export function createServer(
                 send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                 break;
               }
+              const typedIntoPty = (text: string) => {
+                lastTyped.set(message.pane_id, Date.now());
+                if (text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
+                if (lastTyped.size > 64) {
+                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
+                }
+              };
               if (paneQueues.has(message.pane_id)) {
                 const text = message.text;
+                // a click or a wheel (a click replayed behind a held arrow) is the attach's own mouse:
+                // herdr encodes it for the program's mouse mode, send_text would type its bytes (#667)
+                const mouse = isMouseReport(text);
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
                 const claim = client.data.attached.get(message.pane_id);
@@ -2603,15 +2634,16 @@ export function createServer(
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
+                  if (mouse) {
+                    if (!allowed() || !pty.write(text)) { inputFailed(); return; }
+                    typedIntoPty(text);
+                    return;
+                  }
                   return paneSendText(message.pane_id, text, undefined, allowed);
                 }).catch(inputFailed);
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
-                lastTyped.set(message.pane_id, Date.now());
-                if (message.text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
-                if (lastTyped.size > 64) {
-                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
-                }
+                typedIntoPty(message.text);
               }
               break;
             }
@@ -2911,6 +2943,7 @@ export function createServer(
 
       close(client) {
         client.data.unwatchDevice?.();
+        present.delete(client);
         if (client.data.relay) { client.data.relay.close(); return; }
         killWatches(client);
         pending.close(client);

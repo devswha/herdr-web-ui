@@ -958,6 +958,11 @@ export type ClientMessage =
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole }
+  /** whether this page is in use: visible and focused. While any connection of a server says
+   * so, that server sends no web push to any device (#751). Sent on connect and on every change,
+   * also through a remote PC's socket (the connection server reads it there too); an older
+   * server ignores it, so it needs no feature. */
+  | { type: "presence"; active: boolean }
   /** a read-only view of the pane at this grid, for a tab out of use (feature "watch"); never resizes the pane */
   | { type: "watch"; pane_id: string; cols: number; rows: number }
   | { type: "unwatch"; pane_id: string };
