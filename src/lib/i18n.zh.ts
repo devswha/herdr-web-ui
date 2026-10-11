@@ -56,6 +56,7 @@ export const ZH: Record<string, string> = {
   "Amber": "琥珀",
   "Catppuccin": "Catppuccin",
   "Lilac": "淡紫",
+  "Forest": "森林绿",
   "Density": "密度",
   "Comfortable": "宽松",
   "Compact": "紧凑",
