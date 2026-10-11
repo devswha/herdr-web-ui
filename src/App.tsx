@@ -13,6 +13,7 @@ import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
 import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
+import { recentDirectories } from "./lib/recent-directories.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
@@ -157,6 +158,14 @@ export function App() {
     // dialog its address names, on that entry or on the one stepped back to, is the one it closed
     return loadedOnSettingsEntry() ? { ...link, settings: null, section: null } : link;
   });
+  // New workspace's recent folders also know where a PC's panes are: kept behind the folders started in
+  useEffect(() => {
+    for (const machine of machines) {
+      if (machine.state !== "connected" || !machine.snapshot) continue;
+      recentDirectories.remember(machine.id, machine.snapshot.panes
+        .filter((pane) => !pane.restore_error).map((pane) => pane.cwd).reverse());
+    }
+  }, [machines]);
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     if (initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink))) return initialLink.machine;
     return storedSelection()?.machine_id ?? "local";

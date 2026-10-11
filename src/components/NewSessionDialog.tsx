@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { FolderOpen, X } from "lucide-react";
 
 import "./NewSessionDialog.css";
@@ -11,6 +11,7 @@ import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
+import { recentDirectories } from "../lib/recent-directories.ts";
 
 /** The dialog as New tab: the workspace the tab joins, whose folder it uses, and the number herdr will give it. */
 export interface NewTabTarget {
@@ -44,10 +45,12 @@ export interface DialogFields {
 
 /** how long the fields rest before the address follows them: Safari refuses a burst of history writes */
 const DRAFT_MS = 400;
+/** as many recent folders as one row holds on a phone */
+const RECENT_FOLDERS_SHOWN = 3;
 
 function directoryBasename(value: string): string {
-  const trimmed = value.replace(/\/+$/, "");
-  return trimmed.split("/").pop() ?? "";
+  const trimmed = value.replace(/\\/g, "/").replace(/\/+$/, "");
+  return trimmed.split("/").pop() || value;
 }
 
 export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCreated, machineName, prefill = null, onDraft }: NewSessionDialogProps) {
@@ -62,6 +65,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const [error, setError] = useState<string | null>(null);
   const [createdPaneId, setCreatedPaneId] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  const [recentFolders, setRecentFolders] = useState(() => recentDirectories.read(machineId));
   const firstFieldRef = useRef<HTMLButtonElement>(null);
   const surface = useFocusTrap<HTMLFormElement>(open, { initialFocus: firstFieldRef });
   useSheetSwipe(surface, pending ? null : onClose);
@@ -79,6 +83,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
     setPending(false);
     setCreatedPaneId(null);
     setBrowsing(false);
+    setRecentFolders(recentDirectories.read(machineId));
     const remembered = rememberedAgent();
     const stored = filled?.agent ?? remembered;
     setAgentKind(stored);
@@ -122,8 +127,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const pendingLabel = selectedAgent ? t("Starting {agent}… up to 60s", { agent: selectedAgent.label }) : t("Starting shell…");
   const fieldsDisabled = pending || createdPaneId !== null;
 
-  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
+  const startWorkspace = async (directory: string): Promise<void> => {
     if (pending) return;
     if (createdPaneId !== null) { onCreated(createdPaneId, false); return; }
     setPending(true);
@@ -134,12 +138,15 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
       // a tab keeps the workspace's folder, which the dialog shows and does not ask for
       const result = tab
         ? await createTab({ workspace_id: tab.workspaceId, cwd: tab.cwd, label: name.trim() || null, agent })
-        : await createWorkspace({ cwd: cwd.trim() || null, label: name.trim() || null, agent });
+        : await createWorkspace({ cwd: directory.trim() || null, label: name.trim() || null, agent });
       if (agentKind && !result.agent_started && result.error?.message) {
         setPending(false);
         setError(result.error.message);
         setCreatedPaneId(result.pane_id);
         return;
+      }
+      if (!tab && (!agentKind || result.agent_started)) {
+        setRecentFolders(recentDirectories.remember(machineId, [directory.trim()], true));
       }
       // the dialog closes on this: left pending, its next opening would start a frame with the
       // fields disabled and Escape ignored, until the open effect's reset has rendered
@@ -158,7 +165,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
 
   return (
     <div className="modal-scrim new-session-scrim" onMouseDown={closeFromScrim}>
-      <form ref={surface} className="modal new-session-modal" role="dialog" aria-modal="true" aria-labelledby="new-session-title" tabIndex={-1} onSubmit={(event) => void submit(event)}>
+      <form ref={surface} className="modal new-session-modal" role="dialog" aria-modal="true" aria-labelledby="new-session-title" tabIndex={-1} onSubmit={(event) => { event.preventDefault(); void startWorkspace(cwd); }}>
         <header className="modal-header">
           <h2 className="modal-title" id="new-session-title">{tab ? `${t("New tab")} · ${tab.workspaceLabel}` : `${t("New workspace")} · ${machineName ?? machineId}`}</h2>
           <button type="button" className="icon-button" aria-label={t("Close dialog")} disabled={pending} onClick={onClose}>
@@ -193,6 +200,16 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
               <span className="field-hint">{t("absolute path or ~/…")}</span>
             </div>
           )}
+          {!tab && recentFolders.length > 0 && <div className="field new-session-recents">
+            <span className="field-label" id="new-session-recents">{t("Recent folders")}</span>
+            <div className="new-session-folder-chips" role="group" aria-labelledby="new-session-recents">
+              {recentFolders.slice(0, RECENT_FOLDERS_SHOWN).map((path) => <button type="button" className="btn new-session-folder-chip" key={path}
+                disabled={fieldsDisabled} title={path} aria-label={t("Use folder {path}", { path })}
+                onClick={() => { setCwd(path); setBrowsing(false); }}>
+                <FolderOpen aria-hidden="true" /><span>{directoryBasename(path)}</span>
+              </button>)}
+            </div>
+          </div>}
           <label className="field">
             <span className="field-label">{t("Name")}</span>
             <input

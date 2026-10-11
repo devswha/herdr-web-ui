@@ -110,7 +110,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         transcript turns - claude, codex, omp, omo, gjc, pi, devin, OpenCode, hermes, grok or agy;
  *         source:"scrollback" when the pane has no recognized, readable store.
  *         Grok requires exact live process/session evidence, Agy live process/session evidence;
- *         rewinds invalidate cursors.)
+ *         rewinds invalidate cursors.
+ *         Grok/Agy optional activity describes the latest native turn, independently of pane status.)
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
@@ -506,6 +507,8 @@ export interface PlanSummary {
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */
 export interface ConversationResponse {
+  /** Grok/Agy latest native turn; display feedback only, never input-delivery authority. */
+  activity?: "thinking" | "working" | "idle";
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
   source: "grok-transcript" | "agy-transcript" | "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript" | "hermes-transcript" | "scrollback";

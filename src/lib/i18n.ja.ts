@@ -8,7 +8,10 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravityのチャットを利用できません。ターミナルを開いて動作状況とツール呼び出しを確認してください。",
   "Chat read timed out.": "会話の読み込みがタイムアウトしました。",
+  "Thinking…": "思考中…",
+  "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grokのチャットを利用できません。ターミナルを開いて動作状況とツール呼び出しを確認してください。",
   "Find in terminal": "ターミナル内を検索",
   "Previous match": "前の一致",
   "Next match": "次の一致",
@@ -18,6 +21,8 @@ export const JA: Record<string, string> = {
   "{current} of {total}": "{total}件中{current}件目",
   "Pane changed. Search again.": "ペインの内容が変わりました。再検索してください。",
   "Search moves the pane for every client.": "検索すると接続中の全クライアントのペイン画面が移動します。",
+  "Recent folders": "最近のフォルダー",
+  "Use folder {path}": "フォルダー {path} を使用",
   "Dismiss": "閉じる",
   "Waiting for terminal input…": "端末の入力準備中…",
   "Paused while you use another window": "別のウィンドウを使っている間は一時停止中",

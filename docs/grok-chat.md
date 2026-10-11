@@ -9,6 +9,12 @@ model calls. Reasoning, images and child-session expansion are outside this firs
 macOS or Windows, shows the terminal view instead. Lifecycle checks used Grok 1.0.50 and
 Herdr 0.9.3. No installer changes the Grok configuration.
 
+Chat shows Thinking or Working from the bound transcript's current turn even if Herdr
+reports ready or done. A native completion clears that indicator; late background tool
+results do not restart it. This describes the transcript's turn, not input readiness, and
+an interrupted turn without a saved completion may remain active until another native
+turn or rewind replaces it. Unavailable native history is explicitly marked in Chat.
+
 ## Finding the active session
 
 The bridge reads the foreground Grok process's environment for `GROK_HOME`, or
