@@ -3,7 +3,7 @@ import { Ban, RotateCcw } from "lucide-react";
 import { useT } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
 import { formatKeys, isMacPlatform, shortcutConflict, shortcutEventConflict, shortcutDisplayKeys, shortcutKeys, type ShortcutEventLike, type ShortcutId } from "../lib/shortcuts.ts";
-import { isReservedShortcutBinding, manualShortcutBinding, recordShortcutBinding, resolveShortcutBinding, type ShortcutBinding, type ShortcutSpec } from "../lib/shortcutBindings.ts";
+import { isReservedShortcutBinding, manualShortcutBinding, recordShortcutBinding, resolveShortcutBinding, sameShortcutBinding, type ShortcutBinding, type ShortcutSpec } from "../lib/shortcutBindings.ts";
 import "./ShortcutRecorder.css";
 
 const MANUAL_KEYS = [..."abcdefghijklmnopqrstuvwxyz0123456789,", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "Enter", "Tab", "Escape", "Space", "Backspace", "Delete", "Insert", ...Array.from({ length: 24 }, (_, index) => `F${index + 1}`)];
@@ -29,10 +29,11 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
   const previewKeys = candidate ? shortcutDisplayKeys(id, { [id]: candidate }) : [];
   const conflict = candidate !== null && (shortcutConflict(id, [candidate], settings.shortcutOverrides)
     || (capturedEvent !== null && shortcutEventConflict(id, capturedEvent, settings.shortcutOverrides)));
+  const unchangedManual = candidate !== null && capturedEvent === null && currentBinding !== null && sameShortcutBinding(candidate, currentBinding);
   const shownBinding = editing ? candidate : currentBinding;
   const shownKeys = editing ? previewKeys : currentKeys;
   const reserved = shownBinding !== null && isReservedShortcutBinding(shownBinding, isMacPlatform());
-  const exactOverride = editing || (typeof settings.shortcutOverrides[id] === "object" && settings.shortcutOverrides[id] !== null);
+  const exactOverride = (editing && !unchangedManual) || (typeof settings.shortcutOverrides[id] === "object" && settings.shortcutOverrides[id] !== null);
   const overridesInput = exactOverride && shownBinding !== null && (shownBinding.ctrlKey || (!shownBinding.metaKey && !shownBinding.altKey) || shownBinding.key.startsWith("Arrow"));
   const finish = () => {
     setEditing(false); setRecording(false); setNotice(false);
@@ -113,7 +114,7 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
         {conflict && <span className="settings-description" role="status">{t("Already assigned")}</span>}
         {notice && <span className="settings-description" role="status">{t("Press a key with the modifiers you want.")}</span>}
         <div className="shortcut-recorder-controls">
-          <button type="button" className="btn btn-primary" disabled={!candidate || conflict || recording} onClick={() => candidate && persist(candidate)}>{t("Save")}</button>
+          <button type="button" className="btn btn-primary" disabled={!candidate || conflict || recording} onClick={() => unchangedManual ? finish() : candidate && persist(candidate)}>{t("Save")}</button>
           <button type="button" className="btn" onClick={finish}>{t("Cancel")}</button>
         </div>
       </div>}

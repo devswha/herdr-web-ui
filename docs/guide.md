@@ -488,7 +488,7 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 
 **Settings → Shortcuts** records a key with its exact Ctrl, Command/Meta, Alt and Shift modifiers.
 Click the current binding, press a combination, check the preview, then **Save** or **Cancel**.
-Nothing changes until Save. Escape cancels; plain Tab and Shift+Tab move focus. To bind these
+Nothing changes until Save. Saving an unchanged manual preview keeps the existing binding and its aliases. Escape cancels; plain Tab and Shift+Tab move focus. To bind these
 keys, or without a hardware keyboard, choose **Edit**, select a key (or type a Latin letter, ASCII
 digit, comma, or named key), and check the modifiers. Accented Latin letters, Home/End,
 Page Up/Down and function keys are supported in the manual editor. Symbols and non-Latin

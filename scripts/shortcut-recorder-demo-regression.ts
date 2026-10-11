@@ -78,6 +78,15 @@ try {
         page.setDefaultTimeout(10_000);
         await page.goto(`http://127.0.0.1:${server.port}${prefix}?pane=${encodeURIComponent(panes.api)}&view=chat&settings=shortcuts`);
         await page.locator(".settings-shortcuts").waitFor();
+        const legacyPaletteRow = rowOf(page, "Command palette");
+        await legacyPaletteRow.getByRole("button", { name: "Edit shortcut for Command palette", exact: true }).click();
+        await legacyPaletteRow.getByRole("button", { name: "Save", exact: true }).click();
+        assert.equal((await overridesOf(page)).palette, "0", "an unchanged manual preview preserves the legacy binding's semantics");
+        await page.getByRole("button", { name: "Close settings", exact: true }).click();
+        await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Ó", code: "Digit0", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
+        await page.getByRole("dialog", { name: "Command palette", exact: true }).waitFor();
+        await page.keyboard.press("Escape");
+        await openShortcuts(page);
         const findRow = rowOf(page, "Find in terminal");
         const findRecorder = findRow.getByRole("button", { name: "Record shortcut for Find in terminal", exact: true });
         await findRecorder.click();
@@ -116,6 +125,11 @@ try {
         await openShortcuts(page);
         const nextRow = rowOf(page, "Next pane");
         await nextRow.getByRole("button", { name: "Edit shortcut for Next pane", exact: true }).click();
+        assert.equal(await nextRow.getByText("This binding can override text editing or terminal keys.", { exact: true }).count(), 0);
+        await nextRow.getByRole("button", { name: "Save", exact: true }).click();
+        assert.equal((await overridesOf(page))["next-pane"], "ArrowDown", "unchanged manual Save preserves native legacy-arrow behavior");
+        await nextRow.getByRole("button", { name: "Record shortcut for Next pane", exact: true }).click();
+        await page.keyboard.press("Meta+Shift+ArrowDown");
         await nextRow.getByText("This binding can override text editing or terminal keys.", { exact: true }).waitFor();
         await nextRow.getByRole("button", { name: "Save", exact: true }).click();
         await page.getByRole("button", { name: "Close settings", exact: true }).click();
@@ -143,7 +157,7 @@ try {
           await workspaceRow.getByRole("button", { name: "Save", exact: true }).click();
           await page.getByRole("button", { name: "Close settings", exact: true }).click();
           await page.keyboard.press("Meta+Shift+O");
-          await page.getByRole("dialog", { name: "New workspace", exact: true }).waitFor();
+          await page.getByRole("dialog", { name: /^New workspace · / }).waitFor();
           await page.keyboard.press("Escape");
           await openShortcuts(page);
           await page.getByRole("button", { name: "Reset shortcuts", exact: true }).click();
