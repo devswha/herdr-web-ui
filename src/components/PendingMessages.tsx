@@ -17,6 +17,19 @@ interface Props {
   onDiscard: (id: string) => Promise<void>;
 }
 
+/**
+ * What a row says of its state. A held message waits for Send now only while this connection
+ * holds it on the bridge: a copy restored from storage (another tab's live hold, or one from before
+ * a reload) is reviewed first, since the tab that held it may still send it.
+ */
+export function pendingStatus(message: Pick<PendingMessageView, "state" | "error" | "serverOwned">, busy: boolean): string {
+  if (busy) return "Sending…";
+  if (message.state === "queued") return "Next turn";
+  if (message.state === "held" && !message.error && message.serverOwned) return "Waits for Send now";
+  if (message.state === "uncertain") return "Not confirmed. Check the terminal before sending again.";
+  return "Held message — review and send";
+}
+
 /** Pending text is separate from the transcript; Send now acts on its ID, never on its text. */
 export function PendingMessages({ messages, active = true, connected, blocked, unsaved, isBusy, onSendNow, onDiscard }: Props) {
   const t = useT();
@@ -36,7 +49,7 @@ export function PendingMessages({ messages, active = true, connected, blocked, u
     {messages.map((message) => {
       const busy = isBusy(message.id) || message.state === "sending";
       const uncertain = message.state === "uncertain";
-      const status = busy ? t("Sending…") : message.state === "queued" ? t("Next turn") : message.state === "held" && !message.error ? t("Waits for Send now") : uncertain ? t("Not confirmed. Check the terminal before sending again.") : t("Held message — review and send");
+      const status = t(pendingStatus(message, busy));
       return <li key={message.id} className="pending-message" data-state={message.state}>
         <div className="pending-message-bubble" aria-busy={busy || undefined}>{message.text}</div>
         <div className="pending-message-meta">
