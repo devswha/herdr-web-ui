@@ -46,12 +46,14 @@ import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
 import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { useT } from "../lib/i18n.ts";
+import { modalOpen } from "../lib/focus.ts";
 
 export interface ComposerProps {
   connected: boolean;
   paneId: string;
   /** false: appearing must not take the keyboard (App switched to this pane on its own) */
   autoFocus?: boolean;
+  active?: boolean;
   agent: string | null;
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the status line opens their list */
@@ -63,6 +65,8 @@ export interface ComposerProps {
   answerHint?: string | null;
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
   suggestion?: string | null;
+  /** a cancelled send the agent put back in its input box: the empty box takes it again, for editing and resending */
+  restored?: string | null;
   /** an empty chat's greeting: it stands over the composer's column and takes no row of its own */
   greeting?: ReactNode;
   /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
@@ -212,6 +216,7 @@ export function Composer({
   connected,
   paneId,
   autoFocus = true,
+  active = true,
   agent,
   agentStatus,
   backgroundTasks = 0,
@@ -219,12 +224,15 @@ export function Composer({
   metadata,
   answerHint = null,
   suggestion = null,
+  restored = null,
   greeting = null,
   onSend,
   onAbort,
   onUploadImage,
 }: ComposerProps) {
   const t = useT();
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const machineId = useMachineId();
   const { fetchPaneCommands, fetchPaneFiles } = useMachineApi();
   const { settings } = useSettings();
@@ -246,7 +254,7 @@ export function Composer({
   // it), as the grid does in the terminal lens: a pane picked from the drawer is typed into
   // and once the user picks the pane App had switched to on its own
   useEffect(() => {
-    if (autoFocus) textareaRef.current?.focus({ preventScroll: true });
+    if (autoFocus && !modalOpen()) textareaRef.current?.focus({ preventScroll: true });
   }, [autoFocus]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
@@ -259,6 +267,8 @@ export function Composer({
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
   const caretRef = useRef(caret);
+  /** the restored text the box was filled with: only that fill is ever cleared, never the user's own typing */
+  const filledFrom = useRef<string | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [files, setFiles] = useState<string[]>([]);
   const [slashUsage, setSlashUsage] = useState<Record<string, number>>(readSlashUsage);
@@ -294,6 +304,29 @@ export function Composer({
   const placeholder = !connected
     ? t("Reconnecting… message held here, never queued")
     : answerHint ?? offered ?? t("Message {agent}…", { agent: agentLabel });
+
+  // A cancelled send the agent put back in its input box fills an empty box again — without
+  // focus, which would raise a phone's keyboard. When it is gone, only the untouched fill is
+  // cleared: text the user typed or edited over it is their own and stays.
+  useEffect(() => {
+    if (restored !== null) {
+      if (restored === filledFrom.current || textRef.current.trim() !== "" || sending) return;
+      setText(restored);
+      textRef.current = restored;
+      caretRef.current = restored.length;
+      setCaret(restored.length);
+      filledFrom.current = restored;
+      return;
+    }
+    if (filledFrom.current === null) return;
+    if (textRef.current === filledFrom.current) {
+      setText("");
+      textRef.current = "";
+      caretRef.current = 0;
+      setCaret(0);
+    }
+    filledFrom.current = null;
+  }, [restored]);
 
   useEffect(() => {
     let live = true;
@@ -531,6 +564,7 @@ export function Composer({
   // dictation lands at the caret without taking focus (a phone's keyboard stays as it was)
   const dictation = useDictation({
     mode: "chat",
+    active,
     connected,
     phone: mobile,
     polish: settings.voicePolishChat,
@@ -567,7 +601,7 @@ export function Composer({
     const element = textareaRef.current;
     if (!element) return;
     element.selectionStart = element.selectionEnd = clampedCaret;
-    element.focus();
+    if (activeRef.current) element.focus();
   }, []);
 
   const insertMentionAtCursor = useCallback(

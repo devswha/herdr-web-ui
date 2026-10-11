@@ -12,6 +12,11 @@
 .agents-sidebar.is-collapsed,
 .agents-sidebar.is-empty { flex: 0 0 auto; }
 
+/* A visible Agents list fills the space released by folded PC groups, up to its existing cap. */
+.sidebar-shell:not(:has(.machine-list .machine-workspaces)):has(.agents-sidebar:not(.is-collapsed):not(.is-empty)) .agents-sidebar {
+  flex: 1 1 auto;
+}
+
 /* positioned: a row's visually hidden label is absolute, and must not size the page instead */
 .agent-list-contents {
   position: relative;
@@ -74,7 +79,7 @@
   list-style: none;
 }
 
-/* an agent's row: the selector, then its menu button, which takes no room until it is of use */
+/* The entire agent row selects its pane; it has no secondary controls. */
 .agent-item {
   display: flex;
   align-items: center;
@@ -141,34 +146,6 @@
   font-family: var(--font-mono);
 }
 
-/* As a workspace row's menu button (Sidebar.css .workspace-actions): no width at rest, shown while
-   the row is hovered, focused, selected or its menu is open, and always on touch. It stays in the
-   focus order, since the menu and the dialog hand the focus back to it. */
-.agent-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  width: 0;
-  overflow: hidden;
-  opacity: 0;
-}
-
-.agent-item:focus-within > .agent-actions,
-.agent-item.is-selected > .agent-actions,
-.agent-actions:has([aria-expanded="true"]) {
-  width: auto;
-  overflow: visible;
-  opacity: 1;
-}
-
-@media (hover: hover) {
-  .agent-item:hover > .agent-actions {
-    width: auto;
-    overflow: visible;
-    opacity: 1;
-  }
-}
-
 .agent-row-status {
   display: inline-flex;
   flex: 0 0 auto;
@@ -187,11 +164,6 @@
 @media (pointer: coarse) {
   .agent-section-caret { opacity: 1; }
 
-  .agent-actions {
-    width: auto;
-    overflow: visible;
-    opacity: 1;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

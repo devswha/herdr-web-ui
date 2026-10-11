@@ -8,6 +8,7 @@ import { openSettingsPage } from "./settings-page.ts";
 import { KO } from "../src/lib/i18n.ko.ts";
 import { JA } from "../src/lib/i18n.ja.ts";
 import { ZH } from "../src/lib/i18n.zh.ts";
+import { terminalTheme } from "../src/lib/settings.ts";
 
 // Settings on the unmodified app over the demo's fixture transport: every page fits a phone, and
 // the browser's Back button steps out of the dialog instead of out of the app. All files and
@@ -130,6 +131,28 @@ try {
               await body.getByRole("button", { name: copyLabel("codex"), exact: true }).filter({ hasText: label("Copied") }).waitFor();
               assert.equal(await page.evaluate(() => navigator.clipboard.readText()), install("codex"));
             }
+            if (name === "Appearance" && language === "en") {
+              // an opt-in palette is written to the document and saved, and its block of styles.css
+              // reaches the page: its --term-* tokens read back as the theme xterm is given
+              const palette = page.getByLabel("Colors", { exact: true });
+              await palette.selectOption("forest");
+              await page.waitForFunction(() => document.documentElement.dataset.palette === "forest");
+              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).palette), "forest");
+              const colors = await page.evaluate(() => {
+                const root = getComputedStyle(document.documentElement);
+                return {
+                  background: root.getPropertyValue("--term-bg").trim(),
+                  foreground: root.getPropertyValue("--term-fg").trim(),
+                  cursor: root.getPropertyValue("--term-cursor").trim(),
+                  selectionBackground: root.getPropertyValue("--term-selection").trim(),
+                };
+              });
+              assert.deepEqual(colors, terminalTheme("dark", "forest"), "Forest's --term-* tokens reach the page as the theme xterm is given");
+              if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `forest-palette-${width}.png`), fullPage: true });
+              // the pages after this one are checked on the default palette
+              await palette.selectOption("amber");
+              await page.waitForFunction(() => document.documentElement.dataset.palette === "amber");
+            }
             assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }
           await openSettingsPage(page, label("Terminal"), label("Back to settings"));
@@ -216,7 +239,10 @@ try {
         const dialog = dialogOf(page);
         const list = dialog.getByRole("tablist");
 
-        // Back steps out one screen at a time: the key bar editor, the page, the list, and only then nothing
+        // Back steps out one screen at a time: the key bar editor, the page, the list, and only then nothing.
+        // The address names the pane shown (lib/deepLink.ts) once the roster is in: that is where Back returns
+        await page.waitForFunction(() => new URLSearchParams(window.location.search).has("pane"));
+        const before = page.url();
         await openSettings(page);
         assert.deepEqual(await entryOf(page), { page: null, keyBar: false, depth: 1 });
         await openSettingsPage(page, "Terminal");
@@ -232,7 +258,7 @@ try {
         await page.goBack();
         await page.locator(".settings-dialog").waitFor({ state: "detached" });
         assert.equal(await entryOf(page), null);
-        assert.equal(page.url(), url, "the last Back closes Settings and leaves the app where it was");
+        assert.equal(page.url(), before, "the last Back closes Settings and leaves the app where it was");
         await page.locator(".conn-live").waitFor({ state: "attached" });
         console.log("PASS Back on a phone leaves the key bar editor, then the page, then the list, and stays in the app");
 
