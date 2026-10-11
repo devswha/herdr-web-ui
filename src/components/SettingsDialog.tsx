@@ -180,12 +180,6 @@ function AppearancePage() {
       <SettingsRow label={t("Pin agents")} description={t("Show a star beside each agent that keeps it at the top of the Agents list")}>
         <Toggle label={t("Pin agents")} checked={settings.agentPins} onChange={(agentPins) => update({ agentPins })} />
       </SettingsRow>
-      <SettingsRow label={t("Plan count in the header")} description={t("Show how many steps of the open pane's plan are done in the header, where a press opens the plan; off, the header has no plan button")}>
-        <Toggle label={t("Plan count in the header")} checked={settings.planButton} onChange={(planButton) => update({ planButton })} />
-      </SettingsRow>
-      <SettingsRow label={t("Plan flow")} description={t("Draw a plan as a flow of boxes, with a switch to its list; off, a plan opens as the list alone")}>
-        <Toggle label={t("Plan flow")} checked={settings.planFlow} onChange={(planFlow) => update({ planFlow })} />
-      </SettingsRow>
       <SettingsRow label={t("Quiet opened finishes")} description={t("A finished agent you have opened here loses its dot, as herdr's own view would clear it; remembered per PC on this browser")}>
         <Toggle label={t("Quiet opened finishes")} checked={settings.quietOpenedDone} onChange={(quietOpenedDone) => update({ quietOpenedDone })} />
       </SettingsRow>

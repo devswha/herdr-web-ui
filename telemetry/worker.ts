@@ -31,7 +31,7 @@ const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9a-z.]{1,24})?$/;
 const WORD = /^[a-z0-9_]{1,16}$/;
 const EVENTS = new Set(["install", "update"]);
 const METHODS = new Set(["plugin", "managed", "source"]);
-/** shared/telemetry.ts REPORTED_SETTINGS (worker.test.ts holds the two together); a name this Worker does not know is dropped, not refused */
+/** shared/telemetry.ts REPORTED_SETTINGS and RETIRED_SETTINGS (worker.test.ts holds them together); a name this Worker does not know is dropped, not refused */
 export const SETTINGS = new Set(["theme", "density", "palette", "sidebarRows", "agentOrder", "agentCards", "agentPins", "planFlow", "planButton"]);
 /** ISO 3166-1 alpha-2 */
 const COUNTRY = /^[A-Z]{2}$/;
