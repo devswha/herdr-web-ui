@@ -13,6 +13,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
   Settings choice applies again to every pane.
   ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
+- The Agents list no longer repeats an agent's kind beside the mark that already shows it, so
+  workspace and tab names keep the room on a narrow sidebar. The kind stays in the row's tooltip
+  and is still read out by screen readers; an agent without a mark of its own keeps the word.
+  ([#761](https://github.com/devswha/herdr-web-ui/pull/761))
 
 ## [0.4.6] - 2026-10-11
 
