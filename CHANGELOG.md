@@ -20,6 +20,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   menu asked for from the keyboard, still opens it.
 - With the system's reduce-motion setting on, a running agent's arc in the sidebar stood still,
   so RUN looked like BG (the same arc held still). It now fades in and out instead of turning. ([#841](https://github.com/devswha/herdr-web-ui/pull/841))
+- The update line above the pane stays one line on a phone and on a computer: a long sentence ends
+  in an ellipsis instead of wrapping its buttons onto a second row, the line after an update closes
+  with an × like a PC's line, and an install's step, count and bar share one row.
 
 ## [0.4.7] - 2026-10-12
 
