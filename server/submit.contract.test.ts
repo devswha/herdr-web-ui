@@ -280,6 +280,32 @@ describe("WebSocket submit", () => {
     }, 30_000);
   }
 
+  it("refuses clearing when a prompt opens while the pane's state is read", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("❯ named draft");
+    const screen = mockClaudeInput(agent.pane, () => shown);
+    const original = herdr.paneGet;
+    let armed = false;
+    let reads = 0;
+    const get = spyOn(herdr, "paneGet").mockImplementation(async (paneId, socketPath) => {
+      const pane = await original(paneId, socketPath);
+      // the last state read before the clearing keys: the prompt opens while it is answered
+      if (paneId === agent.pane && armed && ++reads === 3) shown = claudeInputScreen("❯ named draft") + "\r\nPassword:";
+      return pane;
+    });
+    const keys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      await nameDraft(socket, "named draft");
+      armed = true;
+      socket.send({ type: "submit", id: 802, pane_id: agent.pane, text: "chat", payload: "chat", clear_draft: "named draft" });
+      expect(await socket.result(802)).toMatchObject({ ok: false, code: "agent_blocked" });
+      expect(keys).not.toHaveBeenCalled();
+    } finally {
+      keys.mockRestore(); get.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
   it("refuses clearing when Claude reports blocked despite an ordinary named box", async () => {
     const socket = await Socket.connect();
     const screen = mockClaudeInput(agent.pane, claudeInputScreen("❯ named draft"));

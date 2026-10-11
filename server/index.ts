@@ -616,11 +616,14 @@ export function createServer(
           }
           let reads = await claudeBoxReads(paneId);
           inTime();
+          // reads the pane's state first, then the screen the checks and the caller use, so a prompt
+          // that opens while the state is read is on that screen
           const clearScreenReady = async (): Promise<void> => {
             const current = await paneGet(paneId);
             if (clearDraft !== undefined && !sameClaude(pendingIdentity(current))) {
               throw new HerdrError("pending_target_changed", "The named draft's Claude terminal or session changed; nothing was cleared or sent");
             }
+            reads = await claudeBoxReads(paneId);
             if (secretPrompt(reads[0], attachments.get(paneId)?.cols) !== null
               || parseInteractivePrompt("claude", reads[0], null, true, [], heldCandidate(paneId)) !== null
               || modelListWaits("claude", reads[0]) || current.agent_status === "blocked") {
@@ -638,9 +641,8 @@ export function createServer(
             const reserve = DRAFT_CLEAR_WAIT_MS + 500;
             inTime(reserve);
             // A confirmation names the earlier draft, not text typed while it was inspected.
-            reads = await claudeBoxReads(paneId);
-            inTime(reserve);
             await clearScreenReady();
+            inTime(reserve);
             const currentDraft = claudeClearableDraft(...reads);
             if (currentDraft !== clearDraft) throw new InputDraftError(currentDraft, identity ?? undefined);
             // The final draft comparison and clearing keys are not atomic (herdr has no compare-and-clear),
@@ -657,8 +659,7 @@ export function createServer(
               throw error;
             }
             clearedDraft = true;
-            for (const deadline = Date.now() + DRAFT_CLEAR_WAIT_MS; claudeInputDraft(...(reads = await claudeBoxReads(paneId)));) {
-              await clearScreenReady();
+            for (const deadline = Date.now() + DRAFT_CLEAR_WAIT_MS; await clearScreenReady(), claudeInputDraft(...reads);) {
               if (Date.now() >= deadline) throw new InputDraftError(claudeClearableDraft(...reads));
               await Bun.sleep(DRAFT_CLEAR_POLL_MS);
             }
