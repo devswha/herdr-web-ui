@@ -15,6 +15,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   chat or terminal, under the header's: its actions (rename, split, zoom, close) are in the tab's
   ellipsis menu, between the tab's panes and the tab's own actions. A split pane on a wide touch
   screen keeps its own menu.
+- On a phone, a long press on the chat selects text and offers copy as the phone does, instead of
+  opening the pane's actions menu; on the terminal it opens no menu either. A right-click, or a
+  menu asked for from the keyboard, still opens it.
 - With the system's reduce-motion setting on, a running agent's arc in the sidebar stood still,
   so RUN looked like BG (the same arc held still). It now fades in and out instead of turning. ([#841](https://github.com/devswha/herdr-web-ui/pull/841))
 
