@@ -22,9 +22,10 @@ try {
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const url = new URL(request.url), pane = url.searchParams.get("pane_id");
     if (url.pathname === "/api/pane/prompt") return Response.json({ prompt: null });
-    if (url.pathname === "/api/pane/conversation") return Response.json({ source: structured && pane === "agent" ? "codex-transcript" : "scrollback", cursor: null, turns: structured && pane === "agent" ? [{ role: "assistant", ts: null, parts: [{ kind: "text", text: "Structured conversation arrived" }] }] : [] });
+    if (url.pathname === "/api/pane/conversation") return Response.json({ source: (structured && pane === "agent") || pane === "empty" ? "codex-transcript" : "scrollback", cursor: null, turns: structured && pane === "agent" ? [{ role: "assistant", ts: null, parts: [{ kind: "text", text: "Structured conversation arrived" }] }] : [] });
     if (url.pathname === "/api/pane/read") {
       terminalReads.push(pane ?? "");
+      if (pane === "error") return Response.json({ error: { code: "read_failed", message: "Terminal output unavailable" } }, { status: 500 });
       const response = () => Response.json({ read: { text: pane === "shell" ? "Shell inline output" : "OLD AGENT TERMINAL", truncated: false } });
       if (pane === "agent") return new Promise<Response>((resolve) => { resolveAgent = () => resolve(response()); });
       return response();
@@ -42,6 +43,7 @@ try {
   await summary.waitFor();
   await page.getByText("Loading conversation…", { exact: true }).waitFor({ state: "detached" });
   assert.equal(terminalReads.length, 0, "a hidden terminal read cannot hold the initial chat");
+  assert.equal(await page.locator(".chat-empty").count(), 0, "an agent terminal fallback does not claim the conversation is empty");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-fallback-closed.png") });
@@ -61,8 +63,18 @@ try {
   await page.evaluate(() => window.chatFallbackQA.pane("shell"));
   await page.getByText("Shell inline output", { exact: true }).waitFor();
   assert.ok(terminalReads.includes("shell"), "non-agent scrollback remains inline");
+  await page.evaluate(() => window.chatFallbackQA.pane("error"));
+  await summary.waitFor();
+  await summary.click();
+  const fallbackError = page.getByText("Terminal output unavailable");
+  await fallbackError.waitFor();
+  assert.equal(await fallbackError.getAttribute("role"), "alert", "terminal-read failures are announced as errors");
+  assert.equal(await page.locator(".chat-empty").count(), 0, "a fallback failure is not an empty structured conversation");
+  await page.evaluate(() => window.chatFallbackQA.pane("empty"));
+  await page.getByText("No conversation yet — say something below", { exact: true }).waitFor();
+  assert.equal(await page.locator(".chat-terminal-fallback").count(), 0, "an empty structured conversation keeps its ordinary prompt");
   assert.deepEqual(errors, []);
-  console.log("chat fallback: browser OK (no hidden terminal reads, opened stalled output cannot block structured refresh, late cleanup and non-agent inline output)");
+  console.log("chat fallback: browser OK (no hidden terminal reads, opened stalled output cannot block structured refresh, late cleanup, non-agent inline output, fallback error announcement and accurate empty state)");
 
 } finally {
   await browser?.close(); server?.stop(true); rmSync(root, { recursive: true, force: true });
