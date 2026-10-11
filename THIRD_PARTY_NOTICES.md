@@ -924,3 +924,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## elkjs
+
+Mermaid's bundled layout engine includes [elkjs 0.9.3](https://github.com/kieler/elkjs),
+under the [Eclipse Public License 2.0](https://www.eclipse.org/legal/epl-2.0/).
+
+Copyright (c) 2017 Kiel University and others.
