@@ -9,7 +9,7 @@ import type { ZoomMode } from "./layoutMap.ts";
 
 export type PaneView = "chat" | "terminal";
 
-/** A kiválasztott panel története, a saját PC-jéhez kötve. */
+/** The selected pane’s mounted history, bound to its PC. */
 export interface PaneControls {
   scrollPage: (direction: -1 | 1) => void;
 }

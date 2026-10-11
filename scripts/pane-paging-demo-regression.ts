@@ -7,9 +7,10 @@ import { chromium, type Page } from "playwright-core";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
 import { openSettingsPage } from "./settings-page.ts";
+import { appFaces } from "./app-faces.ts";
 
 const app = mkdtempSync(join(tmpdir(), "herdr-pane-paging-demo-"));
-// Csak a lapozás kitalált demóadatairól készülhet PR-bizonyíték.
+// Capture only fictional paging fixtures for PR evidence.
 const evidence = process.env.UI_EVIDENCE_DIR;
 const settled = (page: Page) => page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
 const inputs = (page: Page): Promise<unknown[]> => page.evaluate(() => (window as unknown as { pagingInputs: unknown[] }).pagingInputs);
@@ -61,6 +62,7 @@ try {
           page.on("pageerror", (error) => errors.push(error.message));
           await page.goto(`http://127.0.0.1:${server.port}${prefix}?pane=${encodeURIComponent(panes.api)}&view=chat`);
           await page.locator(".conn-live").waitFor();
+          await appFaces(page);
           const transcript = page.locator(".pane-frame.is-current .chat-view");
           const composer = page.locator(".pane-frame.is-current .composer-text");
           await composer.waitFor();
@@ -69,7 +71,7 @@ try {
           await composer.evaluate((node: HTMLTextAreaElement) => { node.focus(); node.setSelectionRange(5, 15); });
           const beforeInput = await inputs(page);
           const beforeSelection = await composer.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd]);
-          for (const rows of [1, 3, 0]) {
+          for (const rows of [1, 3, 100, 0]) {
             if (rows !== 1) {
               await page.keyboard.press("Meta+Shift+Comma");
               await openSettingsPage(page, "Shortcuts");
@@ -89,6 +91,16 @@ try {
             assert.ok(Math.abs(bottom - await transcript.evaluate((node) => node.scrollTop) - step) <= 1, `chat instantly pages with ${rows} overlap rows`);
             await settled(page);
             assert.ok(Math.abs(bottom - await transcript.evaluate((node) => node.scrollTop) - step) <= 1, "the bottom-pinning effect leaves paged history in place");
+            if (rows === 100) {
+              await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+              const paged = await transcript.evaluate((node) => node.scrollTop);
+              // A height change exercises the chat’s ResizeObserver following path.
+              await page.setViewportSize({ width: 1024, height: 580 });
+              await settled(page);
+              assert.ok(Math.abs(await transcript.evaluate((node) => node.scrollTop) - paged) < 0.5, "one-pixel paging remains away through deferred scroll and viewport updates");
+              await page.setViewportSize({ width: 1024, height: 600 });
+              await settled(page);
+            }
             assert.equal(await composer.inputValue(), "Keep this draft\nand its selection");
             assert.deepEqual(await composer.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd]), beforeSelection);
             assert.ok(await composer.evaluate((node) => document.activeElement === node), "paging leaves the composer focused");
@@ -98,6 +110,23 @@ try {
             }
             await page.keyboard.press("Meta+Shift+PageDown");
             assert.ok(Math.abs(await transcript.evaluate((node) => node.scrollTop) - bottom) <= 1, "opposite page returns to the same bottom");
+            if (rows === 100) {
+              // The sticky return button participates in scroll height: reach the actual end.
+              for (let pages = 0; await transcript.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop > 0); pages++) {
+                assert.ok(pages < 128, "one-pixel PageDown reaches the actual bottom within a bounded number of pages");
+                await page.keyboard.press("Meta+Shift+PageDown");
+                await settled(page);
+              }
+              await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor({ state: "hidden" });
+              await page.setViewportSize({ width: 1024, height: 580 });
+              await settled(page);
+              assert.ok(await transcript.evaluate((node) => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < 0.5), "PageDown to actual bottom restores following on later viewport updates");
+              await page.setViewportSize({ width: 1024, height: 600 });
+              await settled(page);
+              await transcript.evaluate((node) => { node.scrollTop -= 1; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
+              await settled(page);
+              assert.equal(await page.getByRole("button", { name: "Jump to latest", exact: true }).count(), 0, "ordinary manual near-bottom scrolling retains its existing follow tolerance");
+            }
           }
           assert.deepEqual(await inputs(page), beforeInput, "paging never sends pane input");
           await page.keyboard.press("Meta+Shift+Comma");
@@ -136,6 +165,24 @@ try {
           await page.keyboard.press("Meta+Shift+PageUp");
           await settled(page);
           assert.equal(await transcript.evaluate((node) => node.scrollTop), disabledBottom, "disabled paging restores the key to the focused control");
+
+          await page.keyboard.press("Meta+Shift+Comma");
+          await openSettingsPage(page, "Shortcuts");
+          await page.getByRole("combobox", { name: "Scroll pane up", exact: true }).selectOption("default");
+          await page.keyboard.press("Escape");
+          await transcript.evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
+          await settled(page);
+          await page.keyboard.press("Meta+Shift+PageUp");
+          await settled(page);
+          assert.equal(await transcript.evaluate((node) => node.scrollTop), 0, "PageUp at the history start has no movement");
+          assert.equal(await page.getByRole("button", { name: "Jump to latest", exact: true }).count(), 1, "unavailable upward movement leaves the reader away");
+          await transcript.evaluate((node) => { (node.firstElementChild as HTMLElement).style.display = "none"; node.scrollTop = 0; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
+          await settled(page);
+          assert.equal(await transcript.evaluate((node) => node.scrollHeight > node.clientHeight), false, "the fixture now has no scrollable history");
+          await page.keyboard.press("Meta+Shift+PageUp");
+          await page.keyboard.press("Meta+Shift+D");
+          await settled(page);
+          assert.equal(await page.getByRole("button", { name: "Jump to latest", exact: true }).count(), 0, "paging without available movement does not mark the chat away");
           assert.deepEqual(errors, []);
           console.log(`PASS pane paging: ${touch ? "iPad keyboard" : "desktop"}, overlap, caret, selection, modal gate, override, reload`);
         } finally { await context.close(); }

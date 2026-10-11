@@ -39,7 +39,7 @@ try {
     try {
       const frame = JSON.parse(String(payload));
       if (["input", "keys", "submit"].includes(frame.type)) terminalInput.push(frame.type);
-    } catch { /* Csak a bridge JSON-bemenete számít. */ }
+    } catch { /* Only the bridge’s JSON input frames matter. */ }
   }));
   page.on("response", (response) => { if (response.url().endsWith("/api/pane/find")) void response.json().then((body) => { searches.push({ request: response.request().postDataJSON(), body }); }, () => {}); });
   const waitHighlight = async () => {
@@ -56,7 +56,7 @@ try {
   await scrollbar.waitFor();
   const max = Number(await scrollbar.getAttribute("aria-valuemax"));
   assert.ok(max > 100, "the scrollbar reads herdr's full history");
-  // A lapozás a natív történetet mozgatja; a program bemenetét sosem.
+  // Paging moves native history without reaching the program’s input.
   await page.locator(".xterm-helper-textarea").evaluate((node: HTMLTextAreaElement) => node.focus());
   const inputsBeforePaging = terminalInput.length;
   const pageRows = (await paneScrollInfo(paneId))!.viewport_rows - 1;
@@ -65,14 +65,12 @@ try {
   await page.keyboard.press("ControlOrMeta+Shift+PageDown");
   await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === 0, "the opposite shortcut returns to the native bottom");
 
-  // Több billentyűismétlés összeadódik a késleltetett első kérés alatt is.
+  // Repeated pages accumulate while the first request is held.
   const pagingRelease = Promise.withResolvers<void>();
-  const pagingIntercepted = Promise.withResolvers<void>();
   let holdFirstPage = true;
   const holdPaging = async (route: import("playwright-core").Route) => {
     if (route.request().method() === "POST" && holdFirstPage) {
       holdFirstPage = false;
-      pagingIntercepted.resolve();
       await pagingRelease.promise;
     }
     await route.continue();
@@ -80,7 +78,7 @@ try {
   await page.route("**/api/pane/scroll", holdPaging);
   try {
     await page.keyboard.press("ControlOrMeta+Shift+PageUp");
-    await Promise.race([pagingIntercepted.promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("paging POST was not dispatched")), 10000))]);
+    await until(async () => !holdFirstPage, "paging POST was dispatched");
     await page.keyboard.press("ControlOrMeta+Shift+PageUp");
     await page.keyboard.press("ControlOrMeta+Shift+PageUp");
   } finally { pagingRelease.resolve(); }
@@ -114,7 +112,7 @@ try {
     await page.keyboard.press("PageDown");
     await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === 0, "focused scrollbar paging down reaches the bottom");
   }
-  // Az app által kezelt PageDown ne fusson le újra a scrollbar helyi handlerében.
+  // An app-owned PageDown must not also run the scrollbar’s local handler.
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   await openSettingsPage(page, "Shortcuts");
   await page.getByRole("combobox", { name: "Scroll pane down", exact: true }).selectOption("off");

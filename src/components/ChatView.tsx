@@ -627,6 +627,8 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
   const [promptPollKey, setPromptPollKey] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  // Explicit paging stays away even inside the ordinary near-bottom tolerance.
+  const pagingAway = useRef(false);
   const signature = useRef("");
   // Older pages sit above the newest one. Once any shows, the newest page is
   // polled from its start at that moment, so the two always meet.
@@ -664,7 +666,7 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
   useEffect(() => {
     shownPane.current = paneId;
     history.current = undefined; setHistoryId(undefined);
-    stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null); setAbandoned(null); setRestored(null);
+    pagingAway.current = false; stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null); setAbandoned(null); setRestored(null);
     dropOlder();
     lastAnswer.current = null;
     setSentOver(null);
@@ -725,7 +727,7 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
         if (history.current !== conversation.history_id) {
           dropOlder(); generation = olderGeneration.current;
           history.current = conversation.history_id; setHistoryId(conversation.history_id);
-          stickToBottom.current = true; setNewMessages(false); setAway(false);
+          pagingAway.current = false; stickToBottom.current = true; setNewMessages(false); setAway(false);
         }
         // a 304 hands back the answer already shown: nothing to compare or lay out again
         if (conversation === lastAnswer.current) { setError(null); setErrorStatus(null); return; }
@@ -952,7 +954,9 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
   const onScroll = (): void => {
     const node = scroller.current;
     if (node === null) return;
-    stickToBottom.current = node.scrollTop + node.clientHeight >= node.scrollHeight - 48;
+    const distanceFromBottom = node.scrollHeight - node.clientHeight - node.scrollTop;
+    if (distanceFromBottom <= 0) pagingAway.current = false;
+    stickToBottom.current = distanceFromBottom <= (pagingAway.current ? 0 : 48);
     setAway(!stickToBottom.current);
     if (stickToBottom.current) setNewMessages(false);
     if (node.scrollTop < LOAD_OLDER_PX && olderState === "idle") void loadOlder();
@@ -961,7 +965,7 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
     const node = scroller.current;
     if (node === null) return;
     node.scrollTo({ top: node.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    stickToBottom.current = true; setNewMessages(false); setAway(false);
+    pagingAway.current = false; stickToBottom.current = true; setNewMessages(false); setAway(false);
   };
   useLayoutEffect(() => {
     if (!pageScroll) return;
@@ -973,8 +977,11 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
       const lineHeight = parseFloat(style.lineHeight);
       const rowHeight = Number.isFinite(lineHeight) ? lineHeight : parseFloat(style.fontSize);
       const distance = pageScrollDistance(node.clientHeight, rowHeight, settings.pageOverlapRows);
-      node.scrollTo({ top: node.scrollTop + direction * distance, behavior: "instant" });
-      // A késleltetett scroll esemény előtt azonnal megállítjuk a kimenet követését.
+      const before = node.scrollTop;
+      node.scrollTo({ top: before + direction * distance, behavior: "instant" });
+      if (node.scrollTop === before) return;
+      if (direction < 0) pagingAway.current = true;
+      // Apply the intent before output or a deferred scroll event can restore following.
       onScroll();
     };
     pageScroll.current = scroll;
