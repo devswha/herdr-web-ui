@@ -9,6 +9,8 @@
  */
 export const JA: Record<string, string> = {
   "Chat read timed out.": "会話の読み込みがタイムアウトしました。",
+  "Thinking…": "思考中…",
+  "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grokのチャットを利用できません。ターミナルを開いて動作状況とツール呼び出しを確認してください。",
   "Find in terminal": "ターミナル内を検索",
   "Previous match": "前の一致",
   "Next match": "次の一致",

@@ -79,6 +79,7 @@ describe("Grok conversation API", () => {
       const first = await fetch(url);
       const body = await first.json();
       expect(body.source).toBe("grok-transcript");
+      expect(body.activity).toBe("working");
       expect(body.turns[0].parts[0].text).toBe("fictional prompt");
       expect((await fetch(url, { headers: { "if-none-match": first.headers.get("etag")! } })).status).toBe(304);
       const ref = body.turns[1].parts[0].output_ref;
@@ -90,6 +91,12 @@ describe("Grok conversation API", () => {
       expect((await fetch(outputUrl)).status).toBe(404);
       const next = await fetch(url);
       expect(next.headers.get("etag")).not.toBe(first.headers.get("etag"));
+      appendFileSync(path, event({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "fictional thought" } }));
+      const thinking = await fetch(url);
+      expect((await thinking.json()).activity).toBe("thinking");
+      expect(thinking.headers.get("etag")).not.toBe(next.headers.get("etag"));
+      appendFileSync(path, event({ sessionUpdate: "turn_completed" }));
+      expect((await (await fetch(url)).json()).activity).toBe("idle");
       appendFileSync(path, event({ sessionUpdate: "rewind_marker", target_prompt_index: 0 }, true));
       expect((await fetch(`${url}&from=${encodeURIComponent(`${body.history_id}:0`)}`)).status).toBe(409);
       const local = await fetch(url.replace("/api/pane/", "/api/machines/local/pane/"));
