@@ -25,6 +25,10 @@ describe("sidebar agent pins", () => {
     expect(pruneSidebarPins(pins, live, [{ id: "local", snapshot: {} }, { id: "remote", snapshot: {} }])).toEqual(["local:p1"]);
   });
 
+  it("matches the complete machine key instead of a shared prefix", () => {
+    expect(pruneSidebarPins(["pc:p1", "pc-extra:p2"], new Set(), [{ id: "pc", snapshot: null }])).toEqual(["pc:p1"]);
+  });
+
   it("places pinned rows first and keeps source order for the rest", () => {
     const rows = [{ id: "a" }, { id: "b" }, { id: "c" }];
     expect(orderPinnedRows(rows, ["c", "a"], (row) => row.id).map((row) => row.id)).toEqual(["c", "a", "b"]);
