@@ -95,6 +95,7 @@ export interface ChatViewProps {
 
 interface ChatState {
   source: "conversation" | "scrollback";
+  conversationSource?: string;
   turns: ConversationTurn[];
   messages: TranscriptMessage[];
   truncated: boolean;
@@ -215,6 +216,8 @@ function PatchView({ patch }: { patch: string }) {
 }
 
 function ToolInputView({ part }: { part: ToolPartType }) {
+  const t = useT();
+  if (part.arguments_omitted) return <pre className="chat-tool-io">{t("Arguments omitted (too large)")}</pre>;
   // a todo call shows the list as it stood after it, when the agent answered with it
   const after = isTodoTool(part.name) ? parseTodoAnswer(part.output) : null;
   if (after !== null && after.length > 0) return <TodoList items={after} />;
@@ -293,7 +296,7 @@ function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const whole = useWholeOutput(part.output_ref);
-  const summary = todoCallSummary(part) ?? part.summary;
+  const summary = part.arguments_omitted ? t("Arguments omitted (too large)") : todoCallSummary(part) ?? part.summary;
   // reads the call's input: once per call, not on every poll of the transcript
   const verb = useMemo(() => toolVerb({ name: part.name, input: part.input }, summary), [part.name, part.input, summary]);
   // the list is the answer of a todo call: its raw text would say it twice
@@ -707,7 +710,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
         onMetadataRef.current?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
         setAbandoned(conversation.abandoned ?? null);
         let next: ChatState;
-        if (conversation.source !== "scrollback") next = { source: "conversation", turns: conversation.turns, messages: [], truncated: false };
+        if (conversation.source !== "scrollback") next = { source: "conversation", conversationSource: conversation.source, turns: conversation.turns, messages: [], truncated: false };
         else {
           const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES);
           if (cancelled || generation !== olderGeneration.current) return;
@@ -947,7 +950,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   useLayoutEffect(() => () => onRead?.(paneId, null), [onRead, paneId]);
 
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
-    <div className="chat-transcript">
+    <div className="chat-transcript" data-conversation-source={state.conversationSource}>
       {/* the conversation below is not all the file holds: a /tree left these behind, and pi moved
           its leaf without writing anything, so nothing here could say they were ever there. First
           in the transcript, because paging back would otherwise drop them under their own heading */}

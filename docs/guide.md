@@ -151,6 +151,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
 | **OpenCode** | Native session in OpenCode 2's own database, resolved through herdr: `~/.local/share/opencode/opencode.db` (`%USERPROFILE%\.local\share\opencode\opencode.db` on Windows), or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it | — use Terminal |
 | **Devin CLI** | Native SQLite session, showing the active branch when herdr or the live process explicitly identifies the session; otherwise terminal text | — use Terminal |
+| **Hermes** | Native SQLite session store | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
 Devin sessions are never selected by directory or recency alone. A plain `devin` shows the
@@ -220,7 +221,7 @@ names that account and the reset times. Details stay in the strip beside Setting
 remote panes do not show this compact reference; failed or unavailable limits are omitted.
 
 
-The strip beside **Settings** shows the plan limits of the AI tools signed in on the PC the app's server runs on: for each account its provider's logo and one limit, the plan's week or its 5-hour session as chosen in Settings (red from 80%). A plan with neither shows its limit closest to running out. Tap it for every limit (5-hour session, week, month, per model where a plan has them) and when each starts over. It is off until you turn it on in **Settings → Subscription usage**: turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.
+The strip beside **Settings** shows the plan limits of the AI tools signed in on the PC the app's server runs on: for each account its provider's logo and one limit, the plan's week or its 5-hour session as chosen in Settings (red from 80%). A plan with neither shows its limit closest to running out. Tap it for every limit (5-hour session, week, month, per model where a plan has them) and when each starts over. Where the provider states when a limit's window began, the limit also shows its pace: a mark on the bar where an even pace would be by now, the rate so far, and when it runs out at that rate if that comes before the reset; a chip whose limit runs out early turns its bar red. It is off until you turn it on in **Settings → Subscription usage**: turning it on sends the sign-ins on the server's PC to each provider's usage endpoint.
 
 | Provider | Sign-in it reads |
 | --- | --- |
