@@ -701,7 +701,7 @@ One set for both themes: the card is island black wherever it shows.
   fitted inside each rendered pane; layout rectangles are never used as PTY dimensions.
 - Plain right-click can be passed to a mouse-reporting terminal when enabled for that pane.
   Modified clicks, pane frames and non-reporting/read-only terminals still open the menu.
-  Native app shortcuts stay Mod+Shift in the browser, so Ctrl+key continues to reach the PTY.
+  Default app shortcuts use Mod+Shift in the browser, so Ctrl+key continues to reach the PTY unless the user explicitly assigns that combination.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
@@ -1287,12 +1287,16 @@ One set for both themes: the card is island black wherever it shows.
   ready and unknown draw nothing there, and unknown uses a dashed badge edge elsewhere.
 - Touch targets grow to `--touch-target`; fields stay `--fs-input` where mobile zoom is a risk.
 - `prefers-reduced-motion` is honored. Lucide/inline SVG decoration is hidden from assistive tech.
-- Global shortcuts use the convention **Mod+Shift+key**: Mod is Command on Apple platforms and Ctrl
-  elsewhere. Settings lists the global bindings and allows changing their final key or disabling
-  them, with duplicate assignments blocked and known browser/OS reservations warned about.
-  Reservations vary by browser and installed-app mode; a warning is not a guarantee of delivery.
+- Default global shortcuts use **Mod+Shift+key**: Mod is Command on Apple platforms and Ctrl
+  elsewhere. Settings records exact modifier combinations into a preview, with explicit Save/Cancel.
+  A key dropdown and custom-character field with modifier checkboxes work without a hardware keyboard.
+  Duplicate exact combinations, including fixed hold-to-dictate, block Save; restoration and disabling
+  are separate controls. Expanded editors own their keys before global capture listeners run.
+  Known browser/OS reservations and text/terminal overrides show warnings. Reservations vary by
+  browser and installed-app mode; manual editing cannot guarantee delivery.
   Bindings belong to this browser, not the remote PC or pane. Hold-to-dictate remains fixed.
-- Text-field selection and IME composition keep their keys. Focus-local list/tab navigation and
+- Default text-field arrow selection and IME composition keep their keys. Explicit custom bindings
+  may replace native text or terminal keys. Focus-local list/tab navigation and
   reordering are separate from global bindings; they must not intercept terminal input.
   Global actions target the selected pane, and a handled shortcut must never also reach its PTY.
 - On touch screens app actions stay in buttons and menus, including the palette in More on phones.

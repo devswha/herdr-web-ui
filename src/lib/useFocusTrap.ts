@@ -93,7 +93,7 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
     const trap = {};
     openTraps.push(trap);
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Tab" || openTraps.at(-1) !== trap) return;
+      if (event.defaultPrevented || event.key !== "Tab" || event.metaKey || event.ctrlKey || event.altKey || openTraps.at(-1) !== trap) return;
       const node = surface.current;
       if (!node || nativeModalOver(node)) return;
       const stops = tabStops(node);

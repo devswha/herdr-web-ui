@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSettings } from "./settings.ts";
-import type { ShortcutOverrides } from "./shortcutBindings.ts";
-import { physicalKey } from "./keys.ts";
+import { recordedShortcutKey, recordShortcutBinding, resolveShortcutBinding, sameShortcutBinding, type ShortcutEventLike, type ShortcutOverrides, type ShortcutSpec } from "./shortcutBindings.ts";
+export type { ShortcutEventLike } from "./shortcutBindings.ts";
 
 import type { AppActions } from "./actions.ts";
 
@@ -22,17 +22,6 @@ export const SHORTCUTS = [
 
 export type ShortcutId = (typeof SHORTCUTS)[number]["id"];
 
-export interface ShortcutEventLike {
-  key: string;
-  code?: string;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-  isComposing?: boolean;
-  keyCode?: number;
-}
-
 const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   k: "palette",
   f: "find",
@@ -45,7 +34,8 @@ const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   ",": "settings",
 };
 
-export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): string[] {
+export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): ShortcutSpec[] {
+  if (id === "voice") return ["Space"];
   if (Object.hasOwn(overrides, id)) return overrides[id] ? [overrides[id]!] : [];
   return Object.entries(KEY_TO_ID).filter(([, action]) => action === id).map(([key]) => key);
 }
@@ -55,33 +45,24 @@ export function shortcutDisplayKeys(id: ShortcutId, overrides: ShortcutOverrides
   if (id === "voice" || !Object.hasOwn(overrides, id)) return [...shortcut.keys];
   const key = overrides[id];
   if (!key) return [];
-  return ["Mod", "Shift", key.length === 1 ? key.toUpperCase() : key];
+  if (typeof key === "string") return ["Mod", "Shift", key.length === 1 ? key.toUpperCase() : key];
+  return [...(key.ctrlKey ? ["Ctrl"] : []), ...(key.metaKey ? ["Meta"] : []), ...(key.altKey ? ["Alt"] : []), ...(key.shiftKey ? ["Shift"] : []), key.key.length === 1 ? key.key.toUpperCase() : key.key];
 }
 
-export function shortcutConflict(id: ShortcutId, keys: string[], overrides: ShortcutOverrides): boolean {
-  return SHORTCUTS.some((other) => other.id !== id && shortcutKeys(other.id, overrides).some((key) => keys.includes(key)));
+export function shortcutConflict(id: ShortcutId, keys: ShortcutSpec[], overrides: ShortcutOverrides, platformIsMac = isMacPlatform()): boolean {
+  return SHORTCUTS.some((other) => other.id !== id && shortcutKeys(other.id, overrides).some((key) => keys.some((candidate) => sameShortcutBinding(resolveShortcutBinding(candidate, platformIsMac), resolveShortcutBinding(key, platformIsMac)))));
 }
 
 export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, overrides: ShortcutOverrides = {}): ShortcutId | null {
-  if (event.isComposing || event.keyCode === 229) return null;
-  const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  if (!hasMod || !event.shiftKey || event.altKey) return null;
-  // Shift+Comma produces "<" on common keyboard layouts.
-  const code = event.code ?? "";
-  // Share the terminal's letter-position convention, but never turn a typed symbol into an app action.
-  // A Latin layout's own letter stays as typed, accented ones included: BÉPO's É sits on KeyW and
-  // Turkish F's Ç on KeyB, and neither is that binding.
-  const nonLatinLetter = /^\p{L}$/u.test(event.key) && !/^\p{Script=Latin}$/u.test(event.key);
-  const letter = nonLatinLetter ? physicalKey(event.key, code) : event.key;
-  const key = code === "Comma"
-    ? ","
-    : /^Digit[0-9]$/.test(code)
-      ? code.slice(-1)
-      : letter.length === 1 ? letter.toLowerCase() : letter;
+  const binding = recordShortcutBinding(event);
+  if (binding === null || isVoiceShortcut(event, platformIsMac)) return null;
   for (const shortcut of SHORTCUTS) {
     if (shortcut.id === "voice") continue;
-    if (Object.hasOwn(overrides, shortcut.id) && overrides[shortcut.id] === key) return shortcut.id;
+    const override = overrides[shortcut.id];
+    if (override && sameShortcutBinding(binding, resolveShortcutBinding(override, platformIsMac))) return shortcut.id;
   }
+  const key = recordedShortcutKey(event, platformIsMac);
+  if (key === null) return null;
   const id = KEY_TO_ID[key];
   return id && !Object.hasOwn(overrides, id) ? id : null;
 }
@@ -117,8 +98,7 @@ export function keepsArrowsForText(target: KeyTargetLike | EventTarget | null): 
 }
 
 /**
- * The capture listener below only prevents the browser's default, so xterm would still encode an
- * app shortcut for the pane: its key handler asks this first.
+ * Terminal key handlers share the global matcher so app shortcuts never become pane input.
  */
 export function isAppShortcut(event: ShortcutEventLike, overrides: ShortcutOverrides = {}): boolean {
   return matchShortcut(event, isMacPlatform(), overrides) !== null;
@@ -135,7 +115,12 @@ export function modKeyLabel(): string {
 
 export function formatKeys(keys: readonly string[]): string[] {
   const mod = modKeyLabel();
-  return keys.map((key) => (key === "Mod" ? mod : key));
+  return keys.map((key) => key === "Mod" ? mod : key === "Meta" ? (isMacPlatform() ? "⌘" : "Meta") : key);
+}
+
+/** A focused recorder owns its keystrokes before the global window capture listeners run. */
+export function isShortcutRecordingTarget(target: EventTarget | null): boolean {
+  return typeof Element !== "undefined" && target instanceof Element && target.closest("[data-shortcut-recording]") !== null;
 }
 
 export function useShortcuts(actions: AppActions, enabled: boolean): void {
@@ -144,10 +129,12 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
     if (!enabled) return;
     const platformIsMac = isMacPlatform();
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (isShortcutRecordingTarget(event.target)) return;
       const shortcut = matchShortcut(event, platformIsMac, settings.shortcutOverrides);
       if (shortcut === null) return;
-      if (event.key.startsWith("Arrow") && keepsArrowsForText(event.target)) return;
+      if (event.key.startsWith("Arrow") && !Object.hasOwn(settings.shortcutOverrides, shortcut) && keepsArrowsForText(event.target)) return;
       event.preventDefault();
+      event.stopPropagation();
       switch (shortcut) {
         case "palette":
           actions.openPalette();

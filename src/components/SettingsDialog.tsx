@@ -5,8 +5,8 @@ import "./SettingsDialog.css";
 
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
-import { SHORTCUTS, formatKeys, isMacPlatform, shortcutDisplayKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
-import { isReservedShortcutKey } from "../lib/shortcutBindings.ts";
+import { SHORTCUTS, formatKeys } from "../lib/shortcuts.ts";
+import { ShortcutRecorder } from "./ShortcutRecorder.tsx";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, TERMINAL_CURSOR_STYLES, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, type DictationLanguage, type TerminalCursorStyle, type VoiceButton } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
@@ -55,9 +55,6 @@ export interface SettingsDialogProps {
   overPreview?: boolean;
 }
 
-function compactKeys(keys: readonly string[]): string {
-  return formatKeys(keys).map((key) => ({ Shift: "⇧", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" }[key] ?? (key.length === 1 ? key.toUpperCase() : key))).join("+");
-}
 
 const FONT_FAMILY_PLACEHOLDER = 'D2Coding, "Cascadia Mono"';
 
@@ -571,43 +568,15 @@ function IntegrationRow({ integration }: { integration: AgentIntegration }) {
   );
 }
 
-const SHORTCUT_KEYS: readonly string[] = [..."abcdefghijklmnopqrstuvwxyz0123456789,", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
-
 function ShortcutsPage() {
-  const { settings, update } = useSettings();
+  const { update } = useSettings();
   const t = useT();
-  const platformIsMac = isMacPlatform();
   return (
     <>
-      <SettingsGroup className="settings-shortcuts" section="shortcuts" note={<>{t("Bindings apply to this browser and device; Mod+Shift is fixed.")} {t("Text selection in focused fields stays native; Tab/list keys are UI-local, not global shortcuts.")} {t("The mobile key bar sends terminal keys, not app actions.")}</>}>
-        {SHORTCUTS.map((shortcut) => {
-          const displayedKeys = shortcutDisplayKeys(shortcut.id, settings.shortcutOverrides);
-          const selectedKey = displayedKeys[displayedKeys.length - 1];
-          const selectedReserved = selectedKey !== undefined && isReservedShortcutKey(selectedKey, platformIsMac);
-          const defaultKeys = shortcutDisplayKeys(shortcut.id, {});
-          const defaultKey = defaultKeys[defaultKeys.length - 1];
-          const defaultReserved = defaultKey !== undefined && isReservedShortcutKey(defaultKey, platformIsMac);
-          return (
-            <SettingsRow key={shortcut.id} label={t(shortcut.label)} wide={shortcut.id !== "voice"} description={selectedReserved ? t("Your browser or operating system may intercept {keys}.", { keys: compactKeys(displayedKeys) }) : undefined}>
-              {shortcut.id === "voice" ? <span className="settings-keys">{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span> : (
-                <select className="select settings-select settings-shortcut-select" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? "off" : "default"} onChange={(event) => {
-                  const next = { ...settings.shortcutOverrides };
-                  if (event.target.value === "default") delete next[shortcut.id];
-                  else next[shortcut.id] = event.target.value === "off" ? null : event.target.value;
-                  update({ shortcutOverrides: next });
-                }}>
-                  <option value="default" title={t("Default")} disabled={shortcutConflict(shortcut.id, shortcutKeys(shortcut.id, {}), settings.shortcutOverrides)}>{compactKeys(defaultKeys)}{defaultReserved ? ` — ${t("Reserved")}` : ""}</option>
-                  <option value="off" title={t("Send keys to terminal")}>{t("Off")}</option>
-                  {SHORTCUT_KEYS.map((key) => {
-                    const conflict = shortcutConflict(shortcut.id, [key], settings.shortcutOverrides);
-                    const reserved = isReservedShortcutKey(key, platformIsMac);
-                    return <option key={key} value={key} disabled={conflict}>{compactKeys(["Mod", "Shift", key])}{reserved ? ` — ${t("Reserved")}` : ""}{conflict ? " — " + t("Already assigned") : ""}</option>;
-                  })}
-                </select>
-              )}
-            </SettingsRow>
-          );
-        })}
+      <SettingsGroup className="settings-shortcuts" section="shortcuts" note={<>{t("Bindings apply to this browser and device. Record any key combination; defaults use Mod+Shift.")} {t("Record or edit a binding, preview it, then Save. Escape cancels recording; use the editor for Escape or Tab.")} {t("Default arrow bindings preserve text selection. Custom bindings can override text and terminal keys.")} {t("Some keys never reach the browser. Editing a binding cannot bypass browser or operating system shortcuts.")} {t("The mobile key bar sends terminal keys, not app actions.")}</>}>
+        {SHORTCUTS.map((shortcut) => <SettingsRow key={shortcut.id} label={t(shortcut.label)} wide={shortcut.id !== "voice"}>
+          {shortcut.id === "voice" ? <span className="settings-keys">{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span> : <ShortcutRecorder id={shortcut.id} label={t(shortcut.label)} />}
+        </SettingsRow>)}
       </SettingsGroup>
       <div className="settings-actions">
         <button type="button" className="btn" onClick={() => update({ shortcutOverrides: {} })}>{t("Reset shortcuts")}</button>

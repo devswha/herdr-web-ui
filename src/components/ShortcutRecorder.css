@@ -1,0 +1,61 @@
+.shortcut-recorder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 22rem;
+  max-width: 100%;
+}
+
+.shortcut-recorder-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.shortcut-recorder-record {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.shortcut-recorder-record[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+
+.shortcut-recorder-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.shortcut-recorder-modifiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.shortcut-recorder-modifiers label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.shortcut-recorder-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.shortcut-recorder-key .input,
+.shortcut-recorder-key .select {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .shortcut-recorder { width: 100%; }
+}

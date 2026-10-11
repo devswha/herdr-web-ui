@@ -85,16 +85,22 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
 
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await openSettingsPage(page, "Shortcuts");
-    const shortcut = page.getByRole("combobox", { name: "Command palette", exact: true });
-    await shortcut.selectOption("p");
+    const shortcut = page.getByRole("button", { name: "Record shortcut for Command palette", exact: true });
+    const editShortcut = async (action: string, key: string): Promise<void> => {
+      const group = page.getByRole("group", { name: action, exact: true });
+      await group.getByRole("button", { name: `Edit shortcut for ${action}`, exact: true }).click();
+      await group.getByRole("combobox", { name: "Shortcut key", exact: true }).selectOption(key);
+      await group.getByRole("button", { name: "Save", exact: true }).click();
+    };
+    await editShortcut("Command palette", "p");
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
     await page.keyboard.press("ControlOrMeta+Shift+p");
     await page.getByRole("dialog", { name: "Command palette", exact: true }).waitFor();
     await page.keyboard.press("Escape");
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await openSettingsPage(page, "Shortcuts");
-    await shortcut.selectOption("off");
-    await page.getByRole("combobox", { name: "Next pane", exact: true }).selectOption("p");
+    await page.getByRole("button", { name: "Disable shortcut for Command palette", exact: true }).click();
+    await editShortcut("Next pane", "p");
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
     await line.focus();
     const selectionBefore = await page.evaluate(() => localStorage.getItem("herdr-web-ui:selection"));

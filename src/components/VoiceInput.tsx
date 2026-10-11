@@ -9,7 +9,7 @@ import "./VoiceInput.css";
 
 import { useT, type Translate } from "../lib/i18n.ts";
 import { useSettings, wantsVoiceInput } from "../lib/settings.ts";
-import { isMacPlatform, isVoiceShortcut } from "../lib/shortcuts.ts";
+import { isAppShortcut, isMacPlatform, isVoiceShortcut, isShortcutRecordingTarget } from "../lib/shortcuts.ts";
 import { applyDictation, useVoiceInput, type InsertedSpan, type VoiceError, type VoiceInput, type VoiceText, type VoiceUnavailable } from "../lib/voice.ts";
 import { VOICE_MAX_SECONDS, type VoiceMode } from "../../shared/voice.ts";
 
@@ -51,6 +51,7 @@ function releaseHeld(): void {
 }
 
 function onShortcutDown(event: KeyboardEvent): void {
+  if (isShortcutRecordingTarget(event.target)) return;
   if (!isVoiceShortcut(event, isMacPlatform())) return;
   const target = shortcutTarget();
   if (!target) return;
@@ -213,6 +214,7 @@ export function useDictation(options: DictationOptions): Dictation {
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || isShortcutRecordingTarget(event.target) || isAppShortcut(event, settings.shortcutOverrides)) return;
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
@@ -220,7 +222,7 @@ export function useDictation(options: DictationOptions): Dictation {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [active, cancel]);
+  }, [active, cancel, settings.shortcutOverrides]);
 
   useEffect(() => {
     if (!shown || options.active === false) return;

@@ -539,3 +539,11 @@ it("highlights code unless turned off, and keeps a stored choice only when it is
   expect(sanitizeSettings({ highlightCode: "no" }).highlightCode).toBe(true);
   expect(sanitizeSettings({}).highlightCode).toBe(true);
 });
+
+it("preserves exact shortcut modifiers and legacy strings through settings persistence", () => {
+  const chord = { key: "PageUp", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false };
+  const shortcutOverrides = { palette: chord, find: "g", settings: null };
+  const saved = sanitizeSettings(JSON.parse(JSON.stringify(sanitizeSettings({ shortcutOverrides }))));
+  expect(saved.shortcutOverrides).toEqual(shortcutOverrides);
+  expect(sanitizeSettings({ ...saved, density: "compact" }).shortcutOverrides).toEqual(shortcutOverrides);
+});

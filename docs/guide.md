@@ -475,7 +475,7 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 
 ## Keyboard shortcuts
 
-`Mod` is **⌘** on Apple platforms and **Ctrl** elsewhere. Global app shortcuts add Shift, so the terminal keeps its own Ctrl keys. These are the defaults:
+`Mod` is **⌘** on Apple platforms and **Ctrl** elsewhere. Default global app shortcuts add Shift, so the terminal keeps its own Ctrl keys. These are the defaults:
 
 | Shortcut | Action |
 | --- | --- |
@@ -486,14 +486,26 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
 
-**Settings → Shortcuts** changes the final key of each app binding or turns it off. Settings
-are saved in this browser, not on the remote PC. The command palette shows the current bindings
-and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
-(`Mod+Shift+Space`) remains fixed.
+**Settings → Shortcuts** records a key with its exact Ctrl, Command/Meta, Alt and Shift modifiers.
+Click the current binding, press a combination, check the preview, then **Save** or **Cancel**.
+Nothing changes until Save. Escape cancels; plain Tab and Shift+Tab move focus. To bind these
+keys, or without a hardware keyboard, choose **Edit**, select a key (or type a custom character
+or key name), and check the modifiers. Unicode letters, Home/End, Page Up/Down and function keys
+are supported. For shifted digit symbols and comma, enter the base digit or comma. Non-Latin
+layouts use the physical Latin-letter position, while Latin accented letters keep their own
+character. Modifier-only, dead-key and IME events are not recorded.
 
-Known browser/OS reservations are marked, but other combinations can also be intercepted by
-your browser, OS or extensions. Installed-app mode may behave differently. While an IME is
-composing, keys stay with it. In text fields, Mod+Shift+arrows keep their text-selection behavior.
+Settings are saved in this browser, not on the remote PC. Existing saved Mod+Shift bindings keep
+working. The command palette shows current bindings and omits disabled ones. Each row can restore
+its default or turn the binding off; **Reset shortcuts** restores all defaults. Exact duplicate
+combinations, including the fixed hold-to-dictate binding (`Mod+Shift+Space`), block Save.
+
+Known browser/OS reservations show a warning, but other combinations can also be intercepted by
+your browser, OS or extensions. Some keys never reach the page; manual editing cannot bypass
+those reservations. Installed-app mode may behave differently. Bare keys, Shift-only bindings
+and Ctrl combinations can replace typing, native text editing or terminal commands; choose them
+with care. While an IME is composing, keys stay with it. Default Mod+Shift+arrows keep their
+text-selection behavior in text fields; explicit custom arrow bindings take precedence.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
 scrollbar, arrows move a line, Page Up/Down a viewport, and Home/End the start/end of history.

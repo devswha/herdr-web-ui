@@ -332,24 +332,29 @@ try {
         await closePalette();
 
         dialog = await openShortcutSettings();
-        let sidebarShortcut = dialog.getByRole("combobox", { name: "Toggle sidebar", exact: true });
-        await sidebarShortcut.selectOption("x");
-        await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)!).shortcutOverrides["toggle-sidebar"] === "x", SETTINGS_KEY, { timeout: 5_000 });
+        const sidebarGroup = () => dialog.getByRole("group", { name: "Toggle sidebar", exact: true });
+        let sidebarShortcut = sidebarGroup().getByRole("button", { name: "Record shortcut for Toggle sidebar", exact: true });
+        const editSidebarShortcut = async (key: string): Promise<void> => {
+          await sidebarGroup().getByRole("button", { name: "Edit shortcut for Toggle sidebar", exact: true }).click();
+          await sidebarGroup().getByRole("combobox", { name: "Shortcut key", exact: true }).selectOption(key);
+          await sidebarGroup().getByRole("button", { name: "Save", exact: true }).click();
+        };
+        await editSidebarShortcut("x");
+        await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)!).shortcutOverrides["toggle-sidebar"]?.key === "x", SETTINGS_KEY, { timeout: 5_000 });
         await closeSettings(page, dialog);
         action = await openSidebarAction();
         await expectSidebarHint(action, "X");
         await closePalette();
         await page.reload();
         await ready(page);
-        const savedOverrides = (await settingsOf(page)).shortcutOverrides as Record<string, string | null>;
-        assert.equal(savedOverrides["toggle-sidebar"], "x", "a shortcut rebinding survives reload");
+        const savedOverrides = (await settingsOf(page)).shortcutOverrides as Record<string, { key: string } | null>;
+        assert.equal(savedOverrides["toggle-sidebar"]?.key, "x", "a shortcut rebinding survives reload");
         action = await openSidebarAction();
         await expectSidebarHint(action, "X");
         await closePalette();
 
         dialog = await openShortcutSettings();
-        sidebarShortcut = dialog.getByRole("combobox", { name: "Toggle sidebar", exact: true });
-        await sidebarShortcut.selectOption("off");
+        await sidebarGroup().getByRole("button", { name: "Disable shortcut for Toggle sidebar", exact: true }).click();
         await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)!).shortcutOverrides["toggle-sidebar"] === null, SETTINGS_KEY, { timeout: 5_000 });
         await closeSettings(page, dialog);
         action = await openSidebarAction();
@@ -357,15 +362,13 @@ try {
         await closePalette();
 
         dialog = await openShortcutSettings();
-        sidebarShortcut = dialog.getByRole("combobox", { name: "Toggle sidebar", exact: true });
-        assert.match(await sidebarShortcut.locator('option[value="t"]').innerText(), /Reserved/);
-        await sidebarShortcut.selectOption("t");
+        await editSidebarShortcut("t");
         await dialog.getByText(`Your browser or operating system may intercept ${modifierLabel}+⇧+T.`, { exact: true }).waitFor({ timeout: 5_000 });
-        assert.equal(((await settingsOf(page)).shortcutOverrides as Record<string, string>)["toggle-sidebar"], "t", "a reservation warns without silently changing the configured key");
+        assert.equal(((await settingsOf(page)).shortcutOverrides as Record<string, { key: string }>)["toggle-sidebar"]?.key, "t", "a reservation warns without silently changing the configured key");
         await dialog.getByRole("button", { name: "Reset shortcuts", exact: true }).click();
         await page.waitForFunction((key) => Object.keys(JSON.parse(localStorage.getItem(key)!).shortcutOverrides).length === 0, SETTINGS_KEY, { timeout: 5_000 });
-        sidebarShortcut = dialog.getByRole("combobox", { name: "Toggle sidebar", exact: true });
-        await page.waitForFunction(() => (document.querySelector<HTMLSelectElement>('.settings-dialog select[aria-label="Toggle sidebar"]')?.value ?? "") === "default", undefined, { timeout: 5_000 });
+        sidebarShortcut = sidebarGroup().getByRole("button", { name: "Record shortcut for Toggle sidebar", exact: true });
+        assert.equal(await sidebarShortcut.innerText(), `${modifierLabel}+⇧+B`);
         if (evidence) {
           mkdirSync(evidence, { recursive: true });
           await sidebarShortcut.scrollIntoViewIfNeeded();

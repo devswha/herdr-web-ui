@@ -131,10 +131,6 @@
   gap: var(--space-1);
 }
 
-.settings-shortcut-select {
-  width: 14rem;
-}
-
 .settings-integration-check {
   flex: none;
   width: 18px;
@@ -322,10 +318,6 @@
 
   .settings-tab-chevron {
     display: block;
-  }
-
-  .settings-shortcut-select {
-    width: 100%;
   }
 
   /* the key takes the line; Save and Remove share the next one */

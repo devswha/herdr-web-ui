@@ -1,13 +1,83 @@
 import { describe, expect, it } from "bun:test";
 
 import { isAppShortcut, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
-import { isReservedShortcutKey, sanitizeShortcutOverrides } from "./shortcutBindings.ts";
+import { isReservedShortcutKey, sanitizeShortcutOverrides, recordedShortcutKey, recordShortcutBinding } from "./shortcutBindings.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return { key, ctrlKey: false, metaKey: false, shiftKey: true, altKey: false, ...patch };
 }
 
 describe("matchShortcut", () => {
+  it("records exact arbitrary modifiers, preserves legacy bindings, and matches no extra modifiers", () => {
+    const commandPage = recordShortcutBinding(keyEvent("PageUp", { metaKey: true, shiftKey: false }))!;
+    expect(commandPage).toEqual({ key: "PageUp", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false });
+    const overrides = sanitizeShortcutOverrides(JSON.parse(JSON.stringify({ "toggle-view": commandPage, "find": "é" })));
+    expect(overrides).toEqual({ "toggle-view": commandPage, "find": "é" });
+    expect(matchShortcut(keyEvent("PageUp", { metaKey: true, shiftKey: false }), true, overrides)).toBe("toggle-view");
+    expect(matchShortcut(keyEvent("PageUp", { metaKey: true }), true, overrides)).toBeNull();
+    expect(matchShortcut(keyEvent("PageUp", { metaKey: true, altKey: true, shiftKey: false }), true, overrides)).toBeNull();
+    expect(matchShortcut(keyEvent("é", { metaKey: true }), true, overrides)).toBe("find");
+    expect(matchShortcut(keyEvent("é", { ctrlKey: true }), false, overrides)).toBe("find");
+    expect(shortcutDisplayKeys("toggle-view", overrides)).toEqual(["Meta", "PageUp"]);
+    expect(shortcutConflict("palette", [commandPage], overrides, true)).toBe(true);
+    expect(shortcutConflict("palette", ["PageUp"], overrides, true)).toBe(false);
+    for (const patch of [{ metaKey: true, shiftKey: false }, { altKey: true, shiftKey: false }, { shiftKey: true }, { shiftKey: false }, { ctrlKey: true, shiftKey: false }, { ctrlKey: true, metaKey: true, altKey: true }]) {
+      const event = keyEvent("F8", patch);
+      const binding = recordShortcutBinding(event)!;
+      expect(binding).not.toBeNull();
+      expect(matchShortcut(event, true, { "find": binding })).toBe("find");
+      expect(matchShortcut({ ...event, altKey: !event.altKey }, true, { "find": binding })).toBeNull();
+    }
+  });
+  it("distinguishes the same key with different modifiers and reserves only the exact dictation chord", () => {
+    const plainSpace = recordShortcutBinding(keyEvent(" ", { code: "Space", shiftKey: false }))!;
+    expect(sanitizeShortcutOverrides({ "find": plainSpace })).toEqual({ "find": plainSpace });
+    expect(shortcutConflict("find", [plainSpace], {}, true)).toBe(false);
+    const voice = recordShortcutBinding(keyEvent(" ", { code: "Space", metaKey: true }))!;
+    expect(shortcutConflict("find", [voice], {}, true)).toBe(true);
+    expect(matchShortcut(keyEvent(" ", { code: "Space", metaKey: true }), true, { "find": voice })).toBeNull();
+    expect(matchShortcut(keyEvent(" ", { code: "Space", shiftKey: false }), true, { "find": plainSpace })).toBe("find");
+    for (const key of ["Shift", "Control", "Meta", "Alt", "Dead", "Unidentified", "Process"]) expect(recordShortcutBinding(keyEvent(key))).toBeNull();
+    expect(recordShortcutBinding(keyEvent("é", { metaKey: true, isComposing: true }))).toBeNull();
+    expect(recordShortcutBinding(keyEvent("é", { metaKey: true, keyCode: 229 }))).toBeNull();
+    expect(sanitizeShortcutOverrides({ palette: { key: "PageUp", metaKey: true }, find: { ...plainSpace, ctrlKey: "yes" }, settings: { ...plainSpace, key: "arbitrary command" } })).toEqual({});
+  });
+  it("records keys beyond a fixed alphabet using the same normalization as dispatch", () => {
+    for (const [key, code, stored] of [["Ç", "KeyB", "ç"], ["Ű", "Backslash", "ű"], ["Ó", "Digit0", "ó"], ["?", "Slash", "?"], ["F12", "F12", "F12"], ["Home", "Home", "Home"], ["<", "Comma", ","], ["!", "Digit1", "1"]]) {
+      const event = keyEvent(key!, { code, metaKey: true });
+      expect(recordedShortcutKey(event, true)).toBe(stored!);
+      const overrides = sanitizeShortcutOverrides({ "find": stored });
+      expect(matchShortcut(event, true, overrides)).toBe("find");
+    }
+    for (const key of ["Dead", "Unidentified", "Shift", "Meta", "Process"]) expect(recordedShortcutKey(keyEvent(key, { metaKey: true }), true)).toBeNull();
+    expect(recordedShortcutKey(keyEvent("Dead", { metaKey: true, code: "Digit0" }), true)).toBeNull();
+    expect(recordedShortcutKey(keyEvent("x", { metaKey: true, altKey: true }), true)).toBeNull();
+    expect(recordedShortcutKey(keyEvent("x", { metaKey: true, isComposing: true }), true)).toBeNull();
+    expect(recordedShortcutKey(keyEvent("x", { metaKey: true, shiftKey: false }), true)).toBeNull();
+    expect(recordedShortcutKey(keyEvent("x", { ctrlKey: true }), false)).toBe("x");
+    expect(shortcutConflict("find", ["Space"], {})).toBe(true);
+    expect(sanitizeShortcutOverrides({ palette: "F24", find: "F25", settings: "Dead" })).toEqual({ palette: "F24" });
+  });
+  it("keeps Home/End and every Hungarian accented letter through save, display and matching", () => {
+    for (const key of ["Home", "End", ..."áéíóöőúüű"]) {
+      const overrides = sanitizeShortcutOverrides(JSON.parse(JSON.stringify({ "find": key })));
+      expect(overrides).toEqual({ "find": key });
+      for (const apple of [true, false]) {
+        const event = keyEvent(key.length === 1 ? key.toUpperCase() : key, { metaKey: apple, ctrlKey: !apple });
+        expect(matchShortcut(event, apple, overrides)).toBe("find");
+        expect(matchShortcut({ ...event, isComposing: true }, apple, overrides)).toBeNull();
+      }
+      expect(shortcutDisplayKeys("find", overrides)).toEqual(["Mod", "Shift", key.length === 1 ? key.toUpperCase() : key]);
+      expect(shortcutConflict("palette", [key], overrides)).toBe(true);
+    }
+    const saved = sanitizeShortcutOverrides({ "find": "ó", "toggle-view": "ű", "toggle-sidebar": "ú" });
+    expect(matchShortcut(keyEvent("Ó", { metaKey: true, code: "Digit0" }), true, saved)).toBe("find");
+    expect(matchShortcut(keyEvent("Ó", { metaKey: true, code: "Digit0" }), true, { "find": "0" })).toBeNull();
+    expect(matchShortcut(keyEvent("Ű", { metaKey: true, code: "Backslash" }), true, saved)).toBe("toggle-view");
+    expect(matchShortcut(keyEvent("Ú", { metaKey: true, code: "BracketRight" }), true, saved)).toBe("toggle-sidebar");
+    expect(matchShortcut(keyEvent("U\u030b", { metaKey: true, code: "Backslash" }), true, saved)).toBe("toggle-view");
+    expect(sanitizeShortcutOverrides({ palette: "enter", find: "ab", settings: "Dead" })).toEqual({});
+  });
   it("uses Command on Apple platforms and Control elsewhere", () => {
     expect(matchShortcut(keyEvent("K", { metaKey: true }), true)).toBe("palette");
     expect(matchShortcut(keyEvent("k", { ctrlKey: true }), false)).toBe("palette");
@@ -155,4 +225,26 @@ describe("isReservedShortcutKey", () => {
     expect(matchShortcut(keyEvent("t", { ctrlKey: true }), false, overrides)).toBe("new-session");
     expect(matchShortcut(keyEvent("n", { ctrlKey: true }), false)).toBe("new-session");
   });
+});
+
+it("preserves Unicode lowercase expansions through recording, persistence and dispatch", () => {
+  const event = keyEvent("İ", { code: "KeyI", metaKey: true });
+  const binding = recordShortcutBinding(event);
+  expect(binding?.key).toBe("i\u0307");
+  expect(sanitizeShortcutOverrides(JSON.parse(JSON.stringify({ find: binding })))).toEqual({ find: binding });
+  expect(matchShortcut(event, true, { find: binding! })).toBe("find");
+});
+
+it("matches all sixteen exact modifier combinations", () => {
+  for (let bits = 0; bits < 16; bits++) {
+    const event = keyEvent("F8", { ctrlKey: !!(bits & 1), metaKey: !!(bits & 2), altKey: !!(bits & 4), shiftKey: !!(bits & 8) });
+    const binding = recordShortcutBinding(event)!;
+    const overrides = sanitizeShortcutOverrides(JSON.parse(JSON.stringify({ palette: binding })));
+    for (const mac of [true, false]) {
+      expect(matchShortcut(event, mac, overrides)).toBe("palette");
+      for (const modifier of ["ctrlKey", "metaKey", "altKey", "shiftKey"] as const) {
+        expect(matchShortcut({ ...event, [modifier]: !event[modifier] }, mac, overrides)).toBeNull();
+      }
+    }
+  }
 });
