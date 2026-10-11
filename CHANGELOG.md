@@ -8,6 +8,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- On a phone, the system Back button closes an open ⋯ menu sheet instead of switching to the pane
+  opened before, which it did since 0.4.7 made each pane a history entry. A sheet closed by Cancel,
+  a swipe or one of its items leaves no extra Back step behind.
+- On a phone or other touch screen, a pane shown alone no longer draws its own ellipsis over the
+  chat or terminal, under the header's: its actions (rename, split, zoom, close) are in the tab's
+  ellipsis menu, between the tab's panes and the tab's own actions. A split pane on a wide touch
+  screen keeps its own menu.
 - A PC window left in front while you used the terminal on a phone stayed at the phone's size
   when you came back, because it never lost the focus and so never took the pane back. A click
   or a key in its terminal now returns the pane to the PC's size. ([#839](https://github.com/devswha/herdr-web-ui/pull/839))
