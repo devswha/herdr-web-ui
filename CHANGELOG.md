@@ -27,6 +27,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   button starts with **Plan** and how many steps are done (`2/5`), and opens one list with the
   plan's steps first and the background tasks below. The plan's flow of boxes, its dialog and the
   **Plan flow** and **Plan count in the header** settings are gone. ([#846](https://github.com/devswha/herdr-web-ui/pull/846))
+- Reuse immutable chat-message revisions across unrelated renders while retaining mutable-caller change detection.
+  ([#788](https://github.com/devswha/herdr-web-ui/pull/788) by @kilhyeonjun)
 
 ### Fixed
 - The file viewer draws the HTML a README is written with (a centered logo, a row of badges and
