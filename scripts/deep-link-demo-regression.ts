@@ -254,6 +254,81 @@ try {
       });
       console.log("PASS a link to a PC that is not set up here opens this PC's pane in front, and says so");
 
+      // Hold the first local snapshot explicitly, after the configured-PC list arrives.
+      const delayedContext = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "en-US" });
+      try {
+        await delayedContext.addInitScript(`
+          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
+          let released = false, fullMachines = null;
+          const deliveries = [];
+          const hold = machines => {
+            fullMachines = machines;
+            return released ? machines : machines.map(machine => ({ ...machine, snapshot: null }));
+          };
+          window.__releaseRoster = () => {
+            released = true;
+            for (const deliver of deliveries) deliver({ type: "machines", machines: fullMachines });
+          };
+          let fixtureFetch = window.fetch;
+          Object.defineProperty(window, "fetch", {
+            configurable: true, get: () => fixtureFetch,
+            set: fetch => {
+              fixtureFetch = async (input, init) => {
+                const response = await fetch(input, init);
+                const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href).pathname;
+                if (path !== "/api/machines") return response;
+                const body = await response.json();
+                return new Response(JSON.stringify({ ...body, machines: hold(body.machines) }), { headers: response.headers });
+              };
+            }
+          });
+          let fixtureSource = window.EventSource;
+          Object.defineProperty(window, "EventSource", {
+            configurable: true, get: () => fixtureSource,
+            set: Source => {
+              fixtureSource = class extends EventTarget {
+                static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
+                constructor(url, init) {
+                  super(); this.readyState = 0; this.url = String(url);
+                  this.source = new Source(url, init);
+                  const deliver = data => {
+                    const event = new MessageEvent("message", { data: JSON.stringify(data) });
+                    this.onmessage?.(event); this.dispatchEvent(event);
+                  };
+                  deliveries.push(deliver);
+                  this.source.onmessage = event => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "machines") data.machines = hold(data.machines);
+                    if (released || data.type === "machines") deliver(data);
+                  };
+                  this.source.onopen = () => {
+                    this.readyState = 1;
+                    const event = new Event("open"); this.onopen?.(event); this.dispatchEvent(event);
+                  };
+                }
+                close() { this.readyState = 2; this.source.close(); }
+              };
+            }
+          });
+        `);
+        const page = await delayedContext.newPage();
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`${url}?machine=unregistered-PC&ws=${wsOf(INFRA)}-infra&pane=${encodeURIComponent(INFRA)}&view=chat`);
+        await page.locator(".header-note").waitFor();
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        assert.equal(new URL(page.url()).searchParams.get("machine"), "unregistered-PC", "the fallback cannot rewrite the link before its local roster arrives");
+        assert.equal(new URL(page.url()).searchParams.get("pane"), INFRA);
+        await page.evaluate("window.__releaseRoster()");
+        await waitSelected(page, panes.api);
+        await waitQuery(page, "machine", null);
+        await waitQuery(page, "pane", panes.api);
+        assert.deepEqual(errors, []);
+        console.log("PASS an unknown-PC fallback preserves the link until its local roster arrives, then writes the pane it opened");
+      } finally {
+        await delayedContext.close();
+      }
+
       // Back can select a pane while a modal is open: the grid that takes the keyboard when a pane
       // the app picked becomes one the user picked must leave it in the modal (#675 review)
       await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}&view=terminal`, async (page) => {

@@ -747,7 +747,7 @@ export function App() {
   const linkSlug = slugOf(selectedWorkspace?.label) || null;
   const linkFile = viewing && viewing.machineId === selectedMachineId && viewing.paneId === selectedPaneId ? viewing.path : null;
   useEffect(() => {
-    if (locked !== false || machines.length === 0 || linkWorkspaceId === undefined || !linkLanded) return;
+    if (locked !== false || machines.length === 0 || snapshot === null || linkWorkspaceId === undefined || !linkLanded) return;
     const link: AppLink = {
       machine: selectedMachineId, workspace: linkWorkspaceId, workspaceSlug: linkSlug, pane: selectedPaneId, view: selectedPaneId ? view : null, file: linkFile,
       settings: settingsOpen ? settingsPage : null, section: settingsOpen && settingsPage === settingsLinkPage ? settingsLinkSection : null,
@@ -762,7 +762,7 @@ export function App() {
     const url = `${window.location.pathname}${search}${window.location.hash}`;
     if (previous !== null && !autoSelected && !settingsOpen && !newSessionOpen && isNavigation(previous, link)) window.history.pushState({ [NAV_KEY]: true }, "", url);
     else window.history.replaceState(window.history.state, "", url);
-  }, [locked, machines.length, linkLanded, selectedMachineId, selectedPaneId, linkWorkspaceId, linkSlug, linkFile, view, settingsOpen, settingsPage, settingsLinkPage, settingsLinkSection, newSessionOpen, newTab, newFields, wideScreen, sidebarCollapsed, autoSelected]);
+  }, [locked, machines.length, snapshot, linkLanded, selectedMachineId, selectedPaneId, linkWorkspaceId, linkSlug, linkFile, view, settingsOpen, settingsPage, settingsLinkPage, settingsLinkSection, newSessionOpen, newTab, newFields, wideScreen, sidebarCollapsed, autoSelected]);
 
 
   // a file a link named opens over its pane once the pane is shown, as the chat's file links do
