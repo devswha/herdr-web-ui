@@ -1326,6 +1326,8 @@ One set for both themes: the card is island black wherever it shows.
   a state change, not a dialog, so the snap rule above does not apply to it.
 - `prefers-reduced-motion: reduce` removes pulses, drawer/control transitions, sheet rise and drop,
   smooth chat scrolling and settings toggle motion; a drag still follows the finger. State remains legible without animation.
+  One exception: the sidebar's RUN arc stops turning and takes the stepped opacity `pulse` instead,
+  since a held-still arc is how BG reads; nothing moves.
 - Under reduced motion the voice pill swaps its bars for one level bar updated at 4 Hz and drops
   the ring and the morph; the **Recording** label and the timer stay.
 

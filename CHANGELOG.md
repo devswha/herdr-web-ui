@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- With the system's reduce-motion setting on, a running agent's arc in the sidebar stood still,
+  so RUN looked like BG (the same arc held still). It now fades in and out instead of turning.
+
+### Fixed
 - On a phone, the system Back button closes an open ⋯ menu sheet instead of switching to the pane
   opened before, which it did since 0.4.7 made each pane a history entry. A sheet closed by Cancel,
   a swipe or one of its items leaves no extra Back step behind.
