@@ -86,7 +86,9 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       onAnswered(focusFollowsAnswer({ fromCard, origin, coarse, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
     } catch (cause) {
       if (!shown.current) return false;
-      if (cause instanceof ApiError && cause.status === 409 && (cause.code === "prompt_changed" || cause.code === "invalid_answer")) {
+      // a card read before the question moved on: refused as changed (409), or as an answer it no longer fits (400).
+      // The note stays until the card is replaced or answered again, so the button never looks dead
+      if (cause instanceof ApiError && ((cause.status === 409 && cause.code === "prompt_changed") || (cause.status === 400 && cause.code === "invalid_answer"))) {
         setError(t("The question on screen changed; check it and answer again."));
         onPromptChanged();
       } else {

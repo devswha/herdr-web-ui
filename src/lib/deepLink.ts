@@ -79,6 +79,11 @@ const named = (value: string | null): string | null => {
   return trimmed ? trimmed : null;
 };
 
+/** Relative file links need a pane; an absolute file can outlive the pane that wrote it. */
+export function fileFromLink(link: Pick<AppLink, "file" | "pane">): string | null {
+  return link.file && (link.pane || /^(?:\/|[A-Za-z]:[\\/])/.test(link.file)) ? link.file : null;
+}
+
 /** The place an address names. Every field is optional in an address; a missing PC is the local one. */
 export function readLink(search: string): AppLink {
   const query = new URLSearchParams(search);
@@ -123,7 +128,8 @@ export function linkSearch(link: AppLink, current = ""): string {
   if (link.workspace) query.set("ws", link.workspaceSlug ? `${link.workspace}-${link.workspaceSlug}` : link.workspace);
   if (link.pane) query.set("pane", link.pane);
   if (link.pane && link.view) query.set("view", link.view);
-  if (link.pane && link.file) query.set("file", link.file);
+  const file = fileFromLink(link);
+  if (file) query.set("file", file);
   if (link.settings) query.set("settings", link.settings);
   if (link.settings && link.section) query.set("section", link.section);
   if (link.sidebar) query.set("sidebar", link.sidebar);
@@ -166,6 +172,16 @@ export function resolveLink(snapshot: Pick<SessionSnapshot, "workspaces" | "pane
   if (pane && (!workspace || pane.workspace_id === workspace.workspace_id)) return { pane: pane.pane_id, workspace: pane.workspace_id, note: null };
   if (workspace) return { pane: workspacePane(snapshot, workspace.workspace_id), workspace: workspace.workspace_id, note: link.pane ? "pane-closed" : null };
   return { pane: null, workspace: null, note: link.pane || link.workspace ? "workspace-closed" : null };
+}
+
+/**
+ * The place an entry written before a move names: a move gives the pane a new id (lib/paneMove.ts),
+ * and the pane under it is the same, wherever the move took it. A moved pane that has since closed
+ * leaves the entry as written, so its workspace still opens. No roster yet: the new id is followed.
+ */
+export function followMoved(link: AppLink, moved: string | null, snapshot: Pick<SessionSnapshot, "panes"> | null | undefined): AppLink {
+  if (moved === null || (snapshot && !snapshot.panes.some((pane) => pane.pane_id === moved))) return link;
+  return { ...link, pane: moved, workspace: null, workspaceSlug: null };
 }
 
 /** Whether going from one place to another is a move the history keeps (another pane or PC). */

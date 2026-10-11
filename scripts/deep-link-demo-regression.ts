@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
+import { runMoreItem } from "./header-more.ts";
 
 // Deep links (lib/deepLink.ts) on the unmodified app over the demo's fixture transport: an
 // address names the PC, workspace, pane, lens and Settings page, opens there, and follows the app
@@ -97,6 +98,128 @@ try {
         assert.equal(await selected(page), DOCS);
       });
       console.log("PASS opening another pane is a history entry and a lens switch is not; Back and Forward return to each pane in its lens");
+
+      // a move gives a pane a new id: the address follows it on the pane's own entry, and an older
+      // entry naming the old id opens the pane where it went, with Forward's entries kept
+      await withPage(browser, `?ws=${wsOf(DOCS)}&pane=${encodeURIComponent(DOCS)}`, async (page) => {
+        await waitSelected(page, DOCS);
+        await page.locator(`.agents-sidebar .agent-item[data-pane="${INFRA}"] .agent-select`).click();
+        await waitQuery(page, "pane", INFRA);
+        await page.locator(`.agents-sidebar .agent-item[data-pane="${DOCS}"] .agent-select`).click();
+        await waitQuery(page, "pane", DOCS);
+        const length = await page.evaluate(() => history.length);
+        await runMoreItem(page, "Move pane to…");
+        const menu = page.getByRole("menu", { name: /^Move .+ to$/ });
+        await menu.waitFor();
+        await menu.getByRole("menuitem", { name: "infra", exact: true }).click();
+        await page.waitForFunction((old) => { const pane = new URLSearchParams(window.location.search).get("pane"); return pane !== null && pane !== old; }, DOCS, { timeout: 10_000 });
+        const moved = (await query(page))["pane"]!;
+        await waitSelected(page, moved);
+        assert.equal(await page.evaluate(() => history.length), length, "the moved pane's new id is written over its entry");
+        await page.goBack();
+        await waitSelected(page, INFRA);
+        await page.goBack();
+        await waitSelected(page, moved);
+        await waitQuery(page, "pane", moved);
+        await page.goForward();
+        await waitSelected(page, INFRA);
+        await page.goForward();
+        await waitSelected(page, moved);
+        assert.equal(await page.evaluate(() => history.length), length, "Back and Forward kept every entry");
+      });
+      console.log("PASS a moved pane keeps its history entry, and Back to an entry from before the move opens it under its new id");
+
+      // an entry naming a PC since removed leaves the app where it is and says so, opens no dialog it
+      // named; Forward still works
+      await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}`, async (page) => {
+        await waitSelected(page, INFRA);
+        await waitQuery(page, "pane", INFRA);
+        const here = await page.evaluate(() => window.location.search);
+        // the entries a PC removed since would have left: one for its pane, then this pane's again
+        await page.evaluate((search) => {
+          history.pushState(null, "", `?machine=removed&ws=w9-gone&pane=${encodeURIComponent("w9:p1")}&new=workspace&name=Elsewhere`);
+          history.pushState(null, "", `${window.location.pathname}${search}`);
+        }, here);
+        const length = await page.evaluate(() => history.length);
+        await page.goBack();
+        await page.locator(".header-note", { hasText: "That link's PC is not set up here" }).waitFor();
+        await waitQuery(page, "machine", null);
+        await waitQuery(page, "pane", INFRA);
+        assert.equal(await selected(page), INFRA, "the app stays on the pane it showed");
+        await page.waitForTimeout(300);
+        assert.equal(await page.getByRole("dialog", { name: /New workspace/ }).count(), 0, "no New workspace dialog for a PC that is gone");
+        await page.goForward();
+        await waitQuery(page, "pane", INFRA);
+        assert.equal(await page.evaluate(() => history.length), length, "Back and Forward kept every entry");
+      });
+      console.log("PASS Back to an entry for a PC since removed stays on the pane shown, says so, opens none of its dialogs, and keeps Forward");
+
+      // the same Back before the PC list is in: the entry waits for it, then lands on this PC with the note
+      const heldContext = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "en-US" });
+      try {
+        // after a reload marked to hold it, the PC list (its fetch and its stream) waits for __releaseRoster
+        await heldContext.addInitScript(`
+          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
+          const hold = sessionStorage.getItem("hold-roster") === "1";
+          sessionStorage.removeItem("hold-roster");
+          let release = () => {};
+          const released = hold ? new Promise((done) => { release = done; }) : Promise.resolve();
+          window.__releaseRoster = () => release();
+          let fixtureFetch = window.fetch;
+          Object.defineProperty(window, "fetch", {
+            configurable: true, get: () => fixtureFetch,
+            set: (fetch) => {
+              fixtureFetch = async (input, init) => {
+                const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href).pathname;
+                if (path === "/api/machines") await released;
+                return fetch(input, init);
+              };
+            },
+          });
+          let fixtureSource = window.EventSource;
+          Object.defineProperty(window, "EventSource", {
+            configurable: true, get: () => fixtureSource,
+            set: (Source) => {
+              fixtureSource = class extends EventTarget {
+                static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
+                constructor(url, init) {
+                  super(); this.readyState = 0; this.url = String(url);
+                  this.source = new Source(url, init);
+                  const deliver = (event) => { const copy = new MessageEvent("message", { data: event.data }); this.onmessage?.(copy); this.dispatchEvent(copy); };
+                  this.source.onmessage = (event) => { void released.then(() => deliver(event)); };
+                  this.source.onopen = (event) => { this.readyState = 1; this.onopen?.(event); this.dispatchEvent(new Event("open")); };
+                  this.source.onerror = (event) => { this.onerror?.(event); this.dispatchEvent(new Event("error")); };
+                }
+                close() { this.readyState = 2; this.source.close(); }
+              };
+            },
+          });
+        `);
+        const page = await heldContext.newPage();
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`${url}?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}`);
+        await waitSelected(page, INFRA);
+        await waitQuery(page, "pane", INFRA);
+        const here = await page.evaluate(() => window.location.search);
+        await page.evaluate((search) => {
+          history.pushState(null, "", `?machine=removed&ws=w9-gone&pane=${encodeURIComponent("w9:p1")}`);
+          history.pushState(null, "", `${window.location.pathname}${search}`);
+          sessionStorage.setItem("hold-roster", "1");
+        }, here);
+        await page.reload();
+        await page.waitForFunction(() => typeof (window as unknown as { __releaseRoster?: unknown }).__releaseRoster === "function" && document.querySelector(".sidebar-shell") !== null);
+        await page.goBack();
+        await waitQuery(page, "machine", "removed");
+        await page.evaluate(() => (window as unknown as { __releaseRoster: () => void }).__releaseRoster());
+        await page.locator(".header-note", { hasText: "That link's PC is not set up here" }).waitFor();
+        await page.locator('.agents-sidebar .agent-select[aria-current="true"]').waitFor();
+        await waitQuery(page, "machine", null);
+        assert.deepEqual(errors, []);
+      } finally {
+        await heldContext.close();
+      }
+      console.log("PASS Back before the PC list is in waits for it, then lands a removed PC's entry on this PC with the note");
 
       // a link to a Settings page opens it there; the address follows its pages and drops it on close
       await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}&settings=terminal`, async (page) => {
@@ -349,6 +472,95 @@ try {
         }
       });
       console.log("PASS a pane Back selects under an open modal does not take the keyboard out of it");
+
+      // a phone's ⋯ sheet is an entry of its own: Back closes it and stays on the pane; a sheet
+      // closed by Cancel or by an item leaves no entry behind, so the next Back goes to the pane before
+      const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
+      try {
+        await phone.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
+        const page = await phone.newPage();
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`${url}?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}`);
+        await page.locator(".conn-live").waitFor({ state: "attached" });
+        await waitSelected(page, INFRA);
+        // the sidebar is a closed drawer on a phone: a click on its row in the page is enough here
+        await page.locator(`.agents-sidebar .agent-item[data-pane="${DOCS}"] .agent-select`).evaluate((node) => (node as HTMLElement).click());
+        await waitQuery(page, "pane", DOCS);
+        const length = await page.evaluate(() => history.length);
+        const more = page.locator(".header-more-button");
+        const sheet = page.getByRole("dialog", { name: "More", exact: true });
+        await more.tap();
+        await sheet.waitFor();
+        assert.equal(await page.evaluate(() => history.length), length + 1, "an open sheet is an entry");
+        await page.goBack();
+        await sheet.waitFor({ state: "detached" });
+        assert.equal(await selected(page), DOCS, "Back closed the sheet and left the pane alone");
+        assert.equal((await query(page))["pane"], DOCS);
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "Cancel", exact: true }).tap();
+        await sheet.waitFor({ state: "detached" });
+        await page.waitForFunction(() => !Object.keys(history.state ?? {}).includes("herdr-web-ui:sheet"));
+        await page.goBack();
+        await waitSelected(page, INFRA);
+        await page.goForward();
+        await waitSelected(page, DOCS);
+        // an item that opens a dialog on the sheet's address keeps the sheet's entry: the New tab
+        // dialog stays up once the sheet's closing has settled, and Back closes the dialog alone
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "New tab", exact: true }).tap();
+        const creation = page.locator(".new-session-modal");
+        await creation.waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(await creation.isVisible(), true, "the New tab dialog stays up after the sheet's entry settles");
+        assert.equal(await page.evaluate(() => history.length), length + 1, "the dialog took the sheet's entry");
+        await page.goBack();
+        await creation.waitFor({ state: "detached" });
+        assert.equal(await selected(page), DOCS, "Back closed the dialog and left the pane alone");
+        // a sheet opened from a sheet (More → Move pane to…) reuses the entry: one Back closes it
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "Move pane to…", exact: true }).tap();
+        const move = page.getByRole("dialog", { name: /^Move / });
+        await move.waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(await page.evaluate(() => history.length), length + 1, "the second sheet took the first's entry");
+        await page.goBack();
+        await move.waitFor({ state: "detached" });
+        assert.equal(await selected(page), DOCS, "Back closed the second sheet and left the pane alone");
+        // every other dialog is a sheet on a phone too: the plan and the palette close on Back
+        const API = panes.api;
+        await page.locator(`.agents-sidebar .agent-item[data-pane="${API}"] .agent-select`).evaluate((node) => (node as HTMLElement).click());
+        await waitQuery(page, "pane", API);
+        const atApi = await page.evaluate(() => history.length);
+        await page.locator(".plan-button").tap();
+        const plan = page.locator(".plan-dialog");
+        await plan.waitFor();
+        assert.equal(await page.evaluate(() => history.length), atApi + 1, "the plan is an entry");
+        await page.goBack();
+        await plan.waitFor({ state: "detached" });
+        assert.equal(await selected(page), API, "Back closed the plan and left the pane alone");
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "Command palette", exact: true }).tap();
+        const palette = page.getByRole("dialog", { name: "Command palette" });
+        await palette.waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(await page.evaluate(() => history.length), atApi + 1, "the palette took the More sheet's entry");
+        await page.goBack();
+        await palette.waitFor({ state: "detached" });
+        assert.equal(await selected(page), API, "Back closed the palette and left the pane alone");
+        await page.goBack();
+        await waitSelected(page, DOCS);
+        await page.goBack();
+        await waitSelected(page, INFRA);
+        assert.deepEqual(errors, []);
+      } finally {
+        await phone.close();
+      }
+      console.log("PASS a phone's sheet, plan and palette close on Back without leaving their pane; Cancel, New tab and a second sheet leave no Back step behind");
     } finally {
       await browser.close();
     }

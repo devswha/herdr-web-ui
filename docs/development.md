@@ -20,6 +20,7 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 bun run check fast                  # CI's Fast checks: workflow syntax, generated types, typecheck, build, unit tests
 bun run check integration browser   # CI's Integration and browser: a build, then both lanes side by side
 bun run check full                  # fast, then both lanes
+bun run check concurrent            # full, with the unit tests moved beside both lanes: same steps, less wall time
 bun run check run bun test --timeout 15000 ./server/api.contract.test.ts   # one command on the same isolated herdr
 bun run check run --build bun scripts/ui-regression.ts                     # build and browser script under the same lock
 ```
@@ -44,6 +45,14 @@ checkout. (`check run` runs only its named command unless `--build` is supplied.
 Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
 eight slots again for its checkout and counts every active holder against its requested limit,
 including holders above its candidate range. A busy admission port refuses rather than waits.
+
+`check concurrent` runs the same steps as `check full`: workflow syntax, generated types,
+typecheck and build first, then the unit tests side by side with both lanes instead of before them.
+
+Unit tests run in parallel processes; `UNIT_TEST_WORKERS` sets the count (default: min(cores/2, 8)
+locally, 4 in CI). Each file runs independently in its own process; no shared state between
+processes. The queue is ordered largest file first, so long files start early. Without `sh`
+(native Windows) the files run serially in one process.
 Explicit `CHECK_DIR` and `CHECK_REPORT` paths are claimed exclusively by canonical path, even for
 `fast`, before writing reports, logs or isolated state. Pid markers are released at exit after the
 final report and session cleanup; a dead owner's marker is reclaimed under serialized admission.
@@ -87,6 +96,7 @@ bun scripts/settings-pages-demo-regression.ts # every Settings page on a 390px a
 bun scripts/chat-browser-qa.ts  # chat lens end to end
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
+bun scripts/recent-folders-regression.ts # owned workspaces: PC-scoped history, reload, three chips on one row that fill Directory, pending and failures
 bun run test:ssh                # remote-PC integration over SSH
 bun scripts/fresh-install-docker.ts [owner/repo] [ref]  # a new user's install in a bare Ubuntu (Docker)
 ```
@@ -119,6 +129,7 @@ bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quie
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/plugin-actions-demo-regression.ts # a plugin action that ends after the server stopped waiting: the late failure said, a traceback's height on a phone with its keyboard up
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
+bun scripts/narrow-pane-demo-regression.ts    # a split pane under 80 columns: the smaller font, its setting, a zoom, and a pane no font can bring to 80
 ```
 
 `FILE_VIEWER_CASE=landscape-notch` selects a viewer case; `FILE_VIEWER_CSS=/path/to/before.css` compares another stylesheet. These checks use Chromium mobile emulation and synthetic safe-area/keyboard geometry; they cannot verify actual iOS Safari keyboard dismissal or notch insets. The existing `bun scripts/file-viewer-regression.ts` separately checks history with an owned herdr pane. The original `scripts/mobile-viewport-regression.ts` exports `checkMobileViewport` for the real-app `bun run test:ui` suite; it also checks the command palette and xterm focus transitions. The demo runners build the real client into a temporary directory, inject the committed fictional-session transport and serve it only on loopback; they do not use a live herdr session or download website media. Run on its own, each builds the client itself (`scripts/demo-build.ts`); the browser lane builds it once and names the directory in `HERDR_DEMO_BUILD`, and each runner copies that instead. They exercise real-app viewport and alert geometry, but not live herdr connectivity.
@@ -398,20 +409,35 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
   (checksum-pinned actionlint), generated type freshness, application and critical-tools typechecks
   (`tsconfig.tools.json`), build, and
   `bun run test:unit`. This suite does not start herdr.
-- **Integration and browser**: checksum-pinned herdr 0.9.3, Node 22, then
-  `bun run check integration browser`: a build, `bun run test:integration`, and the browser
-  scripts of `scripts/ci-browser.sh` with the lockfile's Chromium, on a herdr of the run's own
-  ([Checks](#checks)). The two lanes run at the same time (`scripts/ci-lanes.ts`). The
-  integration files can run a few at a time, each worker on a herdr session of its own
-  (`scripts/ci-tests.ts`); they run one by one (`HERDR_TEST_SHARDS`, default 1 in
-  `scripts/check.ts`) until the timing-bound contract tests hold under load.
-  Missing herdr fails the run. Its herdr servers are stopped even on failure.
-  Integration tests have a 15-second default timeout so their bounded process-startup
-  probes can finish; individual tests can still specify a longer timeout.
+- **Integration and browser**: a summary job that fails when any of three jobs fails, each with
+  checksum-pinned herdr 0.9.3, Node 22 and the lockfile's Chromium:
+  - **Integration tests** runs `bun run check integration`: a build and
+    `bun run test:integration` on a herdr of the run's own ([Checks](#checks)). The
+    integration files can run a few at a time, each worker on a herdr session of its own
+    (`scripts/ci-tests.ts`); they run one by one (`HERDR_TEST_SHARDS`, default 1 in
+    `scripts/check.ts`) until the timing-bound contract tests hold under load.
+    Missing herdr fails the run. Its herdr servers are stopped even on failure.
+    Integration tests have a 15-second default timeout so their bounded process-startup
+    probes can finish; individual tests can still specify a longer timeout.
+  - **Browser regression (ui-regression)** runs `scripts/ui-regression.ts` alone.
+  - **Browser regression (other scripts)** runs every other browser script, four at a time.
 
-The browser lane prints each script's wall seconds and exit code, including the shared demo
-build, then a summary on success or failure. The first failing script stops the lane.
-Under `CI` or with `CHECK_DIR` set, it creates `UI_EVIDENCE_DIR` at
+  Both browser jobs run `scripts/ci-browser-parallel.ts`, which takes its script list from
+  `scripts/ci-browser.sh` (`BROWSER_SCRIPTS` picks from it, `BROWSER_EXCLUDE` leaves scripts out,
+  and a name the list does not hold is an error). `scripts/pages-gate.test.ts` fails if the two
+  jobs together do not run that list exactly once. A new browser script therefore only needs its
+  `run_script` line in `scripts/ci-browser.sh`.
+
+`bun run check browser` and `bun run check full` still run the serial lane, `scripts/ci-browser.sh`
+(`BROWSER_PARALLEL=1` hands it to the parallel runner).
+The serial lane prints each script's wall seconds and exit code, including the shared demo
+build, then a summary on success or failure. The first failing script stops it.
+The parallel runner builds the demo once, prints a line when each script starts and ends (and
+every minute a script is still running), and keeps running the other scripts after one fails.
+Each script's full output goes to `${CHECK_DIR:-.ci}/browser-logs/<script>.log`, with
+`summary.json` beside it; a failure prints the last 400 lines of its log and the log's path, and
+the job then fails. CI uploads `browser-logs` with the evidence on success or failure.
+Under `CI` or with `CHECK_DIR` set, both runners create `UI_EVIDENCE_DIR` at
 `${CHECK_DIR:-.ci}/browser-evidence`. Only the existing sticky-modifier and file-viewer captures
 are enabled automatically: the UI suite and key-bar demo have evidence branches that add
 assertions, viewport changes or font waits, so those remain disabled in the lane. Outside
