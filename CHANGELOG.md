@@ -16,6 +16,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
 
 ### Changed
+- With **Workspace cards** on, a pinned agent stays in its workspace's card, first there, and the
+  cards that hold pins come first, instead of the agent leaving its card for the top of the list.
 - **Open in a new tab** on a markdown file opens a page of just the document, with its name, path,
   **Open raw file** and **Download** above it, instead of a second copy of the whole app with the
   file viewer over it. A link in the document to another file opens there, from the document's
