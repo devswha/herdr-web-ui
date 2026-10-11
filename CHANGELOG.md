@@ -33,6 +33,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Settings → Appearance → Colors offers **Forest**, a low-saturation green-grey palette for long
   sessions, in dark and light, with matching terminal and title-bar colors.
   ([#775](https://github.com/devswha/herdr-web-ui/pull/775) by @vibewriter-hand)
+- A `mermaid` code block in the chat is drawn as a diagram, with a full-screen lightbox to zoom and
+  pan it, and the file viewer renders markdown files with local images; larger images are offered
+  as downloads. ([#616](https://github.com/devswha/herdr-web-ui/pull/616) by @lyonbot)
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
@@ -453,11 +456,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#646](https://github.com/devswha/herdr-web-ui/pull/646) by @jiunshinn)
 
 ## [0.4.2] - 2026-10-09
-
-### Added
-- A `mermaid` code block in the chat is drawn as a diagram, with a full-screen lightbox to zoom and
-  pan it, and the file viewer shows a markdown file rendered, its images included.
-  ([#616](https://github.com/devswha/herdr-web-ui/pull/616) by @lyonbot)
 
 ### Added
 - Devin CLI panes with an explicitly identified native session show their active conversation
