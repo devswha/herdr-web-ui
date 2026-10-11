@@ -99,10 +99,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   workspaces close and the browser reloads. A chip puts its folder in Directory; a successful
   start moves that folder to the front, ahead of folders a shell only passed through.
   ([#652](https://github.com/devswha/herdr-web-ui/pull/652) by @od-studio-webagency, [#829](https://github.com/devswha/herdr-web-ui/pull/829))
-- The last recorded prompt stays above the chat composer; its line in the terminal opens
-  Chat there. Long answers offer a way back to their prompt. Sending shows progress without
-  removing the recoverable draft early, and a working agent shows thinking dots before its
-  first assistant turn.
+- Reading a long answer in Chat, the prompt it answers shows as one line at the top once it has
+  scrolled out of view; pressing the line goes back to that prompt. Sending shows progress on
+  the Send button, and a working agent shows thinking dots before its first assistant turn.
+  ([#654](https://github.com/devswha/herdr-web-ui/pull/654) by @od-studio-webagency)
 
 ### Fixed
 - Reloading with Settings open closes Settings whenever the browser gets to its step back; it could

@@ -78,9 +78,33 @@
   width: 100%;
 }
 
-.chat-back-to-prompt {
-  margin-top: var(--space-3);
-  color: var(--text-dim);
+/* The prompt the view's top belongs to, once it has scrolled out above: a line that leads back
+   to it. Sticky with no height, so it lies over the transcript's first line and moves nothing. */
+.chat-prompt-pin {
+  position: sticky;
+  z-index: var(--z-popover);
+  top: calc(var(--space-2) + var(--header-over, 0px));
+  width: min(100%, var(--chat-w));
+  height: 0;
+  margin-inline: auto;
+}
+
+.chat-prompt-line {
+  position: absolute;
+  inset: 0 0 auto;
+  justify-content: flex-start;
+  min-width: 0;
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font-chat, var(--font-ui));
+}
+
+.chat-prompt-line svg { flex: none; width: var(--icon-size); height: var(--icon-size); color: var(--text-dim); }
+
+.chat-prompt-line span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-thinking {

@@ -102,7 +102,7 @@ async function drawn(page: Page, selector: string, count = 1): Promise<void> {
 
 const user = (text: string, ts: string): ConversationTurn => ({ role: "user", ts, parts: [{ kind: "text", text }] });
 const answer = (text: string, ts: string): ConversationTurn => ({ role: "assistant", ts, parts: [{ kind: "text", text }] });
-const long = Array.from({ length: 24 }, (_, index) => `### Section ${index + 1}\n\nA fictional explanation long enough to read past the viewport. The original question remains available above the composer.`).join("\n\n");
+const long = Array.from({ length: 24 }, (_, index) => `### Section ${index + 1}\n\nA fictional explanation long enough to read past the viewport. The original question is out of view above.`).join("\n\n");
 const turns = [user("First prompt", "2026-10-09T00:00:00Z"), answer(long, "2026-10-09T00:00:01Z"),
   user("Latest prompt\n한국어 줄 바꿈", "2026-10-09T00:00:02Z"), answer(long, "2026-10-09T00:00:03Z")];
 const repo = join(import.meta.dir, "..");
@@ -143,47 +143,59 @@ try {
       await page.evaluate(async (turns) => { window.navigationQA.turns = turns; await window.navigationQA.refresh(); }, turns);
       await drawn(page, ".chat-turn-user", 2);
       await appFaces(page, "Mg 한국어");
-      await drawn(page, ".chat-back-to-prompt", 2);
-      await page.locator(".composer-last-prompt").focus();
-      await page.locator(".composer-last-prompt").press("Enter");
-      assert.equal(await page.locator(".chat-turn-user:focus").getAttribute("data-turn"), "2");
+      // A following transcript rests at the end of the second long answer: its prompt is out of
+      // view above, so the line names it.
+      const line = page.locator(".chat-prompt-line");
+      await line.filter({ hasText: "Latest prompt 한국어 줄 바꿈" }).waitFor();
       const geometry = await page.evaluate(() => {
-        const bar = document.querySelector(".last-prompt-dock")!.getBoundingClientRect();
-        const composer = document.querySelector(".composer-surface")!.getBoundingClientRect();
-        const view = document.querySelector(".chat-view")!.getBoundingClientRect();
-        const prompt = document.querySelector(".chat-turn-user:focus")!.getBoundingClientRect();
-        return { bar, composer, view, prompt, overflow: document.documentElement.scrollWidth > innerWidth };
+        const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        return { line: box(".chat-prompt-line"), view: box(".chat-view"), column: box(".chat-transcript"), pin: box(".chat-prompt-pin").height,
+          overflow: document.documentElement.scrollWidth > innerWidth };
       });
-      assert.ok(geometry.bar.bottom <= geometry.composer.top, "bar clears the input and resize grip");
-      assert.ok(Math.abs(geometry.bar.left - geometry.composer.left) <= 1 && Math.abs(geometry.bar.right - geometry.composer.right) <= 1, "same composer column");
-      assert.ok(geometry.prompt.top >= geometry.view.top && geometry.prompt.top < geometry.view.top + 40, "jump aligns inside transcript");
+      assert.equal(geometry.pin, 0, "the line takes no room in the transcript");
+      assert.ok(geometry.line.top >= geometry.view.top && geometry.line.bottom < geometry.view.top + 120, "the line lies at the view's top");
+      assert.ok(Math.abs(geometry.line.left - geometry.column.left) <= 1 && Math.abs(geometry.line.right - geometry.column.right) <= 1, "same column as the transcript");
+      assert.ok(geometry.line.height <= 48, "one line, however long the prompt");
       assert.equal(geometry.overflow, false);
       await page.screenshot({ path: join(evidence, `chat-navigation-${mobile ? "phone" : "desktop"}-${theme}.png`) });
+      await line.focus();
+      await line.press("Enter");
+      assert.equal(await page.locator(".chat-turn-user:focus").getAttribute("data-turn"), "2");
+      await drawn(page, ".chat-prompt-line", 0);
+      const landed = await page.evaluate(() => {
+        const view = document.querySelector(".chat-view")!.getBoundingClientRect();
+        return document.querySelector(".chat-turn-user:focus")!.getBoundingClientRect().top - view.top;
+      });
+      assert.ok(landed >= 0 && landed < 120, "the jump puts the prompt at the view's top, in view");
 
-      await page.locator(".chat-back-to-prompt").first().click();
-      assert.equal(await page.locator(".chat-turn-user:focus").getAttribute("data-turn"), "0", "old answer returns to its own question");
+      // Reading the first answer, the line names the first prompt, not the latest.
+      await page.evaluate(() => {
+        const view = document.querySelector(".chat-view")!;
+        view.scrollTop += document.querySelector(".chat-turn-agent")!.getBoundingClientRect().top - view.getBoundingClientRect().top + 200;
+      });
+      await line.filter({ hasText: "First prompt" }).waitFor();
+      await line.click();
+      assert.equal(await page.locator(".chat-turn-user:focus").getAttribute("data-turn"), "0", "an old answer leads to its own question");
+      await drawn(page, ".chat-prompt-line", 0);
       await page.evaluate(async () => { window.navigationQA.older = [{ role: "user", ts: "2026-10-08T00:00:00Z", parts: [{ kind: "text", text: "Older page" }] }]; await window.navigationQA.refresh(); });
       await drawn(page, ".chat-older");
       await page.locator(".chat-older").click();
       await drawn(page, ".chat-turn-user", 3);
-      await page.locator(".composer-last-prompt").click();
+      await page.evaluate(() => { const view = document.querySelector(".chat-view")!; view.scrollTop = view.scrollHeight; });
+      await line.filter({ hasText: "Latest prompt" }).waitFor();
+      await line.click();
       assert.equal(await page.locator(".chat-turn-user:focus").getAttribute("data-turn"), "3", "prepended history reindexes the target");
-      // The header's real switch opens the terminal; the line opens Chat at the recorded prompt.
-      await page.locator(".view-switch button").nth(1).click();
-      await drawn(page, ".terminal-last-prompt");
-      await page.locator(".terminal-last-prompt").click();
-      await drawn(page, ".chat-turn-user:focus");
-      assert.equal(await page.locator(".terminal-last-prompt").count(), 0, "terminal line unmounts beside the mobile terminal input");
-      assert.equal(await page.locator(".chat-turn-user:focus").getAttribute("data-turn"), "2");
 
       // An unanswered send stays recoverable, and makes no transcript bubble or prompt preview.
       const text = page.locator(".composer-text");
+      // the earlier page stays loaded: three recorded prompts, and no send below adds a fourth
+      const recorded = 3;
       await text.fill("Unacknowledged draft");
       await page.locator(".composer-send").click();
       await drawn(page, '.composer-send[aria-busy="true"]');
       assert.equal(await text.inputValue(), "Unacknowledged draft");
-      assert.equal(await page.locator(".chat-turn-user").count(), 2);
-      assert.ok(!(await page.locator(".composer-last-prompt").textContent())?.includes("Unacknowledged"));
+      assert.equal(await page.locator(".chat-turn-user").count(), recorded);
+      assert.ok(!(await line.allTextContents()).join("\n").includes("Unacknowledged"), "a draft in flight is no prompt to lead back to");
       assert.equal(await page.locator(".composer-send-progress").evaluate((node) => getComputedStyle(node).animationName), "none", "reduced motion keeps sending legible without spinning");
       await page.screenshot({ path: join(evidence, `chat-sending-${mobile ? "phone" : "desktop"}-${theme}.png`) });
       await page.evaluate(() => {
@@ -207,19 +219,19 @@ try {
       await drawn(page, '.pending-message[data-state="queued"]');
       await drawn(page, '.composer-send[aria-busy="true"]', 0);
       assert.equal(await text.inputValue(), "");
-      assert.equal(await page.locator(".chat-turn-user").count(), 2, "queue receipt is not a sent bubble");
+      assert.equal(await page.locator(".chat-turn-user").count(), recorded, "queue receipt is not a sent bubble");
       assert.equal(await page.locator(".chat-thinking").count(), 0, "queue receipt does not imply thinking");
-      assert.ok(!(await page.locator(".composer-last-prompt").textContent())?.includes("Queued"));
+      assert.ok(!(await line.allTextContents()).join("\n").includes("Queued"));
       await page.evaluate((pane) => {
         const qa = window.navigationQA, request = qa.submits.at(-1)!;
         qa.emit({ type: "pending-messages", pane_id: pane, messages: [{ id: "qa-pending", request_id: request.id, text: request.text, state: "uncertain", created_at: "2026-10-09T00:00:04Z" }] });
       }, panes.docs);
       await drawn(page, '.pending-message[data-state="uncertain"]');
       assert.equal(await page.locator(".pending-message-send").count(), 0, "uncertain rows cannot be retried");
-      assert.equal(await page.locator(".chat-turn-user").count(), 2);
+      assert.equal(await page.locator(".chat-turn-user").count(), recorded);
       await page.evaluate((pane) => window.navigationQA.emit({ type: "pending-messages", pane_id: pane, messages: [], removed: [{ id: "qa-pending", outcome: "sent" }] }), panes.docs);
       await drawn(page, ".pending-message", 0);
-      assert.equal(await page.locator(".chat-turn-user").count(), 2, "delivery still does not fabricate a transcript entry");
+      assert.equal(await page.locator(".chat-turn-user").count(), recorded, "delivery still does not fabricate a transcript entry");
 
       await page.evaluate(async (pane) => {
         window.navigationQA.turns = [{ role: "user", ts: "2026-10-09T00:01:00Z", parts: [{ kind: "text", text: "Authoritative prompt" }] }];
@@ -234,18 +246,17 @@ try {
         await window.navigationQA.refresh();
       });
       await drawn(page, ".chat-thinking", 0);
-      assert.equal(await page.locator(".chat-back-to-prompt").count(), 0, "short answers need no return control");
+      assert.equal(await line.count(), 0, "a short exchange is all in view and needs no line");
 
       await page.evaluate(async () => { window.navigationQA.history = "navigation-cleared"; window.navigationQA.turns = []; window.navigationQA.older = []; await window.navigationQA.refresh(); });
       await drawn(page, ".chat-turn-user", 0);
-      await drawn(page, ".last-prompt", 0);
-      assert.equal(await page.locator(".chat-back-to-prompt").count(), 0, "replaced history has no old target");
+      assert.equal(await line.count(), 0, "replaced history has no old target");
       assert.deepEqual(errors, []);
-      console.log(`PASS ${mobile ? "phone" : "desktop"} ${theme}: navigation, prepend, terminal handoff, draft recovery, queue/delivery separation, history reset`);
+      console.log(`PASS ${mobile ? "phone" : "desktop"} ${theme}: prompt line at the view's top, jump, prepend, draft recovery, queue/delivery separation, history reset`);
     } catch (error) {
       console.error("Navigation fixture failure", await page.evaluate(() => ({
         turns: document.querySelectorAll(".chat-turn-user").length,
-        lines: [...document.querySelectorAll(".last-prompt")].map((node) => ({ class: node.className, text: node.textContent })),
+        lines: [...document.querySelectorAll(".chat-prompt-line")].map((node) => ({ class: node.className, text: node.textContent })),
         source: window.navigationQA.turns, reads: window.navigationQA.reads, history: window.navigationQA.history,
       })), errors);
       await page.screenshot({ path: join(evidence, "chat-navigation-failure.png") });

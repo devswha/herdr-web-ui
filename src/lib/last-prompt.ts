@@ -14,19 +14,6 @@ export function promptOf(turn: ConversationTurn): SentPrompt | null {
   return text.length > 0 || images > 0 ? { text, images } : null;
 }
 
-/** The nearest actual user prompt before a turn, within the loaded history. */
-export function promptIndexBefore(turns: readonly ConversationTurn[], index: number): number {
-  for (let at = Math.min(index, turns.length) - 1; at >= 0; at--) {
-    const turn = turns[at];
-    if (turn !== undefined && promptOf(turn) !== null) return at;
-  }
-  return -1;
-}
-
-export function lastPromptIndex(turns: readonly ConversationTurn[]): number {
-  return promptIndexBefore(turns, turns.length);
-}
-
 export function promptLine(prompt: SentPrompt, imagesLabel: (n: number) => string): string {
   const words = prompt.text.replace(/\s+/g, " ").trim();
   return words.length > 0 ? words : imagesLabel(prompt.images);

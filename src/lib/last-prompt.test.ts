@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ConversationTurn } from "../../shared/protocol.ts";
-import { lastPromptIndex, promptIndexBefore, promptLine, promptOf } from "./last-prompt.ts";
+import { promptLine, promptOf } from "./last-prompt.ts";
 
 const user = (...parts: ConversationTurn["parts"]): ConversationTurn => ({ role: "user", ts: null, parts });
 const answer: ConversationTurn = { role: "assistant", ts: null, parts: [{ kind: "text", text: "Answer" }] };
@@ -19,25 +19,6 @@ describe("recorded prompt navigation", () => {
       user({ kind: "task_result", tasks: [] }, { kind: "text", text: "Not a prompt" })]) {
       expect(promptOf(turn)).toBeNull();
     }
-  });
-
-  it("finds an answer's own preceding prompt, not the latest or an identical older prompt", () => {
-    const repeated = user({ kind: "text", text: "Again" });
-    const turns = [repeated, answer, user({ kind: "notice", text: "Wake" }), repeated, answer, answer];
-    expect(lastPromptIndex(turns)).toBe(3);
-    expect(promptIndexBefore(turns, 1)).toBe(0);
-    expect(promptIndexBefore(turns, 4)).toBe(3);
-    expect(promptIndexBefore(turns, 5)).toBe(3);
-  });
-
-  it("recomputes indices after older pages join and has no target in a replaced history", () => {
-    const first = user({ kind: "text", text: "First" });
-    const latest = [user({ kind: "text", text: "Second" }), answer];
-    expect(promptIndexBefore(latest, 1)).toBe(0);
-    expect(promptIndexBefore([first, answer, ...latest], 3)).toBe(2);
-    expect(lastPromptIndex([])).toBe(-1);
-    expect(promptIndexBefore([answer], 0)).toBe(-1);
-    expect(lastPromptIndex([answer])).toBe(-1);
   });
 
   it("folds whitespace for the line and names image-only prompts", () => {
