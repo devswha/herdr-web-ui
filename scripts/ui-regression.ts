@@ -24,6 +24,7 @@ import { checkTerminalPinch } from "./terminal-pinch-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkTabMenu } from "./tab-menu-regression.ts";
 import { sheetsSettled } from "./sheets-settled.ts";
+import { routeDrained } from "./drained-route.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkSafariIme } from "./terminal-safari-ime-regression.ts";
@@ -334,7 +335,7 @@ try {
   let pollChosen = false;
   let pollCaptured = false;
   let pollFinished = false;
-  await page.route("**/api/machines", async (route) => {
+  const unrouteHeldPoll = await routeDrained(page, "**/api/machines", async (route) => {
     // Hold only the stale read; later refreshes pass through without pending route handlers.
     if (pollChosen) { await route.continue(); return; }
     pollChosen = true;
@@ -359,7 +360,7 @@ try {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "pane-status-poll.png") });
   }
-  await page.unroute("**/api/machines");
+  await unrouteHeldPoll();
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
   // The bridge's collector retains the completed-turn event even when a direct native read
   // already says idle. Compare the row with the same authoritative roster the UI consumes.
@@ -434,7 +435,7 @@ try {
 
   // a turn that ended on work still running in the background reads BG, not DONE: drawn in the sidebar, and read in the composer
   let backgroundPeer: "working" | "done" | "blocked" | "idle" | null = null;
-  await page.route("**/api/machines", async (route) => {
+  const unrouteBackground = await routeDrained(page, "**/api/machines", async (route) => {
     const response = await route.fetch();
     const body = await response.json() as { machines: { snapshot?: SessionSnapshot }[] };
     for (const machine of body.machines) {
@@ -500,7 +501,7 @@ try {
     await page.getByRole("switch", { name: "Quiet opened finishes", exact: true }).click();
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
   }
-  await page.unroute("**/api/machines");
+  await unrouteBackground();
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await waitingBadge.waitFor({ state: "detached" });
   console.log("PASS a pane whose turn ended on its background work reads BG in the sidebar and the composer, and its status again once it does not");
@@ -513,16 +514,17 @@ try {
     { id: "3", label: "Write the panel", active: null, status: "pending", blocked_by: ["1"], owner: null, started_at: null, ended_at: null },
     { id: "4", label: "Ship it", active: null, status: "pending", blocked_by: ["2", "3"], owner: null, started_at: null, ended_at: null },
   ];
-  const planned = async (target: typeof page): Promise<void> => {
-    await target.route("**/api/machines", async (route) => {
+  const planned = async (target: typeof page): Promise<() => Promise<void>> => {
+    const unrouteMachines = await routeDrained(target, "**/api/machines", async (route) => {
       const response = await route.fetch();
       const body = await response.json() as { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
       for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
       await route.fulfill({ response, json: body });
     });
     await target.route(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: { plan: { steps: planSteps }, server_time: new Date().toISOString() } }));
+    return unrouteMachines;
   };
-  await planned(page);
+  const unroutePlanned = await planned(page);
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   const planButton = page.getByRole("button", { name: "Plan: 1 of 4 done", exact: true });
   await planButton.waitFor();
@@ -552,7 +554,7 @@ try {
   await planDialog.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-button")), true, "the focus goes back on close");
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
-  await page.unroute("**/api/machines");
+  await unroutePlanned();
   await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
   console.log("PASS a pane's plan opens from the header in the chat and the terminal, as a flow and a list");
 
@@ -1800,7 +1802,7 @@ try {
   const planPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const phone = await planPhone.newPage();
   phone.on("pageerror", (error) => errors.push(error.message));
-  await planned(phone);
+  const unroutePhonePlanned = await planned(phone);
   await phone.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
   await phone.locator(".conn-live").waitFor();
   const phonePlan = phone.getByRole("button", { name: "Plan: 1 of 4 done", exact: true });
@@ -1815,6 +1817,7 @@ try {
   if (process.env.UI_EVIDENCE_DIR) await phone.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "plan-phone.png") });
   await phoneDialog.getByRole("button", { name: "Close plan", exact: true }).tap();
   await phoneDialog.waitFor({ state: "detached" });
+  await unroutePhonePlanned();
   await planPhone.close();
   assert.deepEqual(errors, []);
   console.log("PASS a phone opens the plan from a header it fits in");

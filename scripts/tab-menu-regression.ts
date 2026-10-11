@@ -7,6 +7,7 @@ import type { Browser, Locator, Page } from "playwright-core";
 import type { PaneLayoutSnapshot, PaneSplit } from "../shared/protocol.ts";
 import { paneFocus, paneRead, paneRename, paneSplit, sessionSnapshot, tabClose, tabCreate, tabMove, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { sheetsSettled } from "./sheets-settled.ts";
+import { routeDrained } from "./drained-route.ts";
 
 const TAB = "Tab 1";
 const evidence = process.env.UI_EVIDENCE_DIR;
@@ -415,14 +416,11 @@ async function checkDesktop(browser: Browser, origin: string, first: string, sec
     let releaseSelection!: () => void;
     const selectionGate = new Promise<void>((resolve) => { releaseSelection = resolve; });
     let selectionReads = 0;
-    let selectionReadsFinished = 0;
-    await page.route("**/api/session", async (route) => {
+    const unrouteSelection = await routeDrained(page, "**/api/session", async (route) => {
       selectionReads += 1;
-      try {
-        const response = await route.fetch();
-        await selectionGate;
-        await route.fulfill({ response });
-      } finally { selectionReadsFinished += 1; }
+      const response = await route.fetch();
+      await selectionGate;
+      await route.fulfill({ response });
     });
     const survivingAttaches = () => attaches.filter((id) => id === first || id === second).length;
     const survivingDetaches = () => detaches.filter((id) => id === first || id === second).length;
@@ -451,8 +449,7 @@ async function checkDesktop(browser: Browser, origin: string, first: string, sec
       assert.equal(survivingDetaches(), beforeCloseDetaches);
     } finally {
       releaseSelection();
-      await page.unroute("**/api/session");
-      await until(() => selectionReadsFinished === selectionReads, "held selection reads finish");
+      await unrouteSelection();
       await firstTerm?.dispose();
       await secondTerm?.dispose();
     }
