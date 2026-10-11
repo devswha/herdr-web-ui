@@ -103,6 +103,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - Mod+Shift+↑/↓ switch panes from the chat's empty message box too, as they do from the terminal.
   A box with a draft keeps them for selecting text.
+  ([#827](https://github.com/devswha/herdr-web-ui/pull/827) by @sergiorademacher)
 - Reloading with Settings open closes Settings whenever the browser gets to its step back; it could
   come back when the app had drawn itself first, as on a slow device. ([#825](https://github.com/devswha/herdr-web-ui/pull/825))
 - A phone shows a split tab one pane at a time again, at the screen's whole width, instead of
