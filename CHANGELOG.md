@@ -43,6 +43,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - OmO's side panel no longer draws a dotted line under its file, goal and memory rows in the
   terminal: a link the app cannot open is no longer underlined.
   ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- The Agents list no longer repeats an agent's kind beside the mark that already shows it, so
+  workspace and tab names keep the room on a narrow sidebar. The kind stays in the row's tooltip
+  and is still read out by screen readers; an agent without a mark of its own keeps the word.
+  ([#761](https://github.com/devswha/herdr-web-ui/pull/761))
 
 ## [0.4.6] - 2026-10-11
 
