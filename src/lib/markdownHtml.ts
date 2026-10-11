@@ -19,10 +19,14 @@ export function startsHtml(line: string): boolean {
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ", middot: "·", copy: "©", reg: "®", mdash: "—", ndash: "–", hellip: "…" };
+/** a numeric reference outside Unicode, a surrogate or zero (`&#1114112;`) is the replacement character, never a throw */
+function codePoint(value: number): string {
+  return Number.isInteger(value) && value > 0 && value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff) ? String.fromCodePoint(value) : "\ufffd";
+}
 function decode(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
-    if (name.startsWith("#x") || name.startsWith("#X")) return String.fromCodePoint(Number.parseInt(name.slice(2), 16) || 0xfffd);
-    if (name.startsWith("#")) return String.fromCodePoint(Number.parseInt(name.slice(1), 10) || 0xfffd);
+    if (name.startsWith("#x") || name.startsWith("#X")) return codePoint(Number.parseInt(name.slice(2), 16));
+    if (name.startsWith("#")) return codePoint(Number.parseInt(name.slice(1), 10));
     return ENTITIES[name.toLowerCase()] ?? whole;
   });
 }
@@ -38,10 +42,10 @@ type Holder = { kind: "link"; href: string | null; file: string | null; children
 export function parseHtmlBlock(lines: readonly string[], index: number): { blocks: MarkdownBlock[]; next: number } {
   let next = index;
   const body: string[] = [];
-  // a comment runs to its end, blank lines and all; anything else to the first blank line
+  // a comment runs to the line that ends it, blank lines and all, and no further: the heading or
+  // the fence on the next line is markdown again; anything else runs to the first blank line
   if (/^ {0,3}<!--/.test(lines[index] ?? "")) {
     while (next < lines.length) { const line = lines[next++] ?? ""; body.push(line); if (line.includes("-->")) break; }
-    while (next < lines.length && (lines[next] ?? "").trim() !== "") body.push(lines[next++] ?? "");
   } else {
     while (next < lines.length && (lines[next] ?? "").trim() !== "") body.push(lines[next++] ?? "");
   }
@@ -52,10 +56,11 @@ function readHtml(source: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   let lines: InlineNode[][] = [[]];
   let align: "center" | undefined;
+  // the alignment of each open block, outermost first: `<center><h1>…</h1><p>…</p></center>` centers both
+  const aligns: Array<"center" | undefined> = [];
   let heading: 1 | 2 | 3 | 4 | 5 | 6 | null = null;
   const holders: Holder[] = [];
   const target = (): InlineNode[] => holders.at(-1)?.children ?? lines[lines.length - 1]!;
-  const empty = (): boolean => lines.every((line) => line.length === 0);
   const flush = (): void => {
     while (holders.length > 0) close(holders[holders.length - 1]!.kind);
     const kept = lines.map(trimLine).filter((line, at, all) => line.length > 0 || (at > 0 && at < all.length - 1));
@@ -97,18 +102,27 @@ function readHtml(source: string): MarkdownBlock[] {
     if (text !== undefined || rawName === undefined) {
       // HTML folds its whitespace: a line break in the source is a space
       const value = decode((text ?? whole).replace(/\s+/g, " "));
-      if (value.trim() !== "" || (target().length > 0 && !empty())) push({ type: "text", value });
+      // a space between two words in a link or an emphasis stays; one at a paragraph's start does not
+      if (value.trim() !== "" || target().length > 0) push({ type: "text", value });
       continue;
     }
     const name = rawName.toLowerCase();
     if (BLOCK_TAGS.has(name)) {
       flush();
-      if (closing) { align = undefined; continue; }
-      align = /^center$/i.test(attribute(attributes, "align") ?? "") || name === "center" ? "center" : undefined;
+      if (closing) { aligns.pop(); align = aligns.at(-1); continue; }
+      align = /^center$/i.test(attribute(attributes, "align") ?? "") || name === "center" ? "center" : aligns.at(-1);
+      aligns.push(align);
       if (/^h[1-6]$/.test(name)) heading = Number(name[1]) as 1 | 2 | 3 | 4 | 5 | 6;
       continue;
     }
-    if (name === "br") { lines.push([]); continue; }
+    if (name === "br") {
+      // a break inside a link or an emphasis: the open ones end on this line and go on on the next
+      const reopened: Holder[] = holders.map((holder) => holder.kind === "link" ? { kind: "link", href: holder.href, file: holder.file, children: [] } : { kind: holder.kind, children: [] });
+      while (holders.length > 0) close(holders[holders.length - 1]!.kind);
+      lines.push([]);
+      holders.push(...reopened);
+      continue;
+    }
     if (name === "hr") { flush(); blocks.push({ type: "hr" }); continue; }
     if (name === "img") {
       const src = attribute(attributes, "src");

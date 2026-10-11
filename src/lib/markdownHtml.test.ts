@@ -44,6 +44,25 @@ describe("HTML blocks in a markdown file", () => {
     expect(blocks).toHaveLength(3);
   });
 
+  it("never throws on a numeric reference outside Unicode, and ends a comment where it ends", () => {
+    const blocks = parseMarkdown("<p>&#1114112; &#xD800; &#0; &#169;</p>", 0, true);
+    expect(blocks[0]?.type === "paragraph" && text(blocks[0].lines[0] ?? [])).toBe("\ufffd \ufffd \ufffd ©");
+    const after = parseMarkdown(["<!-- note -->", "# Heading", "", "<!-- a", "b -->", "```html", "<span>kept</span>", "```"].join("\n"), 0, true);
+    expect(after).toHaveLength(2);
+    expect(after[0]).toMatchObject({ type: "heading", level: 1 });
+    expect(after[1]).toMatchObject({ type: "code", language: "html", value: "<span>kept</span>" });
+  });
+
+  it("keeps the spaces and breaks inside links and emphasis, and the centering of a wrapper", () => {
+    const [broken] = parseMarkdown("<p><strong>one<br>two</strong></p>", 0, true);
+    expect(broken?.type === "paragraph" && broken.lines.map(text)).toEqual(["one", "two"]);
+    expect(broken?.type === "paragraph" && broken.lines.every((line) => line.some((node) => node.type === "strong"))).toBe(true);
+    const [spaced] = parseMarkdown("<p><a href=\"https://example.com/\"><b>one</b> <b>two</b></a></p>", 0, true);
+    expect(spaced?.type === "paragraph" && text(spaced.lines[0] ?? [])).toBe("one two");
+    const wrapped = parseMarkdown("<center><h1>Title</h1><p>Subtitle</p></center>\n<div align=\"center\"><p>inner</p></div>\n<p>plain</p>", 0, true);
+    expect(wrapped.map((block) => [block.type, block.type === "heading" || block.type === "paragraph" ? block.align ?? null : null])).toEqual([["heading", "center"], ["paragraph", "center"], ["paragraph", "center"], ["paragraph", null]]);
+  });
+
   it("links only to safe addresses and files", () => {
     const [block] = parseMarkdown("<p><a href=\"javascript:alert(1)\">bad</a> <a href=\"docs/guide.md#x\">guide</a></p>", 0, true);
     const nodes = block?.type === "paragraph" ? block.lines.flat() : [];
