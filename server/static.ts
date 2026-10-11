@@ -159,7 +159,8 @@ function encodings(header: string | null | undefined): Array<"br" | "gzip" | "id
   const weights = new Map<string, number>();
   for (const item of header.split(",")) {
     const match = /^\s*([\w*-]+)\s*(?:;\s*q\s*=\s*(0(?:\.\d{0,3})?|1(?:\.0{0,3})?))?\s*$/i.exec(item);
-    if (match) weights.set(match[1]!.toLowerCase(), match[2] === undefined ? 1 : Number(match[2]));
+    // x-gzip is gzip's older name (RFC 9110 §8.4.1.3): one weight for both
+    if (match) weights.set(match[1]!.toLowerCase().replace(/^x-gzip$/, "gzip"), match[2] === undefined ? 1 : Number(match[2]));
   }
   const weight = (coding: string): number => weights.get(coding) ?? (coding === "identity" ? (weights.get("*") === 0 ? 0 : 0.001) : weights.get("*") ?? 0);
   return (["br", "gzip", "identity"] as const).filter(coding => weight(coding) > 0).sort((a, b) => weight(b) - weight(a));

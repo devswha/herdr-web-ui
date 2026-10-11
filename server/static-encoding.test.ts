@@ -49,6 +49,9 @@ test("honors encoding preferences, explicit exclusions, wildcards and identity f
     expect(response.headers.get("content-encoding")).toBe(wanted);
     expect(response.headers.get("vary")).toBe("Accept-Encoding");
   }
+  // x-gzip is gzip under its older name: accepted as gzip, and excluded with it
+  expect((await serve("/assets/app-hash.js", "x-gzip, identity;q=0")).headers.get("content-encoding")).toBe("gzip");
+  expect((await serve("/assets/app-hash.js", "*;q=1, x-gzip;q=0, br;q=0, identity;q=0")).status).toBe(406);
   const rejected = await serve("/assets/app-hash.js", "*;q=0, identity;q=0");
   expect(rejected.status).toBe(406);
   expect(rejected.headers.get("content-security-policy")).toContain("script-src 'self'");
