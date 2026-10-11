@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { build as viteBuild } from "vite";
-import { serveStatic } from "../server/static.ts";
+import { CONTENT_SECURITY_POLICY } from "../server/static.ts";
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-chat-fallback-")));
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 let server: ReturnType<typeof Bun.serve> | undefined;
@@ -15,8 +15,6 @@ try {
   symlinkSync(join(repo, "scripts/chat-fallback-fixture.tsx"), join(root, "fixture.tsx"));
   writeFileSync(join(root, "index.html"), '<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/fixture.tsx"></script></body></html>');
   await viteBuild({ configFile: join(repo, "vite.config.ts"), root, publicDir: false, logLevel: "warn", build: { outDir: output, emptyOutDir: true } });
-  const policy = (await serveStatic("/")).headers.get("content-security-policy");
-  assert.ok(policy, "build the app before its enforcing CSP regression");
   const terminalReads: string[] = [];
   let structured = false, resolveAgent!: () => void, agentReadArrived!: () => void;
   // resolved by the server's handler: a browser-side waitForRequest can win the race against it
@@ -33,7 +31,7 @@ try {
       return response();
     }
     if (url.pathname === "/favicon.ico") return new Response(null, { status: 204 });
-    return new Response(Bun.file(join(output, url.pathname === "/" ? "index.html" : url.pathname.slice(1))), { headers: { "content-security-policy": policy } });
+    return new Response(Bun.file(join(output, url.pathname === "/" ? "index.html" : url.pathname.slice(1))), { headers: { "content-security-policy": CONTENT_SECURITY_POLICY } });
   } });
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
   const page = await browser.newPage(); page.setDefaultTimeout(10_000);
