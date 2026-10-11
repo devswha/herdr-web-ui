@@ -33,6 +33,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ### Changed
 - Serve built JavaScript and CSS as Brotli or gzip when accepted, preserving original bytes and static cache/CSP policy.
+  ([#787](https://github.com/devswha/herdr-web-ui/pull/787) by @kilhyeonjun)
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
   Only visible Chat views subscribe; Terminal views and hidden tabs release conversation
   monitoring. Continuous pushes coalesce into at most one newest-page refresh every 2 seconds,
