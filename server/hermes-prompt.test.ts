@@ -22,7 +22,7 @@ describe("hermes clarify", () => {
     expect(prompt.options.map((option) => option.label)).toEqual(["Red", "Blue"]);
     expect(prompt.custom_option_index).toBe(2);
     expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
-    expect(answerKeys(prompt, { custom_text: "Green" })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }, { text: "Green" }, { keys: ["enter"] }]);
+    expect(answerKeys(prompt, { custom_text: "Green" })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }, { keys: ["ctrl+k"] }, { keys: ["ctrl+u"] }, { text: "Green" }, { keys: ["enter"] }]);
   });
 
   it("reads an open question in a batch as a typed answer", () => {
@@ -39,7 +39,8 @@ describe("hermes clarify", () => {
     const prompt = parseInteractivePrompt("hermes", screen)!;
     expect(prompt.question).toBe("Name one fruit that grows on trees");
     expect(prompt.body).toBe("1/2 answered");
-    expect(answerKeys(prompt, { custom_text: "Apple" })).toEqual([{ text: "Apple" }, { keys: ["enter"] }]);
+    // what is already on the `>` line goes first, or the answer would join it
+    expect(answerKeys(prompt, { custom_text: "Apple" })).toEqual([{ keys: ["ctrl+k"] }, { keys: ["ctrl+u"] }, { text: "Apple" }, { keys: ["enter"] }]);
   });
 
   it("drops the card once the question is answered", () => {

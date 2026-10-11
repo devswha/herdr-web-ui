@@ -2209,14 +2209,17 @@ function parseHermesClarify(screen: string): ParsedPrompt | null {
   for (let i = end; i < block.length && indent(block[i]!) > base; i += 1) member.push(block[i]!.trim());
   const [answered, total] = lines[hintIndex]!.trim().match(HERMES_HINT_RE)!.slice(1).map(Number);
   const body = total! > 1 ? `${answered}/${total} answered` : null;
+  // text already on the `>` line (typed in the terminal, or a typed answer Tab brought back)
+  // would join the answer: the line is emptied first, after the cursor and before it (its
+  // TextInput's ctrl+k and ctrl+u, on every platform)
+  const typed = (text: string): AnswerStep[] => [...keySteps(["ctrl+k", "ctrl+u"]), { text }, ...keySteps([KEY.enter])];
   if (member[0]?.startsWith(">")) {
-    // text already typed on the `>` line in the terminal stays ahead of the answer
     return finishPrompt("hermes", {
       kind: "question", title: "Question", question, body,
       options: [{ label: "Type your answer", description: null }], multi_select: false, custom_option_index: 0,
     }, {
       responder: "hermes-input", menuLabels: [], selectedIndex: 0, checkedOptionIndices: [], customMenuIndex: 0,
-      rejectWithEscapeIndex: null, customSteps: (text) => [{ text }, ...keySteps([KEY.enter])],
+      rejectWithEscapeIndex: null, customSteps: typed,
     });
   }
   const rows: { label: string; selected: boolean; box: boolean; checked: boolean }[] = [];
@@ -2242,6 +2245,8 @@ function parseHermesClarify(screen: string): ParsedPrompt | null {
   }, {
     responder: "hermes-question", menuLabels: rows.map((row) => row.label), selectedIndex,
     checkedOptionIndices: checked, customMenuIndex: multi ? null : choices.length, rejectWithEscapeIndex: null,
+    // Enter on the Other row opens its `>` line
+    ...(multi ? {} : { customSteps: (text: string) => [...keySteps([...navigationKeys(choices.length - selectedIndex), KEY.enter]), ...typed(text)] }),
     // Space ticks the row under the cursor; Enter then locks the ticked rows
     ...(multi ? { multiSteps: (picked: number[]) => {
       const want = new Set(picked);
@@ -2916,11 +2921,6 @@ export async function claudeHeldIsGrey(paneId: string, prompt: InteractivePrompt
   const same = (text: string | null): boolean => text !== null && normalizeText(text) === normalizeText(prompt.body ?? "");
   return paneRead({ paneId, source: "visible", format: "ansi", timeoutMs: SUGGESTION_READ_MS })
     .then((read) => same(claudeGreyInput(read.text)), () => false);
-}
-
-/** The card a pane shows now, read like the chat's own poll: a blocked pane's push alert says it. */
-export async function currentPrompt(paneId: string, codexHome?: string): Promise<InteractivePrompt | null> {
-  return (await readPrompt(paneId, codexHome)).prompt;
 }
 
 async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: string; status: string; prompt: InteractivePrompt | null; pane: HerdrPane; panes: HerdrPane[] }> {
