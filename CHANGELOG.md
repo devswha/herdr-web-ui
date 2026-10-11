@@ -30,6 +30,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   that takes several answers. Text already on its answer line is cleared first, so it does not
   join the answer.
   ([#750](https://github.com/devswha/herdr-web-ui/pull/750) by @DarkoKuzmanovic, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Settings → Appearance → Colors offers **Forest**, a low-saturation green-grey palette for long
+  sessions, in dark and light, with matching terminal and title-bar colors.
+  ([#775](https://github.com/devswha/herdr-web-ui/pull/775) by @vibewriter-hand)
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
@@ -44,6 +47,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 
 ### Fixed
+- When a chat message is not sent because Claude Code's input box in the terminal is not empty,
+  the note now says what the box holds, and a one-line draft there can be cleared from the chat
+  with Clear it and send. The chat did not show that text, so Send seemed to do nothing until the
+  text was found and deleted in the terminal. The cleared text comes back in the terminal with Ctrl+Y.
+  ([#728](https://github.com/devswha/herdr-web-ui/pull/728) by @jiunshinn)
 - A Claude Code chat whose session continued in a new transcript file (the old file holds only
   a `continued-in` record) now shows the conversation from the file Claude writes to, instead of
   an empty chat.
@@ -94,6 +102,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A pending chat message is no longer typed, or committed, after its connection lost the right to
   send it while herdr was being reached: refused before the paste it stays unsent, after it the
   message is marked for a check in the terminal. ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- A folded PC/workspace section no longer leaves a large empty gap below it: a visible Agents list
+  takes the unused height, and an empty one follows the folded section directly. The Agents height
+  cap, independent scrolling and fixed footer stay unchanged.
+  ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
 
 ## [0.4.6] - 2026-10-11
 
