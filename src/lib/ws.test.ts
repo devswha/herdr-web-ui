@@ -12,7 +12,15 @@ class FakeSocket {
   private readonly listeners = new Map<string, ((event: any) => void)[]>();
   constructor(readonly url: string) { FakeSocket.last = this; }
   addEventListener(type: string, listener: (event: any) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
-  send(data: string): void { this.sent.push(JSON.parse(data)); }
+  send(data: string): void { const frame = JSON.parse(data); this.sent.push(frame); this.emit("sent", frame); }
+  nextSubmission(): Promise<{ id: number }> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("no submit frame")), 1_000);
+      this.addEventListener("sent", (frame) => {
+        if (frame.type === "submit") { clearTimeout(timeout); resolve(frame); }
+      });
+    });
+  }
   close(): void { this.readyState = 3; }
   disconnect(): void { this.readyState = 3; this.emit("close", { code: 1006 }); }
   private emit(type: string, event: unknown): void { for (const listener of this.listeners.get(type) ?? []) listener(event); }
@@ -28,6 +36,54 @@ afterAll(() => { globals.WebSocket = before.WebSocket; globals.window = before.w
 const snapshot = (features: string[]) => ({ type: "snapshot", snapshot: { workspaces: [], panes: [], agents: [], layouts: [] }, features });
 const secrets = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "secret");
 const submissions = (socket: FakeSocket) => socket.sent.filter((frame) => ["submit", "input", "keys"].includes(frame.type));
+
+it("refuses clear-and-send on a legacy bridge without sending payload or Enter", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot([]));
+  try {
+    expect(await client.submit("w1:p1", "chat message", "chat message", false, "immediate", "named draft"))
+      .toMatchObject({ ok: false, code: "unsupported" });
+    expect(submissions(socket)).toEqual([]);
+  } finally {
+    client.close();
+  }
+});
+
+it("keeps ordinary immediate sends working on a legacy bridge", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot([]));
+  try {
+    expect(await client.submit("w1:p1", "chat message", "chat message")).toEqual({ ok: true });
+    expect(submissions(socket)).toEqual([{ type: "input", pane_id: "w1:p1", text: "chat message\r" }]);
+  } finally {
+    client.close();
+  }
+});
+
+it("delivers partial clear outcomes unchanged and never retries the submission", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["submit"]));
+  try {
+    const sent = socket.nextSubmission();
+    const result = client.submit("w1:p1", "keep composer text", "keep composer text", false, "immediate", "named draft");
+    const frame = await sent;
+    const fault = { ok: false, code: "submit_partial", message: "partial-outcome-fixture" };
+    socket.receive({ type: "submit-result", id: frame.id, pane_id: "w1:p1", ...fault });
+    expect(await result).toEqual(fault);
+    expect(submissions(socket)).toHaveLength(1);
+  } finally {
+    client.close();
+  }
+});
 
 it("waits for the bridge's pending-input capability before sending an explicit next turn", async () => {
   const client = new HerdrSocket("ws://test/ws");
