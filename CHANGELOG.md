@@ -176,6 +176,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   takes the unused height, and an empty one follows the folded section directly. The Agents height
   cap, independent scrolling and fixed footer stay unchanged.
   ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
+- Back and Forward after a pane is moved: the move no longer adds a history entry, and Back to an
+  entry from before the move opens the pane under its new id instead of its old workspace. Back to
+  an entry for a PC removed since stays on the pane shown and says the PC is not set up here,
+  instead of selecting the missing PC and leaving the pane blank. Back or Forward that lands
+  elsewhere than its entry named no longer drops the entries after it.
+  ([#804](https://github.com/devswha/herdr-web-ui/pull/804) by @phirschybar)
 - Web UI SSH connections no longer open extra tunnels configured in the account’s SSH config.
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
