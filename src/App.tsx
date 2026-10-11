@@ -740,6 +740,7 @@ export function App() {
       paneMoved: (machineId, previousPaneId, paneId) => {
         if (previousPaneId === paneId) return;
         carryPaneRecords(machineId, previousPaneId, paneId);
+        lenses.move(paneStorageId(machineId, previousPaneId), paneStorageId(machineId, paneId));
         // the new id is selected before a snapshot without the old one can fall the selection
         // back to herdr's focus; a pane moved from the sidebar while another is open stays unselected
         const current = selectionRef.current;
@@ -792,7 +793,7 @@ export function App() {
         void zoomPane(paneId, mode, machineId).then(() => void load()).catch((err) => layoutRefused("pane zoom failed", err));
       } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
   );
 
   useShortcuts(actions, locked === false);
