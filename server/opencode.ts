@@ -462,8 +462,14 @@ export function opencodeConversation(path: string, sessionId: string, page: Open
   const cacheKey = `${key}\0${page.before ?? ""}\0${page.since ?? ""}\0${page.from ?? ""}`;
   try {
     const answer = withStore(path, (db): OpencodeAnswer => {
-      // 1.x wrote session/message/part; the 2.x store (session_v2/session_message) is the one this reader was built for
-      if (storeFlavor(db) === "v1") return conversation1(db, cacheKey, sessionId, page);
+      // A broken or changing 1.x store leaves the terminal as the source of the conversation.
+      if (storeFlavor(db) === "v1") {
+        try { return conversation1(db, cacheKey, sessionId, page); }
+        catch (error) {
+          if (busy(error)) return answers.get(`${cacheKey}\0v1`)?.answer ?? { kind: "unavailable", reason: "store_busy" };
+          return { kind: "unavailable", reason: "transcript_missing" };
+        }
+      }
       const view = sessionView(db, sessionId);
       if (view === null) return { kind: "unavailable", reason: "session_not_found" };
       const cached = answers.get(cacheKey);
@@ -602,6 +608,9 @@ export function opencodeImage(path: string, sessionId: string, ref: string): { m
  * ----------------------------------------------------------------------------------------------- */
 
 type StoreFlavor = "v2" | "v1" | "unknown";
+// The 1.x adapter eagerly joins messages and parts; leave larger stores to the terminal view.
+const MAX_V1_ROWS = 10_000;
+const MAX_V1_BYTES = 4 * OPENCODE_WINDOW_BYTES;
 
 /** 2.x (`session_v2`), 1.x (`session`/`message`/`part`), or a file this reader cannot page. */
 function storeFlavor(db: Database): StoreFlavor {
@@ -687,7 +696,7 @@ function adaptMessage1(message: Message1): { type: string; data: Row } | null {
 }
 
 /** The 1.x session's own view: what a `/undo` hides, and what any change to the store changes. */
-function sessionView1(db: Database, sessionId: string): SessionView | null {
+function sessionView1(db: Database, sessionId: string): (SessionView & { rows: number }) | null {
   const session = db.query<{ revert: string | null }, [string]>("SELECT revert FROM session WHERE id = ?").get(sessionId);
   if (session === null) return null;
   const stats = db.query<{ count: number; updated: number | null; parts: number; partUpdated: number | null }, [string, string, string, string]>(
@@ -706,7 +715,7 @@ function sessionView1(db: Database, sessionId: string): SessionView | null {
     }
   }
   const historyId = `opencode-${sessionId}${end === stats.count ? "" : `-r${end.toString(36)}`}`;
-  return { end, historyId, signature: `${historyId}:${stats.count}:${stats.updated}:${stats.parts}:${stats.partUpdated}` };
+  return { end, historyId, signature: `${historyId}:${stats.count}:${stats.updated}:${stats.parts}:${stats.partUpdated}`, rows: stats.count + stats.parts };
 }
 
 /** The settings OpenCode's footer shows for a 1.x session: the latest step's model and usage at `end`. */
@@ -733,9 +742,15 @@ function sessionMetadata1(messages: readonly Message1[], end: number): Conversat
 function conversation1(db: Database, cacheKey: string, sessionId: string, page: OpencodePage): OpencodeAnswer {
   const view = sessionView1(db, sessionId);
   if (view === null) return { kind: "unavailable", reason: "session_not_found" };
+  if (view.rows > MAX_V1_ROWS) return { kind: "unavailable", reason: "transcript_missing" };
   const key = `${cacheKey}\0v1`;
   const cached = answers.get(key);
   if (cached?.signature === view.signature) return cached.answer;
+
+  const bytes = db.query<{ messages: number | null; parts: number | null }, [string, string]>(
+    "SELECT (SELECT sum(length(CAST(data AS BLOB))) FROM message WHERE session_id = ?) AS messages, (SELECT sum(length(CAST(data AS BLOB))) FROM part WHERE session_id = ?) AS parts",
+  ).get(sessionId, sessionId)!;
+  if ((bytes.messages ?? 0) + (bytes.parts ?? 0) > MAX_V1_BYTES) return { kind: "unavailable", reason: "transcript_missing" };
 
   const messages = loadSession1(db, sessionId);
   // a revert commit between the view and the load deletes a suffix: never page past what was read

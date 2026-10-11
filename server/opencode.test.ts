@@ -713,4 +713,10 @@ describe("an OpenCode 1.x session (session/message/part)", () => {
     expect(opencodeToolOutput(s.path, s.session, tool.output_ref!)).toBeNull();
     expect(opencodeImage(s.path, s.session, tool.images![0]!.ref)).toBeNull();
   });
+
+  it("leaves an oversized 1.x session to the terminal instead of loading it whole", () => {
+    const s = storeV1();
+    s.db.transaction(() => { for (let n = 0; n < 5001; n++) s.user(`p${n}`); })();
+    expect(opencodeConversation(s.path, s.session)).toEqual({ kind: "unavailable", reason: "transcript_missing" });
+  });
 });
