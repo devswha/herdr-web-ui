@@ -46,7 +46,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   remains independent.
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 - Proposed OmO progress disclosure in the existing Background tasks session details:
-  open it to inspect the session checklist and context compaction. It starts
+  open it to inspect the session checklist and whether a turn is running. It starts
   collapsed and adds no pinned progress panel to the chat.
   ([#655](https://github.com/devswha/herdr-web-ui/pull/655) by @od-studio-webagency)
 

@@ -22,7 +22,6 @@ export const ZH: Record<string, string> = {
   "OmO progress": "OmO 进度",
   "Loading progress…": "正在加载进度…",
   "Progress unavailable — showing the last checklist": "无法更新状态，正在显示上次的任务列表",
-  "Compacting context…": "正在压缩上下文…",
   "Waiting for input": "等待输入",
   "Idle": "空闲",
   "Live status unavailable": "无法获取实时状态",

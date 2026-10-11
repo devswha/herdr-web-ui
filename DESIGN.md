@@ -817,7 +817,7 @@ One set for both themes: the card is island black wherever it shows.
   checklist disclosure starts closed. Closing the popover stops its existing activity poll.
 - The summary names progress, activity and completed/total counts; opening it shows phases
   and pending, in-progress, completed and abandoned tasks with written labels and glyphs.
-  Compaction uses working ink, never an endless animation.
+  A running turn uses working ink, never an endless animation.
 - Keep the popover's existing measured scroll room and Escape/outside-click focus behavior.
   Use existing text, spacing, status and focus-ring tokens; add no theme tokens. Long task
   names wrap within the popover on a phone. Disconnects, hidden pages and failed reads keep

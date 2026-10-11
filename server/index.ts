@@ -2123,10 +2123,7 @@ export function createServer(
           const claude = claudeAgents.sessionOf(paneId);
           return jsonResponse({ tasks: claude === null ? [] : claudeSubagents(claude.path, claude.live, Date.now(), claude.startedAt), runs: [], progress: null, server_time });
         }
-        const progress = await omoProgress(session, async () => (await paneRead({ paneId, source: "visible", format: "text" })).text);
-        // A /new or pane replacement during the control read invalidates the old projection.
-        if (omo.sessionOf(paneId)?.path !== session.path) return jsonResponse({ tasks: [], runs: [], progress: null, server_time });
-        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), progress, server_time });
+        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), progress: omoProgress(session), server_time });
       }
 
       if (pathname === "/api/pane/read") {

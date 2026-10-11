@@ -470,7 +470,7 @@ export interface OmoProgress {
   session_id: string;
   /** null: no readable state; []: an explicitly cleared checklist. */
   todos: OmoTodo[] | null;
-  activity: "working" | "compacting" | "idle" | "unknown";
+  activity: "working" | "idle" | "unknown";
 }
 
 export interface OmoTodo {

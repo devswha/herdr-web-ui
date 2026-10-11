@@ -7,7 +7,7 @@ import { SettingsProvider } from "./settings.ts";
 
 const progress: OmoProgress = {
   session_id: "session-a",
-  activity: "compacting",
+  activity: "working",
   todos: [
     { phase: "Build", content: "First item", status: "completed" },
     { phase: "Check", content: "Second item", status: "in_progress" },
@@ -30,9 +30,9 @@ const render = (overrides: Partial<Parameters<typeof OmoProgressView>[0]> = {}) 
 };
 
 describe("OmO progress surface", () => {
-  it("renders compaction and every phase's task state without dropping abandoned work", () => {
+  it("renders the live activity and every phase's task state without dropping abandoned work", () => {
     const html = render();
-    expect(html).toContain('class="omo-progress is-compacting"');
+    expect(html).toContain('class="omo-progress is-working"');
     for (const task of progress.todos ?? []) {
       expect(html).toContain(`class="is-${task.status}"`);
       expect(html).toContain(task.content);
@@ -43,10 +43,10 @@ describe("OmO progress surface", () => {
 
   it.each([
     { connected: false }, { ended: true }, { state: "failed" as const }, { state: "loading" as const },
-  ])("keeps the last checklist but drops the live compaction claim for %j", (condition) => {
+  ])("keeps the last checklist but drops the live activity claim for %j", (condition) => {
     const html = render(condition);
     expect(html).toContain('class="omo-progress is-unknown"');
-    expect(html).not.toContain('class="omo-progress is-compacting"');
+    expect(html).not.toContain('class="omo-progress is-working"');
     expect(html).toContain("Second item");
   });
 

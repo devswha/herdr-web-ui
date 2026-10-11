@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { ChevronRight, Circle, CircleCheck, CircleDot, CircleSlash, ListChecks, Minimize2, type LucideProps } from "lucide-react";
+import { ChevronRight, Circle, CircleCheck, CircleDot, CircleSlash, ListChecks, type LucideProps } from "lucide-react";
 import type { AgentStatus, OmoProgress as Progress, OmoTodo } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
 import "./OmoProgress.css";
@@ -23,14 +23,12 @@ export function OmoProgressView({ progress, state, connected, ended, agentStatus
     : !connected ? t("reconnecting")
     : state === "loading" ? t("Loading progress…")
     : state === "failed" ? t("Progress unavailable — showing the last checklist")
-    : activity === "compacting" ? t("Compacting context…")
     : agentStatus === "blocked" ? t("Waiting for input")
     : activity === "working" ? t("Working…")
     : activity === "idle" ? t("Idle")
     : t("Live status unavailable");
   const items = progress?.todos ?? [];
   const done = items.filter((item) => item.status === "completed").length;
-  const StatusIcon = activity === "compacting" ? Minimize2 : ListChecks;
   const words: Record<OmoTodo["status"], string> = {
     pending: t("waiting"), in_progress: t("running"), completed: t("done"), abandoned: t("skipped"),
   };
@@ -45,7 +43,7 @@ export function OmoProgressView({ progress, state, connected, ended, agentStatus
     <details>
       <summary>
         <ChevronRight className="omo-progress-chevron" aria-hidden="true" />
-        <StatusIcon aria-hidden="true" />
+        <ListChecks aria-hidden="true" />
         <span>{t("OmO progress")}</span>
         <span className="omo-progress-status" role="status">{title}</span>
         {items.length > 0 && <span className="omo-progress-count">{t("{done} of {total} done", { done, total: items.length })}</span>}

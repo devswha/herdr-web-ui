@@ -77,7 +77,7 @@ export async function checkOmoProgress(browser: Browser, origin: string): Promis
         assert.equal(await page.locator(".composer textarea").isEditable(), true);
 
         // Explicit close/open requests the next fixture immediately; no sleeps or timing-based polls.
-        for (const activity of ["compacting", "idle"] as const) {
+        for (const activity of ["idle", "working"] as const) {
           await page.keyboard.press("Escape");
           await panel.waitFor({ state: "detached" });
           progress = { ...progress, activity };
@@ -115,7 +115,7 @@ export async function checkOmoProgress(browser: Browser, origin: string): Promis
       } finally { await context.close(); }
     }
     assert.deepEqual(errors, []);
-    console.log("PASS OmO opt-in progress, keyboard disclosure, compaction/retry, stale reads, reset and mobile/light/dark layout");
+    console.log("PASS OmO opt-in progress, keyboard disclosure, working/idle, stale reads, reset and mobile/light/dark layout");
   } finally {
     await workspaceClose(workspace.workspace.workspace_id);
     rmSync(root, { recursive: true, force: true });
