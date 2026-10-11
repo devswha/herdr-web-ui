@@ -1388,9 +1388,11 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
   const status = snapshot.panes.find((pane) => pane.pane_id === paneId)?.agent_status;
   if (resolved.source === "grok-transcript" && answer.turns.length === 0 && page.before === undefined
-    && (status === "working" || status === "blocked")
-    && grokProjection(resolved.path, statSync(resolved.path).size).revision === "0") {
-    throw new ConversationUnavailable("transcript_missing");
+    && (status === "working" || status === "blocked")) {
+    // the file can change or go between the page and this check: either way the terminal answers
+    let revision: string | null = null;
+    try { revision = grokProjection(resolved.path, statSync(resolved.path).size).revision; } catch { /* unreadable now */ }
+    if (revision === null || revision === "0") throw new ConversationUnavailable("transcript_missing");
   }
   if (identity !== null) { writtenSessions.add(`${resolved.source}\0${identity}`); rememberPaneSession(paneId, `${resolved.source}\0${identity}`); }
   return answer;
