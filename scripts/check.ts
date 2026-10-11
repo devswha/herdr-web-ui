@@ -7,6 +7,8 @@
  *   bun run check integration browser   CI's "Integration and browser" job: a build, then the named
  *                                       lanes side by side (either name alone runs that lane)
  *   bun run check full                  fast, then both lanes
+ *   bun run check concurrent            build once, then run unit tests + integration + browser all
+ *                                       in parallel (faster local full run)
  *   bun run check run [--build] <command…>  any command on the same isolated herdr; --build builds
  *                                           dist/ first (a run without it does not build)
  *
@@ -53,32 +55,33 @@ import {
   type SourceIdentity,
 } from "./check-report.ts";
 
-export const MODES = ["fast", "integration", "browser", "full", "run"] as const;
+export const MODES = ["fast", "integration", "browser", "full", "concurrent", "run"] as const;
 export type Mode = (typeof MODES)[number];
 const LANES = { integration: "bun run test:integration", browser: "bash scripts/ci-browser.sh" } as const;
 type Lane = keyof typeof LANES;
 
-const USAGE = "Usage: bun run check fast | integration | browser | integration browser | full | run [--build] <command…>";
+const USAGE = "Usage: bun run check fast | integration | browser | integration browser | full | concurrent | run [--build] <command…>";
 
 /** What to run, from the arguments: the fast steps, the lanes, or one command. */
-export function plan(args: readonly string[]): { fast: boolean; lanes: Lane[]; command: string[] | null; build: boolean } {
+export function plan(args: readonly string[]): { fast: boolean; lanes: Lane[]; command: string[] | null; build: boolean; concurrent: boolean } {
   const [first, ...rest] = args;
   if (first === "run") {
     const build = rest[0] === "--build";
     const command = rest.slice(build ? 1 : 0);
     if (command[0] === "--") command.shift();
     if (command.length === 0) throw new Error(USAGE);
-    return { fast: false, lanes: [], command, build };
+    return { fast: false, lanes: [], command, build, concurrent: false };
   }
   if (args.length === 0 || args.some((arg) => arg === "run" || !(MODES as readonly string[]).includes(arg))) throw new Error(USAGE);
+  const concurrent = args.includes("concurrent");
   const full = args.includes("full");
-  const lanes = (Object.keys(LANES) as Lane[]).filter((lane) => full || args.includes(lane));
-  return { fast: full || args.includes("fast"), lanes, command: null, build: false };
+  const lanes = (Object.keys(LANES) as Lane[]).filter((lane) => full || concurrent || args.includes(lane));
+  return { fast: (full || args.includes("fast")) && !concurrent, lanes, command: null, build: false, concurrent };
 }
 
 /** Herdr-backed commands share the existing per-PC lane lock, including `run` commands. */
 export function needsLock(todo: ReturnType<typeof plan>): boolean {
-  return todo.lanes.length > 0 || todo.command !== null;
+  return todo.lanes.length > 0 || todo.command !== null || todo.concurrent;
 }
 
 /** Keep command arguments useful without persisting common inline credentials. Environment values are never serialized. */
@@ -378,14 +381,17 @@ async function main(): Promise<void> {
   }
   const bun = process.execPath;
   const specs: { name: string; command: string[] | null }[] = [];
-  if (todo.fast) {
+  if (todo.concurrent) {
+    specs.push({ name: "build", command: [bun, "run", "build"] });
+    specs.push({ name: "concurrent lanes", command: null });
+  } else if (todo.fast) {
     specs.push({ name: "workflow syntax", command: null });
     specs.push({ name: "generated types are fresh", command: [bun, "run", "generate:types", "--check"] });
     specs.push({ name: "typecheck", command: [bun, "run", "typecheck"] });
     specs.push({ name: "build", command: [bun, "run", "build"] });
     specs.push({ name: "unit tests", command: [bun, "run", "test:unit"] });
   }
-  if (todo.lanes.length > 0) {
+  if (todo.lanes.length > 0 && !todo.concurrent) {
     if (!todo.fast) specs.push({ name: "build", command: [bun, "run", "build"] });
     specs.push({ name: "lanes", command: [bun, "scripts/ci-lanes.ts", ...todo.lanes.map((lane) => `${lane}=${LANES[lane]}`)] });
   }
@@ -720,7 +726,69 @@ async function main(): Promise<void> {
   let code = 0;
   try {
     // A run command shares the same herdr and dist state, so it uses the same lock as named lanes.
-    if (todo.fast) {
+    if (todo.concurrent) {
+      // Concurrent mode: build once, then run unit tests + integration + browser all in parallel
+      code = await build(plain);
+      if (code !== 0 || ending) {
+        // Build failed; don't run tests
+      } else {
+        const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
+        if (!Bun.which(herdr)) throw new Error("concurrent mode needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
+        const herdrVersion = spawnSync(herdr, ["--version"], { encoding: "utf8", env: process.env, timeout: 5_000 });
+        const herdrVersionLine = herdrVersion.stdout?.trim().split(/\r?\n/, 1)[0] ?? "";
+        report.toolchain.herdrVersion = herdrVersion.status === 0 && /^herdr\s+v?\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/i.test(herdrVersionLine)
+          ? herdrVersionLine
+          : null;
+        saveReport();
+        const isolation = isolate(process.env);
+        cleanups.push(isolation.remove);
+        const env: Record<string, string | undefined> = { ...isolation.env, ...identity };
+        const shards = env["HERDR_TEST_SHARDS"]!;
+        const shardCount = /^\d+$/.test(shards) ? Number(shards) : Number.NaN;
+        report.toolchain.herdrTestShards = Number.isSafeInteger(shardCount) ? shardCount : null;
+        saveReport();
+        cleanups.push(() => {
+          for (const session of existsSync(isolation.sessions) ? readdirSync(isolation.sessions) : []) {
+            spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: "ignore", timeout: 10_000 });
+          }
+        });
+        console.log(`\ncheck: herdr session ${env["HERDR_TEST_SESSION"]}, config and state in ${resolve(isolation.sessions, "../../..")}`);
+        console.log(`check: running unit tests, integration and browser in parallel`);
+
+        const laneEnv: Record<string, string | undefined> = { ...env };
+        const unitEnv: Record<string, string | undefined> = { ...plain };
+
+        const unitPromise = (async () => {
+          const unitStep = getStep("unit tests (concurrent)", [bun, "run", "test:unit"]);
+          unitStep.cwd = resolve(cwd);
+          const startedAtMs = Date.now();
+          unitStep.startedAt = new Date(startedAtMs).toISOString();
+          report.currentStep = "unit tests (concurrent)";
+          saveReport();
+          const started = spawn(bun, ["run", "test:unit"], { stdio: ["inherit", "pipe", "pipe"], env: unitEnv, cwd, detached: true });
+          const stdout = createWriteStream(unitStep.stdout, { flags: "w", mode: 0o600 });
+          const stderr = createWriteStream(unitStep.stderr, { flags: "w", mode: 0o600 });
+          started.stdout?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); stdout.write(chunk); });
+          started.stderr?.on("data", (chunk: Buffer) => { process.stderr.write(chunk); stderr.write(chunk); });
+          const exitCode = await new Promise<number>((resolve) => started.on("exit", (c) => resolve(c ?? 1)));
+          stdout.end(); stderr.end();
+          await Promise.all([finished(stdout).catch(() => undefined), finished(stderr).catch(() => undefined)]);
+          const endedAtMs = Date.now();
+          unitStep.endedAt = new Date(endedAtMs).toISOString();
+          unitStep.durationMs = endedAtMs - startedAtMs;
+          unitStep.exitCode = exitCode;
+          unitStep.status = exitCode === 0 ? "success" : "failure";
+          if (exitCode !== 0) report.errors.push(`unit tests (concurrent) exited with code ${exitCode}`);
+          saveReport();
+          return exitCode;
+        })();
+
+        const lanesPromise = run("lanes (concurrent)", [bun, "scripts/ci-lanes.ts", ...todo.lanes.map((lane) => `${lane}=${LANES[lane]}`)], laneEnv);
+
+        const [unitCode, lanesCode] = await Promise.all([unitPromise, lanesPromise]);
+        code = unitCode !== 0 ? unitCode : lanesCode;
+      }
+    } else if (todo.fast) {
       const actionlintResult = await actionlint(run, plain, (reason) => skip("workflow syntax", reason), (message) => recordIssue("workflow syntax", message, "failure"));
       code = actionlintResult;
       for (const [label, command] of [
@@ -733,7 +801,7 @@ async function main(): Promise<void> {
       if (code === 0 && !ending) code = await build(plain);
       if (code === 0 && !ending) code = await run("unit tests", [bun, "run", "test:unit"], plain);
     }
-    if (code === 0 && needsHerdr && !ending) {
+    if (code === 0 && needsHerdr && !ending && !todo.concurrent) {
       const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
       if (!Bun.which(herdr)) throw new Error("this needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
       const herdrVersion = spawnSync(herdr, ["--version"], { encoding: "utf8", env: process.env, timeout: 5_000 });
