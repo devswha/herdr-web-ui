@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
@@ -17,6 +17,7 @@ import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
 import { TailnetIdentitySource } from "./tailscale.ts";
+import { forgetTranscriptState } from "./conversation.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -39,6 +40,75 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
+
+describe("Grok conversation API", () => {
+  it.skipIf(process.platform !== "linux")("uses exact process/session evidence, validators and revision-bound output refs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-grok-contract-"));
+    const id = "00000000-0000-4000-8000-000000000001";
+    const directory = join(root, "sessions", "%2Ffictional", id);
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, "updates.jsonl");
+    const event = (update: object, extension = false) => JSON.stringify({ timestamp: 1700000000, method: extension ? "_x.ai/session/update" : "session/update", params: { sessionId: id, update } }) + "\n";
+    const user = event({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "fictional prompt" }, _meta: { promptIndex: 0 } });
+    const call = event({ sessionUpdate: "tool_call", toolCallId: "fictional-call", title: "Read", rawInput: { path: "fiction.txt" } });
+    const output = (text: string) => event({ sessionUpdate: "tool_call_update", toolCallId: "fictional-call", content: [{ type: "content", content: { type: "text", text } }] });
+    writeFileSync(path, user + call + output("x".repeat(5000)));
+    const events = join(directory, "events.jsonl");
+    writeFileSync(events, "");
+    // A native stand-in owns the fd evidence and only sleeps; no model or user's store.
+    const executable = join(root, "grok");
+    copyFileSync("/bin/sleep", join(root, "grok-1.0.50-linux-x86_64")); symlinkSync("grok-1.0.50-linux-x86_64", executable); chmodSync(executable, 0o755);
+    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-grok-api" });
+    let app: ReturnType<typeof createServer> | undefined;
+    try {
+      const paneId = created.root_pane.pane_id;
+      await herdrRpc("pane.send_text", { pane_id: paneId, text: `${executable} 600 3<${events}\n` });
+      for (const deadline = Date.now() + 10_000;;) {
+        if ((await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.agent === "grok") break;
+        if (Date.now() > deadline) throw new Error("fixture Grok process did not start");
+        await Bun.sleep(50);
+      }
+      let reportSequence = 0;
+      // Stands in for the SessionStart report Grok's herdr integration makes: Herdr 0.9.3
+      // replaces a Grok ID only for a newer "new" report.
+      const report = (session: string, source = "new") => herdrRpc("pane.report_agent_session", { pane_id: paneId, agent: "grok", source: "herdr:grok", seq: ++reportSequence, agent_session_id: session, session_start_source: source });
+      await report(id);
+      app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), grokHome: root });
+      const url = `http://127.0.0.1:${app.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`;
+      const first = await fetch(url);
+      const body = await first.json();
+      expect(body.source).toBe("grok-transcript");
+      expect(body.turns[0].parts[0].text).toBe("fictional prompt");
+      expect((await fetch(url, { headers: { "if-none-match": first.headers.get("etag")! } })).status).toBe(304);
+      const ref = body.turns[1].parts[0].output_ref;
+      const outputUrl = `http://127.0.0.1:${app.port}/api/pane/conversation/tool-output?${new URLSearchParams({ pane_id: paneId, ref })}`;
+      const whole = await fetch(outputUrl);
+      expect(whole.headers.get("cache-control")).toBe("private, no-store");
+      expect(await whole.text()).toBe("x".repeat(5000));
+      appendFileSync(path, output("y".repeat(5000)));
+      expect((await fetch(outputUrl)).status).toBe(404);
+      const next = await fetch(url);
+      expect(next.headers.get("etag")).not.toBe(first.headers.get("etag"));
+      appendFileSync(path, event({ sessionUpdate: "rewind_marker", target_prompt_index: 0 }, true));
+      expect((await fetch(`${url}&from=${encodeURIComponent(`${body.history_id}:0`)}`)).status).toBe(409);
+      const local = await fetch(url.replace("/api/pane/", "/api/machines/local/pane/"));
+      expect((await local.json()).turns).toEqual([]);
+      const missing = "00000000-0000-4000-8000-000000000002";
+      await report(missing, "resume");
+      expect((await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.agent_session?.value).toBe(id);
+      await report(missing);
+      for (const deadline = Date.now() + 5000;;) {
+        if ((await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.agent_session?.value === missing) break;
+        if (Date.now() > deadline) throw new Error("Herdr did not apply the second session report");
+        await Bun.sleep(50);
+      }
+      expect(await (await fetch(url)).json()).toEqual({ source: "scrollback", turns: [] });
+    } finally {
+      app?.stop(); await workspaceClose(created.workspace.workspace_id);
+      forgetTranscriptState(); rmSync(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+});
 
 describe("single-pane context lookup", () => {
   for (const route of ["commands", "files"] as const) {
