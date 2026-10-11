@@ -17,7 +17,7 @@ import { ArrowUp, FileText, Plus, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
-import type { AgentStatus, ConversationMetadata, SlashCommand } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationMetadata, PlanSummary, SlashCommand } from "../../shared/protocol.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
@@ -60,6 +60,8 @@ export interface ComposerProps {
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the status line opens their list */
   backgroundTasks?: number;
+  /** the plan the pane's agent keeps, as far as it got: the same chip opens its steps */
+  plan?: PlanSummary | null;
   /** the pane's turn ended on work still running in the background: its word is BG, not DONE (lib/status.ts paneStatus) */
   backgroundWait?: boolean;
   metadata?: ConversationMetadata | null;
@@ -224,6 +226,7 @@ export function Composer({
   agent,
   agentStatus,
   backgroundTasks = 0,
+  plan = null,
   backgroundWait = false,
   metadata,
   answerHint = null,
@@ -1029,7 +1032,7 @@ export function Composer({
             <Plus aria-hidden="true" />
           </button>
           {dictation.shown && <MicButton dictation={dictation} />}
-          <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} claude={agent === "claude"} />
+          <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} claude={agent === "claude"} plan={plan} />
         </div>
         {/* between the two control groups of the card's last row. The agent's name, its separator and the
             state word are read, not drawn: the mark and the header name the agent, and Stop, the live row and

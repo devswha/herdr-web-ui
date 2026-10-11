@@ -25,12 +25,15 @@ export const NOTICE_VERSION = 2;
  * The settings an event may name as changed from their defaults. Choices from a fixed set only:
  * never one the user types (a font, a shortcut, the key bar), and only the name, not the value.
  */
-export const REPORTED_SETTINGS = ["theme", "density", "palette", "sidebarRows", "agentOrder", "agentCards", "agentPins", "planFlow", "planButton"] as const;
+export const REPORTED_SETTINGS = ["theme", "density", "palette", "sidebarRows", "agentOrder", "agentCards", "agentPins"] as const;
 export type ReportedSetting = typeof REPORTED_SETTINGS[number];
+/** Settings that were removed: a saved state or a page loaded before the update may still name
+ * them, so they are accepted and dropped, never refused or sent. */
+export const RETIRED_SETTINGS: readonly string[] = ["planFlow", "planButton"];
 
 /** A list of reported settings in their own order, each once; null when the value is not one. */
 export function reportedSettings(value: unknown): ReportedSetting[] | null {
-  if (!Array.isArray(value) || value.some((name) => !(REPORTED_SETTINGS as readonly unknown[]).includes(name))) return null;
+  if (!Array.isArray(value) || value.some((name) => !(REPORTED_SETTINGS as readonly unknown[]).includes(name) && !RETIRED_SETTINGS.includes(name))) return null;
   return REPORTED_SETTINGS.filter((name) => value.includes(name));
 }
 export type InstallMethod = "plugin" | "managed" | "source";

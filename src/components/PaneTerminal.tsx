@@ -37,7 +37,7 @@ import { ChatView } from "./ChatView.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
-import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
+import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, PlanSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
@@ -79,6 +79,8 @@ export interface PaneTerminalProps {
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the composer's status line offers their list */
   backgroundTasks?: number;
+  /** the plan the pane's agent keeps (null on an offline PC): the composer's chip opens it */
+  plan?: PlanSummary | null;
   /** the pane's turn ended on work still running in the background: the composer says BG */
   backgroundWait?: boolean;
   /** the pane's working directory and its PC's name: an empty chat's greeting names them */
@@ -135,6 +137,7 @@ export function PaneTerminal({
   title = null,
   agentStatus,
   backgroundTasks = 0,
+  plan = null,
   backgroundWait = false,
   cwd = null,
   machineName = "",
@@ -1607,13 +1610,29 @@ export function PaneTerminal({
         if (hiddenOnTouch()) release();
       }
     };
+    // Another device can size the pty while this window keeps its focus (a phone used beside a
+    // PC left in front): no focus event comes back here, so a click or key in this terminal
+    // takes the pane back to this window's grid.
+    // Only input meant for the terminal itself: a press or key in the find bar, on the scrollbar
+    // or the key bar, a right-click for the pane menu, a held key's repeats or an IME composition
+    // must not resize the pty under the other device.
+    const reclaim = (event: Event): void => {
+      const shared = sharedGridRef.current;
+      if (!shared || releasedRef.current || !inUse() || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
+      // an IME's first key comes before compositionstart, with isComposing still false (keyCode 229)
+      if (event instanceof KeyboardEvent && (event.repeat || event.isComposing || event.keyCode === 229 || composingRef.current || compositionCommitPendingRef.current)) return;
+      if (event instanceof PointerEvent && event.button !== 0) return;
+      if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
+    };
     // a click or a tap is the user here, whatever the window says about its focus
     const onPointer = (event: PointerEvent): void => {
       if (releasedRef.current && stackRef.current?.contains(event.target as Node)) back();
+      else reclaim(event);
     };
     window.addEventListener("focus", back);
     window.addEventListener("blur", leave);
     window.addEventListener("pointerdown", onPointer, { capture: true });
+    window.addEventListener("keydown", reclaim, { capture: true });
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
@@ -1646,6 +1665,7 @@ export function PaneTerminal({
       window.removeEventListener("focus", back);
       window.removeEventListener("blur", leave);
       window.removeEventListener("pointerdown", onPointer, { capture: true });
+      window.removeEventListener("keydown", reclaim, { capture: true });
       document.removeEventListener("visibilitychange", onVisibility);
       onModifiedEnter.dispose();
       onCommandBackspace.dispose();
@@ -2454,6 +2474,7 @@ export function PaneTerminal({
           agent={agent}
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}
+          plan={plan}
           backgroundWait={backgroundWait}
           metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
           connected={connected && !held}
