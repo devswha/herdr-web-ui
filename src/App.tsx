@@ -16,7 +16,7 @@ import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
-import { isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
+import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
@@ -154,7 +154,7 @@ export function App() {
     return linksSomewhere(window.location.search) ? readLink(window.location.search) : null;
   });
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
-    if (initialLink && (initialLink.pane || initialLink.workspace)) return initialLink.machine;
+    if (initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink))) return initialLink.machine;
     return storedSelection()?.machine_id ?? "local";
   });
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
@@ -200,18 +200,18 @@ export function App() {
   const [selectedPaneId, setSelectedPaneId] = useState<string | null>(() => {
     if (initialLink?.pane) return initialLink.pane;
     // a link to a workspace opens the pane its row opens, once the roster is in (below)
-    if (initialLink?.workspace) return null;
+    if (initialLink && (initialLink.workspace || fileFromLink(initialLink))) return null;
     return storedSelection()?.pane_id ?? null;
   });
   const [notificationViewTarget, setNotificationViewTarget] = useState<NotificationTarget | null>(
     () => notificationTargetFromSearch(window.location.search),
   );
   // the place a link named, settled against the PC's roster once it is in (lib/deepLink.ts resolveLink)
-  const pendingLink = useRef<AppLink | null>(initialLink && (initialLink.pane || initialLink.workspace) ? initialLink : null);
+  const pendingLink = useRef<AppLink | null>(initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink)) ? initialLink : null);
   // state, not only the ref: what waits on the link landing (the address, its file) runs again when it does
   const [linkLanded, setLinkLanded] = useState(() => pendingLink.current === null);
   // the file a link named, opened over its pane once that pane is shown
-  const pendingFile = useRef<string | null>(initialLink?.pane ? initialLink.file ?? null : null);
+  const pendingFile = useRef<string | null>(initialLink ? fileFromLink(initialLink) : null);
   // a short word in the header: a link that could not open what it named, or a link copied
   const [headerNote, setHeaderNote] = useState<LinkNote | "copied" | null>(null);
   useEffect(() => {
@@ -620,7 +620,7 @@ export function App() {
           if (landed.pane !== linked.pane) pendingFile.current = null;
           return true;
         }
-        pendingFile.current = null;
+        if (linked.pane || linked.workspace) pendingFile.current = null;
         return false;
       };
       const landed = resolveLink(snapshot, linked);
@@ -747,7 +747,7 @@ export function App() {
   const newSessionOpenRef = useRef(newSessionOpen); newSessionOpenRef.current = newSessionOpen;
   const linkWorkspaceId = selectedPane?.workspace_id ?? (selectedPaneId === null ? null : undefined);
   const linkSlug = slugOf(selectedWorkspace?.label) || null;
-  const linkFile = viewing && viewing.machineId === selectedMachineId && viewing.paneId === selectedPaneId ? viewing.path : null;
+  const linkFile = viewing && viewing.machineId === selectedMachineId && (viewing.paneId === null || viewing.paneId === selectedPaneId) ? viewing.path : null;
   useEffect(() => {
     if (locked !== false || machines.length === 0 || snapshot === null || linkWorkspaceId === undefined || !linkLanded) return;
     const link: AppLink = {
@@ -773,10 +773,10 @@ export function App() {
     // a viewer already up (a reload restores it from its history entry) is the file the address names:
     // the link has nothing left to open, and a Back that closes the viewer must not bring it back
     if (viewing) { pendingFile.current = null; return; }
-    if (path === null || !linkLanded || !selectedPane) return;
+    if (path === null || !linkLanded || locked !== false || selectedMachine?.state !== "connected" || snapshot === null) return;
     pendingFile.current = null;
-    openFile({ path, paneId: selectedPane.pane_id, machineId: selectedMachineId });
-  }, [linkLanded, selectedPane, selectedMachineId, viewing, openFile]);
+    openFile({ path, paneId: selectedPane?.pane_id ?? null, machineId: selectedMachineId });
+  }, [linkLanded, locked, selectedMachine?.state, snapshot, selectedPane, selectedMachineId, viewing, openFile]);
 
   // Back and Forward between panes: the entry's address says which one. Settings' own entries
   // are its module's (lib/settingsHistory.ts)
