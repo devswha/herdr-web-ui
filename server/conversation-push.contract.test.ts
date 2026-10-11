@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, ConversationResponse, ServerMessage } from "../shared/protocol.ts";
 import { ConversationMonitor } from "./conversation-monitor.ts";
@@ -52,7 +52,9 @@ class TranscriptSocket {
 
 describe("native conversation invalidation", () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-conversation-push-"));
-  const sessionStore = join(homedir(), ".omp", "agent", "sessions");
+  // the omp store sits under a temporary HOME (as in omp.contract.test.ts), never the user's own
+  const originalHome = process.env["HOME"];
+  const sessionStore = join(root, ".omp", "agent", "sessions");
   mkdirSync(sessionStore, { recursive: true, mode: 0o700 });
   const store = mkdtempSync(join(sessionStore, "herdr-conversation-push-"));
   const path = join(store, "first.jsonl");
@@ -127,6 +129,7 @@ describe("native conversation invalidation", () => {
     await until(async () => (await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.agent === "omp", "owned omp process detected");
     await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr:omp", agent: "omp", state: "idle", seq: ++reportSeq });
     await report();
+    process.env["HOME"] = root;
     bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), terminalAttach: false });
     bridges.push(bridge);
     expect((await read()).source).toBe("omp-transcript");
@@ -136,6 +139,8 @@ describe("native conversation invalidation", () => {
     for (const socket of sockets) socket.ws.close();
     for (const server of bridges) server.stop();
     watched.mockRestore();
+    if (originalHome === undefined) delete process.env["HOME"];
+    else process.env["HOME"] = originalHome;
     if (workspaceId) await workspaceClose(workspaceId);
     forgetTranscriptState();
     rmSync(root, { recursive: true, force: true });
