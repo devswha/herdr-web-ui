@@ -8,6 +8,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Settings → Terminal sets the cursor shape (block, bar or underline) and whether it blinks, for
+  every terminal pane. A program in the pane that sets its own cursor style (DECSCUSR) can still
+  change it, as before this setting existed.
+  ([#731](https://github.com/devswha/herdr-web-ui/pull/731) by @bluzername, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- Holding an arrow in the touch key bar repeats it until release, including held modifiers and
+  saved arrow combinations. A tap still sends one key, and swiping sideways scrolls the row
+  without sending a key.
+  ([#719](https://github.com/devswha/herdr-web-ui/pull/719) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- On a phone, a two-finger pinch on the terminal changes its font size live (10–22 px), with a
+  badge showing the size; the shared pty resizes once, when a finger lifts.
+  ([#713](https://github.com/devswha/herdr-web-ui/pull/713) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
 - Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
   choice, a typed answer for its "Other" row and for an open question, and ticks for a question
   that takes several answers. Text already on its answer line is cleared first, so it does not

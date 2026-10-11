@@ -1008,6 +1008,8 @@ export function App() {
                 findRequest={findRequest.paneId === item?.pane_id ? findRequest.serial : 0}
                 autoSelected={autoSelected}
                 terminalFontSize={settings.terminalFontSize}
+                terminalCursorStyle={settings.terminalCursorStyle}
+                terminalCursorBlink={settings.terminalCursorBlink}
                 terminalWheelSpeed={settings.terminalWheelSpeed}
                 terminalFontFamily={settings.terminalFontFamily}
                 theme={resolvedTheme}
