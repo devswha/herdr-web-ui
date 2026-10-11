@@ -60,6 +60,9 @@ describe("browser lane", () => {
     const { text, code, evidence } = await lane();
     expect(code).toBe(0);
     expect(rows(text)).toHaveLength(34);
+    expect(rows(text).map((row) => row.script)).toContain("scripts/pending-pane-switch-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/chat-fallback-browser-qa.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/shortcut-recorder-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/file-preview-text-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/terminal-viewport-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/palette-machines-demo-regression.ts");
