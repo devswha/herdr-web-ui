@@ -1198,6 +1198,7 @@ export function App() {
                 palette={settings.palette}
                 onConnectionChange={active ? (next) => { setConnected(next); if (next) setOutputStopped(false); } : undefined}
                 onServerMessage={active ? handleServerMessage : undefined}
+                onShowChat={active ? () => setView("chat") : undefined}
               />
             </OpenFileContext.Provider>} />
           </div>
