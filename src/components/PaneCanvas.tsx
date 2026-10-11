@@ -11,6 +11,7 @@ import { layoutCells, zoomMode } from "../lib/layoutMap.ts";
 import { layoutTopology, paneContextPress, SOLO_PANE_QUERY, soloPane, splitPath, splitRatioAt } from "../lib/paneCanvas.ts";
 import { useT } from "../lib/i18n.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { displayPaneTitle } from "./Sidebar.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
@@ -128,7 +129,11 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
   const sendsRightClick = (target: HerdrPane, event: MouseEvent<HTMLElement>): boolean =>
     passthrough.has(target.pane_id) && isTerminal(target) && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
       && event.target instanceof Element && !!event.target.closest('.pane-terminal[data-mouse-reporting]');
+  // a long press on a touch screen is the phone's own: select text, copy (the tab's menu has the pane's actions)
+  const touchPress = useRef(false);
   const context = (event: MouseEvent<HTMLElement>, target: HerdrPane): void => {
+    const pointer = (event.nativeEvent as Partial<globalThis.PointerEvent>).pointerType;
+    if (pointer === "touch" || pointer === "pen" || (pointer === undefined && touchPress.current)) return;
     event.preventDefault();
     event.stopPropagation();
     if (sendsRightClick(target, event)) return;
@@ -236,7 +241,10 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
         aria-label={displayPaneTitle(item)} aria-current={active ? "true" : undefined} aria-hidden={hidden || undefined} tabIndex={-1}
         style={alone === item.pane_id || (stacked && !cell.retained) ? { left: 0, top: 0, width: "100%", height: "100%" }
           : { left: `${cell.left}%`, top: `${cell.top}%`, width: `${cell.width}%`, height: `${cell.height}%` }}
+        // a menu asked for from the keyboard (Shift+F10, the Menu key) comes with no pointer: the last touch is not it
+        onKeyDownCapture={() => { touchPress.current = false; }}
         onPointerDownCapture={(event) => {
+          touchPress.current = event.pointerType === "touch" || event.pointerType === "pen";
           // A right press must not change focus before the menu's Swap with focused pane.
           if (event.button === 0 && !paneContextPress(event, apple) && !active) {
             onSelect(item.pane_id, false);
@@ -310,6 +318,7 @@ function PaneRename({ pane, onClose, onSave }: { pane: HerdrPane; onClose: () =>
   const [value, setValue] = useState(pane.label ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  usePhoneSheetBack(() => { if (busy) return false; onClose(); });
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); } };
     window.addEventListener("keydown", key, true);

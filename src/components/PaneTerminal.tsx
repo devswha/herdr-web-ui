@@ -6,7 +6,7 @@ import { ChevronRight, Clock, TriangleAlert, X } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
-import { HerdrSocket, type SubmitResult } from "../lib/ws.ts";
+import { HerdrSocket, type SubmitDelivery, type SubmitResult } from "../lib/ws.ts";
 import { MachineSession } from "../lib/machineSession.ts";
 import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import { ViewportIntentGate } from "../lib/viewportIntent.ts";
@@ -1610,7 +1610,8 @@ export function PaneTerminal({
     const reclaim = (event: Event): void => {
       const shared = sharedGridRef.current;
       if (!shared || releasedRef.current || !inUse() || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
-      if (event instanceof KeyboardEvent && (event.repeat || event.isComposing)) return;
+      // an IME's first key comes before compositionstart, with isComposing still false (keyCode 229)
+      if (event instanceof KeyboardEvent && (event.repeat || event.isComposing || event.keyCode === 229 || composingRef.current || compositionCommitPendingRef.current)) return;
       if (event instanceof PointerEvent && event.button !== 0) return;
       if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
     };
@@ -1924,7 +1925,7 @@ export function PaneTerminal({
   // must not turn a one-letter message into a control key. Offline it sends nothing and
   // keeps its text (never-queue); a message the server could not deliver keeps it too,
   // with the reason. Bracketed-paste wrapping follows the pane program's mode.
-  const submitComposerMessage = useCallback((text: string, delivery: "queue" | "immediate" = "immediate", clearDraft?: string): Promise<SubmitResult> | null => {
+  const submitComposerMessage = useCallback((text: string, delivery: SubmitDelivery = "immediate", clearDraft?: string): Promise<SubmitResult> | null => {
     const term = termRef.current;
     const socket = socketRef.current;
     const session = sessionRef.current;
@@ -1935,7 +1936,7 @@ export function PaneTerminal({
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft);
     if (sent === null) return null;
     const releaseSubmit = submitRetention?.retain(pane);
-    const submission = delivery === "queue" ? { pane, socket, epoch } : null;
+    const submission = delivery !== "immediate" ? { pane, socket, epoch } : null;
     if (submission) pendingSubmissionsRef.current.add(submission);
     term.scrollToBottom();
     if (delivery === "immediate") setChatSent((current) => current + 1);
@@ -1958,7 +1959,7 @@ export function PaneTerminal({
         session.acceptPending(pane, result.pending, epoch);
       } else {
         if (paneRef.current === pane) {
-          if (delivery === "queue") setChatSent((current) => current + 1);
+          if (delivery !== "immediate") setChatSent((current) => current + 1);
           setChatRefresh((current) => current + 1);
         }
       }
@@ -2149,11 +2150,13 @@ export function PaneTerminal({
       if (!socketRef.current?.connected || heldRef.current || secretRef.current !== null) return false;
       // an older bridge is told apart by the socket, once this connection's snapshot has said what it supports.
       // A draft is cleared only by a send at once: one that waits its turn is checked when it goes
-      const delivery = composerDelivery(agent, agentStatus);
+      // with automatic sending off, a follow-up waits for Send now; the socket queues it on a PC too old to hold one
+      const queued = composerDelivery(agent, agentStatus);
+      const delivery: SubmitDelivery = queued === "queue" && !settings.autoSendQueued ? "hold" : queued;
       const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined);
       return result === null ? false : result.then((answer) => answer.ok ? true : submitRefusal(answer.code, answer.message, answer.draft));
     },
-    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, submitComposerMessage, queueStore, machineId],
+    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, submitComposerMessage, queueStore, machineId, settings.autoSendQueued],
   );
 
   const actOnPending = useCallback(async (id: string, action: "steer" | "discard"): Promise<void> => {

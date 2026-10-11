@@ -12,7 +12,7 @@ import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSe
 /** how long a resize that should not happen gets to show up */
 const NO_RESIZE_WAIT_MS = 400;
 
-type Frame = { dir: "in" | "out"; type: string; keep_size?: boolean; pane_id?: string };
+type Frame = { dir: "in" | "out"; type: string; keep_size?: boolean; pane_id?: string; cols?: number; rows?: number };
 const framesOf = (page: Page) => page.evaluate(() => (window as unknown as { frames_: Frame[] }).frames_);
 
 /**
@@ -79,7 +79,7 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
   await context.addInitScript((stored) => {
     localStorage.setItem("herdr-web-ui:settings", JSON.stringify(stored));
     // every frame this page's socket sends and receives, to wait on the server's answers
-    const frames: { dir: "in" | "out"; type: string; keep_size?: boolean; pane_id?: string }[] = [];
+    const frames: { dir: "in" | "out"; type: string; keep_size?: boolean; pane_id?: string; cols?: number; rows?: number }[] = [];
     (window as unknown as { frames_: typeof frames }).frames_ = frames;
     const Native = window.WebSocket;
     class Recording extends Native {
@@ -92,7 +92,7 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
         // Physical closes remain separate evidence for the explicit reconnect scenarios.
         this.addEventListener("close", () => frames.push({ dir: "in", type: "socket-closed" }));
       }
-      override send(data: string): void { try { const frame = JSON.parse(data); frames.push({ dir: "out", type: frame.type, keep_size: frame.keep_size, ...(frame.type === "detach" ? { pane_id: frame.pane_id } : {}) }); } catch {} super.send(data); }
+      override send(data: string): void { try { const frame = JSON.parse(data); frames.push({ dir: "out", type: frame.type, keep_size: frame.keep_size, ...(frame.type === "detach" ? { pane_id: frame.pane_id } : {}), ...(frame.type === "resize" ? { cols: frame.cols, rows: frame.rows } : {}) }); } catch {} super.send(data); }
     }
     Object.assign(window, { WebSocket: Recording });
   }, settings);
@@ -805,19 +805,21 @@ export async function checkFocusedWindowReclaimsTerminalSize(browser: Browser, o
     // both windows are in use the whole time: neither gets a focus event
     const inFront = async (page: Page) => { await page.addInitScript(() => Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true })); };
     const settings = { language: "en", defaultView: "terminal" };
+    // input-ready comes before an attach's resize reaches the pty: each window's size is read
+    // once the shell reports the grid that window asked for (its last resize frame out)
+    const askedGrid = async (page: Page): Promise<string> => {
+      await page.waitForFunction(() => (window as unknown as { frames_: { dir: string; type: string }[] }).frames_.some((f) => f.dir === "out" && f.type === "resize"), undefined, { timeout: 10_000 });
+      const frame = (await framesOf(page)).filter((f) => f.dir === "out" && f.type === "resize").at(-1)!;
+      return `${frame.rows} ${frame.cols}`;
+    };
     const desktop = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 1280, height: 800 } }, settings, false, inFront);
     await attached(desktop);
-    const desktopSize = await size();
+    const desktopSize = await askedGrid(desktop);
+    await sizeBecomes(desktopSize, "the desktop took the pane at its own size");
     const phone = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, settings, false, inFront);
     await attached(phone);
-    // input-ready comes before the attach's resize reaches the pty: wait for the grid to change
-    const sizeLeaves = async (previous: string, what: string): Promise<string> => {
-      const deadline = Date.now() + 10_000;
-      let seen = previous;
-      while (Date.now() < deadline) { seen = await size(); if (seen !== previous) return seen; await Bun.sleep(100); }
-      throw new Error(`${what}: the pane stayed at ${previous}`);
-    };
-    const phoneSize = await sizeLeaves(desktopSize, "the phone took the pane at its own size");
+    const phoneSize = await askedGrid(phone);
+    await sizeBecomes(phoneSize, "the phone took the pane at its own size");
 
     await desktop.locator(".xterm").click();
     await sizeBecomes(desktopSize, "a click in the desktop terminal");
