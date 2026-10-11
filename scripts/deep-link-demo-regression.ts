@@ -530,13 +530,37 @@ try {
         await page.goBack();
         await move.waitFor({ state: "detached" });
         assert.equal(await selected(page), DOCS, "Back closed the second sheet and left the pane alone");
+        // every other dialog is a sheet on a phone too: the plan and the palette close on Back
+        const API = panes.api;
+        await page.locator(`.agents-sidebar .agent-item[data-pane="${API}"] .agent-select`).evaluate((node) => (node as HTMLElement).click());
+        await waitQuery(page, "pane", API);
+        const atApi = await page.evaluate(() => history.length);
+        await page.locator(".plan-button").tap();
+        const plan = page.locator(".plan-dialog");
+        await plan.waitFor();
+        assert.equal(await page.evaluate(() => history.length), atApi + 1, "the plan is an entry");
+        await page.goBack();
+        await plan.waitFor({ state: "detached" });
+        assert.equal(await selected(page), API, "Back closed the plan and left the pane alone");
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "Command palette", exact: true }).tap();
+        const palette = page.getByRole("dialog", { name: "Command palette" });
+        await palette.waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(await page.evaluate(() => history.length), atApi + 1, "the palette took the More sheet's entry");
+        await page.goBack();
+        await palette.waitFor({ state: "detached" });
+        assert.equal(await selected(page), API, "Back closed the palette and left the pane alone");
+        await page.goBack();
+        await waitSelected(page, DOCS);
         await page.goBack();
         await waitSelected(page, INFRA);
         assert.deepEqual(errors, []);
       } finally {
         await phone.close();
       }
-      console.log("PASS a phone's sheet closes on Back without leaving its pane; Cancel, New tab and a second sheet leave no Back step behind");
+      console.log("PASS a phone's sheet, plan and palette close on Back without leaving their pane; Cancel, New tab and a second sheet leave no Back step behind");
     } finally {
       await browser.close();
     }
