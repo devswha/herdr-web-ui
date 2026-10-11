@@ -8,12 +8,163 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Native conversation transcripts for Hermes Agent: turns, thinking blocks, and tool calls are read directly from its SQLite session store. ([#604](https://github.com/devswha/herdr-web-ui/pull/604) by @RikiSanjayaa)
+  This server change needs a `REMOTE_BUNDLE_VERSION` bump at release so remote PCs can read Hermes transcripts.
+- **Deep links.** The address now says where you are, and opens there: the PC, the workspace (by id and a short slug of its name, so `?ws=w2K-herdr-web-ui&pane=w2K:p1&view=chat` reads like the place), the pane and its lens, an open file, a Settings page and group (`&settings=about&section=updates`), the New workspace dialog with its fields filled (`?new=workspace&cwd=…&name=…&agent=…`; a link never creates anything), and a collapsed sidebar (`&sidebar=hidden`). Opening another pane is a history entry, so Back returns to the last one. A link to a pane that has closed opens its workspace, a link to nothing open says so, and **Copy link** in the header's More menu copies the address on a phone.
+  ([#675](https://github.com/devswha/herdr-web-ui/pull/675) by @phirschybar, [#762](https://github.com/devswha/herdr-web-ui/pull/762))
+
+- **Chat: `SendUserFile` calls** show their caption and the files they name as openable links,
+  the same way any other tool's file path already opens, instead of the call's raw JSON.
+  ([#730](https://github.com/devswha/herdr-web-ui/pull/730) by @bluzername, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
+- Settings → Terminal sets the cursor shape (block, bar or underline) and whether it blinks, for
+  every terminal pane. A program in the pane that sets its own cursor style (DECSCUSR) can still
+  change it, as before this setting existed.
+  ([#731](https://github.com/devswha/herdr-web-ui/pull/731) by @bluzername, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- Holding an arrow in the touch key bar repeats it until release, including held modifiers and
+  saved arrow combinations. A tap still sends one key, and swiping sideways scrolls the row
+  without sending a key.
+  ([#719](https://github.com/devswha/herdr-web-ui/pull/719) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- On a phone, a two-finger pinch on the terminal changes its font size live (10–22 px), with a
+  badge showing the size; the shared pty resizes once, when a finger lifts.
+  ([#713](https://github.com/devswha/herdr-web-ui/pull/713) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
+- Grok chat reads native messages and tool activity, respects logical rewinds and
+  refreshes expanded tool output. For now it works only with the native Grok build
+  `grok-1.0.50-linux-x86_64` on Linux; other builds, macOS and Windows show the terminal view.
+  See [setup and limits](docs/grok-chat.md).
+  ([#777](https://github.com/devswha/herdr-web-ui/pull/777) by @infowolfe)
+- **Experimental Antigravity chat** reads native messages and tool activity, follows the
+  running process’s active conversation, and honors saved rewind boundaries. macOS is untested.
+  See [compatibility and validation](docs/agy-chat.md).
+  ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
+- Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
+  choice, a typed answer for its "Other" row and for an open question, and ticks for a question
+  that takes several answers. Text already on its answer line is cleared first, so it does not
+  join the answer.
+  ([#750](https://github.com/devswha/herdr-web-ui/pull/750) by @DarkoKuzmanovic, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Settings → Appearance → Colors offers **Forest**, a low-saturation green-grey palette for long
+  sessions, in dark and light, with matching terminal and title-bar colors.
+  ([#775](https://github.com/devswha/herdr-web-ui/pull/775) by @vibewriter-hand)
+- A Claude Code or Codex pane's plan appears as progress in the header and sidebar. Open it
+  from the header in Chat or Terminal to see its steps as a flow or a list, with the current
+  step and elapsed times. It is read from the agent's transcript. **Settings → Appearance** can
+  take the count out of the header (**Plan count in the header**) and open the plan as the
+  list alone (**Plan flow**); both are on by default.
+  ([#531](https://github.com/devswha/herdr-web-ui/pull/531) by @kilhyeonjun, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
+- A `mermaid` code block in the chat is drawn as a diagram, with a full-screen lightbox to zoom and
+  pan it, and the file viewer renders markdown files with local images; larger images are offered
+  as downloads. ([#616](https://github.com/devswha/herdr-web-ui/pull/616) by @lyonbot)
+- **Settings → Appearance → Pin agents** (off by default) shows a star beside each row of the Agents list that pins the agent to the top; pins keep their order across reloads. ([#778](https://github.com/devswha/herdr-web-ui/pull/778) by @vibewriter-hand, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
+- An OpenCode pane on a 1.x store (`session`/`message`/`part`) reads as a conversation again, where
+  the chat used to keep the terminal's text: prompts with the pictures pasted in them, each answer's
+  steps with their tool calls and outputs, and the turns an `/undo` took back.
+  ([#690](https://github.com/devswha/herdr-web-ui/pull/690) by @okcedric)
 - PCs saved in herdr appear automatically. Connect once per PC to enable automatic reconnection;
   installing or starting a bridge still needs separate approval. Changing the address, port or
   session clears both permissions and cached panes.
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
+### Changed
+- The anonymous install and update counts also name the appearance settings changed from their
+  defaults (theme, density, colors, sidebar rows, Agents order, workspace cards, pin agents and the
+  two plan settings): the names only, never a value, and never a setting you type. The notice is
+  shown once more before anything is sent, and the same switch and environment variables turn it off.
+  ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts), [#820](https://github.com/devswha/herdr-web-ui/pull/820))
+- On a phone the app moves and responds like an iPhone app rather than a web page. Menus,
+  dialogs, the palette and Settings slide up from the bottom, follow your finger when you drag
+  them down, and slide away however they close; the workspace drawer follows your finger too.
+  Over the chat the header is frosted glass that the conversation scrolls under, and the message
+  box floats over the conversation's end. A tapped button dims at once instead of drawing an amber
+  box, a list row fills when pressed, a long press on the app's buttons and rows no longer selects
+  their text.
+  ([#683](https://github.com/devswha/herdr-web-ui/pull/683) by @jiunshinn)
+
+- Chat updates follow native transcript changes pushed through the existing WebSocket.
+  Only visible Chat views subscribe; Terminal views and hidden tabs release conversation
+  monitoring. Continuous pushes coalesce into at most one newest-page refresh every 2 seconds,
+  with a 10-second fallback; without pushes (an older remote PC, or a tab that let go of its pane)
+  Chat reads every 2 seconds as before. Initial display, sends, reconnect and returning to the tab refresh
+  immediately without overlapping reads or dropping held history. A Chat that shows the
+  terminal's text because no native transcript exists yet rereads on the pane's output instead.
+  A remote PC gets pushes once its bridge runs a bundle with this change. Approval-card polling
+  remains independent.
+  ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
+- **Settings → Appearance → Workspace cards** (off by default) puts each workspace's agents in
+  the sidebar's Agents list in a card under the workspace's name, so agents working in the same
+  workspace read as one group. Rows in a card do not repeat the workspace on their second line;
+  their tooltips still name it. A list in Activity order draws no cards, since it mixes workspaces.
+  ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
+
 ### Fixed
+- A phone shows a split tab one pane at a time again, at the screen's whole width, instead of
+  every pane squeezed into herdr's grid (since 0.4.6). The tab's menu lists the tab's panes to
+  switch between them. Wider screens keep the split, and herdr's own layout is not changed.
+  ([#819](https://github.com/devswha/herdr-web-ui/pull/819))
+- Chat hides a rejected conversation immediately, even when reading its terminal fallback
+  is slow or fails, so removed history does not remain on screen.
+  ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
+- When a chat message is not sent because Claude Code's input box in the terminal is not empty,
+  the note now says what the box holds, and a one-line draft there can be cleared from the chat
+  with Clear it and send. The chat did not show that text, so Send seemed to do nothing until the
+  text was found and deleted in the terminal. The cleared text comes back in the terminal with Ctrl+Y.
+  ([#728](https://github.com/devswha/herdr-web-ui/pull/728) by @jiunshinn)
+- A Claude Code chat whose session continued in a new transcript file (the old file holds only
+  a `continued-in` record) now shows the conversation from the file Claude writes to, instead of
+  an empty chat.
+  ([#779](https://github.com/devswha/herdr-web-ui/pull/779) by @vibewriter-hand)
+- A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
+  agent no longer turns into its chat when an agent starts in it, and an agent pane no longer
+  turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
+  Settings choice applies again to every pane.
+  ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
+- A Claude pane that used an agent team no longer counts its teammates as running after they
+  shut down: a teammate that approved its lead's shutdown request reads as completed, so the
+  pane's running count and the agent list show only what still runs.
+  ([#744](https://github.com/devswha/herdr-web-ui/pull/744) by @Haeminway1, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- A Claude Code multiple-choice question stays a multiple choice once a row is ticked in the
+  terminal (Claude Code 2.1.296 draws the tick as `[✔]`), its options no longer carry the box, and
+  the card stays up with the cursor on its **Submit** row. A pick there used to untick the row
+  instead of answering.
+  ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- An agent chat without a structured conversation no longer waits on hidden terminal output. Opening the terminal disclosure reads it independently; chat header/body reads have a 15-second deadline (30 seconds on a remote PC).
+  ([#791](https://github.com/devswha/herdr-web-ui/pull/791) by @kilhyeonjun)
+- Keep text file previews within their byte budget when a peer ignores Range, reject HTTP error bodies, and cancel stalled or closed previews.
+  ([#785](https://github.com/devswha/herdr-web-ui/pull/785) by @kilhyeonjun)
+- A Claude `/model` list whose hint a narrow pane wraps inside a word or over more than six lines
+  is still recognised, so a pending message waits instead of pressing Enter on it, and the same
+  words quoted in Claude's output no longer hold pending messages.
+  ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Push alerts no longer reach every device while you are using the app: while any window of it
+  is visible and focused, on any device, no device gets an alert. Alerts resume once no window
+  is in use, and **Send test** still always sends.
+  ([#759](https://github.com/devswha/herdr-web-ui/pull/759))
+- A click in the terminal while an arrow key is still on its way to herdr reaches the program as
+  a click, instead of being typed into it as the raw characters of a mouse report.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- OmO's side panel no longer draws a dotted line under its file, goal and memory rows in the
+  terminal: a link the app cannot open is no longer underlined.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- The Agents list no longer repeats an agent's kind beside the mark that already shows it, so
+  workspace and tab names keep the room on a narrow sidebar. The kind stays in the row's tooltip
+  and is still read out by screen readers; an agent without a mark of its own keeps the word.
+  ([#761](https://github.com/devswha/herdr-web-ui/pull/761))
+- A chat message stopped right after sending, before Claude Code answered, is no longer stuck: the
+  message goes back into the message box to edit and send again, as Claude Code puts it back in its
+  own input box, instead of staying in the chat as sent and the next send failing with "Claude
+  Code's input box in the terminal is not empty". The new send replaces that copy in the terminal
+  and stays in the same conversation, and the cancelled message is not shown beside it. A draft you
+  typed or changed in the terminal is still never replaced.
+  ([#741](https://github.com/devswha/herdr-web-ui/pull/741) by @Haeminway1,
+  [#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- **Send now** on a Claude Code pane that is working sends the message at once, as Ctrl+Enter in
+  the terminal does, instead of leaving it in Claude Code's own queue until the turn ends.
+  ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- A pending chat message is no longer typed, or committed, after its connection lost the right to
+  send it while herdr was being reached: refused before the paste it stays unsent, after it the
+  message is marked for a check in the terminal. ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- A folded PC/workspace section no longer leaves a large empty gap below it: a visible Agents list
+  takes the unused height, and an empty one follows the folded section directly. The Agents height
+  cap, independent scrolling and fixed footer stay unchanged.
+  ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
 - Web UI SSH connections no longer open extra tunnels configured in the account’s SSH config.
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
@@ -669,6 +820,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
   and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
+  how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
+  when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
+  turns its hairline red while its share is still low, and says when in its label; once that
+  time has gone by, both stay until the reset as **Runs out before reset**. The pace is
+  measured when the numbers were read, and shown only where the provider states the window's
+  start or length (Claude, Codex, Grok), from 5% of the window on.
+  ([#513](https://github.com/devswha/herdr-web-ui/pull/513))
 
 ### Changed
 - The terminal's **Input held until the terminal is ready** notice appears only when there is
