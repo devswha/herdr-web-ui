@@ -8,6 +8,7 @@ import { openSettingsPage } from "./settings-page.ts";
 import { KO } from "../src/lib/i18n.ko.ts";
 import { JA } from "../src/lib/i18n.ja.ts";
 import { ZH } from "../src/lib/i18n.zh.ts";
+import { terminalTheme } from "../src/lib/settings.ts";
 
 // Settings on the unmodified app over the demo's fixture transport: every page fits a phone, and
 // the browser's Back button steps out of the dialog instead of out of the app. All files and
@@ -129,6 +130,28 @@ try {
               await copy.tap();
               await body.getByRole("button", { name: copyLabel("codex"), exact: true }).filter({ hasText: label("Copied") }).waitFor();
               assert.equal(await page.evaluate(() => navigator.clipboard.readText()), install("codex"));
+            }
+            if (name === "Appearance" && language === "en") {
+              // an opt-in palette is written to the document and saved, and its block of styles.css
+              // reaches the page: its --term-* tokens read back as the theme xterm is given
+              const palette = page.getByLabel("Colors", { exact: true });
+              await palette.selectOption("forest");
+              await page.waitForFunction(() => document.documentElement.dataset.palette === "forest");
+              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).palette), "forest");
+              const colors = await page.evaluate(() => {
+                const root = getComputedStyle(document.documentElement);
+                return {
+                  background: root.getPropertyValue("--term-bg").trim(),
+                  foreground: root.getPropertyValue("--term-fg").trim(),
+                  cursor: root.getPropertyValue("--term-cursor").trim(),
+                  selectionBackground: root.getPropertyValue("--term-selection").trim(),
+                };
+              });
+              assert.deepEqual(colors, terminalTheme("dark", "forest"), "Forest's --term-* tokens reach the page as the theme xterm is given");
+              if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `forest-palette-${width}.png`), fullPage: true });
+              // the pages after this one are checked on the default palette
+              await palette.selectOption("amber");
+              await page.waitForFunction(() => document.documentElement.dataset.palette === "amber");
             }
             assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }
