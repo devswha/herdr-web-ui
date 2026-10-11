@@ -1,5 +1,5 @@
-import { useId, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Terminal } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Star, Terminal } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
 import { paneStorageId } from "../../shared/machines.ts";
@@ -9,6 +9,7 @@ import { agentContext, agentTabName, paneMark, sidebarAgents } from "../lib/side
 import { useSettings } from "../lib/settings.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
 import { activityOrder } from "../lib/sidebarOrder.ts";
+import { loadSidebarPins, orderPinnedRows, pruneSidebarPins, saveSidebarPins, sidebarPinKey, toggleSidebarPin } from "../lib/sidebarPins.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundBadge, displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import "./AgentSidebar.css";
@@ -64,6 +65,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   const listId = useId();
   const [collapsed, setCollapsed] = useState(() => window.matchMedia?.(DRAWER_QUERY).matches === true);
   const { settings } = useSettings();
+  const [pinned, setPinned] = useState(loadSidebarPins);
   const activity = useSidebarActivity();
   // Settings → Agents order: herdr's order, or Activity within each PC (each herdr counts its own changes)
   const byActivity = settings.agentOrder === "activity";
@@ -71,6 +73,17 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const agents = sidebarAgents(machine.snapshot);
     return (byActivity ? activityOrder(agents, (entry) => entry.pane, activity.seqs(machine.id)) : agents).map((entry) => ({ machine, entry }));
   }), [machines, byActivity, activity]);
+  const orderedRows = useMemo(() => orderPinnedRows(rows, pinned, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned]);
+  useEffect(() => {
+    const live = new Set(rows.map(({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)));
+    const next = pruneSidebarPins(pinned, live);
+    if (next.length !== pinned.length) { setPinned(next); saveSidebarPins(next); }
+  }, [rows, pinned]);
+  const setPin = (key: string): void => {
+    const next = toggleSidebarPin(pinned, key);
+    setPinned(next);
+    saveSidebarPins(next);
+  };
 
   return <section className={`agents-sidebar${collapsed ? " is-collapsed" : ""}${rows.length === 0 ? " is-empty" : ""}`} aria-label={t("Agents")}>
     <button type="button" className="agent-section-toggle sidebar-section-label" aria-expanded={!collapsed} aria-controls={listId} onClick={() => setCollapsed(!collapsed)}>
@@ -80,7 +93,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     </button>
     <div className="agent-list-contents" id={listId} hidden={collapsed}>
       {rows.length === 0 ? <p className="agent-empty" role="status">{t("No agents running")}</p> : <ul className="agent-list">
-        {rows.map(({ machine, entry }) => {
+        {orderedRows.map(({ machine, entry }) => {
           const { pane, workspace, tab, agent, agentLabel } = entry;
           const selected = machine.id === selectedMachineId && pane.pane_id === selectedPaneId;
           const online = machine.state === "connected";
@@ -92,10 +105,15 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
           const tabName = agentTabName(tab, tabs, t);
           const context = agentContext({ agentLabel: kindLabel, title, machineName: machines.length > 1 ? machine.name : null, workspaceLabel: workspace.label, tabName }).join(" · ");
           const tooltip = [...new Set([pane.pane_id, title, context, name, agent?.display_agent, pane.cwd, online ? null : stateWord(machine)].filter(Boolean))].join("\n");
+          const pinKey = sidebarPinKey(machine.id, pane.pane_id);
+          const isPinned = pinned.includes(pinKey);
           return <li className={`agent-item${selected ? " is-selected" : ""}${online ? "" : " is-offline"}`} key={paneStorageId(machine.id, pane.pane_id)} data-machine={machine.id} data-pane={pane.pane_id}>
             <button type="button" className="agent-select agent-row" disabled={!online} aria-current={selected ? "true" : undefined} title={tooltip} onClick={() => onSelect(machine.id, pane.pane_id)}>
               {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
               <AgentRowBody mark={paneMark(entry)} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} status={online ? activity.status(machine.id, pane) : undefined} />
+            </button>
+            <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={t(isPinned ? "Unpin agent" : "Pin agent")} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} onClick={() => setPin(pinKey)}>
+              <Star aria-hidden="true" fill={isPinned ? "currentColor" : "none"} />
             </button>
           </li>;
         })}

@@ -55,6 +55,8 @@ export const ZH: Record<string, string> = {
   "Amber": "琥珀",
   "Catppuccin": "Catppuccin",
   "Lilac": "淡紫",
+  "Pin agent": "固定 Agent",
+  "Unpin agent": "取消固定 Agent",
   "Density": "密度",
   "Comfortable": "宽松",
   "Compact": "紧凑",
