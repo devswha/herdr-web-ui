@@ -592,12 +592,16 @@ One set for both themes: the card is island black wherever it shows.
   account in the user's order: provider mark, mono `--fs-2xs` percent of the limit chosen in
   Settings, the plan's week or its session (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
   filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
-  chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
+  chrome. A limit that runs out before its reset at its pace so far takes `--status-blocked` on
+  the bar alone. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
   footer and scrolling when it outgrows the sidebar: per account its mark, name and plan pill with
   the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
-  note is dim, red for an expired sign-in or a failed request.
+  note is dim, red for an expired sign-in or a failed request. Where the window's start is known, a
+  2px `--text-strong` mark on the bar sits where an even pace would be by now, and a dim `--fs-2xs`
+  line under it gives the rate, with **Runs out in …** in `--status-blocked` when it comes before
+  the reset.
 
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to

@@ -254,6 +254,8 @@ export interface UsageWindow {
   readonly used_percent: number;
   /** ISO 8601; null when the provider does not say */
   readonly resets_at: string | null;
+  /** ISO 8601 time this window began counting; null when the provider states neither it nor the window's length */
+  readonly starts_at: string | null;
 }
 
 /**
