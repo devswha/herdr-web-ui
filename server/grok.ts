@@ -103,9 +103,11 @@ export interface GrokProjection {
 }
 
 /** Scan complete records once in bounded chunks. An unfinished catch-up is unavailable,
- * never a partially validated history. The next poll continues the same scan. */
-export function grokProjection(path: string, size: number): GrokProjection {
-  const stat = statSync(path);
+ * never a partially validated history. The next poll continues the same scan. Size,
+ * identity and change all come from the caller's one stat, so an append between two
+ * stats cannot reset a finished scan. */
+export function grokProjection(path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): GrokProjection {
+  const { size } = stat;
   const identity = `${stat.dev}:${stat.ino}`;
   const changed = `${stat.mtimeMs}:${stat.ctimeMs}`;
   let index = indexes.get(path);
@@ -258,7 +260,7 @@ export function parseGrokTranscript(text: string, path?: string, wholeCall?: str
 export function grokToolOutput(path: string, ref: string): string | null {
   if (!GROK_TOOL_REF.test(ref)) return null;
   try {
-    grokProjection(path, statSync(path).size);
+    grokProjection(path, statSync(path));
     const index = indexes.get(path)!;
     for (const [id, call] of index.calls) {
       if (outputRef(path, id) !== ref) continue;

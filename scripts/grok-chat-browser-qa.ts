@@ -66,7 +66,15 @@ try {
   assert.deepEqual(errors, []);
   console.log("PASS Grok native chat, expanded-output refresh, shrink and rewind in the real browser");
 } finally {
-  await browser?.close(); server?.stop();
-  if (workspace) await workspaceClose(workspace);
-  rmSync(root, { recursive: true, force: true });
+  // Attempt every cleanup even if an earlier one fails. A cleanup error never replaces
+  // the original failure; it is reported and fails a run that otherwise passed.
+  const cleanupErrors: unknown[] = [];
+  try { await browser?.close(); } catch (error) { cleanupErrors.push(error); }
+  try { server?.stop(); } catch (error) { cleanupErrors.push(error); }
+  try { if (workspace) await workspaceClose(workspace); } catch (error) { cleanupErrors.push(error); }
+  try { rmSync(root, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+  if (cleanupErrors.length) {
+    console.error(new AggregateError(cleanupErrors, "Grok chat browser QA cleanup failed"));
+    process.exitCode = 1;
+  }
 }

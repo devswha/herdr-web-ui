@@ -524,7 +524,7 @@ function transcriptGeneration(path: string, stat: { dev: number; ino: number; si
 function transcriptStream(source: StreamSource, path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }, codexHome: string): TranscriptStream {
   // (a chain whose parent was archived since comes back shorter: codexHistorySegments;
   // a pi branch skips the side paths a /tree left behind: piBranchSegments)
-  const grok = source === "grok-transcript" ? grokProjection(path, stat.size) : null;
+  const grok = source === "grok-transcript" ? grokProjection(path, stat) : null;
   const branch = source === "pi-transcript" ? piBranchSegments(path, stat.size) : null;
   if (source === "pi-transcript" && branch === null) throw new ConversationUnavailable("branch_unreadable");
   const segments: { path: string; start: number; end: number }[] = source === "codex-transcript"
@@ -1415,7 +1415,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     && (status === "working" || status === "blocked")) {
     // the file can change or go between the page and this check: either way the terminal answers
     let revision: string | null = null;
-    try { revision = grokProjection(resolved.path, statSync(resolved.path).size).revision; } catch { /* unreadable now */ }
+    try { revision = grokProjection(resolved.path, statSync(resolved.path)).revision; } catch { /* unreadable now */ }
     if (revision === null || revision === "0") throw new ConversationUnavailable("transcript_missing");
   }
   if (identity !== null) { writtenSessions.add(`${resolved.source}\0${identity}`); rememberPaneSession(paneId, `${resolved.source}\0${identity}`); }
