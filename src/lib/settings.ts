@@ -74,10 +74,6 @@ export interface Settings {
   agentCards: boolean;
   /** Each agent row carries a star that keeps it on top of the Agents list. */
   agentPins: boolean;
-  /** A plan opens as a flow of boxes with a switch to its list; off, as the list alone. */
-  planFlow: boolean;
-  /** The header carries the selected pane's plan count, which opens the plan. */
-  planButton: boolean;
   /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
   quietOpenedDone: boolean;
   /** Agent logos: brand colors, or the text color, so a list of one agent is not a stripe of tiles */
@@ -176,8 +172,6 @@ export const DEFAULT_SETTINGS: Settings = {
   agentOrder: "workspace",
   agentCards: false,
   agentPins: false,
-  planFlow: true,
-  planButton: true,
   quietOpenedDone: false,
   agentMarks: "color",
   palette: "amber",
@@ -337,8 +331,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     agentOrder: record["agentOrder"] === "workspace" || record["agentOrder"] === "activity" ? record["agentOrder"] : DEFAULT_SETTINGS.agentOrder,
     agentCards: record["agentCards"] === true,
     agentPins: record["agentPins"] === true,
-    planFlow: record["planFlow"] !== false,
-    planButton: record["planButton"] !== false,
     quietOpenedDone: record["quietOpenedDone"] === true,
     agentMarks: record["agentMarks"] === "color" || record["agentMarks"] === "mono" ? record["agentMarks"] : DEFAULT_SETTINGS.agentMarks,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" || record["palette"] === "forest" ? record["palette"] : DEFAULT_SETTINGS.palette,

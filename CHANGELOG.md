@@ -7,6 +7,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- The file viewer draws the HTML a README is written with (a centered logo, a row of badges and
+  links, `<details>`) as markdown instead of showing its tags as text: paragraphs and headings,
+  centered where `align="center"` says so, links, images with their width, emphasis and line breaks.
+  Other tags are left out with their text kept; comments, scripts and styles are dropped. Images from
+  other sites still show their alt text, as before. An agent's chat message keeps HTML as text.
+
 ### Added
 - **Settings → Composer → Send queued messages automatically** (on by default). Turned off, a
   message sent while the agent works waits under the message box until you press **Send now**,
@@ -22,6 +29,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`
   and the linked worktrees a PC has open) and temporary folders such as `/tmp`, and offer up to
   eight folders instead of three: a phone swipes them sideways on one row, a wider screen wraps them.
+- A pane's plan moved from the header into the background-task button by the message box: the
+  button starts with **Plan** and how many steps are done (`2/5`), and opens one list with the
+  plan's steps first and the background tasks below. The plan's flow of boxes, its dialog and the
+  **Plan flow** and **Plan count in the header** settings are gone. ([#846](https://github.com/devswha/herdr-web-ui/pull/846))
 
 ### Fixed
 - On a phone, Back closes every dialog drawn as a sheet the way it closes a ⋯ menu: the plan, the
@@ -46,6 +57,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A phone showing one pane of a split tab no longer resizes the tab's other panes to its own
   screen: they stay mounted behind the one shown and now keep the size the pty has, so a PC
   drawing the split keeps its own sizes. A pane shown again on the phone takes its size then.
+- The update line above the pane stays one line on a phone and on a computer: a long sentence ends
+  in an ellipsis instead of wrapping its buttons onto a second row, the line after an update closes
+  with an × like a PC's line, and an install's step, count and bar share one row. The warning to
+  save unsent drafts before a reload is the one line still read in full, so it may wrap.
+- A PC window left in front while you used the terminal on a phone stayed at the phone's size
+  when you came back, because it never lost the focus and so never took the pane back. A click
+  or a key in its terminal now returns the pane to the PC's size. ([#839](https://github.com/devswha/herdr-web-ui/pull/839))
 
 ## [0.4.7] - 2026-10-12
 

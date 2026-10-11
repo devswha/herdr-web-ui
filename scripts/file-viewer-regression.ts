@@ -38,7 +38,7 @@ chmodSync(standIn, 0o755);
 copyFileSync(join(import.meta.dir, "fixtures", "file-preview.webm"), join(root, "preview.webm"));
 writeFileSync(join(root, "notes.txt"), "File preview history regression\n");
 const markdownPath = join(root, "preview #1 & 한글.MD");
-const markdownSource = "# Markdown preview\n\n한글 문서도 새 탭에서 읽을 수 있습니다.\n\n| Item | State |\n| --- | --- |\n| Preview | Ready |\n\n- [x] Rendered\n\n```ts\nconst answer = 42;\n```\n\n![Local image](./preview.svg)\n";
+const markdownSource = "<p align=\"center\">\n  <img src=\"./preview.svg\" alt=\"Logo\" width=\"64\">\n</p>\n\n<p align=\"center\"><a href=\"https://example.com/\">website</a> &middot; <strong>bold</strong></p>\n\n# Markdown preview\n\n한글 문서도 새 탭에서 읽을 수 있습니다.\n\n| Item | State |\n| --- | --- |\n| Preview | Ready |\n\n- [x] Rendered\n\n```ts\nconst answer = 42;\n```\n\n![Local image](./preview.svg)\n";
 writeFileSync(markdownPath, markdownSource);
 writeFileSync(join(root, "preview.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80"><rect width="240" height="80" fill="teal"/></svg>');
 let workspace: string | undefined;
@@ -363,6 +363,11 @@ try {
       const markdown = page.locator(".file-viewer-markdown");
       await markdown.getByRole("heading", { name: "Markdown preview", exact: true }).waitFor();
       await markdown.getByRole("cell", { name: "Ready", exact: true }).waitFor();
+      // a README's HTML header is drawn, centered, never shown as tags
+      assert.equal((await markdown.innerText()).includes("<p"), false, "HTML tags are not shown as text");
+      assert.equal(await markdown.locator('.markdown-center img[alt="Logo"]').getAttribute("width"), "64");
+      assert.equal(await markdown.locator(".markdown-center").first().evaluate((node) => getComputedStyle(node).textAlign), "center");
+      await markdown.getByRole("link", { name: "website", exact: true }).waitFor();
       await page.waitForFunction(() => {
         const image = document.querySelector<HTMLImageElement>(".file-viewer-markdown img");
         return image?.complete && image.naturalWidth === 240;

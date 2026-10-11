@@ -535,8 +535,9 @@ try {
         await page.locator(`.agents-sidebar .agent-item[data-pane="${API}"] .agent-select`).evaluate((node) => (node as HTMLElement).click());
         await waitQuery(page, "pane", API);
         const atApi = await page.evaluate(() => history.length);
-        await page.locator(".plan-button").tap();
-        const plan = page.locator(".plan-dialog");
+        // the plan lives in the composer's background-task chip now (#846): its list is a phone dialog too
+        await page.locator(".composer .bg-tasks-toggle").tap();
+        const plan = page.locator(".bg-tasks-menu");
         await plan.waitFor();
         assert.equal(await page.evaluate(() => history.length), atApi + 1, "the plan is an entry");
         await page.goBack();
