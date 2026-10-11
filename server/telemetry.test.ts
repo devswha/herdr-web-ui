@@ -180,12 +180,12 @@ describe("telemetry events", () => {
     writeFileSync(join(stateDir, "telemetry.json"), JSON.stringify({ install_id: "0b5f3c2e-8a51-4c47-9d0e-3f6a2b1c9e84", enabled: true, notice_seen_at: "2026-10-01T00:00:00.000Z", reported_version: "0.4.0" }));
     const { telemetry, sent } = setup({ stateDir });
     expect(telemetry.status()).toMatchObject({ notice_seen: false, next: { event: "update", previous_version: "0.4.0" } });
-    telemetry.change({ changed_settings: ["planFlow"] });
+    telemetry.change({ changed_settings: ["agentCards"] });
     await telemetry.report();
     expect(sent).toEqual([]);
     telemetry.change({ notice_seen: true });
     await telemetry.report();
-    expect(sent).toEqual([expect.objectContaining({ event: "update", install_id: "0b5f3c2e-8a51-4c47-9d0e-3f6a2b1c9e84", changed_settings: ["planFlow"] })]);
+    expect(sent).toEqual([expect.objectContaining({ event: "update", install_id: "0b5f3c2e-8a51-4c47-9d0e-3f6a2b1c9e84", changed_settings: ["agentCards"] })]);
   });
 
   test("the install method follows how the app was started", () => {
@@ -222,7 +222,9 @@ describe("/api/telemetry", () => {
       expect((await handleTelemetryRequest(post({ changed_settings }), telemetry)).status).toBe(400);
     }
     expect(telemetry.status().next).toMatchObject({ changed_settings: null });
-    expect(await (await handleTelemetryRequest(post({ changed_settings: ["planButton", "theme", "theme"] }), telemetry)).json()).toMatchObject({ next: { changed_settings: ["theme", "planButton"] } });
+    expect(await (await handleTelemetryRequest(post({ changed_settings: ["agentPins", "theme", "theme"] }), telemetry)).json()).toMatchObject({ next: { changed_settings: ["theme", "agentPins"] } });
+    // a setting that was removed, named by a page loaded before the update: kept out, not refused
+    expect(await (await handleTelemetryRequest(post({ changed_settings: ["planFlow", "theme"] }), telemetry)).json()).toMatchObject({ next: { changed_settings: ["theme"] } });
     const response = await handleTelemetryRequest(post({ enabled: false, notice_seen: true }), telemetry);
     expect(await response.json()).toMatchObject({ enabled: false, notice_seen: true });
   });

@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- A pane's plan moved from the header into the background-task button by the message box: the
+  button starts with **Plan** and how many steps are done (`2/5`), and opens one list with the
+  plan's steps first and the background tasks below. The plan's flow of boxes, its dialog and the
+  **Plan flow** and **Plan count in the header** settings are gone.
+
 ### Fixed
 - On a phone, the system Back button closes an open ⋯ menu sheet instead of switching to the pane
   opened before, which it did since 0.4.7 made each pane a history entry. A sheet closed by Cancel,

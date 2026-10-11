@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { REPORTED_SETTINGS } from "../shared/telemetry.ts";
+import { REPORTED_SETTINGS, RETIRED_SETTINGS } from "../shared/telemetry.ts";
 import { handle, readEvent, requestCountry, SETTINGS, type Env } from "./worker.ts";
 
 const event = {
@@ -44,7 +44,8 @@ describe("telemetry receiver", () => {
   });
 
   test("keeps the names of changed settings it knows, sorted, and tells none changed from none told", () => {
-    expect([...SETTINGS].sort()).toEqual([...REPORTED_SETTINGS].sort());
+    // installs older than a setting's removal still name it: the Worker keeps counting those
+    expect([...SETTINGS].sort()).toEqual([...REPORTED_SETTINGS, ...RETIRED_SETTINGS].sort());
     expect(readEvent({ ...event, changed_settings: ["theme", "agentCards", "theme"] }, now)?.changed_settings).toBe("agentCards,theme");
     expect(readEvent({ ...event, changed_settings: [] }, now)?.changed_settings).toBe("");
     // an older app sends no list; a newer one may name a setting this Worker does not know yet
