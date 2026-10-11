@@ -23,6 +23,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
 
 ### Changed
+- The reason a chat message did not go (Claude Code's terminal input box holds a draft, the PC
+  needs an update, the send was not confirmed) is a band on the message box's top edge, as wide as
+  the box, with **Clear it and send** at its end, instead of small red text under the box.
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`
   and the linked worktrees a PC has open) and temporary folders such as `/tmp`, and offer up to
   eight folders instead of three: a phone swipes them sideways on one row, a wider screen wraps them.
