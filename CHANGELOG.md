@@ -49,11 +49,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   step and elapsed times. It is read from the agent's transcript. **Settings → Appearance** can
   take the count out of the header (**Plan count in the header**) and open the plan as the
   list alone (**Plan flow**); both are on by default.
-  ([#531](https://github.com/devswha/herdr-web-ui/pull/531) by @kilhyeonjun)
+  ([#531](https://github.com/devswha/herdr-web-ui/pull/531) by @kilhyeonjun, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
 - A `mermaid` code block in the chat is drawn as a diagram, with a full-screen lightbox to zoom and
   pan it, and the file viewer renders markdown files with local images; larger images are offered
   as downloads. ([#616](https://github.com/devswha/herdr-web-ui/pull/616) by @lyonbot)
-- **Settings → Appearance → Pin agents** (off by default) shows a star beside each row of the Agents list that pins the agent to the top; pins keep their order across reloads. ([#778](https://github.com/devswha/herdr-web-ui/pull/778) by @vibewriter-hand)
+- **Settings → Appearance → Pin agents** (off by default) shows a star beside each row of the Agents list that pins the agent to the top; pins keep their order across reloads. ([#778](https://github.com/devswha/herdr-web-ui/pull/778) by @vibewriter-hand, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
 - An OpenCode pane on a 1.x store (`session`/`message`/`part`) reads as a conversation again, where
   the chat used to keep the terminal's text: prompts with the pictures pasted in them, each answer's
   steps with their tool calls and outputs, and the turns an `/undo` took back.
@@ -64,7 +64,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   defaults (theme, density, colors, sidebar rows, Agents order, workspace cards, pin agents and the
   two plan settings): the names only, never a value, and never a setting you type. The notice is
   shown once more before anything is sent, and the same switch and environment variables turn it off.
-  ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts))
+  ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts), [#820](https://github.com/devswha/herdr-web-ui/pull/820))
 - On a phone the app moves and responds like an iPhone app rather than a web page. Menus,
   dialogs, the palette and Settings slide up from the bottom, follow your finger when you drag
   them down, and slide away however they close; the workspace drawer follows your finger too.
@@ -88,7 +88,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the sidebar's Agents list in a card under the workspace's name, so agents working in the same
   workspace read as one group. Rows in a card do not repeat the workspace on their second line;
   their tooltips still name it. A list in Activity order draws no cards, since it mixes workspaces.
-  ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres)
+  ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
 
 ### Fixed
 - Chat hides a rejected conversation immediately, even when reading its terminal fallback
