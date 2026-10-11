@@ -1685,8 +1685,13 @@ describe("Claude's suggested next prompt", () => {
     expect(restored(screen("❯\u00a0run\u00a0the\u00a0tests"), "run the tests")).toBe("run the tests");
     // a long message wraps onto rows indented two spaces; joined back they are the sent text
     expect(restored(screen("❯ a longer message that wrapped onto", "  its second row\r\n" + RULE), "a longer message that wrapped onto its second row")).toBe("a longer message that wrapped onto its second row");
+    // a wrap inside a word joins its rows with nothing between them
+    expect(restored(screen("❯ a longer message that wrapped in its mid", "  dle word\r\n" + RULE), "a longer message that wrapped in its middle word")).toBe("a longer message that wrapped in its middle word");
     // typed on or replaced, the words are the user's
     expect(restored(screen("❯ run the tests edited"), "run the tests")).toBeNull();
+    // so are spaces taken out or put in: two Esc presses would erase that edit
+    expect(restored(screen("❯ runthe tests"), "run the tests")).toBeNull();
+    expect(restored(screen("❯ run  the tests"), "run the tests")).toBeNull();
     expect(restored(screen("❯ other words"), "run the tests")).toBeNull();
     // Claude's grey suggestion is not a draft, an empty box holds nothing, bash mode is the user's
     expect(restored(screen("❯ \u001b[2mrun the tests\u001b[0m"), "run the tests")).toBeNull();

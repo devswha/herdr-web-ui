@@ -39,6 +39,18 @@ const boxValue = (page: Page, expected: string): Promise<unknown> => page.waitFo
   expected, { timeout: 10_000 },
 );
 
+/** How many prompt reads the page has asked for so far. */
+const promptReads = (page: Page): Promise<number> => page.evaluate(() => (window as unknown as { promptReads: number }).promptReads);
+
+/**
+ * Waits until the page asked for a prompt read after read `n`: the reads go one after another, so
+ * by then read `n`'s answer has been applied. Counted after a feed, read count + 1 is the first one
+ * asked for after it.
+ */
+const promptReadsPast = (page: Page, n: number): Promise<unknown> => page.waitForFunction(
+  (count) => (window as unknown as { promptReads: number }).promptReads > count, n, { timeout: 10_000 },
+);
+
 /** A rendered turn saying the send's words: the transcript's own answer, when it stands. */
 const turnShown = (page: Page): Promise<unknown> => page.waitForFunction(
   () => [...document.querySelectorAll(".chat-turn")].some((turn) => turn.textContent?.includes("Rename the backup job")),
@@ -125,8 +137,8 @@ try {
         await composer.evaluate((node) => (node as HTMLElement).blur());
         await feed(page, RESTORED, extraTurn());
         await boxValue(page, RESTORED);
-        await page.waitForFunction(() => (window as unknown as { extraServed: number }).extraServed >= 1, undefined, { timeout: 10_000 });
-        await page.waitForTimeout(300);
+        // the reads run one after another: a second read served means the first one's answer was drawn
+        await page.waitForFunction(() => (window as unknown as { extraServed: number }).extraServed >= 2, undefined, { timeout: 10_000 });
         assert.equal(await page.locator(".chat-turn").count(), 2, "the transcript read carried the send's turn; it is not rendered");
         const shown = await page.locator(".chat-turn").allTextContents();
         assert.ok(shown.every((text) => !text.includes("Rename the backup job")), `no turn shows the restored send: ${JSON.stringify(shown)}`);
@@ -149,8 +161,9 @@ try {
         await composer.fill(edited);
         await boxValue(page, edited);
         await feed(page, null, extraTurn());
+        const after = await promptReads(page);
         await turnShown(page);
-        await page.waitForTimeout(2500);
+        await promptReadsPast(page, after + 1);
         assert.equal(await composer.inputValue(), edited, "an edited fill is never cleared");
         console.log("PASS a fill the user edited is theirs and stays when the restored send goes away");
 
@@ -159,9 +172,7 @@ try {
         await composer.fill(own);
         await boxValue(page, own);
         await feed(page, "something else restored", extraTurn());
-        const reads = await page.evaluate(() => (window as unknown as { promptReads: number }).promptReads);
-        await page.waitForFunction((n) => (window as unknown as { promptReads: number }).promptReads > n, reads, { timeout: 10_000 });
-        await page.waitForTimeout(2500);
+        await promptReadsPast(page, await promptReads(page) + 1);
         assert.equal(await composer.inputValue(), own, "the user's own draft is never replaced");
         console.log("PASS a composer holding the user's own words is never overwritten by a restored send");
 

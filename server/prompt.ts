@@ -2817,7 +2817,8 @@ async function restoredOnLiveScreen(paneId: string, viewport: string): Promise<s
  * The chat's own last message back in Claude Code's input box as typed text, where Claude puts it
  * when the send right before is cancelled: `sent` when the box is a draft (`claudeInputDraft`, so
  * typed text on a verified viewport) holding exactly it — the `❯` of the first row dropped, the
- * wrapped rows joined, all whitespace (the box's U+00A0 too) out of both sides. Anything else a
+ * wrapped rows joined with nothing (a split word) or one space (a wrap between words), each row's
+ * own spaces as they are (U+00A0 read as a space). Anything else a
  * draft could be — bash mode, a clipped box, a `[Pasted text #`/`[Image #` placeholder, other or
  * edited words — and a box that is no known draft, unverified colors or nothing sent answer null.
  */
@@ -2826,8 +2827,13 @@ export function claudeRestoredDraft(live: string, colors: string | null, sent: s
   const box = claudeInputBox(live);
   if (box === null || box === "clipped" || !box.plain[0]?.startsWith("❯")) return null;
   if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain.join(" "))) return null;
-  const text = box.plain.map((row, index) => index === 0 ? row.slice(1) : row).join("");
-  return text.replace(/\s/g, "") === sent.replace(/\s/g, "") ? sent : null;
+  // each row's own words exactly (the box's U+00A0 as a space), its marker, indentation and padding
+  // aside; where the terminal wrapped, a word split in two joins with nothing between, and a wrap
+  // between words with one space or line break. Any other change to the spaces is the user's edit.
+  const rows = box.plain.map((row, index) => (index === 0 ? row.slice(1) : row).replace(/\u00a0/g, " ").trim());
+  const escape = (row: string): string => row.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const wrapped = new RegExp(`^${rows.map(escape).join("\\s?")}$`);
+  return wrapped.test(sent.replace(/\u00a0/g, " ").trim()) ? sent : null;
 }
 
 /**
