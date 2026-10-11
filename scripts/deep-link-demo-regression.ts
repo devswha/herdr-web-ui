@@ -472,6 +472,43 @@ try {
         }
       });
       console.log("PASS a pane Back selects under an open modal does not take the keyboard out of it");
+
+      // a phone's ⋯ sheet is an entry of its own: Back closes it and stays on the pane; a sheet
+      // closed by Cancel or by an item leaves no entry behind, so the next Back goes to the pane before
+      const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
+      try {
+        await phone.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
+        const page = await phone.newPage();
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`${url}?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}`);
+        await page.locator(".conn-live").waitFor({ state: "attached" });
+        await waitSelected(page, INFRA);
+        // the sidebar is a closed drawer on a phone: a click on its row in the page is enough here
+        await page.locator(`.agents-sidebar .agent-item[data-pane="${DOCS}"] .agent-select`).evaluate((node) => (node as HTMLElement).click());
+        await waitQuery(page, "pane", DOCS);
+        const length = await page.evaluate(() => history.length);
+        const more = page.locator(".header-more-button");
+        const sheet = page.getByRole("dialog", { name: "More", exact: true });
+        await more.tap();
+        await sheet.waitFor();
+        assert.equal(await page.evaluate(() => history.length), length + 1, "an open sheet is an entry");
+        await page.goBack();
+        await sheet.waitFor({ state: "detached" });
+        assert.equal(await selected(page), DOCS, "Back closed the sheet and left the pane alone");
+        assert.equal((await query(page))["pane"], DOCS);
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "Cancel", exact: true }).tap();
+        await sheet.waitFor({ state: "detached" });
+        await page.waitForFunction(() => !Object.keys(history.state ?? {}).includes("herdr-web-ui:sheet"));
+        await page.goBack();
+        await waitSelected(page, INFRA);
+        assert.deepEqual(errors, []);
+      } finally {
+        await phone.close();
+      }
+      console.log("PASS a phone's sheet closes on Back without leaving its pane, and a sheet closed by Cancel leaves no Back step behind");
     } finally {
       await browser.close();
     }
