@@ -33,7 +33,6 @@ starts again):
 bunx wrangler d1 execute herdr-web-ui-telemetry --remote --command "ALTER TABLE events ADD COLUMN country TEXT"
 ```
 
-The Worker answers at `https://herdr-web-ui-telemetry.<account>.workers.dev/v1/events`, and
 A database made before the changed settings were kept needs that column the same way, before the
 Worker that writes it is deployed:
 
@@ -41,6 +40,7 @@ Worker that writes it is deployed:
 bunx wrangler d1 execute herdr-web-ui-telemetry --remote --command "ALTER TABLE events ADD COLUMN changed_settings TEXT"
 ```
 
+The Worker answers at `https://herdr-web-ui-telemetry.<account>.workers.dev/v1/events`, and
 `TELEMETRY_URL` in `server/telemetry.ts` must name that address. `HERDR_WEB_TELEMETRY_URL` does not
 exist on purpose: an install cannot be pointed elsewhere by its environment.
 

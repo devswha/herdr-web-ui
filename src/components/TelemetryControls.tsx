@@ -49,7 +49,8 @@ export function TelemetryNotice({ enabled, onOpen }: { enabled: boolean; onOpen:
     const record = () => {
       if (recorded || document.visibilityState !== "visible") return;
       recorded = true;
-      changeTelemetry({ notice_seen: true }).catch((error: unknown) => console.error("telemetry notice", error));
+      // with the list, so the count this starts cannot leave before the server has it
+      changeTelemetry({ notice_seen: true, changed_settings: changedSettings(settings) }).catch((error: unknown) => console.error("telemetry notice", error));
     };
     const onVisibility = () => { if (document.visibilityState === "visible") afterPaint(); };
     afterPaint();
