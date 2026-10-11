@@ -1604,9 +1604,14 @@ export function PaneTerminal({
     // Another device can size the pty while this window keeps its focus (a phone used beside a
     // PC left in front): no focus event comes back here, so a click or key in this terminal
     // takes the pane back to this window's grid.
+    // Only input meant for the terminal itself: a press or key in the find bar, on the scrollbar
+    // or the key bar, a right-click for the pane menu, a held key's repeats or an IME composition
+    // must not resize the pty under the other device.
     const reclaim = (event: Event): void => {
       const shared = sharedGridRef.current;
-      if (!shared || releasedRef.current || !inUse() || !stackRef.current?.contains(event.target as Node)) return;
+      if (!shared || releasedRef.current || !inUse() || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
+      if (event instanceof KeyboardEvent && (event.repeat || event.isComposing)) return;
+      if (event instanceof PointerEvent && event.button !== 0) return;
       if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
     };
     // a click or a tap is the user here, whatever the window says about its focus

@@ -46,7 +46,9 @@ function shellSize(paneId: string): () => Promise<string> {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       const text = (await paneRead({ paneId, source: "recent", lines: 80, stripAnsi: true })).text;
-      const found = [...text.matchAll(new RegExp(`^${marker} (\\d+ \\d+)\\s*$`, "gm"))].at(-1);
+      // not anchored at a line start: a prompt and command that fill the row exactly leave the
+      // answer on the same line of the read; the command's own "$(stty size)" is no answer
+      const found = [...text.matchAll(new RegExp(`${marker} (\\d+ \\d+)\\s*$`, "gm"))].at(-1);
       if (found) return found[1]!;
       await Bun.sleep(100);
     }
@@ -791,13 +793,25 @@ export async function checkFocusedWindowReclaimsTerminalSize(browser: Browser, o
     const desktopSize = await size();
     const phone = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, settings, false, inFront);
     await attached(phone);
-    const phoneSize = await size();
-    assert.notEqual(phoneSize, desktopSize, "the phone took the pane at its own size");
+    // input-ready comes before the attach's resize reaches the pty: wait for the grid to change
+    const sizeLeaves = async (previous: string, what: string): Promise<string> => {
+      const deadline = Date.now() + 10_000;
+      let seen = previous;
+      while (Date.now() < deadline) { seen = await size(); if (seen !== previous) return seen; await Bun.sleep(100); }
+      throw new Error(`${what}: the pane stayed at ${previous}`);
+    };
+    const phoneSize = await sizeLeaves(desktopSize, "the phone took the pane at its own size");
 
     await desktop.locator(".xterm").click();
     await sizeBecomes(desktopSize, "a click in the desktop terminal");
     await phone.locator(".xterm").tap();
     await sizeBecomes(phoneSize, "a tap in the phone terminal");
+    // a right-click is for the pane menu, not the user taking the pane: the grid stays the phone's
+    await desktop.locator(".xterm").click({ button: "right" });
+    await Bun.sleep(500);
+    assert.equal(await size(), phoneSize, "a right-click in the desktop terminal leaves the pane at the phone's size");
+    // Escape closes the menu where one opened; in the terminal it is a key like any other
+    await desktop.keyboard.press("Escape");
     await desktop.keyboard.press("Shift");
     await sizeBecomes(desktopSize, "a key in the desktop terminal");
     console.log("PASS a window that kept its focus takes the pane back on a click or a key in its terminal");
