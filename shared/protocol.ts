@@ -28,7 +28,7 @@ export type {
   WorkspaceInfo,
 } from "./herdr-api.generated.ts";
 
-import type { AgentStatus, PaneInfo, PaneMoveResult, SessionSnapshot, SplitDirection, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
+import type { AgentStatus, PaneInfo, PaneMoveResult, PaneScrollInfo, SessionSnapshot, SplitDirection, TabInfo, WorkspaceInfo } from "./herdr-api.generated.ts";
 
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
@@ -96,9 +96,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/scroll { pane_id, offset_from_bottom } -> { scroll } (pane.scroll; herdr
  *         redraws every attached terminal)
  *  POST   /api/pane/find -> PaneFindResponse; PaneFindRequest searches literal text in herdr's
- *         stored history and scrolls the shared viewport to the match. No copy mode is entered.
+ *         stored history and scrolls the shared viewport to the match, unless jump:false only
+ *         reads the native match window. No copy mode is entered. The answer includes at most
+ *         1024 matches around the current result and the shared scroll position; total is exact.
  *         A previous match is reused only while content_revision still matches; 409 stale_content
- *         means output changed during the search, so the user can search again.
+ *         means output or the viewport changed during the read, so the user can search again.
  *  GET    /api/pane/selection?pane_id=&anchor_row=&anchor_col=&cursor_row=&cursor_col=
  *         -> { text } (pane.selection.read: both cells inclusive, rows from the top of the
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
@@ -109,6 +111,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
+ *  POST   /api/pane/focus { pane_id } -> { ok: true } (pane.focus: herdr brings its workspace,
+ *         tab and pane to the front, also while the tab is zoomed)
  *  POST   /api/pane/move   { pane_id, destination, focus? } -> PaneMoved (pane.move: the pane into
  *         another tab of its workspace, a new tab there or in another workspace, or a new workspace;
  *         a pane that leaves its workspace gets a NEW pane id, reported beside previous_pane_id; an
@@ -125,15 +129,19 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/pane/zoom   { pane_id, mode?: toggle|on|off } -> PaneZoomed { ok: true, zoomed, changed, reason }
  *         (pane.zoom, prefix+z: the tab shows that pane alone; herdr focuses the pane it zooms; changed
  *         false names why: single_pane, already_zoomed, already_unzoomed)
- *  POST   /api/pane/swap   { pane_id, direction: left|right|up|down } -> PaneSwapped { ok: true, changed, reason, target_pane_id }
- *         (pane.swap with the neighbour on that side, prefix+shift+hjkl; changed false with reason
- *         no_neighbor when the pane has none there)
+ *  POST   /api/pane/swap   { pane_id, direction: left|right|up|down } OR { pane_id, target_pane_id }
+ *         -> PaneSwapped { ok: true, changed, reason, target_pane_id } (pane.swap with the neighbour
+ *         on that side, prefix+shift+hjkl, or an explicit pane; exactly one destination is required;
+ *         changed false names no_neighbor, same_pane, cross_tab or not_found)
  *  POST   /api/pane/resize { pane_id, direction: left|right|up|down, amount? } -> PaneResized { ok: true, changed, reason }
  *         (pane.resize, herdr's resize mode: the border the pane shares with a neighbour moves that way
  *         by `amount` of the split the border belongs to, not of the tab (0 < amount <= 0.5, herdr's
  *         own cap; its 0.05 when absent); changed false, reason unchanged, when no border of the
  *         pane can move that way)
  *  POST   /api/pane/clear  { pane_id } -> { ok: true } (pane.clear: clears the pane's terminal screen)
+ *  POST   /api/layout/ratio { tab_id, path: boolean[], ratio } -> { ok: true }
+ *         (layout.set_split_ratio: a split in that tab, root at [], false follows the first child,
+ *         true the second; finite ratio in 0.1..0.9; an absent split answers split_not_found)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
  *         pasted image -> file under <pane cwd>/.herdr-web-ui/ (under HERDR_WEB_PASTE_DIR when the
  *         server's environment sets it), path for the prompt
@@ -145,9 +153,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         known yet. server_time: that PC's clock, which the times are on)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
- *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
+ *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null, restored: string | null }
  *         (the agent's TUI question/approval menu currently on screen, parsed from the visible pane
- *         text; with no menu, the next prompt Claude Code suggests, grey in its empty input box)
+ *         text; with no menu, the next prompt Claude Code suggests, grey in its empty input box, and
+ *         `restored`: the chat's last message when Claude Code put it back as typed text in that box,
+ *         as it does for a send cancelled before any reply; older servers send neither)
  *  POST   /api/pane/prompt/answer { pane_id, prompt_id, option_index?, option_indices?, custom_text? }
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
@@ -158,6 +168,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         pane; without cwd herdr uses the workspace's folder, without label the tab's number)
  *  POST   /api/tab/rename { tab_id, label } -> { ok: true } (tab.rename; an empty label is refused:
  *         herdr would keep it as the name)
+ *  POST   /api/tab/move { tab_id, insert_index } -> TabMoved
+ *         (tab.move: an insertion boundary in the original workspace tab order, 0..tab count;
+ *         preserves the active tab/pane and returns the authoritative workspace tab order)
  *  POST   /api/tab/close  { tab_id } -> { ok: true } (tab.close: every pane in the tab closes, and
  *         a workspace's last tab takes the workspace with it)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
@@ -212,6 +225,8 @@ export interface PaneFindRequest {
   pane_id: string;
   query: string;
   direction: "forward" | "backward";
+  /** Defaults to true. False reads matches without moving the shared viewport. */
+  jump?: boolean;
   previous?: PaneFindMatch;
   content_revision?: number;
 }
@@ -222,6 +237,10 @@ export interface PaneFindResponse {
   current: number | null;
   match: PaneFindMatch | null;
   content_revision: number;
+  /** Native window around current, at most 1024; absent on older bridges. End cells are inclusive. */
+  matches?: PaneFindMatch[];
+  /** Viewport mapping at the searched revision; absent on older bridges. */
+  scroll?: PaneScrollInfo | null;
 }
 
 /** The subscriptions whose plan limits GET /api/usage can read from a CLI's own sign-in. */
@@ -591,6 +610,13 @@ export interface CreateWorkspaceRequest {
   agent?: { kind: string; name?: string; args?: string[] } | null;
 }
 
+/** POST /api/tab/move: the boundary is counted BEFORE removing the source tab. */
+export interface MoveTabRequest { tab_id: string; insert_index: number; }
+export interface TabMoved {
+  ok: true;
+  tabs: HerdrTab[];
+}
+
 /** POST /api/tab/create: the workspace is required; `label` names the new tab. */
 export interface CreateTabRequest extends CreateWorkspaceRequest {
   workspace_id: string;
@@ -742,13 +768,16 @@ export interface PaneZoomed {
   reason: string | null;
 }
 
-/** POST /api/pane/swap: the pane changes places with its neighbour on that side. */
-export interface SwapPaneRequest {
-  pane_id: string;
-  direction: PaneDirection;
-}
+/** POST /api/pane/focus: focus this exact pane in herdr, including its workspace and tab. */
+export interface FocusPaneRequest { pane_id: string }
 
-/** `target_pane_id` is the neighbour swapped with; `changed` false with reason no_neighbor when the pane has none there. */
+/** POST /api/pane/swap: exactly one of a neighbouring side or an explicit pane in the same tab. */
+export type SwapPaneRequest = { pane_id: string } & (
+  | { direction: PaneDirection; target_pane_id?: never }
+  | { target_pane_id: string; direction?: never }
+);
+
+/** `target_pane_id` is the requested pane or neighbour; unchanged reasons include no_neighbor, same_pane, cross_tab and not_found. */
 export interface PaneSwapped {
   ok: true;
   changed: boolean;
@@ -775,6 +804,14 @@ export interface PaneResized {
   ok: true;
   changed: boolean;
   reason: string | null;
+}
+
+/** POST /api/layout/ratio: false takes the first branch, true the second; [] names the root split. */
+export interface SetSplitRatioRequest {
+  tab_id: string;
+  path: boolean[];
+  /** finite, inclusive 0.1..0.9, the bounds of herdr's split drag */
+  ratio: number;
 }
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */
@@ -859,9 +896,10 @@ export interface PushPayload {
  *  Client -> server frames: attach {pane_id, cols, rows} | detach {pane_id} | input {pane_id, text}
  *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | role {mode}
  *    | pty-ack {pane_id, stream_id, offset} | secret {id, pane_id, prompt, secret}
- *    | watch {pane_id, cols, rows} | unwatch {pane_id}
+ *    | watch {pane_id, cols, rows} | unwatch {pane_id} | conversation-watch {pane_id, enabled}
  *  Server -> client frames: snapshot | pty-data | pty-exit | pane-geometry | role-ack
- *    | pane-status | pane-exited | session-changed | secret-result | watch-data | watch-end | error
+ *    | pane-status | pane-exited | session-changed | conversation-changed | secret-result
+ *    | watch-data | watch-end | error
  *
  *  attach {flow_control:"ack"} opts into per-subscription output credit.
  *  pty-data.flow carries a stream_id and cumulative UTF-8 payload offset;
@@ -900,6 +938,9 @@ export type ClientMessage =
   /** keep_size: the grid is covered (the chat lens), so the attach leaves the shared pty's size as it is */
   | { type: "attach"; pane_id: string; cols: number; rows: number; flow_control?: "ack"; keep_size?: boolean }
   | { type: "detach"; pane_id: string }
+  /** Native invalidations require "conversation-watch" and an attachment; observers may subscribe.
+   * Detaching clears interest, so reconnect/reattach must enable it again. REST remains authoritative. */
+  | { type: "conversation-watch"; pane_id: string; enabled: boolean }
   /** a pane another web bridge holds (`attach_held`): take herdr's attach slot from it, here, now */
   | { type: "take-over"; pane_id: string }
   | { type: "input"; pane_id: string; text: string }
@@ -923,12 +964,17 @@ export type ClientMessage =
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole }
+  /** whether this page is in use: visible and focused. While any connection of a server says
+   * so, that server sends no web push to any device (#751). Sent on connect and on every change,
+   * also through a remote PC's socket (the connection server reads it there too); an older
+   * server ignores it, so it needs no feature. */
+  | { type: "presence"; active: boolean }
   /** a read-only view of the pane at this grid, for a tab out of use (feature "watch"); never resizes the pane */
   | { type: "watch"; pane_id: string; cols: number; rows: number }
   | { type: "unwatch"; pane_id: string };
 
 /** What a server supports beyond the base protocol, listed in its first snapshot; older bridges list nothing. */
-export type ServerFeature = "submit" | "pending-input" | "secret-input" | "input-ready" | "take-over" | "watch";
+export type ServerFeature = "submit" | "pending-input" | "secret-input" | "input-ready" | "take-over" | "watch" | "conversation-watch";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }
@@ -950,6 +996,8 @@ export type ServerMessage =
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
   | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** a pane's running background tasks (OmO's, or a Claude Code pane's subagents and commands), when the frame is about them: it changes no status */ background_tasks?: number; /** every frame says it: absent, the pane does not wait on its turn's background work */ background_wait?: true }
+  /** Native transcript invalidation for an interested attached pane; signature is opaque, not a REST ETag. Refetch the existing conversation endpoint. */
+  | { type: "conversation-changed"; pane_id: string; signature: string }
   /** a pane's process exited (pushed even when nobody is attached to it) */
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */

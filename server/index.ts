@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -13,15 +13,16 @@ import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
-import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
 import { parseMoveRequest } from "./pane-move.ts";
 import { serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
-import { sameAttachment } from "./input-guard.ts";
+import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
 import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { DevinHistoryChanged } from "./devin.ts";
+import { ConversationMonitor } from "./conversation-monitor.ts";
 import { omoPanes } from "./omo.ts";
 import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
@@ -40,8 +41,10 @@ import {
   HerdrError,
   herdrSocketPath,
   integrationList,
+  layoutSetSplitRatio,
   paneClear,
   paneClose,
+  paneFocus,
   paneGet,
   paneMove,
   paneRead,
@@ -55,6 +58,7 @@ import {
   paneSendText,
   paneSplit,
   paneSwap,
+  paneSwapWith,
   paneZoom,
   ping,
   pluginActionInvoke,
@@ -66,6 +70,7 @@ import {
   tabClose,
   tabCreate,
   tabRename,
+  tabMove,
   workspaceClose,
   workspaceCreate,
   workspaceMove,
@@ -76,7 +81,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, claudeRestoredDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, lastChatSubmitted, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -185,7 +190,13 @@ const MAX_WAITING_KEYS = 256;
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch"];
+/** between the two Esc presses that empty Claude Code's restored copy of the chat's message */
+const RESTORED_CLEAR_GAP_MS = 200;
+/** after them, before the box is read again */
+const RESTORED_CLEAR_SETTLE_MS = 300;
+/** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
+const RESTORED_CLEAR_RESERVE_MS = 2_000;
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -296,6 +307,7 @@ interface SocketData {
   relay?: MachineRelay;
   /** A fresh claim per attach lifetime; deleting it invalidates queued terminal keys. */
   attached: Map<string, object>;
+  conversationInterests: Set<string>;
   watches: Map<string, PaneWatch>;
   output: Map<string, OutputWindow>;
   closing: boolean;
@@ -303,6 +315,18 @@ interface SocketData {
   mode: ClientRole;
   /** how often `mode` changed: a switch away and back during an await is still a change */
   roles: number;
+}
+
+/** A `presence` frame's answer, or null for any other frame. A relayed frame is only parsed when it can be one. */
+function presenceOf(raw: string | Buffer): boolean | null {
+  const text = String(raw);
+  if (!text.includes("\"presence\"")) return null;
+  try {
+    const message = JSON.parse(text) as { type?: unknown; active?: unknown };
+    return message?.type === "presence" ? message.active === true : null;
+  } catch {
+    return null;
+  }
 }
 
 type Client = ServerWebSocket<SocketData>;
@@ -444,6 +468,8 @@ export function createServer(
   // herdr releases its exclusive attach slot only after the old process exits.
   const retiringAttachments = new Map<string, Promise<void>>();
   const clients = new Set<Client>();
+  /** connections whose page is in use (`presence`), relayed ones included: while any is, no web push goes out */
+  const present = new Set<Client>();
   type PendingLease = { attachment: PaneAttachment; pty: PtySession | MirrorSession; authority: object };
   const pendingAuthorities = new WeakMap<Client, Map<string, object>>();
   type PendingItem = PendingRecord<Client, PendingLease>;
@@ -453,6 +479,21 @@ export function createServer(
   const pendingDrains = new Set<string>();
   type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; message?: string };
   const pendingRequests = new WeakMap<Client, PendingRequestBook<SubmitReply>>();
+  let stopped = false;
+  const conversations = new ConversationMonitor((paneId, signature) => {
+    for (const client of clients) {
+      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) {
+        send(client, { type: "conversation-changed", pane_id: paneId, signature });
+      }
+    }
+  }, options.codexHome, options.devinDbPath, options.opencodeDb);
+
+  function releaseConversation(paneId: string): void {
+    for (const client of clients) {
+      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) return;
+    }
+    conversations.unwatch(paneId);
+  }
   /** each pane's input while a composer message is in flight, one step after another */
   const paneQueues = new Map<string, Promise<unknown>>();
   /** when each pane last got keystrokes through its attach pty */
@@ -537,9 +578,8 @@ export function createServer(
       });
       inTime();
       if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
-        const [live, colors] = await claudeBoxReads(paneId);
+        await freeClaudeBox(paneId, pane?.agent_status === "working", authorize, arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
         inTime();
-        if (claudeInputDraft(live, colors)) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
       }
       try {
         await agentPrompt(paneId, closeMention(text));
@@ -679,6 +719,35 @@ export function createServer(
     return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
   }
 
+  /**
+   * The box check both chat sends share: a Claude Code input box that is not known to be empty is
+   * refused, except the chat's own last message, which Claude puts back as typed text when the send
+   * right after it is cancelled. That copy, while the agent is not working, two Esc presses empty
+   * again — never Ctrl+C, which would arm "press Ctrl-C again to exit" — then the box is read once
+   * more before the send. Every other draft, and a box still not empty after them, refuses as before.
+   * `authorize` throws once the sender may no longer send: it is asked before each Esc, and again
+   * right before herdr is written to. A send with less than RESTORED_CLEAR_RESERVE_MS left before its
+   * `deadline` clears nothing: it would erase the copy, then time out without sending.
+   */
+  async function freeClaudeBox(paneId: string, working: boolean, authorize: () => void, deadline: number): Promise<void> {
+    const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
+    const [live, colors] = await claudeBoxReads(paneId);
+    if (!claudeInputDraft(live, colors)) return;
+    if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
+      throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+    }
+    if (deadline - Date.now() < RESTORED_CLEAR_RESERVE_MS) throw new HerdrError("submit_timeout", "Too little time was left to clear Claude Code's input box and send; nothing was typed");
+    // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
+    // rewind dialog instead
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
+    await Bun.sleep(RESTORED_CLEAR_GAP_MS);
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
+    await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
+    if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+  }
+
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
@@ -696,21 +765,30 @@ export function createServer(
       // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
       // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
       // read comes after the colors, so text typed between the two is in the box and holds the message.
-      if (context.identity.agent === "claude" && claudeInputDraft(...await claudeBoxReads(paneId))) {
-        throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
-      }
+      if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working, () => authorizePending(owner, paneId, lease), arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
+      // asked again right before herdr is written to: its connect is awaited (#666)
+      const allowed = (): boolean => {
+        try { authorizePending(owner, paneId, lease); return true; } catch { return false; }
+      };
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
       wrote = true;
-      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`);
+      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`, undefined, allowed).catch((error: unknown) => {
+        // a paste the guard refused was never written: the message is unsent, not uncertain
+        if (error instanceof HerdrError && error.code === "cancelled") { wrote = false; authorizePending(owner, paneId, lease); }
+        throw error;
+      });
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
       const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
       if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
       authorizePending(owner, paneId, lease);
-      committing(!automatic && beforeEnter.working);
-      await paneSendKeys(paneId, ["Enter"]);
+      const steering = !automatic && beforeEnter.working;
+      committing(steering);
+      // Claude Code queues what Enter commits during a turn; Ctrl+Enter sends it now (#737). herdr
+      // encodes the key as the pane asked, and as a plain CR for a program that asked for nothing.
+      await paneSendKeys(paneId, [steering && beforeEnter.identity.agent === "claude" ? "ctrl+enter" : "Enter"], undefined, allowed);
       noteSubmitted(paneId, text);
       return { ok: true };
     } catch (error) {
@@ -758,6 +836,7 @@ export function createServer(
     clients.delete(client);
     for (const paneId of client.data.attached.keys()) detach(paneId, client);
     client.data.attached.clear();
+    client.data.conversationInterests.clear();
     client.data.output.clear();
     client.close(OUTPUT_STALLED_CLOSE_CODE, "terminal output consumer stalled");
   }
@@ -805,6 +884,7 @@ export function createServer(
     now: options.statusNow,
     loopbackHttp: options.pushLoopbackHttp === true,
     canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
+    inUse: () => present.size > 0,
     lookupTitle: async (paneId) => {
       return paneTitle(await paneGet(paneId));
     },
@@ -901,7 +981,9 @@ export function createServer(
     // the "terminal ended" screen): a stale entry would read as a live claim in
     // releaseUnclaimed and keep a later, empty pty on this pane running
     for (const member of attachment.clients) member.data.attached.delete(paneId);
+    for (const member of attachment.clients) member.data.conversationInterests.delete(paneId);
     for (const member of attachment.clients) member.data.output.delete(paneId);
+    releaseConversation(paneId);
     const retired = attachment.pty.exited.finally(() => {
       if (retiringAttachments.get(paneId) === retired) retiringAttachments.delete(paneId);
     });
@@ -946,6 +1028,7 @@ export function createServer(
     await retiringAttachments.get(paneId);
     const mirrored = !(await terminalAttach());
     const { terminalId, rect } = await terminalInfoFor(paneId);
+    if (stopped) throw new HerdrError("server_stopped", "the web bridge stopped during attachment creation");
     // an observer-first attachment spawns at the pane's own grid (fallback 80x24 when
     // the layout has no rect for it): the attach must not seed the shared pty with a
     // watching phone's viewport
@@ -1256,7 +1339,9 @@ export function createServer(
 
   function detach(paneId: string, client: Client): void {
     holdPending(client, paneId);
+    client.data.conversationInterests.delete(paneId);
     client.data.output.delete(paneId);
+    releaseConversation(paneId);
     const attachment = attachments.get(paneId);
     if (!attachment) return;
     attachment.clients.delete(client);
@@ -1362,6 +1447,8 @@ export function createServer(
     },
     // a finish reported as done, now in front at herdr's terminal: seen, idle again
     onFocus: (paneId) => {
+      // The split canvas follows herdr's focused pane (also the sole visible pane while zoomed).
+      broadcastAll({ type: "session-changed" });
       if (!completions.seen(paneId)) return;
       pending.status(paneId, "idle"); drainPending(paneId);
       broadcastAll(paneStatus(paneId, "idle"));
@@ -1420,7 +1507,7 @@ export function createServer(
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/agent/rename" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/agent/rename" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname === "/api/layout/ratio" || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -1489,7 +1576,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/|agent\/rename$|plugins\/actions$|plugin\/action$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/|layout\/ratio$|agent\/rename$|plugins\/actions$|plugin\/action$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
@@ -1511,13 +1598,13 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -1826,9 +1913,9 @@ export function createServer(
       }
 
       // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it
-      if (pathname === "/api/tab/rename" || pathname === "/api/tab/close") {
+      if (pathname === "/api/tab/rename" || pathname === "/api/tab/close" || pathname === "/api/tab/move") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { tab_id?: unknown; label?: unknown };
+        let payload: { tab_id?: unknown; label?: unknown; insert_index?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -1836,7 +1923,15 @@ export function createServer(
         }
         if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
         if (typeof payload.tab_id !== "string" || payload.tab_id.length === 0) return badRequest("missing_tab_id", "tab_id is required");
+        if (pathname === "/api/tab/move" && (typeof payload.insert_index !== "number" || !Number.isSafeInteger(payload.insert_index) || payload.insert_index < 0)) {
+          return badRequest("invalid_index", "insert_index must be a non-negative safe integer");
+        }
         try {
+          if (pathname === "/api/tab/move") {
+            const moved = await tabMove(payload.tab_id, payload.insert_index as number);
+            broadcastAll({ type: "session-changed" });
+            return jsonResponse({ ok: true, tabs: moved.tabs } satisfies TabMoved);
+          }
           if (pathname === "/api/tab/rename") {
             // herdr would keep an empty label as the tab's name, and its own tab row would show nothing
             const label = typeof payload.label === "string" ? payload.label.trim() : "";
@@ -2062,6 +2157,7 @@ export function createServer(
         if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
         if (typeof payload.query !== "string" || payload.query.length === 0 || payload.query.length > 1024) return badRequest("invalid_query", "query must contain 1 to 1024 characters");
         if (payload.direction !== "forward" && payload.direction !== "backward") return badRequest("invalid_direction", "direction must be forward or backward");
+        if (payload.jump !== undefined && typeof payload.jump !== "boolean") return badRequest("invalid_jump", "jump must be a boolean");
         const point = (value: unknown): value is { row: number; col: number } =>
           isJsonObject(value) && isCount(value.row) && value.row <= 0xffffffff && isCount(value.col) && value.col <= 0xffff;
         const previous = payload.previous;
@@ -2072,11 +2168,12 @@ export function createServer(
         try {
           return jsonResponse(await paneFind({
             pane_id: payload.pane_id, query: payload.query, direction: payload.direction,
+            ...(typeof payload.jump === "boolean" ? { jump: payload.jump } : {}),
             ...(isJsonObject(previous) && point(previous.start) && point(previous.end) ? { previous: { start: previous.start, end: previous.end } } : {}),
             ...(isCount(payload.content_revision) ? { content_revision: payload.content_revision } : {}),
           }));
         } catch (error) {
-          if (error instanceof HerdrError && error.code === "stale_content") return jsonResponse({ error: { code: error.code, message: error.message } }, 409);
+          if (error instanceof HerdrError && error.code === "stale_content") return conflictResponse(error.code, error.message);
           return errorResponse(error);
         }
       }
@@ -2164,7 +2261,6 @@ export function createServer(
         };
         try {
           const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb);
-          // The chat polls every 2s: an unchanged conversation answers 304 with no body.
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
           // weak: the same answer goes out gzipped or plain (compress.ts), which are not the same bytes
           const etag = `W/"${version}"`;
@@ -2226,14 +2322,29 @@ export function createServer(
         }
       }
 
+      if (pathname === "/api/layout/ratio") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { tab_id?: unknown; path?: unknown; ratio?: unknown };
+        try { payload = (await request.json()) as typeof payload; }
+        catch { return badRequest("invalid_json", "request body must be JSON"); }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.tab_id !== "string" || !payload.tab_id.trim()) return badRequest("missing_tab_id", "tab_id is required");
+        if (!Array.isArray(payload.path) || !payload.path.every((step) => typeof step === "boolean")) return badRequest("invalid_path", "path must be an array of booleans");
+        if (typeof payload.ratio !== "number" || !Number.isFinite(payload.ratio) || payload.ratio < 0.1 || payload.ratio > 0.9) return badRequest("invalid_ratio", "ratio must be a number from 0.1 to 0.9");
+        try {
+          await layoutSetSplitRatio(payload.tab_id, payload.path, payload.ratio);
+          return jsonResponse({ ok: true });
+        } catch (error) { return errorResponse(error); }
+      }
+
       // herdr's own layout operations, as its TUI has them: prefix+v and prefix+- (split), prefix+z
       // (zoom), prefix+shift+hjkl (swap), its resize mode, and pane clear. Each is one herdr RPC. No
       // answer carries the layout: a new pane reaches every client through the collector's
       // pane.created subscription and a moved border, zoom or swap through its layout.updated one,
       // both as session-changed, the same way the TUI's own changes do.
-      if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear") {
+      if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear" || pathname === "/api/pane/focus") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: unknown; direction?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
+        let payload: { pane_id?: unknown; direction?: unknown; target_pane_id?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -2243,6 +2354,10 @@ export function createServer(
         if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
         const paneId = payload.pane_id;
         try {
+          if (pathname === "/api/pane/focus") {
+            await paneFocus(paneId);
+            return jsonResponse({ ok: true });
+          }
           if (pathname === "/api/pane/split") {
             if (payload.direction !== "right" && payload.direction !== "down") return badRequest("invalid_direction", "direction must be right or down");
             if (payload.focus !== undefined && typeof payload.focus !== "boolean") return badRequest("invalid_focus", "focus must be a boolean");
@@ -2258,11 +2373,17 @@ export function createServer(
             await paneClear(paneId);
             return jsonResponse({ ok: true });
           }
-          if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
           if (pathname === "/api/pane/swap") {
-            const swap = await paneSwap(paneId, payload.direction);
+            if (payload.target_pane_id !== undefined && payload.direction !== undefined) return badRequest("invalid_pane_swap", "provide exactly one of direction or target_pane_id");
+            if (payload.target_pane_id !== undefined) {
+              if (typeof payload.target_pane_id !== "string" || !payload.target_pane_id.trim()) return badRequest("invalid_target_pane_id", "target_pane_id must be a non-empty string");
+            } else if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
+            const swap = typeof payload.target_pane_id === "string"
+              ? await paneSwapWith(paneId, payload.target_pane_id)
+              : await paneSwap(paneId, payload.direction as PaneDirection);
             return jsonResponse({ ok: true, changed: swap.changed, reason: swap.reason, target_pane_id: swap.target_pane_id } satisfies PaneSwapped);
           }
+          if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
           // a share of the split the border belongs to, as herdr counts it, and no more than the
           // half herdr would quietly cap it to (shared/protocol.ts); its own default when absent
           if (payload.amount !== undefined && !(typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0 && payload.amount <= 0.5)) {
@@ -2338,8 +2459,10 @@ export function createServer(
             client.data.closing = true;
             killWatches(client);
             clients.delete(client);
+            present.delete(client);
             for (const paneId of client.data.attached.keys()) detach(paneId, client);
             client.data.attached.clear();
+            client.data.conversationInterests.clear();
             client.data.output.clear();
             client.data.relay?.close(1008, "Device access revoked");
             client.close(1008, "Device access revoked");
@@ -2357,8 +2480,13 @@ export function createServer(
       },
 
       async message(client, raw) {
-        if (client.data.closing) return;
+        if (stopped || client.data.closing) return;
+        // read here for a relayed connection too: alerts for every PC go out from this server
+        const presence = presenceOf(raw);
+        if (presence === true) present.add(client);
+        else if (presence === false) present.delete(client);
         if (client.data.relay) { client.data.relay.message(raw); return; }
+        if (presence !== null) return;
         let message: ClientMessage;
         try {
           message = JSON.parse(String(raw)) as ClientMessage;
@@ -2421,17 +2549,22 @@ export function createServer(
                 // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
                 attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe" || message.keep_size === true);
               } catch (error) {
-                if (client.data.attached.get(message.pane_id) === claim) client.data.attached.delete(message.pane_id);
+                if (client.data.attached.get(message.pane_id) === claim) {
+                  client.data.attached.delete(message.pane_id);
+                  client.data.conversationInterests.delete(message.pane_id);
+                  releaseConversation(message.pane_id);
+                }
                 throw error;
               }
-              if (client.data.attached.get(message.pane_id) !== claim) {
+              if (stopped || client.data.closing || client.data.attached.get(message.pane_id) !== claim) {
                 releaseUnclaimed(message.pane_id, attachment);
                 break;
               }
-              // a mirror whose pane went away during its first read has already ended: joining
-              // it would leave this client on a terminal that never says anything again
-              if (attachment.mirror && attachments.get(message.pane_id) !== attachment) {
+              // A pane that ended during creation must not gain clients or revive interest.
+              if (attachments.get(message.pane_id) !== attachment) {
                 client.data.attached.delete(message.pane_id);
+                client.data.conversationInterests.delete(message.pane_id);
+                releaseConversation(message.pane_id);
                 send(client, { type: "pty-exit", pane_id: message.pane_id, code: null });
                 break;
               }
@@ -2478,6 +2611,24 @@ export function createServer(
             case "detach": {
               client.data.attached.delete(message.pane_id);
               detach(message.pane_id, client);
+              break;
+            }
+            case "conversation-watch": {
+              if (typeof message.pane_id !== "string" || message.pane_id.trim() === "" || typeof message.enabled !== "boolean") {
+                send(client, { type: "error", code: "invalid_conversation_watch", message: "pane_id must be a nonempty string and enabled must be a boolean" });
+                break;
+              }
+              if (message.enabled) {
+                if (!client.data.attached.has(message.pane_id)) {
+                  send(client, { type: "error", code: "not_attached", message: "conversation interest requires an attached pane", pane_id: message.pane_id });
+                  break;
+                }
+                client.data.conversationInterests.add(message.pane_id);
+                conversations.watch(message.pane_id);
+              } else {
+                client.data.conversationInterests.delete(message.pane_id);
+                releaseConversation(message.pane_id);
+              }
               break;
             }
             case "pty-ack": {
@@ -2546,8 +2697,18 @@ export function createServer(
                 send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
                 break;
               }
+              const typedIntoPty = (text: string) => {
+                lastTyped.set(message.pane_id, Date.now());
+                if (text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
+                if (lastTyped.size > 64) {
+                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
+                }
+              };
               if (paneQueues.has(message.pane_id)) {
                 const text = message.text;
+                // a click or a wheel (a click replayed behind a held arrow) is the attach's own mouse:
+                // herdr encodes it for the program's mouse mode, send_text would type its bytes (#667)
+                const mouse = isMouseReport(text);
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
                 const claim = client.data.attached.get(message.pane_id);
@@ -2562,15 +2723,16 @@ export function createServer(
                   // nothing typed outlives its connection
                   if (!clients.has(client)) return;
                   authorizeSocket(client);
+                  if (mouse) {
+                    if (!allowed() || !pty.write(text)) { inputFailed(); return; }
+                    typedIntoPty(text);
+                    return;
+                  }
                   return paneSendText(message.pane_id, text, undefined, allowed);
                 }).catch(inputFailed);
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
-                lastTyped.set(message.pane_id, Date.now());
-                if (message.text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
-                if (lastTyped.size > 64) {
-                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
-                }
+                typedIntoPty(message.text);
               }
               break;
             }
@@ -2870,12 +3032,15 @@ export function createServer(
 
       close(client) {
         client.data.unwatchDevice?.();
+        client.data.closing = true;
+        present.delete(client);
         if (client.data.relay) { client.data.relay.close(); return; }
         killWatches(client);
         pending.close(client);
         clients.delete(client);
         for (const paneId of client.data.attached.keys()) detach(paneId, client);
         client.data.attached.clear();
+        client.data.conversationInterests.clear();
         client.data.output.clear();
       },
     },
@@ -2896,6 +3061,8 @@ export function createServer(
     statusReady: collector.ready,
     alertsSettled: () => push.settled(),
     stop: () => {
+      stopped = true;
+      conversations.stop();
       clearInterval(outputTimer);
       collector.stop();
       omo.stop();

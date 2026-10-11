@@ -26,7 +26,8 @@ export interface MoveTarget {
  * then a workspace of its own. The pane's own tab is left out: herdr would answer same_tab.
  */
 export function paneMoveTargets(snapshot: Pick<SessionSnapshot, "tabs" | "workspaces">, pane: Pick<PaneInfo, "workspace_id" | "tab_id">, t: Translate): MoveTarget[] {
-  const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === pane.workspace_id).sort((a, b) => a.number - b.number);
+  // snapshot order, as the strip shows them: after a reorder a tab's number no longer says its place
+  const tabs = snapshot.tabs.filter((tab) => tab.workspace_id === pane.workspace_id);
   const own: MoveTarget[] = [
     { id: "new-tab", kind: "new-tab", label: t("New tab"), destination: { type: "new_tab" } },
     ...tabs.flatMap((tab, index): MoveTarget[] => tab.tab_id === pane.tab_id ? [] : [{ id: `tab:${tab.tab_id}`, kind: "tab", label: tabLabel(tab, t, index + 1), destination: { type: "tab", tab_id: tab.tab_id } }]),
