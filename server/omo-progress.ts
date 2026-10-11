@@ -1,5 +1,4 @@
 import type { OmoProgress } from "../shared/protocol.ts";
-import { OmoControl } from "./omo-control.ts";
 import { OmoProgressRecords } from "./omo-progress-records.ts";
 
 export interface OmoProgressSession {
@@ -32,21 +31,14 @@ export function visibleCompaction(screen: string): "compacting" | "unknown" | nu
 }
 
 export class OmoProgressReader {
-  constructor(
-    private readonly records = new OmoProgressRecords(),
-    private readonly control = new OmoControl(),
-  ) {}
+  constructor(private readonly records = new OmoProgressRecords()) {}
 
   async read(session: OmoProgressSession, visible: () => Promise<string>): Promise<OmoProgress> {
     const record = this.records.read(session.path);
-    const native = await this.control.activity(session.sessionId);
-    let activity: OmoProgress["activity"] = native ?? "unknown";
-    if (native === null) {
-      const screen = await visible().catch(() => null);
-      const compaction = screen === null ? "unknown" : visibleCompaction(screen);
-      const stale = record.turn.at !== null && session.startedAt !== null && record.turn.at < session.startedAt - 2000;
-      activity = compaction ?? (stale ? "idle" : record.turn.status ?? "unknown");
-    }
+    const screen = await visible().catch(() => null);
+    const compaction = screen === null ? "unknown" : visibleCompaction(screen);
+    const stale = record.turn.at !== null && session.startedAt !== null && record.turn.at < session.startedAt - 2000;
+    const activity: OmoProgress["activity"] = compaction ?? (stale ? "idle" : record.turn.status ?? "unknown");
     // A resumed checklist is still the session's plan. Its task status is independent
     // of whether this process is currently running a turn.
     return { session_id: session.sessionId, todos: record.todos, activity };

@@ -77,7 +77,7 @@ export async function checkOmoProgress(browser: Browser, origin: string): Promis
         assert.equal(await page.locator(".composer textarea").isEditable(), true);
 
         // Explicit close/open requests the next fixture immediately; no sleeps or timing-based polls.
-        for (const activity of ["compacting", "retrying", "idle"] as const) {
+        for (const activity of ["compacting", "idle"] as const) {
           await page.keyboard.press("Escape");
           await panel.waitFor({ state: "detached" });
           progress = { ...progress, activity };

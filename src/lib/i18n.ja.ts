@@ -21,7 +21,6 @@ export const JA: Record<string, string> = {
   "Loading progress…": "進捗を読み込み中…",
   "Progress unavailable — showing the last checklist": "状態を更新できないため、最後のタスクリストを表示しています",
   "Compacting context…": "コンテキストを圧縮中…",
-  "Retrying model request…": "モデルへのリクエストを再試行中…",
   "Waiting for input": "入力待ち",
   "Idle": "待機中",
   "Live status unavailable": "現在の状態を確認できません",

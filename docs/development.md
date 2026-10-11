@@ -16,9 +16,9 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 
 The proposed OmO progress surface lives inside the existing **Background tasks** popover,
 with its checklist closed by default; #156's removed pinned panel is not restored. Its
-`senpi.todo-state` reader is independent of conversation pagination. `get_state` control
-reads project only public activity, with no runtime code or user transcript fixtures.
-Run the focused units with `HERDR_TEST_MODE=unit bun test ./server/omo-control.test.ts
+`senpi.todo-state` reader is independent of conversation pagination. Progress comes from the
+session file only (plus the visible screen for compaction); the bridge never connects to OmO's
+control socket. Run the focused units with `HERDR_TEST_MODE=unit bun test
 ./server/omo-progress-records.test.ts ./server/omo-progress.test.ts ./src/lib/omoProgress.test.ts`.
 The browser disclosure regression is registered in `scripts/ui-regression.ts`; the full
 validation commands and review proposal are in `evidence/contribution.md`.

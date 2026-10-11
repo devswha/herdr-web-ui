@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { ChevronRight, Circle, CircleCheck, CircleDot, CircleSlash, ListChecks, Minimize2, RefreshCw, type LucideProps } from "lucide-react";
+import { ChevronRight, Circle, CircleCheck, CircleDot, CircleSlash, ListChecks, Minimize2, type LucideProps } from "lucide-react";
 import type { AgentStatus, OmoProgress as Progress, OmoTodo } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
 import "./OmoProgress.css";
@@ -24,14 +24,13 @@ export function OmoProgressView({ progress, state, connected, ended, agentStatus
     : state === "loading" ? t("Loading progress…")
     : state === "failed" ? t("Progress unavailable — showing the last checklist")
     : activity === "compacting" ? t("Compacting context…")
-    : activity === "retrying" ? t("Retrying model request…")
     : agentStatus === "blocked" ? t("Waiting for input")
     : activity === "working" ? t("Working…")
     : activity === "idle" ? t("Idle")
     : t("Live status unavailable");
   const items = progress?.todos ?? [];
   const done = items.filter((item) => item.status === "completed").length;
-  const StatusIcon = activity === "compacting" ? Minimize2 : activity === "retrying" ? RefreshCw : ListChecks;
+  const StatusIcon = activity === "compacting" ? Minimize2 : ListChecks;
   const words: Record<OmoTodo["status"], string> = {
     pending: t("waiting"), in_progress: t("running"), completed: t("done"), abandoned: t("skipped"),
   };

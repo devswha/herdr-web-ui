@@ -19,7 +19,6 @@ export const KO: Record<string, string> = {
   "Loading progress…": "진행 상황 불러오는 중…",
   "Progress unavailable — showing the last checklist": "상태를 갱신할 수 없어 마지막 할 일 목록을 표시합니다",
   "Compacting context…": "컨텍스트 컴팩팅 중…",
-  "Retrying model request…": "모델 요청 재시도 중…",
   "Waiting for input": "입력 대기 중",
   "Idle": "대기 중",
   "Live status unavailable": "실시간 상태를 확인할 수 없습니다",

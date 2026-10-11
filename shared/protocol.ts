@@ -465,12 +465,12 @@ export interface OmoActivity {
   server_time: string;
 }
 
-/** Public progress only; control credentials and full runtime state stay on the PC. */
+/** Public progress only, read from the session file; full runtime state stays on the PC. */
 export interface OmoProgress {
   session_id: string;
   /** null: no readable state; []: an explicitly cleared checklist. */
   todos: OmoTodo[] | null;
-  activity: "working" | "compacting" | "retrying" | "idle" | "unknown";
+  activity: "working" | "compacting" | "idle" | "unknown";
 }
 
 export interface OmoTodo {

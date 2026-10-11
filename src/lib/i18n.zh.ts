@@ -23,7 +23,6 @@ export const ZH: Record<string, string> = {
   "Loading progress…": "正在加载进度…",
   "Progress unavailable — showing the last checklist": "无法更新状态，正在显示上次的任务列表",
   "Compacting context…": "正在压缩上下文…",
-  "Retrying model request…": "正在重试模型请求…",
   "Waiting for input": "等待输入",
   "Idle": "空闲",
   "Live status unavailable": "无法获取实时状态",
