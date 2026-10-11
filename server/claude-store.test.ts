@@ -172,6 +172,26 @@ describe("claudeTranscriptFile", () => {
     expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBeNull();
     expect(await claudeTranscriptFile(join(dir, "missing"), SESSION, ["/w/project"])).toBeNull();
   });
+
+  it("follows Claude's continued-in chain to the active transcript", async () => {
+    const { home: dir, projects } = home();
+    const project = claudeProjectDir("/w/project");
+    const folder = join(projects, project);
+    const continued = "11111111-1111-4111-8111-111111111111";
+    const activeId = "22222222-2222-4222-8222-222222222222";
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, `${SESSION}.jsonl`), [
+      { type: "last-prompt", sessionId: SESSION },
+      { type: "continued-in", sessionId: SESSION, continuedInSessionId: continued },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    writeFileSync(join(folder, `${continued}.jsonl`), JSON.stringify({ type: "continued-in", sessionId: continued, continuedInSessionId: activeId }));
+    const active = join(folder, `${activeId}.jsonl`);
+    writeFileSync(active, [
+      { type: "user", message: { content: "Prompt after continue" } },
+      { type: "assistant", message: { content: [{ type: "text", text: "Answer after continue" }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBe(active);
+  });
 });
 
 describe("CLAUDE_CONFIG_DIR", () => {

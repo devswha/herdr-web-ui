@@ -21,6 +21,7 @@ import { recentProcessTable } from "./gjc-runtime.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 
 const MAX_PROJECT_NAME = 200;
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Claude's executable; a Windows one (backslashes or `.exe`) is matched without case, as Windows names files. */
 function isClaudeExecutable(text = ""): boolean {
@@ -182,6 +183,23 @@ async function isFile(path: string): Promise<boolean> {
 /** Store + session id → the file a project scan found it in; checked again on every use. */
 const found = new Map<string, string>();
 
+/** The session Claude continued after writing only metadata to the old transcript. */
+async function continuedInSession(path: string): Promise<string | null> {
+  let text: string;
+  try { text = await readFile(path, "utf8"); } catch (error) { if (absent(error)) return null; throw error; }
+  let continued: string | null = null;
+  for (const line of text.split("\n")) {
+    if (!line.includes('"continued-in"')) continue;
+    try {
+      const entry = JSON.parse(line) as { type?: unknown; continuedInSessionId?: unknown };
+      if (entry.type === "continued-in" && typeof entry.continuedInSessionId === "string" && SESSION_ID.test(entry.continuedInSessionId)) {
+        continued = entry.continuedInSessionId;
+      }
+    } catch { /* a torn tail line cannot name the active session */ }
+  }
+  return continued;
+}
+
 export function forgetClaudeSessions(): void {
   found.clear();
   processDirs.clear();
@@ -277,27 +295,41 @@ export async function claudeProcessSession(
  */
 export async function claudeTranscriptFile(home: string, session: string, cwds: readonly (string | null | undefined)[], configDir = join(home, ".claude")): Promise<string | null> {
   const projects = join(configDir, "projects");
-  const file = `${session}.jsonl`;
-  for (const cwd of cwds) {
-    if (!cwd) continue;
-    const path = join(projects, claudeProjectDir(cwd), file);
-    if (await isFile(path)) return path;
+  const locate = async (id: string): Promise<string | null> => {
+    const file = `${id}.jsonl`;
+    for (const cwd of cwds) {
+      if (!cwd) continue;
+      const path = join(projects, claudeProjectDir(cwd), file);
+      if (await isFile(path)) return path;
+    }
+    const key = `${projects}\0${id}`;
+    const known = found.get(key);
+    if (known !== undefined && await isFile(known)) return known;
+    found.delete(key);
+    let entries: string[];
+    try { entries = await readdir(projects); } catch (error) { if (absent(error)) return null; throw error; }
+    // one unreadable project must not hide the session in another: an error counts only without a hit
+    const checks = await Promise.allSettled(entries.map(async (entry) => {
+      const path = join(projects, entry, file);
+      return await isFile(path) ? path : null;
+    }));
+    for (const check of checks) {
+      if (check.status === "fulfilled" && check.value !== null) { found.set(key, check.value); return check.value; }
+    }
+    const failed = checks.find((check) => check.status === "rejected");
+    if (failed) throw failed.reason;
+    return null;
+  };
+
+  const seen = new Set<string>();
+  let current = session;
+  for (;;) {
+    if (seen.has(current)) return null;
+    seen.add(current);
+    const path = await locate(current);
+    if (path === null) return null;
+    const next = await continuedInSession(path);
+    if (next === null) return path;
+    current = next;
   }
-  const key = `${projects}\0${session}`;
-  const known = found.get(key);
-  if (known !== undefined && await isFile(known)) return known;
-  found.delete(key);
-  let entries: string[];
-  try { entries = await readdir(projects); } catch (error) { if (absent(error)) return null; throw error; }
-  // one unreadable project must not hide the session in another: an error counts only without a hit
-  const checks = await Promise.allSettled(entries.map(async (entry) => {
-    const path = join(projects, entry, file);
-    return await isFile(path) ? path : null;
-  }));
-  for (const check of checks) {
-    if (check.status === "fulfilled" && check.value !== null) { found.set(key, check.value); return check.value; }
-  }
-  const failed = checks.find((check) => check.status === "rejected");
-  if (failed) throw failed.reason;
-  return null;
 }
