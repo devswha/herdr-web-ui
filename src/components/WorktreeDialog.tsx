@@ -52,7 +52,7 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
   const first = useRef<HTMLInputElement>(null);
   const surface = useRef<HTMLFormElement>(null);
   useSheetSwipe(surface, pending ? null : onClose);
-  usePhoneSheetBack(() => { if (!pending) onClose(); });
+  usePhoneSheetBack(() => { if (pending) return false; onClose(); });
   const opener = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {

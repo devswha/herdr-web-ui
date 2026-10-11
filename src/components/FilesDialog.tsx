@@ -21,7 +21,8 @@ export function FilesDialog({ start, viewing, onOpenFile, onClose }: FilesDialog
   const t = useT();
   const surface = useFocusTrap<HTMLElement>(true);
   useSheetSwipe(surface, onClose);
-  usePhoneSheetBack(onClose);
+  // a file opened from the list is drawn over it with an entry of its own: Back closes the file first
+  usePhoneSheetBack(onClose, !viewing);
   useEffect(() => {
     if (viewing) return;
     // a native modal over it (Add PC, from the palette) takes its own Escape

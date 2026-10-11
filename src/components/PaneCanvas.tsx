@@ -307,7 +307,7 @@ function PaneRename({ pane, onClose, onSave }: { pane: HerdrPane; onClose: () =>
   const [value, setValue] = useState(pane.label ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  usePhoneSheetBack(() => { if (!busy) onClose(); });
+  usePhoneSheetBack(() => { if (busy) return false; onClose(); });
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); } };
     window.addEventListener("keydown", key, true);

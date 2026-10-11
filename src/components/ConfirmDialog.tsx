@@ -38,7 +38,7 @@ export function ConfirmDialog({ title, body, confirmLabel, onConfirm, escalation
   const surface = useFocusTrap<HTMLDivElement>(true, { initialFocus: cancel, shouldRestore: () => !done.current });
   const [pending, setPending] = useState(false);
   useSheetSwipe(surface, pending ? null : onClose);
-  usePhoneSheetBack(() => { if (!pending) onClose(); });
+  usePhoneSheetBack(() => { if (pending) return false; onClose(); });
   const [error, setError] = useState<string | null>(null);
   const [escalated, setEscalated] = useState(false);
 
