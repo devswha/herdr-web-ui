@@ -562,7 +562,8 @@ One set for both themes: the card is island black wherever it shows.
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
-- In the **Workspaces** order the Agents list puts each workspace's agents on a PC in a card,
+- Appearance's **Workspace cards** is off by default: the Agents list is flat and every row names
+  its own place. On, in the **Workspaces** order the Agents list puts each workspace's agents on a PC in a card,
   a workspace with one agent included: a `--hairline` `--border` edge with `--radius-lg`, `--space-1`
   inside and `--space-2` between cards, and no fill, so a row's hover and selection read as they do
   outside it. The card opens with a `--space-6` line in `--text-dim` `--fs-xs`: a `--space-4`
@@ -573,7 +574,8 @@ One set for both themes: the card is island black wherever it shows.
   with nothing else to say (no live name, no tab of its own) says its kind there, even the one its
   mark or title already says, rather than leave the line empty. The head of
   a disconnected PC's card dims with its rows. **Activity** mixes workspaces, so it draws no cards
-  and every row names its own place. Pinned agents, when the list has them, sit in their own
+  and every row names its own place. Appearance's **Pin agents** is off by
+  default: rows carry no star and saved pins lead nothing. On, pinned agents, when the list has them, sit in their own
   section above the cards, and a pinned row is not repeated in its workspace's card.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's

@@ -59,14 +59,17 @@ export interface AgentSidebarProps {
 
 /** the width under which the sidebar is a drawer (src/styles.css) */
 const DRAWER_QUERY = "(max-width: 768px)";
+/** Settings → Pin agents off: saved pins stay stored, and none of them leads the list */
+const NO_PINS: readonly string[] = [];
 
 interface AgentRow { machine: Machine; entry: SidebarAgent }
 
 /**
  * All PCs' live agents form a second list; workspace and PC folds do not hide these rows.
  * In the phone's drawer the list starts folded, leaving the room to the workspaces.
- * In herdr's order the pinned agents stand first, then each workspace's other agents on a PC sit in
- * a card under its name; Activity order mixes workspaces, so its rows stand alone, pinned ones first.
+ * The pinned agents stand first. With Settings → Workspace cards on, herdr's order puts each
+ * workspace's other agents on a PC in a card under its name; off (the default), or in Activity
+ * order, which mixes workspaces, the rows stand alone.
  */
 export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stateWord, onSelect }: AgentSidebarProps) {
   const t = useT();
@@ -82,7 +85,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     return (byActivity ? activityOrder(agents, (entry) => entry.pane, activity.seqs(machine.id)) : agents).map((entry): AgentRow => ({ machine, entry }));
   }), [machines, byActivity, activity]);
   // pins lead: in herdr order the pinned agents stand above the cards, which keep only the others
-  const split = useMemo(() => splitPinnedRows(rows, pinned, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned]);
+  const split = useMemo(() => splitPinnedRows(rows, settings.agentPins ? pinned : NO_PINS, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned, settings.agentPins]);
   useEffect(() => {
     const live = new Set(rows.map(({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)));
     const next = pruneSidebarPins(pinned, live, machines);
@@ -104,7 +107,8 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     setPinned(next);
     saveSidebarPins(next);
   };
-  const groups = useMemo(() => byActivity ? null : groupRows(split.rest, ({ machine, entry }) => JSON.stringify([machine.id, entry.workspace.workspace_id])), [split, byActivity]);
+  const carded = settings.agentCards && !byActivity;
+  const groups = useMemo(() => !carded ? null : groupRows(split.rest, ({ machine, entry }) => JSON.stringify([machine.id, entry.workspace.workspace_id])), [split, carded]);
   // herdr names a PC only beside another: the rows' line, and a card's head, do the same
   const machineName = (machine: Machine): string | null => machines.length > 1 ? machine.name : null;
 
@@ -134,9 +138,9 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
         {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
         <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} plan={online ? pane.plan : undefined} status={online ? activity.status(machine.id, pane) : undefined} />
       </button>
-      <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={`${t("Pin agent")}: ${[title, machineName(machine), workspace.label].filter(Boolean).join(" · ")}`} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} data-pin-key={pinKey} onClick={(event) => setPin(pinKey, event.currentTarget)}>
+      {settings.agentPins && <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={`${t("Pin agent")}: ${[title, machineName(machine), workspace.label].filter(Boolean).join(" · ")}`} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} data-pin-key={pinKey} onClick={(event) => setPin(pinKey, event.currentTarget)}>
         <Star aria-hidden="true" fill={isPinned ? "currentColor" : "none"} />
-      </button>
+      </button>}
     </li>;
   };
 

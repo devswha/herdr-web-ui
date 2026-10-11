@@ -51,7 +51,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A `mermaid` code block in the chat is drawn as a diagram, with a full-screen lightbox to zoom and
   pan it, and the file viewer renders markdown files with local images; larger images are offered
   as downloads. ([#616](https://github.com/devswha/herdr-web-ui/pull/616) by @lyonbot)
-- Pin agents to the top of the Agents list with the star beside each row; pins keep their order across reloads. ([#778](https://github.com/devswha/herdr-web-ui/pull/778) by @vibewriter-hand)
+- **Settings → Appearance → Pin agents** (off by default) shows a star beside each row of the Agents list that pins the agent to the top; pins keep their order across reloads. ([#778](https://github.com/devswha/herdr-web-ui/pull/778) by @vibewriter-hand)
 - An OpenCode pane on a 1.x store (`session`/`message`/`part`) reads as a conversation again, where
   the chat used to keep the terminal's text: prompts with the pictures pasted in them, each answer's
   steps with their tool calls and outputs, and the turns an `/undo` took back.
@@ -77,10 +77,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A remote PC gets pushes once its bridge runs a bundle with this change. Approval-card polling
   remains independent.
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
-- The sidebar's Agents list puts each workspace's agents in a card under the workspace's name,
-  so agents working in the same workspace read as one group. The rows no longer repeat the
-  workspace on their second line; their tooltips still name it. A list in Activity order stays
-  as it was, since it mixes workspaces.
+- **Settings → Appearance → Workspace cards** (off by default) puts each workspace's agents in
+  the sidebar's Agents list in a card under the workspace's name, so agents working in the same
+  workspace read as one group. Rows in a card do not repeat the workspace on their second line;
+  their tooltips still name it. A list in Activity order draws no cards, since it mixes workspaces.
   ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres)
 
 ### Fixed
