@@ -10,6 +10,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Added
 - **Chat: `SendUserFile` calls** show their caption and the files they name as openable links,
   the same way any other tool's file path already opens, instead of the call's raw JSON.
+  ([#730](https://github.com/devswha/herdr-web-ui/pull/730) by @bluzername, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
@@ -21,6 +22,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   terminal's text because no native transcript exists yet rereads on the pane's output instead.
   A remote PC gets pushes once its bridge runs a bundle with this change. Approval-card polling
   remains independent.
+  ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 
 ## [0.4.6] - 2026-10-11
 
