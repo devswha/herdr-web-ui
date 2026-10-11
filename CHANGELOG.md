@@ -7,10 +7,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-10-12
+
 ### Added
+- The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
+  how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
+  when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
+  turns its hairline red while its share is still low, and says when in its label; once that
+  time has gone by, both stay until the reset as **Runs out before reset**. The pace is
+  measured when the numbers were read, and shown only where the provider states the window's
+  start or length (Claude, Codex, Grok), from 5% of the window on.
+  ([#513](https://github.com/devswha/herdr-web-ui/pull/513) by @kilhyeonjun)
 - Turkish (Türkçe) UI translation: a full `i18n.tr.ts` dictionary, the language in the Settings menu with browser detection, and a Turkish README. ([#815](https://github.com/devswha/herdr-web-ui/pull/815) by @fitzgpt)
 - Native conversation transcripts for Hermes Agent: turns, thinking blocks, and tool calls are read directly from its SQLite session store. ([#604](https://github.com/devswha/herdr-web-ui/pull/604) by @RikiSanjayaa)
-  This server change needs a `REMOTE_BUNDLE_VERSION` bump at release so remote PCs can read Hermes transcripts.
+  A remote PC reads them once its bridge is updated to this release's runtime.
 - **Deep links.** The address now says where you are, and opens there: the PC, the workspace (by id and a short slug of its name, so `?ws=w2K-herdr-web-ui&pane=w2K:p1&view=chat` reads like the place), the pane and its lens, an open file, a Settings page and group (`&settings=about&section=updates`), the New workspace dialog with its fields filled (`?new=workspace&cwd=…&name=…&agent=…`; a link never creates anything), and a collapsed sidebar (`&sidebar=hidden`). Opening another pane is a history entry, so Back returns to the last one. A link to a pane that has closed opens its workspace, a link to nothing open says so, and **Copy link** in the header's More menu copies the address on a phone.
   ([#675](https://github.com/devswha/herdr-web-ui/pull/675) by @phirschybar, [#762](https://github.com/devswha/herdr-web-ui/pull/762))
 
@@ -190,6 +200,20 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - An agent herdr names with an icon-font glyph (a private-use character) no longer shows that glyph as
   a stray character beside the session's name: its fallback mark takes the first real letter.
   ([#817](https://github.com/devswha/herdr-web-ui/pull/817) by @foxion37)
+
+### Maintenance
+- CI runs the browser scripts in parallel and the unit tests in parallel processes, and caches its
+  setup. ([#795](https://github.com/devswha/herdr-web-ui/pull/795), [#805](https://github.com/devswha/herdr-web-ui/pull/805))
+- Browser checks that failed by timing no longer do: a route's handlers finish before it is
+  removed, the pending-input recorder polls its screen, the page clock is paused at a time the
+  page has not passed, and the IME check waits for the whole commit.
+  ([#756](https://github.com/devswha/herdr-web-ui/pull/756), [#767](https://github.com/devswha/herdr-web-ui/pull/767), [#813](https://github.com/devswha/herdr-web-ui/pull/813), [#831](https://github.com/devswha/herdr-web-ui/pull/831))
+- Grok chat reads each transcript with one stat, so an append between two reads cannot split it.
+  ([#810](https://github.com/devswha/herdr-web-ui/pull/810))
+- The guide names **Settings → Phone & devices** as the app does. Contributing: changes that need
+  each other may share a pull request, and a UI change no longer has to attach a screenshot.
+  ([#743](https://github.com/devswha/herdr-web-ui/pull/743) by @rabbitson87, [#821](https://github.com/devswha/herdr-web-ui/pull/821), [#826](https://github.com/devswha/herdr-web-ui/pull/826))
+- The remote-PC runtime is now version 26: every saved PC asks for **Update bridge…** once.
 
 ## [0.4.6] - 2026-10-11
 
@@ -843,14 +867,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
   and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
-- The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
-  how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
-  when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
-  turns its hairline red while its share is still low, and says when in its label; once that
-  time has gone by, both stay until the reset as **Runs out before reset**. The pace is
-  measured when the numbers were read, and shown only where the provider states the window's
-  start or length (Claude, Codex, Grok), from 5% of the window on.
-  ([#513](https://github.com/devswha/herdr-web-ui/pull/513))
 
 ### Changed
 - The terminal's **Input held until the terminal is ready** notice appears only when there is
@@ -3063,7 +3079,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/devswha/herdr-web-ui/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/devswha/herdr-web-ui/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/devswha/herdr-web-ui/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/devswha/herdr-web-ui/compare/v0.4.3...v0.4.4
