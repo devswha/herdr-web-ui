@@ -344,10 +344,11 @@ export const defaultCodexHome = (): string => process.env["CODEX_HOME"] || join(
 /** What processCodexHome found, by pid and argv, and when (PROCESS_HOME_TTL_MS). */
 const processHomes = new Map<string, { home: string | null; at: number }>();
 /**
- * A chat polls every 2 s and macOS reads the environment with a `ps` spawn: a process's
- * environment does not change, so its answer is kept. A pid reused by another process
- * carries other arguments or comes after this; ponytail: a reused pid with the same argv
- * inside it reads the old store until it runs out.
+ * A visible chat reads its conversation up to every 2 s while the transcript changes, the
+ * conversation monitor re-resolves its file every 5 s, and macOS reads the environment with
+ * a `ps` spawn: a process's environment does not change, so its answer is kept. A pid
+ * reused by another process carries other arguments or comes after this; ponytail: a
+ * reused pid with the same argv inside it reads the old store until it runs out.
  */
 const PROCESS_HOME_TTL_MS = 30_000;
 
@@ -466,13 +467,21 @@ export function directoryKey(cwd: string): string {
 
 /** Whether two cwds are one directory by `directoryKey`; POSIX ones only when they are equal. */
 export function sameDirectory(left: string, right: string): boolean {
-  return directoryKey(left) === directoryKey(right);
+  if (directoryKey(left) === directoryKey(right)) return true;
+  if (process.platform !== "win32") return false;
+  try {
+    // bigint: a Windows file ID is 64-bit, and two of them can round to one number
+    const a = statSync(left, { bigint: true });
+    const b = statSync(right, { bigint: true });
+    return a.isDirectory() && b.isDirectory() && a.dev === b.dev && a.ino === b.ino;
+  } catch { return false; }
 }
 
 /** The other Codex panes herdr shows in this pane's directory, in any spelling `sameDirectory` takes. */
 export function codexPeersIn(panes: readonly HerdrPane[], paneId: string, cwd: string): HerdrPane[] {
-  return panes.filter((pane) => pane.pane_id !== paneId && pane.cwd != null && sameDirectory(pane.cwd, cwd)
-    && (pane.agent ?? pane.agent_session?.agent) === "codex");
+  // the agent first: sameDirectory can ask the file system, and only Codex panes need it
+  return panes.filter((pane) => pane.pane_id !== paneId && (pane.agent ?? pane.agent_session?.agent) === "codex"
+    && pane.cwd != null && sameDirectory(pane.cwd, cwd));
 }
 
 /**
@@ -481,7 +490,14 @@ export function codexPeersIn(panes: readonly HerdrPane[], paneId: string, cwd: s
  * stays on Codex's own binary cwd index.
  */
 export function storedCwdCondition(cwd: string): { where: string; params: string[] } {
-  const params = [...new Set(storedCwds(cwd).flatMap((spelling) => {
+  // Windows resolves an existing directory to its on-disk casing. Herdr may report the
+  // shell's spelling while Codex stores the canonical spelling in its binary cwd index.
+  // Keep both: the original is needed when Codex recorded it before a rename or via a link.
+  let canonical = cwd;
+  if (process.platform === "win32") {
+    try { canonical = realpathSync.native(cwd); } catch { /* A removed cwd still has its reported spelling. */ }
+  }
+  const params = [...new Set([cwd, canonical].flatMap((path) => storedCwds(path)).flatMap((spelling) => {
     const drive = /^((?:\\\\\?\\)?)([A-Za-z])(:\\.*)$/s.exec(spelling);
     return drive ? [`${drive[1]}${drive[2]!.toUpperCase()}${drive[3]}`, `${drive[1]}${drive[2]!.toLowerCase()}${drive[3]}`] : [spelling];
   }))];
@@ -1289,8 +1305,9 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // lsof is available on macOS, where /proc does not exist. Keep the same
     // canonical-store and unambiguous-open-file checks as the Linux path. One run
     // for every Codex process of the pane (a wrapper and the binary are two), and
-    // -b keeps lsof off the stat calls it does not need for a name: a chat polls this
-    // every 2 s, and each run costs about 20 ms of process start and kernel walk
+    // -b keeps lsof off the stat calls it does not need for a name: a chat reads this up
+    // to every 2 s while its transcript changes, the conversation monitor every 5 s, and
+    // each run costs about 20 ms of process start and kernel walk
     const child = Bun.spawn(["/usr/sbin/lsof", "-nPbw", "-a", "-p", codexProcesses.map((process) => process.pid).join(","), "-Fn"], { stdout: "pipe", stderr: "ignore" });
     const timer = setTimeout(() => child.kill(), 3000);
     try {

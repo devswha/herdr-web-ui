@@ -41,6 +41,20 @@ describe("paneMoveTargets", () => {
     ]);
   });
 
+  it("names tabs by their place in the strip after a reorder, so a numeric custom name is not mistaken for another tab", () => {
+    // herdr keeps each tab's number when tabs are reordered: "2" named by the user now sits first
+    const reordered = {
+      workspaces: snapshot.workspaces,
+      tabs: [
+        { tab_id: "w1:tb", workspace_id: "w1", label: "2", number: 3 },
+        { tab_id: "w1:ta", workspace_id: "w1", label: "", number: 1 },
+        { tab_id: "w1:tc", workspace_id: "w1", label: "", number: 2 },
+      ],
+    } as unknown as Pick<SessionSnapshot, "tabs" | "workspaces">;
+    const labels = paneMoveTargets(reordered, { workspace_id: "w1", tab_id: "w1:tc" }, t).filter((target) => target.kind === "tab").map((target) => [target.id, target.label]);
+    expect(labels).toEqual([["tab:w1:tb", "2"], ["tab:w1:ta", "Tab 2"]]);
+  });
+
   it("offers a lone pane a new tab and the other workspaces only", () => {
     const targets = paneMoveTargets(snapshot, { workspace_id: "w2", tab_id: "w2:t1" }, t);
     expect(targets.map((target) => target.id)).toEqual(["new-tab", "workspace:w1", "workspace:w3", "new-workspace"]);
