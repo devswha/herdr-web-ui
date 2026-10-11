@@ -55,7 +55,7 @@ const stills: Array<{ file: string; width: number }> = [{ file: "install.png", w
  * README can change how it presents its videos; a new recording needs its link changed here as well.
  */
 const videos: Array<{ file: string; poster: string; at: string; upload: string }> = [
-  { file: "readme-hero.mp4", poster: "readme-hero.jpg", at: "0.3", upload: "https://github.com/user-attachments/assets/db788c07-cd68-486d-8ce9-e676a2889c2d" },
+  { file: "readme-hero.mp4", poster: "readme-hero.jpg", at: "11.8", upload: "https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b" },
 ];
 
 async function run(cmd: string[]): Promise<boolean> {
@@ -189,11 +189,16 @@ for (const name of pages) {
   // the FAQ as structured data, read from the rows the page shows
   // (a row's closing "… →" link is navigation, not part of the answer)
   const text = (html: string) => html.replace(/<a [^>]*>[^<]*→<\/a>/g, "").replace(/<[^>]+>/g, "").replaceAll("&amp;", "&").replace(/\s+/g, " ").trim();
-  const questions = [...page.matchAll(/<div class="qa">\s*<dt>(.*?)<\/dt>\s*<dd>(.*?)<\/dd>\s*<\/div>/gs)].map(([, question, answer]) => ({
-    "@type": "Question",
-    name: text(question),
-    acceptedAnswer: { "@type": "Answer", text: text(answer) },
-  }));
+  const questions = [...page.matchAll(/<div class="qa">\s*<dt>(.*?)<\/dt>\s*<dd>(.*?)<\/dd>\s*<\/div>/gs)].map((match) => {
+    const question = match[1];
+    const answer = match[2];
+    if (question === undefined || answer === undefined) throw new Error(`site/${name} has a FAQ row without a question or answer`);
+    return {
+      "@type": "Question",
+      name: text(question),
+      acceptedAnswer: { "@type": "Answer", text: text(answer) },
+    };
+  });
   const rowCount = [...page.matchAll(/<div class="qa">/g)].length;
   if (questions.length === 0 || questions.length !== rowCount) throw new Error(`site/${name} has missing or unparseable FAQ rows (<div class="qa">)`);
   const faq = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: questions }).replaceAll("<", "\\u003c");

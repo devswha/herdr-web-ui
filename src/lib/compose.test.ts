@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped } from "./compose.ts";
+import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, sameMessage, submitNote, submitNotTyped } from "./compose.ts";
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
@@ -25,6 +25,14 @@ describe("composerMessage and submitNote", () => {
     expect(submitNote("pending_input_unsupported", "x")).toBe("Update this PC to send messages in the next turn. Your draft stayed here.");
     expect(submitNotTyped("submit_changed")).toBe(false);
     expect(submitNotTyped("pending_uncertain")).toBe(false);
+  });
+});
+
+describe("sameMessage", () => {
+  it("matches a message wrapped and indented by the terminal, never an empty or edited one", () => {
+    expect(sameMessage("fix the login bug\nthen run tests", "fix the login\u00a0bug\n  then run tests")).toBe(true);
+    expect(sameMessage("fix the login bug", "fix the logout bug")).toBe(false);
+    expect(sameMessage("  ", "")).toBe(false);
   });
 });
 
@@ -113,6 +121,7 @@ describe("composer presentation helpers", () => {
     expect(composerStatusWord("working")).toBe("RUN");
     expect(composerStatusWord("blocked")).toBe("INPUT");
     expect(composerStatusWord("done")).toBe("DONE");
+    expect(composerStatusWord("waiting")).toBe("BG");
     expect(composerStatusWord("paused")).toBe("READY");
   });
 
@@ -178,6 +187,55 @@ describe("composer presentation helpers", () => {
       commands[0]!,
       commands[1]!,
     ]);
+  });
+
+  it("also finds a command by a word of its name, a substring, its letters in order or its description", () => {
+    const named = (name: string, description = "") => ({ name, description, source: "plugin" as const });
+    const commands = [
+      named("superpowers:brainstorming"),
+      named("review", "Look over a diff"),
+      named("code-review"),
+      named("reviewer-notes"),
+      named("my-brainstorm-helper"),
+      named("unrelated", "Something else"),
+    ];
+    const find = (query: string) => rankSlashCommands(commands, query, {}).map((command) => command.name);
+    // the namespace is not a prefix to type: the command's own word finds it
+    expect(find("brain")).toEqual(["my-brainstorm-helper", "superpowers:brainstorming"]);
+    // both name prefixes precede the word match
+    expect(find("review")).toEqual(["review", "reviewer-notes", "code-review"]);
+    expect(find("ainst")).toEqual(["my-brainstorm-helper", "superpowers:brainstorming"]);
+    expect(find("spbr")).toEqual(["superpowers:brainstorming"]);
+    expect(find("diff")).toEqual(["review"]);
+    expect(find("zzz")).toEqual([]);
+    expect(find("")).toHaveLength(commands.length);
+    // a stronger kind of match beats a frequently used weaker one
+    expect(rankSlashCommands(commands, "review", { "code-review": 9 }).map((command) => command.name)[0]).toBe("review");
+  });
+
+  it("keeps every match tier ahead of weaker alphabetical or frequently used results", () => {
+    const commands = [
+      { name: "a-preview", description: "", source: "plugin" as const },
+      { name: "b-v-i-e-w", description: "", source: "plugin" as const },
+      { name: "a-description", description: "view changes", source: "plugin" as const },
+      { name: "z-view-notes", description: "", source: "plugin" as const },
+      { name: "view", description: "", source: "plugin" as const },
+    ];
+    expect(rankSlashCommands(commands, "VIEW", { "a-description": 99 }).map(({ name }) => name))
+      .toEqual(["view", "z-view-notes", "a-preview", "b-v-i-e-w", "a-description"]);
+    expect(rankSlashCommands([{ name: "review", description: "diff", source: "builtin" }], "d", {})).toEqual([]);
+  });
+
+  it("keeps compound queries at word boundaries and applies usage within that tier", () => {
+    const commands = ["a-mypdf-tools", "z:pdf-tools", "b:pdf-tools"]
+      .map((name) => ({ name, description: "", source: "plugin" as const }));
+    expect(rankSlashCommands(commands, "pdf-t", { "z:pdf-tools": 2 }).map(({ name }) => name))
+      .toEqual(["z:pdf-tools", "b:pdf-tools", "a-mypdf-tools"]);
+  });
+
+  it("matches subsequences containing letters outside the basic multilingual plane", () => {
+    const command = { name: "prefix:𐐨ab", description: "", source: "plugin" as const };
+    expect(rankSlashCommands([command], "𐐀b", {})).toEqual([command]);
   });
 });
 
