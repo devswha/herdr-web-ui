@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
+import { changedSettings, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
 
 it("keeps a tab's pane while out of use until this device turns the pause on", () => {
   expect(DEFAULT_SETTINGS.releasePaneAway).toBe(false);
@@ -46,6 +46,40 @@ it("keeps sidebar rows on two lines unless one line was chosen", () => {
   for (const sidebarRows of [null, true, "three", 2]) {
     expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("two");
   }
+});
+
+it("draws workspace cards in the Agents list only when they were turned on", () => {
+  expect(DEFAULT_SETTINGS.agentCards).toBe(false);
+  expect(sanitizeSettings({}).agentCards).toBe(false);
+  expect(sanitizeSettings({ agentCards: true }).agentCards).toBe(true);
+  for (const agentCards of [null, "true", 1]) {
+    expect(sanitizeSettings({ agentCards }).agentCards).toBe(false);
+  }
+});
+
+it("shows the Agents list's pin stars only when they were turned on", () => {
+  expect(DEFAULT_SETTINGS.agentPins).toBe(false);
+  expect(sanitizeSettings({}).agentPins).toBe(false);
+  expect(sanitizeSettings({ agentPins: true }).agentPins).toBe(true);
+  for (const agentPins of [null, "true", 1]) {
+    expect(sanitizeSettings({ agentPins }).agentPins).toBe(false);
+  }
+});
+
+it("keeps the plan's flow and its header count unless they were turned off", () => {
+  expect([DEFAULT_SETTINGS.planFlow, DEFAULT_SETTINGS.planButton]).toEqual([true, true]);
+  expect(sanitizeSettings({})).toMatchObject({ planFlow: true, planButton: true });
+  expect(sanitizeSettings({ planFlow: false, planButton: false })).toMatchObject({ planFlow: false, planButton: false });
+  for (const value of [null, "false", 0]) {
+    expect(sanitizeSettings({ planFlow: value, planButton: value })).toMatchObject({ planFlow: true, planButton: true });
+  }
+});
+
+it("names the appearance settings changed from their defaults, and no other setting", () => {
+  expect(changedSettings(DEFAULT_SETTINGS)).toEqual([]);
+  expect(changedSettings({ ...DEFAULT_SETTINGS, planFlow: false, theme: "light", agentCards: true })).toEqual(["theme", "agentCards", "planFlow"]);
+  // a setting the user types, or one outside the list, is never named
+  expect(changedSettings({ ...DEFAULT_SETTINGS, terminalFontFamily: "D2Coding", terminalFontSize: 16, quietOpenedDone: true })).toEqual([]);
 });
 
 describe("clipboard from a pane", () => {

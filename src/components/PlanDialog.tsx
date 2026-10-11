@@ -7,6 +7,7 @@ import { useMachineApi } from "../lib/machineContext.tsx";
 import { clockOffsetMs, formatElapsed, spanMs } from "../lib/omoTasks.ts";
 import { FLOW, flowLayout, planWaves } from "../lib/plan.ts";
 import { useT } from "../lib/i18n.ts";
+import { useSettings } from "../lib/settings.ts";
 import type { PlanStep, PlanSummary } from "../../shared/protocol.ts";
 
 const POLL_MS = 3000;
@@ -41,7 +42,9 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
   const [now, setNow] = useState(() => Date.now());
   /** null: not picked, so a plan whose steps wait on none (nothing to draw) opens as the list */
   const [picked, setView] = useState<"flow" | "steps" | null>(null);
-  const view = picked ?? (steps?.some((step) => step.blocked_by.length > 0) ? "flow" : "steps");
+  // Settings → Plan flow off: the list alone, with no switch
+  const { settings } = useSettings();
+  const view = !settings.planFlow ? "steps" : picked ?? (steps?.some((step) => step.blocked_by.length > 0) ? "flow" : "steps");
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -104,10 +107,10 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
       <section className="modal plan-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="modal-header">
           <h2 className="modal-title plan-dialog-title" id={titleId}>{t("Plan")} <span className="plan-dialog-pane">{title}</span></h2>
-          <div className="segmented plan-view-switch" role="group" aria-label={t("Plan view")}>
+          {settings.planFlow && <div className="segmented plan-view-switch" role="group" aria-label={t("Plan view")}>
             <button type="button" aria-pressed={view === "flow"} onClick={() => setView("flow")}><Workflow aria-hidden="true" />{t("Flow")}</button>
             <button type="button" aria-pressed={view === "steps"} onClick={() => setView("steps")}><ListChecks aria-hidden="true" />{t("Steps")}</button>
-          </div>
+          </div>}
           <button ref={closeRef} type="button" className="icon-button" aria-label={t("Close plan")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>
         <div className="modal-body plan-dialog-body">

@@ -562,7 +562,8 @@ One set for both themes: the card is island black wherever it shows.
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
-- In the **Workspaces** order the Agents list puts each workspace's agents on a PC in a card,
+- Appearance's **Workspace cards** is off by default: the Agents list is flat and every row names
+  its own place. On, in the **Workspaces** order the Agents list puts each workspace's agents on a PC in a card,
   a workspace with one agent included: a `--hairline` `--border` edge with `--radius-lg`, `--space-1`
   inside and `--space-2` between cards, and no fill, so a row's hover and selection read as they do
   outside it. The card opens with a `--space-6` line in `--text-dim` `--fs-xs`: a `--space-4`
@@ -573,7 +574,8 @@ One set for both themes: the card is island black wherever it shows.
   with nothing else to say (no live name, no tab of its own) says its kind there, even the one its
   mark or title already says, rather than leave the line empty. The head of
   a disconnected PC's card dims with its rows. **Activity** mixes workspaces, so it draws no cards
-  and every row names its own place. Pinned agents, when the list has them, sit in their own
+  and every row names its own place. Appearance's **Pin agents** is off by
+  default: rows carry no star and saved pins lead nothing. On, pinned agents, when the list has them, sit in their own
   section above the cards, and a pinned row is not repeated in its workspace's card.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's
@@ -675,7 +677,8 @@ One set for both themes: the card is island black wherever it shows.
   close confirmation. A right-click opens tab actions at the pointer, including Move tab left/right
   when a neighbouring position exists. Desktop tabs have no close or dropdown buttons. Touch and narrow layouts show a `⋯` beside
   the selected tab for the same menu; Shift+F10 or the menu key opens it from a focused tab.
-  Pane actions are not tab actions.
+  Pane actions are not tab actions. Up to 768px, where a split tab shows one pane at a time, the
+  tab's menu lists the tab's panes first, the open one marked current, over a hairline.
 - Mouse dragging previews an accent insertion line, with edge scrolling for an overflowing strip.
   The snapshot's tab order is authoritative: a tab's stable `number` is not its place. A drop calls
   `tab.move` with an insertion boundary before removal, within that workspace and PC. The visible
@@ -698,6 +701,10 @@ One set for both themes: the card is island black wherever it shows.
   pane with the previously selected pane and retains the latter's focus. A close confirms when
   the pane is busy or is the last pane of the workspace. Rename is herdr's label; clearing it
   returns to its automatic title. Herdr owns every resulting layout and name.
+- Up to 768px a split has no room: the canvas shows the selected pane alone, full size and
+  borderless as a zoomed one, with no split boundary, and the tab's menu picks another. The
+  other panes stay mounted and hidden at the same full size. This is only what the browser draws:
+  herdr's layout and zoom are not changed, and a wider window draws the split again.
 - Zoom uses herdr's zoom flag and focused pane. The other panes keep their mounted terminals
   hidden, preserving attachments and drafts; unzoom restores their rectangles. Web selection
   stays local to this browser and does not change herdr's focus in another client.
@@ -858,6 +865,8 @@ One set for both themes: the card is island black wherever it shows.
   (`--status-working`, `--status-done` once every step is done) and `done/total` in tabular
   figures, on the `--bg-elevated` hairline chip the switch uses. The sidebar's agent row repeats the
   count beside the background count, in its quiet mono figures and with no box (`.plan-count`).
+  Appearance's **Plan count in the header** (on by default) takes the header's button away when off;
+  the sidebar's count stays.
 - The plan opens as a modal (a bottom sheet under 641px): title, the pane's name (hidden on a
   phone), a Flow / Steps switch and a close button. Under them `N of M done` and, in
   `--status-working`, what the running step does now.
@@ -867,6 +876,8 @@ One set for both themes: the card is island black wherever it shows.
   edge on its tint; running: a 2px `--status-working` edge on its tint; waiting: a dashed hairline
   and dim text. A curve out of a done step is solid `--status-done`; one still waiting is a dim
   dashed line. A wave wider than the sheet scrolls sideways inside it, never the page.
+- Appearance's **Plan flow** is on by default. Off, the plan opens as Steps alone and the
+  Flow / Steps switch is not drawn.
 - Steps: the same steps in wave order, a status glyph, the name, what a running step does now and
   the meta line.
 
