@@ -529,30 +529,33 @@ const DEMO_FILES = ["src/routes/payments.ts", "src/lib/idempotency.ts", "src/met
 function usageReport(): UsageReport {
   const now = Date.now();
   const at = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
+  // Claude and Codex state a window's length (5 h, 7 days), so the server knows when it began; the others do not
+  const session = (hours: number) => ({ resets_at: at(hours), starts_at: at(hours - 5) });
+  const week = (hours: number) => ({ resets_at: at(hours), starts_at: at(hours - 168) });
   const checked = new Date(now).toISOString();
   return { providers: [
     { id: "claude", key: "claude:demo-claude", account: "sam@example.com", plan: "max", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 38, resets_at: at(2.4) },
-      { kind: "week", scope: null, used_percent: 61, resets_at: at(78) },
-      { kind: "week", scope: "Sonnet", used_percent: 12, resets_at: at(78) },
+      { kind: "session", scope: null, used_percent: 38, ...session(2.4) },
+      { kind: "week", scope: null, used_percent: 61, ...week(78) },
+      { kind: "week", scope: "Sonnet", used_percent: 12, ...week(78) },
     ] },
     { id: "codex", key: "codex:demo-codex-work", account: "sam@work.example", plan: "pro", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 22, resets_at: at(1.2) },
-      { kind: "week", scope: null, used_percent: 84, resets_at: at(97) },
+      { kind: "session", scope: null, used_percent: 22, ...session(1.2) },
+      { kind: "week", scope: null, used_percent: 84, ...week(97) },
     ] },
     { id: "codex", key: "codex:demo-codex-home", account: "sam@example.com", plan: "plus", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 5, resets_at: at(3.1) },
-      { kind: "week", scope: null, used_percent: 31, resets_at: at(140) },
+      { kind: "session", scope: null, used_percent: 5, ...session(3.1) },
+      { kind: "week", scope: null, used_percent: 31, ...week(140) },
     ] },
     { id: "cursor", key: "cursor:demo-cursor", account: "sam@example.com", plan: "pro", problem: null, checked_at: checked, windows: [
-      { kind: "month", scope: null, used_percent: 27, resets_at: at(290) },
-      { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290) },
-      { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290) },
+      { kind: "month", scope: null, used_percent: 27, resets_at: at(290), starts_at: null },
+      { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290), starts_at: null },
+      { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290), starts_at: null },
     ] },
     { id: "opencode", key: "opencode:demo-opencode", account: null, plan: "Go", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 10, resets_at: at(3.2) },
-      { kind: "week", scope: null, used_percent: 28, resets_at: at(18) },
-      { kind: "month", scope: null, used_percent: 15, resets_at: at(520) },
+      { kind: "session", scope: null, used_percent: 10, resets_at: at(3.2), starts_at: null },
+      { kind: "week", scope: null, used_percent: 28, resets_at: at(18), starts_at: null },
+      { kind: "month", scope: null, used_percent: 15, resets_at: at(520), starts_at: null },
     ] },
   ] };
 }
@@ -659,7 +662,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const chat = key ? chats.get(key) : undefined;
     const agent = agentOf(paneId);
     if (!chat) return json({ source: "scrollback", turns: [] });
-    const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : agent === "devin" ? "devin-transcript" : "omp-transcript";
+    const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : agent === "devin" ? "devin-transcript" : agent === "hermes" ? "hermes-transcript" : "omp-transcript";
     return json({ source, turns: chat.turns, metadata: chat.metadata, cursor: null });
   }
   if (path === "/api/pane/plan") {
@@ -1210,10 +1213,10 @@ class DemoSocket extends EventTarget {
 
   send(raw: string): void {
     if (this.readyState !== 1) return;
-    let message: { type: string; pane_id?: string; cols?: number; rows?: number; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; pending_id?: string; action?: unknown; enabled?: boolean };
+    let message: { type: string; pane_id?: string; cols?: number; rows?: number; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; clear_draft?: unknown; pending_id?: string; action?: unknown; enabled?: boolean };
     try { message = JSON.parse(raw); } catch { return; }
     if ((message.type === "submit" || message.type === "pending-action") && Number.isSafeInteger(message.id)) {
-      const signature = JSON.stringify({ type: message.type, pane_id: message.pane_id, text: message.text, payload: message.payload, typed: message.typed, delivery: message.delivery, pending_id: message.pending_id, action: message.action });
+      const signature = JSON.stringify({ type: message.type, pane_id: message.pane_id, text: message.text, payload: message.payload, typed: message.typed, delivery: message.delivery, clear_draft: message.clear_draft, pending_id: message.pending_id, action: message.action });
       const previous = this.requests.get(message.id!);
       if (previous) {
         if (previous.signature !== signature) {
@@ -1297,7 +1300,10 @@ class DemoSocket extends EventTarget {
           const text = queued ? message.text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n") : message.text;
           let code: string | null = null;
           if ((message.delivery !== undefined && message.delivery !== "immediate" && !queued) || (queued && message.typed !== undefined && message.typed !== false)) code = "invalid_delivery";
+          else if (message.clear_draft !== undefined && (typeof message.clear_draft !== "string" || !message.clear_draft
+            || queued || (message.typed !== undefined && message.typed !== false))) code = "invalid_delivery";
           else if (this.mode === "observe") code = "read_only";
+          else if (message.clear_draft !== undefined) code = "unsupported";
           else if (queued && (text.trim().length === 0 || text.length > 20_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(text))) code = "invalid_submit_text";
           else if (queued) code = this.pendingTargetError(message.pane_id);
           if (code) {

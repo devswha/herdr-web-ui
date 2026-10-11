@@ -19,7 +19,8 @@ The sidebar is one grid: a leading cell that says who or what a row is (the codi
 mark, else the place's own glyph), a title, and a trailing cell that says how it is. Workspaces
 and Agents are independent lists, as in herdr's Spaces and Agents panels; tab and pane navigation
 stays over the terminal and in the palette. Sections are parted by space and a dim head, never by
-a rule. Hover and selection are one neutral fill at two strengths. Brand marks are the only color
+a rule; the Agents list's workspace cards are an edge around rows, not a line between sections.
+Hover and selection are one neutral fill at two strengths. Brand marks are the only color
 there that is not a state, and a ready row draws no state at all. Amber connects focus, the chosen
 lens glyph and the terminal cursor.
 
@@ -542,6 +543,19 @@ One set for both themes: the card is island black wherever it shows.
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
+- In the **Workspaces** order the Agents list puts each workspace's agents on a PC in a card,
+  a workspace with one agent included: a `--hairline` `--border` edge with `--radius-lg`, `--space-1`
+  inside and `--space-2` between cards, and no fill, so a row's hover and selection read as they do
+  outside it. The card opens with a `--space-6` line in `--text-dim` `--fs-xs`: a `--space-4`
+  folder in the leading cell, then the workspace's name, after the PC's when two or more PCs are
+  registered (`machine · workspace`). The line is the card's name, not a control. A row in a card
+  leaves the PC and the workspace out of its dim line (`agentContext` with `grouped`); its tooltip
+  still names them, and the card's list is labelled by its head for screen readers. A row in a card
+  with nothing else to say (no live name, no tab of its own) says its kind there, even the one its
+  mark or title already says, rather than leave the line empty. The head of
+  a disconnected PC's card dims with its rows. **Activity** mixes workspaces, so it draws no cards
+  and every row names its own place. Pinned agents, when the list has them, sit in their own
+  section above the cards, and a pinned row is not repeated in its workspace's card.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's
   height and type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
@@ -554,7 +568,8 @@ One set for both themes: the card is island black wherever it shows.
   workspace, tab and pane order. **Activity** pins a blocked agent on top and orders the rest by
   their most recent state change (herdr's `state_change_seq`, read from the snapshot's `agents`),
   within each PC, so the agent just worked in stays on top while it runs and after it finishes.
-  It changes only the Agents list; herdr's order and the workspace rows stay as they are.
+  It changes only the Agents list, which then draws no workspace cards; herdr's order and the
+  workspace rows stay as they are.
 - Appearance's **Quiet opened finishes** is off by default. herdr reports DONE until one of its
   own clients shows the pane, so an agent opened here would keep its finished dot. On, a DONE
   opened here (selected while the page is visible) since it finished draws as ready in the
@@ -612,12 +627,16 @@ One set for both themes: the card is island black wherever it shows.
   account in the user's order: provider mark, mono `--fs-2xs` percent of the limit chosen in
   Settings, the plan's week or its session (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
   filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
-  chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
+  chrome. A limit that runs out before its reset at its pace so far takes `--status-blocked` on
+  the bar alone. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
   footer and scrolling when it outgrows the sidebar: per account its mark, name and plan pill with
   the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
-  note is dim, red for an expired sign-in or a failed request.
+  note is dim, red for an expired sign-in or a failed request. Where the window's start is known, a
+  2px `--text-strong` mark on the bar sits where an even pace would be by now, and a dim `--fs-2xs`
+  line under it gives the rate, with **Runs out in …** in `--status-blocked` when it comes before
+  the reset; once that time has gone by it reads **Runs out before reset** until the reset.
 
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to

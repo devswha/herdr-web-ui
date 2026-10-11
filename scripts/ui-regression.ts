@@ -392,7 +392,12 @@ try {
   // Reuse the real API roster as an offline cache in an isolated context. Its
   // native disabled buttons must leave selection unchanged when clicked.
   const cachedRoster = await (await context.request.get(`${origin}/api/machines`)).json() as { machines: Machine[] };
-  const offlineMachines = cachedRoster.machines.map((machine) => ({ ...machine, state: "disconnected" as const }));
+  // every cached pane keeps a plan, which nothing can read while its PC is offline
+  const offlineMachines = cachedRoster.machines.map((machine) => ({
+    ...machine,
+    state: "disconnected" as const,
+    snapshot: machine.snapshot && { ...machine.snapshot, panes: machine.snapshot.panes.map((pane) => ({ ...pane, plan: { done: 1, total: 4, current: "Writing the parser" } })) },
+  }));
   const offlineContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   let offlineEvidence: BrowserEvidenceSession | undefined;
   try {
@@ -412,6 +417,9 @@ try {
     await offlineAgent.dispatchEvent("click");
     assert.equal(await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection")), selectionBefore,
       "offline Agent clicks leave the current selection unchanged");
+    // the linked pane is shown from the cache, and its header offers no plan it could not read
+    await offlinePage.locator(".view-switch").waitFor();
+    assert.equal(await offlinePage.locator(".plan-button").count(), 0, "an offline PC's cached plan offers no plan button");
   } catch (error) {
     await offlineEvidence?.captureFailure(error);
     throw error;

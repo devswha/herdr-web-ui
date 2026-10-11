@@ -473,14 +473,21 @@ export class SessionPlans {
     return this.panes.get(paneId)?.summary ?? null;
   }
 
-  /** The pane's plan now, read on the spot, with what was done outside its steps; null when it has none or its transcript is not known. */
-  planOf(paneId: string): { steps: PlanStep[]; outside: PlanActivity | null } | null {
-    const where = this.panes.get(paneId)?.where;
-    return where ? readPlanDetail(where.source, where.path) : null;
+  /**
+   * The plan of the pane as herdr has it now (undefined: herdr did not say), with what was done outside its steps, as the
+   * poll last read it: null when it has none, or its transcript is not known for the session it runs, or not read to its
+   * end yet.
+   */
+  planOf(pane: HerdrPane | undefined): { steps: PlanStep[]; outside: PlanActivity | null } | null {
+    const where = pane !== undefined && this.known(pane) ? this.panes.get(pane.pane_id)?.where : null;
+    // a request reads nothing itself, however much was written since: the poll reads, in its shared budget
+    return where ? readPlanDetail(where.source, where.path, { left: 0 }) : null;
   }
 
-  known(paneId: string): boolean {
-    return this.panes.get(paneId)?.where != null;
+  /** The pane's transcript is known, and was found for the session the pane runs now. */
+  known(pane: HerdrPane): boolean {
+    const tracked = this.panes.get(pane.pane_id);
+    return tracked?.where != null && tracked.key === keyOf(pane);
   }
 
   /**

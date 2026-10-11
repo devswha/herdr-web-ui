@@ -313,7 +313,7 @@ describe("SessionPlans", () => {
     plans.poll();
     expect(changes.at(-1)).toEqual(["p1", { done: 0, total: 2, current: "Doing one" }]);
     expect(changes).toHaveLength(2);
-    expect(plans.planOf("p1")?.steps.map((step) => step.status)).toEqual(["in_progress", "pending"]);
+    expect(plans.planOf(pane("p1", "claude"))?.steps.map((step) => step.status)).toEqual(["in_progress", "pending"]);
     // a Codex pane whose rollout was not found is not asked again at once
     await plans.refresh([pane("p1", "claude"), pane("p2", "codex")]);
     expect(codexLookups).toBe(1);
@@ -348,7 +348,7 @@ describe("SessionPlans", () => {
     answer(f.path);
     await looking;
     plans.poll();
-    expect(plans.known("p2")).toBe(false);
+    expect(plans.known(pane("p2", "codex"))).toBe(false);
     expect(changes).toEqual([]);
   });
 
@@ -357,7 +357,45 @@ describe("SessionPlans", () => {
     const plans = new SessionPlans({ claudePath: () => null, codexPath: async () => f.path, onChange: () => {} });
     await plans.refresh([]);
     await plans.ensure(pane("p3", "codex"), true);
-    expect(plans.known("p3")).toBe(true);
+    expect(plans.known(pane("p3", "codex"))).toBe(true);
+  });
+
+  it("tells a request the plan as the poll last read it, and reads nothing for it", async () => {
+    const s = claude();
+    s.create("One");
+    const plans = new SessionPlans({ claudePath: () => s.path, codexPath: async () => null, onChange: () => {} });
+    await plans.refresh([pane("p1", "claude")]);
+    // no poll has read the transcript yet: a request does not read it
+    expect(plans.planOf(pane("p1", "claude"))).toBeNull();
+    plans.poll();
+    expect(plans.planOf(pane("p1", "claude"))?.steps.map((step) => step.label)).toEqual(["One"]);
+    // what was written since, however much, is the next poll's to read
+    s.create("Two", 2);
+    expect(plans.planOf(pane("p1", "claude"))?.steps.map((step) => step.label)).toEqual(["One"]);
+    plans.poll();
+    expect(plans.planOf(pane("p1", "claude"))?.steps.map((step) => step.label)).toEqual(["One", "Two"]);
+  });
+
+  it("tells a plan only for the pane as herdr has it now, in the session its transcript was found for", async () => {
+    const s = claude();
+    s.create("One");
+    const plans = new SessionPlans({ claudePath: () => s.path, codexPath: async () => null, onChange: () => {} });
+    await plans.refresh([pane("p1", "claude")]);
+    plans.poll();
+    expect(plans.planOf(pane("p1", "claude"))?.steps.map((step) => step.label)).toEqual(["One"]);
+    // herdr did not say in time, or no longer has the pane: what was read for it is not told
+    expect(plans.planOf(undefined)).toBeNull();
+    // the pane runs another session now, not looked up yet
+    expect(plans.planOf(pane("p1", "claude", "s2"))).toBeNull();
+  });
+
+  it("knows a pane's transcript only for the session it was found for", async () => {
+    const f = file("rollout.jsonl");
+    const plans = new SessionPlans({ claudePath: () => null, codexPath: async () => f.path, onChange: () => {} });
+    await plans.refresh([pane("p2", "codex", "t1")]);
+    expect(plans.known(pane("p2", "codex", "t1"))).toBe(true);
+    // the pane runs another session, not looked up yet: the rollout of the one before is not its plan
+    expect(plans.known(pane("p2", "codex", "t2"))).toBe(false);
   });
 
   it.skipIf(process.getuid?.() === 0)("reads a transcript it could not open again at the next poll, though its size is the same", () => {
@@ -373,7 +411,7 @@ describe("SessionPlans", () => {
     expect(changes).toEqual([{ done: 0, total: 1, current: null }]);
   });
 
-  it("reads at most its budget in one poll, and the rest at the next", () => {
+  it("reads at most its budget in one poll, and the rest at the next; a request in between reads none of it", () => {
     const big = claude();
     big.create("Far");
     // past the poll's budget: the plan is told only once the read reaches the end
@@ -384,8 +422,11 @@ describe("SessionPlans", () => {
     void plans.refresh([pane("p1", "claude")]);
     plans.poll();
     expect(changes).toEqual([]);
+    // the first read is the poll's, in its shared budget: a request does not read on with a budget of its own
+    expect(plans.planOf(pane("p1", "claude"))).toBeNull();
     plans.poll();
     expect(changes).toEqual([{ done: 0, total: 2, current: null }]);
+    expect(plans.planOf(pane("p1", "claude"))?.steps.map((step) => step.label)).toEqual(["Far", "Near"]);
   });
 });
 
