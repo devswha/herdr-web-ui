@@ -29,6 +29,35 @@ const snapshot = (features: string[]) => ({ type: "snapshot", snapshot: { worksp
 const secrets = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "secret");
 const submissions = (socket: FakeSocket) => socket.sent.filter((frame) => ["submit", "input", "keys"].includes(frame.type));
 
+it("refuses clear-and-send on a legacy bridge without sending payload or Enter", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot([]));
+  try {
+    expect(await client.submit("w1:p1", "chat message", "chat message", false, "immediate", "named draft"))
+      .toMatchObject({ ok: false, code: "unsupported" });
+    expect(submissions(socket)).toEqual([]);
+  } finally {
+    client.close();
+  }
+});
+
+it("keeps ordinary immediate sends working on a legacy bridge", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot([]));
+  try {
+    expect(await client.submit("w1:p1", "chat message", "chat message")).toEqual({ ok: true });
+    expect(submissions(socket)).toEqual([{ type: "input", pane_id: "w1:p1", text: "chat message\r" }]);
+  } finally {
+    client.close();
+  }
+});
+
 it("waits for the bridge's pending-input capability before sending an explicit next turn", async () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();
