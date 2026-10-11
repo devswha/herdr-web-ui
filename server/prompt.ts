@@ -2963,9 +2963,20 @@ export function claudeRestoredDraft(live: string, colors: string | null, sent: s
   // aside; where the terminal wrapped, a word split in two joins with nothing between, and a wrap
   // between words with one space or line break. Any other change to the spaces is the user's edit.
   const rows = box.plain.map((row, index) => (index === 0 ? row.slice(1) : row).replace(/\u00a0/g, " ").trim());
-  const escape = (row: string): string => row.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const wrapped = new RegExp(`^${rows.map(escape).join("\\s?")}$`);
-  return wrapped.test(sent.replace(/\u00a0/g, " ").trim()) ? sent : null;
+  // walked row by row over the set of places the sent text can be at, never a regex: one built from
+  // the rows backtracks exponentially over a box of blank rows
+  const text = sent.replace(/\u00a0/g, " ").trim();
+  let at = new Set([0]);
+  rows.forEach((row, index) => {
+    const next = new Set<number>();
+    for (const from of at) {
+      // a wrap between words leaves one space or line break before the next row; within a word, none
+      const starts = index === 0 ? [from] : /\s/.test(text[from] ?? "") ? [from, from + 1] : [from];
+      for (const start of starts) if (text.startsWith(row, start)) next.add(start + row.length);
+    }
+    at = next;
+  });
+  return at.has(text.length) ? sent : null;
 }
 
 /**

@@ -1689,6 +1689,10 @@ describe("Claude's suggested next prompt", () => {
     expect(restored(screen("❯ a longer message that wrapped in its mid", "  dle word\r\n" + RULE), "a longer message that wrapped in its middle word")).toBe("a longer message that wrapped in its middle word");
     // typed on or replaced, the words are the user's
     expect(restored(screen("❯ run the tests edited"), "run the tests")).toBeNull();
+    // a box of many blank rows against a near miss is answered at once, never by backtracking over them
+    const started = performance.now();
+    expect(restored(screen("\u276f x", "\r\n".repeat(30) + RULE), `x${" ".repeat(30)}y`)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1_000);
     // so are spaces taken out or put in: two Esc presses would erase that edit
     expect(restored(screen("❯ runthe tests"), "run the tests")).toBeNull();
     expect(restored(screen("❯ run  the tests"), "run the tests")).toBeNull();
