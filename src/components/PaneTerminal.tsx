@@ -39,16 +39,17 @@ import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
+import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
-import { fileUriPath, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
+import { fileUriPath, hyperlinkFilter, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 import { terminalLabel } from "../lib/terminalLabel.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { modalOpen } from "../lib/focus.ts";
+import { pinchFontSize } from "../lib/pinchFontSize.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -91,6 +92,10 @@ export interface PaneTerminalProps {
   autoSelected?: boolean;
   /** xterm font size (settings) */
   terminalFontSize: number;
+  /** xterm cursorStyle (settings); a program's own DECSCUSR still changes it, as before this setting existed */
+  terminalCursorStyle: TerminalCursorStyle;
+  /** xterm cursorBlink (settings) */
+  terminalCursorBlink: boolean;
   /** mouse reports sent per wheel event (settings): 1 is xterm's own one report */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in stack (settings); "" keeps the built-in one */
@@ -135,6 +140,8 @@ export function PaneTerminal({
   active = true,
   autoSelected = false,
   terminalFontSize,
+  terminalCursorStyle,
+  terminalCursorBlink,
   terminalWheelSpeed,
   terminalFontFamily,
   theme,
@@ -189,9 +196,12 @@ export function PaneTerminal({
   const wheelSpeedRef = useRef(terminalWheelSpeed);
   wheelSpeedRef.current = terminalWheelSpeed;
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const pinchBadgeRef = useRef<HTMLSpanElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  /** OSC 8 links this app cannot open are not drawn (#739); its state ends with `term.reset()` */
+  const hyperlinksRef = useRef(hyperlinkFilter());
   const socketRef = useRef<HerdrSocket | null>(null);
   const paneRef = useRef<string | null>(paneId);
   const onConnectionChangeRef = useRef(onConnectionChange);
@@ -326,8 +336,19 @@ export function PaneTerminal({
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const clipboardTimerRef = useRef<number | null>(null);
-  // the composer's send bumps this so the chat lens refetches without waiting a poll beat
+  // Explicit sends refresh immediately; continuous transcript invalidations are rate-limited.
   const [chatRefresh, setChatRefresh] = useState(0);
+  const [chatInvalidation, setChatInvalidation] = useState(0);
+  // an older bridge pushes no transcript changes: the chat reads at the former 2s cadence
+  const [conversationPushes, setConversationPushes] = useState(false);
+  const onConversationWatch = useCallback((pane: string, enabled: boolean) => {
+    socketRef.current?.watchConversation(pane, enabled);
+  }, []);
+  /** A scrollback stand-in's listener; a ref, so terminal output never re-renders the pane. */
+  const chatOutputRef = useRef<(() => void) | null>(null);
+  const onTerminalOutput = useCallback((listener: (() => void) | null) => {
+    chatOutputRef.current = listener;
+  }, []);
   // bumped as a composer message goes out: the chat must not title the turn before it as running
   const [chatSent, setChatSent] = useState(0);
   const [chatMetadata, setChatMetadata] = useState<{ pane: string; value: ConversationMetadata | null } | null>(null);
@@ -353,6 +374,13 @@ export function PaneTerminal({
   const [chatSuggestion, setChatSuggestion] = useState<{ pane: string; value: string } | null>(null);
   const onChatSuggestion = useCallback((pane: string, value: string | null) => {
     setChatSuggestion((current) => value !== null
+      ? (current?.pane === pane && current.value === value ? current : { pane, value })
+      : current?.pane === pane ? null : current);
+  }, []);
+  // a cancelled send the agent put back in its input box, for the composer to take again
+  const [chatRestored, setChatRestored] = useState<{ pane: string; value: string } | null>(null);
+  const onChatRestored = useCallback((pane: string, value: string | null) => {
+    setChatRestored((current) => value !== null
       ? (current?.pane === pane && current.value === value ? current : { pane, value })
       : current?.pane === pane ? null : current);
   }, []);
@@ -385,7 +413,7 @@ export function PaneTerminal({
     if (agentStatus === "working") setPendingAnswer(null);
   }, [agentStatus]);
   const onChatMetadata = useCallback((pane: string, value: ConversationMetadata | null) => {
-    // the same settings keep the same object: every 2 s poll would otherwise re-render the composer
+    // the same settings keep the same object: every conversation read would otherwise re-render the composer
     setChatMetadata((previous) => previous?.pane === pane && previous.value?.model === value?.model
       && previous.value?.reasoning_effort === value?.reasoning_effort
       && previous.value?.context?.used === value?.context?.used
@@ -444,7 +472,8 @@ export function PaneTerminal({
     const linkPressed = (event: MouseEvent): boolean => event.button === 0 && !term.hasSelection();
     const term = new Terminal({
       convertEol: false,
-      cursorBlink: true,
+      cursorStyle: terminalCursorStyle,
+      cursorBlink: terminalCursorBlink,
       // xterm keeps no scrollback: the attach stream lives in the alternate screen and herdr
       // owns scrollback (wheel and touch go to it). With scrollback on, the fit addon reserves
       // a scrollbar column - 15px by fallback wherever scrollbars are overlays - and the last
@@ -900,6 +929,8 @@ export function PaneTerminal({
       }
       return true;
     });
+    // OSC 8: a hyperlink this app cannot open (OmO's `omo-panel:` rows) is not drawn as one (#739)
+    const osc8 = term.parser.registerOscHandler(8, (payload) => hyperlinksRef.current.handler(payload));
     // modifyOtherKeys (CSI > 4 ; level m): xterm.js has no handler for it, so this one only
     // listens, and Ctrl+Enter is sent as the program asked (see onModifiedEnter)
     const modifyOtherKeys = (final: "m" | "n") => term.parser.registerCsiHandler({ prefix: ">", final }, (params) => {
@@ -937,9 +968,16 @@ export function PaneTerminal({
         setChatSent((current) => current + 1);
         setChatRefresh((current) => current + 1);
       }
+      // Ignore late invalidations for a detached pane or a chat no longer on screen.
+      if (message.type === "conversation-changed" && message.pane_id === paneRef.current
+        && chatViewRef.current && document.visibilityState !== "hidden") {
+        setChatInvalidation((current) => current + 1);
+      }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
       if (message.type === "pty-data") {
         if (message.pane_id !== paneRef.current || releasedRef.current) return;
+        // A chat showing herdr's scrollback has no native file to watch: output invalidates it.
+        if (chatViewRef.current) chatOutputRef.current?.();
         // raw pty bytes: append, never repaint, so xterm keeps the screen and selection
         const acknowledge = socket.outputAcknowledgement(message);
         const owner = message.pane_id;
@@ -1050,6 +1088,7 @@ export function PaneTerminal({
         term.writeln(`\r\n\u001b[31m[herdr-web-ui] ${message.code}: ${message.message}\u001b[0m`);
       }
       setConnected(socket.connected);
+      setConversationPushes(socket.conversationPushes());
     });
     const offDisconnect = session.onDisconnect(() => {
       clearModifiers();
@@ -1059,6 +1098,7 @@ export function PaneTerminal({
       setOutputReady(false);
       setInputReady(false);
       setConnected(false);
+      setConversationPushes(false);
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       setHeld(false);
@@ -1067,7 +1107,7 @@ export function PaneTerminal({
     });
     session.connect();
 
-    const poll = window.setInterval(() => setConnected(socket.connected), 1000);
+    const poll = window.setInterval(() => { setConnected(socket.connected); setConversationPushes(socket.conversationPushes()); }, 1000);
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
@@ -1256,10 +1296,74 @@ export function PaneTerminal({
     // a wheel at the cell under it (without one, every report said row 1, column 1).
     // An adopted grid has no history to send a wheel to (an observer's reports are dropped, a
     // mirror reports nothing): there the drag pans the mount, both ways, to the cells past its edge.
+    // Two fingers pinch the font size: the font follows them locally, and the shared pty resizes once when one lifts.
     let touchX = 0;
     let touchY = 0;
     let tracking = false;
+    let pinch: { first: number; second: number; startSize: number; startDistance: number; size: number } | null = null;
+    // from a second finger until every finger lifts: the stroke is a pinch, never a scroll
+    let pinchStroke = false;
+    let pinchWatchPending = false;
+    const spread = (a: Touch, b: Touch): number => Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+    const hidePinchBadge = (): void => {
+      if (pinchBadgeRef.current) pinchBadgeRef.current.hidden = true;
+    };
+    const applyLiveFont = (size: number): void => {
+      if (term.options.fontSize === size) return;
+      term.options.fontSize = size;
+      if (adopted() || chatViewRef.current) return;
+      try {
+        fit.fit();
+      } catch {
+        return;
+      }
+    };
+    const finishPinch = (save: boolean): void => {
+      const finished = pinch;
+      if (finished && (!save || finished.size === finished.startSize)) applyLiveFont(finished.startSize);
+      pinch = null;
+      const current = paneRef.current;
+      if (pinchWatchPending && current && releasedRef.current && watchingRef.current) socket.watch(current, term.cols, term.rows);
+      pinchWatchPending = false;
+      if (finished && save && finished.size !== finished.startSize) {
+        if (current && inUse() && !adopted() && !chatViewRef.current) socket.resize(current, term.cols, term.rows, true);
+        updateSettings({ terminalFontSize: finished.size });
+      }
+      hidePinchBadge();
+    };
+    const claimPinch = (event: Event): void => {
+      event.preventDefault();
+      // the host listens in the capture phase: xterm's own touch listeners on its element must not
+      // scroll its viewport with the first finger of a pinch
+      event.stopPropagation();
+    };
     const onTouchStart = (event: TouchEvent): void => {
+      if (chatViewRef.current) return;
+      if (event.touches.length === 1 && pinchStroke) {
+        finishPinch(false);
+        pinchStroke = false;
+      }
+      if (pinchStroke) {
+        claimPinch(event);
+        return;
+      }
+      if (event.touches.length >= 2) {
+        tracking = false;
+        pinchStroke = true;
+        claimPinch(event);
+        const a = event.touches[0];
+        const b = event.touches[1];
+        if (event.touches.length !== 2 || !a || !b ||
+            !host.contains(a.target as Node) || !host.contains(b.target as Node) ||
+            spread(a, b) <= 0) return;
+        const startSize = term.options.fontSize ?? terminalFontSize;
+        pinch = { first: a.identifier, second: b.identifier, startSize, startDistance: spread(a, b), size: startSize };
+        if (pinchBadgeRef.current) {
+          pinchBadgeRef.current.textContent = `${startSize}px`;
+          pinchBadgeRef.current.hidden = false;
+        }
+        return;
+      }
       tracking = event.touches.length === 1;
       const first = event.touches[0];
       if (tracking && first) {
@@ -1268,6 +1372,31 @@ export function PaneTerminal({
       }
     };
     const onTouchMove = (event: TouchEvent): void => {
+      if (!pinchStroke && event.touches.length > 1) {
+        tracking = false;
+        pinchStroke = true;
+      }
+      if (pinchStroke) {
+        claimPinch(event);
+        if (pinch && event.touches.length === 2) {
+          let first: Touch | undefined;
+          let second: Touch | undefined;
+          for (let i = 0; i < event.touches.length; i++) {
+            const touch = event.touches[i]!;
+            if (touch.identifier === pinch.first) first = touch;
+            if (touch.identifier === pinch.second) second = touch;
+          }
+          if (first && second) {
+            const size = pinchFontSize(pinch.startSize, pinch.startDistance, spread(first, second));
+            if (size !== pinch.size) {
+              pinch.size = size;
+              applyLiveFont(size);
+              if (pinchBadgeRef.current) pinchBadgeRef.current.textContent = `${size}px`;
+            }
+          }
+        }
+        return;
+      }
       if (!tracking || event.touches.length !== 1) return;
       event.preventDefault();
       const first = event.touches[0];
@@ -1287,12 +1416,21 @@ export function PaneTerminal({
         target.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: delta, clientX: first.clientX, clientY: first.clientY }));
       }
     };
-    const onTouchEnd = (): void => {
+    const onTouchEnd = (event: TouchEvent): void => {
       tracking = false;
+      if (!pinchStroke) return;
+      claimPinch(event);
+      if (event.type === "touchcancel" || event.touches.length < 2) finishPinch(event.type === "touchend");
+      if (event.touches.length === 0) pinchStroke = false;
     };
-    host.addEventListener("touchstart", onTouchStart, { passive: true });
-    host.addEventListener("touchmove", onTouchMove, { passive: false });
-    host.addEventListener("touchend", onTouchEnd, { passive: true });
+    // Safari zooms inside an overflow region (xterm's viewport) despite touch-action: none
+    const onGesture = (event: Event): void => { if (!chatViewRef.current) event.preventDefault(); };
+    host.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+    host.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    host.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+    host.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
+    host.addEventListener("gesturestart", onGesture, { passive: false });
+    host.addEventListener("gesturechange", onGesture, { passive: false });
 
     // The pty is shared per pane: a client on another device (typically a phone)
     // resizes it to its own geometry, and this tab's viewport never changed, so
@@ -1368,7 +1506,9 @@ export function PaneTerminal({
     // a window resized while watched: the view is drawn for a grid, so it starts again at the new one
     const onWatchedResize = term.onResize(({ cols, rows }) => {
       const current = paneRef.current;
-      if (current && releasedRef.current && watchingRef.current) socket.watch(current, cols, rows);
+      if (!current || !releasedRef.current || !watchingRef.current) return;
+      if (pinch) pinchWatchPending = true;
+      else socket.watch(current, cols, rows);
     });
     const resume = (): void => {
       if (!presentedRef.current) return;
@@ -1446,9 +1586,13 @@ export function PaneTerminal({
       window.clearInterval(poll);
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
-      host.removeEventListener("touchstart", onTouchStart);
-      host.removeEventListener("touchmove", onTouchMove);
-      host.removeEventListener("touchend", onTouchEnd);
+      host.removeEventListener("touchstart", onTouchStart, { capture: true });
+      host.removeEventListener("touchmove", onTouchMove, { capture: true });
+      host.removeEventListener("touchend", onTouchEnd, { capture: true });
+      host.removeEventListener("touchcancel", onTouchEnd, { capture: true });
+      host.removeEventListener("gesturestart", onGesture);
+      host.removeEventListener("gesturechange", onGesture);
+      finishPinch(false);
       host.removeEventListener("mousedown", onMouseDown, { capture: true });
       window.removeEventListener("mousemove", onMouseMove, { capture: true });
       window.removeEventListener("blur", onBlur);
@@ -1476,6 +1620,7 @@ export function PaneTerminal({
       host.removeEventListener("drop", onDrop);
       offDisconnect();
       osc52.dispose();
+      osc8.dispose();
       modifyOtherKeysSet.dispose();
       modifyOtherKeysOff.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
@@ -1502,6 +1647,15 @@ export function PaneTerminal({
     const term = termRef.current;
     if (term) term.options.theme = terminalTheme(theme, palette);
   }, [theme, palette]);
+
+  // the cursor's shape and blink follow too; a program's own DECSCUSR still overrides them until
+  // the next change here, as it already could when they were fixed
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.cursorStyle = terminalCursorStyle;
+    term.options.cursorBlink = terminalCursorBlink;
+  }, [terminalCursorStyle, terminalCursorBlink]);
 
   // the font follows too, and a font change moves the grid. xterm measures the cell (and the DOM
   // renderer its glyph widths) when fontFamily or fontSize changes, and setting the same value
@@ -1591,6 +1745,7 @@ export function PaneTerminal({
     setDraft(saved);
     draftPaneRef.current = paneId;
     term.reset();
+    hyperlinksRef.current.reset();
     modifyOtherKeysRef.current = 0;
     if (!paneId) return;
     const leavePane = (): void => {
@@ -2079,6 +2234,7 @@ export function PaneTerminal({
             this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
             stop on the wrapper would only be an empty one ahead of it. */}
         <div className={`pane-terminal${paneId === null ? " is-idle" : ""}${!chatView && paneId !== null ? " has-viewport-tools" : ""}`} ref={hostRef} id={viewportId} data-mouse-reporting={mouseReporting && !observing && !held && !secretActive && connected && !chatView ? "" : undefined} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
+        <span className="terminal-font-size" ref={pinchBadgeRef} hidden aria-hidden="true" />
         {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
           interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}
@@ -2096,6 +2252,10 @@ export function PaneTerminal({
             key={paneId}
             paneId={paneId}
             refreshKey={chatRefresh}
+            invalidationKey={chatInvalidation}
+            onConversationWatch={onConversationWatch}
+            conversationPushes={conversationPushes && !released}
+            onTerminalOutput={onTerminalOutput}
             sentKey={chatSent}
             connected={connected}
             ended={ended}
@@ -2106,6 +2266,7 @@ export function PaneTerminal({
             greeted={greeted}
             onPrompt={onChatPrompt}
             onSuggestion={onChatSuggestion}
+            onRestored={onChatRestored}
             promptRefreshKey={promptRefresh}
             pendingAnswer={pendingAnswer !== null && pendingAnswer.pane === paneId ? pendingAnswer : null}
             onPendingAnswerDone={clearPendingAnswer}
@@ -2224,6 +2385,7 @@ export function PaneTerminal({
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt?.pane !== paneId && chatSuggestion?.pane === paneId ? chatSuggestion.value : null}
+          restored={chatPrompt?.pane !== paneId && chatRestored?.pane === paneId ? chatRestored.value : null}
           greeting={greetingDue ? (
             <div className={`composer-greeting${greeted ? "" : " is-out"}`} ref={greetingRef} aria-hidden={greeted ? undefined : true}>
               <p className="composer-greeting-title">{t("What should {agent} do in {folder}?", { agent: agentDisplayLabel(agent), folder })}</p>
@@ -2238,6 +2400,7 @@ export function PaneTerminal({
       )}
       {presented && paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
       {presented && paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
+        holdScope={`${paneStorageId(machineId, paneId)}:${view}`}
         modifiers={modifiers} onToggleModifier={toggleModifier} items={settings.keyBarItems}
         {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
     </div>
