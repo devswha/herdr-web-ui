@@ -106,6 +106,33 @@
 
 .agent-item.is-selected > .agent-row { background: var(--side-selected); }
 
+.agent-pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--side-box);
+  width: var(--side-box);
+  height: var(--side-row-2);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.agent-pin-toggle svg {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+.agent-pin-toggle.is-pinned { color: var(--accent); }
+.agent-pin-toggle:focus-visible { outline-offset: calc(var(--ring-offset) * -1); }
+
+@media (hover: hover) {
+  .agent-pin-toggle:hover { color: var(--text-strong); }
+}
+
 .agent-copy {
   display: flex;
   flex: 1 1 auto;

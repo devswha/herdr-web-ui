@@ -51,6 +51,8 @@ export const KO: Record<string, string> = {
   "Amber": "앰버",
   "Catppuccin": "Catppuccin",
   "Lilac": "연보라",
+  "Pin agent": "에이전트 고정",
+  "Unpin agent": "에이전트 고정 해제",
   "Density": "밀도",
   "Comfortable": "여유",
   "Compact": "촘촘",
