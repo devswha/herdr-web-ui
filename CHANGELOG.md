@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- Grok chat reads native messages and tool activity, respects logical rewinds and
+  refreshes expanded tool output. An opt-in status-line helper can refresh Herdr's session
+  ID after in-TUI resume. macOS and Windows paths are included but have not been natively
+  verified. See [setup, compatibility limits and validation](docs/grok-chat.md).
 - Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
   choice, a typed answer for its "Other" row and for an open question, and ticks for a question
   that takes several answers. Text already on its answer line is cleared first, so it does not
