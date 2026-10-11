@@ -20,6 +20,7 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 bun run check fast                  # CI's Fast checks: workflow syntax, generated types, typecheck, build, unit tests
 bun run check integration browser   # CI's Integration and browser: a build, then both lanes side by side
 bun run check full                  # fast, then both lanes
+bun run check concurrent            # build once, then unit + integration + browser all in parallel (faster local full run)
 bun run check run bun test --timeout 15000 ./server/api.contract.test.ts   # one command on the same isolated herdr
 bun run check run --build bun scripts/ui-regression.ts                     # build and browser script under the same lock
 ```
@@ -41,6 +42,10 @@ generated-types check (`bun run generate:types --check`) is read-only, but `test
 `scripts/generate-protocol-types.test.ts`, which rewrites the generated file while it runs. Fast
 checks and the browser lane also build into `dist/`; avoid overlapping runs that write to the same
 checkout. (`check run` runs only its named command unless `--build` is supplied.)
+
+Unit tests run in parallel processes; `UNIT_TEST_WORKERS` sets the count (default: min(cores/2, 8)
+locally, 4 in CI). Each file runs independently in its own process; no shared state between
+processes. The queue is ordered largest file first, so long files start early.
 Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
 eight slots again for its checkout and counts every active holder against its requested limit,
 including holders above its candidate range. A busy admission port refuses rather than waits.
