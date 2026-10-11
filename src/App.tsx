@@ -151,7 +151,11 @@ export function App() {
   // the place the address names, read once at load: a link wins over this window's last selection
   const [initialLink] = useState(() => {
     // a link's lens is drawn over its pane's own, as a tapped notification's is (notificationViewTarget below)
-    return linksSomewhere(window.location.search) ? readLink(window.location.search) : null;
+    if (!linksSomewhere(window.location.search)) return null;
+    const link = readLink(window.location.search);
+    // a load onto an entry Settings left (a reload) steps out of it (lib/settingsHistory.ts), and that
+    // step may land after this is read: the dialog the address still names is the one that load closed
+    return settingsEntry(window.history.state) === null ? link : { ...link, settings: null, section: null };
   });
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     if (initialLink && (initialLink.pane || initialLink.workspace)) return initialLink.machine;

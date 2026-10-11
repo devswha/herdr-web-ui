@@ -251,6 +251,19 @@ try {
           addEventListener("popstate", () => note("popstate"), true);
           note("loaded");
         });
+        // a load that was asked to hold its steps back keeps them until the app has drawn itself, as a
+        // slow device does, and notes whether Settings was ever shown
+        await phone.addInitScript(() => {
+          if (sessionStorage.getItem("hold-steps-back") !== "1") return;
+          sessionStorage.removeItem("hold-steps-back");
+          const page = window as unknown as { releaseStepsBack: () => void; settingsShown: boolean };
+          const go = history.go.bind(history);
+          const held: Array<() => void> = [];
+          history.go = (delta?: number) => { held.push(() => go(delta)); };
+          page.releaseStepsBack = () => { history.go = go; for (const step of held.splice(0)) step(); };
+          page.settingsShown = false;
+          new MutationObserver(() => { if (document.querySelector(".settings-dialog") !== null) page.settingsShown = true; }).observe(document, { childList: true, subtree: true });
+        });
         const page = await phone.newPage();
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
@@ -303,12 +316,18 @@ try {
         await openSettings(page);
         await list.waitFor();
         await historyHolds(page, "a new opening", () => (history.state as Record<string, { depth: number }> | null)?.["herdr-web-ui:settings"]?.depth === 1);
-        // a reload keeps the history but not the dialog: its entries are stepped out of
+        // a reload keeps the history but not the dialog: its entries are stepped out of. The step lands
+        // when the browser gets to it, which on a slow device is after the app has drawn itself from an
+        // address that still names Settings: held back until then here, it must not show the dialog
         await openSettingsPage(page, "Alerts");
+        await page.waitForFunction(() => new URLSearchParams(window.location.search).get("settings") === "alerts");
+        await page.evaluate(() => sessionStorage.setItem("hold-steps-back", "1"));
         await page.reload();
         await page.locator(".conn-live").waitFor({ state: "attached" });
+        await page.evaluate(() => (window as unknown as { releaseStepsBack: () => void }).releaseStepsBack());
         await historyHolds(page, "the reload", () => (history.state as Record<string, unknown> | null)?.["herdr-web-ui:settings"] === undefined);
         assert.equal(await page.locator(".settings-dialog").count(), 0, "a reload does not reopen Settings");
+        assert.equal(await page.evaluate(() => (window as unknown as { settingsShown: boolean }).settingsShown), false, "a reload never shows Settings, however late its step back lands");
         assert.deepEqual(errors, []);
         console.log("PASS the X from the key bar editor and a reload leave no Settings entry in the history");
       } finally {
