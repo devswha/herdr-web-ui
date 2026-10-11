@@ -42,7 +42,9 @@ class Socket {
 }
 
 beforeAll(() => {
-  writeFileSync(join(root, "record.cjs"), `const fs=require("node:fs");const out=process.argv[2];process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write("\\x1b[?2004h"+(process.argv[3]||""),()=>fs.writeFileSync(out,""));process.stdin.on("data",c=>fs.appendFileSync(out,JSON.stringify(c.toString("utf8"))+"\\n"));const watch=fs.watch(process.argv[4],()=>process.stdout.write("\\x1b[2J\\x1b[H"+fs.readFileSync(process.argv[4],"utf8")));process.on("exit",()=>watch.close());`);
+  // The recorder polls its screen file: fs.watch can drop the change that follows writeFileSync's
+  // truncation, leaving the cleared screen it read in between up for good.
+  writeFileSync(join(root, "record.cjs"), `const fs=require("node:fs");const out=process.argv[2];process.stdin.setRawMode(true);process.stdin.resume();process.stdout.write("\\x1b[?2004h"+(process.argv[3]||""),()=>fs.writeFileSync(out,""));process.stdin.on("data",c=>fs.appendFileSync(out,JSON.stringify(c.toString("utf8"))+"\\n"));let shown="";setInterval(()=>{const next=fs.readFileSync(process.argv[4],"utf8");if(next!==shown){shown=next;process.stdout.write("\\x1b[2J\\x1b[H"+next);}},20);`);
   for (const name of ["claude", "codex", "plain"]) { copyFileSync(process.execPath, join(root, name)); chmodSync(join(root, name), 0o755); }
 });
 afterEach(async () => {
@@ -79,10 +81,13 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
     await reader.wait((frame) => frame.type === "pane-status" && frame.pane_id === pane && (value === "idle" || value === "unknown" ? ["idle", "done"].includes(frame.agent_status) : frame.agent_status === value), from);
   };
   // `ending`: what the screen ends with once drawn, for a text taller than the pane
+  // and a new screen that ends as the last one did is told apart by its colors and spacing
   const showScreen = async (text: string, ending = text) => {
+    const drawn = async () => (await paneRead({ paneId: pane, source: "visible", format: "ansi" })).text;
+    const before = await drawn();
     writeFileSync(screenFile, text);
     const deadline = Date.now() + 5_000;
-    while (!(await paneRead({ paneId: pane, source: "visible", format: "text" })).text.trimEnd().endsWith(ending.trimEnd())) {
+    while (await drawn() === before || !(await paneRead({ paneId: pane, source: "visible", format: "text" })).text.trimEnd().endsWith(ending.trimEnd())) {
       if (Date.now() >= deadline) throw new Error("recorder screen did not update");
       await Bun.sleep(25);
     }
