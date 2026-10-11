@@ -966,4 +966,7 @@ export const ZH: Record<string, string> = {
   "Plan flow": "计划流程图",
   "after {steps}": "前置步骤：{steps}",
   "Only part of this file is shown. Download it to read the rest.": "仅显示文件的一部分。请下载文件以阅读其余内容。",
+  "Focus pane input": "聚焦面板输入框",
+  "Automatic chat focus": "自动聚焦聊天输入框",
+  "Focus the message box when opening chat or selecting a pane. Auto skips touch screens; On also works on an iPad with an external keyboard.": "打开聊天或选择面板时聚焦消息输入框。自动模式会跳过触摸屏；开启后，连接外接键盘的 iPad 也可使用。",
 };

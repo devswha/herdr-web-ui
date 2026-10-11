@@ -539,3 +539,23 @@ it("highlights code unless turned off, and keeps a stored choice only when it is
   expect(sanitizeSettings({ highlightCode: "no" }).highlightCode).toBe(true);
   expect(sanitizeSettings({}).highlightCode).toBe(true);
 });
+
+
+describe("automatic chat focus", () => {
+  it("keeps the existing behavior until a device opts in or out", () => {
+    expect(DEFAULT_SETTINGS.chatAutoFocus).toBe("auto");
+    expect(sanitizeSettings({}).chatAutoFocus).toBe("auto");
+  });
+  it("persists each device choice through unrelated changes and reload", () => {
+    for (const chatAutoFocus of ["auto", "on", "off"] as const) {
+      const changed = sanitizeSettings({ chatAutoFocus, theme: "light" });
+      expect(changed.chatAutoFocus).toBe(chatAutoFocus);
+      expect(sanitizeSettings(JSON.parse(JSON.stringify(changed))).chatAutoFocus).toBe(chatAutoFocus);
+    }
+  });
+  it("falls back to Auto for malformed stored values", () => {
+    for (const chatAutoFocus of [null, true, 1, "On", "always", ["on"]]) {
+      expect(sanitizeSettings({ chatAutoFocus }).chatAutoFocus).toBe("auto");
+    }
+  });
+});

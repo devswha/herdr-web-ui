@@ -195,6 +195,9 @@ function ChatPage() {
             update({ defaultView });
           }} />
         </SettingsRow>
+        <SettingsRow label={t("Automatic chat focus")} description={t("Focus the message box when opening chat or selecting a pane. Auto skips touch screens; On also works on an iPad with an external keyboard.")} wide>
+          <Segmented label={t("Automatic chat focus")} value={settings.chatAutoFocus} options={[{ value: "auto", label: t("Auto") }, { value: "on", label: t("On") }, { value: "off", label: t("Off") }]} onChange={(chatAutoFocus) => update({ chatAutoFocus })} />
+        </SettingsRow>
         <SettingsRow label={t("Show thinking")} description={t("Include the agent's reasoning blocks")}>
           <Toggle label={t("Show thinking")} checked={settings.showThinking} onChange={(showThinking) => update({ showThinking })} />
         </SettingsRow>

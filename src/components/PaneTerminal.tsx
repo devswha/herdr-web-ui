@@ -39,7 +39,7 @@ import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
+import { chatLaneLength, shouldAutoFocusChat, useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -86,6 +86,8 @@ export interface PaneTerminalProps {
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
   findRequest?: number;
+  /** Synchronous focus callback for the selected pane, including hardware-keyboard gestures. */
+  inputFocus?: { current: (() => void) | null };
   /** Only the selected tile may take keyboard focus after async work or a lens change. */
   active?: boolean;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
@@ -137,6 +139,7 @@ export function PaneTerminal({
   machineName = "",
   view,
   findRequest = 0,
+  inputFocus,
   active = true,
   autoSelected = false,
   terminalFontSize,
@@ -2141,6 +2144,21 @@ export function PaneTerminal({
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
 
+  useLayoutEffect(() => {
+    if (!inputFocus || !active || !paneId) return;
+    const focus = () => {
+      if (!activeRef.current || !presentedRef.current || modalOpen() || observeRef.current) return;
+      const stack = stackRef.current;
+      const secret = stack?.querySelector<HTMLInputElement>(".secret-input input");
+      if (secret) { secret.focus({ preventScroll: true }); return; }
+      const input = stack?.querySelector<HTMLTextAreaElement>(chatViewRef.current ? ".composer-text" : ".terminal-input-text");
+      if (input) input.focus({ preventScroll: true });
+      else if (!chatViewRef.current && !heldRef.current && !endedRef.current) termRef.current?.focus();
+    };
+    inputFocus.current = focus;
+    return () => { if (inputFocus.current === focus) inputFocus.current = null; };
+  }, [inputFocus, active, paneId]);
+
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
     <div ref={stackRef} className={`terminal-stack${chatView ? " is-chat" : ""}${greeted ? " is-greeted" : ""}`} data-pane-owner={paneId === null ? undefined : paneStorageId(machineId, paneId)} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}>
@@ -2376,7 +2394,7 @@ export function PaneTerminal({
         <Composer
           key={paneId}
           paneId={paneId}
-          autoFocus={active && !autoSelected && !coarse}
+          autoFocus={active && !autoSelected && shouldAutoFocusChat(settings.chatAutoFocus, coarse)}
           active={active}
           agent={agent}
           agentStatus={agentStatus}

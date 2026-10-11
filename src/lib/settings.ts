@@ -31,6 +31,13 @@ export type Palette = "amber" | "report" | "charcoal" | "catppuccin" | "lilac" |
  *  narrow: 820px; default: follows the pane, up to 60rem (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
 export type ChatWidth = "narrow" | "default" | "wide" | "full";
 export const CHAT_WIDTHS: readonly ChatWidth[] = ["narrow", "default", "wide", "full"];
+/** Auto preserves the existing focus behavior on desktop and touch devices. */
+export type ChatAutoFocus = "auto" | "on" | "off";
+export const CHAT_AUTO_FOCUS: readonly ChatAutoFocus[] = ["auto", "on", "off"];
+/** Resolve the device preference without inferring a keyboard from its pointer capabilities. */
+export function shouldAutoFocusChat(mode: ChatAutoFocus, coarse: boolean): boolean {
+  return mode === "on" || (mode === "auto" && !coarse);
+}
 /** the microphone button. auto: in the chat composer off a phone, and only where dictation can work;
  *  on: there, on a phone and in the terminal input line, disabled with its reason where it cannot work; off: nowhere */
 export type VoiceButton = "auto" | "on" | "off";
@@ -96,6 +103,7 @@ export interface Settings {
   /** how wide the chat lane may run on a large screen, keyed as data-chat-width in src/styles.css; default follows the pane
    *  (chatLaneWidth, written by PaneTerminal); a narrower pane is never affected */
   chatWidth: ChatWidth;
+  chatAutoFocus: ChatAutoFocus;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
   enterSends: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
@@ -162,6 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatFontSize: null,
   chatFontFamily: "",
   chatWidth: "default",
+  chatAutoFocus: "auto",
   enterSends: true,
   showThinking: false,
   keepScreenOn: false,
@@ -321,6 +330,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     releasePaneAway: typeof record["releasePaneAway"] === "boolean" ? record["releasePaneAway"] : DEFAULT_SETTINGS.releasePaneAway,
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
+    chatAutoFocus: CHAT_AUTO_FOCUS.includes(record["chatAutoFocus"] as ChatAutoFocus) ? record["chatAutoFocus"] as ChatAutoFocus : DEFAULT_SETTINGS.chatAutoFocus,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,

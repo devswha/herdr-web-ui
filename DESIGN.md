@@ -257,6 +257,14 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   `>`, `\` and control characters stripped and names with spaces quoted.
 - Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.
 - `highlightCode` colors code in the chat by its language (default on; off shows plain text).
+- **Automatic chat focus** in Chat settings offers Auto/On/Off per browser and device. Auto keeps
+  desktop autofocus and skips coarse-pointer devices; On also enables it on touch; Off disables it.
+  Automatic pane selection and an open modal still prevent autofocus in every mode.
+- Mod+Shift+E focuses the selected pane's existing composer, terminal input line or xterm input,
+  preferring a mounted secret-input field. The callback is synchronous with the hardware key
+  event, scoped to the active, presented pane and its PC; a modal or observe mode blocks it.
+  It sends no text or keys and never takes an attach. The binding follows the existing shortcut
+  customization and Mod+Shift policy.
 - All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
 
 ## 4. Spacing & Layout

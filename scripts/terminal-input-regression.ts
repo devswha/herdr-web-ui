@@ -50,6 +50,11 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
     assert.equal(await page.locator(".key-bar").isVisible(), false, "a desktop shows no key bar under the terminal");
     assert.equal(await page.getByRole("button", { name: "Type straight into the terminal", exact: true }).count(), 0);
+    await page.locator(".pane-frame.is-current").focus();
+    const beforeFocus = sent.length;
+    await page.keyboard.press("ControlOrMeta+Shift+E");
+    assert.equal(await line.evaluate(node => node === document.activeElement), true, "the input shortcut focuses the terminal line");
+    assert.equal(sent.length, beforeFocus, "focus does not submit or send terminal input");
     await line.fill("draft 한글 😀");
     await remountLine();
     assert.equal(await line.inputValue(), "draft 한글 😀");
@@ -127,6 +132,10 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.locator(".xterm-helper-textarea").waitFor();
     await until(() => !!ready);
     const before = sent.length;
+    await page.locator(".pane-frame.is-current").focus();
+    await page.keyboard.press("ControlOrMeta+Shift+E");
+    assert.equal(await page.locator(".xterm-helper-textarea").evaluate(node => node === document.activeElement), true, "the input shortcut also focuses direct terminal input before readiness");
+    assert.equal(sent.length, before, "focus sends no input before readiness");
     await page.locator(".xterm-helper-textarea").press("a");
     await until(async () => (await page.locator(".draft-text").textContent()) === "a");
     assert.equal(sent.length, before);

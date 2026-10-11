@@ -480,10 +480,14 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 
 `Mod` is **⌘** on Apple platforms and **Ctrl** elsewhere. Global app shortcuts add Shift, so the terminal keeps its own Ctrl keys. These are the defaults:
 
+**Automatic chat focus**, in Settings → Chat, is saved on this browser and device. **Auto** keeps the existing behavior: selecting a pane or opening chat focuses its message box on desktop, while touch screens keep focus where it was. **On** also focuses chat on touch devices, useful for an iPad with an external keyboard; **Off** leaves focus in place. A pane selected automatically after another closes, or opened under a modal, never takes focus. **Mod+Shift+E** explicitly focuses the selected pane's input in any mode, including the terminal's input line and direct input; it prefers masked input while a secret prompt is open. The shortcut can be reassigned or disabled in Settings → Shortcuts.
+
+
 | Shortcut | Action |
 | --- | --- |
 | `Mod+Shift+K` | Command palette |
 | `Mod+Shift+J` | Switch Chat / Terminal |
+| `Mod+Shift+E` | Focus the current pane's message box, terminal input line or terminal |
 | `Mod+Shift+B` | Toggle sidebar |
 | `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |

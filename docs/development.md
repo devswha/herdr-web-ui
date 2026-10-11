@@ -94,6 +94,7 @@ bun scripts/key-bar-customization-demo-regression.ts # mobile key layout, saved 
 bun scripts/key-bar-hold-repeat-regression.ts # phone touch-arrow taps, holds, swipes and sticky Ctrl on demo fixtures
 bun scripts/settings-pages-demo-regression.ts # every Settings page on a 390px and a 320px phone, and Back stepping out of the dialog
 bun scripts/chat-browser-qa.ts  # chat lens end to end
+bun scripts/pane-input-focus-demo-regression.ts # input focus and autofocus against fictional panes
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
 bun run test:ssh                # remote-PC integration over SSH

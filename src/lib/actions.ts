@@ -15,6 +15,8 @@ export interface AppActions {
   selectAdjacentPane: (direction: -1 | 1) => void;
   setView: (view: PaneView) => void;
   toggleView: () => void;
+  /** Focus the selected pane's mounted input without sending any text or keys. */
+  focusInput: () => void;
   openNewSession: () => void;
   /**
    * The New tab dialog for a workspace: the named one (a sidebar row's menu, on its own PC),

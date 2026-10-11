@@ -964,4 +964,7 @@ export const JA: Record<string, string> = {
   "Plan flow": "計画のフロー図",
   "after {steps}": "先行ステップ: {steps}",
   "Only part of this file is shown. Download it to read the rest.": "ファイルの一部のみ表示しています。残りはダウンロードしてお読みください。",
+  "Focus pane input": "ペインの入力欄にフォーカス",
+  "Automatic chat focus": "チャット入力欄の自動フォーカス",
+  "Focus the message box when opening chat or selecting a pane. Auto skips touch screens; On also works on an iPad with an external keyboard.": "チャットを開くかペインを選択すると、メッセージ入力欄にフォーカスします。自動ではタッチ画面を除外し、オンでは外付けキーボードを接続したiPadでも動作します。",
 };

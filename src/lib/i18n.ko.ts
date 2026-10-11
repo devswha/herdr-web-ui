@@ -962,4 +962,7 @@ export const KO: Record<string, string> = {
   "Plan flow": "계획 흐름도",
   "after {steps}": "선행 단계: {steps}",
   "Only part of this file is shown. Download it to read the rest.": "파일의 일부만 표시됩니다. 나머지는 다운로드해 확인하세요.",
+  "Focus pane input": "패널 입력창으로 이동",
+  "Automatic chat focus": "채팅 입력창 자동 포커스",
+  "Focus the message box when opening chat or selecting a pane. Auto skips touch screens; On also works on an iPad with an external keyboard.": "채팅을 열거나 패널을 선택하면 메시지 입력창으로 포커스를 이동합니다. 자동은 터치 화면에서 끄고, 켜기는 외장 키보드를 연결한 iPad에서도 작동합니다.",
 };
