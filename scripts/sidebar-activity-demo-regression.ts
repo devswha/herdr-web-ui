@@ -145,6 +145,17 @@ try {
         await page.keyboard.press("Escape");
         console.log("PASS workspace right-click scope, pointer anchor and focus; matching ⋯ menu and existing sidebar layout retained");
         assert.deepEqual(await agentTitles(page), AGENTS_HERDR_ORDER);
+        // herdr's order puts each workspace's agents in a card named for it; a row's dim line
+        // leaves the workspace to the card, its tooltip and the list's label keep it
+        assert.deepEqual(await page.locator(".agents-sidebar .agent-group-name").allTextContents(), ["checkout-api", "web-dashboard", "infra", "docs-site", "cli-tools"]);
+        const apiRow = agent(page, API);
+        // with nothing else to say, the line says the kind rather than stay empty
+        const apiLine = await apiRow.locator(".agent-context").textContent() ?? "";
+        assert.doesNotMatch(apiLine, /checkout-api/, "a row in a card leaves its workspace to the card");
+        assert.match(apiLine, /claude/i, "a row in a card with nothing else to say names its kind");
+        assert.match(await apiRow.locator(".agent-select").getAttribute("title") ?? "", /checkout-api/, "the tooltip still names the workspace");
+        const labelledBy = await page.locator(".agents-sidebar .agent-group-rows", { has: page.locator(".agent-title", { hasText: API }) }).getAttribute("aria-labelledby");
+        assert.equal(await page.locator(`[id="${labelledBy}"]`).textContent(), "checkout-api", "the card's rows are labelled by its head");
         await waitStatus(page, API, "done");
         assert.deepEqual(await agentTitles(page), AGENTS_HERDR_ORDER, "a finish does not move an agent");
         await agentSelect.click();
@@ -153,7 +164,7 @@ try {
         assert.equal(await page.locator(".row-menu, .row-sheet").count(), 0, "selecting the agent does not open a menu");
         assert.equal(await agentStatus(page, API), "done", "herdr's DONE stands until herdr itself shows the pane");
       });
-      console.log("PASS by default the Agents list keeps herdr's order, and an opened DONE keeps its dot");
+      console.log("PASS by default the Agents list keeps herdr's order in workspace cards, and an opened DONE keeps its dot");
 
       await withPage(browser, {}, async (page) => {
         const drawerToggle = page.locator('button[aria-controls="workspace-drawer"]');
@@ -176,6 +187,8 @@ try {
 
       await withPage(browser, { agentOrder: "activity", quietOpenedDone: true }, async (page) => {
         assert.equal((await agentTitles(page))[0], WEB, "the blocked agent is pinned on top");
+        assert.equal(await page.locator(".agents-sidebar .agent-group").count(), 0, "Activity mixes workspaces, so it draws no cards");
+        assert.match(await agent(page, WEB).locator(".agent-context").textContent() ?? "", /web-dashboard/, "a row outside a card names its workspace");
 
         // the demo's Claude pane finishes out of sight: it rises under the blocked one, and keeps its dot
         await waitStatus(page, API, "done");
@@ -240,7 +253,7 @@ try {
           await page.waitForTimeout(100);
         }
       }, {});
-      console.log("PASS Activity pins blocked and follows recency; an opened DONE reads as ready in both lists, an unopened one keeps its dot");
+      console.log("PASS Activity pins blocked and follows recency without cards; an opened DONE reads as ready in both lists, an unopened one keeps its dot");
 
       // the demo keeps its agent template after its last agent closes (#529 review): a workspace
       // made in an emptied demo still lists its agent with herdr's counter
