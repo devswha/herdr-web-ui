@@ -2133,9 +2133,9 @@ export function PaneTerminal({
       if (!socketRef.current?.connected || heldRef.current || secretRef.current !== null) return false;
       // an older bridge is told apart by the socket, once this connection's snapshot has said what it supports.
       // A draft is cleared only by a send at once: one that waits its turn is checked when it goes
-      // with automatic sending off, a follow-up waits for Send now; a PC too old to hold one queues it as before
+      // with automatic sending off, a follow-up waits for Send now; the socket queues it on a PC too old to hold one
       const queued = composerDelivery(agent, agentStatus);
-      const delivery: SubmitDelivery = queued === "queue" && !settings.autoSendQueued && socketRef.current.canHoldMessages() ? "hold" : queued;
+      const delivery: SubmitDelivery = queued === "queue" && !settings.autoSendQueued ? "hold" : queued;
       const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined);
       return result === null ? false : result.then((answer) => answer.ok ? true : submitRefusal(answer.code, answer.message, answer.draft));
     },

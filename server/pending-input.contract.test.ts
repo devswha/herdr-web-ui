@@ -156,6 +156,20 @@ describe("connection-owned pending input", () => {
     expect(f.bytes()).toBe(`barrier\r${paste("hold me")}\r`);
   }, 30_000);
 
+  it("keeps a held message that arrives after the turn ended, typing nothing until Send now", async () => {
+    const f = await setup("hold-ready"); await f.state("idle");
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "late hold", payload: "unused\r", delivery: "hold" });
+    const answer = await f.socket.result(1);
+    expect(answer).toMatchObject({ ok: true, pending: { request_id: 1, state: "held" } });
+    f.socket.send({ type: "submit", id: 2, pane_id: f.pane, text: "barrier", payload: "barrier", typed: true });
+    expect(await f.socket.result(2)).toMatchObject({ ok: true }); await f.waitBytes("barrier\r");
+    expect(f.bytes()).toBe("barrier\r");
+    f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: answer.pending.id, action: "steer" });
+    expect(await f.socket.action(10)).toMatchObject({ ok: true }); await f.removed(answer.pending.id);
+    await f.waitBytes(`${paste("late hold")}\r`);
+    expect(f.bytes()).toBe(`barrier\r${paste("late hold")}\r`);
+  }, 30_000);
+
   it("closes a trailing @file mention with a space before its Enter", async () => {
     const f = await setup("mention");
     const message = await f.queue(1, "look at @/tmp/shot.png");

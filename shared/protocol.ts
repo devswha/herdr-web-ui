@@ -996,8 +996,8 @@ export type ClientMessage =
    * input line, which types `payload` like the keyboard would even into an agent's open menu.
    * `delivery:queue` requires "pending-input" and a live interact attachment: while the agent
    * works the bridge keeps the message until its next turn, or the owner explicitly steers it.
-   * `delivery:hold` (feature "pending-hold") is the same, except the message is kept as held: it
-   * never goes on its own when the turn ends, only when the owner steers it.
+   * `delivery:hold` (feature "pending-hold") is the same, except the message is kept as held, also
+   * when it arrives after the turn ended: it never goes on its own, only when the owner steers it.
    * Omission keeps the legacy immediate submission. Queued messages never resume after lease loss.
    * Queue request ids increase monotonically per connection; recent duplicates replay their
    * receipt, and retired ids are rejected rather than executed after history eviction.

@@ -379,8 +379,9 @@ export class HerdrSocket {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
       if (!this.connected || this.socket !== socket) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot submit messages." };
+      // hold is decided once the snapshot said what the bridge supports: one too old to hold queues it as before
+      if (delivery === "hold" && !this.canHoldMessages()) delivery = "queue";
       if (delivery === "queue" && !this.canQueueMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to queue messages." };
-      if (delivery === "hold" && !this.canHoldMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to hold messages." };
       if (!this.features.has("submit")) {
         if (clearDraft !== undefined) return { ok: false, code: "unsupported", message: "Update this PC to clear a terminal draft before sending. Nothing was sent." };
         this.rawSend({ type: "input", pane_id: paneId, text: `${payload}\r` });

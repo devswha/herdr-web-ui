@@ -3096,7 +3096,8 @@ export function createServer(
                       // A request that raced the turn's finish still needs cancellable
                       // paste + Enter; agent.prompt commits its key inside herdr. With a message
                       // already waiting its turn here, this one takes its place behind it instead.
-                      if (!pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
+                      // A held message is never typed by arriving after the turn: it waits for Send now.
+                      if (message.delivery === "queue" && !pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
                     }
                     pending.observe(message.pane_id, context.pane.agent_status, mark);
                     // hold: kept for the owner's Send now, never sent by the turn's end
