@@ -275,6 +275,9 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
       <SettingsRow label={t("Terminal font size")} description={t("Applied to every terminal pane")}>
         <Stepper label={t("Terminal font size")} value={settings.terminalFontSize} text={`${settings.terminalFontSize}px`} min={TERMINAL_FONT_MIN} max={TERMINAL_FONT_MAX} decreaseLabel={t("Decrease terminal font size")} increaseLabel={t("Increase terminal font size")} onChange={(terminalFontSize) => update({ terminalFontSize })} />
       </SettingsRow>
+      <SettingsRow label={t("Fit 80 columns in a split pane")} description={t("A split pane narrower than 80 columns draws in a smaller font, down to 10px, so a program that needs 80 columns still fits. Turn it off to keep your font size in every pane.")}>
+        <Toggle label={t("Fit 80 columns in a split pane")} checked={settings.narrowPaneFont} onChange={(narrowPaneFont) => update({ narrowPaneFont })} />
+      </SettingsRow>
       <SettingsRow label={t("Terminal font")} description={t("Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
         <FontFamilyInput value={settings.terminalFontFamily} label={t("Terminal font")} onCommit={(terminalFontFamily) => update({ terminalFontFamily })} />
       </SettingsRow>

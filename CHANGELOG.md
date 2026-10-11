@@ -70,6 +70,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   two plan settings): the names only, never a value, and never a setting you type. The notice is
   shown once more before anything is sent, and the same switch and environment variables turn it off.
   ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts), [#820](https://github.com/devswha/herdr-web-ui/pull/820))
+- A split pane narrower than 80 columns draws its terminal in a smaller font, down to 10px, so
+  it still has the 80 columns programs such as btop need; widened or zoomed, it returns to your
+  font size. A pane too narrow to reach 80 columns even at 10px keeps your size, as does a pane this
+  browser only mirrors or watches. Settings → Terminal → **Fit 80 columns in a split pane** turns
+  it off. ([#824](https://github.com/devswha/herdr-web-ui/pull/824))
 - On a phone the app moves and responds like an iPhone app rather than a web page. Menus,
   dialogs, the palette and Settings slide up from the bottom, follow your finger when you drag
   them down, and slide away however they close; the workspace drawer follows your finger too.
@@ -96,6 +101,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
 
 ### Fixed
+- Reloading with Settings open closes Settings whenever the browser gets to its step back; it could
+  come back when the app had drawn itself first, as on a slow device. ([#825](https://github.com/devswha/herdr-web-ui/pull/825))
 - A phone shows a split tab one pane at a time again, at the screen's whole width, instead of
   every pane squeezed into herdr's grid (since 0.4.6). The tab's menu lists the tab's panes to
   switch between them. Wider screens keep the split, and herdr's own layout is not changed.

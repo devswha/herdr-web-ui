@@ -15,7 +15,7 @@ import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDial
 import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
-import { onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
+import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
 import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -151,7 +151,11 @@ export function App() {
   // the place the address names, read once at load: a link wins over this window's last selection
   const [initialLink] = useState(() => {
     // a link's lens is drawn over its pane's own, as a tapped notification's is (notificationViewTarget below)
-    return linksSomewhere(window.location.search) ? readLink(window.location.search) : null;
+    if (!linksSomewhere(window.location.search)) return null;
+    const link = readLink(window.location.search);
+    // a load onto an entry Settings left (a reload) steps out of it (lib/settingsHistory.ts): the
+    // dialog its address names, on that entry or on the one stepped back to, is the one it closed
+    return loadedOnSettingsEntry() ? { ...link, settings: null, section: null } : link;
   });
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     if (initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink))) return initialLink.machine;
@@ -1177,7 +1181,7 @@ export function App() {
           <div id={PANE_TABPANEL_ID} className="terminal-tabpanel" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
           <PaneCanvas key={selectedMachineId} snapshot={snapshot} pane={selectedPane} selectedPaneId={selectedPaneId} onSelect={selectPane} onChanged={actions.refresh}
             isTerminal={(item) => (item.pane_id === selectedPaneId ? view : storedView(lenses, item.pane_id, selectedMachineId, item.agent != null, terminalAttach)) === "terminal"}
-            renderPane={(item, active) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId: selectedMachineId }) : null}>
+            renderPane={(item, active, split) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId: selectedMachineId }) : null}>
               <PaneTerminal
                 title={item ? displayPaneTitle(item) : selectedTitle}
                 // Wait for the roster before attaching: the loading placeholder is replaced
@@ -1195,6 +1199,7 @@ export function App() {
                 findRequest={findRequest.paneId === item?.pane_id ? findRequest.serial : 0}
                 autoSelected={autoSelected}
                 terminalFontSize={settings.terminalFontSize}
+                split={split}
                 terminalCursorStyle={settings.terminalCursorStyle}
                 terminalCursorBlink={settings.terminalCursorBlink}
                 terminalWheelSpeed={settings.terminalWheelSpeed}

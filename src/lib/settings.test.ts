@@ -13,6 +13,13 @@ it("keeps a tab's pane while out of use until this device turns the pause on", (
   expect(sanitizeSettings({ releasePaneAway: "true" }).releasePaneAway).toBe(false);
 });
 
+it("shrinks a narrow split pane's font until this device turns it off", () => {
+  expect(DEFAULT_SETTINGS.narrowPaneFont).toBe(true);
+  expect(sanitizeSettings({}).narrowPaneFont).toBe(true);
+  expect(sanitizeSettings({ narrowPaneFont: false }).narrowPaneFont).toBe(false);
+  expect(sanitizeSettings({ narrowPaneFont: "false" }).narrowPaneFont).toBe(true);
+});
+
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
   expect(sanitizeSettings({}).keepScreenOn).toBe(false);
