@@ -1541,7 +1541,9 @@ try {
   await phoneStrip.getByRole("button", { name: "Actions for build", exact: true }).tap();
   const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
   await tabSheet.waitFor();
-  assert.deepEqual(await tabSheet.locator(".row-sheet-item").allTextContents(), ["Move tab left", "Move tab right", "New tab", "Rename tab", "Close tab"], "a tab between siblings offers both adjacent moves on touch");
+  const touchTabItems = await tabSheet.locator(".row-sheet-item").allTextContents();
+  assert.deepEqual(touchTabItems.slice(-5), ["Move tab left", "Move tab right", "New tab", "Rename tab", "Close tab"], "a tab between siblings offers both adjacent moves on touch");
+  assert.ok(touchTabItems.includes("Rename pane") && touchTabItems.includes("Close pane"), "the touch menu carries the open pane's actions");
   await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
   await tabSheet.waitFor({ state: "detached" });
   await runMoreItem(tabPhonePage, "Move pane to…");
