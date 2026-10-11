@@ -3519,9 +3519,10 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
 
 /** One line per answer that got as far as the pane: the pane, whether the card's prompt still stood, and the
  * refusal's own code (prompt_changed, invalid_answer, agent_blocked, a herdr error...). Never the answer. The pane
- * id is the client's until the snapshot has checked it, so it is logged without control characters. */
+ * id is the client's until the snapshot has checked it, so it is logged as a JSON string: one field, whatever it holds. */
 async function logAnswer(log: { paneId: string; matched: boolean }, response: Response): Promise<void> {
   const outcome = response.ok ? "ok" : ((await response.clone().json().catch(() => null)) as { error?: { code?: string } } | null)?.error?.code ?? `status_${response.status}`;
-  const pane = log.paneId.replace(/[^\x20-\x7e]/g, "?").slice(0, 80);
+  // quoted as JSON: a space or a newline in the client's id cannot pass for a field of the line
+  const pane = JSON.stringify(log.paneId.slice(0, 80));
   console.log(`[prompt/answer] pane=${pane} prompt_matched=${log.matched} outcome=${outcome}`);
 }
