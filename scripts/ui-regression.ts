@@ -23,6 +23,7 @@ import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { checkTerminalPinch } from "./terminal-pinch-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
 import { checkTabMenu } from "./tab-menu-regression.ts";
+import { sheetsSettled } from "./sheets-settled.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkSafariIme } from "./terminal-safari-ime-regression.ts";
@@ -330,16 +331,18 @@ try {
   let releasePoll!: () => void;
   const heldPoll = new Promise<void>((resolve) => { releasePoll = resolve; });
   releases.push(releasePoll);
+  let pollChosen = false;
   let pollCaptured = false;
   let pollFinished = false;
   await page.route("**/api/machines", async (route) => {
+    // Hold only the stale read; later refreshes pass through without pending route handlers.
+    if (pollChosen) { await route.continue(); return; }
+    pollChosen = true;
     const response = await route.fetch();
-    if (!pollCaptured) {
-      pollCaptured = true;
-      await heldPoll;
-      await route.fulfill({ response });
-      pollFinished = true;
-    } else await route.fulfill({ response });
+    pollCaptured = true;
+    await heldPoll;
+    await route.fulfill({ response });
+    pollFinished = true;
   });
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await until(() => pollCaptured, "held machines snapshot");
@@ -1530,6 +1533,7 @@ try {
   await runMoreItem(tabPhonePage, "Move pane to…");
   const moveSheet = tabPhonePage.getByRole("dialog", { name: /^Move .+ to$/ });
   await moveSheet.waitFor();
+  await sheetsSettled(tabPhonePage);
   const moveItems = moveSheet.locator(".row-sheet-item");
   assert.ok(await moveItems.count() >= 15, `the move sheet lists the dozen tabs and the other workspaces (${await moveItems.count()} items)`);
   const moveList = moveSheet.locator(".row-sheet-items");
