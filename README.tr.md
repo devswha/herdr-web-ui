@@ -39,11 +39,11 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
   <tr>
     <td width="50%" valign="top">
       <a href="https://github.com/user-attachments/assets/32ca9aa4-960f-4629-9fb5-17c12ba35c80"><img src="docs/media/readme/terminal.webp" width="100%" alt="Canlı kayıt: tarayıcıda Sohbet görünümünde Claude Code'un yanıtı; Terminal'e tıklayınca aynı panel, Claude Code'un kendi terminalindeki gibi görünür ve düzenlemesi src/server.test.ts'e test satırını ekler. Telefonda tuş çubuğundaki ↑, bun test komutunu geri getirir; yanındaki Enter onu yeniden çalıştırır: 5 geçti, 0 kaldı."></a>
-      <br><b>Canlı termina geçin</b>
+      <br><b>Canlı terminale geçin</b>
       <br><sub>Tek tıkla sohbet, panelin gerçek terminaline dönüşür; telefonda tuş çubuğundaki ↑ test komutunu geri getirir, yanındaki Enter onu yeniden çalıştırır.</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="https://github.com/user-attachments/assets/22d10639-9aa6-4953-a5f3-a1b743f4053b"><img src="docs/media/readme/layout.webp" width="100%" alt="Canlı kayıt: tarayıcıda herdr düzeni — kenar çubuğunda dört çalışma alanı, her satır ajanının durumuyla biter; sekmeler ve bölünmüş paneller görünü. Telefonda ☰ aynı çalışma alanlarını açar, bir dokunuş Claude'un sohbetini getirir."></a>
+      <a href="https://github.com/user-attachments/assets/22d10639-9aa6-4953-a5f3-a1b743f4053b"><img src="docs/media/readme/layout.webp" width="100%" alt="Canlı kayıt: tarayıcıda herdr düzeni — kenar çubuğunda dört çalışma alanı, her satır ajanının durumuyla biter; sekmeler ve bölünmüş paneller görünür. Telefonda ☰ aynı çalışma alanlarını açar, bir dokunuş Claude'un sohbetini getirir."></a>
       <br><b>herdr düzeniniz, tarayıcıda</b>
       <br><sub>Her çalışma alanı, sekme ve bölünmüş panel, her ajanın durumuyla birlikte: bir sekmeye tıklayın, bölünmenin bir panelini seçin ya da çalışma alanlarına telefondan geçin.</sub>
     </td>
@@ -78,7 +78,7 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 
 - **Sohbet ve terminal, tek panelde** — yerel Claude Code, Codex, omp, omo, gjc, pi, Hermes ve açıkça tanımlanmış Devin CLI dökümleri, ayrıca herdr'ın tanıdığı OpenCode 2 oturumları; canlı terminal bir tık uzağınızda. Ajan çalışırken sıradaki mesajı yazın: sıradaki turla birlikte girer ya da Şimdi gönder ile hemen. [Desteklenen ajanlar →](docs/guide.md#supported-agents)
 - **Tek dokunuşla onaylayın** — onaylar, sorular ve plan menüleri karta dönüşür; yanıtınız gönderilmeden güncel oldukları denetlenir.
-- **Ne zaman gerekli olduğunuzu bilin** — her panel için canlı durum, uygulama açıkken eden uyarılar ve bir ajan girdi istediğinde ya da bittiğinde, uygulama kapalıyken bile anlık uyarılar.
+- **Ne zaman gerekli olduğunuzu bilin** — her panel için canlı durum, uygulama açıkken gelen uyarılar ve bir ajan girdi istediğinde ya da bittiğinde, uygulama kapalıyken bile anlık uyarılar.
 - **Telefonunuza kurun** — klavyenin üzerinde yeniden düzenlenebilen ve Ayarlar'da kendi bileşimlerinizle genişletilebilen tuş çubuğu (Esc, Tab, Ctrl, Alt, Shift, Enter, yön tuşları) olan bir PWA ve Tailscale adresinize QR kodu. [Telefon kurulumu →](docs/guide.md#on-your-phone)
 - **Yazmak yerine konuşun** — sohbete ya da terminal satırına dikte edin, Korece ve İngilizce karışık. Sözcükleri ajana göndermeden önce inceleyin; yazıya çevirme kendi OpenAI anahtarınızı ya da tarayıcının konuşma tanımasını kullanır.
 - **İş akışınızı koruyun** — ajanların sahibi herdr'dır; bu uygulama onlara bağlanır. Ayarlar'dan, onları durdurmadan güncelleyin; her güncellemenin getirdikleri not olarak gelir. Yeni sekmeler ve worktree'ler satırın ⋯ menüsünden gelir. [Tüm özellikler →](docs/guide.md#features)
@@ -139,7 +139,7 @@ Oturum dosyaları her ajanı çalıştıran bilgisayarda kalır; içerikleri yal
 
 **Windows'ta çalışır mı?**
 
-Evet, WSL olmadan Windows x64 üzerinde. herdr orada terminal bağlayabileye dek terminal, yazma ve sabit ızgaralı bir [ekran aynasıdır](docs/remote-pcs.md#windows-pcs).
+Evet, WSL olmadan Windows x64 üzerinde. herdr orada terminale bağlanmayı destekleyene dek terminal, yazma ve sabit ızgaralı bir [ekran aynasıdır](docs/remote-pcs.md#windows-pcs).
 
 **collie, roamgate ya da herdr-remote'dan farkı ne?**
 
