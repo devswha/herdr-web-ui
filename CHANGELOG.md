@@ -62,6 +62,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   in an ellipsis instead of wrapping its buttons onto a second row, the line after an update closes
   with an × like a PC's line, and an install's step, count and bar share one row. The warning to
   save unsent drafts before a reload is the one line still read in full, so it may wrap.
+- A PC window left in front while you used the terminal on a phone stayed at the phone's size
+  when you came back, because it never lost the focus and so never took the pane back. A click
+  or a key in its terminal now returns the pane to the PC's size. ([#839](https://github.com/devswha/herdr-web-ui/pull/839))
 
 ## [0.4.7] - 2026-10-12
 
