@@ -752,6 +752,16 @@ export class ClaudeSubagentStatus {
     return tracked?.path ? { path: tracked.path, live: tracked.live, startedAt: tracked.startedAt } : null;
   }
 
+  /**
+   * sessionOf for the pane as herdr has it now (`pane`): a Claude pane's transcript only as found for the session it runs,
+   * since a snapshot read before the session changed can be looked up after the change (it waited behind another
+   * refresh); a pane that left Claude keeps the transcript it had, for what was left running there.
+   */
+  sessionFor(pane: HerdrPane): { path: string; live: boolean; startedAt: number | null } | null {
+    if (pane.agent === "claude" && this.panes.get(pane.pane_id)?.key !== `${pane.agent_session?.value ?? ""}\0${pane.cwd ?? ""}`) return null;
+    return this.sessionOf(pane.pane_id);
+  }
+
   /** Finds the Claude panes of a snapshot and their transcripts; a lookup costs process calls, so a known one is not repeated. */
   refresh(panes: HerdrPane[]): Promise<void> {
     const ids = new Set(panes.map((pane) => pane.pane_id));

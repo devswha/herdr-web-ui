@@ -1017,7 +1017,7 @@ export function createServer(
   });
   /** the plan each Claude Code and Codex pane's agent keeps, for the sidebar's progress (server/session-plan.ts) */
   const plans = new SessionPlans({
-    claudePath: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null,
+    claudePath: (pane) => claudeAgents.sessionFor(pane)?.path ?? null,
     // only what is certain without reading the screen: the chat's own matching stays the chat's
     codexPath: async (pane) => codexOpenRollout(pane.pane_id, pane.cwd, await paneCodexHome(pane.pane_id, options.codexHome)),
     onChange: (paneId, summary) => planChanged(paneId, summary),
@@ -2231,13 +2231,14 @@ export function createServer(
           // background lookup has not got to it yet, and the one of a session the pane no longer runs is dropped before
           // it is read (ClaudeSubagentStatus.ensure). A pane herdr did not answer for in time (slow, gone or unreachable)
           // is told none, and the next ask has the rest: the session it runs is not known, and the transcript known from
-          // before may be another session's. So every ask costs a herdr lookup, an unknown pane's too; the client bounds
-          // its discovery retries.
+          // before may be another session's; so may one a snapshot read before the session changed looked up after it,
+          // so only a transcript found for the session herdr names is read. So every ask costs a herdr lookup, an unknown
+          // pane's too; the client bounds its discovery retries.
           const seen: { pane?: HerdrPane } = {};
           await within(1000, (async () => {
             await claudeAgents.ensure(seen.pane = await paneGet(paneId));
           })());
-          const claude = seen.pane === undefined ? null : claudeAgents.sessionOf(paneId);
+          const claude = seen.pane === undefined ? null : claudeAgents.sessionFor(seen.pane);
           return jsonResponse({ tasks: claude === null ? [] : claudeSubagents(claude.path, claude.live, Date.now(), claude.startedAt), runs: [], server_time });
         }
         return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });

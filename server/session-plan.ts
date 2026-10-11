@@ -423,8 +423,8 @@ export function planSummary(steps: readonly PlanStep[] | null): PlanSummary | nu
 }
 
 export interface SessionPlanDeps {
-  /** a Claude pane's transcript as the subagent tracker found it (a lookup that costs nothing), null when not known yet */
-  claudePath: (paneId: string) => string | null;
+  /** a Claude pane's transcript as the subagent tracker found it for the session the pane runs (a lookup that costs nothing), null when not known yet */
+  claudePath: (pane: HerdrPane) => string | null;
   /** a Codex pane's rollout: this costs process calls, so it is asked once per session and again every `relocateMs` */
   codexPath: (pane: HerdrPane) => Promise<string | null>;
   /** a pane's summary changed (null: it has no plan now) */
@@ -521,7 +521,7 @@ export class SessionPlans {
     if (pane.agent !== "claude" && pane.agent !== "codex") return;
     const key = keyOf(pane);
     if (pane.agent === "claude") {
-      const path = this.deps.claudePath(pane.pane_id);
+      const path = this.deps.claudePath(pane);
       this.track(pane.pane_id, key, path === null ? null : { source: "claude-transcript", path });
       return;
     }

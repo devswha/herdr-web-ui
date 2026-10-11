@@ -602,6 +602,29 @@ describe("ClaudeSubagentStatus upkeep", () => {
     expect(status.sessionOf("p1")?.path).toBe(current.path);
   });
 
+  it("tells a request a pane's transcript only as found for the session the pane runs, though a queued older snapshot looked it up last", async () => {
+    const old = session();
+    const current = session();
+    const busy = Promise.withResolvers<{ path: string; startedAt: null }>();
+    let lookups = 0;
+    // the first lookup (the refresh in flight) waits; every other answers at once, for its own session
+    const status = new ClaudeSubagentStatus({ resolve: (p) => ++lookups === 1 ? busy.promise : Promise.resolve({ path: p.agent_session?.value === "old" ? old.path : current.path, startedAt: null }), onChange: () => undefined });
+    const inFlight = status.refresh([pane("claude", "old")]);
+    // a snapshot read before /clear, waiting behind that refresh
+    const queued = status.refresh([pane("claude", "old")]);
+    // a request after /clear: herdr names the new session, which is looked up at once
+    await status.ensure(pane("claude", "new"));
+    expect(status.sessionFor(pane("claude", "new"))?.path).toBe(current.path);
+    busy.resolve({ path: old.path, startedAt: null });
+    await Promise.all([inFlight, queued]);
+    // the queued snapshot looked the session before up last
+    expect(status.sessionOf("p1")?.path).toBe(old.path);
+    // a request for the pane as herdr has it is told nothing of that, until the pane is looked up as it is again
+    expect(status.sessionFor(pane("claude", "new"))).toBeNull();
+    await status.ensure(pane("claude", "new"));
+    expect(status.sessionFor(pane("claude", "new"))?.path).toBe(current.path);
+  });
+
   it("does not restore Claude after the pane changed agent during a lookup", async () => {
     const s = session();
     const lookup = Promise.withResolvers<{ path: string; startedAt: null }>();

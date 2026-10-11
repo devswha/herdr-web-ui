@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { HerdrPane, PlanSummary } from "../shared/protocol.ts";
+import { ClaudeSubagentStatus } from "./claude-subagents.ts";
 import { paneAfterStatus } from "./machines.ts";
 import { forgetPlans, planSummary, readPlan, readPlanDetail, SessionPlans } from "./session-plan.ts";
 
@@ -317,7 +318,7 @@ describe("SessionPlans", () => {
     const s = claude();
     const changes: [string, PlanSummary | null][] = [];
     let codexLookups = 0;
-    const plans = new SessionPlans({ claudePath: (id) => id === "p1" ? s.path : null, codexPath: async () => { codexLookups++; return null; }, onChange: (id, summary) => changes.push([id, summary]) });
+    const plans = new SessionPlans({ claudePath: (p) => p.pane_id === "p1" ? s.path : null, codexPath: async () => { codexLookups++; return null; }, onChange: (id, summary) => changes.push([id, summary]) });
     const a = s.create("One", 1, { activeForm: "Doing one" });
     s.create("Two");
     await plans.refresh([pane("p1", "claude"), pane("p2", "codex"), pane("p3", "shell")]);
@@ -404,6 +405,18 @@ describe("SessionPlans", () => {
     // herdr did not say in time, or no longer has the pane: what was read for it is not told
     expect(plans.planOf(undefined)).toBeNull();
     // the pane runs another session now, not looked up yet
+    expect(plans.planOf(pane("p1", "claude", "s2"))).toBeNull();
+  });
+
+  it("takes a Claude pane's transcript only as the subagent tracker found it for the session the pane runs", async () => {
+    const before = claude();
+    before.create("Before the clear");
+    const tracker = new ClaudeSubagentStatus({ resolve: async () => ({ path: before.path, startedAt: null }), onChange: () => undefined });
+    const plans = new SessionPlans({ claudePath: (p) => tracker.sessionFor(p)?.path ?? null, codexPath: async () => null, onChange: () => {} });
+    // the tracker's last lookup was for the session before /clear (a snapshot that waited behind another): the pane runs another
+    await tracker.ensure(pane("p1", "claude", "s1"));
+    await plans.refresh([pane("p1", "claude", "s2")]);
+    plans.poll();
     expect(plans.planOf(pane("p1", "claude", "s2"))).toBeNull();
   });
 
