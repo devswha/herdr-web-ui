@@ -37,6 +37,15 @@ test("cancellation and a stalled body deadline release the reader even if cancel
 
 test("a partial range exposes truncation and rejects malformed range metadata", async () => {
   const partial = new Response("abc", { status: 206, headers: { "content-range": "bytes 0-2/6" } });
-  expect(await readFilePreviewText(partial, 10)).toEqual({ text: "abc", truncated: true });
+  expect(await readFilePreviewText(partial, 10)).toEqual({ text: "abc", truncated: true, total: 6 });
   await expect(readFilePreviewText(new Response("abc", { status: 206 }), 10)).rejects.toThrow("range");
+});
+
+test("a 206 cut at the budget names the whole size, and a 200 of exactly the budget is complete", async () => {
+  const ranged = new Response("abcd", { status: 206, headers: { "content-range": "bytes 0-3/10" } });
+  expect(await readFilePreviewText(ranged, 4)).toEqual({ text: "abcd", truncated: true, total: 10 });
+  const exact = new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("abcd")); controller.close(); } }));
+  expect(await readFilePreviewText(exact, 4)).toEqual({ text: "abcd", truncated: false });
+  const longer = new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("abcd")); controller.enqueue(new TextEncoder().encode("e")); } }));
+  expect(await readFilePreviewText(longer, 4)).toEqual({ text: "abcd", truncated: true });
 });
