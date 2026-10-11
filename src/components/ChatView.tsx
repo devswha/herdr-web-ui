@@ -43,7 +43,7 @@ import { sendUserFileCall } from "../lib/sendUserFile.ts";
 const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
-import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
@@ -551,7 +551,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   // polls pause while the page is hidden and pick up at once when it is back
   const visible = usePageVisible();
   /** the answer last laid out: an unchanged poll (a 304) hands back this very object */
-  const lastAnswer = useRef<unknown>(null);
+  const lastAnswer = useRef<ConversationResponse | null>(null);
   const [conversationRefresh] = useState(() => new ConversationRefresh());
   const onMetadataRef = useRef(onMetadata);
   onMetadataRef.current = onMetadata;
@@ -709,6 +709,13 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
         let next: ChatState;
         if (conversation.source !== "scrollback") next = { source: "conversation", turns: conversation.turns, messages: [], truncated: false };
         else {
+          // The reader has rejected this history. Hide it before the separate terminal
+          // request, which may wait or fail; a transport error must not revive those turns.
+          if (lastAnswer.current?.source !== "scrollback") {
+            setState((previous) => previous.source === "conversation"
+              ? { source: "scrollback", turns: [], messages: [], truncated: false } : previous);
+            signature.current = ""; lastAnswer.current = null;
+          }
           const result = await fetchPaneTranscript(paneId, TRANSCRIPT_LINES);
           if (cancelled || generation !== olderGeneration.current) return;
           next = { source: "scrollback", turns: [], messages: toTranscriptMessages(result.text).filter((message) => message.role !== "status"), truncated: result.truncated === true };
