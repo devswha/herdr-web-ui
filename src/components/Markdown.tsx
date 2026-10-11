@@ -1,5 +1,6 @@
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
+import { MermaidBlock } from "./MermaidBlock.tsx";
 
 import { foldCode, mathNestsTooDeep, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
@@ -173,7 +174,9 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
         return <p key={key}>{block.lines.map((line, lineIndex) => <span key={lineIndex}><Inline nodes={line} />{lineIndex < block.lines.length - 1 && <br />}</span>)}</p>;
       case "list": return <List key={key} block={block} />;
       case "blockquote": return <blockquote key={key}><Blocks blocks={block.blocks} /></blockquote>;
-      case "code": return <CodeBlock key={key} language={block.language} value={block.value} />;
+      case "code": return block.language.toLowerCase() === "mermaid"
+        ? <MermaidBlock key={key} value={block.value} complete={block.complete === true}><CodeBlock language={block.language} value={block.value} /></MermaidBlock>
+        : <CodeBlock key={key} language={block.language} value={block.value} />;
       case "math": return <MathExpression key={key} value={block.value} displayMode />;
       case "hr": return <hr key={key} />;
       case "table": return (

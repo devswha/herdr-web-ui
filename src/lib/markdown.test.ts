@@ -52,6 +52,22 @@ describe("parseMarkdown", () => {
     expect(parseMarkdown("```ts\nconst x = 1;\n```")).toEqual([{ type: "code", language: "ts", value: "const x = 1;" }]);
   });
 
+  it("distinguishes a completed Mermaid fence from an in-progress response", () => {
+    expect(parseMarkdown("```mermaid\nflowchart LR\n  A --> B\n```"))
+      .toEqual([{ type: "code", language: "mermaid", value: "flowchart LR\n  A --> B", complete: true }]);
+    expect(parseMarkdown("```mermaid\nflowchart LR\n  A -->"))
+      .toEqual([{ type: "code", language: "mermaid", value: "flowchart LR\n  A -->", complete: false }]);
+  });
+
+  it("tracks fence completion per diagram without changing other code blocks", () => {
+    const source = "```Mermaid\r\nsequenceDiagram\r\nA->>B: 질문\r\n```\r\n\r\n```ts\r\nconst x = 1;\r\n```\r\n\r\n```mermaid\r\nflowchart LR";
+    expect(parseMarkdown(source)).toEqual([
+      { type: "code", language: "Mermaid", value: "sequenceDiagram\nA->>B: 질문", complete: true },
+      { type: "code", language: "ts", value: "const x = 1;" },
+      { type: "code", language: "mermaid", value: "flowchart LR", complete: false },
+    ]);
+  });
+
   it("recognizes display math without parsing its contents as markdown", () => {
     const formula = "\\[\n\\mathrm{ECA@}k = \\frac{1}{N}\\sum_i \\mathbf{1}[\\text{예측}_i=\\text{정답}_i]\\,\\prod_j\\mathbf{1}[|F_i\\cap I_{ij}|\\ge k]\n\\]";
     expect(parseMarkdown(formula)).toEqual([{ type: "math", value: formula.slice(3, -3) }]);

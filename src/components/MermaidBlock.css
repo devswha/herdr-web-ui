@@ -1,0 +1,15 @@
+.mermaid-block { min-width: 0; margin-block: var(--space-3); border: var(--hairline) solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.mermaid-toolbar { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; padding: var(--space-2); border-bottom: var(--hairline) solid var(--border); background: var(--bg-panel); }
+.mermaid-toolbar > span { flex: 1; min-width: 0; }
+.mermaid-toolbar output { font-family: var(--font-mono); font-size: var(--fs-xs); min-width: 4ch; text-align: center; }
+.mermaid-preview { padding: var(--space-3); background: var(--bg); }
+.mermaid-preview .mermaid-image { display: block; width: 100%; height: auto; max-height: 340px; object-fit: contain; }
+.mermaid-note { margin: 0; padding: var(--space-2); color: var(--text-dim); font-size: var(--fs-xs); }
+.mermaid-dialog { width: min(96vw, 1400px); height: min(90vh, 1000px); max-width: 100%; max-height: 100%; padding: 0; border: var(--hairline) solid var(--border); border-radius: var(--radius-md); background: var(--bg); color: var(--text-strong); box-shadow: var(--shadow-pop); }
+.mermaid-dialog[open] { display: flex; flex-direction: column; }
+.mermaid-dialog::backdrop { background: var(--bg); opacity: 0.8; }
+.mermaid-dialog .mermaid-toolbar { flex: none; }
+.mermaid-large-stage { overflow: auto; flex: 1; min-height: 0; padding: var(--space-3); overscroll-behavior: contain; }
+.mermaid-large-stage .mermaid-image { display: block; max-width: none; margin: auto; }
+/* It must have layout for getBBox; display:none would prevent the library measuring labels. */
+.mermaid-render-host { position: fixed; left: -100000px; top: 0; pointer-events: none; }

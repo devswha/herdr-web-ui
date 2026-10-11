@@ -469,3 +469,29 @@ input regression matrix.
 | [`docs/`](.) | Remote PCs, updates, flow control, chat audit, brand assets and README media (`docs/media/`) |
 | [`site/`](../site/) | The website, built by `scripts/build-site.ts` and deployed by GitHub Pages |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |
+
+
+## Chat diagrams
+
+Completed, explicitly marked Mermaid fences can show a diagram or the original source. The
+expanded native dialog offers zoom, fit and keyboard controls; Escape closes it and returns focus.
+Streaming, malformed, oversized, unavailable and unsupported input retains the existing code view.
+
+Mermaid 11.16.1 is pinned and loaded on demand; its transitive KaTeX uses the same 0.18.9 as the
+app to avoid the older trust-bypass advisory. No external rendering service receives the source.
+The renderer fixes strict configuration, disables HTML labels and refuses configuration overrides,
+HTML, custom CSS, click/resource syntax and diagram types outside the supported grammar set.
+The input gate accepts graph/flowchart, sequence, class, state, ER, pie, journey, Gantt, Git graph,
+mindmap, timeline, quadrant, Sankey, block and packet. Rejected forms remain readable/copyable.
+
+An application queue serializes initialize/render/owned cleanup, caps pending work at eight, and
+keeps at most 32 SVGs/4 MiB UTF-8. Source is capped at 20,000 characters and the library edge limit
+at 200; output has a 1 MiB/dimension budget. Validated SVG is displayed only in Blob images, without
+bindFunctions. The temporary renderer still runs in the app document on the main thread; these
+limits do not guarantee interruption or complete execution isolation.
+
+`bun scripts/mermaid-browser-qa.ts` uses the real pinned renderer and enforcing app CSP with
+synthetic input. It is registered in `scripts/ci-browser.sh`; screenshots use UI_EVIDENCE_DIR.
+
+Synthetic browser evidence: [mobile diagram](screenshots/mermaid/mermaid-mobile.png) and
+[expanded diagram](screenshots/mermaid/mermaid-expanded.png).

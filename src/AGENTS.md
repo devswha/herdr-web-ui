@@ -13,6 +13,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - Dictation (lib/voice.ts) only hands text to the caller to insert at the caret; it never sends.
 - An alert chime before the first tap or key (`unlockAlertSound`) is skipped, never queued to sound late.
 - Never import KaTeX statically: Markdown.tsx loads lib/katex.ts with the first expression (it is a fifth of the app's script).
+- Mermaid stays lazy. The input gate runs before DOM rendering; fixed config/render/cleanup are serialized, and validated SVG is displayed as a Blob image. Keep source fallback and stale/unmount checks; main-thread rendering is not a cancellable worker.
 
 ## REMOTE TARGET OWNERSHIP
 - `MachineSessionsProvider` owns one WebSocket per visited PC while the app is unlocked. Pane mounts only own their attach/watch and renderer subscriptions: leaving a pane detaches without closing the PC connection or suspending pending proof. `MachineSession` alone publishes pending receipts and suspends their scope on real disconnect/close. Do not infer held state locally or replay input when a pane returns.

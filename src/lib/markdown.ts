@@ -31,7 +31,7 @@ export type MarkdownBlock =
   | { type: "paragraph"; lines: InlineNode[][] }
   | ListBlock
   | { type: "blockquote"; blocks: MarkdownBlock[] }
-  | { type: "code"; language: string; value: string }
+  | { type: "code"; language: string; value: string; complete?: boolean }
   | { type: "table"; header: InlineNode[][]; rows: InlineNode[][][] }
   | { type: "hr" };
 
@@ -381,8 +381,12 @@ export function parseMarkdown(source: string, depth = 0): MarkdownBlock[] {
         const bodyLine = lineAt(lines, index++);
         body.push(bodyLine.startsWith(indent) ? bodyLine.slice(indent.length) : bodyLine.trimStart());
       }
-      if (index < lines.length) index += 1;
-      blocks.push({ type: "code", language: fence[2] ?? "", value: body.join("\n") });
+      const complete = index < lines.length;
+      if (complete) index += 1;
+      const language = fence[2] ?? "";
+      // A streamed diagram keeps its source until the closing fence arrives.
+      // Other code blocks retain their existing shape and rendering behavior.
+      blocks.push({ type: "code", language, value: body.join("\n"), ...(language.toLowerCase() === "mermaid" ? { complete } : {}) });
       continue;
     }
 

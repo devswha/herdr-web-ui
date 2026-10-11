@@ -34,6 +34,7 @@
     "@xterm/xterm": "5.5.0",
     "katex": "^0.18.9",
     "lucide-react": "^1.47.0",
+    "mermaid": "11.16.1",
     "qrcode-generator": "^2.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -52,5 +53,8 @@
   },
   "patchedDependencies": {
     "@xterm/xterm@5.5.0": "patches/@xterm%2Fxterm@5.5.0.patch"
+  },
+  "overrides": {
+    "katex": "0.18.9"
   }
 }
