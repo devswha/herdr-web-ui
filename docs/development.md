@@ -14,6 +14,18 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 
 ## Checks
 
+Codex's `Enter` steers the current turn, but can leave the message pending until the next
+tool call. The explicit, connection-owned pending-message **Send now** action checks the
+live native steering panel beside the empty composer before sending one `Escape` to
+interrupt and submit it. A normal Send, automatic delivery, another agent or idle Codex
+never takes this interruption path. Browser-held copies retain their ordinary Submit path.
+Every fresh read retains the existing identity, connection, interactive-menu and secret
+input guards; if the panel or delivery cannot be confirmed, the message is uncertain and
+must be checked in the terminal rather than retried automatically. The restart gate waits
+for the interrupted turn's readiness followed by the new turn's working/ready cycle. If
+Native never exposes that cycle, remaining messages are held for explicit review.
+
+
 `bun run check` runs what CI runs, from the same script (`scripts/check.ts`):
 
 ```bash
