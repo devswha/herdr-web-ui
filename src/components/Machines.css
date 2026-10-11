@@ -11,6 +11,12 @@
   scroll-padding-bottom: var(--space-4);
 }
 
+/* When every PC is folded, keep this section at its headings instead of reserving the whole
+   flexible column. The Agents section then owns the available list space below it. */
+.sidebar-shell:not(:has(.machine-list .machine-workspaces)):has(.agents-sidebar:not(.is-empty)) .machine-list {
+  flex: 0 1 auto;
+}
+
 /* a list that is cut fades out at its lower edge */
 .machine-list::after {
   content: "";

@@ -13,6 +13,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
   Settings choice applies again to every pane.
   ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
+- A folded PC/workspace section gives its unused height to the Agents list instead of leaving a
+  large empty gap. The Agents height cap, independent scrolling and fixed footer stay unchanged.
 
 ## [0.4.6] - 2026-10-11
 
