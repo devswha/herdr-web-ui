@@ -13,7 +13,7 @@ import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
 import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
-import { recentDirectories } from "./lib/recent-directories.ts";
+import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
@@ -162,8 +162,13 @@ export function App() {
   useEffect(() => {
     for (const machine of machines) {
       if (machine.state !== "connected" || !machine.snapshot) continue;
+      // a worktree's checkout or a temporary folder is no project to start a workspace in
+      const linked = machine.snapshot.workspaces.filter((workspace) => workspace.worktree?.is_linked_worktree);
+      const inLinked = new Set(linked.map((workspace) => workspace.workspace_id));
+      const worktrees = linked.map((workspace) => workspace.worktree!.checkout_path);
       recentDirectories.remember(machine.id, machine.snapshot.panes
-        .filter((pane) => !pane.restore_error).map((pane) => pane.cwd).reverse());
+        .filter((pane) => !pane.restore_error && !inLinked.has(pane.workspace_id) && !(pane.cwd && passingFolder(pane.cwd, worktrees)))
+        .map((pane) => pane.cwd).reverse());
     }
   }, [machines]);
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
@@ -1261,6 +1266,7 @@ export function App() {
       <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
         key={newSessionMachineId}
         machineName={machines.find((m) => m.id === newSessionMachineId)?.name ?? newSessionMachineId}
+        worktrees={machines.find((m) => m.id === newSessionMachineId)?.snapshot?.workspaces.flatMap((workspace) => workspace.worktree?.is_linked_worktree ? [workspace.worktree.checkout_path] : []) ?? []}
         open={newSessionOpen}
         tab={newTab}
         defaultCwd={newSessionMachineId === selectedMachineId ? selectedPane?.cwd ?? null : null}
