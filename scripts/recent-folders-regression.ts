@@ -1,17 +1,23 @@
 /** Owned workspace lifecycle; agent readiness is controlled, so no paid agent process starts. */
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { chromium, devices } from "playwright-core";
 import type { Machine } from "../shared/machines.ts";
 import type { WorkspaceCreated } from "../shared/protocol.ts";
 import { sessionSnapshot, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { passingFolder } from "../src/lib/recent-directories.ts";
 
 await import("./test-herdr.ts");
 const { createServer } = await import("../server/index.ts");
 const { UsageService } = await import("../server/usage.ts");
-const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-recent-folders-")));
+// not under a folder recent folders leave out: the temporary directory, or this checkout when it
+// is one of herdr's worktrees (`passingFolder`), so the fixtures live under the home's cache
+const cache = join(homedir(), ".cache", "herdr-web-ui-tests");
+mkdirSync(cache, { recursive: true });
+const root = realpathSync(mkdtempSync(join(cache, "herdr-recent-folders-")));
+if (passingFolder(root)) throw new Error(`the fixtures' folder ${root} is one recent folders leave out`);
 const owned = new Set<string>();
 const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), usage: new UsageService(undefined, []) });
 try {
@@ -123,7 +129,9 @@ try {
           const submit = dialog.locator('button[type="submit"]');
           assert.deepEqual(await chips.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title"))), ["/older/one", other, project], "folders only seen in panes come behind the one kept");
           assert.equal(new Set(await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top))).size, 1, "recent folders stay on one row");
-          assert.equal(await dialog.locator(".new-session-folder-chips").evaluate((node) => node.scrollWidth > node.clientWidth), false);
+          // a phone swipes the row sideways; a wider screen has room for it
+          if (width === 390) assert.equal(await dialog.locator(".new-session-folder-chips").evaluate((node) => getComputedStyle(node).overflowX), "auto");
+          else assert.equal(await dialog.locator(".new-session-folder-chips").evaluate((node) => node.scrollWidth > node.clientWidth), false);
           assert.equal(await dialog.getByRole("button", { name: /remote-only/ }).count(), 0);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
           await dialog.getByRole("button", { name: "창 닫기", exact: true }).focus();
@@ -151,25 +159,25 @@ try {
 
           await workspaceClose(created.workspace_id);
           owned.delete(created.workspace_id);
-          // a fourth folder, one more than the dialog shows
+          // a fourth folder, and kept from before, a herdr worktree and a temporary folder
           await page.evaluate(() => {
             const key = "herdr-web-ui:recent-directories:local";
-            localStorage.setItem(key, JSON.stringify([...JSON.parse(localStorage.getItem(key)!) as string[], "/older/two"]));
+            localStorage.setItem(key, JSON.stringify([...JSON.parse(localStorage.getItem(key)!) as string[], "/home/me/.herdr/worktrees/app/feat", "/tmp/scratch", "/older/two"]));
           });
           await page.reload();
           await betaRow.waitFor({ state: "attached" });
           await openNew();
           await chip.waitFor();
-          // the folder a workspace was started in is first now; the fourth is not shown
-          assert.deepEqual(await chips.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title"))), [project, "/older/one", other]);
-          assert.equal(await dialog.getByRole("button", { name: /older\/two/ }).count(), 0, "the fourth folder is not shown");
+          // the folder a workspace was started in is first now; a worktree and a temporary folder are left out
+          assert.deepEqual(await chips.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("title"))), [project, "/older/one", other, "/older/two"]);
+          if (width === 390) assert.equal(new Set(await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top))).size, 1, "a phone keeps them on one row");
           failCreate = true;
           await betaChip.click();
           await submit.click();
           await dialog.getByRole("alert").filter({ hasText: "폴더를 찾을 수 없습니다" }).waitFor();
           assert.equal(await betaChip.isEnabled(), true);
           assert.equal(await dialog.locator(".new-session-folder-chip").first().getAttribute("title"), project);
-          assert.equal(await chips.count(), 3);
+          assert.equal(await chips.count(), 4);
           failCreate = false;
           partialFailure = true;
           const partialResponse = page.waitForResponse((response) => response.url().endsWith("/api/workspace/create"));
@@ -184,7 +192,7 @@ try {
           await page.locator(`.workspace-select[data-pane="${partial.pane_id}"][aria-current="true"]`).waitFor({ state: "attached" });
           assert.equal(requests, beforeOpen, "Open after partial failure never creates another workspace");
           assert.deepEqual(errors, []);
-          console.log(`PASS recent folders ${width} ${theme}: snapshot seed behind kept folders, closed workspace, reload, PC isolation, three chips on one row, chip fills Directory, a start moves its folder first, pending, focus trap, failed-start order`);
+          console.log(`PASS recent folders ${width} ${theme}: snapshot seed behind kept folders, closed workspace, reload, PC isolation, worktrees and temporary folders left out, one swiped row on a phone, chip fills Directory, a start moves its folder first, pending, focus trap, failed-start order`);
         } finally {
           gate.resolve();
           await context.close();
