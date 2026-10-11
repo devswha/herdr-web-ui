@@ -844,6 +844,8 @@ export const ZH: Record<string, string> = {
   "{percent} left": "剩余 {percent}",
   "Meters show": "计量显示",
   "Limit shown": "显示的限额",
+  "Show pace": "显示消耗速度",
+  "On each limit, a mark where an even pace would be by now, the rate so far, and a warning when it runs out before its reset. Claude, Codex and Grok only.": "在每个限额上显示匀速使用时应到的位置标记、目前的消耗速度，以及会在重置前用完时的警告。仅限 Claude、Codex 和 Grok。",
   "The limit each chip shows. Session is the short one, 5 hours on Claude and Codex. A plan without the chosen limit shows the one closest to running out.": "每个标签显示的限额。会话是较短的限额，在 Claude 和 Codex 上为 5 小时。没有所选限额的套餐会显示最接近用尽的限额。",
   "Used": "已用",
   "Remaining": "剩余",

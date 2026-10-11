@@ -796,6 +796,8 @@ export const TR: Record<string, string> = {
   "{percent} left": "{percent} kaldı",
   "Meters show": "Göstergelerin gösterdiği",
   "Limit shown": "Gösterilen limit",
+  "Show pace": "Hızı göster",
+  "On each limit, a mark where an even pace would be by now, the rate so far, and a warning when it runs out before its reset. Claude, Codex and Grok only.": "Her limitte, dengeli bir hızda şimdiye kadar gelinecek yeri gösteren işaret, şimdiye kadarki hız ve sıfırlanmadan önce biteceğinde uyarı. Yalnızca Claude, Codex ve Grok.",
   "The limit each chip shows. Session is the short one, 5 hours on Claude and Codex. A plan without the chosen limit shows the one closest to running out.": "Her çipin göstereceği limit. Oturum, Claude ve Codex'te 5 saatlik kısa limittir. Seçilen limite sahip olmayan bir planda, tükenmeye en yakın limit gösterilir.",
   "Used": "Kullanılan",
   "Remaining": "Kalan",
