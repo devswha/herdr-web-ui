@@ -136,7 +136,7 @@ try {
         await pin.focus();
         await page.keyboard.press("Space");
         await page.waitForFunction((key) => JSON.parse(localStorage.getItem("herdr-web-ui:sidebar-agent-pins") ?? "[]").includes(key), `local:${panes.api}`);
-        assert.equal(await pin.getAttribute("aria-pressed"), "true", "keyboard pin persists the selected agent");
+        assert.equal(await agentRow.getByRole("button", { name: "Unpin agent", exact: true }).getAttribute("aria-pressed"), "true", "keyboard pin persists the selected agent");
         assert.equal((await agentTitles(page))[0], API, "a pinned agent moves to the top");
         await page.reload();
         await page.locator(".conn-live").waitFor({ state: "attached" });
