@@ -32,7 +32,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - `src/motion.test.ts` scans every .css under src/ and allows one smooth endless animation, `bridge-progress-slide` (Machines.css).
 - Settings are one localStorage record (`herdr-web-ui:settings`) that passes `sanitizeSettings` on load and on every update: a new setting needs its default and type check there, or it is dropped. Storage access can throw where it is blocked; keep it inside `try`.
 - `history.state` may hold another script's data: read Settings entries only through `settingsEntry` (lib/settingsHistory.ts).
-- Chat turns render inside `RenderBoundary` with `resetKey={turnRevision(turn)}` (a content hash), because each poll parses every turn into new objects; one turn the chat cannot draw shows an inline notice instead of blanking the app.
+- Chat turns render inside `RenderBoundary` with `resetKey={turnRevision(turn, true)}` (a content hash cached for immutable API snapshots), because each poll parses every turn into new objects; one turn the chat cannot draw shows an inline notice instead of blanking the app.
 - Snapshot reads in App go through `SnapshotRequests`: an event or a newer read supersedes an in-flight fetch, its error included.
 - Chat path links (lib/filePaths.ts, ASCII `[\w@.+-]` names) and terminal path links (lib/terminalFileLinks.ts, Unicode letters) are separate matchers; a change to path recognition checks both.
 - Helpers outside React call the module-level `t`; components take `useT()`, whose identity changes with the language, so a memo that formats text lists it.

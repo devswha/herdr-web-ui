@@ -32,6 +32,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#750](https://github.com/devswha/herdr-web-ui/pull/750) by @DarkoKuzmanovic, [#764](https://github.com/devswha/herdr-web-ui/pull/764))
 
 ### Changed
+- Reuse immutable chat-message revisions across unrelated renders while retaining mutable-caller change detection.
 - Chat updates follow native transcript changes pushed through the existing WebSocket.
   Only visible Chat views subscribe; Terminal views and hidden tabs release conversation
   monitoring. Continuous pushes coalesce into at most one newest-page refresh every 2 seconds,
