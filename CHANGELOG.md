@@ -18,7 +18,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Changed
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`
   and the linked worktrees a PC has open) and temporary folders such as `/tmp`, and offer up to
-  eight folders instead of three: a phone swipes them sideways on one row, a wider screen wraps them.
+  eight folders instead of three on one row: a phone swipes it sideways; a wider screen shows as
+  many as the row holds, then a **+N** chip that lists the rest with their whole paths.
 
 ### Fixed
 - On a phone, Back closes every dialog drawn as a sheet the way it closes a ⋯ menu: the plan, the
