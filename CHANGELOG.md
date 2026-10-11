@@ -98,7 +98,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - New workspace offers the three most recent folders of the PC as chips on one row, kept after
   workspaces close and the browser reloads. A chip puts its folder in Directory; a successful
   start moves that folder to the front.
-  ([#652](https://github.com/devswha/herdr-web-ui/pull/652) by @od-studio-webagency)
+  ([#652](https://github.com/devswha/herdr-web-ui/pull/652) by @od-studio-webagency, [#829](https://github.com/devswha/herdr-web-ui/pull/829))
 
 ### Fixed
 - Reloading with Settings open closes Settings whenever the browser gets to its step back; it could
