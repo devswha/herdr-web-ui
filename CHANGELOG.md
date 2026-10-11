@@ -7,13 +7,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-### Fixed
-- The file viewer draws the HTML a README is written with (a centered logo, a row of badges and
-  links, `<details>`) as markdown instead of showing its tags as text: paragraphs and headings,
-  centered where `align="center"` says so, links, images with their width, emphasis and line breaks.
-  Other tags are left out with their text kept; comments, scripts and styles are dropped. Images from
-  other sites still show their alt text, as before. An agent's chat message keeps HTML as text.
-
 ### Added
 - **Settings → Composer → Send queued messages automatically** (on by default). Turned off, a
   message sent while the agent works waits under the message box until you press **Send now**,
@@ -23,6 +16,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
 
 ### Changed
+- **Open in a new tab** on a markdown file opens a page of just the document, with its name, path,
+  **Open raw file** and **Download** above it, instead of a second copy of the whole app with the
+  file viewer over it. A link in the document to another file opens there, from the document's
+  folder, and Back returns. Links made before (`?file=…`) still open the app with the viewer.
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`
   and the linked worktrees a PC has open) and temporary folders such as `/tmp`, and offer up to
   eight folders instead of three: a phone swipes them sideways on one row, a wider screen wraps them.
@@ -32,11 +29,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   **Plan flow** and **Plan count in the header** settings are gone. ([#846](https://github.com/devswha/herdr-web-ui/pull/846))
 
 ### Fixed
-- A refused answer on a question card (the question changed, or the answer no longer fits it) now
-  stays on the card as an error until the card is replaced, instead of a 2-second note that was easy
-  to miss, so the button no longer looks dead. `POST /api/pane/prompt/answer` logs each request
-  with the pane, whether the prompt id matched, and the outcome; never the answer.
-  ([#793](https://github.com/devswha/herdr-web-ui/pull/793))
+- The file viewer draws the HTML a README is written with (a centered logo, a row of badges and
+  links, `<details>`) as markdown instead of showing its tags as text: paragraphs and headings,
+  centered where `align="center"` says so, links, images with their width, emphasis and line breaks.
+  Other tags are left out with their text kept; comments, scripts and styles are dropped. Images from
+  other sites still show their alt text, as before. An agent's chat message keeps HTML as text.
 - On a phone, Back closes every dialog drawn as a sheet the way it closes a ⋯ menu: the plan, the
   command palette, confirmations, the file list, the worktree dialog, Rename pane and the diagram
   lightbox. It used to open the pane before under the dialog, which stayed up. A wider screen keeps
@@ -63,6 +60,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   in an ellipsis instead of wrapping its buttons onto a second row, the line after an update closes
   with an × like a PC's line, and an install's step, count and bar share one row. The warning to
   save unsent drafts before a reload is the one line still read in full, so it may wrap.
+- A PC window left in front while you used the terminal on a phone stayed at the phone's size
+  when you came back, because it never lost the focus and so never took the pane back. A click
+  or a key in its terminal now returns the pane to the PC's size. ([#839](https://github.com/devswha/herdr-web-ui/pull/839))
+- A refused answer on a question card (the question changed, or the answer no longer fits it) now
+  stays on the card as an error until the card is replaced, instead of a 2-second note that was easy
+  to miss, so the button no longer looks dead. `POST /api/pane/prompt/answer` logs each request
+  with the pane, whether the prompt id matched, and the outcome; never the answer.
+  ([#793](https://github.com/devswha/herdr-web-ui/pull/793))
 
 ## [0.4.7] - 2026-10-12
 

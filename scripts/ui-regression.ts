@@ -34,7 +34,7 @@ import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
 import { checkTakeOver } from "./take-over-regression.ts";
 import { checkAlertSound } from "./alert-sound-regression.ts";
-import { checkBackgroundTabKeepsTerminalSize, checkChatKeepsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./chat-size-regression.ts";
+import { checkBackgroundTabKeepsTerminalSize, checkChatKeepsTerminalSize, checkFocusedWindowReclaimsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
@@ -859,6 +859,7 @@ try {
   await checkChatKeepsTerminalSize(browser, origin);
   await checkPaneSwitchKeepsTerminalSize(browser, origin);
   await checkBackgroundTabKeepsTerminalSize(browser, origin);
+  await checkFocusedWindowReclaimsTerminalSize(browser, origin);
   await checkUpdateNotice(browser, origin);
 
   // The pending protocol has a real foreground agent and an owned byte recorder: merely
