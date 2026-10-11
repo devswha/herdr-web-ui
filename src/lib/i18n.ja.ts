@@ -9,6 +9,13 @@
  */
 export const JA: Record<string, string> = {
   "Chat read timed out.": "会話の読み込みがタイムアウトしました。",
+  "Paging": "ページ送り",
+  "Page overlap": "ページ間で重ねる行数",
+  "Lines kept visible between pages in chat and terminal history. Zero scrolls a full page.": "チャットとターミナル履歴でページを送る際に重ねて表示する行数です。0ならページ全体をスクロールします。",
+  "Decrease page overlap": "重ねる行数を減らす",
+  "Increase page overlap": "重ねる行数を増やす",
+  "Scroll pane up": "ペインを上にスクロール",
+  "Scroll pane down": "ペインを下にスクロール",
   "Find in terminal": "ターミナル内を検索",
   "Previous match": "前の一致",
   "Next match": "次の一致",

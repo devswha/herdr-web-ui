@@ -38,7 +38,7 @@ import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
-import type { PaneView } from "../lib/actions.ts";
+import type { PaneControls, PaneView } from "../lib/actions.ts";
 import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
@@ -86,6 +86,7 @@ export interface PaneTerminalProps {
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
   findRequest?: number;
+  controls?: { current: PaneControls | null };
   /** Only the selected tile may take keyboard focus after async work or a lens change. */
   active?: boolean;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
@@ -137,6 +138,7 @@ export function PaneTerminal({
   machineName = "",
   view,
   findRequest = 0,
+  controls,
   active = true,
   autoSelected = false,
   terminalFontSize,
@@ -198,6 +200,7 @@ export function PaneTerminal({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const pinchBadgeRef = useRef<HTMLSpanElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
+  const pageScroll = useRef<((direction: -1 | 1) => void) | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   /** OSC 8 links this app cannot open are not drawn (#739); its state ends with `term.reset()` */
@@ -2141,6 +2144,17 @@ export function PaneTerminal({
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
 
+  useLayoutEffect(() => {
+    if (!controls || !active || !paneId) return;
+    const current: PaneControls = {
+      scrollPage: (direction) => {
+        if (activeRef.current && presentedRef.current && !modalOpen()) pageScroll.current?.(direction);
+      },
+    };
+    controls.current = current;
+    return () => { if (controls.current === current) controls.current = null; };
+  }, [controls, active, paneId]);
+
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
     <div ref={stackRef} className={`terminal-stack${chatView ? " is-chat" : ""}${greeted ? " is-greeted" : ""}`} data-pane-owner={paneId === null ? undefined : paneStorageId(machineId, paneId)} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}>
@@ -2239,6 +2253,7 @@ export function PaneTerminal({
         <div className={`pane-terminal${paneId === null ? " is-idle" : ""}${!chatView && paneId !== null ? " has-viewport-tools" : ""}`} ref={hostRef} id={viewportId} data-mouse-reporting={mouseReporting && !observing && !held && !secretActive && connected && !chatView ? "" : undefined} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
         <span className="terminal-font-size" ref={pinchBadgeRef} hidden aria-hidden="true" />
         {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
+          pageScroll={chatView ? undefined : pageScroll}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
           interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}
         {presented && paneId !== null && chatView && (
@@ -2254,6 +2269,7 @@ export function PaneTerminal({
           <ChatView
             key={paneId}
             paneId={paneId}
+            pageScroll={pageScroll}
             refreshKey={chatRefresh}
             invalidationKey={chatInvalidation}
             onConversationWatch={onConversationWatch}

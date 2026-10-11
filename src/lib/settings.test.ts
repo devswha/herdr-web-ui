@@ -539,3 +539,16 @@ it("highlights code unless turned off, and keeps a stored choice only when it is
   expect(sanitizeSettings({ highlightCode: "no" }).highlightCode).toBe(true);
   expect(sanitizeSettings({}).highlightCode).toBe(true);
 });
+
+
+it("keeps page overlap whole, bounded and persistent, including full-viewport paging", () => {
+  expect(DEFAULT_SETTINGS.pageOverlapRows).toBe(1);
+  expect(sanitizeSettings({}).pageOverlapRows).toBe(1);
+  expect(sanitizeSettings({ pageOverlapRows: 0 }).pageOverlapRows).toBe(0);
+  expect(sanitizeSettings({ pageOverlapRows: 3.6 }).pageOverlapRows).toBe(4);
+  expect(sanitizeSettings({ pageOverlapRows: -8 }).pageOverlapRows).toBe(0);
+  expect(sanitizeSettings({ pageOverlapRows: 101 }).pageOverlapRows).toBe(100);
+  for (const value of ["3", null, true, NaN, Infinity]) expect(sanitizeSettings({ pageOverlapRows: value }).pageOverlapRows).toBe(1);
+  const saved = sanitizeSettings({ ...DEFAULT_SETTINGS, pageOverlapRows: 3 });
+  expect(sanitizeSettings(JSON.parse(JSON.stringify(saved))).pageOverlapRows).toBe(3);
+});

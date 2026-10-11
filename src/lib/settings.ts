@@ -61,6 +61,7 @@ export interface Settings {
   /** This device's terminal keys, sticky modifiers and exact chords, in display order. */
   keyBarItems: KeyBarItem[];
   shortcutOverrides: ShortcutOverrides;
+  pageOverlapRows: number;
   theme: ThemeSetting;
   density: Density;
   /** How much a workspace row says: its name, or its pane's title over its place. */
@@ -146,6 +147,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keyBarExtras: ["alt"],
   keyBarItems: DEFAULT_KEY_BAR_ITEMS,
   shortcutOverrides: {},
+  pageOverlapRows: 1,
   theme: "dark",
   density: "comfortable",
   sidebarRows: "two",
@@ -299,6 +301,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     keyBarExtras,
     keyBarItems: sanitizeKeyBarItems(record["keyBarItems"], keyBarFallback),
     shortcutOverrides: sanitizeShortcutOverrides(record["shortcutOverrides"]),
+    pageOverlapRows: typeof record["pageOverlapRows"] === "number" && Number.isFinite(record["pageOverlapRows"])
+      ? Math.min(100, Math.max(0, Math.round(record["pageOverlapRows"]))) : DEFAULT_SETTINGS.pageOverlapRows,
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarRows: record["sidebarRows"] === "one" || record["sidebarRows"] === "two" ? record["sidebarRows"] : DEFAULT_SETTINGS.sidebarRows,

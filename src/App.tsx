@@ -37,7 +37,7 @@ import { alertPrefs, useSettings } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import { useMediaQuery } from "./lib/useMediaQuery.ts";
 import { PaneLenses } from "./lib/paneLens.ts";
-import type { AppActions, PaneView } from "./lib/actions.ts";
+import type { AppActions, PaneView, PaneControls } from "./lib/actions.ts";
 import {
   notificationState,
   requestNotificationPermission,
@@ -243,6 +243,7 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [lens, setLens] = useState<{ key: string; view: PaneView }>({ key: "", view: "terminal" });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const paneControls = useRef<PaneControls | null>(null);
   const [findRequest, setFindRequest] = useState<{ paneId: string | null; serial: number }>({ paneId: null, serial: 0 });
   // the header's More menu: its button, and whether it opened on a phone-width screen
   const [more, setMore] = useState<{ anchor: HTMLElement; phone: boolean } | null>(null);
@@ -851,6 +852,7 @@ export function App() {
       },
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
+      scrollPage: (direction) => paneControls.current?.scrollPage(direction),
       openNewSession: () => {
         setDrawerOpen(false);
         setNewSessionMachineId(selectedMachineId);
@@ -1187,6 +1189,7 @@ export function App() {
                 machineName={selectedMachine?.name ?? selectedMachineId}
                 view={active ? view : storedView(lenses, item!.pane_id, selectedMachineId, item!.agent != null, terminalAttach)}
                 active={active}
+                controls={active ? paneControls : undefined}
                 findRequest={findRequest.paneId === item?.pane_id ? findRequest.serial : 0}
                 autoSelected={autoSelected}
                 terminalFontSize={settings.terminalFontSize}

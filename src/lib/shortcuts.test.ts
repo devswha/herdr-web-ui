@@ -156,3 +156,24 @@ describe("isReservedShortcutKey", () => {
     expect(matchShortcut(keyEvent("n", { ctrlKey: true }), false)).toBe("new-session");
   });
 });
+
+
+it("pages the selected pane with fixed Mod+Shift bindings, remapping and disabling", () => {
+  for (const apple of [true, false]) {
+    const press = (key: string, overrides = {}) => matchShortcut(keyEvent(key, { metaKey: apple, ctrlKey: !apple }), apple, overrides);
+    expect(press("PageUp")).toBe("scroll-up");
+    expect(press("PageDown")).toBe("scroll-down");
+    expect(press("u", sanitizeShortcutOverrides({ "scroll-up": "u" }))).toBe("scroll-up");
+    expect(press("PageUp", { "scroll-up": "u" })).toBeNull();
+    expect(press("PageDown", sanitizeShortcutOverrides({ "scroll-down": null }))).toBeNull();
+    expect(press("PageUp", sanitizeShortcutOverrides({ palette: "PageUp", "scroll-up": null }))).toBe("palette");
+    for (const patch of [{ shiftKey: false }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      expect(matchShortcut(keyEvent("PageUp", { metaKey: apple, ctrlKey: !apple, ...patch }), apple)).toBeNull();
+    }
+    expect(matchShortcut(keyEvent("PageUp"), apple)).toBeNull();
+  }
+  expect(shortcutDisplayKeys("scroll-up", {})).toEqual(["Mod", "Shift", "PageUp"]);
+  expect(shortcutDisplayKeys("scroll-down", {})).toEqual(["Mod", "Shift", "PageDown"]);
+  expect(shortcutConflict("palette", ["PageUp"], {})).toBe(true);
+  expect(sanitizeShortcutOverrides({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp", settings: "Home" })).toEqual({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp" });
+});

@@ -11,6 +11,13 @@
  */
 export const ZH: Record<string, string> = {
   "Chat read timed out.": "读取对话超时。",
+  "Paging": "翻页",
+  "Page overlap": "翻页重叠行数",
+  "Lines kept visible between pages in chat and terminal history. Zero scrolls a full page.": "在聊天和终端历史中翻页时保留可见的行数。0表示滚动完整一页。",
+  "Decrease page overlap": "减少翻页重叠行数",
+  "Increase page overlap": "增加翻页重叠行数",
+  "Scroll pane up": "向上滚动面板",
+  "Scroll pane down": "向下滚动面板",
   "Find in terminal": "在终端中查找",
   "Previous match": "上一个匹配",
   "Next match": "下一个匹配",

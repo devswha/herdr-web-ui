@@ -5,6 +5,8 @@ import { useMachineApi } from "../lib/machineContext.tsx";
 import type { ViewportIntentGate } from "../lib/viewportIntent.ts";
 import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
+import { useSettings } from "../lib/settings.ts";
+import { pageScrollDistance } from "../lib/pageScroll.ts";
 import { offsetAtThumb, scrollThumb, validScroll, visibleFindRects, type FindCellRect } from "../lib/terminalViewport.ts";
 import "./TerminalViewportTools.css";
 
@@ -14,6 +16,7 @@ interface Props {
   viewportIntent: ViewportIntentGate;
   terminal: Terminal | null;
   paneId: string;
+  pageScroll?: { current: ((direction: -1 | 1) => void) | null };
   viewportId: string;
   enabled: boolean;
   interactive: boolean;
@@ -22,9 +25,11 @@ interface Props {
 }
 
 /** UI over the attach stream. History belongs to herdr; xterm still has zero scrollback. */
-export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewportId, enabled, interactive, search, onError }: Props) {
+export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, viewportId, enabled, interactive, search, onError }: Props) {
   const t = useT();
   const api = useMachineApi();
+  const { settings } = useSettings();
+  const overlapRef = useRef(settings.pageOverlapRows); overlapRef.current = settings.pageOverlapRows;
   const layer = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState<PaneScrollInfo | null>(null);
@@ -32,6 +37,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
   const [box, setBox] = useState<Box | null>(null);
   const [hits, setHits] = useState<FindCellRect[]>([]);
   const [preview, setPreview] = useState<number | null>(null);
+  const previewRef = useRef<number | null>(null);
   const drag = useRef<{ pointer: number; top: number; height: number; grab: number; thumb: number } | null>(null);
   const searchRef = useRef(search); searchRef.current = search;
   const errorRef = useRef(onError); errorRef.current = onError;
@@ -42,7 +48,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
   const query = interactive && search && Array.isArray(search.result.matches) && search.result.scroll !== undefined ? search.query : "";
 
   useEffect(() => {
-    if (!terminal || !enabled) { setScroll(null); setHits([]); setPreview(null); return; }
+    if (!terminal || !enabled) { setScroll(null); setHits([]); setPreview(null); previewRef.current = null; if (pageScroll) pageScroll.current = null; return; }
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let timerDue = 0;
@@ -125,7 +131,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
         const request = viewportIntent.scroll(() => api.scrollPane(paneId, target));
         if (!request) return;
         const metrics = await request;
-        if (alive && validScroll(metrics)) setScroll(metrics);
+        if (alive && validScroll(metrics)) { scrollRef.current = metrics; setScroll(metrics); }
       } catch (cause) {
         if (alive) {
           desired = null;
@@ -135,7 +141,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
         writing = false;
         if (alive) {
           if (desired !== null) void flush();
-          else { setPreview(null); wake(); }
+          else { previewRef.current = null; setPreview(null); wake(); }
         }
       }
     };
@@ -143,11 +149,18 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
       const metrics = scrollRef.current;
       if (!interactive || !alive || viewportIntent.isSearching() || !validScroll(metrics) || !showing()) return;
       desired = Math.max(0, Math.min(metrics.max_offset_from_bottom, Math.round(offset)));
+      previewRef.current = desired;
       setPreview(desired);
       void flush();
     };
+    const scrollPage = (direction: -1 | 1) => {
+      const metrics = scrollRef.current;
+      if (validScroll(metrics)) writeRef.current((previewRef.current ?? metrics.offset_from_bottom) - direction * pageScrollDistance(metrics.viewport_rows, 1, overlapRef.current));
+    };
+    if (pageScroll) pageScroll.current = scrollPage;
     const unregisterCancellation = viewportIntent.registerScrollCancellation(() => {
       desired = null; drag.current = null; version++;
+      previewRef.current = null;
       setPreview(null); clearHits();
     });
     refreshRef.current = () => { dirty = true; paint(); schedule(0); };
@@ -166,6 +179,8 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
     paint(); void read();
     return () => {
       alive = false; desired = null; version++;
+      if (pageScroll?.current === scrollPage) pageScroll.current = null;
+      previewRef.current = null;
       unregisterCancellation();
       if (timer !== null) clearTimeout(timer);
       parsed.dispose(); rendered.dispose(); resized.dispose(); observer.disconnect();
@@ -174,7 +189,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
       refreshRef.current = () => {}; writeRef.current = () => {};
       drag.current = null;
     };
-  }, [terminal, paneId, enabled, interactive, query, api, t, viewportIntent]);
+  }, [terminal, paneId, enabled, interactive, query, api, t, viewportIntent, pageScroll]);
 
   useEffect(() => { refreshRef.current(); }, [search?.result]);
   const metrics = validScroll(scroll) ? { ...scroll, offset_from_bottom: preview === null ? scroll.offset_from_bottom : Math.min(scroll.max_offset_from_bottom, preview) } : null;
@@ -205,11 +220,11 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, viewpo
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
       }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}
       onKeyDown={(event) => {
-        if (!interactive) return;
+        if (event.defaultPrevented || !interactive) return;
         const offset = metrics.offset_from_bottom;
         const target = event.key === "Home" ? metrics.max_offset_from_bottom : event.key === "End" ? 0
           : event.key === "ArrowUp" ? offset + 1 : event.key === "ArrowDown" ? offset - 1
-          : event.key === "PageUp" ? offset + metrics.viewport_rows : event.key === "PageDown" ? offset - metrics.viewport_rows : null;
+          : event.key === "PageUp" ? offset + pageScrollDistance(metrics.viewport_rows, 1, settings.pageOverlapRows) : event.key === "PageDown" ? offset - pageScrollDistance(metrics.viewport_rows, 1, settings.pageOverlapRows) : null;
         if (target === null) return;
         event.preventDefault(); event.stopPropagation(); writeRef.current(target);
       }}>

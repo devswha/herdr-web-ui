@@ -23,6 +23,7 @@ import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../l
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
 import { useSettings } from "../lib/settings.ts";
+import { pageScrollDistance } from "../lib/pageScroll.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import { ConversationRefresh } from "../lib/conversationRefresh.ts";
 import { usePageVisible } from "../lib/visibility.ts";
@@ -54,6 +55,7 @@ const LOAD_OLDER_PX = 400;
 
 export interface ChatViewProps {
   paneId: string;
+  pageScroll?: { current: ((direction: -1 | 1) => void) | null };
   refreshKey: number;
   /** bumped by a conversation push; coalesced at the former 2s polling cadence */
   invalidationKey?: number;
@@ -582,7 +584,7 @@ function TerminalFallback({ paneId }: { paneId: string }) {
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -961,6 +963,23 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
     node.scrollTo({ top: node.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     stickToBottom.current = true; setNewMessages(false); setAway(false);
   };
+  useLayoutEffect(() => {
+    if (!pageScroll) return;
+    const scroll = (direction: -1 | 1) => {
+      const node = scroller.current;
+      if (!node) return;
+      const prose = node.querySelector<HTMLElement>(".chat-turn-agent > .markdown, .chat-bubble") ?? node;
+      const style = getComputedStyle(prose);
+      const lineHeight = parseFloat(style.lineHeight);
+      const rowHeight = Number.isFinite(lineHeight) ? lineHeight : parseFloat(style.fontSize);
+      const distance = pageScrollDistance(node.clientHeight, rowHeight, settings.pageOverlapRows);
+      node.scrollTo({ top: node.scrollTop + direction * distance, behavior: "instant" });
+      // A késleltetett scroll esemény előtt azonnal megállítjuk a kimenet követését.
+      onScroll();
+    };
+    pageScroll.current = scroll;
+    return () => { if (pageScroll.current === scroll) pageScroll.current = null; };
+  });
   const turns = useMemo(() => older.length > 0 ? [...older, ...state.turns] : state.turns, [older, state.turns]);
   // A cancelled send back in the agent's input box is no sent turn: the transcript still holds it
   // (empty, blank, held and onRead keep the turns as read), but the rendered list drops it while
