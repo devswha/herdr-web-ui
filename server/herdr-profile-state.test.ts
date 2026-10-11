@@ -56,3 +56,27 @@ it("connection consent is separate from installation approval and survives resta
   restored.flush();
   expect(new HerdrProfileState(dir).connectionApproved("id", target)).toBe(false);
 });
+
+it("retries a failed key removal when the old target returns, after a restart and after a re-add", () => {
+  const dir = directory(), target = { destination: "BuildBox" };
+  const failing = () => { throw new Error("cleanup"); };
+  let retired = 0;
+  const store = new HerdrProfileState(dir);
+  store.approve("id", target);
+  expect(() => store.reconcile("id", { destination: "new" }, failing)).toThrow("cleanup");
+  store.flush();
+  const restored = new HerdrProfileState(dir);
+  expect(restored.reconcile("id", target, () => { retired++; })).toBe(true);
+  expect(retired).toBe(1);
+  expect(restored.reconcile("id", target, () => { retired++; })).toBe(false);
+  expect(retired).toBe(1);
+  restored.approve("id", target);
+  expect(() => restored.prune(new Set(), failing)).toThrow("cleanup will retry");
+  restored.flush();
+  const readded = new HerdrProfileState(dir);
+  expect(readded.reconcile("id", target, () => { retired++; })).toBe(true);
+  expect(retired).toBe(2);
+  expect(readded.approved("id", target)).toBe(false);
+  readded.flush();
+  expect(readFileSync(join(dir, "herdr-profile-state.json"), "utf8")).not.toContain("retiring");
+});

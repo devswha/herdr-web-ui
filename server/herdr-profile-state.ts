@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { SshTarget } from "../shared/machines.ts";
 import type { SessionSnapshot } from "../shared/protocol.ts";
 
-interface ProfileState { binding: string; approved: boolean; connectionApproved: boolean; snapshot: SessionSnapshot | null }
+/** `retiring`: this binding's key removal was started and has not succeeded yet. */
+interface ProfileState { binding: string; approved: boolean; connectionApproved: boolean; snapshot: SessionSnapshot | null; retiring?: true }
 
 // Existing routes accept UUID-shaped machine IDs; deriving one keeps browser storage stable.
 export function herdrMachineId(profileId: string): string {
@@ -29,17 +30,20 @@ export class HerdrProfileState {
       if (!item || typeof item.profile_id !== "string" || !item.profile_id || this.entries.has(item.profile_id)
         || typeof item.binding !== "string" || !/^[a-f0-9]{64}$/.test(item.binding) || typeof item.approved !== "boolean"
         || (item.connectionApproved !== undefined && typeof item.connectionApproved !== "boolean")
+        || (item.retiring !== undefined && item.retiring !== true)
         || (item.snapshot !== null && (!item.snapshot || typeof item.snapshot !== "object" || !Array.isArray(item.snapshot.panes)))) throw new Error("Invalid herdr-profile-state.json; approvals were preserved");
-      this.entries.set(item.profile_id, { binding: item.binding, approved: item.approved, connectionApproved: item.connectionApproved ?? item.approved, snapshot: item.snapshot });
+      this.entries.set(item.profile_id, { binding: item.binding, approved: item.approved, connectionApproved: item.connectionApproved ?? item.approved, snapshot: item.snapshot, ...(item.retiring ? { retiring: true as const } : {}) });
     }
   }
   reconcile(id: string, target: SshTarget | null, retire?: () => void): boolean {
     const next = binding(target);
     const previous = this.entries.get(id);
-    if (previous?.binding === next) return false;
-    // Keep the old binding until its credentials are gone, so failures remain retryable.
-    if (previous) { this.revoke(id); retire?.(); }
-    this.entries.set(id, { binding: next, approved: false, connectionApproved: false, snapshot: null }); this.dirty = true;
+    // A removal that failed is owed even when the old target comes back: the same binding is not "unchanged" then.
+    if (previous?.binding === next && !(previous.retiring && retire)) return false;
+    // Keep the old binding, marked, until its credentials are gone, so failures remain retryable.
+    if (previous) { this.revoke(id); if (retire) { previous.retiring = true; retire(); } }
+    const owed = !retire && previous?.retiring;
+    this.entries.set(id, { binding: next, approved: false, connectionApproved: false, snapshot: null, ...(owed ? { retiring: true as const } : {}) }); this.dirty = true;
     return !!previous;
   }
   approved(id: string, target: SshTarget): boolean {
@@ -71,7 +75,7 @@ export class HerdrProfileState {
     const removed: string[] = [];
     const errors: unknown[] = [];
     for (const id of this.entries.keys()) if (!ids.has(id)) {
-      this.revoke(id);
+      this.revoke(id); this.entries.get(id)!.retiring = true;
       try { retire?.(id); this.entries.delete(id); removed.push(id); this.dirty = true; }
       catch (error) { errors.push(error); }
     }

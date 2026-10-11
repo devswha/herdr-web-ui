@@ -326,7 +326,9 @@ describe("automatic herdr machine inheritance", () => {
     const log = spyOn(console, "error").mockImplementation(() => {});
     cleanups.push(() => log.mockRestore());
     let reads = 0;
-    const started = Date.now();
+    // The watch's own timer says whether a failing cleanup backs polling off; elapsed time would also fail on a busy worker.
+    const timers = spyOn(globalThis, "setTimeout");
+    cleanups.push(() => timers.mockRestore());
     manager.watchHerdrProfiles(async () => {
       reads++;
       return [{ ...profile, target: { destination: "replacement" } }, { ...other, enabled: reads < 6 }];
@@ -334,7 +336,9 @@ describe("automatic herdr machine inheritance", () => {
     await until(() => closed);
     manager.stop();
     expect(reads).toBeGreaterThanOrEqual(6);
-    expect(Date.now() - started).toBeLessThan(400);
+    const delays = timers.mock.calls.filter(([callback]) => typeof callback === "function" && callback.name === "poll").map(([, delay]) => delay);
+    expect(delays.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(delays)).toEqual(new Set([10]));
     expect(log).toHaveBeenCalledTimes(1);
   });
   it("requires Connect before a direct bridge update and preserves failed connection details across polls", () => {

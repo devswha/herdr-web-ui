@@ -174,7 +174,8 @@ function MachineActionNotice({ machine, onSetup }: { machine: Machine; onSetup(m
       {machine.error && !/different version|setup needs approval/.test(machine.error) && <span className="machine-action-reason">{machine.error}</span>}
     </p>
     {update ? <div className="machine-action-buttons">
-      <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void run(() => machineRequest(`/${encodeURIComponent(machine.id)}/update-bridge`, "POST"))}>{t("Update bridge")}</button>
+      {/* a PC saved in herdr that has not connected yet is refused a direct update: its dialog connects first */}
+      <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void run(() => machineRequest(`/${encodeURIComponent(machine.id)}/update-bridge`, "POST").catch((e) => { if (!machine.herdr_profile_id) throw e; onSetup(machine, true); }))}>{t("Update bridge")}</button>
       {/* a PC that needs a password or a new host key goes through its dialog */}
       <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => onSetup(machine, true)}>{t("Sign in and update…")}</button>
     </div> : <button type="button" className="btn btn-primary" onClick={() => onSetup(machine, false)}>{t("Set up web access")}</button>}
