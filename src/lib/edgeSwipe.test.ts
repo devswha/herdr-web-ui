@@ -190,6 +190,22 @@ describe("watchDrawerSwipe", () => {
     delete doc["getElementById"];
   });
 
+  test("a flick that lifts after one move settles by its speed from the touch down", () => {
+    const drawer = { style: {} as Record<string, string>, getBoundingClientRect: () => ({ width: 300 }) };
+    const doc = (globalThis as Record<string, unknown>)["document"] as Record<string, unknown>;
+    doc["getElementById"] = (id: string) => (id === "workspace-drawer" ? drawer : null);
+    const calls: boolean[] = [];
+    const stop = watchDrawerSwipe(() => false, (next) => calls.push(next));
+    const event = (x: number, timeStamp: number) => ({ touches: [{ clientX: x, clientY: 400 }], target: null, timeStamp, preventDefault: () => {}, stopPropagation: () => {} });
+    // 36 px of 300 in 20 ms: far short of half, but fast enough to open
+    listeners.get("touchstart")!(event(4, 0));
+    listeners.get("touchmove")!(event(40, 20));
+    listeners.get("touchend")!({ touches: [], timeStamp: 30 });
+    expect(calls).toEqual([true]);
+    stop();
+    delete doc["getElementById"];
+  });
+
   test("a selection after the drawer moved leaves the stroke with it", () => {
     expect(stroke([[4, 400], [70, 400], [90, 400], [100, 400]], false, null, () => { selection = { isCollapsed: false }; })).toEqual({ reached: 0, calls: [true] });
   });

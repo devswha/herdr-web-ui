@@ -95,7 +95,11 @@ export function useSheetSwipe(surface: RefObject<HTMLElement | null>, onDismiss:
     const onStart = (event: TouchEvent): void => {
       const node = surface.current;
       const touch = event.touches[0];
+      // a second finger makes it a pinch, the page's zoom: a sheet being dragged springs back, and
+      // no later move of this gesture is held from the browser
+      if (drag !== null && stroke !== null) settle(stroke.node, drag.scrim);
       stroke = null;
+      drag = null;
       if (!node || !touch || event.touches.length !== 1 || !sheets.matches || dismiss.current === null) return;
       if (!node.contains(event.target as Node) || ownsStroke(event.target, node)) return;
       stroke = { x: touch.clientX, y: touch.clientY, scrolled: scrolledUnder(event.target, node), node };
@@ -103,7 +107,7 @@ export function useSheetSwipe(surface: RefObject<HTMLElement | null>, onDismiss:
 
     const onMove = (event: TouchEvent): void => {
       const touch = event.touches[0];
-      if (stroke === null || !touch) return;
+      if (stroke === null || !touch || event.touches.length !== 1) return;
       const dx = touch.clientX - stroke.x;
       const dy = touch.clientY - stroke.y;
       if (drag === null) {

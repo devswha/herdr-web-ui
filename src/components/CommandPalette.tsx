@@ -143,7 +143,8 @@ export function CommandPalette({ open, onClose, machines, onSelect, snapshot, on
   const navigated = useRef(false);
   useLayoutEffect(() => { if (open) navigated.current = false; }, [open]);
   const surface = useFocusTrap<HTMLElement>(open, { initialFocus: inputRef, shouldRestore: () => !navigated.current });
-  useSheetSwipe(surface, onClose);
+  // a plugin action under way keeps the palette open for its answer: no drag closes it meanwhile
+  useSheetSwipe(surface, running !== null ? null : onClose);
   const resultsRef = useRef<HTMLDivElement>(null);
   // a filter letter pressed over the list keeps the keyboard in the list: the first row takes the
   // focus once the filter is drawn, also when the letter named the filter already shown

@@ -74,7 +74,7 @@ function selecting(): boolean {
 /** Listens on the whole document; returns the cleanup. */
 export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean) => void): () => void {
   const narrow = window.matchMedia("(max-width: 768px)");
-  let start: { x: number; y: number; open: boolean } | null = null;
+  let start: { x: number; y: number; open: boolean; at: number } | null = null;
   // a recognised swipe owns the stroke until the finger lifts, after the drawer moved too
   let claimed = false;
   let done = false;
@@ -88,7 +88,7 @@ export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean)
     const open = follow !== null ? onEnd() : isOpen();
     start = event.touches.length === 1 && touch && narrow.matches && document.querySelector(MODAL) === null && (open || !scrolledAside(event.target))
       && !editable(event.target) && !selecting()
-      ? { x: touch.clientX, y: touch.clientY, open } : null;
+      ? { x: touch.clientX, y: touch.clientY, open, at: event.timeStamp } : null;
     claimed = false;
     done = false;
     state = open;
@@ -125,7 +125,9 @@ export function watchDrawerSwipe(isOpen: () => boolean, setOpen: (open: boolean)
       const drawer = document.getElementById?.("workspace-drawer") ?? null;
       if (drawer === null) return;
       const scrim = document.querySelector<HTMLElement>(".scrim");
-      follow = { drawer, scrim, width: drawer.getBoundingClientRect().width, shown: 0, x, at, speed: 0 };
+      // a flick may lift after one move: its speed so far is measured from where the finger came down
+      const speed = at > start.at ? (x - start.x) / (at - start.at) : 0;
+      follow = { drawer, scrim, width: drawer.getBoundingClientRect().width, shown: 0, x, at, speed };
       // the stroke draws the drawer now: no slide of the stylesheet's, and shown even while it is closing
       drawer.style.transition = "none";
       drawer.style.visibility = "visible";
