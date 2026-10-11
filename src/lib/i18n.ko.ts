@@ -61,6 +61,8 @@ export const KO: Record<string, string> = {
   "Language": "언어",
   "Follows the browser unless you choose one": "따로 고르지 않으면 브라우저 언어를 따릅니다",
   "Terminal font size": "터미널 글자 크기",
+  "Fit 80 columns in a split pane": "나눈 패널에 80칸 맞추기",
+  "A split pane narrower than 80 columns draws in a smaller font, down to 10px, so a program that needs 80 columns still fits. Turn it off to keep your font size in every pane.": "나눈 패널이 80칸보다 좁으면 글자를 10px까지 줄여 80칸이 필요한 프로그램도 들어가게 합니다. 끄면 모든 패널이 정한 글자 크기를 유지합니다.",
   "Applied to every terminal pane": "모든 터미널 패널에 적용됩니다",
   "Decrease terminal font size": "터미널 글자 작게",
   "Increase terminal font size": "터미널 글자 크게",

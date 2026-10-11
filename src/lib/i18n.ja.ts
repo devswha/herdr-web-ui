@@ -63,6 +63,8 @@ export const JA: Record<string, string> = {
   "Language": "言語",
   "Follows the browser unless you choose one": "選択しない場合はブラウザーの言語に従います",
   "Terminal font size": "ターミナルのフォントサイズ",
+  "Fit 80 columns in a split pane": "分割したペインを 80 桁に合わせる",
+  "A split pane narrower than 80 columns draws in a smaller font, down to 10px, so a program that needs 80 columns still fits. Turn it off to keep your font size in every pane.": "分割したペインが 80 桁より狭いとき、フォントを 10px まで小さくして、80 桁が必要なプログラムも収まるようにします。オフにすると、どのペインも設定したフォントサイズのままです。",
   "Applied to every terminal pane": "すべてのターミナルペインに適用されます",
   "Decrease terminal font size": "ターミナルの文字を小さく",
   "Increase terminal font size": "ターミナルの文字を大きく",
