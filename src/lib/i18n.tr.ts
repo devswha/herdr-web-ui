@@ -61,6 +61,8 @@ export const TR: Record<string, string> = {
   "Language": "Dil",
   "Follows the browser unless you choose one": "Bir dil seçmediğiniz sürece tarayıcının dilini kullanır",
   "Terminal font size": "Terminal yazı tipi boyutu",
+  "Fit 80 columns in a split pane": "Bölünmüş panele 80 sütun sığdır",
+  "A split pane narrower than 80 columns draws in a smaller font, down to 10px, so a program that needs 80 columns still fits. Turn it off to keep your font size in every pane.": "80 sütundan dar bölünmüş bir panel, 80 sütun gerektiren bir program yine de sığsın diye 10px'e kadar daha küçük bir yazı tipiyle çizilir. Her panelde kendi yazı tipi boyutunuzu korumak için kapatın.",
   "Applied to every terminal pane": "Her terminal paneline uygulanır",
   "Decrease terminal font size": "Terminal yazı tipini küçült",
   "Increase terminal font size": "Terminal yazı tipini büyüt",
