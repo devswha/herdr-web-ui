@@ -489,11 +489,13 @@ A message holds the event (`install` or `update`), a random ID made on this PC, 
 **Settings → Shortcuts** records a key with its exact Ctrl, Command/Meta, Alt and Shift modifiers.
 Click the current binding, press a combination, check the preview, then **Save** or **Cancel**.
 Nothing changes until Save. Escape cancels; plain Tab and Shift+Tab move focus. To bind these
-keys, or without a hardware keyboard, choose **Edit**, select a key (or type a custom character
-or key name), and check the modifiers. Unicode letters, Home/End, Page Up/Down and function keys
-are supported. For shifted digit symbols and comma, enter the base digit or comma. Non-Latin
-layouts use the physical Latin-letter position, while Latin accented letters keep their own
-character. Modifier-only, dead-key and IME events are not recorded.
+keys, or without a hardware keyboard, choose **Edit**, select a key (or type a Latin letter, ASCII
+digit, comma, or named key), and check the modifiers. Accented Latin letters, Home/End,
+Page Up/Down and function keys are supported in the manual editor. Symbols and non-Latin
+characters whose identity depends on the physical keyboard cannot be entered manually: record
+them with your keyboard instead. Recording uses the base digit or comma for shifted symbols,
+and the physical Latin-letter position on non-Latin layouts; Latin accented letters keep their
+own character. Modifier-only, dead-key and IME events are not recorded.
 
 Settings are saved in this browser, not on the remote PC. Existing saved Mod+Shift bindings keep
 working. The command palette shows current bindings and omits disabled ones. Each row can restore

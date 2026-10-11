@@ -23,10 +23,12 @@ export interface ShortcutEventLike {
   keyCode?: number;
 }
 
+const NAMED_SHORTCUT_KEY = /^(Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End|Enter|Tab|Escape|Backspace|Delete|Insert|Space|F([1-9]|1[0-9]|2[0-4]))$/;
+
 /** Printable Unicode keys need no alphabet list; named keys use the KeyboardEvent spelling. */
 function validShortcutKey(key: string): boolean {
   return /^[\p{L}\p{N}\p{P}\p{S}]\p{M}*$/u.test(key)
-    || /^(Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End|Enter|Tab|Escape|Backspace|Delete|Insert|Space|F([1-9]|1[0-9]|2[0-4]))$/.test(key);
+    || NAMED_SHORTCUT_KEY.test(key);
 }
 
 /** Recording and dispatch share layout handling, including shifted digits and IME protection. */
@@ -41,6 +43,13 @@ export function recordShortcutBinding(event: ShortcutEventLike): ShortcutBinding
   const key = latinLetter ? letter.toLowerCase() : code === "Space" || typedKey === " " ? "Space"
     : code === "Comma" ? "," : /^Digit[0-9]$/.test(code) ? code.slice(-1) : letter.length === 1 ? letter.toLowerCase() : letter;
   return validShortcutKey(key) ? { key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey } : null;
+}
+
+/** Manual entry has no physical code: reject keys whose recorded identity may depend on layout. */
+export function manualShortcutBinding(key: string, modifiers: Omit<ShortcutBinding, "key">): ShortcutBinding | null {
+  const normalized = key.normalize("NFC");
+  if (!/^(?:\p{Script=Latin}\p{M}*|[0-9,])$/u.test(normalized) && !NAMED_SHORTCUT_KEY.test(normalized)) return null;
+  return recordShortcutBinding({ ...modifiers, key: normalized });
 }
 
 /** Default and legacy bindings still use this platform's Mod+Shift convention. */

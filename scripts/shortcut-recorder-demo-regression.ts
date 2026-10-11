@@ -136,6 +136,27 @@ try {
             assert.deepEqual((await overridesOf(page)).palette, commandPage);
             await paletteRow.getByRole("button", { name: "Cancel", exact: true }).click();
           }
+          // Manual entry cannot bypass physical-key normalization or hide its real conflict.
+          await paletteRow.getByRole("button", { name: "Edit shortcut for Command palette", exact: true }).click();
+          await paletteRow.getByLabel("Shift", { exact: true }).check();
+          await paletteRow.getByRole("combobox", { name: "Shortcut key", exact: true }).selectOption("custom");
+          const ambiguousKey = paletteRow.getByLabel("Type a character or key name", { exact: true });
+          for (const key of ["<", "!", "ф"]) {
+            await ambiguousKey.fill(key);
+            await paletteRow.getByText("Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.", { exact: true }).waitFor();
+            assert.equal(await paletteRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+            assert.deepEqual((await overridesOf(page)).palette, commandPage, `${key} cannot save an unreachable literal`);
+          }
+          await paletteRow.getByRole("combobox", { name: "Shortcut key", exact: true }).selectOption(",");
+          await paletteRow.getByText("Already assigned", { exact: true }).waitFor();
+          assert.equal(await paletteRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true, "manual base comma detects the real Settings binding");
+          await paletteRow.getByRole("button", { name: "Cancel", exact: true }).click();
+          await record(page, "Settings", "Meta+Shift+Comma");
+          const settingsRow = rowOf(page, "Settings");
+          await settingsRow.getByRole("button", { name: "Save", exact: true }).click();
+          assert.deepEqual((await overridesOf(page)).settings, { key: ",", ctrlKey: false, metaKey: true, altKey: false, shiftKey: true });
+          await page.getByRole("button", { name: "Close settings", exact: true }).click();
+          await openShortcuts(page); // The normalized recorded comma still dispatches Settings.
           // A different modifier set on Space remains configurable.
           await paletteRow.getByRole("button", { name: "Edit shortcut for Command palette", exact: true }).click();
           await paletteRow.getByLabel("⌘", { exact: true }).uncheck();

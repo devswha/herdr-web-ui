@@ -9,7 +9,7 @@
  */
 export const JA: Record<string, string> = {
   "Chat read timed out.": "会話の読み込みがタイムアウトしました。",
-  "Use base digits and comma for shifted symbols. Non-Latin layouts use the physical Latin-letter key.": "Shiftで入力する記号には元の数字とカンマを使ってください。非ラテン文字の配列では物理的なラテン文字キーを使います。",
+  "Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.": "ラテン文字、数字、カンマ、またはキー名を使ってください。その他の文字はキーボードで記録してください。",
   "Bindings apply to this browser and device. Record any key combination; defaults use Mod+Shift.": "ショートカットはこのブラウザーとデバイスに適用されます。任意のキーの組み合わせを記録できます。デフォルトはMod+Shiftです。",
   "Record or edit a binding, preview it, then Save. Escape cancels recording; use the editor for Escape or Tab.": "記録または編集した組み合わせを確認してから保存します。Escapeで記録をキャンセルできます。EscapeやTabの設定には編集欄を使ってください。",
   "Default arrow bindings preserve text selection. Custom bindings can override text and terminal keys.": "デフォルトの矢印キーではテキスト選択が優先されます。カスタムの組み合わせはテキスト編集やターミナルのキー操作を置き換えることがあります。",

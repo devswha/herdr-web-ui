@@ -11,7 +11,7 @@
  */
 export const ZH: Record<string, string> = {
   "Chat read timed out.": "读取对话超时。",
-  "Use base digits and comma for shifted symbols. Non-Latin layouts use the physical Latin-letter key.": "Shift 输入的符号请使用原始数字和逗号。非拉丁字母布局使用对应的物理拉丁字母按键。",
+  "Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.": "请输入拉丁字母、数字、逗号或按键名称。其他字符请通过键盘录制。",
   "Bindings apply to this browser and device. Record any key combination; defaults use Mod+Shift.": "快捷键应用于此浏览器和设备。可录制任意按键组合；默认使用 Mod+Shift。",
   "Record or edit a binding, preview it, then Save. Escape cancels recording; use the editor for Escape or Tab.": "录制或编辑组合，预览后保存。Escape 取消录制；请在编辑器中设置 Escape 或 Tab。",
   "Default arrow bindings preserve text selection. Custom bindings can override text and terminal keys.": "默认方向键组合保留文本选择。自定义组合可能覆盖文本编辑和终端按键。",

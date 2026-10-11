@@ -1289,7 +1289,9 @@ One set for both themes: the card is island black wherever it shows.
 - `prefers-reduced-motion` is honored. Lucide/inline SVG decoration is hidden from assistive tech.
 - Default global shortcuts use **Mod+Shift+key**: Mod is Command on Apple platforms and Ctrl
   elsewhere. Settings records exact modifier combinations into a preview, with explicit Save/Cancel.
-  A key dropdown and custom-character field with modifier checkboxes work without a hardware keyboard.
+  A key dropdown and custom Latin-letter/digit/comma/key-name field with modifier checkboxes work
+  without a hardware keyboard. Ambiguous symbol and non-Latin manual entries cannot be saved;
+  the hardware recorder resolves their physical-key identity.
   Duplicate exact combinations, including fixed hold-to-dictate, block Save; restoration and disabling
   are separate controls. Expanded editors own their keys before global capture listeners run.
   Known browser/OS reservations and text/terminal overrides show warnings. Reservations vary by

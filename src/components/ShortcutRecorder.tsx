@@ -3,7 +3,7 @@ import { Ban, RotateCcw } from "lucide-react";
 import { useT } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
 import { formatKeys, isMacPlatform, shortcutConflict, shortcutDisplayKeys, shortcutKeys, type ShortcutId } from "../lib/shortcuts.ts";
-import { isReservedShortcutBinding, recordShortcutBinding, resolveShortcutBinding, type ShortcutBinding, type ShortcutSpec } from "../lib/shortcutBindings.ts";
+import { isReservedShortcutBinding, manualShortcutBinding, recordShortcutBinding, resolveShortcutBinding, type ShortcutBinding, type ShortcutSpec } from "../lib/shortcutBindings.ts";
 import "./ShortcutRecorder.css";
 
 const MANUAL_KEYS = [..."abcdefghijklmnopqrstuvwxyz0123456789,", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "Enter", "Tab", "Escape", "Space", "Backspace", "Delete", "Insert", ...Array.from({ length: 24 }, (_, index) => `F${index + 1}`)];
@@ -52,7 +52,7 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
   const setManual = (key: string, nextModifiers = modifiers) => {
     setManualKey(key);
     setModifiers(nextModifiers);
-    setCandidate(recordShortcutBinding({ ...nextModifiers, key }));
+    setCandidate(manualShortcutBinding(key, nextModifiers));
     setNotice(false);
   };
   return (
@@ -90,7 +90,7 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
         {customKey && <label className="shortcut-recorder-key">{t("Type a character or key name")}
           <input className="input" value={manualKey} autoComplete="off" autoCapitalize="off" spellCheck={false} onChange={(event) => setManual(event.target.value)} />
         </label>}
-        {customKey && <span className="settings-description">{t("Use base digits and comma for shifted symbols. Non-Latin layouts use the physical Latin-letter key.")}</span>}
+        {customKey && !candidate && manualKey && <span className="settings-description" role="status">{t("Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.")}</span>}
         {conflict && <span className="settings-description" role="status">{t("Already assigned")}</span>}
         {notice && <span className="settings-description" role="status">{t("Press a key with the modifiers you want.")}</span>}
         <div className="shortcut-recorder-controls">
