@@ -11,14 +11,13 @@ import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
 import { Telemetry } from "./telemetry.ts";
 import type { TelemetryStatus } from "../shared/telemetry.ts";
-import { herdrRpc, herdrSocketPath, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
+import { herdrRpc, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
 import { TailnetIdentitySource } from "./tailscale.ts";
 import { forgetTranscriptState } from "./conversation.ts";
-import { grokBindingFile } from "./grok-store.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -43,73 +42,6 @@ afterAll(() => {
 const base = () => `http://localhost:${server.port}`;
 
 describe("Grok conversation API", () => {
-  it.skipIf(process.platform !== "linux")("an opt-in statusline forces a session switch through the isolated server", async () => {
-    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-grok-reporter-"));
-    const ids = ["00000000-0000-4000-8000-000000000011", "00000000-0000-4000-8000-000000000012"];
-    const paths = ids.map((id, index) => {
-      const path = join(root, "sessions", "fiction", id, "updates.jsonl");
-      mkdirSync(join(path, ".."), { recursive: true });
-      writeFileSync(path, JSON.stringify({ method: "session/update", params: { sessionId: id, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: `fictional session ${index}` }, _meta: { promptIndex: 0 } } } }) + "\n");
-      return path;
-    });
-    const payloadFile = join(root, "payload.json");
-    const payload = (index: number) => writeFileSync(payloadFile, JSON.stringify({ session_id: ids[index], transcript_path: paths[index] }));
-    payload(0);
-    const executable = join(root, "grok");
-    copyFileSync(process.execPath, executable); chmodSync(executable, 0o755);
-    const helper = new URL("../scripts/grok-statusline.ts", import.meta.url).pathname;
-    const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
-    const fixture = join(root, "fixture.ts");
-    // The parent is a disposable Bun executable named grok. A shell pipeline between
-    // it and the helper exercises ancestry rather than assuming a direct parent.
-    writeFileSync(fixture, `import { readFileSync } from 'node:fs';
-      const deadline = Date.now() + 30000;
-      while (Date.now() < deadline) {
-        const child = Bun.spawn(['sh', '-c', ${JSON.stringify(`cat | ${quote(process.execPath)} ${quote(helper)}`)}], {stdin:'pipe',stdout:'ignore',stderr:'inherit'});
-        child.stdin.write(readFileSync(${JSON.stringify(payloadFile)})); child.stdin.end();
-        await child.exited;
-        await Bun.sleep(100);
-      }
-    `);
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-grok-reporter" });
-    let app: ReturnType<typeof createServer> | undefined;
-    try {
-      const pane = created.root_pane.pane_id;
-      await herdrRpc("pane.send_text", { pane_id: pane, text: `HOME=${quote(root)} XDG_STATE_HOME=${quote(join(root, "state"))} GROK_HOME=${quote(root)} ${quote(executable)} ${quote(fixture)}\n` });
-      const file = grokBindingFile(realpathSync(herdrSocketPath()), pane)!;
-      const bound = async (index: number) => {
-        for (const deadline = Date.now() + 10_000;;) {
-          try { if (JSON.parse(readFileSync(file, "utf8")).session === ids[index]) return; } catch { /* first report is pending */ }
-          if (Date.now() > deadline) {
-            const screen = await herdrRpc("pane.read", { pane_id: pane, source: "visible", format: "text", strip_ansi: true });
-            const reported = await herdrRpc("pane.get", { pane_id: pane });
-            const attempt = existsSync(`${file}.attempt`) ? readFileSync(`${file}.attempt`, "utf8") : "none";
-            throw new Error(`isolated statusline did not report session ${index}: attempt=${attempt}; pane=${JSON.stringify(reported)}; fixture=${JSON.stringify(screen)}`);
-          }
-          await Bun.sleep(50);
-        }
-      };
-      await bound(0);
-      app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "app-state") });
-      const url = `http://127.0.0.1:${app.port}/api/pane/conversation?pane_id=${encodeURIComponent(pane)}`;
-      const before = await (await fetch(url)).json();
-      expect(before.source).toBe("grok-transcript");
-      expect(before.turns[0].parts[0].text).toBe("fictional session 0");
-      payload(1); await bound(1);
-      expect((await sessionSnapshot()).panes.find((p) => p.pane_id === pane)?.agent_session?.value).toBe(ids[1]);
-      const after = await (await fetch(url)).json();
-      expect(after.turns[0].parts[0].text).toBe("fictional session 1");
-      expect(after.history_id).not.toBe(before.history_id);
-      expect((await fetch(`${url}&from=${encodeURIComponent(`${before.history_id}:0`)}`)).status).toBe(409);
-      // An old process record cannot attest the pane even while the report IDs match.
-      const stale = JSON.parse(readFileSync(file, "utf8")); stale.started += "-old";
-      writeFileSync(file, JSON.stringify(stale));
-      expect(await (await fetch(url)).json()).toEqual({ source: "scrollback", turns: [] });
-    } finally {
-      app?.stop(); await workspaceClose(created.workspace.workspace_id);
-      forgetTranscriptState(); rmSync(root, { recursive: true, force: true });
-    }
-  }, 30_000);
   it.skipIf(process.platform !== "linux")("uses exact process/session evidence, validators and revision-bound output refs", async () => {
     const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-grok-contract-"));
     const id = "00000000-0000-4000-8000-000000000001";
@@ -137,8 +69,8 @@ describe("Grok conversation API", () => {
         await Bun.sleep(50);
       }
       let reportSequence = 0;
-      // Herdr 0.9.3 replaces a Grok ID only for a newer "new" report. This test
-      // exercises that compatibility behavior; it does not install a live reporter.
+      // Stands in for the SessionStart report Grok's herdr integration makes: Herdr 0.9.3
+      // replaces a Grok ID only for a newer "new" report.
       const report = (session: string, source = "new") => herdrRpc("pane.report_agent_session", { pane_id: paneId, agent: "grok", source: "herdr:grok", seq: ++reportSequence, agent_session_id: session, session_start_source: source });
       await report(id);
       app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), grokHome: root });

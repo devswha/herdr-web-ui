@@ -26,9 +26,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   badge showing the size; the shared pty resizes once, when a finger lifts.
   ([#713](https://github.com/devswha/herdr-web-ui/pull/713) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
 - Grok chat reads native messages and tool activity, respects logical rewinds and
-  refreshes expanded tool output. An opt-in status-line helper can refresh Herdr's session
-  ID after in-TUI resume. macOS and Windows paths are included but have not been natively
-  verified. See [setup, compatibility limits and validation](docs/grok-chat.md).
+  refreshes expanded tool output. For now it works only with the native Grok build
+  `grok-1.0.50-linux-x86_64` on Linux; other builds, macOS and Windows show the terminal view.
+  See [setup and limits](docs/grok-chat.md).
   ([#777](https://github.com/devswha/herdr-web-ui/pull/777) by @infowolfe)
 - Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
   choice, a typed answer for its "Other" row and for an open question, and ticks for a question

@@ -13,7 +13,6 @@
     "scripts/build-remote-bundle.ts",
     "scripts/ssh-integration.ts",
     "scripts/file-viewer-regression.ts",
-    "scripts/grok-statusline.ts",
     "scripts/grok-chat-browser-qa.ts"
   ],
   "include": []

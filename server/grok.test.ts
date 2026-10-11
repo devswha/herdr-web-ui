@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { forgetTranscriptState, HistoryChanged, transcriptPage } from "./conversation.ts";
 import { grokToolOutput, GrokUnavailable, parseGrokTranscript } from "./grok.ts";
-import { grokBindingFile, grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath, readGrokBinding, type GrokBinding } from "./grok-store.ts";
+import { grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath } from "./grok-store.ts";
 import type { ConversationPart } from "../shared/protocol.ts";
 
 const session = "fictional-session";
@@ -171,27 +171,9 @@ describe("shared pager projection", () => {
 });
 
 describe("exact store lookup", () => {
-  test("Windows discovery follows the pane shell and excludes child agents and other panes", () => {
-    const row = (pid: number, parent: number, path: string) => ({ pid, parent, path, commandLine: `"${path}"` });
-    const rows = [row(10, 1, "C:\\Windows\\powershell.exe"), row(11, 10, "C:\\Grok\\grok-1.0.50.exe"), row(12, 11, "C:\\Grok\\grok.exe"), row(20, 1, "C:\\Grok\\grok.exe")];
-    expect(grokPaneProcesses({ shell_pid: 10 }, rows, "win32")).toEqual([{ pid: 11 }]);
-    expect(grokPaneProcesses({ shell_pid: 99 }, rows, "win32")).toEqual([]);
-    expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: ["/usr/local/bin/grok"] }] }, [], "darwin").map((p) => p.pid)).toEqual([11]);
-    expect(grokBindingFile(join(root, "herdr.sock"), "w1:p1")).not.toBe(grokBindingFile(join(root, "other.sock"), "w1:p1"));
-  });
-  test("statusline evidence expires and cannot cross a process, pane or session", () => {
-    writeFileSync(path, user(0));
-    const file = join(root, "binding.json");
-    const expected = { socket: "/tmp/fiction.sock", pane: "w1:p1", pid: 123, started: "fiction:1", home: root, session };
-    const binding: GrokBinding = { ...expected, version: 1, transcript: path, observed_ns: "10000000000" };
-    writeFileSync(file, JSON.stringify(binding), { mode: 0o600 });
-    expect(readGrokBinding(file, expected, 11_000_000_000n)).toBe(path);
-    const { home: _home, ...processBinding } = expected;
-    expect(readGrokBinding(file, processBinding, 11_000_000_000n)).toBe(path);
-    expect(readGrokBinding(file, expected, 26_000_000_000n)).toBeNull();
-    for (const changed of [{ pid: 124 }, { started: "fiction:2" }, { pane: "w1:p2" }, { session: "other" }]) {
-      expect(readGrokBinding(file, { ...expected, ...changed }, 11_000_000_000n)).toBeNull();
-    }
+  test("discovery takes Grok's own executable from the foreground processes", () => {
+    expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: ["/usr/local/bin/grok"] }, { pid: 12, argv: ["/bin/sh"] }] }).map((p) => p.pid)).toEqual([11]);
+    expect(grokPaneProcesses({})).toEqual([]);
   });
   test("custom home and hashed cwd names need no newest-file guess", () => {
     const hashed = join(root, "sessions", "long-slug-abc123", session, "updates.jsonl");

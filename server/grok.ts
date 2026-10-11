@@ -115,6 +115,8 @@ export function grokProjection(path: string, size: number): GrokProjection {
   index.size = size; index.changed = changed;
   indexes.delete(path); indexes.set(path, index);
   if (indexes.size > 16) indexes.delete(indexes.keys().next().value!);
+  // Known limitation: one malformed or unreconstructable record keeps this file on the
+  // terminal view until it is replaced or shrinks. Skipping the line could misplace a rewind.
   if (index.failed) throw new GrokUnavailable();
   const fd = openSync(path, "r");
   let position = index.scanned;
