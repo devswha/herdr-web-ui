@@ -416,6 +416,8 @@ export function createPushService(options: PushServiceOptions): PushService {
       schedule(key, groups, async (to) => {
         if (options.inUse?.()) return;
         const title = machineId === "local" ? await titleOf(paneId) : titles.get(key) ?? paneId;
+        // the title can wait for herdr: a window that came into use meanwhile still holds the alert
+        if (options.inUse?.()) return;
         // a device that dropped out meanwhile is not written to
         const live = to.flatMap((subscription) => {
           const current = store().get(subscription.endpoint);

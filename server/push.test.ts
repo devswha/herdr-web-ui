@@ -496,6 +496,14 @@ describe("a window of the app in use (#751)", () => {
     await push.settled();
     expect(fake.received).toHaveLength(0);
   });
+
+  it("holds an alert when a window comes into use while its title is looked up", async () => {
+    let inUse = false;
+    const push = subscribed({ inUse: () => inUse, lookupTitle: async () => { inUse = true; return "claude"; } });
+    push.seed([pane("w1:p1", "working", "claude")]);
+    await push.onStatus("w1:p1", "blocked");
+    expect(fake.received).toHaveLength(0);
+  });
 });
 
 describe("push resync after lost status events", () => {

@@ -2015,6 +2015,8 @@ describe("web push", () => {
         await page!.waitFor((message) => message.type === "role-ack", "role-ack after presence", 5_000);
       };
       const report = async (state: "working" | "blocked"): Promise<boolean> => {
+        // only a frame this report caused may answer it
+        page!.seen.length = 0;
         await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state });
         return page!.waitFor((message) => message.type === "pane-status" && message.pane_id === paneId && message.agent_status === state,
           `${state} on the page`, 2_500).then(() => true).catch(() => false);
