@@ -151,10 +151,13 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
  *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
  *         pane's OmO session started, or a Claude Code pane's subagents (no workflows): running ones, then
- *         those that ended in the last day; empty for any other pane or one whose session is not
- *         known yet. server_time: that PC's clock, which the times are on)
+ *         those that ended in the last day; empty for any other pane, one whose session is not known
+ *         yet, or one herdr did not answer for in time. server_time: that PC's clock, which the times are on)
  *  GET    /api/pane/plan?pane_id=       -> PanePlan (the plan the pane's Claude Code or Codex session
- *         keeps: its task list or checklist, read from the transcript; null when it keeps none)
+ *         keeps: its task list or checklist, read from the transcript; null when it keeps none. Each
+ *         step carries the `activity` of its time, and `outside` is what was done since the plan began
+ *         while no step ran: calls by tool, the last few with a detail, the subagents and background
+ *         commands they started)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null, restored: string | null }

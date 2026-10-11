@@ -18,7 +18,7 @@ import { lineNotifications, plain, readLines, remember } from "./claude-subagent
  * What a step's time held (its activity) is every other tool call made while it ran: each call
  * goes to the steps in progress then, or to the plan's `outside` while none is. Claude's `Agent`
  * calls and background commands are kept with the agent id and task id their answers give, and a
- * background command's notification says how it ended.
+ * background command's notification, or the TaskStop (KillShell) answer that stopped it, says how it ended.
  *
  * A transcript is read from its start, PLAN_BUDGET bytes per call, then only what was appended;
  * until the first read has reached the end, no plan is told.
@@ -60,7 +60,7 @@ interface Read {
   outside: Work;
   /** an `Agent` or background call waiting for the answer that gives its id, by tool_use id */
   started: Map<string, { agent: PlanActivity["agents"][number]; into: Work[] } | { command: string; into: Work[] }>;
-  /** background commands by task id, for the notification that ends them */
+  /** background commands by task id, for the notification or the stop that ends them */
   commands: Map<string, PlanActivity["background"][number]>;
 }
 const reads = new Map<string, Read>();
@@ -191,7 +191,9 @@ function claudeLine(read: Read, line: string): void {
     }
   }
   const calling = line.includes('"tool_use"');
-  const answering = (read.calls.size > 0 || read.started.size > 0) && line.includes('"tool_result"');
+  // TaskStop (KillShell in older Claude Code) answers with the task it stopped, or the shell: no notice follows
+  const stopping = read.commands.size > 0 && (line.includes('"task_id"') || line.includes('"shell_id"'));
+  const answering = (read.calls.size > 0 || read.started.size > 0 || stopping) && line.includes('"tool_result"');
   if (!calling && !answering) return;
   let entry: Row | null;
   try { entry = row(JSON.parse(line)); } catch { return; }
@@ -224,6 +226,11 @@ function claudeLine(read: Read, line: string): void {
     }
     if (block["type"] !== "tool_result" || typeof block["tool_use_id"] !== "string") continue;
     const answer = row(entry["toolUseResult"]);
+    if (stopping && block["is_error"] !== true) {
+      const stopped = typeof answer?.["task_type"] === "string" ? answer["task_id"] : answer?.["shell_id"];
+      const command = typeof stopped === "string" ? read.commands.get(stopped) : undefined;
+      if (command?.status === "running") command.status = "cancelled";
+    }
     const start = read.started.get(block["tool_use_id"]);
     if (start !== undefined) {
       read.started.delete(block["tool_use_id"]);

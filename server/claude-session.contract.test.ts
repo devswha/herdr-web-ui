@@ -253,6 +253,40 @@ it.skipIf(!NATIVE)("lists the subagents of the session a pane runs now, not thos
   expect((await tasks(target.pane)).tasks).toEqual([]);
 }, 15_000);
 
+it.skipIf(!NATIVE)("lists no subagents while herdr does not answer for the pane, whose session may have changed", async () => {
+  const tasks = async (paneId: string): Promise<OmoActivity> => await (await fetch(`http://127.0.0.1:${server.port}/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`)).json();
+  const [before, after] = [crypto.randomUUID(), crypto.randomUUID()];
+  for (const id of [before, after]) transcript(id);
+  const target = await pane(before);
+  let seq = 0;
+  const session = (id: string, start: "startup" | "clear") => herdrRpc("pane.report_agent_session", { pane_id: target.pane, source: "herdr:claude", agent: "claude", seq: ++seq, agent_session_id: id, session_start_source: start });
+  await session(before, "startup");
+  const folder = join(project, before, "subagents");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "agent-c1.meta.json"), JSON.stringify({ agentType: "reviewer", description: "Review before the clear", toolUseId: "toolu_c1", requestShape: "background" }));
+  writeFileSync(join(folder, "agent-c1.jsonl"), `${JSON.stringify({ isSidechain: true, agentId: "c1", type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: "go" } })}\n`);
+  expect((await tasks(target.pane)).tasks).toMatchObject([{ id: "c1", status: "running" }]);
+  // /clear starts another session and herdr is told; then the server's lookup of the pane gets no answer
+  const record = join(root, ".claude", "sessions", `${target.pid}.json`);
+  writeFileSync(record, JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), sessionId: after }));
+  await session(after, "clear");
+  expect((await paneGet(target.pane)).agent_session?.value).toBe(after);
+  // the server asks herdr at the socket HERDR_SOCKET names at each call: one that takes the call and never answers
+  // (the lookup runs out of its second), then none at all (the lookup fails)
+  const herdr = process.env["HERDR_SOCKET"];
+  const silent = Bun.listen({ unix: join(root, "silent.sock"), socket: { data() {} } });
+  try {
+    process.env["HERDR_SOCKET"] = join(root, "silent.sock");
+    expect((await tasks(target.pane)).tasks).toEqual([]);
+    process.env["HERDR_SOCKET"] = join(root, "missing.sock");
+    expect((await tasks(target.pane)).tasks).toEqual([]);
+  } finally {
+    if (herdr === undefined) delete process.env["HERDR_SOCKET"];
+    else process.env["HERDR_SOCKET"] = herdr;
+    silent.stop(true);
+  }
+}, 15_000);
+
 /** Each hold owns its pane, transcript and bridge, so running one test never needs an earlier one. */
 async function backgroundTurn(taskId: string) {
   server.stop();
@@ -389,6 +423,35 @@ it.skipIf(!NATIVE)("reads a Claude pane's task list as its plan, and pushes its 
     socket.close();
   }
 });
+
+it.skipIf(!NATIVE)("answers with the plan what each step's time held, and what was done while no step ran", async () => {
+  const plan = async (paneId: string): Promise<PanePlan> => await (await fetch(`http://127.0.0.1:${server.port}/api/pane/plan?pane_id=${encodeURIComponent(paneId)}`)).json();
+  const id = crypto.randomUUID();
+  transcript(id);
+  const target = await pane(id);
+  const call = (toolId: string, name: string, input: unknown, answer: unknown, content: string): unknown[] => [
+    { type: "assistant", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "tool_use", id: toolId, name, input }] } },
+    { type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content }] }, toolUseResult: answer },
+  ];
+  appendFileSync(join(project, `${id}.jsonl`), `\n${[
+    ...call("toolu_w1", "TaskCreate", { subject: "Build", activeForm: "Building" }, { task: { id: "1", subject: "Build" } }, "Task #1 created successfully: Build"),
+    // made while no step runs: the plan's own
+    ...call("toolu_w2", "Bash", { command: "git status" }, { stdout: "" }, "clean"),
+    ...call("toolu_w3", "TaskUpdate", { taskId: "1", status: "in_progress" }, { success: true, taskId: "1", updatedFields: ["status"] }, "Updated task #1 status"),
+    // made while the step runs: the step's, with the command it left running in the background
+    ...call("toolu_w4", "Bash", { command: "bun test", run_in_background: true }, { backgroundTaskId: "w1" }, "Command running in background with ID: w1"),
+  ].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  // the server's poll reads the transcript, never the request: asked until the poll has read it to its end
+  let answer = await plan(target.pane);
+  for (let attempt = 0; attempt < 100 && answer.plan === null; attempt++) {
+    await Bun.sleep(100);
+    answer = await plan(target.pane);
+  }
+  expect(answer.plan).toMatchObject({
+    steps: [{ id: "1", status: "in_progress", activity: { tools: [{ name: "Bash", count: 1 }], recent: [{ tool: "Bash", detail: "bun test" }], background: [{ id: "w1", command: "bun test", status: "running" }] } }],
+    outside: { tools: [{ name: "Bash", count: 1 }], recent: [{ tool: "Bash", detail: "git status" }], agents: [], background: [] },
+  });
+}, 15_000);
 
 it.skipIf(!NATIVE)("follows the current PID record without retaining a previous session", async () => {
   const path = join(root, ".claude", "sessions", `${first.pid}.json`);

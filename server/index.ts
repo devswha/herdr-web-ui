@@ -2227,14 +2227,17 @@ export function createServer(
         const server_time = new Date().toISOString();
         if (session === null) {
           // a Claude pane's subagents, read from its session's files; nothing for any other pane.
-          // The pane as herdr has it now is looked up first (for a second at most: a slow herdr answers with what is
-          // known, and the next ask has the rest): its transcript is found here if the background lookup has not got to
-          // it yet, and the one of a session the pane no longer runs is dropped before it is read (ClaudeSubagentStatus.ensure).
-          // So every ask costs a herdr lookup, an unknown pane's too; the client bounds its discovery retries.
+          // The pane as herdr has it now is looked up first, for a second at most: its transcript is found here if the
+          // background lookup has not got to it yet, and the one of a session the pane no longer runs is dropped before
+          // it is read (ClaudeSubagentStatus.ensure). A pane herdr did not answer for in time (slow, gone or unreachable)
+          // is told none, and the next ask has the rest: the session it runs is not known, and the transcript known from
+          // before may be another session's. So every ask costs a herdr lookup, an unknown pane's too; the client bounds
+          // its discovery retries.
+          const seen: { pane?: HerdrPane } = {};
           await within(1000, (async () => {
-            await claudeAgents.ensure(await paneGet(paneId));
+            await claudeAgents.ensure(seen.pane = await paneGet(paneId));
           })());
-          const claude = claudeAgents.sessionOf(paneId);
+          const claude = seen.pane === undefined ? null : claudeAgents.sessionOf(paneId);
           return jsonResponse({ tasks: claude === null ? [] : claudeSubagents(claude.path, claude.live, Date.now(), claude.startedAt), runs: [], server_time });
         }
         return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });

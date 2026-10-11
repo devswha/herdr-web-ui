@@ -180,6 +180,24 @@ describe("readPlan (Claude Code task list)", () => {
     expect(readPlan("claude-transcript", s.path)![0]!.activity!.background).toEqual([{ id: "b2", command: "bun run dev", status: "running" }]);
   });
 
+  it("ends a command that TaskStop (KillShell in older Claude Code) stopped, and not one a failed stop left running", () => {
+    const s = claude();
+    const a = s.create("Serve", 1);
+    s.update({ taskId: a, status: "in_progress" }, 1);
+    s.call("Bash", { command: "bun run dev", run_in_background: true }, 2, { backgroundTaskId: "b1" });
+    s.call("Bash", { command: "bun run watch", run_in_background: true }, 2, { backgroundTaskId: "b2" });
+    s.call("Bash", { command: "bun run serve", run_in_background: true }, 2, { backgroundTaskId: "b3" });
+    // no notice follows a stop: its answer names the task, or the shell
+    s.call("TaskStop", { task_id: "b1" }, 3, { message: "Successfully stopped task: b1 (bun run dev)", task_id: "b1", task_type: "local_bash", command: "bun run dev" });
+    s.call("KillShell", { shell_id: "b2" }, 4, { message: "Successfully killed shell: b2 (bun run watch)", shell_id: "b2" });
+    s.call("TaskStop", { task_id: "b3" }, 5, { task_id: "b3", task_type: "local_bash" }, true);
+    expect(readPlan("claude-transcript", s.path)![0]!.activity!.background).toEqual([
+      { id: "b1", command: "bun run dev", status: "cancelled" },
+      { id: "b2", command: "bun run watch", status: "cancelled" },
+      { id: "b3", command: "bun run serve", status: "running" },
+    ]);
+  });
+
   it("keeps the last few calls of a step and counts the rest", () => {
     const s = claude();
     const a = s.create("Busy", 1);

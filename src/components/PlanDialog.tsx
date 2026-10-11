@@ -4,6 +4,7 @@ import { Circle, CircleCheck, CircleDot, ListChecks, Workflow, X, type LucidePro
 import "./PlanDialog.css";
 
 import { formatTokens } from "../lib/compose.ts";
+import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { clockOffsetMs, formatElapsed, spanMs } from "../lib/omoTasks.ts";
 import { FLOW, flowLayout, planWaves } from "../lib/plan.ts";
@@ -97,12 +98,21 @@ export function PlanDialog({ paneId, title, onClose }: { paneId: string; title: 
     return () => window.removeEventListener("keydown", dismiss, true);
   }, [onClose]);
 
-  // the focus comes into the dialog and goes back where it was on close
+  // the focus comes into the dialog, and goes back where it was a frame after the dialog has gone, else (the header's
+  // plan button leaves with a plan that cleared) to the workspace list's toggle. What had it is read in the first
+  // render: StrictMode runs the effect twice, and its second run finds the focus in the dialog already
+  const [returnTo] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
   useEffect(() => {
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
-    return () => before?.focus();
-  }, []);
+    return () => {
+      window.requestAnimationFrame(() => {
+        // what took the focus meanwhile (StrictMode's second run, another pane picked) keeps it
+        if (document.activeElement !== null && document.activeElement !== document.body) return;
+        if (returnTo?.isConnected) returnTo.focus();
+        else if (returnTo !== null) focusWorkspaceListToggle();
+      });
+    };
+  }, [returnTo]);
 
   const chosenId = chosen?.id ?? null;
   const step = chosen === null || chosen.id === OUTSIDE ? undefined : steps?.find((candidate) => candidate.id === chosen.id && candidate.label === chosen.label);

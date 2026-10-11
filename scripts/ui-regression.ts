@@ -585,7 +585,7 @@ try {
   // Escape is the dialog's even over the terminal, and the focus goes back to the button that opened it
   await page.keyboard.press("Escape");
   await planDialog.waitFor({ state: "detached" });
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-button")), true, "the focus goes back on close");
+  await until(async () => await page.evaluate(() => document.activeElement?.classList.contains("plan-button") ?? false), "the focus goes back on close, a frame after the dialog has gone");
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   // the plan is the pane's it was opened on: another pane picked while it is open (here through the palette, which
   // opens over it) closes it, and going back to that pane does not open it again
@@ -600,7 +600,16 @@ try {
   await page.locator(`.pane-select[title^="${paneA} —"]`).click();
   await until(async () => await selectedPane() === paneA, "back on the pane the plan was opened on");
   assert.equal(await planDialog.count(), 0, "going back to the pane does not open its plan again");
+  // the plan clears while its dialog is open, and the header's button that opened it goes with it: closing the dialog
+  // puts the focus on the workspace list's toggle (lib/focus.ts), not on nothing
+  await planButton.click();
+  await until(async () => await planDialog.locator(".plan-node").count() === 4, "the plan before it clears");
   await page.unroute("**/api/machines");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await planButton.waitFor({ state: "detached" });
+  await page.keyboard.press("Escape");
+  await planDialog.waitFor({ state: "detached" });
+  await until(async () => await page.evaluate(() => document.activeElement?.matches(".app-header .sidebar-toggle, .app-header .drawer-toggle") ?? false), "the focus goes to the workspace list's toggle when the plan's button has gone");
   await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
   await page.unroute(`**/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneA)}`);
   console.log("PASS a pane's plan opens from the header in the chat and the terminal, as a flow and a list, and a step opens what its time held");
