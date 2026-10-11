@@ -540,8 +540,15 @@ try {
   await page.keyboard.press("Escape");
   await planList.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("bg-tasks-toggle")), true, "the focus goes back to the chip");
+  // the plan is done with and emptied (Claude Code clears its task list) while the list is open:
+  // nothing is left to list, so the list closes and the chip goes instead of standing empty
+  await planChip.click();
+  await until(async () => await planList.locator(".bg-step").count() === 4, "the plan's steps again");
   await unroutePlanned();
   await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await planList.waitFor({ state: "detached" });
+  await planChip.waitFor({ state: "detached" });
   console.log("PASS a pane's plan opens from the composer's chip as a list of its steps");
 
   // Use a real browser paste: keydown must not send Ctrl+V (0x16) to the agent,

@@ -219,7 +219,9 @@ export function BackgroundTasks({ paneId, count, omo, claude = false, plan = nul
   const endedRuns = runs.filter((run) => !runGoing(run));
   const summary = endedSummary(tasks ?? [], runs);
 
-  if (!planShown && !tasksShown && !open) return null;
+  // a plan cleared or a PC gone while the list is open: nothing is left to list, so the control goes
+  useEffect(() => { if (open && !planShown && !tasksShown) setOpen(false); }, [open, planShown, tasksShown]);
+  if (!planShown && !tasksShown) return null;
   const tasksLabel = count === 0 ? t("Background tasks") : t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count });
   const planLabel = plan ? t("Plan: {done} of {total} done", { done: plan.done, total: plan.total }) : null;
   const label = [planLabel, tasksShown ? tasksLabel : null].filter((part) => part !== null).join(" · ");
