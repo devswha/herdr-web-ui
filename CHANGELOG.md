@@ -61,6 +61,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#690](https://github.com/devswha/herdr-web-ui/pull/690) by @okcedric)
 
 ### Changed
+- Installs and updates build the client with Vite 8 running on Bun, about four times faster, and
+  no longer on whatever Node is first on the PATH; Node 18 is still all the terminal sidecar needs.
+  Typechecking moves to TypeScript 7.
 - The anonymous install and update counts also name the appearance settings changed from their
   defaults (theme, density, colors, sidebar rows, Agents order, workspace cards, pin agents and the
   two plan settings): the names only, never a value, and never a setting you type. The notice is
