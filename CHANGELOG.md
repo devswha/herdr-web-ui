@@ -25,8 +25,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On a phone, a two-finger pinch on the terminal changes its font size live (10–22 px), with a
   badge showing the size; the shared pty resizes once, when a finger lifts.
   ([#713](https://github.com/devswha/herdr-web-ui/pull/713) by @zerodice0, [#758](https://github.com/devswha/herdr-web-ui/pull/758))
-- Antigravity chat reads native messages and tool activity, follows the running process’s
-  active conversation, and honors saved rewind boundaries.
+- **Experimental Antigravity chat** reads native messages and tool activity, follows the
+  running process’s active conversation, and honors saved rewind boundaries. macOS is untested.
   See [compatibility and validation](docs/agy-chat.md).
   ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
 - Hermes's clarify questions get an answer card, as Claude Code's and Codex's do: one tap per
