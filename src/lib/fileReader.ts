@@ -18,14 +18,21 @@ export function readerFromSearch(search: string): ReaderTarget | null {
   return { machine: query.get("machine") || "local", path };
 }
 
-/** A link in the document, from the folder the document is in: `docs/guide.md`, `../x.md`; absolute and `~/` paths stay. */
+/**
+ * A link in the document, from the folder the document is in: `docs/guide.md`, `../x.md`; absolute and
+ * `~/` paths stay. Above a `~/` document's home the `..` is kept (`~/../x.md`): only the PC knows where
+ * its home is, and it expands the path.
+ */
 export function resolveFromDocument(document: string, target: string): string {
   if (target.startsWith("/") || target.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(target)) return target;
   const folder = document.replace(/\\/g, "/").split("/").slice(0, -1);
+  const home = folder[0] === "~";
   for (const part of target.replace(/\\/g, "/").split("/")) {
     if (part === "" || part === ".") continue;
-    if (part === "..") { if (folder.length > 1) folder.pop(); }
-    else folder.push(part);
+    if (part === "..") {
+      if (folder.length > 1 && folder[folder.length - 1] !== "..") folder.pop();
+      else if (home) folder.push("..");
+    } else folder.push(part);
   }
   return folder.join("/") || "/";
 }

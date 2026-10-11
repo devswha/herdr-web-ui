@@ -457,7 +457,7 @@ try {
     if (target === "missing-fixture") {
       await ownerPage.getByText("That link's PC is not set up here", { exact: true }).waitFor();
       assert.equal(await ownerPage.locator(".file-viewer").count(), 0);
-      assert.deepEqual(fileRequests, [], "an unknown PC never reads the local file");
+      assert.equal(fileRequests.length, 0, "an unknown PC never reads the local file");
       // nor does the document's own tab, for a PC that is not set up here
       const readerPage = await ownerContext.newPage();
       await readerPage.goto(`${origin}/?read=${encodeURIComponent(markdownPath)}&machine=${target}`);
