@@ -496,7 +496,8 @@ and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
 
 Known browser/OS reservations are marked, but other combinations can also be intercepted by
 your browser, OS or extensions. Installed-app mode may behave differently. While an IME is
-composing, keys stay with it. In text fields, Mod+Shift+arrows keep their text-selection behavior.
+composing, keys stay with it. In a text field with text, Mod+Shift+arrows keep their text-selection
+behavior; from an empty one, such as the chat's empty message box, they switch panes.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
 scrollbar, arrows move a line, Page Up/Down a viewport, and Home/End the start/end of history.

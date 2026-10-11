@@ -671,6 +671,18 @@ try {
   }
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await composer.waitFor();
+  // the empty message box has no text to select: the pane shortcut switches panes from it too
+  await composer.focus();
+  await page.keyboard.press("ControlOrMeta+Shift+ArrowDown");
+  await until(async () => !(await selectedTitle())?.startsWith(`${paneA} —`), "the empty message box leaves the pane");
+  await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await until(async () => (await selectedTitle())?.startsWith(`${paneA} —`) === true, "back on the first pane");
+  await composer.fill("draft");
+  await page.keyboard.press("ControlOrMeta+Shift+ArrowDown");
+  await page.waitForTimeout(NO_SEND_WAIT_MS);
+  assert.ok((await selectedTitle())?.startsWith(`${paneA} —`), "a draft keeps Mod+Shift+arrows for selecting text");
+  await composer.fill("");
+  console.log("PASS pane shortcut from the empty message box; a draft keeps text selection");
   console.log("PASS terminal clipboard paste sends text once and preserves Ctrl+C");
 
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
