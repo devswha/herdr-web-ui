@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Fixed
+- On a phone or other touch screen, a pane shown alone no longer draws its own ellipsis over the
+  chat or terminal, under the header's: its actions (rename, split, zoom, close) are in the tab's
+  ellipsis menu, between the tab's panes and the tab's own actions. A split pane on a wide touch
+  screen keeps its own menu.
+
 ## [0.4.7] - 2026-10-12
 
 ### Added
