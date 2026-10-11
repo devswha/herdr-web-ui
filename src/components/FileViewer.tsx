@@ -132,7 +132,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
           {markdown
-            ? <MarkdownImageContext.Provider value={imagePreview}><Markdown className="file-viewer-markdown">{text}</Markdown></MarkdownImageContext.Provider>
+            ? <MarkdownImageContext.Provider value={imagePreview}><Markdown className="file-viewer-markdown" html>{text}</Markdown></MarkdownImageContext.Provider>
             : <pre className="file-viewer-text">{text}</pre>}
           {textTruncated && (textTotal ?? 0) <= TEXT_PREVIEW_BYTES ? <p className="file-viewer-note">{t("Only part of this file is shown. Download it to read the rest.")}</p>
             : (textTotal ?? info.size) > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(textTotal ?? info.size) })}</p>}

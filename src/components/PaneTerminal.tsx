@@ -37,7 +37,7 @@ import { ChatView } from "./ChatView.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
-import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
+import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, PlanSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { chatLaneLength, useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
@@ -79,6 +79,8 @@ export interface PaneTerminalProps {
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the composer's status line offers their list */
   backgroundTasks?: number;
+  /** the plan the pane's agent keeps (null on an offline PC): the composer's chip opens it */
+  plan?: PlanSummary | null;
   /** the pane's turn ended on work still running in the background: the composer says BG */
   backgroundWait?: boolean;
   /** the pane's working directory and its PC's name: an empty chat's greeting names them */
@@ -135,6 +137,7 @@ export function PaneTerminal({
   title = null,
   agentStatus,
   backgroundTasks = 0,
+  plan = null,
   backgroundWait = false,
   cwd = null,
   machineName = "",
@@ -2454,6 +2457,7 @@ export function PaneTerminal({
           agent={agent}
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}
+          plan={plan}
           backgroundWait={backgroundWait}
           metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
           connected={connected && !held}
