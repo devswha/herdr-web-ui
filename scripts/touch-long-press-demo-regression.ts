@@ -11,17 +11,23 @@ import { buildDemoApp } from "./demo-build.ts";
 // transport: no herdr session is opened.
 const app = mkdtempSync(join(tmpdir(), "herdr-touch-long-press-demo-"));
 
-/** Fires a contextmenu on the chat as `pointerType` would, and says whether the page took it. */
-const press = (page: Page, pointerType: "touch" | "mouse"): Promise<boolean> => page.locator(".pane-frame.is-current .pane-frame-body").evaluate((body, type) => {
+/**
+ * Fires a contextmenu on the chat as `pointerType` would, and says whether the page took it.
+ * "legacy-touch": a browser whose contextmenu carries no pointer type, after a touch;
+ * "keyboard": Shift+F10 after that touch, a contextmenu with no pointer type either.
+ */
+const press = (page: Page, how: "touch" | "mouse" | "legacy-touch" | "keyboard"): Promise<boolean> => page.locator(".pane-frame.is-current .pane-frame-body").evaluate((body, how) => {
   const target = body.querySelector(".chat-view, .terminal-stack") ?? body;
   const rect = target.getBoundingClientRect();
+  const type = how === "mouse" ? "mouse" : "touch";
   const at = { bubbles: true, cancelable: true, composed: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 3, pointerType: type, isPrimary: true };
   target.dispatchEvent(new PointerEvent("pointerdown", { ...at, button: type === "mouse" ? 2 : 0, buttons: type === "mouse" ? 2 : 1 }));
   target.dispatchEvent(new PointerEvent("pointerup", { ...at, button: type === "mouse" ? 2 : 0, buttons: 0 }));
-  const event = new PointerEvent("contextmenu", { ...at, button: 2 });
+  if (how === "keyboard") target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, composed: true, key: "F10", shiftKey: true }));
+  const event = how === "touch" || how === "mouse" ? new PointerEvent("contextmenu", { ...at, button: 2 }) : new MouseEvent("contextmenu", { ...at, button: 2 });
   target.dispatchEvent(event);
   return event.defaultPrevented;
-}, pointerType);
+}, how);
 
 try {
   await buildDemoApp(app);
@@ -53,10 +59,19 @@ try {
       await page.waitForTimeout(300);
       assert.equal(await paneMenu.count(), 0, "a touch long press opens no pane menu");
 
+      assert.equal(await press(page, "legacy-touch"), false, "a contextmenu with no pointer type right after a touch is the touch's");
+      await page.waitForTimeout(300);
+      assert.equal(await paneMenu.count(), 0, "it opens no pane menu either");
+
+      assert.equal(await press(page, "keyboard"), true, "a menu asked for from the keyboard after a touch is the app's");
+      await paneMenu.waitFor();
+      await page.keyboard.press("Escape");
+      await paneMenu.waitFor({ state: "detached" });
+
       assert.equal(await press(page, "mouse"), true, "a right-click is still the app's");
       await paneMenu.waitFor();
       assert.deepEqual(errors, []);
-      console.log("PASS a touch long press on a pane is the phone's own, and a right-click still opens the pane menu");
+      console.log("PASS a touch long press on a pane is the phone's own; the keyboard and a right-click still open the pane menu");
     } finally { await browser.close(); }
   } finally { await server.stop(true); }
 } finally {

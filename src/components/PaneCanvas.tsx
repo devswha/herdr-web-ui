@@ -236,6 +236,8 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
         aria-label={displayPaneTitle(item)} aria-current={active ? "true" : undefined} aria-hidden={hidden || undefined} tabIndex={-1}
         style={alone === item.pane_id || (stacked && !cell.retained) ? { left: 0, top: 0, width: "100%", height: "100%" }
           : { left: `${cell.left}%`, top: `${cell.top}%`, width: `${cell.width}%`, height: `${cell.height}%` }}
+        // a menu asked for from the keyboard (Shift+F10, the Menu key) comes with no pointer: the last touch is not it
+        onKeyDownCapture={() => { touchPress.current = false; }}
         onPointerDownCapture={(event) => {
           touchPress.current = event.pointerType === "touch" || event.pointerType === "pen";
           // A right press must not change focus before the menu's Swap with focused pane.
