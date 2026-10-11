@@ -25,7 +25,7 @@ interface Props {
   selectedPaneId: string | null;
   onSelect: (paneId: string, focusInput?: boolean) => void;
   onChanged: () => void;
-  renderPane: (pane: HerdrPane | null, active: boolean) => ReactNode;
+  renderPane: (pane: HerdrPane | null, active: boolean, split: boolean) => ReactNode;
   isTerminal: (pane: HerdrPane) => boolean;
 }
 type Menu = { paneId: string; anchor: HTMLElement; point?: { x: number; y: number }; previousFocus: HTMLElement | null };
@@ -219,7 +219,7 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
   // a phone's hidden siblings take the whole canvas too, so each keeps the grid it is shown with
   const stacked = alone !== null && !layout?.zoomed;
   return <PaneSubmitContext.Provider value={submits}><PaneAwayContext.Provider value={awayReleased}><div className={`pane-canvas${!pane && presented ? " is-pending" : ""}`} ref={canvas} aria-busy={!pane && presented ? true : undefined}>
-    {cells.length === 0 && renderPane(pane, true)}
+    {cells.length === 0 && renderPane(pane, true, false)}
     {mountedCells.map((cell) => {
       const item = snapshot?.panes.find((item) => item.pane_id === cell.paneId);
       if (!item) return null;
@@ -266,7 +266,7 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
           <button type="button" className="icon-button pane-frame-menu" aria-label={t("Pane actions for {name}", { name: displayPaneTitle(item) })}
             onClick={(event) => showMenu(item, event.currentTarget)}><Ellipsis aria-hidden="true" /></button>
         </div>
-        <div className="pane-frame-body"><PanePresentedContext.Provider value={!cell.retained}>{renderPane(item, active)}</PanePresentedContext.Provider></div>
+        <div className="pane-frame-body"><PanePresentedContext.Provider value={!cell.retained}>{renderPane(item, active, alone === null && cells.length > 1)}</PanePresentedContext.Provider></div>
       </section>;
     })}
     {alone === null && layout?.splits.map((item) => {

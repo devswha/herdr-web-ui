@@ -66,6 +66,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   two plan settings): the names only, never a value, and never a setting you type. The notice is
   shown once more before anything is sent, and the same switch and environment variables turn it off.
   ([Anonymous usage counts](docs/guide.md#anonymous-usage-counts), [#820](https://github.com/devswha/herdr-web-ui/pull/820))
+- A split pane narrower than 80 columns draws its terminal in a smaller font, down to 10px, so
+  it still has the 80 columns programs such as btop need; widened or zoomed, it returns to your
+  font size. A pane too narrow to reach 80 columns even at 10px keeps your size, as does a pane this
+  browser only mirrors or watches. Settings → Terminal → **Fit 80 columns in a split pane** turns
+  it off. ([#824](https://github.com/devswha/herdr-web-ui/pull/824))
 - On a phone the app moves and responds like an iPhone app rather than a web page. Menus,
   dialogs, the palette and Settings slide up from the bottom, follow your finger when you drag
   them down, and slide away however they close; the workspace drawer follows your finger too.
@@ -94,6 +99,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - Mod+Shift+↑/↓ switch panes from the chat's empty message box too, as they do from the terminal.
   A box with a draft keeps them for selecting text.
+- Reloading with Settings open closes Settings whenever the browser gets to its step back; it could
+  come back when the app had drawn itself first, as on a slow device. ([#825](https://github.com/devswha/herdr-web-ui/pull/825))
 - A phone shows a split tab one pane at a time again, at the screen's whole width, instead of
   every pane squeezed into herdr's grid (since 0.4.6). The tab's menu lists the tab's panes to
   switch between them. Wider screens keep the split, and herdr's own layout is not changed.
@@ -167,6 +174,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   takes the unused height, and an empty one follows the folded section directly. The Agents height
   cap, independent scrolling and fixed footer stay unchanged.
   ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
+- Back and Forward after a pane is moved: the move no longer adds a history entry, and Back to an
+  entry from before the move opens the pane under its new id instead of its old workspace. Back to
+  an entry for a PC removed since stays on the pane shown and says the PC is not set up here,
+  instead of selecting the missing PC and leaving the pane blank. Back or Forward that lands
+  elsewhere than its entry named no longer drops the entries after it.
+  ([#804](https://github.com/devswha/herdr-web-ui/pull/804) by @phirschybar)
 
 ## [0.4.6] - 2026-10-11
 

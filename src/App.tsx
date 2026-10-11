@@ -15,8 +15,8 @@ import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDial
 import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
-import { onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
-import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
+import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
+import { fileFromLink, followMoved, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
@@ -31,7 +31,7 @@ import { paneStorageId, type Machine, type MachineEvent } from "../shared/machin
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
-import { carryPaneRecords, paneMovePending, paneMovesVersion, subscribePaneMoves } from "./lib/paneMove.ts";
+import { carryPaneRecords, paneMovedTo, paneMovePending, paneMovesVersion, recordPaneMove, subscribePaneMoves } from "./lib/paneMove.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
 import { alertPrefs, useSettings } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
@@ -151,7 +151,11 @@ export function App() {
   // the place the address names, read once at load: a link wins over this window's last selection
   const [initialLink] = useState(() => {
     // a link's lens is drawn over its pane's own, as a tapped notification's is (notificationViewTarget below)
-    return linksSomewhere(window.location.search) ? readLink(window.location.search) : null;
+    if (!linksSomewhere(window.location.search)) return null;
+    const link = readLink(window.location.search);
+    // a load onto an entry Settings left (a reload) steps out of it (lib/settingsHistory.ts): the
+    // dialog its address names, on that entry or on the one stepped back to, is the one it closed
+    return loadedOnSettingsEntry() ? { ...link, settings: null, section: null } : link;
   });
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
     if (initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink))) return initialLink.machine;
@@ -744,6 +748,8 @@ export function App() {
   // itself replace the entry. Nothing is written while locked or before the roster is in, so a
   // link survives the access gate and a slow first read.
   const writtenLink = useRef<AppLink | null>(null);
+  // Back or Forward landed somewhere other than its entry said: that place is written over the entry
+  const poppedTo = useRef(false);
   const newSessionOpenRef = useRef(newSessionOpen); newSessionOpenRef.current = newSessionOpen;
   const linkWorkspaceId = selectedPane?.workspace_id ?? (selectedPaneId === null ? null : undefined);
   const linkSlug = slugOf(selectedWorkspace?.label) || null;
@@ -759,10 +765,14 @@ export function App() {
     const previous = writtenLink.current;
     writtenLink.current = link;
     const search = linkSearch(link, window.location.search);
+    const popped = poppedTo.current;
+    poppedTo.current = false;
     // Back and Forward land where the address already says: nothing to write
     if (search === window.location.search) return;
     const url = `${window.location.pathname}${search}${window.location.hash}`;
-    if (previous !== null && !autoSelected && !settingsOpen && !newSessionOpen && isNavigation(previous, link)) window.history.pushState({ [NAV_KEY]: true }, "", url);
+    // a move gives the pane a new id (lib/paneMove.ts): the same pane, so the same entry
+    const sameMoved = previous !== null && previous.machine === link.machine && paneMovedTo(previous.machine, previous.pane) === link.pane;
+    if (previous !== null && !popped && !sameMoved && !autoSelected && !settingsOpen && !newSessionOpen && isNavigation(previous, link)) window.history.pushState({ [NAV_KEY]: true }, "", url);
     else window.history.replaceState(window.history.state, "", url);
   }, [locked, machines.length, snapshot, linkLanded, selectedMachineId, selectedPaneId, linkWorkspaceId, linkSlug, linkFile, view, settingsOpen, settingsPage, settingsLinkPage, settingsLinkSection, newSessionOpen, newTab, newFields, wideScreen, sidebarCollapsed, autoSelected]);
 
@@ -784,17 +794,34 @@ export function App() {
     const onPop = (event: PopStateEvent): void => {
       if (settingsEntry(event.state) !== null) return;
       const link = readLink(window.location.search);
-      // the New workspace dialog is part of the address it was open on: Back closes it, Forward opens it again
-      if (!link.create) setNewSessionOpen(false);
-      else if (!newSessionOpenRef.current) pendingCreate.current = link.create;
+      // before the PCs are in, nothing can say the entry's PC is still set up: it waits as a link
+      // opened with the page does, settled against its roster or answered with a note once they are
+      if (machinesRef.current.length === 0) {
+        if (!link.pane && !link.workspace) return;
+        selectTargetRef.current(link.machine, link.pane, link.view ?? undefined);
+        pendingLink.current = link; pendingFile.current = null; setLinkLanded(false);
+        poppedTo.current = true;
+        return;
+      }
       const machine = machinesRef.current.find((candidate) => candidate.id === link.machine);
-      const pane = machine?.snapshot ? resolveLink(machine.snapshot, link).pane : link.pane;
-      if (pane === null) return;
-      const current = selectionRef.current;
-      // the entry's lens is drawn over the pane's own, as a tapped notification's is
-      if (current.machineId !== link.machine || current.paneId !== pane) { selectTargetRef.current(link.machine, pane, link.pane === pane ? link.view ?? undefined : undefined); return; }
-      // the same pane: the entry landed on may still say what is no longer shown (the address a
-      // link to Settings opened the page with, under the dialog's own entries), so it says it now
+      const missing = !machine && machinesRef.current.length > 0;
+      // the New workspace dialog is part of the address it was open on: Back closes it, Forward opens
+      // it again, but not for a PC removed since
+      if (!link.create) setNewSessionOpen(false);
+      else if (!missing && !newSessionOpenRef.current) pendingCreate.current = link.create;
+      // an entry naming a PC since removed leaves the app where it is and says so, as a link to it would
+      if (missing) setHeaderNote("machine-missing");
+      else {
+        const target = followMoved(link, paneMovedTo(link.machine, link.pane), machine?.snapshot);
+        const pane = machine?.snapshot ? resolveLink(machine.snapshot, target).pane : target.pane;
+        if (pane === null) return;
+        const current = selectionRef.current;
+        // the entry's lens is drawn over the pane's own, as a tapped notification's is. Where it
+        // lands is written over the entry, so Forward keeps the entries after it
+        if (current.machineId !== link.machine || current.paneId !== pane) { poppedTo.current = true; selectTargetRef.current(link.machine, pane, target.pane === pane ? link.view ?? undefined : undefined); return; }
+      }
+      // the same pane, or no PC to go to: the entry landed on may still say what is no longer shown
+      // (the address a link to Settings opened the page with, under the dialog's own entries), so it says it now
       const shown = writtenLink.current;
       const search = shown ? linkSearch(shown, window.location.search) : window.location.search;
       if (search !== window.location.search) window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}${window.location.hash}`);
@@ -882,6 +909,7 @@ export function App() {
       paneMoved: (machineId, previousPaneId, paneId) => {
         if (previousPaneId === paneId) return;
         carryPaneRecords(machineId, previousPaneId, paneId);
+        recordPaneMove(machineId, previousPaneId, paneId);
         lenses.move(paneStorageId(machineId, previousPaneId), paneStorageId(machineId, paneId));
         // the new id is selected before a snapshot without the old one can fall the selection
         // back to herdr's focus; a pane moved from the sidebar while another is open stays unselected
@@ -1177,7 +1205,7 @@ export function App() {
           <div id={PANE_TABPANEL_ID} className="terminal-tabpanel" role={tabPanelLabel === null ? undefined : "tabpanel"} aria-label={tabPanelLabel ?? undefined}>
           <PaneCanvas key={selectedMachineId} snapshot={snapshot} pane={selectedPane} selectedPaneId={selectedPaneId} onSelect={selectPane} onChanged={actions.refresh}
             isTerminal={(item) => (item.pane_id === selectedPaneId ? view : storedView(lenses, item.pane_id, selectedMachineId, item.agent != null, terminalAttach)) === "terminal"}
-            renderPane={(item, active) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId: selectedMachineId }) : null}>
+            renderPane={(item, active, split) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId: selectedMachineId }) : null}>
               <PaneTerminal
                 title={item ? displayPaneTitle(item) : selectedTitle}
                 // Wait for the roster before attaching: the loading placeholder is replaced
@@ -1195,6 +1223,7 @@ export function App() {
                 findRequest={findRequest.paneId === item?.pane_id ? findRequest.serial : 0}
                 autoSelected={autoSelected}
                 terminalFontSize={settings.terminalFontSize}
+                split={split}
                 terminalCursorStyle={settings.terminalCursorStyle}
                 terminalCursorBlink={settings.terminalCursorBlink}
                 terminalWheelSpeed={settings.terminalWheelSpeed}

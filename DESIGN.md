@@ -250,6 +250,12 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   During a two-finger pinch the font follows the fingers live and a badge above the grid shows the
   size in pixels; the grid refits locally and the shared pty resizes once when a finger lifts.
   Cancellation restores the starting size.
+- A split pane that would have fewer than 80 columns at that size draws in the largest smaller
+  whole-pixel size that gives it 80, never below `10px` (Settings → Terminal → Fit 80 columns in
+  a split pane, on by default). A pane alone in its tab or zoomed, a pane that `10px` cannot bring
+  to 80 columns, and a pane this browser only watches or mirrors keep the user's size. The saved
+  size never changes for this; in such a pane a pinch still saves the size it shows, and the pane
+  draws it once it has the room.
 - Terminal and chat font families are comma-separated lists, default empty. They go in front of the
   terminal's built-in fonts (after the bundled Symbols Nerd Font Mono, which only draws icons) and of
   `--font-ui` in the chat's prose (as `--font-chat`), never in place of them; code in the chat keeps
@@ -1181,7 +1187,7 @@ One set for both themes: the card is island black wherever it shows.
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
 - Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family, highlight code; then
-  **Composer**: Enter sends, suggestion chip; then **Quick replies**), **Terminal** (font size and family, wheel
+  **Composer**: Enter sends, suggestion chip; then **Quick replies**), **Terminal** (font size, 80 columns in a split, font family, wheel
   speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings), **Phone & devices** (the phone address,
   Keep screen on, Install; then paired devices), **Remote PCs**, **About** (Updates, herdr,

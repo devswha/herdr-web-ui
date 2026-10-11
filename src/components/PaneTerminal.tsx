@@ -50,6 +50,7 @@ import { terminalLabel } from "../lib/terminalLabel.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { modalOpen } from "../lib/focus.ts";
 import { pinchFontSize } from "../lib/pinchFontSize.ts";
+import { narrowPaneFontSize } from "../lib/narrowPaneFont.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -92,6 +93,8 @@ export interface PaneTerminalProps {
   autoSelected?: boolean;
   /** xterm font size (settings) */
   terminalFontSize: number;
+  /** one of several panes drawn side by side: under 80 columns its font shrinks to reach them */
+  split?: boolean;
   /** xterm cursorStyle (settings); a program's own DECSCUSR still changes it, as before this setting existed */
   terminalCursorStyle: TerminalCursorStyle;
   /** xterm cursorBlink (settings) */
@@ -140,6 +143,7 @@ export function PaneTerminal({
   active = true,
   autoSelected = false,
   terminalFontSize,
+  split = false,
   terminalCursorStyle,
   terminalCursorBlink,
   terminalWheelSpeed,
@@ -197,6 +201,8 @@ export function PaneTerminal({
   wheelSpeedRef.current = terminalWheelSpeed;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const pinchBadgeRef = useRef<HTMLSpanElement | null>(null);
+  /** the user's font size (settings, or a pinch in progress); a narrow split pane may draw smaller */
+  const baseFontRef = useRef(terminalFontSize);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -298,6 +304,10 @@ export function PaneTerminal({
   // Settings → Use alongside herdr's own window: off (the default), a tab out of use keeps its pane and its size
   const releaseAwayRef = useRef(settings.releasePaneAway);
   releaseAwayRef.current = settings.releasePaneAway;
+  const narrowFont = split && settings.narrowPaneFont;
+  const narrowFontRef = useRef(narrowFont);
+  narrowFontRef.current = narrowFont;
+  const narrowFontFitted = useRef(narrowFont);
   // Settings → Chat width, Default: the lane follows this pane. One length on the stack, which
   // the transcript, the composer column, the held list and the menus all inherit: a percentage
   // would resolve against each one's own box and leave them a gutter apart. The other steps are
@@ -497,6 +507,20 @@ export function PaneTerminal({
       macOptionClickForcesSelection: true,
     });
     const fit = new FitAddon();
+    // Every fit first settles the font: a split pane under 80 columns draws smaller to reach
+    // them (btop refuses a narrower screen), and returns to the user's size once it is wide enough.
+    const fitGrid = fit.fit.bind(fit);
+    fit.fit = (): void => {
+      const base = baseFontRef.current;
+      const colsAt = (size: number): number | null => {
+        term.options.fontSize = size;
+        const cols = fit.proposeDimensions()?.cols;
+        return cols !== undefined && Number.isFinite(cols) ? cols : null;
+      };
+      // a grid this client does not drive gains no columns from a smaller font
+      term.options.fontSize = narrowFontRef.current && !observeRef.current && !fixedGridRef.current ? narrowPaneFontSize(base, colsAt) : base;
+      fitGrid();
+    };
     term.loadAddon(fit);
     matchHerdrWidths(term);
     // the same policy as the linkHandler above: an http(s) address or nothing (S10)
@@ -1029,6 +1053,8 @@ export function PaneTerminal({
         // reclaims it when the user comes back: the refit below)
         const nowObserving = message.mode === "observe";
         observeRef.current = nowObserving;
+        // no fit runs while observing: a font shrunk for this client's own grid would stay
+        if (nowObserving) term.options.fontSize = baseFontRef.current;
         setObserving(nowObserving);
         term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
         onRoleAckRef.current?.(message.mode);
@@ -1047,7 +1073,11 @@ export function PaneTerminal({
         // observe clients adopt the pty's grid; interact clients drive it and ignore this,
         // unless the grid is fixed: then nobody here drives it
         if (message.pane_id !== paneRef.current) return;
-        if (message.fixed) fixedGridRef.current = true;
+        if (message.fixed) {
+          fixedGridRef.current = true;
+          // nor while the grid is fixed (a mirrored pane): back to the user's size
+          term.options.fontSize = baseFontRef.current;
+        }
         // kept while the terminal lens ignores it: another device may drive the grid, and the
         // chat lens entered later must draw its hidden screen for that grid, not this device's
         sharedGridRef.current = { cols: message.cols, rows: message.rows };
@@ -1309,7 +1339,8 @@ export function PaneTerminal({
       if (pinchBadgeRef.current) pinchBadgeRef.current.hidden = true;
     };
     const applyLiveFont = (size: number): void => {
-      if (term.options.fontSize === size) return;
+      if (baseFontRef.current === size) return;
+      baseFontRef.current = size;
       term.options.fontSize = size;
       if (adopted() || chatViewRef.current) return;
       try {
@@ -1356,7 +1387,7 @@ export function PaneTerminal({
         if (event.touches.length !== 2 || !a || !b ||
             !host.contains(a.target as Node) || !host.contains(b.target as Node) ||
             spread(a, b) <= 0) return;
-        const startSize = term.options.fontSize ?? terminalFontSize;
+        const startSize = baseFontRef.current;
         pinch = { first: a.identifier, second: b.identifier, startSize, startDistance: spread(a, b), size: startSize };
         if (pinchBadgeRef.current) {
           pinchBadgeRef.current.textContent = `${startSize}px`;
@@ -1669,6 +1700,7 @@ export function PaneTerminal({
     const apply = (): void => {
       // a newer font, or an unmounted terminal, took over while the faces loaded
       if (superseded || termRef.current !== term) return;
+      baseFontRef.current = terminalFontSize;
       if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = fontFamily;
@@ -1687,6 +1719,21 @@ export function PaneTerminal({
     else void loadFontStack(fontFamily, terminalFontSize).then(apply);
     return () => { superseded = true; };
   }, [terminalFontSize, fontFamily]);
+
+  // the setting, a zoom or the last sibling closing need not resize the host: the observer may stay silent
+  useEffect(() => {
+    if (narrowFontFitted.current === narrowFont) return;
+    narrowFontFitted.current = narrowFont;
+    const term = termRef.current;
+    if (!term || observeRef.current || fixedGridRef.current || chatViewRef.current) return;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      return;
+    }
+    const pane = paneRef.current;
+    if (pane && presentedRef.current && inUse()) socketRef.current?.resize(pane, term.cols, term.rows);
+  }, [narrowFont]);
 
   // the grid must re-fit when the lens switches back: the chat lens covered it, and a
   // resize while covered may have been skipped by a zero-size layout

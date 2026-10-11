@@ -65,6 +65,8 @@ export const ZH: Record<string, string> = {
   "Language": "语言",
   "Follows the browser unless you choose one": "未选择时跟随浏览器语言",
   "Terminal font size": "终端字号",
+  "Fit 80 columns in a split pane": "让拆分的窗格容纳 80 列",
+  "A split pane narrower than 80 columns draws in a smaller font, down to 10px, so a program that needs 80 columns still fits. Turn it off to keep your font size in every pane.": "拆分的窗格不足 80 列时，字号会缩小（最小 10px），让需要 80 列的程序也能显示。关闭后，所有窗格都保持你设定的字号。",
   "Applied to every terminal pane": "应用于所有终端窗格",
   "Decrease terminal font size": "减小终端字号",
   "Increase terminal font size": "增大终端字号",
