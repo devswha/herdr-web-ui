@@ -13,6 +13,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
   Settings choice applies again to every pane.
   ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
+- A click in the terminal while an arrow key is still on its way to herdr reaches the program as
+  a click, instead of being typed into it as the raw characters of a mouse report.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
+- OmO's side panel no longer draws a dotted line under its file, goal and memory rows in the
+  terminal: a link the app cannot open is no longer underlined.
+  ([#763](https://github.com/devswha/herdr-web-ui/pull/763))
 
 ## [0.4.6] - 2026-10-11
 
