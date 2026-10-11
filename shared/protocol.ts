@@ -106,7 +106,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
  *  POST   /api/pane/input  { pane_id, text }   -> { ok: true }
  *  GET    /api/pane/conversation?pane_id=    -> ConversationResponse (structured agent
- *         transcript turns - claude, codex, omp, omo, gjc, pi or devin; source:"scrollback" when the pane has no
+ *         transcript turns - claude, codex, omp, omo, gjc, pi, devin, OpenCode or hermes; source:"scrollback" when the pane has no
  *         recognized store)
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
@@ -256,6 +256,8 @@ export interface UsageWindow {
   readonly used_percent: number;
   /** ISO 8601; null when the provider does not say */
   readonly resets_at: string | null;
+  /** ISO 8601 time this window began counting; null when the provider states neither it nor the window's length */
+  readonly starts_at: string | null;
 }
 
 /**
@@ -372,6 +374,8 @@ export type ConversationPart =
   /** `error`: the call failed (the agent recorded it so, or its output says a command exited non-zero) */
   | {
     kind: "tool"; name: string; summary: string; input: string; output: string; error?: boolean;
+    /** Hermes could not load a tool-call list whose arguments exceeded its page limit. */
+    arguments_omitted?: true;
     skill?: SkillActivity;
     /** set when `output` was cut: the call's id, for GET /api/pane/conversation/tool-output, and the whole output's length */
     output_ref?: string; output_size?: number;
@@ -467,7 +471,7 @@ export interface OmoActivity {
 export interface ConversationResponse {
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript" | "scrollback";
+  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript" | "hermes-transcript" | "scrollback";
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**
@@ -954,8 +958,11 @@ export type ClientMessage =
    * works the bridge keeps the message until its next turn, or the owner explicitly steers it.
    * Omission keeps the legacy immediate submission. Queued messages never resume after lease loss.
    * Queue request ids increase monotonically per connection; recent duplicates replay their
-   * receipt, and retired ids are rejected rather than executed after history eviction. */
-  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" }
+   * receipt, and retired ids are rejected rather than executed after history eviction.
+   * `clear_draft`: an immediate chat message only, sent again over the `draft` its input_draft
+   * refusal named: the server clears Claude's input box first while it still holds exactly that,
+   * and refuses again (input_draft) when it holds anything else or does not read empty after. */
+  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue"; clear_draft?: string }
   | { type: "pending-action"; id: number; pane_id: string; pending_id: string; action: "steer" | "discard" }
   /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
@@ -988,8 +995,12 @@ export type ServerMessage =
   /** the shared pty's grid changed: observe clients adopt it, interact clients drive it. `fixed`: the grid is the pane's own in herdr (a mirrored pane), so every client adopts it and none resizes */
   | { type: "pane-geometry"; pane_id: string; cols: number; rows: number; fixed?: boolean }
   | { type: "role-ack"; mode: ClientRole }
-  /** ok after Enter delivery, or bridge acceptance (`pending`); never an agent execution acknowledgement. */
-  | { type: "submit-result"; id: number; pane_id: string; ok: boolean; pending?: PendingMessage; code?: string; message?: string }
+  /** ok after Enter delivery, or bridge acceptance (`pending`); never an agent execution acknowledgement.
+   * `draft`: on an immediate send's input_draft, the one-row draft in Claude's input box that a send
+   * with `clear_draft` may clear (absent when the box is not one the server clears).
+   * `submit_partial`: the explicitly confirmed terminal draft was cleared, but the send's
+   * deadline then expired before the message was sent; never a nothing-typed receipt. */
+  | { type: "submit-result"; id: number; pane_id: string; ok: boolean; pending?: PendingMessage; code?: string; message?: string; draft?: string }
   | { type: "pending-result"; id: number; pane_id: string; pending_id: string; ok: boolean; code?: string; message?: string }
   /** Owner-only receipt and state; only an explicit removed outcome permits deleting a retained client message. */
   | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" }> }
