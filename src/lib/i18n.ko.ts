@@ -840,6 +840,8 @@ export const KO: Record<string, string> = {
   "{percent} left": "{percent} 남음",
   "Meters show": "미터 표시",
   "Limit shown": "표시할 한도",
+  "Show pace": "속도 표시",
+  "On each limit, a mark where an even pace would be by now, the rate so far, and a warning when it runs out before its reset. Claude, Codex and Grok only.": "각 한도에 고르게 썼을 때의 위치 눈금, 지금까지의 속도, 초기화 전에 바닥날 때의 경고를 보여 줍니다. Claude, Codex, Grok만 해당합니다.",
   "The limit each chip shows. Session is the short one, 5 hours on Claude and Codex. A plan without the chosen limit shows the one closest to running out.": "칩마다 보여줄 한도입니다. 세션은 짧은 한도로, Claude와 Codex에서는 5시간입니다. 고른 한도가 없는 요금제는 가장 많이 찬 한도를 보여줍니다.",
   "Used": "사용량",
   "Remaining": "남은 양",

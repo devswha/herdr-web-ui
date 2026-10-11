@@ -842,6 +842,8 @@ export const JA: Record<string, string> = {
   "{percent} left": "残り {percent}",
   "Meters show": "メーターの表示",
   "Limit shown": "表示する上限",
+  "Show pace": "ペースを表示",
+  "On each limit, a mark where an even pace would be by now, the rate so far, and a warning when it runs out before its reset. Claude, Codex and Grok only.": "各上限に、均等なペースでの現在位置の目印、これまでの消費速度、リセット前に尽きる場合の警告を表示します。Claude、Codex、Grokのみ。",
   "The limit each chip shows. Session is the short one, 5 hours on Claude and Codex. A plan without the chosen limit shows the one closest to running out.": "各チップに表示する上限です。セッションは短い上限で、Claude と Codex では 5 時間です。選んだ上限がないプランは、最も上限に近いものを表示します。",
   "Used": "使用量",
   "Remaining": "残量",
