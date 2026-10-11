@@ -1,4 +1,10 @@
+import type { FileInfo } from "../../shared/protocol.ts";
 import { fileUriPath } from "./terminalFileLinks.ts";
+
+/** Bigger images are offered as a download: a phone decodes an image whole. */
+export const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
+
+export type MarkdownImagePreview = { kind: "inline"; url: string } | { kind: "too-large"; size: number; downloadUrl: string };
 
 /**
  * Where an image of a markdown file lives, as a path the file endpoint reads: a `file://` URI or
@@ -25,4 +31,24 @@ export function markdownImagePath(src: string, markdownPath: string): string | n
     else parts.push(part);
   }
   return `/${parts.join("/")}`;
+}
+
+/** Stat a local markdown image before giving the browser a URL to decode. */
+export async function markdownImagePreview(
+  src: string,
+  markdownPath: string,
+  fetchInfo: (path: string) => Promise<FileInfo | { candidates: string[] }>,
+  fileUrl: (path: string, download: boolean) => string,
+): Promise<MarkdownImagePreview | null> {
+  const path = markdownImagePath(src, markdownPath);
+  if (path === null) return null;
+  try {
+    const info = await fetchInfo(path);
+    if ("candidates" in info || info.kind !== "image") return null;
+    return info.size > MAX_INLINE_IMAGE_BYTES
+      ? { kind: "too-large", size: info.size, downloadUrl: fileUrl(info.path, true) }
+      : { kind: "inline", url: fileUrl(info.path, false) };
+  } catch {
+    return null;
+  }
 }

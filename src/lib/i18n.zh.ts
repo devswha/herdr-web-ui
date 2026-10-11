@@ -362,6 +362,7 @@ export const ZH: Record<string, string> = {
   "Files": "文件",
   "Close files": "关闭文件",
   "Showing the first {shown} of {total}.": "显示 {total} 项中的前 {shown} 项。",
+  "This image is {size}; download it to view.": "此图片大小为 {size}；请下载后查看。",
   "Open in a new tab": "在新标签页中打开",
   "Download": "下载",
   "Close file": "关闭文件",

@@ -10,11 +10,9 @@ import { formatBytes } from "../lib/bridgeProgress.ts";
 import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
-import { markdownImagePath } from "../lib/markdownImages.ts";
+import { MAX_INLINE_IMAGE_BYTES, markdownImagePreview } from "../lib/markdownImages.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 
-/** Bigger images are offered as a download: a phone decodes an image whole. */
-const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
 /** Text shows its first part: the rest is a download away. */
 const TEXT_PREVIEW_BYTES = 256 * 1024;
 
@@ -91,10 +89,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const url = fileUrl(info?.path ?? path, paneId);
   const filePath = info?.path ?? path;
   // images of a markdown file load through the file endpoint, as the file itself does
-  const imageUrl = useCallback((src: string): string | null => {
-    const target = markdownImagePath(src, filePath);
-    return target === null ? null : fileUrl(target, paneId);
-  }, [filePath, paneId, fileUrl]);
+  const imagePreview = useCallback((src: string) => markdownImagePreview(
+    src, filePath, (target) => fetchFileInfo(target, paneId), (target, download) => fileUrl(target, paneId, download),
+  ), [filePath, paneId, fetchFileInfo, fileUrl]);
   const body = (() => {
     if (directory !== null) return <DirectoryBrowser key={directory} start={directory} onOpenFile={onOpen ?? setPath} />;
     if (error !== null) return <p className="file-viewer-note" role="alert">{error}</p>;
@@ -106,7 +103,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     switch (info.kind) {
       case "image":
         return info.size > MAX_INLINE_IMAGE_BYTES
-          ? <p className="file-viewer-note">This image is {formatBytes(info.size)}; download it to view.</p>
+          ? <p className="file-viewer-note">{t("This image is {size}; download it to view.", { size: formatBytes(info.size) })}</p>
           : <img className="file-viewer-media" src={url} alt={info.name} />;
       case "video":
         return <video className="file-viewer-media" src={url} controls playsInline preload="metadata" />;
@@ -117,7 +114,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
           {/\.(?:md|markdown)$/i.test(info.name)
-            ? <MarkdownImageContext.Provider value={imageUrl}><Markdown className="file-viewer-markdown">{text}</Markdown></MarkdownImageContext.Provider>
+            ? <MarkdownImageContext.Provider value={imagePreview}><Markdown className="file-viewer-markdown">{text}</Markdown></MarkdownImageContext.Provider>
             : <pre className="file-viewer-text">{text}</pre>}
           {info.size > TEXT_PREVIEW_BYTES && <p className="file-viewer-note">{t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(info.size) })}</p>}
         </>;

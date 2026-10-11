@@ -7,6 +7,8 @@ import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { CHAT_HIGHLIGHT_LIMIT, languageForFence } from "../lib/highlight.ts";
 import { HighlightedCode } from "./HighlightedCode.tsx";
 import { useT } from "../lib/i18n.ts";
+import { type MarkdownImagePreview } from "../lib/markdownImages.ts";
+import { formatBytes } from "../lib/bridgeProgress.ts";
 import { MermaidLightbox } from "./MermaidLightbox.tsx";
 import { copyText } from "../lib/clipboard.ts";
 
@@ -101,8 +103,28 @@ function MermaidDiagram({ value }: { value: string }) {
   );
 }
 
-/** Turns an image's `src` into a URL the page can load; null leaves the image as the link or text it was before. Null context: chat draws no images. */
-export const MarkdownImageContext = createContext<((src: string) => string | null) | null>(null);
+/** Stats an image before it can load; null context keeps chat images as links. */
+type MarkdownImageResolver = (src: string) => Promise<MarkdownImagePreview | null>;
+export const MarkdownImageContext = createContext<MarkdownImageResolver | null>(null);
+
+function MarkdownImage({ src, alt, fallback, resolve, interactive }: { src: string; alt: string; fallback: ReactNode; resolve: MarkdownImageResolver; interactive: boolean }) {
+  const t = useT();
+  const [loaded, setLoaded] = useState<{ src: string; resolve: MarkdownImageResolver; preview: MarkdownImagePreview | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    resolve(src).then(
+      (preview) => { if (live) setLoaded({ src, resolve, preview }); },
+      () => { if (live) setLoaded({ src, resolve, preview: null }); },
+    );
+    return () => { live = false; };
+  }, [src, resolve]);
+  const preview = loaded?.src === src && loaded.resolve === resolve ? loaded.preview : undefined;
+  if (preview === undefined) return <span>{alt}</span>;
+  if (preview === null) return <>{fallback}</>;
+  if (preview.kind === "inline") return <img className="markdown-image" src={preview.url} alt={alt} loading="lazy" />;
+  const message = t("This image is {size}; download it to view.", { size: formatBytes(preview.size) });
+  return interactive ? <a href={preview.downloadUrl} download>{message}</a> : <span>{message}</span>;
+}
 
 /** A file path the viewer opens: a button that reads as the text or code it replaced. */
 function FilePath({ path, code, open }: { path: string; code: boolean; open: (path: string) => void }) {
@@ -116,7 +138,7 @@ function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactiv
   const context = useContext(OpenFileContext);
   const open = interactive ? context : null;
   const t = useT();
-  const imageUrl = useContext(MarkdownImageContext);
+  const imageResolver = useContext(MarkdownImageContext);
   return <>{nodes.map((node, index) => {
     const key = `${node.type}-${index}`;
     switch (node.type) {
@@ -132,10 +154,9 @@ function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactiv
       }
       case "math": return <MathExpression key={key} value={node.value} />;
       case "image": {
-        const url = imageUrl?.(node.src) ?? null;
-        return url === null
+        return imageResolver === null
           ? <Inline key={key} nodes={node.fallback} interactive={interactive} />
-          : <img key={key} className="markdown-image" src={url} alt={node.alt} loading="lazy" />;
+          : <MarkdownImage key={key} src={node.src} alt={node.alt} resolve={imageResolver} interactive={interactive} fallback={<Inline nodes={node.fallback} interactive={interactive} />} />;
       }
       case "strong": return <strong key={key}><Inline nodes={node.children} interactive={interactive} /></strong>;
       case "em": return <em key={key}><Inline nodes={node.children} interactive={interactive} /></em>;

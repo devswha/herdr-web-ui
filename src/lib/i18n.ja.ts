@@ -360,6 +360,7 @@ export const JA: Record<string, string> = {
   "Files": "ファイル",
   "Close files": "ファイルを閉じる",
   "Showing the first {shown} of {total}.": "{total} 件中、最初の {shown} 件を表示しています。",
+  "This image is {size}; download it to view.": "この画像は {size} です。表示するにはダウンロードしてください。",
   "Open in a new tab": "新しいタブで開く",
   "Download": "ダウンロード",
   "Close file": "ファイルを閉じる",

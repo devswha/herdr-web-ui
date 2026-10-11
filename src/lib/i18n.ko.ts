@@ -358,6 +358,7 @@ export const KO: Record<string, string> = {
   "Files": "파일",
   "Close files": "파일 닫기",
   "Showing the first {shown} of {total}.": "전체 {total} 중 처음 {shown}만 보입니다.",
+  "This image is {size}; download it to view.": "이 이미지는 {size}입니다. 보려면 다운로드하세요.",
   "Open in a new tab": "새 탭에서 열기",
   "Download": "내려받기",
   "Close file": "파일 닫기",
