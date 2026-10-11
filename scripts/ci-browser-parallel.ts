@@ -1,54 +1,44 @@
 /**
  * Parallel browser lane: runs browser regression scripts concurrently with a worker pool.
  * Workers are isolated by temp dir and evidence subdirectory. The demo build is shared read-only.
+ * The script list is read from scripts/ci-browser.sh, the serial lane, so the two cannot drift.
+ * Every script's full output goes to <CHECK_DIR or .ci>/browser-logs/<script>.log.
  *
  * BROWSER_WORKERS: worker count (default: min(cores/2, 6))
  * BROWSER_SCRIPTS: comma-separated list of scripts to run (default: all from ci-browser.sh)
+ * BROWSER_EXCLUDE: comma-separated list of scripts to leave out of that list
  */
 import { availableParallelism } from "node:os";
 import { basename, join } from "node:path";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
-const ALL_SCRIPTS = [
-  "scripts/ui-regression.ts",
-  "scripts/workspace-rows-regression.ts",
-  "scripts/pending-pane-switch-regression.ts",
-  "scripts/terminal-dispose-browser-qa.ts",
-  "scripts/sticky-modifiers-regression.ts",
-  "scripts/terminal-arrows-clicks-regression.ts",
-  "scripts/terminal-viewport-regression.ts",
-  "scripts/key-bar-customization-demo-regression.ts",
-  "scripts/key-bar-hold-repeat-regression.ts",
-  "scripts/settings-pages-demo-regression.ts",
-  "scripts/deep-link-demo-regression.ts",
-  "scripts/chat-history-browser-qa.ts",
-  "scripts/math-browser-qa.ts",
-  "scripts/file-viewer-regression.ts",
-  "scripts/keyboard-viewport-regression.ts",
-  "scripts/file-viewer-mobile-regression.ts",
-  "scripts/droplet-demo-regression.ts",
-  "scripts/chat-greeting-demo-regression.ts",
-  "scripts/restored-draft-demo-regression.ts",
-  "scripts/composer-fit-demo-regression.ts",
-  "scripts/held-rows-demo-regression.ts",
-  "scripts/sidebar-activity-demo-regression.ts",
-  "scripts/workspace-touch-reorder-demo-regression.ts",
-  "scripts/prompt-dock-demo-regression.ts",
-  "scripts/plugin-actions-demo-regression.ts",
-  "scripts/palette-machines-demo-regression.ts",
-  "scripts/machine-dialog-regression.ts",
-  "scripts/machine-conflict-regression.ts",
-];
+const repo = join(import.meta.dir, "..");
+const FAILURE_TAIL_LINES = 400;
+const HEARTBEAT_MS = 60_000;
+
+/** The scripts the serial lane runs, in its order (the demo build, which takes an argument, is not one). */
+export function serialBrowserScripts(source = readFileSync(join(repo, "scripts/ci-browser.sh"), "utf8")): string[] {
+  return [...source.matchAll(/^run_script (scripts\/[\w.-]+\.ts)\s*$/gm)].map((match) => match[1]!);
+}
+
+const list = (value: string | undefined): string[] => (value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+/** Applies BROWSER_SCRIPTS and BROWSER_EXCLUDE to the serial list; a name it does not hold is an error. */
+export function selectBrowserScripts(all: string[], include?: string, exclude?: string): string[] {
+  const included = include?.trim() ? list(include) : all;
+  const excluded = list(exclude);
+  const unknown = [...included, ...excluded].filter((script) => !all.includes(script));
+  if (unknown.length > 0) throw new Error(`Not in scripts/ci-browser.sh: ${[...new Set(unknown)].join(", ")}`);
+  return [...new Set(included)].filter((script) => !excluded.includes(script));
+}
 
 interface ScriptResult {
   script: string;
   seconds: number;
   code: number;
-  output: string;
+  log: string;
 }
-
-const repo = join(import.meta.dir, "..");
 
 async function installChromium(): Promise<string> {
   const cli = join(repo, "node_modules/playwright-core/cli.js");
@@ -73,36 +63,42 @@ async function buildDemo(dir: string): Promise<void> {
   console.log(`[setup] Demo build completed in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 }
 
-async function runScript(script: string, env: Record<string, string>): Promise<ScriptResult> {
+async function runScript(script: string, env: Record<string, string>, log: string): Promise<ScriptResult> {
   const started = Date.now();
-  const child = Bun.spawn(["bun", script], {
-    cwd: repo,
-    env: { ...process.env, ...env },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  return {
-    script,
-    seconds: (Date.now() - started) / 1000,
-    code,
-    output: stdout + stderr,
-  };
+  const fd = openSync(log, "w");
+  try {
+    const child = Bun.spawn(["bun", script], {
+      cwd: repo,
+      env: { ...process.env, ...env },
+      stdin: "ignore",
+      stdout: fd,
+      stderr: fd,
+    });
+    // A hung script shows up as a repeated line instead of silence.
+    const heartbeat = setInterval(() => {
+      console.log(`[running] ${script} (${Math.round((Date.now() - started) / 1000)}s, log ${log})`);
+    }, HEARTBEAT_MS);
+    const code = await child.exited.finally(() => clearInterval(heartbeat));
+    return { script, seconds: (Date.now() - started) / 1000, code, log };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 async function main(): Promise<void> {
   const startedAt = Date.now();
+  const scripts = selectBrowserScripts(serialBrowserScripts(), process.env.BROWSER_SCRIPTS, process.env.BROWSER_EXCLUDE);
+  if (scripts.length === 0) throw new Error("No browser scripts selected");
+
   const requested = Number(process.env.BROWSER_WORKERS);
   const workers = Math.max(1, Math.min(
     requested >= 1 ? Math.floor(requested) : Math.min(Math.floor(availableParallelism() / 2), 6),
-    ALL_SCRIPTS.length
+    scripts.length
   ));
-  const scripts = process.env.BROWSER_SCRIPTS
-    ? process.env.BROWSER_SCRIPTS.split(",").map((s) => s.trim()).filter(Boolean)
-    : ALL_SCRIPTS;
+  const logDir = join(process.env.CHECK_DIR || ".ci", "browser-logs");
+  mkdirSync(logDir, { recursive: true });
 
-  console.log(`Browser lane: ${scripts.length} scripts, ${workers} workers`);
+  console.log(`Browser lane: ${scripts.length} scripts, ${workers} workers, logs in ${logDir}`);
 
   const chromePath = process.env.CHROME_PATH ?? await installChromium();
   const demoBuild = mkdtempSync(join(tmpdir(), "herdr-demo-parallel-"));
@@ -127,16 +123,17 @@ async function main(): Promise<void> {
 
       const shouldDisableEvidence = baseEvidenceDir && (script === "scripts/ui-regression.ts" || script === "scripts/key-bar-customization-demo-regression.ts");
 
-      console.log(`[worker-${workerId}] Starting ${script}`);
+      const log = join(logDir, `${scriptName}.log`);
+      console.log(`[worker-${workerId}] START ${script}`);
       const result = await runScript(script, {
         CHROME_PATH: chromePath,
         HERDR_DEMO_BUILD: demoBuild,
         UI_EVIDENCE_DIR: shouldDisableEvidence ? "" : (evidenceDir ?? ""),
         CHECK_BROWSER_EVIDENCE_DIR: evidenceDir ?? "",
-      });
+      }, log);
       results.push(result);
-      const status = result.code === 0 ? "PASS" : "FAIL";
-      console.log(`[worker-${workerId}] ${status} ${script} (${result.seconds.toFixed(1)}s)`);
+      const failure = result.code === 0 ? "" : ` exit=${result.code}, log ${log}`;
+      console.log(`[worker-${workerId}] ${result.code === 0 ? "PASS" : "FAIL"} ${script} (${result.seconds.toFixed(1)}s)${failure}`);
       lock.active--;
     }
   }
@@ -164,21 +161,29 @@ async function main(): Promise<void> {
   console.log("-".repeat(80));
   console.log(`Total: ${passed}/${results.length} passed in ${totalSeconds.toFixed(1)}s with ${workers} workers`);
 
-  if (failed.length > 0) {
-    console.log("\nFailed scripts:");
-    for (const result of failed) {
-      console.log(`  ${result.script} (exit ${result.code})`);
-      console.log("  Output:");
-      for (const line of result.output.split("\n").slice(-50)) {
-        console.log(`    ${line}`);
-      }
-    }
+  writeFileSync(join(logDir, "summary.json"), JSON.stringify({
+    workers,
+    seconds: totalSeconds,
+    passed,
+    total: results.length,
+    scripts: ordered.map(({ script, seconds, code, log }) => ({ script, seconds, code, log })),
+  }, null, 2) + "\n");
+
+  for (const result of failed) {
+    const lines = readFileSync(result.log, "utf8").split("\n");
+    const shown = lines.slice(-FAILURE_TAIL_LINES);
+    console.log(`\n${"=".repeat(80)}\nFAILED ${result.script} (exit ${result.code}), full log: ${result.log}`);
+    if (shown.length < lines.length) console.log(`(last ${shown.length} of ${lines.length} lines)`);
+    console.log("=".repeat(80));
+    console.log(shown.join("\n"));
   }
 
   process.exit(failed.length > 0 ? 1 : 0);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

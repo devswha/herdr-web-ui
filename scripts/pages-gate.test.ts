@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { selectBrowserScripts, serialBrowserScripts } from "./ci-browser-parallel.ts";
 
 const pages = readFileSync(new URL("../.github/workflows/pages.yml", import.meta.url), "utf8");
 const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
@@ -87,10 +88,42 @@ describe("Pages deployment gate", () => {
     for (const name of ["browser-main", "browser-other"]) {
       const job = ciJob(name);
       expect(job).toContain("if: always()");
+      expect(job).toContain(".ci/browser-logs/**");
       expect(job).toContain(".ci/browser-evidence/**/*.png");
       expect(job).toContain(".ci/browser-evidence/**/*.json");
       expect(job).toContain(".ci/browser-evidence/**/*.zip");
     }
+  });
+});
+
+describe("Browser lane script lists", () => {
+  const serial = serialBrowserScripts();
+  const env = (job: string, name: string) => job.match(new RegExp(`^\\s+${name}: (.+)$`, "m"))?.[1];
+
+  it("reads every script the serial lane runs, and only those", () => {
+    const sh = readFileSync(new URL("./ci-browser.sh", import.meta.url), "utf8");
+    const runs = [...sh.matchAll(/^run_script (\S+)/gm)].map((match) => match[1]).filter((script) => script !== "scripts/demo-build.ts");
+    expect(serial).toEqual(runs);
+    expect(serial).toContain("scripts/ui-regression.ts");
+    expect(serial).toContain("scripts/sidebar-spacing-demo-regression.ts");
+    expect(new Set(serial).size).toBe(serial.length);
+  });
+
+  it("splits the serial lane across the CI browser jobs with nothing dropped or run twice", () => {
+    const shards = ["browser-main", "browser-other"].map((name) => {
+      const job = ciJob(name);
+      expect(job).toContain("run: bun scripts/ci-browser-parallel.ts");
+      return selectBrowserScripts(serial, env(job, "BROWSER_SCRIPTS"), env(job, "BROWSER_EXCLUDE"));
+    });
+    const all = shards.flat();
+    expect(all.length).toBe(serial.length);
+    expect([...all].sort()).toEqual([...serial].sort());
+  });
+
+  it("refuses a script name the serial lane does not run", () => {
+    expect(() => selectBrowserScripts(serial, "scripts/missing-regression.ts")).toThrow("scripts/missing-regression.ts");
+    expect(() => selectBrowserScripts(serial, undefined, "scripts/missing-regression.ts")).toThrow("scripts/missing-regression.ts");
+    expect(selectBrowserScripts(serial, undefined, "scripts/ui-regression.ts")).toEqual(serial.filter((script) => script !== "scripts/ui-regression.ts"));
   });
 });
 

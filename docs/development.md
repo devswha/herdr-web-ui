@@ -398,20 +398,35 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
   (checksum-pinned actionlint), generated type freshness, application and critical-tools typechecks
   (`tsconfig.tools.json`), build, and
   `bun run test:unit`. This suite does not start herdr.
-- **Integration and browser**: checksum-pinned herdr 0.9.3, Node 22, then
-  `bun run check integration browser`: a build, `bun run test:integration`, and the browser
-  scripts of `scripts/ci-browser.sh` with the lockfile's Chromium, on a herdr of the run's own
-  ([Checks](#checks)). The two lanes run at the same time (`scripts/ci-lanes.ts`). The
-  integration files can run a few at a time, each worker on a herdr session of its own
-  (`scripts/ci-tests.ts`); they run one by one (`HERDR_TEST_SHARDS`, default 1 in
-  `scripts/check.ts`) until the timing-bound contract tests hold under load.
-  Missing herdr fails the run. Its herdr servers are stopped even on failure.
-  Integration tests have a 15-second default timeout so their bounded process-startup
-  probes can finish; individual tests can still specify a longer timeout.
+- **Integration and browser**: a summary job that fails when any of three jobs fails, each with
+  checksum-pinned herdr 0.9.3, Node 22 and the lockfile's Chromium:
+  - **Integration tests** runs `bun run check integration`: a build and
+    `bun run test:integration` on a herdr of the run's own ([Checks](#checks)). The
+    integration files can run a few at a time, each worker on a herdr session of its own
+    (`scripts/ci-tests.ts`); they run one by one (`HERDR_TEST_SHARDS`, default 1 in
+    `scripts/check.ts`) until the timing-bound contract tests hold under load.
+    Missing herdr fails the run. Its herdr servers are stopped even on failure.
+    Integration tests have a 15-second default timeout so their bounded process-startup
+    probes can finish; individual tests can still specify a longer timeout.
+  - **Browser regression (ui-regression)** runs `scripts/ui-regression.ts` alone.
+  - **Browser regression (other scripts)** runs every other browser script, four at a time.
 
-The browser lane prints each script's wall seconds and exit code, including the shared demo
-build, then a summary on success or failure. The first failing script stops the lane.
-Under `CI` or with `CHECK_DIR` set, it creates `UI_EVIDENCE_DIR` at
+  Both browser jobs run `scripts/ci-browser-parallel.ts`, which takes its script list from
+  `scripts/ci-browser.sh` (`BROWSER_SCRIPTS` picks from it, `BROWSER_EXCLUDE` leaves scripts out,
+  and a name the list does not hold is an error). `scripts/pages-gate.test.ts` fails if the two
+  jobs together do not run that list exactly once. A new browser script therefore only needs its
+  `run_script` line in `scripts/ci-browser.sh`.
+
+`bun run check browser` and `bun run check full` still run the serial lane, `scripts/ci-browser.sh`
+(`BROWSER_PARALLEL=1` hands it to the parallel runner).
+The serial lane prints each script's wall seconds and exit code, including the shared demo
+build, then a summary on success or failure. The first failing script stops it.
+The parallel runner builds the demo once, prints a line when each script starts and ends (and
+every minute a script is still running), and keeps running the other scripts after one fails.
+Each script's full output goes to `${CHECK_DIR:-.ci}/browser-logs/<script>.log`, with
+`summary.json` beside it; a failure prints the last 400 lines of its log and the log's path, and
+the job then fails. CI uploads `browser-logs` with the evidence on success or failure.
+Under `CI` or with `CHECK_DIR` set, both runners create `UI_EVIDENCE_DIR` at
 `${CHECK_DIR:-.ci}/browser-evidence`. Only the existing sticky-modifier and file-viewer captures
 are enabled automatically: the UI suite and key-bar demo have evidence branches that add
 assertions, viewport changes or font waits, so those remain disabled in the lane. Outside

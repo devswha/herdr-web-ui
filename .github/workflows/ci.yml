@@ -178,12 +178,13 @@ jobs:
         env:
           BROWSER_SCRIPTS: scripts/ui-regression.ts
         run: bun scripts/ci-browser-parallel.ts
-      - name: Preserve browser evidence
+      - name: Preserve browser logs and evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: browser-main-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            .ci/browser-logs/**
             .ci/browser-evidence/**/*.png
             .ci/browser-evidence/**/*.json
             .ci/browser-evidence/**/*.zip
@@ -219,41 +220,16 @@ jobs:
       - run: bun run build
       - name: Browser regression (parallel)
         env:
-          BROWSER_SCRIPTS: >-
-            scripts/workspace-rows-regression.ts,
-            scripts/pending-pane-switch-regression.ts,
-            scripts/terminal-dispose-browser-qa.ts,
-            scripts/sticky-modifiers-regression.ts,
-            scripts/terminal-arrows-clicks-regression.ts,
-            scripts/terminal-viewport-regression.ts,
-            scripts/key-bar-customization-demo-regression.ts,
-            scripts/key-bar-hold-repeat-regression.ts,
-            scripts/settings-pages-demo-regression.ts,
-            scripts/deep-link-demo-regression.ts,
-            scripts/chat-history-browser-qa.ts,
-            scripts/math-browser-qa.ts,
-            scripts/file-viewer-regression.ts,
-            scripts/keyboard-viewport-regression.ts,
-            scripts/file-viewer-mobile-regression.ts,
-            scripts/droplet-demo-regression.ts,
-            scripts/chat-greeting-demo-regression.ts,
-            scripts/restored-draft-demo-regression.ts,
-            scripts/composer-fit-demo-regression.ts,
-            scripts/held-rows-demo-regression.ts,
-            scripts/sidebar-activity-demo-regression.ts,
-            scripts/workspace-touch-reorder-demo-regression.ts,
-            scripts/prompt-dock-demo-regression.ts,
-            scripts/plugin-actions-demo-regression.ts,
-            scripts/palette-machines-demo-regression.ts,
-            scripts/machine-dialog-regression.ts,
-            scripts/machine-conflict-regression.ts
+          # Every script of scripts/ci-browser.sh except the one browser-main runs.
+          BROWSER_EXCLUDE: scripts/ui-regression.ts
         run: bun scripts/ci-browser-parallel.ts
-      - name: Preserve browser evidence
+      - name: Preserve browser logs and evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: browser-other-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            .ci/browser-logs/**
             .ci/browser-evidence/**/*.png
             .ci/browser-evidence/**/*.json
             .ci/browser-evidence/**/*.zip
