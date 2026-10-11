@@ -14,6 +14,10 @@ const app = mkdtempSync(join(tmpdir(), "herdr-pane-paging-demo-"));
 const evidence = process.env.UI_EVIDENCE_DIR;
 const settled = (page: Page) => page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
 const inputs = (page: Page): Promise<unknown[]> => page.evaluate(() => (window as unknown as { pagingInputs: unknown[] }).pagingInputs);
+const followedBottom = (page: Page) => page.waitForFunction(() => {
+  const node = document.querySelector(".pane-frame.is-current .chat-view");
+  return node !== null && Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < 1;
+}, undefined, { timeout: 10000 });
 
 try {
   await buildDemoApp(app);
@@ -49,6 +53,85 @@ try {
   try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? chromium.executablePath(), headless: true, args: ["--no-sandbox"] });
     try {
+      // Rounded DOM heights must not trap explicit paging at a fractional physical end.
+      const fractionalBrowser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? chromium.executablePath(), headless: true, args: ["--no-sandbox", "--force-device-scale-factor=1.25"] });
+      const fractional = await fractionalBrowser.newContext({ viewport: { width: 1024, height: 600 }, deviceScaleFactor: 1.25, locale: "en-US" });
+      try {
+        await fractional.addInitScript(() => {
+          Object.defineProperty(navigator, "platform", { configurable: true, value: "iPad" });
+          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "chat", alertsOn: false, pageOverlapRows: 100 }));
+        });
+        const page = await fractional.newPage();
+        page.setDefaultTimeout(10000);
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`http://127.0.0.1:${server.port}${prefix}?pane=${encodeURIComponent(panes.api)}&view=chat`);
+        await page.locator(".conn-live").waitFor();
+        await appFaces(page);
+        const transcript = page.locator(".pane-frame.is-current .chat-view");
+        await transcript.locator(".chat-turn-agent").first().waitFor();
+        await settled(page);
+        await page.locator(".pane-frame.is-current .composer-text").focus();
+        await transcript.evaluate((node: HTMLElement) => {
+          node.dataset.fractionalPaging = "";
+          node.style.height = "100.25px"; node.style.bottom = "auto"; node.style.padding = "0";
+          const content = node.firstElementChild as HTMLElement;
+          content.style.minHeight = "0"; content.style.height = "200.75px"; content.style.overflow = "hidden";
+          const style = document.createElement("style");
+          style.textContent = "[data-fractional-paging]::before { display: none; }";
+          document.head.append(style);
+          node.scrollTop = node.scrollHeight;
+          node.dispatchEvent(new Event("scroll", { bubbles: true }));
+        });
+        await settled(page);
+        const beforeInput = await inputs(page);
+        const geometry = await transcript.evaluate((node) => ({ scale: devicePixelRatio, height: node.getBoundingClientRect().height, gap: node.scrollHeight - node.clientHeight - node.scrollTop }));
+        assert.equal(geometry.scale, 1.25);
+        assert.ok(geometry.height % 1 !== 0, "the owned fixture has a fractional viewport height");
+        assert.ok(geometry.gap > 0 && geometry.gap < 1, "the physically clamped end still has a positive rounded-DOM gap");
+        await page.keyboard.press("Meta+Shift+PageUp");
+        await settled(page);
+        const paged = await transcript.evaluate((node) => node.scrollTop);
+        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+        await transcript.evaluate((node: HTMLElement) => { node.style.height = "99.25px"; });
+        await settled(page);
+        assert.ok(Math.abs(await transcript.evaluate((node) => node.scrollTop) - paged) < 0.5, "one-pixel upward intent survives deferred scroll and fractional resize");
+        await transcript.evaluate((node: HTMLElement) => { node.style.height = "100.25px"; });
+        await settled(page);
+        // Reach the physical end and ask PageDown before its deferred scroll event arrives.
+        const clamped = await transcript.evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+          const before = node.scrollTop;
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown", code: "PageDown", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+          return { before, after: node.scrollTop, gap: node.scrollHeight - node.clientHeight - node.scrollTop };
+        });
+        assert.equal(clamped.after, clamped.before, "the explicit downward page has no available movement at the physical end");
+        assert.ok(clamped.gap > 0 && clamped.gap < 1, "the clamped downward page keeps the rounded gap");
+        await settled(page);
+        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor({ state: "hidden" });
+        await transcript.evaluate((node: HTMLElement) => { node.style.height = "99.25px"; });
+        await settled(page);
+        await followedBottom(page);
+        await page.keyboard.press("Meta+Shift+PageUp");
+        await settled(page);
+        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+        await transcript.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+        await settled(page);
+        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor({ state: "hidden" });
+        await page.keyboard.press("Meta+Shift+PageUp");
+        await settled(page);
+        for (let pages = 0; await page.getByRole("button", { name: "Jump to latest", exact: true }).count() > 0; pages++) {
+          assert.ok(pages < 128, "repeated downward pages reach a fractional end within a bound");
+          await page.keyboard.press("Meta+Shift+PageDown");
+          await settled(page);
+        }
+        await transcript.evaluate((node: HTMLElement) => { node.style.height = "98.25px"; });
+        await settled(page);
+        await followedBottom(page);
+        assert.deepEqual(await inputs(page), beforeInput, "fractional paging never sends terminal input");
+        assert.deepEqual(errors, []);
+        console.log("PASS pane paging: fractional scale, upward intent, clamped PageDown, manual end, repeated downward pages");
+      } finally { await fractional.close(); await fractionalBrowser.close(); }
       for (const touch of [false, true]) {
         const context = await browser.newContext({ viewport: { width: 1024, height: 600 }, hasTouch: touch, locale: "en-US" });
         try {
@@ -112,7 +195,7 @@ try {
             assert.ok(Math.abs(await transcript.evaluate((node) => node.scrollTop) - bottom) <= 1, "opposite page returns to the same bottom");
             if (rows === 100) {
               // The sticky return button participates in scroll height: reach the actual end.
-              for (let pages = 0; await transcript.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop > 0); pages++) {
+              for (let pages = 0; await page.getByRole("button", { name: "Jump to latest", exact: true }).count() > 0; pages++) {
                 assert.ok(pages < 128, "one-pixel PageDown reaches the actual bottom within a bounded number of pages");
                 await page.keyboard.press("Meta+Shift+PageDown");
                 await settled(page);
@@ -120,7 +203,7 @@ try {
               await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor({ state: "hidden" });
               await page.setViewportSize({ width: 1024, height: 580 });
               await settled(page);
-              assert.ok(await transcript.evaluate((node) => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < 0.5), "PageDown to actual bottom restores following on later viewport updates");
+              await followedBottom(page);
               await page.setViewportSize({ width: 1024, height: 600 });
               await settled(page);
               await transcript.evaluate((node) => { node.scrollTop -= 1; node.dispatchEvent(new Event("scroll", { bubbles: true })); });

@@ -629,6 +629,7 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
   const stickToBottom = useRef(true);
   // Explicit paging stays away even inside the ordinary near-bottom tolerance.
   const pagingAway = useRef(false);
+  const lastScrollTop = useRef(0);
   const signature = useRef("");
   // Older pages sit above the newest one. Once any shows, the newest page is
   // polled from its start at that moment, so the two always meet.
@@ -955,7 +956,10 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
     const node = scroller.current;
     if (node === null) return;
     const distanceFromBottom = node.scrollHeight - node.clientHeight - node.scrollTop;
-    if (distanceFromBottom <= 0) pagingAway.current = false;
+    const scrollingDown = node.scrollTop > lastScrollTop.current;
+    lastScrollTop.current = node.scrollTop;
+    // DOM heights are rounded; only downward intent may use the endpoint rounding allowance.
+    if (distanceFromBottom <= 0 || (scrollingDown && distanceFromBottom <= 1)) pagingAway.current = false;
     stickToBottom.current = distanceFromBottom <= (pagingAway.current ? 0 : 48);
     setAway(!stickToBottom.current);
     if (stickToBottom.current) setNewMessages(false);
@@ -979,7 +983,14 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
       const distance = pageScrollDistance(node.clientHeight, rowHeight, settings.pageOverlapRows);
       const before = node.scrollTop;
       node.scrollTo({ top: before + direction * distance, behavior: "instant" });
+      // A physical end may still report a positive subpixel gap, even with no movement.
+      if (direction > 0 && node.scrollHeight - node.clientHeight - node.scrollTop <= 1) {
+        pagingAway.current = false;
+        onScroll();
+        return;
+      }
       if (node.scrollTop === before) return;
+      lastScrollTop.current = before;
       if (direction < 0) pagingAway.current = true;
       // Apply the intent before output or a deferred scroll event can restore following.
       onScroll();
