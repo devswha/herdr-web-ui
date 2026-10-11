@@ -1362,7 +1362,8 @@ export function PaneTerminal({
       if (pinchWatchPending && current && releasedRef.current && watchingRef.current) socket.watch(current, term.cols, term.rows);
       pinchWatchPending = false;
       if (finished && save && finished.size !== finished.startSize) {
-        if (current && inUse() && !adopted() && !chatViewRef.current) socket.resize(current, term.cols, term.rows, true);
+        // a pinch can end after the pane went behind a sibling of its split: it saves the size, sizing no pty
+        if (current && inUse() && !adopted() && !chatViewRef.current && sizesPty()) socket.resize(current, term.cols, term.rows, true);
         updateSettings({ terminalFontSize: finished.size });
       }
       hidePinchBadge();
