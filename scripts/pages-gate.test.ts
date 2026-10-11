@@ -45,7 +45,7 @@ describe("Pages deployment gate", () => {
     expect(ci).toMatch(/group: validation-/);
     expect(pageJob("validate")).toContain("permissions:\n      contents: read");
     expect(pageJob("build")).toContain("ref: ${{ github.sha }}");
-    for (const name of ["windows-install", "fast", "integration"]) {
+    for (const name of ["windows-install", "fast", "integration", "browser-main", "browser-other"]) {
       expect(ciJob(name)).toContain("ref: ${{ github.sha }}");
     }
   });
@@ -69,19 +69,28 @@ describe("Pages deployment gate", () => {
     expect(deploy).toContain("${{ needs.build.outputs.sha }}");
   });
 
-  it("keeps reports and nested verification evidence for both CI jobs on success or failure", () => {
+  it("keeps reports and nested verification evidence for CI jobs on success or failure", () => {
     expect(ciJob("fast")).toContain("CHECK_DIR: ${{ github.workspace }}/.ci");
     expect(ciJob("integration")).toContain("CHECK_DIR: ${{ github.workspace }}/.ci");
-    for (const name of ["fast", "integration"]) {
+    const fast = ciJob("fast");
+    expect(fast).toContain(".ci/report.json");
+    expect(fast).toContain("if: always()");
+    expect(fast).toContain(".ci/**/*.log");
+    expect(fast).toContain(".ci/browser-evidence/**/*.png");
+    expect(fast).toContain(".ci/browser-evidence/**/*.json");
+    expect(fast).toContain(".ci/browser-evidence/**/*.zip");
+    const integration = ciJob("integration");
+    expect(integration).toContain(".ci/report.json");
+    expect(integration).toContain("if: always()");
+    expect(integration).toContain(".ci/**/*.log");
+    expect(integration).toContain(".ci/config/herdr/sessions/*/test-server.log");
+    for (const name of ["browser-main", "browser-other"]) {
       const job = ciJob(name);
-      expect(job).toContain(".ci/report.json");
       expect(job).toContain("if: always()");
-      expect(job).toContain(".ci/**/*.log");
       expect(job).toContain(".ci/browser-evidence/**/*.png");
       expect(job).toContain(".ci/browser-evidence/**/*.json");
       expect(job).toContain(".ci/browser-evidence/**/*.zip");
     }
-    expect(ciJob("integration")).toContain(".ci/config/herdr/sessions/*/test-server.log");
   });
 });
 
