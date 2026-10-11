@@ -40,6 +40,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A plan's step opens what was done while it ran: its tool calls by tool, the last few with what
   each was given, the subagents it started and their state, and the background commands it left
   running and how they ended. Work done while no step ran has a detail of its own.
+  ([#533](https://github.com/devswha/herdr-web-ui/pull/533) by @kilhyeonjun)
 
 ### Changed
 - Chat updates follow native transcript changes pushed through the existing WebSocket.

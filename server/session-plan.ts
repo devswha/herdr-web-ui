@@ -59,7 +59,7 @@ interface Read {
   work: Map<string, Work>;
   outside: Work;
   /** an `Agent` or background call waiting for the answer that gives its id, by tool_use id */
-  started: Map<string, { agent: PlanActivity["agents"][number] } | { command: string; into: Work[] }>;
+  started: Map<string, { agent: PlanActivity["agents"][number]; into: Work[] } | { command: string; into: Work[] }>;
   /** background commands by task id, for the notification that ends them */
   commands: Map<string, PlanActivity["background"][number]>;
 }
@@ -215,7 +215,7 @@ function claudeLine(read: Read, line: string): void {
       if (name === "Agent" || name === "Task") {
         const agent = { id: null, label: clip(input["description"]) ?? name, type: words(input["subagent_type"]) };
         for (const held of into) if (held.agents.length < MAX_STARTED) held.agents.push(agent);
-        read.started.set(block["id"], { agent });
+        read.started.set(block["id"], { agent, into });
       } else if (name === "Bash") {
         // `run_in_background`, or one the person sent to the background: its answer gives a task id
         read.started.set(block["id"], { command: clip(input["command"]) ?? "", into });
@@ -227,7 +227,11 @@ function claudeLine(read: Read, line: string): void {
     const start = read.started.get(block["tool_use_id"]);
     if (start !== undefined) {
       read.started.delete(block["tool_use_id"]);
-      if ("agent" in start) start.agent.id = words(answer?.["agentId"]) ?? start.agent.id;
+      if ("agent" in start) {
+        // a launch that failed started no subagent: the call stays counted, the agent goes
+        if (block["is_error"] === true) for (const held of start.into) held.agents = held.agents.filter((agent) => agent !== start.agent);
+        else start.agent.id = words(answer?.["agentId"]) ?? start.agent.id;
+      }
       else {
         const task = words(answer?.["backgroundTaskId"]);
         if (task === null || block["is_error"] === true) continue;
@@ -323,9 +327,11 @@ function codexLine(read: Read, line: string): void {
   } else return;
   const items = row(args)?.["plan"];
   if (!Array.isArray(items)) return;
-  // a step keeps the times and the work it had in the checklists before, found by its words
-  const before = new Map([...read.steps.values()].map((step) => [step.label, step]));
-  const held = new Map([...read.steps.values()].flatMap((step) => { const done = read.work.get(step.id); return done ? [[step.label, done] as const] : []; }));
+  // a step keeps the times and the work it had in the checklists before, found by its words: the
+  // nth step of some words takes what the nth step of those words had, so two of a name share nothing
+  const before = new Map<string, PlanStep[]>();
+  for (const step of read.steps.values()) before.set(step.label, [...before.get(step.label) ?? [], step]);
+  const held = new Map([...read.steps.values()].map((step) => [step, read.work.get(step.id)]));
   read.steps.clear();
   read.work.clear();
   // a checklist that shares no step with the one before is another plan: what was done outside the old one is not this one's
@@ -335,7 +341,7 @@ function codexLine(read: Read, line: string): void {
     const raw = row(item)?.["status"];
     if (label === null) continue;
     const status: PlanStep["status"] = typeof raw === "string" && STATUSES.has(raw as PlanStep["status"]) ? raw as PlanStep["status"] : "pending";
-    const known = before.get(label);
+    const known = before.get(label)?.shift();
     const id = String(read.steps.size + 1);
     const started = status === "pending" ? null : known?.started_at ?? at;
     read.steps.set(id, {
@@ -344,7 +350,7 @@ function codexLine(read: Read, line: string): void {
       started_at: started,
       ended_at: status === "completed" ? known?.ended_at ?? at : null,
     });
-    const done = held.get(label);
+    const done = known && held.get(known);
     if (done !== undefined) read.work.set(id, done);
   }
 }

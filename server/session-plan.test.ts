@@ -48,9 +48,9 @@ function claude() {
       f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: error ? "<tool_use_error>Task not found</tool_use_error>" : `Updated task #${String(input["taskId"])}`, ...(error ? { is_error: true } : {}) }] }, toolUseResult: answer });
     },
     /** any other tool call, answered with `answer` as its structured result */
-    call(name: string, input: Record<string, unknown>, minute: number, answer: Record<string, unknown> = {}): void {
+    call(name: string, input: Record<string, unknown>, minute: number, answer: Record<string, unknown> | string = {}, error = false): void {
       const toolId = use(name, input, minute);
-      f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: "ok" }] }, toolUseResult: answer });
+      f.add({ type: "user", timestamp: at(minute), message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolId, content: error ? "<tool_use_error>Agent type 'nope' not found</tool_use_error>" : "ok", ...(error ? { is_error: true } : {}) }] }, toolUseResult: answer });
     },
   };
 }
@@ -156,6 +156,18 @@ describe("readPlan (Claude Code task list)", () => {
     expect(readPlanDetail("claude-transcript", s.path)).toEqual({ steps: [expect.not.objectContaining({ activity: expect.anything() })], outside: null });
   });
 
+  it("counts an Agent call whose launch failed as a call, not as a subagent it started", () => {
+    const s = claude();
+    const a = s.create("Review", 1);
+    s.update({ taskId: a, status: "in_progress" }, 1);
+    s.call("Agent", { description: "Broken review", subagent_type: "nope" }, 2, "Error: Agent type 'nope' not found", true);
+    s.call("Agent", { description: "Real review", subagent_type: "reviewer" }, 3, { agentId: "a2", status: "async_launched" });
+    const activity = readPlan("claude-transcript", s.path)![0]!.activity!;
+    expect(activity.tools).toEqual([{ name: "Agent", count: 2 }]);
+    expect(activity.recent.map((call) => call.detail)).toEqual(["Broken review", "Real review"]);
+    expect(activity.agents).toEqual([{ id: "a2", label: "Real review", type: "reviewer" }]);
+  });
+
   it("keeps a command the person sent to the background, which its answer names", () => {
     const s = claude();
     const a = s.create("Serve", 1);
@@ -227,6 +239,21 @@ describe("readPlan (Codex checklist)", () => {
     plan = readPlanDetail("codex-transcript", f.path)!;
     expect(plan.outside).toBeNull();
     expect(plan.steps[0]!.activity).toBeUndefined();
+  });
+
+  it("keeps apart the work of two steps of the same words", () => {
+    const f = file("rollout.jsonl");
+    const call = (name: string, minute: number, args: unknown) => f.add({ timestamp: at(minute), type: "response_item", payload: { type: "function_call", name, call_id: `f${minute}`, arguments: JSON.stringify(args) } });
+    call("update_plan", 1, { plan: [{ step: "Build", status: "completed" }, { step: "Run tests", status: "in_progress" }, { step: "Fix", status: "pending" }, { step: "Run tests", status: "pending" }] });
+    call("exec_command", 2, { cmd: "bun test" });
+    call("update_plan", 3, { plan: [{ step: "Build", status: "completed" }, { step: "Run tests", status: "completed" }, { step: "Fix", status: "in_progress" }, { step: "Run tests", status: "pending" }] });
+    call("exec_command", 4, { cmd: "git diff" });
+    call("update_plan", 5, { plan: [{ step: "Build", status: "completed" }, { step: "Run tests", status: "completed" }, { step: "Fix", status: "completed" }, { step: "Run tests", status: "in_progress" }] });
+    call("exec_command", 6, { cmd: "bun test again" });
+    const steps = readPlanDetail("codex-transcript", f.path)!.steps;
+    expect(steps.map((step) => step.activity?.recent.map((one) => one.detail) ?? null)).toEqual([null, ["bun test"], ["git diff"], ["bun test again"]]);
+    // and each keeps its own times
+    expect(steps.map((step) => [step.started_at, step.ended_at])).toEqual([[at(1), at(1)], [at(1), at(3)], [at(3), at(5)], [at(5), null]]);
   });
 
   it("leaves the plan as it was for malformed arguments", () => {
