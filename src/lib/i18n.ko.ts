@@ -6,6 +6,7 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Chat read timed out.": "대화 읽기 시간이 초과되었습니다.",
   "Find in terminal": "터미널에서 찾기",
   "Previous match": "이전 결과",
   "Next match": "다음 결과",

@@ -62,6 +62,7 @@ run_script scripts/key-bar-hold-repeat-regression.ts
 run_script scripts/settings-pages-demo-regression.ts
 run_script scripts/deep-link-demo-regression.ts
 run_script scripts/chat-history-browser-qa.ts
+run_script scripts/chat-fallback-browser-qa.ts
 run_script scripts/math-browser-qa.ts
 run_script scripts/file-viewer-regression.ts
 run_script scripts/keyboard-viewport-regression.ts
