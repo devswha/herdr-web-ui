@@ -226,6 +226,9 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - `sidebarRows`: `one` or `two`; default `two`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
+  During a two-finger pinch the font follows the fingers live and a badge above the grid shows the
+  size in pixels; the grid refits locally and the shared pty resizes once when a finger lifts.
+  Cancellation restores the starting size.
 - Terminal and chat font families are comma-separated lists, default empty. They go in front of the
   terminal's built-in fonts (after the bundled Symbols Nerd Font Mono, which only draws icons) and of
   `--font-ui` in the chat's prose (as `--font-chat`), never in place of them; code in the chat keeps
@@ -458,7 +461,7 @@ One set for both themes: the card is island black wherever it shows.
   are a quiet count beside it (`.background-count`), not a badge.
 
 ### Pill (`.pill`)
-- Mono metadata at `--chip-h`. Offline is the one header pill and uses danger tokens.
+- Mono metadata at `--chip-h`. Offline is the one header pill that stays, and uses danger tokens. A deep link that could not open what it named, and Copy link, say so in a plain `.header-note` pill for a moment (8 s, 1.6 s for Link copied). The note takes the flexible context's place and ellipsizes when narrow, keeping the lens and More controls in view.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**
