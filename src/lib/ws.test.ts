@@ -468,6 +468,50 @@ it("waits for capabilities when output precedes snapshot, and supports old bridg
   }
 });
 
+it("asks again for a visible chat's conversation pushes when its pane is attached again", () => {
+  const client = new HerdrSocket("ws://test/ws"); client.connect();
+  const socket = FakeSocket.last; socket.open();
+  socket.receive(snapshot(["conversation-watch"]));
+  const watches = () => socket.sent.filter((frame) => frame.type === "conversation-watch");
+  // the chat can ask before its pane's attach goes out; the attach carries the interest
+  client.watchConversation("w1:p1", true);
+  expect(watches()).toEqual([]);
+  client.attach("w1:p1", 80, 24, true);
+  expect(watches()).toEqual([{ type: "conversation-watch", pane_id: "w1:p1", enabled: true }]);
+  // a tab out of use lets go of its pane: the bridge drops the interest, the visible chat keeps it
+  client.detach("w1:p1");
+  client.attach("w1:p1", 80, 24, true);
+  expect(watches()).toHaveLength(2);
+  // a chat that took its interest back is not watched by the next attach
+  client.watchConversation("w1:p1", false);
+  client.detach("w1:p1");
+  client.attach("w1:p1", 80, 24, true);
+  expect(watches()).toEqual([
+    { type: "conversation-watch", pane_id: "w1:p1", enabled: true },
+    { type: "conversation-watch", pane_id: "w1:p1", enabled: true },
+    { type: "conversation-watch", pane_id: "w1:p1", enabled: false },
+  ]);
+  client.close();
+});
+
+it("sends no conversation-watch to a bridge without the feature, and reports no pushes so the chat polls", () => {
+  const client = new HerdrSocket("ws://test/ws"); client.connect();
+  let socket = FakeSocket.last; socket.open();
+  socket.receive(snapshot(["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch"]));
+  client.watchConversation("w1:p1", true);
+  client.attach("w1:p1", 80, 24, true);
+  expect(socket.sent.filter((frame) => frame.type === "conversation-watch")).toEqual([]);
+  expect(client.conversationPushes()).toBe(false);
+  // a reconnect to the same older bridge does not replay the interest either
+  socket.disconnect();
+  client.connect();
+  socket = FakeSocket.last; socket.open();
+  socket.receive(snapshot(["submit"]));
+  expect(socket.sent.filter((frame) => frame.type === "conversation-watch")).toEqual([]);
+  expect(client.conversationPushes()).toBe(false);
+  client.close();
+});
+
 it("tells the server whether the page is in use: on connect, on a change, and again after a reconnect", () => {
   const presence = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "presence");
   const client = new HerdrSocket("ws://test/ws");
