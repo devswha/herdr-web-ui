@@ -235,7 +235,7 @@ function ToolInputView({ part }: { part: ToolPartType }) {
   const sendUserFile = sendUserFileCall(parsed);
   if (sendUserFile !== null) return <div className="chat-tool-io">
     {sendUserFile.caption.length > 0 && <p className="chat-tool-io-meta">{sendUserFile.caption}</p>}
-    {sendUserFile.files.map((file) => <ToolFile key={file} path={file} />)}
+    {sendUserFile.files.map((file, index) => <ToolFile key={`${index}:${file}`} path={file} />)}
   </div>;
   const editScript = str("input");
   if (editScript !== undefined) return <pre className="chat-tool-io chat-diff">{editScript.split("\n").map((line, index) => <span key={index} className={ompEditLineClass(line)}>{line}{"\n"}</span>)}</pre>;
