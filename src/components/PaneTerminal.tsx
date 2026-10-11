@@ -1601,13 +1601,23 @@ export function PaneTerminal({
         if (hiddenOnTouch()) release();
       }
     };
+    // Another device can size the pty while this window keeps its focus (a phone used beside a
+    // PC left in front): no focus event comes back here, so a click or key in this terminal
+    // takes the pane back to this window's grid.
+    const reclaim = (event: Event): void => {
+      const shared = sharedGridRef.current;
+      if (!shared || releasedRef.current || !inUse() || !stackRef.current?.contains(event.target as Node)) return;
+      if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
+    };
     // a click or a tap is the user here, whatever the window says about its focus
     const onPointer = (event: PointerEvent): void => {
       if (releasedRef.current && stackRef.current?.contains(event.target as Node)) back();
+      else reclaim(event);
     };
     window.addEventListener("focus", back);
     window.addEventListener("blur", leave);
     window.addEventListener("pointerdown", onPointer, { capture: true });
+    window.addEventListener("keydown", reclaim, { capture: true });
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
@@ -1640,6 +1650,7 @@ export function PaneTerminal({
       window.removeEventListener("focus", back);
       window.removeEventListener("blur", leave);
       window.removeEventListener("pointerdown", onPointer, { capture: true });
+      window.removeEventListener("keydown", reclaim, { capture: true });
       document.removeEventListener("visibilitychange", onVisibility);
       onModifiedEnter.dispose();
       onCommandBackspace.dispose();

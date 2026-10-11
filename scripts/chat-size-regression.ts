@@ -760,3 +760,50 @@ if (import.meta.main) {
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+
+/**
+ * A window that keeps its focus gets no focus event when another device sized the pane meanwhile
+ * (a phone used beside a PC left in front): a click or a key in its terminal takes the pane back.
+ */
+export async function checkFocusedWindowReclaimsTerminalSize(browser: Browser, origin: string): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-reclaim-size-"));
+  const contexts: BrowserContext[] = [];
+  let workspace: string | null = null;
+  try {
+    const cwd = join(root, "pane");
+    mkdirSync(cwd);
+    const created = await workspaceCreate({ cwd, label: "herdr-web-ui-test-reclaim-size" });
+    workspace = created.workspace.workspace_id;
+    const paneId = created.root_pane.pane_id;
+    const size = shellSize(paneId);
+    const sizeBecomes = async (expected: string, what: string) => {
+      const deadline = Date.now() + 10_000;
+      let seen = "";
+      while (Date.now() < deadline) { seen = await size(); if (seen === expected) return; await Bun.sleep(100); }
+      throw new Error(`${what}: the pane is ${seen}, not ${expected}`);
+    };
+    // both windows are in use the whole time: neither gets a focus event
+    const inFront = async (page: Page) => { await page.addInitScript(() => Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true })); };
+    const settings = { language: "en", defaultView: "terminal" };
+    const desktop = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 1280, height: 800 } }, settings, false, inFront);
+    await attached(desktop);
+    const desktopSize = await size();
+    const phone = await openRecording(browser, contexts, origin, paneId, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, settings, false, inFront);
+    await attached(phone);
+    const phoneSize = await size();
+    assert.notEqual(phoneSize, desktopSize, "the phone took the pane at its own size");
+
+    await desktop.locator(".xterm").click();
+    await sizeBecomes(desktopSize, "a click in the desktop terminal");
+    await phone.locator(".xterm").tap();
+    await sizeBecomes(phoneSize, "a tap in the phone terminal");
+    await desktop.keyboard.press("Shift");
+    await sizeBecomes(desktopSize, "a key in the desktop terminal");
+    console.log("PASS a window that kept its focus takes the pane back on a click or a key in its terminal");
+  } finally {
+    for (const context of contexts) await context.close().catch(() => undefined);
+    if (workspace) await workspaceClose(workspace).catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
+}
