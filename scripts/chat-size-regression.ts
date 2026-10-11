@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright-core";
@@ -36,16 +36,31 @@ async function stopHolder(holder: PtySession): Promise<void> {
   } finally { clearTimeout(timer); }
 }
 
-/** The size the pane's own shell reports (`stty size`), not what a browser thinks. */
-function shellSize(paneId: string): () => Promise<string> {
+/**
+ * The size the pane's own shell reports (`stty size`), not what a browser thinks. With `dir` the
+ * answer goes to a file there instead of the screen: a resize that lands meanwhile reflows the
+ * screen, and a read of it can lose the line.
+ */
+function shellSize(paneId: string, dir?: string): () => Promise<string> {
   let asked = 0;
   return async () => {
     const marker = `size-${++asked}`;
+    const deadline = Date.now() + 10_000;
+    if (dir !== undefined) {
+      const file = join(dir, `${marker}.txt`);
+      await paneSendText(paneId, `stty size > ${file}`);
+      await paneSendKeys(paneId, ["Enter"]);
+      while (Date.now() < deadline) {
+        const answer = existsSync(file) ? readFileSync(file, "utf8").trim() : "";
+        if (/^\d+ \d+$/.test(answer)) return answer;
+        await Bun.sleep(100);
+      }
+      throw new Error(`no ${marker} answer from the pane's shell`);
+    }
     // the answer is bracketed and matched anywhere: a prompt and command that fill the row exactly
     // leave it on the same line of the read, and the command's own "$(stty size)" is no answer
     await paneSendText(paneId, `echo "<${marker}:$(stty size)>"`);
     await paneSendKeys(paneId, ["Enter"]);
-    const deadline = Date.now() + 10_000;
     let text = "";
     while (Date.now() < deadline) {
       text = (await paneRead({ paneId, source: "recent", lines: 80, stripAnsi: true })).text;
@@ -779,7 +794,8 @@ export async function checkFocusedWindowReclaimsTerminalSize(browser: Browser, o
     const created = await workspaceCreate({ cwd, label: "herdr-web-ui-test-reclaim-size" });
     workspace = created.workspace.workspace_id;
     const paneId = created.root_pane.pane_id;
-    const size = shellSize(paneId);
+    // the pty is resized under the shell throughout: its answers go to files, not the screen
+    const size = shellSize(paneId, cwd);
     const sizeBecomes = async (expected: string, what: string) => {
       const deadline = Date.now() + 10_000;
       let seen = "";
