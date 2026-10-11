@@ -1208,7 +1208,13 @@ export function App() {
         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
         {snapshot && selectedPane && selectedWorkspace && (
           <TabStrip snapshot={snapshot} workspace={selectedWorkspace} selectedPane={selectedPane} onSelectPane={selectPane} onNewTab={() => actions.openNewTab()}
-            paneActions={(paneId) => { const target = snapshot.panes.find((item) => item.pane_id === paneId); return target && paneActionsRef.current ? paneActionsRef.current(target) : []; }} />
+            paneActions={(paneId) => {
+              const target = snapshot.panes.find((item) => item.pane_id === paneId);
+              if (!target || !paneActionsRef.current) return [];
+              // the strip renders before the canvas, so its items come from the canvas's previous render:
+              // an action runs against the canvas's latest one, where a snapshot change has landed
+              return paneActionsRef.current(target).map((item) => ({ ...item, run: () => (paneActionsRef.current?.(target).find((fresh) => fresh.id === item.id) ?? item).run() }));
+            }} />
         )}
         {/* the tab strip's panel: its id is what each tab's aria-controls points at. No tabIndex -
             the terminal (PaneTerminal) and the composer are the focusable things inside it. */}

@@ -137,7 +137,8 @@ async function checkDesktop(browser: Browser, origin: string, first: string, sec
     const narrowItems = await tabMenu.getByRole("menuitem").allTextContents();
     assert.deepEqual(narrowItems.slice(0, 2).sort(), ["canvas-first", "canvas-second"], "a narrow window's tab menu lists the tab's panes first");
     assert.deepEqual(narrowItems.slice(-3), ["New tab", "Rename tab", "Close tab"]);
-    assert.ok(narrowItems.includes("Rename pane") && narrowItems.includes("Close pane"), "the touch menu carries the open pane's actions");
+    assert.deepEqual(narrowItems.slice(2, -3).filter((item) => item !== "Clear pane name"),
+      ["Rename pane", "Split right", "Split down", "Zoom pane", "Send right-clicks to pane", "Close pane"], "the touch menu carries the open pane's actions, in order, between its panes and the tab's");
     await page.setViewportSize({ width: 1280, height: 800 });
     await tabMenu.waitFor({ state: "detached" });
     await narrowMenu.waitFor({ state: "hidden" });
@@ -558,8 +559,9 @@ async function checkTouchTablet(browser: Browser, origin: string, first: string)
     const menu = page.getByRole("menu", { name: TAB, exact: true });
     await menu.waitFor();
     const tabletItems = await menu.getByRole("menuitem").allTextContents();
-    assert.deepEqual(tabletItems.slice(-3), ["New tab", "Rename tab", "Close tab"]);
-    assert.ok(tabletItems.includes("Rename pane") && tabletItems.includes("Close pane"), "the touch menu carries the open pane's actions");
+    // a wide touch screen shows both panes, so the menu has no pane list: the open pane's actions lead it
+    assert.deepEqual(tabletItems.filter((item) => item !== "Clear pane name"),
+      ["Rename pane", "Split right", "Split down", "Zoom pane", "Send right-clicks to pane", "Close pane", "New tab", "Rename tab", "Close tab"], "the touch menu carries the open pane's actions, in order, before the tab's");
     await page.keyboard.press("Escape");
     await menu.waitFor({ state: "detached" });
   } finally { await context.close(); }
