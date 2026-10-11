@@ -104,6 +104,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A pending chat message is no longer typed, or committed, after its connection lost the right to
   send it while herdr was being reached: refused before the paste it stays unsent, after it the
   message is marked for a check in the terminal. ([#760](https://github.com/devswha/herdr-web-ui/pull/760))
+- A folded PC/workspace section no longer leaves a large empty gap below it: a visible Agents list
+  takes the unused height, and an empty one follows the folded section directly. The Agents height
+  cap, independent scrolling and fixed footer stay unchanged.
+  ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
 
 ## [0.4.6] - 2026-10-11
 
