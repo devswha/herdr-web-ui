@@ -42,6 +42,28 @@ export function fileUriPath(uri: string): string | null {
   }
 }
 
+/**
+ * The OSC 8 handler that keeps a hyperlink this app cannot open from being drawn as one (#739).
+ * xterm underlines every linked cell with a dashed line, and herdr's attach stream keeps a row's
+ * link open over the padding after its text, so OmO's side panel (`omo-panel:` links, which only
+ * OmO's own mouse handling follows) showed a dotted rule under every file row to the panel's edge.
+ * Here such a link opens nothing (the link handler takes http(s) and file URIs only), so its
+ * opening is swallowed. Not while a link xterm holds is still open: xterm ends that one only on
+ * the next OSC 8 it is handed, and it would run on over the new link's text.
+ * True swallows the sequence, false hands it to xterm.
+ */
+export function hyperlinkFilter(): (payload: string) => boolean {
+  let open = false;
+  return (payload) => {
+    const separator = payload.indexOf(";");
+    if (separator === -1) return false; // malformed: xterm ignores it, and so does `open`
+    const uri = payload.slice(separator + 1);
+    if (uri !== "" && !open && !isWebLink(uri) && fileUriPath(uri) === null) return true;
+    open = uri !== "";
+    return false;
+  };
+}
+
 interface LogicalLine {
   text: string;
   /** the cell each UTF-16 unit of `text` sits in (1-based, as xterm's link ranges are) and its width */
