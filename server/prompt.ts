@@ -3262,11 +3262,13 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
     // one sent meanwhile waits until the queue is opened, answered and closed again
     const serialize = options.serialize ?? (<T>(_paneId: string, task: () => Promise<T>) => task());
     const form: { answered?: string } = {};
+    let promptMatched = false;
     const response = await serialize(body.pane_id, async () => {
       // given up while it waited its turn: nothing is read, opened or sent for it
       if (request.signal.aborted) return promptChanged();
       const { prompt, agent, pane, panes } = await readPrompt(body.pane_id, options.codexHome);
       if (!prompt || prompt.id !== body.prompt_id) return promptChanged();
+      promptMatched = true;
       // checked against the card before anything is sent: an invalid answer never opens the queue
       let steps: AnswerStep[];
       try {
@@ -3471,6 +3473,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
     // the wait for the form's next step only reads the pane: after the pane's turn, so a message
     // queued for it meanwhile is not held up behind the polls
     if (form.answered !== undefined) await formMovedOn(body.pane_id, form.answered, options.codexHome);
+    const outcome = response.status === 200 ? "ok" : response.status === 409 ? "prompt_changed" : "invalid_answer";
+    console.log(`[prompt/answer] pane=${body.pane_id} prompt_matched=${promptMatched} outcome=${outcome}`);
     return response;
   } catch (error) {
     return errorResponse(error);

@@ -44,6 +44,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
 
 ### Fixed
+- **Prompt answer refusals now show a persistent error** on the card instead of a 2-second toast
+  that is easy to miss. When the server rejects an answer (`prompt_changed` / `invalid_answer`),
+  the error message stays until the card is replaced, and `POST /api/pane/prompt/answer` now logs
+  each request with `pane_id`, whether the `prompt_id` matched, and the outcome (no answer contents
+  are logged).
 - A Claude Code chat whose session continued in a new transcript file (the old file holds only
   a `continued-in` record) now shows the conversation from the file Claude writes to, instead of
   an empty chat.

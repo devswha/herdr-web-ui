@@ -86,10 +86,9 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       onAnswered(focusFollowsAnswer({ fromCard, origin, coarse, cardMounted: card !== null, inCard: card?.contains(active) === true, onPage: active === null || active === document.body }));
     } catch (cause) {
       if (!shown.current) return false;
-      if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
-        setError("the prompt changed — re-read");
+      if (cause instanceof ApiError && cause.status === 409 && (cause.code === "prompt_changed" || cause.code === "invalid_answer")) {
+        setError(t("The question on screen changed; check it and answer again."));
         onPromptChanged();
-        window.setTimeout(() => setError(null), 2000);
       } else {
         setError(cause instanceof Error ? cause.message : String(cause));
       }

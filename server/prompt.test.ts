@@ -4205,6 +4205,23 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
       expect((await card())!.id).not.toBe(first.id);
     });
   });
+
+  test("logs prompt answer requests with pane_id, prompt_matched and outcome", async () => {
+    const logged: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+    try {
+      await withPane("codex", "blocked", menu(RESUME), async (pane) => {
+        const prompt = (await card())!;
+        logged.length = 0;
+        expect(await answer(prompt.id, { option_index: 0 })).toEqual({ status: 200, code: undefined });
+        expect(logged.some((line) => line.includes("[prompt/answer]") && line.includes("pane=p_1") && line.includes("prompt_matched=true") && line.includes("outcome=ok"))).toBe(true);
+        logged.length = 0;
+        expect(await answer(prompt.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
+        expect(logged.some((line) => line.includes("[prompt/answer]") && line.includes("pane=p_1") && line.includes("prompt_matched=false") && line.includes("outcome=prompt_changed"))).toBe(true);
+      });
+    } finally { console.log = originalLog; }
+  });
 });
 
 // fork: Claude Code 2.1.29x screens the readers missed, answered as menus (arrows + enter), never by typing the number
