@@ -50,17 +50,21 @@ export function fileUriPath(uri: string): string | null {
  * Here such a link opens nothing (the link handler takes http(s) and file URIs only), so its
  * opening is swallowed. Not while a link xterm holds is still open: xterm ends that one only on
  * the next OSC 8 it is handed, and it would run on over the new link's text.
- * True swallows the sequence, false hands it to xterm.
+ * `handler` answers true to swallow the sequence, false to hand it to xterm; `reset` goes with
+ * `term.reset()`, which ends xterm's open link too.
  */
-export function hyperlinkFilter(): (payload: string) => boolean {
+export function hyperlinkFilter(): { handler: (payload: string) => boolean; reset: () => void } {
   let open = false;
-  return (payload) => {
-    const separator = payload.indexOf(";");
-    if (separator === -1) return false; // malformed: xterm ignores it, and so does `open`
-    const uri = payload.slice(separator + 1);
-    if (uri !== "" && !open && !isWebLink(uri) && fileUriPath(uri) === null) return true;
-    open = uri !== "";
-    return false;
+  return {
+    handler: (payload) => {
+      const separator = payload.indexOf(";");
+      if (separator === -1) return false; // malformed: xterm ignores it, and so does `open`
+      const uri = payload.slice(separator + 1);
+      if (uri !== "" && !open && !isWebLink(uri) && fileUriPath(uri) === null) return true;
+      open = uri !== "";
+      return false;
+    },
+    reset: () => { open = false; },
   };
 }
 

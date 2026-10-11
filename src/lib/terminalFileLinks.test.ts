@@ -26,8 +26,9 @@ describe("hyperlinkFilter", () => {
     (_, x) => term.buffer.active.getLine(y)?.getCell(x)?.isUnderline() ? "1" : "0").join("");
   const filtered = () => {
     const term = new Terminal({ cols: 30, rows: 4, allowProposedApi: true });
-    term.parser.registerOscHandler(8, hyperlinkFilter());
-    return term;
+    const filter = hyperlinkFilter();
+    term.parser.registerOscHandler(8, filter.handler);
+    return Object.assign(term, { filter });
   };
 
   it("draws no line under a link this app cannot open, as herdr streams OmO's side panel", async () => {
@@ -50,6 +51,15 @@ describe("hyperlinkFilter", () => {
     await written(term, "\x1b]8;;https://example.com\x1b\\ab\x1b]8;;omo-panel:x\x1b\\cd\x1b]8;;\x1b\\ef\x1b]8;;omo-panel:y\x1b\\gh");
     // `cd` is a link xterm draws, as before; `gh` opens with nothing open and is dropped
     expect(underlined(term, 0, 8)).toBe("11110000");
+  });
+
+  it("starts over with the terminal when a pane change resets it under an open link", async () => {
+    const term = filtered();
+    await written(term, "\x1b]8;;https://example.com\x1b\\open");
+    term.reset();
+    term.filter.reset();
+    await written(term, "\x1b]8;;omo-panel:file/a\x1b\\ M a");
+    expect(underlined(term, 0, 4)).toBe("0000");
   });
 });
 
