@@ -821,6 +821,17 @@
 
 .chat-inline-error { color: var(--status-blocked); }
 
+.chat-activity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--status-working);
+  font-size: var(--fs-sm);
+}
+
+.chat-activity svg { width: 1em; height: 1em; flex: none; }
+
 .chat-endcap {
   width: 100%;
   display: flex;

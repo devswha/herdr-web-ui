@@ -55,14 +55,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   pan it, and the file viewer renders markdown files with local images; larger images are offered
   as downloads. ([#616](https://github.com/devswha/herdr-web-ui/pull/616) by @lyonbot)
 - **Settings → Appearance → Pin agents** (off by default) shows a star beside each row of the Agents list that pins the agent to the top; pins keep their order across reloads. ([#778](https://github.com/devswha/herdr-web-ui/pull/778) by @vibewriter-hand, [#820](https://github.com/devswha/herdr-web-ui/pull/820))
-- An OpenCode pane on a 1.x store (`session`/`message`/`part`) reads as a conversation again, where
-  the chat used to keep the terminal's text: prompts with the pictures pasted in them, each answer's
-  steps with their tool calls and outputs, and the turns an `/undo` took back.
-  ([#690](https://github.com/devswha/herdr-web-ui/pull/690) by @okcedric)
 - PCs saved in herdr appear automatically. Connect once per PC to enable automatic reconnection;
   installing or starting a bridge still needs separate approval. Changing the address, port or
   session clears both permissions and cached panes.
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
+- An OpenCode pane on a 1.x store (`session`/`message`/`part`) reads as a conversation again, where
+  the chat used to keep the terminal's text: prompts with the pictures pasted in them, each answer's
+  steps with their tool calls and outputs, and the turns an `/undo` took back.
+  ([#690](https://github.com/devswha/herdr-web-ui/pull/690) by @okcedric)
 
 ### Changed
 - The anonymous install and update counts also name the appearance settings changed from their
@@ -113,6 +113,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Chat hides a rejected conversation immediately, even when reading its terminal fallback
   is slow or fails, so removed history does not remain on screen.
   ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
+- Grok and Antigravity Chat show native turn activity, open live tool rows even when Herdr reports ready or done, and explain when native chat is unavailable.
+  ([#816](https://github.com/devswha/herdr-web-ui/pull/816) by @infowolfe)
 - When a chat message is not sent because Claude Code's input box in the terminal is not empty,
   the note now says what the box holds, and a one-line draft there can be cleared from the chat
   with Clear it and send. The chat did not show that text, so Send seemed to do nothing until the
@@ -176,14 +178,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   takes the unused height, and an empty one follows the folded section directly. The Agents height
   cap, independent scrolling and fixed footer stay unchanged.
   ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
+- Web UI SSH connections no longer open extra tunnels configured in the account’s SSH config.
+  ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 - Back and Forward after a pane is moved: the move no longer adds a history entry, and Back to an
   entry from before the move opens the pane under its new id instead of its old workspace. Back to
   an entry for a PC removed since stays on the pane shown and says the PC is not set up here,
   instead of selecting the missing PC and leaving the pane blank. Back or Forward that lands
   elsewhere than its entry named no longer drops the entries after it.
   ([#804](https://github.com/devswha/herdr-web-ui/pull/804) by @phirschybar)
-- Web UI SSH connections no longer open extra tunnels configured in the account’s SSH config.
-  ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
 ## [0.4.6] - 2026-10-11
 

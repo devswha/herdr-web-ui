@@ -10,9 +10,10 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 聊天暂不可用。请打开终端查看运行状态和工具调用。",
   "Chat read timed out.": "读取对话超时。",
-  "Saved in herdr": "已保存在 herdr 中",
-  "Connect once to enable automatic reconnection. Installation and startup need separate approval.": "连接一次后即可自动重新连接。安装和启动仍需单独批准。",
+  "Thinking…": "思考中…",
+  "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grok 聊天暂不可用。请打开终端查看运行状态和工具调用。",
   "Find in terminal": "在终端中查找",
   "Previous match": "上一个匹配",
   "Next match": "下一个匹配",
@@ -22,8 +23,6 @@ export const ZH: Record<string, string> = {
   "{current} of {total}": "第 {current} 个，共 {total} 个",
   "Pane changed. Search again.": "窗格内容已更改，请重新搜索。",
   "Search moves the pane for every client.": "搜索会移动所有已连接客户端的窗格视图。",
-  "Managed by herdr. Rename, disable or remove it there.": "由 herdr 管理。请在 herdr 中重命名、禁用或移除。",
-
   "Dismiss": "关闭",
   "Waiting for terminal input…": "正在准备终端输入…",
   "Paused while you use another window": "使用其他窗口时已暂停",
@@ -298,6 +297,9 @@ export const ZH: Record<string, string> = {
   "Bridge update needed": "需要更新 bridge",
   "Setup needed": "需要设置",
   "This PC runs a bridge from a different version of herdr web ui. Update it to reconnect; herdr sessions keep running.": "此 PC 运行的 bridge 来自其他版本的 herdr web ui。更新后即可重新连接，herdr 会话会继续运行。",
+  "Saved in herdr": "已保存在 herdr 中",
+  "Connect once to enable automatic reconnection. Installation and startup need separate approval.": "连接一次后即可自动重新连接。安装和启动仍需单独批准。",
+  "Managed by herdr. Rename, disable or remove it there.": "由 herdr 管理。请在 herdr 中重命名、禁用或移除。",
   "Browser access uses a bridge on this PC. Review any installation or startup changes before connecting.": "浏览器通过此 PC 上的桥接服务访问。连接前，请查看安装或启动所需的更改。",
   "Update bridge": "更新 bridge",
   "Update bridge and connect": "更新 bridge 并连接",

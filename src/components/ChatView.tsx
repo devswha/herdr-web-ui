@@ -94,6 +94,7 @@ export interface ChatViewProps {
 }
 
 interface ChatState {
+  activity?: ConversationResponse["activity"];
   source: "conversation" | "scrollback";
   conversationSource?: string;
   turns: ConversationTurn[];
@@ -594,6 +595,10 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   const onMetadataRef = useRef(onMetadata);
   onMetadataRef.current = onMetadata;
   const [state, setState] = useState<ChatState>(EMPTY_STATE);
+  // Native Grok/Agy events can arrive while Herdr still reports ready/done. This is display
+  // feedback only: sending, queuing and stopping retain the server's input authority.
+  const activity = state.activity ?? (agentStatus === "working" ? "working" : "idle");
+  const workStatus = state.activity !== undefined && agentStatus !== "blocked" ? activity === "idle" ? "idle" : "working" : agentStatus;
   const [error, setError] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [newMessages, setNewMessages] = useState(false);
@@ -745,7 +750,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
         onMetadataRef.current?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
         setAbandoned(conversation.abandoned ?? null);
         let next: ChatState;
-        if (conversation.source !== "scrollback") next = { source: "conversation", conversationSource: conversation.source, turns: conversation.turns, messages: [], truncated: false };
+        if (conversation.source !== "scrollback") next = { source: "conversation", conversationSource: conversation.source, turns: conversation.turns, messages: [], truncated: false, activity: conversation.activity };
         else if (agent !== null) next = { source: "scrollback", turns: [], messages: [], truncated: false };
         else {
           // The reader has rejected this history. Hide it before the separate terminal
@@ -914,7 +919,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   useLayoutEffect(() => {
     const node = scroller.current;
     if (node !== null && stickToBottom.current) node.scrollTop = node.scrollHeight;
-  }, [state, prompt]);
+  }, [state, prompt, agentStatus, connected, ended]);
 
   // A resized composer, a raised keyboard or a narrower window shrinks the view
   // without a scroll event; a reader at the end stays at the end, at once. So does a
@@ -980,6 +985,9 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
   }, [turns, restored]);
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
+  // the last turn is an open work block, whose head already says the agent works
+  const lastShownTurn = state.source === "conversation" ? shownTurns.at(-1) : undefined;
+  const workBlockLive = lastShownTurn !== undefined && isLiveWorkTurn(lastShownTurn, true, workStatus, finishedBeforeSend);
   const empty = state.source === "conversation" ? turns.length === 0 : agent === null && state.messages.length === 0;
   const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, older: typeof olderCursor === "string", abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
   // the scrollback standing in says nothing of the conversation: it has no history to compare
@@ -1018,7 +1026,7 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
       {state.source === "conversation"
         ? shownTurns.map((turn, index) => {
             const last = index === shownTurns.length - 1;
-            const live = isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend);
+            const live = isLiveWorkTurn(turn, last, workStatus, finishedBeforeSend);
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
               <Turn paneId={paneId} turn={turn} live={live} waiting={isWaitingWorkTurn(live, agentStatus)} showThinking={settings.showThinking} />
             </RenderBoundary>;
@@ -1029,7 +1037,12 @@ export const ChatView = memo(function ChatView({ paneId, refreshKey, invalidatio
       {!ended && !connected && <p className="chat-inline-state" role="status">{t("Reconnecting…")}</p>}
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{errorStatus === 401 ? t("locked — the token gate is asking again") : error}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
-      {loaded && empty && error === null && prompt === null && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {loaded && error === null && agent === "grok" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Grok chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
+      {loaded && error === null && agent === "agy" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Antigravity chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
+      {/* A native turn's activity, where no open work block says it: before the turn has an assistant
+          or tool row, and while it thinks (a work block's head says Working). One Working at a time. */}
+      {state.activity !== undefined && connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && (activity === "thinking" || !workBlockLive) && <p className="chat-activity" role="status"><CircleDot aria-hidden="true" />{activity === "thinking" ? t("Thinking…") : t("Working…")}</p>}
+      {loaded && empty && error === null && prompt === null && (state.activity === undefined || activity === "idle") && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>

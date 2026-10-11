@@ -13,7 +13,7 @@ const SCAN_BYTES = 32 * 1024 * 1024;
 const hash = (value: string): string => createHash("sha256").update(value).digest("base64url");
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 export class AgyUnavailable extends Error { constructor() { super("Agy history is unavailable"); } }
-interface Step { index: number; start: number; end: number; type: string; status: string; digest: string }
+interface Step { index: number; start: number; end: number; type: string; status: string; digest: string; activity?: "working" | "idle" }
 interface Index { identity: string; size: number; changed: string; scanned: number; revision: string; steps: Step[]; visible: Step[]; retired: Set<number> }
 const indexes = new Map<string, Index>();
 export function forgetAgyState(path?: string): void { if (path === undefined) indexes.clear(); else indexes.delete(path); }
@@ -46,7 +46,7 @@ function entry(line: string): Record<string, unknown> {
   return value;
 }
 
-export interface AgyProjection { segments: { start: number; end: number }[]; promptStarts: number[]; revision: string; indices: number[] }
+export interface AgyProjection { segments: { start: number; end: number }[]; promptStarts: number[]; revision: string; indices: number[]; activity: "working" | "idle" }
 export function agyProjection(path: string, fd: number): AgyProjection {
   const stat = fstatSync(fd);
   const identity = `${stat.dev}:${stat.ino}`;
@@ -79,7 +79,15 @@ export function agyProjection(path: string, fd: number): AgyProjection {
       if (index.steps.length && number <= index.steps.at(-1)!.index) {
         while (index.steps.length && index.steps.at(-1)!.index >= number) index.steps.pop();
       }
-      index.steps.push({ index: number, start: lineStart, end: lineEnd, type: value.type as string, status: String(value.status ?? ""), digest: hash(line) });
+      // DONE completes one exported step, not the turn. In the native 1.3.3 trace,
+      // a planner response with tools continues work; its tool-free answer ends it.
+      // Reasoning is exported after the planner finishes, so it cannot prove Thinking.
+      const activity = value.status !== "DONE" ? undefined
+        : value.type === "USER_INPUT" ? "working"
+        : value.type === "PLANNER_RESPONSE"
+          ? (Array.isArray(value.tool_calls) && value.tool_calls.length > 0) || typeof value.content !== "string" || !value.content.trim() ? "working" : "idle"
+          : undefined;
+      index.steps.push({ index: number, start: lineStart, end: lineEnd, type: value.type as string, status: String(value.status ?? ""), digest: hash(line), activity });
       if (index.steps.length > MAX_ENTRIES) throw new AgyUnavailable();
       index.scanned = lineEnd;
       start = newline + 1;
@@ -107,7 +115,9 @@ export function agyProjection(path: string, fd: number): AgyProjection {
   const segments: AgyProjection["segments"] = [];
   const promptStarts: number[] = [], indices: number[] = [];
   let length = 0;
+  let activity: AgyProjection["activity"] = "idle";
   for (const step of visible) {
+    if (step.activity !== undefined) activity = step.activity;
     indices.push(step.index);
     if (step.type === "USER_INPUT" && step.status === "DONE") promptStarts.push(length);
     const previous = segments.at(-1);
@@ -115,7 +125,7 @@ export function agyProjection(path: string, fd: number): AgyProjection {
     else segments.push({ start: step.start, end: step.end });
     length += step.end - step.start;
   }
-  return { segments, promptStarts, revision: index.revision, indices };
+  return { segments, promptStarts, revision: index.revision, indices, activity };
 }
 
 /** Keep one fd through projection and page reads, and reject a cut during the read. */

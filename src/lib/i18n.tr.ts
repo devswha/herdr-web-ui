@@ -7,7 +7,10 @@
  * keep their English names.
  */
 export const TR: Record<string, string> = {
+  "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity sohbeti kullanılamıyor. Etkinliği ve araç çağrılarını görmek için Terminal'i açın.",
   "Chat read timed out.": "Sohbet okunurken zaman aşımına uğradı.",
+  "Thinking…": "Düşünüyor…",
+  "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grok sohbeti kullanılamıyor. Etkinliği ve araç çağrılarını görmek için Terminal'i açın.",
   "Find in terminal": "Terminalde ara",
   "Previous match": "Önceki eşleşme",
   "Next match": "Sonraki eşleşme",
