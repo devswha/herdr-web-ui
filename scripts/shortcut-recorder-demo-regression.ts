@@ -68,6 +68,61 @@ try {
         assert.equal(await page.getByText("This binding can override text editing or terminal keys.", { exact: true }).count(), 0, "default and legacy Ctrl+Shift bindings retain their safe default wording");
         assert.ok(await page.getByText(/Your browser or operating system may intercept/).count() > 0, "reserved-key warnings are unchanged");
       } finally { await defaults.close(); }
+      const compatibility = await browser.newContext({ viewport: { width: 1280, height: 760 }, locale: "en-US" });
+      try {
+        await compatibility.addInitScript(() => {
+          Object.defineProperty(navigator, "platform", { configurable: true, value: "iPad" });
+          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false, shortcutOverrides: { palette: "0", "next-pane": "ArrowDown" } }));
+        });
+        const page = await compatibility.newPage();
+        page.setDefaultTimeout(10_000);
+        await page.goto(`http://127.0.0.1:${server.port}${prefix}?pane=${encodeURIComponent(panes.api)}&view=chat&settings=shortcuts`);
+        await page.locator(".settings-shortcuts").waitFor();
+        const findRow = rowOf(page, "Find in terminal");
+        const findRecorder = findRow.getByRole("button", { name: "Record shortcut for Find in terminal", exact: true });
+        await findRecorder.click();
+        await findRecorder.dispatchEvent("keydown", { key: "Ó", code: "Digit0", metaKey: true, shiftKey: true });
+        await findRow.getByText("Already assigned", { exact: true }).waitFor();
+        assert.equal(await findRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), true, "recorded Latin key checks the legacy physical Digit0 alias");
+        assert.equal((await overridesOf(page)).palette, "0");
+        await findRow.getByLabel("Shift", { exact: true }).uncheck();
+        assert.equal(await findRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), false, "captured aliases use the candidate's updated modifier mask");
+        await findRow.getByRole("button", { name: "Cancel", exact: true }).click();
+        await findRecorder.click();
+        await findRecorder.dispatchEvent("keydown", { key: "?", code: "Slash", metaKey: true, shiftKey: true });
+        await findRow.getByLabel("Shift", { exact: true }).uncheck();
+        assert.equal(await findRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), false, "modifier edits preserve recorded symbols and their provenance");
+        assert.match(await findRow.getByRole("status").first().innerText(), /\?/);
+        await findRow.getByRole("button", { name: "Cancel", exact: true }).click();
+        await findRow.getByRole("button", { name: "Edit shortcut for Find in terminal", exact: true }).click();
+        await findRow.getByRole("combobox", { name: "Shortcut key", exact: true }).selectOption("custom");
+        await findRow.getByLabel("Type a character or key name", { exact: true }).fill("Ó");
+        assert.equal(await findRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), false, "manual Latin entry remains supported without inventing a physical layout");
+        await findRow.getByText("Manual editing cannot check physical aliases on your keyboard layout. Recording checks them.", { exact: true }).waitFor();
+        await findRow.getByRole("button", { name: "Cancel", exact: true }).click();
+        const paletteRow = rowOf(page, "Command palette");
+        const paletteRecorder = paletteRow.getByRole("button", { name: "Record shortcut for Command palette", exact: true });
+        await paletteRecorder.click();
+        await paletteRecorder.dispatchEvent("keydown", { key: "Ó", code: "Digit0", metaKey: true, shiftKey: true });
+        assert.equal(await paletteRow.getByRole("button", { name: "Save", exact: true }).isDisabled(), false, "an action's own legacy alias is excluded");
+        await paletteRow.getByRole("button", { name: "Cancel", exact: true }).click();
+        await page.getByRole("button", { name: "Close settings", exact: true }).click();
+        const composer = page.locator(".pane-frame.is-current .composer-text");
+        await composer.fill("Legacy arrows keep native text selection");
+        const originalPane = await page.locator(".pane-frame.is-current").getAttribute("data-layout-pane");
+        await page.keyboard.press("Meta+Shift+ArrowDown");
+        await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        assert.equal(await page.locator(".pane-frame.is-current").getAttribute("data-layout-pane"), originalPane, "legacy string arrows keep their text-field behavior");
+        await openShortcuts(page);
+        const nextRow = rowOf(page, "Next pane");
+        await nextRow.getByRole("button", { name: "Edit shortcut for Next pane", exact: true }).click();
+        await nextRow.getByText("This binding can override text editing or terminal keys.", { exact: true }).waitFor();
+        await nextRow.getByRole("button", { name: "Save", exact: true }).click();
+        await page.getByRole("button", { name: "Close settings", exact: true }).click();
+        await composer.focus();
+        await page.keyboard.press("Meta+Shift+ArrowDown");
+        await page.waitForFunction((id) => document.querySelector(".pane-frame.is-current")?.getAttribute("data-layout-pane") !== id, originalPane);
+      } finally { await compatibility.close(); }
       for (const touch of [false, true]) {
         const context = await browser.newContext({ viewport: { width: touch ? 320 : 1280, height: 760 }, hasTouch: touch, locale: "en-US" });
         try {
@@ -82,6 +137,16 @@ try {
           await page.goto(`http://127.0.0.1:${server.port}${prefix}?pane=${encodeURIComponent(panes.api)}&view=chat`);
           await page.locator(".conn-live").waitFor();
           await openShortcuts(page);
+          const workspaceRow = rowOf(page, "New workspace");
+          await workspaceRow.getByRole("button", { name: "Edit shortcut for New workspace", exact: true }).click();
+          assert.equal(await workspaceRow.getByRole("combobox", { name: "Shortcut key", exact: true }).inputValue(), "o", "editing a default previews the displayed primary binding, not its secondary alias");
+          await workspaceRow.getByRole("button", { name: "Save", exact: true }).click();
+          await page.getByRole("button", { name: "Close settings", exact: true }).click();
+          await page.keyboard.press("Meta+Shift+O");
+          await page.getByRole("dialog", { name: "New workspace", exact: true }).waitFor();
+          await page.keyboard.press("Escape");
+          await openShortcuts(page);
+          await page.getByRole("button", { name: "Reset shortcuts", exact: true }).click();
           const paletteRow = rowOf(page, "Command palette");
           const recordButton = paletteRow.getByRole("button", { name: "Record shortcut for Command palette", exact: true });
 

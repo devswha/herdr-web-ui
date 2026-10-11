@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useSettings } from "./settings.ts";
-import { recordedShortcutKey, recordShortcutBinding, resolveShortcutBinding, sameShortcutBinding, type ShortcutEventLike, type ShortcutOverrides, type ShortcutSpec } from "./shortcutBindings.ts";
+import { legacyShortcutKey, recordShortcutBinding, resolveShortcutBinding, sameShortcutBinding, type ShortcutEventLike, type ShortcutOverrides, type ShortcutSpec } from "./shortcutBindings.ts";
 export type { ShortcutEventLike } from "./shortcutBindings.ts";
 
 import type { AppActions } from "./actions.ts";
@@ -54,17 +54,26 @@ export function shortcutConflict(id: ShortcutId, keys: ShortcutSpec[], overrides
 }
 
 export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, overrides: ShortcutOverrides = {}): ShortcutId | null {
+  if (event.isComposing || event.keyCode === 229 || isVoiceShortcut(event, platformIsMac)) return null;
   const binding = recordShortcutBinding(event);
-  if (binding === null || isVoiceShortcut(event, platformIsMac)) return null;
+  if (binding === null) return null;
   for (const shortcut of SHORTCUTS) {
     if (shortcut.id === "voice") continue;
     const override = overrides[shortcut.id];
-    if (override && sameShortcutBinding(binding, resolveShortcutBinding(override, platformIsMac))) return shortcut.id;
+    if (typeof override === "object" && override !== null && sameShortcutBinding(binding, override)) return shortcut.id;
   }
-  const key = recordedShortcutKey(event, platformIsMac);
+  const key = legacyShortcutKey(event, platformIsMac);
   if (key === null) return null;
+  for (const shortcut of SHORTCUTS) {
+    if (shortcut.id !== "voice" && overrides[shortcut.id] === key) return shortcut.id;
+  }
   const id = KEY_TO_ID[key];
   return id && !Object.hasOwn(overrides, id) ? id : null;
+}
+
+/** A capture also checks the physical aliases of other default or legacy bindings on this layout. */
+export function shortcutEventConflict(id: ShortcutId, event: ShortcutEventLike, overrides: ShortcutOverrides, platformIsMac = isMacPlatform()): boolean {
+  return matchShortcut(event, platformIsMac, { ...overrides, [id]: null }) !== null;
 }
 
 /** Mod+Shift+Space, held to dictate. matchShortcut never returns "voice": it has no action. */
@@ -132,7 +141,9 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
       if (isShortcutRecordingTarget(event.target)) return;
       const shortcut = matchShortcut(event, platformIsMac, settings.shortcutOverrides);
       if (shortcut === null) return;
-      if (event.key.startsWith("Arrow") && !Object.hasOwn(settings.shortcutOverrides, shortcut) && keepsArrowsForText(event.target)) return;
+      const override = settings.shortcutOverrides[shortcut];
+      const exactOverride = typeof override === "object" && override !== null;
+      if (event.key.startsWith("Arrow") && !exactOverride && keepsArrowsForText(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       switch (shortcut) {

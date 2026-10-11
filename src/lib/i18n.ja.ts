@@ -9,6 +9,7 @@
  */
 export const JA: Record<string, string> = {
   "Chat read timed out.": "会話の読み込みがタイムアウトしました。",
+  "Manual editing cannot check physical aliases on your keyboard layout. Recording checks them.": "手動編集ではキーボード配列上の物理キーの別名を確認できません。キーを記録すると確認できます。",
   "Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.": "ラテン文字、数字、カンマ、またはキー名を使ってください。その他の文字はキーボードで記録してください。",
   "Bindings apply to this browser and device. Record any key combination; defaults use Mod+Shift.": "ショートカットはこのブラウザーとデバイスに適用されます。任意のキーの組み合わせを記録できます。デフォルトはMod+Shiftです。",
   "Record or edit a binding, preview it, then Save. Escape cancels recording; use the editor for Escape or Tab.": "記録または編集した組み合わせを確認してから保存します。Escapeで記録をキャンセルできます。EscapeやTabの設定には編集欄を使ってください。",

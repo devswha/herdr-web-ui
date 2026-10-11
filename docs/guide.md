@@ -498,7 +498,11 @@ and the physical Latin-letter position on non-Latin layouts; Latin accented lett
 own character. Modifier-only, dead-key and IME events are not recorded.
 
 Settings are saved in this browser, not on the remote PC. Existing saved Mod+Shift bindings keep
-working. The command palette shows current bindings and omits disabled ones. Each row can restore
+working with their original physical digit/comma aliases and strict Mod+Shift matching. New exact
+object bindings take precedence and preserve Latin letters even on digit keys. Recording also
+checks the physical event against other default and legacy bindings; manual entry has no
+physical key code and cannot check layout-specific aliases. The command palette shows current
+bindings and omits disabled ones. Each row can restore
 its default or turn the binding off; **Reset shortcuts** restores all defaults. Exact duplicate
 combinations, including the fixed hold-to-dictate binding (`Mod+Shift+Space`), block Save.
 
@@ -507,7 +511,8 @@ your browser, OS or extensions. Some keys never reach the page; manual editing c
 those reservations. Installed-app mode may behave differently. Bare keys, Shift-only bindings
 and Ctrl combinations can replace typing, native text editing or terminal commands; choose them
 with care. While an IME is composing, keys stay with it. Default Mod+Shift+arrows keep their
-text-selection behavior in text fields; explicit custom arrow bindings take precedence.
+text-selection behavior in text fields, as do legacy string overrides; new exact object arrow
+bindings take precedence.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
 scrollbar, arrows move a line, Page Up/Down a viewport, and Home/End the start/end of history.

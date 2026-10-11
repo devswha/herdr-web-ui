@@ -11,6 +11,7 @@
  */
 export const ZH: Record<string, string> = {
   "Chat read timed out.": "读取对话超时。",
+  "Manual editing cannot check physical aliases on your keyboard layout. Recording checks them.": "手动编辑无法检查当前键盘布局的物理按键别名。录制时会检查这些别名。",
   "Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.": "请输入拉丁字母、数字、逗号或按键名称。其他字符请通过键盘录制。",
   "Bindings apply to this browser and device. Record any key combination; defaults use Mod+Shift.": "快捷键应用于此浏览器和设备。可录制任意按键组合；默认使用 Mod+Shift。",
   "Record or edit a binding, preview it, then Save. Escape cancels recording; use the editor for Escape or Tab.": "录制或编辑组合，预览后保存。Escape 取消录制；请在编辑器中设置 Escape 或 Tab。",

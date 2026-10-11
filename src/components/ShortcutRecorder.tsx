@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Ban, RotateCcw } from "lucide-react";
 import { useT } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
-import { formatKeys, isMacPlatform, shortcutConflict, shortcutDisplayKeys, shortcutKeys, type ShortcutId } from "../lib/shortcuts.ts";
+import { formatKeys, isMacPlatform, shortcutConflict, shortcutEventConflict, shortcutDisplayKeys, shortcutKeys, type ShortcutEventLike, type ShortcutId } from "../lib/shortcuts.ts";
 import { isReservedShortcutBinding, manualShortcutBinding, recordShortcutBinding, resolveShortcutBinding, type ShortcutBinding, type ShortcutSpec } from "../lib/shortcutBindings.ts";
 import "./ShortcutRecorder.css";
 
@@ -16,22 +16,27 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
   const [editing, setEditing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [candidate, setCandidate] = useState<ShortcutBinding | null>(null);
+  const [capturedEvent, setCapturedEvent] = useState<ShortcutEventLike | null>(null);
   const [modifiers, setModifiers] = useState(() => resolveShortcutBinding("", isMacPlatform()));
   const [manualKey, setManualKey] = useState("");
   const [customKey, setCustomKey] = useState(false);
   const [notice, setNotice] = useState(false);
   const currentKeys = shortcutDisplayKeys(id, settings.shortcutOverrides);
-  const currentSpec = shortcutKeys(id, settings.shortcutOverrides)[0];
+  const primaryKey = currentKeys.at(-1);
+  const currentSpec = Object.hasOwn(settings.shortcutOverrides, id) ? settings.shortcutOverrides[id]
+    : primaryKey?.length === 1 ? primaryKey.toLowerCase() : primaryKey;
   const currentBinding = currentSpec ? resolveShortcutBinding(currentSpec, isMacPlatform()) : null;
   const previewKeys = candidate ? shortcutDisplayKeys(id, { [id]: candidate }) : [];
-  const conflict = candidate !== null && shortcutConflict(id, [candidate], settings.shortcutOverrides);
+  const conflict = candidate !== null && (shortcutConflict(id, [candidate], settings.shortcutOverrides)
+    || (capturedEvent !== null && shortcutEventConflict(id, capturedEvent, settings.shortcutOverrides)));
   const shownBinding = editing ? candidate : currentBinding;
   const shownKeys = editing ? previewKeys : currentKeys;
   const reserved = shownBinding !== null && isReservedShortcutBinding(shownBinding, isMacPlatform());
   const exactOverride = editing || (typeof settings.shortcutOverrides[id] === "object" && settings.shortcutOverrides[id] !== null);
-  const overridesInput = exactOverride && shownBinding !== null && (shownBinding.ctrlKey || (!shownBinding.metaKey && !shownBinding.altKey));
+  const overridesInput = exactOverride && shownBinding !== null && (shownBinding.ctrlKey || (!shownBinding.metaKey && !shownBinding.altKey) || shownBinding.key.startsWith("Arrow"));
   const finish = () => {
     setEditing(false); setRecording(false); setNotice(false);
+    setCapturedEvent(null);
     recordButton.current?.focus({ preventScroll: true });
   };
   const persist = (value: ShortcutSpec | null | undefined) => {
@@ -43,6 +48,7 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
   };
   const begin = (capture: boolean) => {
     setCandidate(currentBinding);
+    setCapturedEvent(null);
     setModifiers(currentBinding ?? resolveShortcutBinding("", isMacPlatform()));
     setManualKey(currentBinding?.key ?? "");
     setCustomKey(!currentBinding || !MANUAL_KEYS.includes(currentBinding.key));
@@ -53,6 +59,16 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
     setManualKey(key);
     setModifiers(nextModifiers);
     setCandidate(manualShortcutBinding(key, nextModifiers));
+    setCapturedEvent(null);
+    setNotice(false);
+  };
+  const changeModifiers = (nextModifiers: ShortcutBinding) => {
+    if (!capturedEvent) { setManual(manualKey, nextModifiers); return; }
+    const { ctrlKey, metaKey, altKey, shiftKey } = nextModifiers;
+    const nextEvent = { ...capturedEvent, ctrlKey, metaKey, altKey, shiftKey };
+    setModifiers(nextModifiers);
+    setCandidate(recordShortcutBinding(nextEvent));
+    setCapturedEvent(nextEvent);
     setNotice(false);
   };
   return (
@@ -70,6 +86,8 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
             if (event.repeat) return;
             const value = recordShortcutBinding(event.nativeEvent);
             if (!value) { setNotice(true); return; }
+            const { key, code, ctrlKey, metaKey, altKey, shiftKey } = event.nativeEvent;
+            setCapturedEvent({ key, code, ctrlKey, metaKey, altKey, shiftKey });
             setCandidate(value); setModifiers(value); setManualKey(value.key); setCustomKey(!MANUAL_KEYS.includes(value.key)); setRecording(false); setNotice(false);
           }}>{recording ? t("Press keys…") : currentKeys.length ? compactKeys(currentKeys) : t("Off")}</button>
         <button type="button" className="btn" aria-label={t("Edit shortcut for {action}", { action: label })} onClick={() => begin(false)}>{t("Edit")}</button>
@@ -79,7 +97,7 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
       {editing && <div className="shortcut-recorder-editor">
         <span className="settings-description" role="status">{t("Shortcut preview")}: {previewKeys.length ? compactKeys(previewKeys) : t("Choose a key")}</span>
         <div className="shortcut-recorder-modifiers">
-          {(["ctrlKey", "metaKey", "altKey", "shiftKey"] as const).map((modifier, index) => <label key={modifier}><input type="checkbox" checked={modifiers[modifier]} onChange={(event) => setManual(manualKey, { ...modifiers, [modifier]: event.target.checked })} />{formatKeys([ ["Ctrl", "Meta", "Alt", "Shift"][index]! ])[0]}</label>)}
+          {(["ctrlKey", "metaKey", "altKey", "shiftKey"] as const).map((modifier, index) => <label key={modifier}><input type="checkbox" checked={modifiers[modifier]} onChange={(event) => changeModifiers({ ...modifiers, [modifier]: event.target.checked })} />{formatKeys([ ["Ctrl", "Meta", "Alt", "Shift"][index]! ])[0]}</label>)}
         </div>
         <label className="shortcut-recorder-key">{t("Shortcut key")}
           <select className="select" aria-label={t("Shortcut key")} value={customKey ? "custom" : manualKey} onChange={(event) => { setCustomKey(event.target.value === "custom"); setManual(event.target.value === "custom" ? "" : event.target.value); }}>
@@ -91,6 +109,7 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
           <input className="input" value={manualKey} autoComplete="off" autoCapitalize="off" spellCheck={false} onChange={(event) => setManual(event.target.value)} />
         </label>}
         {customKey && !candidate && manualKey && <span className="settings-description" role="status">{t("Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.")}</span>}
+        {!recording && capturedEvent === null && <span className="settings-description">{t("Manual editing cannot check physical aliases on your keyboard layout. Recording checks them.")}</span>}
         {conflict && <span className="settings-description" role="status">{t("Already assigned")}</span>}
         {notice && <span className="settings-description" role="status">{t("Press a key with the modifiers you want.")}</span>}
         <div className="shortcut-recorder-controls">

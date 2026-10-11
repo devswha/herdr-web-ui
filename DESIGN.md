@@ -1292,12 +1292,15 @@ One set for both themes: the card is island black wherever it shows.
   A key dropdown and custom Latin-letter/digit/comma/key-name field with modifier checkboxes work
   without a hardware keyboard. Ambiguous symbol and non-Latin manual entries cannot be saved;
   the hardware recorder resolves their physical-key identity.
-  Duplicate exact combinations, including fixed hold-to-dictate, block Save; restoration and disabling
+  Duplicate exact combinations, including fixed hold-to-dictate, block Save. Hardware recording
+  also checks other bindings using the captured physical event; modifier edits retain that event
+  while manual key edits discard it. Manual entry cannot check layout-specific aliases. Defaults
+  and legacy strings retain physical digit/comma priority; exact objects match first. Restoration and disabling
   are separate controls. Expanded editors own their keys before global capture listeners run.
   Known browser/OS reservations and text/terminal overrides show warnings. Reservations vary by
   browser and installed-app mode; manual editing cannot guarantee delivery.
   Bindings belong to this browser, not the remote PC or pane. Hold-to-dictate remains fixed.
-- Default text-field arrow selection and IME composition keep their keys. Explicit custom bindings
+- Default and legacy-string text-field arrow selection and IME composition keep their keys. Exact object bindings
   may replace native text or terminal keys. Focus-local list/tab navigation and
   reordering are separate from global bindings; they must not intercept terminal input.
   Global actions target the selected pane, and a handled shortcut must never also reach its PTY.

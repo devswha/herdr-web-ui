@@ -7,6 +7,7 @@
  */
 export const KO: Record<string, string> = {
   "Chat read timed out.": "대화 읽기 시간이 초과되었습니다.",
+  "Manual editing cannot check physical aliases on your keyboard layout. Recording checks them.": "수동 편집은 키보드 배열의 물리적 키 별칭을 확인할 수 없습니다. 키 기록은 이를 확인합니다.",
   "Use a Latin letter, digit, comma, or named key. Record other characters with your keyboard.": "라틴 문자, 숫자, 쉼표 또는 키 이름을 사용하세요. 다른 문자는 키보드로 기록하세요.",
   "Bindings apply to this browser and device. Record any key combination; defaults use Mod+Shift.": "단축키는 이 브라우저와 기기에 적용됩니다. 원하는 키 조합을 기록하세요. 기본값은 Mod+Shift입니다.",
   "Record or edit a binding, preview it, then Save. Escape cancels recording; use the editor for Escape or Tab.": "단축키를 기록하거나 편집하고 미리 본 뒤 저장하세요. Escape는 기록을 취소합니다. Escape나 Tab은 편집기에서 지정하세요.",

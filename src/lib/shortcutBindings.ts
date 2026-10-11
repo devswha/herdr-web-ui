@@ -52,11 +52,15 @@ export function manualShortcutBinding(key: string, modifiers: Omit<ShortcutBindi
   return recordShortcutBinding({ ...modifiers, key: normalized });
 }
 
-/** Default and legacy bindings still use this platform's Mod+Shift convention. */
-export function recordedShortcutKey(event: ShortcutEventLike, platformIsMac: boolean): string | null {
-  const binding = recordShortcutBinding(event);
+/** Legacy strings and defaults preserve strict Mod+Shift and the original physical digit/comma aliases. */
+export function legacyShortcutKey(event: ShortcutEventLike, platformIsMac: boolean): string | null {
+  if (event.isComposing || event.keyCode === 229) return null;
   const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  return binding && hasMod && event.shiftKey && !event.altKey ? binding.key : null;
+  if (!hasMod || !event.shiftKey || event.altKey) return null;
+  const code = event.code ?? "";
+  const nonLatinLetter = /^\p{L}$/u.test(event.key) && !/^\p{Script=Latin}$/u.test(event.key);
+  const letter = nonLatinLetter ? physicalKey(event.key, code) : event.key;
+  return code === "Comma" ? "," : /^Digit[0-9]$/.test(code) ? code.slice(-1) : letter.length === 1 ? letter.toLowerCase() : letter;
 }
 
 export function resolveShortcutBinding(spec: ShortcutSpec, platformIsMac: boolean): ShortcutBinding {

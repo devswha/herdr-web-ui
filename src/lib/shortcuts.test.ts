@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { isAppShortcut, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
-import { isReservedShortcutKey, sanitizeShortcutOverrides, recordedShortcutKey, recordShortcutBinding } from "./shortcutBindings.ts";
+import { isReservedShortcutKey, sanitizeShortcutOverrides, legacyShortcutKey, recordShortcutBinding } from "./shortcutBindings.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return { key, ctrlKey: false, metaKey: false, shiftKey: true, altKey: false, ...patch };
@@ -45,16 +45,16 @@ describe("matchShortcut", () => {
   it("records keys beyond a fixed alphabet using the same normalization as dispatch", () => {
     for (const [key, code, stored] of [["Ç", "KeyB", "ç"], ["Ű", "Backslash", "ű"], ["Ó", "Digit0", "ó"], ["?", "Slash", "?"], ["F12", "F12", "F12"], ["Home", "Home", "Home"], ["<", "Comma", ","], ["!", "Digit1", "1"]]) {
       const event = keyEvent(key!, { code, metaKey: true });
-      expect(recordedShortcutKey(event, true)).toBe(stored!);
-      const overrides = sanitizeShortcutOverrides({ "find": stored });
+      expect(recordShortcutBinding(event)?.key).toBe(stored!);
+      const overrides = sanitizeShortcutOverrides({ "find": recordShortcutBinding(event) });
       expect(matchShortcut(event, true, overrides)).toBe("find");
     }
-    for (const key of ["Dead", "Unidentified", "Shift", "Meta", "Process"]) expect(recordedShortcutKey(keyEvent(key, { metaKey: true }), true)).toBeNull();
-    expect(recordedShortcutKey(keyEvent("Dead", { metaKey: true, code: "Digit0" }), true)).toBeNull();
-    expect(recordedShortcutKey(keyEvent("x", { metaKey: true, altKey: true }), true)).toBeNull();
-    expect(recordedShortcutKey(keyEvent("x", { metaKey: true, isComposing: true }), true)).toBeNull();
-    expect(recordedShortcutKey(keyEvent("x", { metaKey: true, shiftKey: false }), true)).toBeNull();
-    expect(recordedShortcutKey(keyEvent("x", { ctrlKey: true }), false)).toBe("x");
+    for (const key of ["Dead", "Unidentified", "Shift", "Meta", "Process"]) expect(recordShortcutBinding(keyEvent(key, { metaKey: true }))).toBeNull();
+    expect(recordShortcutBinding(keyEvent("Dead", { metaKey: true, code: "Digit0" }))).toBeNull();
+    expect(legacyShortcutKey(keyEvent("x", { metaKey: true, altKey: true }), true)).toBeNull();
+    expect(legacyShortcutKey(keyEvent("x", { metaKey: true, isComposing: true }), true)).toBeNull();
+    expect(legacyShortcutKey(keyEvent("x", { metaKey: true, shiftKey: false }), true)).toBeNull();
+    expect(legacyShortcutKey(keyEvent("x", { ctrlKey: true }), false)).toBe("x");
     expect(shortcutConflict("find", ["Space"], {})).toBe(true);
     expect(sanitizeShortcutOverrides({ palette: "F24", find: "F25", settings: "Dead" })).toEqual({ palette: "F24" });
   });
@@ -70,9 +70,9 @@ describe("matchShortcut", () => {
       expect(shortcutDisplayKeys("find", overrides)).toEqual(["Mod", "Shift", key.length === 1 ? key.toUpperCase() : key]);
       expect(shortcutConflict("palette", [key], overrides)).toBe(true);
     }
-    const saved = sanitizeShortcutOverrides({ "find": "ó", "toggle-view": "ű", "toggle-sidebar": "ú" });
+    const saved = sanitizeShortcutOverrides({ "find": recordShortcutBinding(keyEvent("Ó", { metaKey: true, code: "Digit0" })), "toggle-view": recordShortcutBinding(keyEvent("Ű", { metaKey: true, code: "Backslash" })), "toggle-sidebar": recordShortcutBinding(keyEvent("Ú", { metaKey: true, code: "BracketRight" })) });
     expect(matchShortcut(keyEvent("Ó", { metaKey: true, code: "Digit0" }), true, saved)).toBe("find");
-    expect(matchShortcut(keyEvent("Ó", { metaKey: true, code: "Digit0" }), true, { "find": "0" })).toBeNull();
+    expect(matchShortcut(keyEvent("Ó", { metaKey: true, code: "Digit0" }), true, { "find": "0" })).toBe("find");
     expect(matchShortcut(keyEvent("Ű", { metaKey: true, code: "Backslash" }), true, saved)).toBe("toggle-view");
     expect(matchShortcut(keyEvent("Ú", { metaKey: true, code: "BracketRight" }), true, saved)).toBe("toggle-sidebar");
     expect(matchShortcut(keyEvent("U\u030b", { metaKey: true, code: "Backslash" }), true, saved)).toBe("toggle-view");
