@@ -183,16 +183,39 @@ async function isFile(path: string): Promise<boolean> {
 /** Store + session id → the file a project scan found it in; checked again on every use. */
 const found = new Map<string, string>();
 
-/** The session Claude continued after writing only metadata to the old transcript. */
+/** How much of a transcript's end is read for a `continued-in` record: only metadata follows one. */
+const CONTINUED_TAIL_BYTES = 64 * 1024;
+
+/**
+ * The session Claude continued in, when this transcript ends in a `continued-in` record with no
+ * user or assistant turn after it. Only the file's tail is read, since this runs on every lookup.
+ * A file that cannot be read names no continuation: its own reader reports the failure.
+ */
 async function continuedInSession(path: string): Promise<string | null> {
   let text: string;
-  try { text = await readFile(path, "utf8"); } catch (error) { if (absent(error)) return null; throw error; }
+  try {
+    const file = await open(path, constants.O_RDONLY);
+    try {
+      const size = (await file.stat()).size;
+      const start = Math.max(0, size - CONTINUED_TAIL_BYTES);
+      const buffer = Buffer.alloc(size - start);
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
+      text = buffer.subarray(0, bytesRead).toString("utf8");
+      // a tail that starts mid-line drops that partial line
+      if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+    } finally {
+      await file.close();
+    }
+  } catch {
+    return null;
+  }
   let continued: string | null = null;
   for (const line of text.split("\n")) {
-    if (!line.includes('"continued-in"')) continue;
+    if (!line.includes('"type"')) continue;
     try {
       const entry = JSON.parse(line) as { type?: unknown; continuedInSessionId?: unknown };
-      if (entry.type === "continued-in" && typeof entry.continuedInSessionId === "string" && SESSION_ID.test(entry.continuedInSessionId)) {
+      if (entry.type === "user" || entry.type === "assistant") continued = null;
+      else if (entry.type === "continued-in" && typeof entry.continuedInSessionId === "string" && SESSION_ID.test(entry.continuedInSessionId)) {
         continued = entry.continuedInSessionId;
       }
     } catch { /* a torn tail line cannot name the active session */ }
@@ -321,15 +344,16 @@ export async function claudeTranscriptFile(home: string, session: string, cwds: 
     return null;
   };
 
-  const seen = new Set<string>();
-  let current = session;
-  for (;;) {
-    if (seen.has(current)) return null;
-    seen.add(current);
-    const path = await locate(current);
-    if (path === null) return null;
+  const seen = new Set<string>([session]);
+  let path = await locate(session);
+  while (path !== null) {
     const next = await continuedInSession(path);
-    if (next === null) return path;
-    current = next;
+    if (next === null || seen.has(next)) return path;
+    seen.add(next);
+    // a continuation whose file is not there keeps the transcript that named it
+    const nextPath = await locate(next);
+    if (nextPath === null) return path;
+    path = nextPath;
   }
+  return null;
 }

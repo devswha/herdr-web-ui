@@ -192,6 +192,37 @@ describe("claudeTranscriptFile", () => {
     ].map((entry) => JSON.stringify(entry)).join("\n"));
     expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBe(active);
   });
+
+  it("keeps a transcript whose continued-in record is followed by newer turns, or names no file", async () => {
+    const { home: dir, projects } = home();
+    const folder = join(projects, claudeProjectDir("/w/project"));
+    const other = "33333333-3333-4333-8333-333333333333";
+    const missing = "44444444-4444-4444-8444-444444444444";
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, `${other}.jsonl`), JSON.stringify({ type: "user", message: { content: "old" } }));
+    const original = join(folder, `${SESSION}.jsonl`);
+    writeFileSync(original, [
+      { type: "continued-in", sessionId: SESSION, continuedInSessionId: other },
+      { type: "user", message: { content: "Newer prompt" } },
+    ].map((entry) => JSON.stringify(entry)).join("\n"));
+    expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBe(original);
+    writeFileSync(original, JSON.stringify({ type: "continued-in", sessionId: SESSION, continuedInSessionId: missing }));
+    expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBe(original);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("returns an unreadable transcript for its reader to report", async () => {
+    const { home: dir, projects } = home();
+    const folder = join(projects, claudeProjectDir("/w/project"));
+    mkdirSync(folder, { recursive: true });
+    const original = join(folder, `${SESSION}.jsonl`);
+    writeFileSync(original, JSON.stringify({ type: "user", message: { content: "hi" } }));
+    chmodSync(original, 0o000);
+    try {
+      expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBe(original);
+    } finally {
+      chmodSync(original, 0o600);
+    }
+  });
 });
 
 describe("CLAUDE_CONFIG_DIR", () => {
