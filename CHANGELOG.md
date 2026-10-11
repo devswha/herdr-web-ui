@@ -16,6 +16,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
 
 ### Changed
+- With **Workspace cards** on, a pinned agent stays in its workspace's card, first there, and the
+  cards that hold pins come first, instead of the agent leaving its card for the top of the list.
 - **Open in a new tab** on a markdown file opens a page of just the document, with its name, path,
   **Open raw file** and **Download** above it, instead of a second copy of the whole app with the
   file viewer over it. A link in the document to another file opens there, from the document's
@@ -29,6 +31,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   **Plan flow** and **Plan count in the header** settings are gone. ([#846](https://github.com/devswha/herdr-web-ui/pull/846))
 - Reuse immutable chat-message revisions across unrelated renders while retaining mutable-caller change detection.
   ([#788](https://github.com/devswha/herdr-web-ui/pull/788) by @kilhyeonjun)
+- The reason a chat message did not go (Claude Code's terminal input box holds a draft, the PC
+  needs an update, the send was not confirmed) is a band on the message box's top edge, as wide as
+  the box, with **Clear it and send** at its end, instead of small red text under the box.
 - Serve built JavaScript and CSS as Brotli or gzip when accepted, preserving original bytes and static cache/CSP policy.
   ([#787](https://github.com/devswha/herdr-web-ui/pull/787) by @kilhyeonjun)
 
@@ -67,6 +72,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A PC window left in front while you used the terminal on a phone stayed at the phone's size
   when you came back, because it never lost the focus and so never took the pane back. A click
   or a key in its terminal now returns the pane to the PC's size. ([#839](https://github.com/devswha/herdr-web-ui/pull/839))
+- A refused answer on a question card (the question changed, or the answer no longer fits it) now
+  stays on the card as an error until the card is replaced, instead of a 2-second note that was easy
+  to miss, so the button no longer looks dead. `POST /api/pane/prompt/answer` logs each request
+  with the pane, whether the prompt id matched, and the outcome; never the answer.
+  ([#793](https://github.com/devswha/herdr-web-ui/pull/793))
 
 ## [0.4.7] - 2026-10-12
 
