@@ -57,6 +57,8 @@ export class HerdrSocket {
   private reconnectTimer: number | null = null;
   private disposed = false;
   private mode: ClientRole = "interact";
+  /** whether the page is in use (`presence`), as last told; null until the page says */
+  private presence: boolean | null = null;
   private outputStopped = false;
   /** what the connected server listed in its snapshot: empty until it arrives, and on older bridges */
   private features = new Set<ServerFeature>();
@@ -97,6 +99,8 @@ export class HerdrSocket {
       // the reconnect would leave the server on the stale role and no ack would ever
       // arrive - the UI would stay stuck in the old role while the header pill lies
       this.rawSend({ type: "role", mode: this.mode });
+      // a new connection is a new client to the server: it has to hear again whether the page is in use
+      if (this.presence !== null) this.rawSend({ type: "presence", active: this.presence });
       for (const [paneId, state] of this.attached) {
         this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack", ...(state.keepSize ? { keep_size: true } : {}) });
       }
@@ -289,6 +293,13 @@ export class HerdrSocket {
   keepSize(paneId: string): void {
     const state = this.attached.get(paneId);
     if (state) state.keepSize = true;
+  }
+
+  /** Whether the page is in use (visible and focused): the server holds web push while one is. Replays on reconnect. */
+  setPresence(active: boolean): void {
+    if (this.presence === active) return;
+    this.presence = active;
+    if (this.connected) this.rawSend({ type: "presence", active });
   }
 
   /** Sets the connection's role. Not queued: the role replays before the attaches on reconnect. */
