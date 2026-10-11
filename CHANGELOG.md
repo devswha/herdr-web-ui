@@ -7,7 +7,19 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **Settings → Composer → Send queued messages automatically** (on by default). Turned off, a
+  message sent while the agent works waits under the message box until you press **Send now**,
+  instead of going by itself when the turn ends. A PC whose bridge is older than this release
+  still sends it at the turn's end. A held message shown in another tab, or after a reload, asks
+  to be reviewed before Send now, since the tab that held it may still send it.
+  ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
+
 ### Fixed
+- On a phone, Back closes every dialog drawn as a sheet the way it closes a ⋯ menu: the plan, the
+  command palette, confirmations, the file list, the worktree dialog, Rename pane and the diagram
+  lightbox. It used to open the pane before under the dialog, which stayed up. A wider screen keeps
+  Back for the panes.
 - On a phone, the system Back button closes an open ⋯ menu sheet instead of switching to the pane
   opened before, which it did since 0.4.7 made each pane a history entry. A sheet closed by Cancel,
   a swipe or one of its items leaves no extra Back step behind.

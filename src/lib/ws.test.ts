@@ -118,6 +118,40 @@ it("refuses queued delivery on older bridges without writing its text or a fallb
   }
 });
 
+it("holds a message for Send now on bridges that list pending-hold, and queues it on older ones", async () => {
+  for (const [features, delivery] of [[["submit", "pending-input"], "queue"], [["submit", "pending-input", "pending-hold"], "hold"]] as const) {
+    const client = new HerdrSocket("ws://test/ws");
+    client.connect();
+    const socket = FakeSocket.last;
+    socket.open();
+    socket.receive(snapshot([...features]));
+    expect(client.canHoldMessages()).toBe(delivery === "hold");
+    const result = client.submit("w1:p1", "later", "later", false, "hold");
+    for (let turn = 0; turn < 10 && submissions(socket).length === 0; turn++) await Promise.resolve();
+    expect(submissions(socket)).toEqual([{ type: "submit", id: 1, pane_id: "w1:p1", text: "later", payload: "later", delivery }]);
+    const pending: PendingMessage = { id: "pending-1", request_id: 1, text: "later", state: delivery === "hold" ? "held" : "queued", created_at: "2026-10-06T00:00:00Z" };
+    socket.receive({ type: "submit-result", id: 1, pane_id: "w1:p1", ok: true, pending });
+    expect(await result).toEqual({ ok: true, pending });
+    client.close();
+  }
+});
+
+it("decides a hold once the snapshot arrives, so a Send before it still holds", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  const result = client.submit("w1:p1", "later", "later", false, "hold");
+  await Promise.resolve();
+  expect(submissions(socket)).toEqual([]);
+  socket.receive(snapshot(["submit", "pending-input", "pending-hold"]));
+  for (let turn = 0; turn < 10 && submissions(socket).length === 0; turn++) await Promise.resolve();
+  expect(submissions(socket)).toEqual([{ type: "submit", id: 1, pane_id: "w1:p1", text: "later", payload: "later", delivery: "hold" }]);
+  socket.receive({ type: "submit-result", id: 1, pane_id: "w1:p1", ok: false, code: "agent_not_ready", message: "fixture" });
+  await result;
+  client.close();
+});
+
 it("accepts an owner-only pending item as the submit receipt when its separate ACK was lost", async () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();
