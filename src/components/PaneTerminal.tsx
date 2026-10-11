@@ -10,7 +10,7 @@ import { HerdrSocket, type SubmitDelivery, type SubmitResult } from "../lib/ws.t
 import { MachineSession } from "../lib/machineSession.ts";
 import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import { ViewportIntentGate } from "../lib/viewportIntent.ts";
-import { PanePresentedContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
+import { PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
@@ -167,6 +167,11 @@ export function PaneTerminal({
   const submitRetention = useContext(PaneSubmitContext);
   const presented = useContext(PanePresentedContext);
   const presentedRef = useRef(presented); presentedRef.current = presented;
+  // a split tab's pane a phone keeps behind the one it shows sizes nothing: the pty is shared with
+  // every device, and a PC drawing the split would see it at the phone's size (#819)
+  const shown = useContext(PaneShownContext);
+  const shownRef = useRef(shown); shownRef.current = shown;
+  const sizesPty = (): boolean => presentedRef.current && shownRef.current;
   const awayReleased = useContext(PaneAwayContext);
   const { answerPanePrompt, uploadPaneImage } = useMachineApi();
   const uploadFileRef = useRef(uploadPaneImage);
@@ -1065,7 +1070,7 @@ export function PaneTerminal({
             /* not laid out yet */
           }
           const pane = paneRef.current;
-          if (pane && presentedRef.current) socket.resize(pane, term.cols, term.rows, true);
+          if (pane && sizesPty()) socket.resize(pane, term.cols, term.rows, true);
         }
         panned = false;
         followCursor();
@@ -1304,7 +1309,7 @@ export function PaneTerminal({
         }
         // the chat lens covers the grid: a phone's viewport or keyboard must not resize the
         // shared pty under another device (#361); the switch back to the terminal refits
-        if (chatViewRef.current || !presentedRef.current) return;
+        if (chatViewRef.current || !sizesPty()) return;
         try {
           fit.fit();
         } catch {
@@ -1357,7 +1362,8 @@ export function PaneTerminal({
       if (pinchWatchPending && current && releasedRef.current && watchingRef.current) socket.watch(current, term.cols, term.rows);
       pinchWatchPending = false;
       if (finished && save && finished.size !== finished.startSize) {
-        if (current && inUse() && !adopted() && !chatViewRef.current) socket.resize(current, term.cols, term.rows, true);
+        // a pinch can end after the pane went behind a sibling of its split: it saves the size, sizing no pty
+        if (current && inUse() && !adopted() && !chatViewRef.current && sizesPty()) socket.resize(current, term.cols, term.rows, true);
         updateSettings({ terminalFontSize: finished.size });
       }
       hidePinchBadge();
@@ -1471,7 +1477,7 @@ export function PaneTerminal({
     // connections never do this: they own no geometry to re-assert.
     const refit = (): void => {
       const current = paneRef.current;
-      if (!current || observeRef.current || fixedGridRef.current || chatViewRef.current || !presentedRef.current) return;
+      if (!current || observeRef.current || fixedGridRef.current || chatViewRef.current || !sizesPty()) return;
       try {
         fit.fit();
       } catch {
@@ -1569,7 +1575,7 @@ export function PaneTerminal({
         }
       }
       const away = !inUse();
-      socket.attach(current, term.cols, term.rows, chatViewRef.current || away);
+      socket.attach(current, term.cols, term.rows, chatViewRef.current || away || !shownRef.current);
       if (away) leave();
     };
     // out of use, a reconnect attaches at the size the pane has instead of taking it
@@ -1713,7 +1719,7 @@ export function PaneTerminal({
       // a chosen font loads after every attach: out of use (a reload behind another app), only
       // this grid fits, and the refit takes the pane once the user is here
       const pane = paneRef.current;
-      if (pane && presentedRef.current && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
+      if (pane && sizesPty() && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
     };
     if (fontFamily === TERMINAL_FONT_STACK) apply();
     else void loadFontStack(fontFamily, terminalFontSize).then(apply);
@@ -1732,7 +1738,7 @@ export function PaneTerminal({
       return;
     }
     const pane = paneRef.current;
-    if (pane && presentedRef.current && inUse()) socketRef.current?.resize(pane, term.cols, term.rows);
+    if (pane && sizesPty() && inUse()) socketRef.current?.resize(pane, term.cols, term.rows);
   }, [narrowFont]);
 
   // the grid must re-fit when the lens switches back: the chat lens covered it, and a
@@ -1757,9 +1763,27 @@ export function PaneTerminal({
     // this runs on every load too, right after the attach: out of use (a reload behind another
     // app), only this grid fits, and the refit takes the pane once the user is here
     const pane = paneRef.current;
-    if (pane && term && presentedRef.current && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
+    if (pane && term && sizesPty() && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
     if (activeRef.current && !autoSelected && !coarseRef.current && !modalOpen() && !findOpenRef.current) term?.focus();
   }, [chatView]);
+
+  // hidden behind another pane of its split, the pane keeps the size the pty has; shown again, it
+  // fits this screen and takes the pty, as a lens switch back to the terminal does
+  const wasShown = useRef(shown);
+  useEffect(() => {
+    if (wasShown.current === shown) return;
+    wasShown.current = shown;
+    const pane = paneRef.current;
+    if (!pane || observeRef.current || fixedGridRef.current || chatViewRef.current) return;
+    if (!shown) { socketRef.current?.keepSize(pane); return; }
+    const term = termRef.current;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      return;
+    }
+    if (term && sizesPty() && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
+  }, [shown]);
 
   // Reset synchronously on pane changes: old composition timers must never see the new pane.
   useLayoutEffect(() => {
@@ -1825,7 +1849,7 @@ export function PaneTerminal({
     // out of use (the pane closed in herdr and the app moved on to the next one, or a reload behind
     // another app), the attach adopts the pane's size; the refit takes it once the user is here
     const away = !inUse();
-    socket.attach(paneId, term.cols, term.rows, chatViewRef.current || away);
+    socket.attach(paneId, term.cols, term.rows, chatViewRef.current || away || !shownRef.current);
     // no blur or hidden comes for a tab already out of use: it lets go of this pane after a moment too
     if (away) leaveRef.current();
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden

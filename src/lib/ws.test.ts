@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { HerdrSocket } from "./ws.ts";
 import type { PendingMessage } from "../../shared/protocol.ts";
+import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
 
 /** A WebSocket the test drives: it opens, receives and records what the client sends. */
 class FakeSocket {
@@ -619,4 +620,40 @@ it("tells the server whether the page is in use: on connect, on a change, and ag
   second.open();
   expect(presence(second)).toEqual([{ type: "presence", active: false }]);
   client.close();
+});
+
+it("reconnects at once when the page wakes instead of waiting out the backoff, and starts the backoff over", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const first = FakeSocket.last;
+  first.open();
+  // a phone asleep: each attempt fails and the backoff grows toward its cap
+  first.disconnect();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    client.wake();
+    FakeSocket.last.disconnect();
+  }
+  const sleeping = FakeSocket.last;
+  client.wake();
+  expect(FakeSocket.last).not.toBe(sleeping);
+  const woken = FakeSocket.last;
+  woken.open();
+  expect(woken.sent.map((frame) => frame.type)).toEqual(["role"]);
+  // a live connection has no timer to skip: waking opens nothing more
+  client.wake();
+  expect(FakeSocket.last).toBe(woken);
+  client.close();
+});
+
+it("does not wake a connection whose output stopped, nor one that was closed", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  (socket as unknown as { emit(type: string, event: unknown): void }).emit("close", { code: OUTPUT_STALLED_CLOSE_CODE });
+  client.wake();
+  expect(FakeSocket.last).toBe(socket);
+  client.close();
+  client.wake();
+  expect(FakeSocket.last).toBe(socket);
 });
