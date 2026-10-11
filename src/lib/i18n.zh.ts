@@ -10,6 +10,7 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 聊天暂不可用。请打开终端查看运行状态和工具调用。",
   "Chat read timed out.": "读取对话超时。",
   "Thinking…": "思考中…",
   "Grok chat is unavailable. Open Terminal to see activity and tool calls.": "Grok 聊天暂不可用。请打开终端查看运行状态和工具调用。",

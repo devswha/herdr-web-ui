@@ -1455,7 +1455,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
 /** One page of a resolved transcript (paneConversation's `page`). */
 export function transcriptPage(source: StreamSource, path: string, page: ConversationPage = {}, codexHome?: string): RecognizedConversation {
   if (source === "agy-transcript") {
-    try { return withAgyHistory(path, (projection, fd) => transcriptPageRead(source, path, page, codexHome, projection, fd)); }
+    try { return withAgyHistory(path, (projection, fd) => ({ ...transcriptPageRead(source, path, page, codexHome, projection, fd), activity: projection.activity })); }
     catch (error) {
       if (error instanceof HistoryChanged || error instanceof ConversationUnavailable) throw error;
       throw new ConversationUnavailable("transcript_missing");
