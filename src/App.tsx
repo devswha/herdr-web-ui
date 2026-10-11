@@ -1054,7 +1054,13 @@ export function App() {
             <Search />
           </button>
         </div>
-        {selectedPane && crumb ? (
+        {headerNote ? (
+          <div className="context">
+            <span className="pill header-note" role="status" style={{ minWidth: 0 }}>
+              <span className="context-title-text">{t(headerNote === "copied" ? "Link copied" : headerNote === "pane-closed" ? "That agent has closed: its workspace is open" : headerNote === "machine-missing" ? "That link's PC is not set up here" : "That link's workspace is closed")}</span>
+            </span>
+          </div>
+        ) : selectedPane && crumb ? (
           <div className="context" title={crumb.tooltip}>
             <div className="context-title">
               {selectedAgent && <AgentMark agent={selectedAgent} size={18} />}
@@ -1099,7 +1105,6 @@ export function App() {
             <span className="conn-text">{connWord}</span>
           </span>
           {!targetHerdr && <span className="pill pill-offline">{t("herdr offline")}</span>}
-          {headerNote && <span className="pill header-note" role="status">{t(headerNote === "copied" ? "Link copied" : headerNote === "pane-closed" ? "That agent has closed: its workspace is open" : headerNote === "machine-missing" ? "That link's PC is not set up here" : "That link's workspace is closed")}</span>}
           {canSignOut && (
             <button type="button" className="icon-button lock-button header-desktop-only" aria-label={t("Sign out")} title={t("Sign out")} onClick={() => void lock()}>
               <Lock />

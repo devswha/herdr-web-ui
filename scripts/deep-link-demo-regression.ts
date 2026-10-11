@@ -229,6 +229,17 @@ try {
           await page.goto(`${url}?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}&sidebar=shown`);
           await page.locator('.drawer-toggle[aria-expanded="true"]').waitFor();
           await waitQuery(page, "sidebar", null);
+          await page.goto(`${url}?ws=${wsOf(panes.api)}-infra&pane=${encodeURIComponent(panes.api)}`);
+          await page.locator(".header-note").waitFor();
+          const bounds = await page.evaluate(() => {
+            const header = document.querySelector(".app-header")!;
+            const note = document.querySelector(".header-note")!.getBoundingClientRect();
+            const more = document.querySelector(".header-more-button")!.getBoundingClientRect();
+            return { viewport: document.documentElement.clientWidth, scroll: header.scrollWidth, noteLeft: note.left, noteRight: note.right, moreLeft: more.left, moreRight: more.right };
+          });
+          assert.ok(bounds.scroll <= bounds.viewport, `the note keeps the phone header within its viewport: ${JSON.stringify(bounds)}`);
+          assert.ok(bounds.noteLeft >= 0 && bounds.noteRight <= bounds.moreLeft && bounds.moreRight <= bounds.viewport, "the note does not overlap More or push it offscreen");
+          console.log("PASS a closed-pane note fits the phone header without overlapping or pushing More offscreen");
         } finally {
           await phone.close();
         }
