@@ -16,7 +16,7 @@ import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
-import { isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
+import { followMoved, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
@@ -788,16 +788,16 @@ export function App() {
     const onPop = (event: PopStateEvent): void => {
       if (settingsEntry(event.state) !== null) return;
       const link = readLink(window.location.search);
-      // the New workspace dialog is part of the address it was open on: Back closes it, Forward opens it again
-      if (!link.create) setNewSessionOpen(false);
-      else if (!newSessionOpenRef.current) pendingCreate.current = link.create;
       const machine = machinesRef.current.find((candidate) => candidate.id === link.machine);
+      const missing = !machine && machinesRef.current.length > 0;
+      // the New workspace dialog is part of the address it was open on: Back closes it, Forward opens
+      // it again, but not for a PC removed since
+      if (!link.create) setNewSessionOpen(false);
+      else if (!missing && !newSessionOpenRef.current) pendingCreate.current = link.create;
       // an entry naming a PC since removed leaves the app where it is and says so, as a link to it would
-      if (!machine && machinesRef.current.length > 0) setHeaderNote("machine-missing");
+      if (missing) setHeaderNote("machine-missing");
       else {
-        // an entry written before a move names the pane's old id: the pane is the same, wherever it went
-        const moved = paneMovedTo(link.machine, link.pane);
-        const target = moved ? { ...link, pane: moved, workspace: null, workspaceSlug: null } : link;
+        const target = followMoved(link, paneMovedTo(link.machine, link.pane), machine?.snapshot);
         const pane = machine?.snapshot ? resolveLink(machine.snapshot, target).pane : target.pane;
         if (pane === null) return;
         const current = selectionRef.current;

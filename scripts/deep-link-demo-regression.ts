@@ -129,14 +129,15 @@ try {
       });
       console.log("PASS a moved pane keeps its history entry, and Back to an entry from before the move opens it under its new id");
 
-      // an entry naming a PC since removed leaves the app where it is and says so; Forward still works
+      // an entry naming a PC since removed leaves the app where it is and says so, opens no dialog it
+      // named; Forward still works
       await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}`, async (page) => {
         await waitSelected(page, INFRA);
         await waitQuery(page, "pane", INFRA);
         const here = await page.evaluate(() => window.location.search);
         // the entries a PC removed since would have left: one for its pane, then this pane's again
         await page.evaluate((search) => {
-          history.pushState(null, "", `?machine=removed&ws=w9-gone&pane=${encodeURIComponent("w9:p1")}`);
+          history.pushState(null, "", `?machine=removed&ws=w9-gone&pane=${encodeURIComponent("w9:p1")}&new=workspace&name=Elsewhere`);
           history.pushState(null, "", `${window.location.pathname}${search}`);
         }, here);
         const length = await page.evaluate(() => history.length);
@@ -145,11 +146,13 @@ try {
         await waitQuery(page, "machine", null);
         await waitQuery(page, "pane", INFRA);
         assert.equal(await selected(page), INFRA, "the app stays on the pane it showed");
+        await page.waitForTimeout(300);
+        assert.equal(await page.getByRole("dialog", { name: /New workspace/ }).count(), 0, "no New workspace dialog for a PC that is gone");
         await page.goForward();
         await waitQuery(page, "pane", INFRA);
         assert.equal(await page.evaluate(() => history.length), length, "Back and Forward kept every entry");
       });
-      console.log("PASS Back to an entry for a PC since removed stays on the pane shown, says so, and keeps Forward");
+      console.log("PASS Back to an entry for a PC since removed stays on the pane shown, says so, opens none of its dialogs, and keeps Forward");
 
       // a link to a Settings page opens it there; the address follows its pages and drops it on close
       await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}&settings=terminal`, async (page) => {
