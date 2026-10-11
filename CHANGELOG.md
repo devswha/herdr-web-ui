@@ -51,6 +51,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   A remote PC gets pushes once its bridge runs a bundle with this change. Approval-card polling
   remains independent.
   ([#689](https://github.com/devswha/herdr-web-ui/pull/689) by @zerodice0, [#757](https://github.com/devswha/herdr-web-ui/pull/757))
+- The sidebar's Agents list puts each workspace's agents in a card under the workspace's name,
+  so agents working in the same workspace read as one group. The rows no longer repeat the
+  workspace on their second line; their tooltips still name it. A list in Activity order stays
+  as it was, since it mixes workspaces.
+  ([#673](https://github.com/devswha/herdr-web-ui/pull/673) by @WOULDU-pres)
 
 ### Fixed
 - When a chat message is not sent because Claude Code's input box in the terminal is not empty,
@@ -76,6 +81,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   the card stays up with the cursor on its **Submit** row. A pick there used to untick the row
   instead of answering.
   ([#764](https://github.com/devswha/herdr-web-ui/pull/764))
+- Keep text file previews within their byte budget when a peer ignores Range, reject HTTP error bodies, and cancel stalled or closed previews.
+  ([#785](https://github.com/devswha/herdr-web-ui/pull/785) by @kilhyeonjun)
 - A Claude `/model` list whose hint a narrow pane wraps inside a word or over more than six lines
   is still recognised, so a pending message waits instead of pressing Enter on it, and the same
   words quoted in Claude's output no longer hold pending messages.
@@ -765,6 +772,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   combinations in a separate key bar editor. Existing extra-key preferences keep their keys and order,
   and Restore defaults returns the original bar. Native clipboard shortcuts on non-Latin keyboards
   and existing Alt combinations remain intact. ([#508](https://github.com/devswha/herdr-web-ui/pull/508))
+- The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
+  how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
+  when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
+  turns its hairline red while its share is still low, and says when in its label; once that
+  time has gone by, both stay until the reset as **Runs out before reset**. The pace is
+  measured when the numbers were read, and shown only where the provider states the window's
+  start or length (Claude, Codex, Grok), from 5% of the window on.
+  ([#513](https://github.com/devswha/herdr-web-ui/pull/513))
 
 ### Changed
 - The terminal's **Input held until the terminal is ready** notice appears only when there is

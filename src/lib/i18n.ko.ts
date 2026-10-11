@@ -831,6 +831,10 @@ export const KO: Record<string, string> = {
   "Other models": "기타 모델",
   "{d}d {h}h": "{d}일 {h}시간",
   "Resets in {time}": "{time} 후 초기화",
+  "Runs out in {time}": "이 속도면 {time} 후 소진",
+  "Runs out before reset": "이 속도면 초기화 전에 소진",
+  "{rate}/h": "시간당 {rate}",
+  "{rate}/day": "하루 {rate}",
   "No limits reported": "보고된 한도 없음",
   "Sign-in expired. Open {name} to renew it.": "로그인이 만료되었습니다. {name}을(를) 열어 갱신하세요.",
   "{name} asked to slow down. These are the last numbers.": "{name}이(가) 요청 속도 제한을 걸었습니다. 마지막으로 읽은 값입니다.",
@@ -937,4 +941,5 @@ export const KO: Record<string, string> = {
   "Tab order did not refresh. Try again.": "탭 순서가 갱신되지 않았습니다. 다시 시도해 주세요.",
   "Terminal scrollback": "터미널 기록",
   "Scroll failed: {reason}": "스크롤 실패: {reason}",
+  "Only part of this file is shown. Download it to read the rest.": "파일의 일부만 표시됩니다. 나머지는 다운로드해 확인하세요.",
 };
