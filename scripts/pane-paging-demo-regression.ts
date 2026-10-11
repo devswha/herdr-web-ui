@@ -13,11 +13,34 @@ const app = mkdtempSync(join(tmpdir(), "herdr-pane-paging-demo-"));
 // Capture only fictional paging fixtures for PR evidence.
 const evidence = process.env.UI_EVIDENCE_DIR;
 const settled = (page: Page) => page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+const returnControl = (page: Page) => page.locator(".pane-frame.is-current .chat-view .chat-new-messages");
 const inputs = (page: Page): Promise<unknown[]> => page.evaluate(() => (window as unknown as { pagingInputs: unknown[] }).pagingInputs);
-const followedBottom = (page: Page) => page.waitForFunction(() => {
-  const node = document.querySelector(".pane-frame.is-current .chat-view");
-  return node !== null && Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < 1;
-}, undefined, { timeout: 10000 });
+const scrollGeometry = (page: Page) => page.evaluate(() => {
+  const node = document.querySelector<HTMLElement>(".pane-frame.is-current .chat-view");
+  if (!node) return null;
+  const content = node.firstElementChild as HTMLElement | null;
+  return { scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight,
+    gap: node.scrollHeight - node.clientHeight - node.scrollTop, rectHeight: node.getBoundingClientRect().height,
+    inlineStyle: node.getAttribute("style"), computedHeight: getComputedStyle(node).height,
+    content: content && { height: content.getBoundingClientRect().height, inlineStyle: content.getAttribute("style"), source: content.dataset.conversationSource },
+    returnControls: [...node.querySelectorAll<HTMLElement>(".chat-new-messages")].map((button) => ({ label: button.getAttribute("aria-label"), text: button.textContent, className: button.className, height: button.getBoundingClientRect().height })),
+    loading: node.querySelector(".chat-inline-state")?.textContent ?? null };
+});
+async function followedBottom(page: Page, phase: string): Promise<void> {
+  try {
+    await page.waitForFunction(() => {
+      const node = document.querySelector(".pane-frame.is-current .chat-view");
+      return node !== null && Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < 1;
+    }, undefined, { timeout: 10000 });
+  } catch (cause) {
+    console.error("Paging follow failed", JSON.stringify({ phase, geometry: await scrollGeometry(page) }, null, 2));
+    if (evidence) {
+      try { mkdirSync(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, `paging-${phase}-failure.png`), timeout: 5000 }); }
+      catch (capture) { console.error("Paging failure capture failed", String(capture)); }
+    }
+    throw new Error(`Paging did not restore following at ${phase}`, { cause });
+  }
+}
 
 try {
   await buildDemoApp(app);
@@ -92,7 +115,7 @@ try {
         await page.keyboard.press("Meta+Shift+PageUp");
         await settled(page);
         const paged = await transcript.evaluate((node) => node.scrollTop);
-        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+        await returnControl(page).waitFor();
         await transcript.evaluate((node: HTMLElement) => { node.style.height = "99.25px"; });
         await settled(page);
         assert.ok(Math.abs(await transcript.evaluate((node) => node.scrollTop) - paged) < 0.5, "one-pixel upward intent survives deferred scroll and fractional resize");
@@ -108,26 +131,27 @@ try {
         assert.equal(clamped.after, clamped.before, "the explicit downward page has no available movement at the physical end");
         assert.ok(clamped.gap > 0 && clamped.gap < 1, "the clamped downward page keeps the rounded gap");
         await settled(page);
-        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor({ state: "hidden" });
+        await returnControl(page).waitFor({ state: "hidden" });
         await transcript.evaluate((node: HTMLElement) => { node.style.height = "99.25px"; });
         await settled(page);
-        await followedBottom(page);
+        await followedBottom(page, "fractional-clamped-down");
         await page.keyboard.press("Meta+Shift+PageUp");
         await settled(page);
-        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+        await returnControl(page).waitFor();
         await transcript.evaluate((node) => { node.scrollTop = node.scrollHeight; });
         await settled(page);
-        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor({ state: "hidden" });
+        await returnControl(page).waitFor({ state: "hidden" });
         await page.keyboard.press("Meta+Shift+PageUp");
         await settled(page);
-        for (let pages = 0; await page.getByRole("button", { name: "Jump to latest", exact: true }).count() > 0; pages++) {
+        await returnControl(page).waitFor();
+        for (let pages = 0; await returnControl(page).count() > 0; pages++) {
           assert.ok(pages < 128, "repeated downward pages reach a fractional end within a bound");
           await page.keyboard.press("Meta+Shift+PageDown");
           await settled(page);
         }
         await transcript.evaluate((node: HTMLElement) => { node.style.height = "98.25px"; });
         await settled(page);
-        await followedBottom(page);
+        await followedBottom(page, "fractional-repeat-down");
         assert.deepEqual(await inputs(page), beforeInput, "fractional paging never sends terminal input");
         assert.deepEqual(errors, []);
         console.log("PASS pane paging: fractional scale, upward intent, clamped PageDown, manual end, repeated downward pages");
@@ -175,7 +199,7 @@ try {
             await settled(page);
             assert.ok(Math.abs(bottom - await transcript.evaluate((node) => node.scrollTop) - step) <= 1, "the bottom-pinning effect leaves paged history in place");
             if (rows === 100) {
-              await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+              await returnControl(page).waitFor();
               const paged = await transcript.evaluate((node) => node.scrollTop);
               // A height change exercises the chat’s ResizeObserver following path.
               await page.setViewportSize({ width: 1024, height: 580 });
@@ -194,21 +218,22 @@ try {
             await page.keyboard.press("Meta+Shift+PageDown");
             assert.ok(Math.abs(await transcript.evaluate((node) => node.scrollTop) - bottom) <= 1, "opposite page returns to the same bottom");
             if (rows === 100) {
-              // The sticky return button participates in scroll height: reach the actual end.
-              for (let pages = 0; await page.getByRole("button", { name: "Jump to latest", exact: true }).count() > 0; pages++) {
+              // Both Jump to latest and New messages are the same return-to-end control.
+              // The live demo can replace its label while paging; reach the actual end.
+              for (let pages = 0; await returnControl(page).count() > 0; pages++) {
                 assert.ok(pages < 128, "one-pixel PageDown reaches the actual bottom within a bounded number of pages");
                 await page.keyboard.press("Meta+Shift+PageDown");
                 await settled(page);
               }
-              await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor({ state: "hidden" });
+              await returnControl(page).waitFor({ state: "hidden" });
               await page.setViewportSize({ width: 1024, height: 580 });
               await settled(page);
-              await followedBottom(page);
+              await followedBottom(page, touch ? "ipad-repeat-down" : "desktop-repeat-down");
               await page.setViewportSize({ width: 1024, height: 600 });
               await settled(page);
               await transcript.evaluate((node) => { node.scrollTop -= 1; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
               await settled(page);
-              assert.equal(await page.getByRole("button", { name: "Jump to latest", exact: true }).count(), 0, "ordinary manual near-bottom scrolling retains its existing follow tolerance");
+              assert.equal(await returnControl(page).count(), 0, "ordinary manual near-bottom scrolling retains its existing follow tolerance");
             }
           }
           assert.deepEqual(await inputs(page), beforeInput, "paging never sends pane input");
@@ -263,14 +288,14 @@ try {
           await page.keyboard.press("Meta+Shift+PageUp");
           await settled(page);
           assert.equal(await transcript.evaluate((node) => node.scrollTop), 0, "PageUp at the history start has no movement");
-          assert.equal(await page.getByRole("button", { name: "Jump to latest", exact: true }).count(), 1, "unavailable upward movement leaves the reader away");
+          assert.equal(await returnControl(page).count(), 1, "unavailable upward movement leaves the reader away");
           await transcript.evaluate((node) => { (node.firstElementChild as HTMLElement).style.display = "none"; node.scrollTop = 0; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
           await settled(page);
           assert.equal(await transcript.evaluate((node) => node.scrollHeight > node.clientHeight), false, "the fixture now has no scrollable history");
           await page.keyboard.press("Meta+Shift+PageUp");
           await page.keyboard.press("Meta+Shift+D");
           await settled(page);
-          assert.equal(await page.getByRole("button", { name: "Jump to latest", exact: true }).count(), 0, "paging without available movement does not mark the chat away");
+          assert.equal(await returnControl(page).count(), 0, "paging without available movement does not mark the chat away");
           assert.deepEqual(errors, []);
           console.log(`PASS pane paging: ${touch ? "iPad keyboard" : "desktop"}, overlap, caret, selection, modal gate, override, reload`);
         } finally { await context.close(); }
