@@ -138,6 +138,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   takes the unused height, and an empty one follows the folded section directly. The Agents height
   cap, independent scrolling and fixed footer stay unchanged.
   ([#780](https://github.com/devswha/herdr-web-ui/pull/780) by @vibewriter-hand)
+- Right after `/clear` in a Claude Code pane, its background task list no longer shows the subagents
+  of the session before until the next refresh: the list is read for the session herdr says the pane
+  runs now. ([#533](https://github.com/devswha/herdr-web-ui/pull/533) by @kilhyeonjun)
 
 ## [0.4.6] - 2026-10-11
 

@@ -6,7 +6,7 @@ import { createServer } from "./index.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import { claudeProjectDir } from "./claude-store.ts";
 import { startFakePushService } from "./push.fake.ts";
-import { herdrRpc, workspaceClose, workspaceCreate } from "./herdr/client.ts";
+import { herdrRpc, paneGet, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse, HerdrPane, OmoActivity, PanePlan, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 
 // Real foreground processes and native PID records, without hooks or a model request.
@@ -229,6 +229,28 @@ it.skipIf(!NATIVE)("lists a Claude pane's subagents, counts the running ones and
     await herdrRpc("pane.report_agent", { pane_id: first.pane, source: "manual", agent: "claude", state: "idle" });
     device.stop();
   }
+}, 15_000);
+
+it.skipIf(!NATIVE)("lists the subagents of the session a pane runs now, not those of the one before, though no snapshot has shown the change", async () => {
+  const tasks = async (paneId: string): Promise<OmoActivity> => await (await fetch(`http://127.0.0.1:${server.port}/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`)).json();
+  const [before, after] = [crypto.randomUUID(), crypto.randomUUID()];
+  for (const id of [before, after]) transcript(id);
+  const target = await pane(before);
+  // as Claude's SessionStart hook reaches herdr: herdr 0.9.3 replaces a pane's session for a `clear`, never for another `startup`
+  let seq = 0;
+  const session = (id: string, start: "startup" | "clear") => herdrRpc("pane.report_agent_session", { pane_id: target.pane, source: "herdr:claude", agent: "claude", seq: ++seq, agent_session_id: id, session_start_source: start });
+  await session(before, "startup");
+  const folder = join(project, before, "subagents");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "agent-b1.meta.json"), JSON.stringify({ agentType: "reviewer", description: "Review the first session", toolUseId: "toolu_b1", requestShape: "background" }));
+  writeFileSync(join(folder, "agent-b1.jsonl"), `${JSON.stringify({ isSidechain: true, agentId: "b1", type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: "go" } })}\n`);
+  expect((await tasks(target.pane)).tasks).toMatchObject([{ id: "b1", status: "running" }]);
+  // /clear: the pane's Claude starts another session, rewrites its record and tells herdr; nothing has read a snapshot since
+  const record = join(root, ".claude", "sessions", `${target.pid}.json`);
+  writeFileSync(record, JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), sessionId: after }));
+  await session(after, "clear");
+  expect((await paneGet(target.pane)).agent_session?.value).toBe(after);
+  expect((await tasks(target.pane)).tasks).toEqual([]);
 }, 15_000);
 
 /** Each hold owns its pane, transcript and bridge, so running one test never needs an earlier one. */

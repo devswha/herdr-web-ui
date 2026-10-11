@@ -587,6 +587,19 @@ try {
   await planDialog.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("plan-button")), true, "the focus goes back on close");
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  // the plan is the pane's it was opened on: another pane picked while it is open (here through the palette, which
+  // opens over it) closes it, and going back to that pane does not open it again
+  await planButton.click();
+  await until(async () => await planDialog.locator(".plan-node").count() === 4, "the plan before another pane is picked");
+  await openPalette();
+  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await until(async () => await palette.locator(".palette-pane").count() === 1, "the other pane in the palette over the plan");
+  await palette.locator(".palette-pane").click();
+  await until(async () => await selectedPane() === paneB, "the palette picks the other pane over the plan");
+  await planDialog.waitFor({ state: "detached" });
+  await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await until(async () => await selectedPane() === paneA, "back on the pane the plan was opened on");
+  assert.equal(await planDialog.count(), 0, "going back to the pane does not open its plan again");
   await page.unroute("**/api/machines");
   await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
   await page.unroute(`**/api/pane/omo-tasks?pane_id=${encodeURIComponent(paneA)}`);

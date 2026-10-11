@@ -2227,14 +2227,13 @@ export function createServer(
         const server_time = new Date().toISOString();
         if (session === null) {
           // a Claude pane's subagents, read from its session's files; nothing for any other pane.
-          // Its transcript is found here if the background lookup has not got to it yet
-          // (for a second at most: a slow herdr answers with what is known, and the next ask has the rest)
-          // An unknown pane costs a fresh herdr lookup too; the client bounds its discovery retries.
-          if (claudeAgents.sessionOf(paneId) === null) {
-            await within(1000, (async () => {
-              await claudeAgents.ensure(await paneGet(paneId));
-            })());
-          }
+          // The pane as herdr has it now is looked up first (for a second at most: a slow herdr answers with what is
+          // known, and the next ask has the rest): its transcript is found here if the background lookup has not got to
+          // it yet, and the one of a session the pane no longer runs is dropped before it is read (ClaudeSubagentStatus.ensure).
+          // So every ask costs a herdr lookup, an unknown pane's too; the client bounds its discovery retries.
+          await within(1000, (async () => {
+            await claudeAgents.ensure(await paneGet(paneId));
+          })());
           const claude = claudeAgents.sessionOf(paneId);
           return jsonResponse({ tasks: claude === null ? [] : claudeSubagents(claude.path, claude.live, Date.now(), claude.startedAt), runs: [], server_time });
         }
