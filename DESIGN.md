@@ -525,7 +525,7 @@ One set for both themes: the card is island black wherever it shows.
   note is dim, red for an expired sign-in or a failed request. Where the window's start is known, a
   2px `--text-strong` mark on the bar sits where an even pace would be by now, and a dim `--fs-2xs`
   line under it gives the rate, with **Runs out in …** in `--status-blocked` when it comes before
-  the reset.
+  the reset; once that time has gone by it reads **Runs out before reset** until the reset.
 
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to

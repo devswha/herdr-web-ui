@@ -39,7 +39,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
   how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
   when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
-  turns its hairline red while its share is still low, and says when in its label. The pace is
+  turns its hairline red while its share is still low, and says when in its label; once that
+  time has gone by, both stay until the reset as **Runs out before reset**. The pace is
   measured when the numbers were read, and shown only where the provider states the window's
   start or length (Claude, Codex, Grok), from 5% of the window on.
   ([#513](https://github.com/devswha/herdr-web-ui/pull/513))

@@ -758,6 +758,7 @@ export const KO: Record<string, string> = {
   "{d}d {h}h": "{d}일 {h}시간",
   "Resets in {time}": "{time} 후 초기화",
   "Runs out in {time}": "이 속도면 {time} 후 소진",
+  "Runs out before reset": "이 속도면 초기화 전에 소진",
   "{rate}/h": "시간당 {rate}",
   "{rate}/day": "하루 {rate}",
   "No limits reported": "보고된 한도 없음",

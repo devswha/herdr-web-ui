@@ -6,7 +6,7 @@ import "./UsageMeters.css";
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
 import { useT, type Translate } from "../lib/i18n.ts";
 import { useSettings, type UsageCount, type UsageGlance } from "../lib/settings.ts";
-import { formatPercent, formatRate, formatResetIn, glanceWindow, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage, windowLabel, windowPace } from "../lib/usage.ts";
+import { formatPercent, formatRate, formatResetIn, formatRunsOut, glanceWindow, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage, windowLabel, windowPace } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 
 /** chips the strip beside Settings holds before the rest fold into "+N" */
@@ -32,16 +32,14 @@ function isError(usage: ProviderUsage): boolean {
 }
 
 /** "Runs out in 2d 4h" when the limit runs out before it resets at the pace so far; null when it lasts. */
-function runsOutText(t: Translate, usage: ProviderUsage, window: UsageWindow | null, now: number): string | null {
-  const time = window && formatResetIn(windowPace(window, usage.checked_at, now)?.runsOutAt ?? null, now);
-  return time ? t("Runs out in {time}", { time }) : null;
+function runsOutText(usage: ProviderUsage, window: UsageWindow | null, now: number): string | null {
+  return window && formatRunsOut(window, usage.checked_at, now);
 }
 
 function Chip({ usage, count, glance, now }: { usage: ProviderUsage; count: UsageCount; glance: UsageGlance; now: number }) {
-  const t = useT();
   const window = glanceWindow(usage, glance);
   // the hairline warns of a limit that runs out before it resets while its share is still low
-  const fast = runsOutText(t, usage, window, now) !== null;
+  const fast = runsOutText(usage, window, now) !== null;
   return (
     <span className={`usage-chip${level(window)}${fast ? " is-fast" : ""}${usage.problem ? " has-problem" : ""}`}>
       <AgentMark agent={PROVIDER_MARK[usage.id]} size={14} />
@@ -68,7 +66,7 @@ function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; co
         const reset = formatResetIn(window.resets_at, now);
         const value = meterPercent(window, count);
         const pace = windowPace(window, usage.checked_at, now);
-        const runsOut = runsOutText(t, usage, window, now);
+        const runsOut = runsOutText(usage, window, now);
         return (
           <div key={index} className={`usage-row${level(window)}`}>
             <span className="usage-row-label">{windowLabel(window)}</span>
@@ -145,7 +143,7 @@ export function UsageMeters() {
   const chips = folded > 0 ? shown.slice(0, MAX_CHIPS - 1) : shown;
   const summary = shown.map((usage) => {
     const window = glanceWindow(usage, settings.usageGlance);
-    const runsOut = runsOutText(t, usage, window, now);
+    const runsOut = runsOutText(usage, window, now);
     return `${usageName(usage)} ${window ? meterText(window, count) : "—"}${runsOut ? ` (${runsOut})` : ""}`;
   }).join(", ");
 

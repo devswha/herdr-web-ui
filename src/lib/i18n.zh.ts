@@ -762,6 +762,7 @@ export const ZH: Record<string, string> = {
   "{d}d {h}h": "{d} 天 {h} 小时",
   "Resets in {time}": "{time}后重置",
   "Runs out in {time}": "按此速度{time}后用完",
+  "Runs out before reset": "按此速度在重置前用完",
   "{rate}/h": "每小时 {rate}",
   "{rate}/day": "每天 {rate}",
   "No limits reported": "未报告限额",

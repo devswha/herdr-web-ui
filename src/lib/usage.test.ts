@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
-import { composerUsage, formatPercent, formatRate, formatResetIn, glanceWindow, meterPercent, meterText, moveInOrder, orderProviders, providerForAgent, statusWindows, tightestWindow, usageName, windowLabel, windowPace } from "./usage.ts";
+import { composerUsage, formatPercent, formatRate, formatResetIn, formatRunsOut, glanceWindow, meterPercent, meterText, moveInOrder, orderProviders, providerForAgent, statusWindows, tightestWindow, usageName, windowLabel, windowPace } from "./usage.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const window = (used_percent: number, kind: UsageWindow["kind"] = "week", scope: string | null = null): UsageWindow => ({ kind, scope, used_percent, resets_at: null, starts_at: null });
@@ -106,6 +106,16 @@ describe("usage meters", () => {
     expect(windowPace(span(5, -6, -1, "session"), null, NOW)).toBeNull();
     expect(windowPace(span(5, -4, 1, "session"), at(-3), NOW + 2 * 3600_000)).toBeNull();
     expect(windowPace({ ...window(40), resets_at: at(120) }, null, NOW)).toBeNull();
+  });
+
+  it("keeps the run-out warning until the reset, once its time has gone by", () => {
+    const at = (hours: number) => new Date(NOW + hours * 3600_000).toISOString();
+    const span = (used: number, start: number, end: number): UsageWindow => ({ ...window(used, "session"), starts_at: at(start), resets_at: at(end) });
+    // 50% one hour in, read 3 hours ago: out 2 hours ago at that pace, an hour before the reset
+    expect(formatRunsOut(span(50, -4, 1), at(-3), NOW)).toBe("Runs out before reset");
+    expect(formatRunsOut(span(50, -4, 1), at(-3), NOW - 3 * 3600_000 + 60_000)).toBe("Runs out in 59m");
+    expect(formatRunsOut(span(10, -4, 1), at(-3), NOW)).toBeNull();
+    expect(formatRunsOut(span(50, -4, 1), at(-3), NOW + 2 * 3600_000)).toBeNull();
   });
 
   it("names a window by its span and its scope", () => {

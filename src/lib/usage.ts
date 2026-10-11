@@ -129,6 +129,17 @@ export function formatRate(window: UsageWindow, pace: Pace): string {
   return daily ? t("{rate}/day", { rate }) : t("{rate}/h", { rate });
 }
 
+/**
+ * "Runs out in 2d 4h" when the limit runs out before it resets at the pace so far; null when it
+ * lasts. Once that time has gone by the warning stays until the reset, as "Runs out before reset".
+ */
+export function formatRunsOut(window: UsageWindow, checkedAt: string | null, now: number): string | null {
+  const runsOutAt = windowPace(window, checkedAt, now)?.runsOutAt ?? null;
+  if (runsOutAt === null) return null;
+  const time = formatResetIn(runsOutAt, now);
+  return time ? t("Runs out in {time}", { time }) : t("Runs out before reset");
+}
+
 /** Percent as the meters print it: whole numbers, except the tenth that keeps a sliver above 0 visible. */
 export function formatPercent(value: number): string {
   return value > 0 && value < 1 ? `${value.toFixed(1)}%` : `${Math.round(value)}%`;

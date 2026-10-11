@@ -760,6 +760,7 @@ export const JA: Record<string, string> = {
   "{d}d {h}h": "{d}日 {h}時間",
   "Resets in {time}": "{time}後にリセット",
   "Runs out in {time}": "このペースだと{time}後に上限",
+  "Runs out before reset": "このペースだとリセット前に上限",
   "{rate}/h": "1時間あたり{rate}",
   "{rate}/day": "1日あたり{rate}",
   "No limits reported": "上限の報告なし",
