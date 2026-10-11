@@ -220,6 +220,7 @@ interface TranscriptEntry {
   content?: unknown;
   timestamp?: string;
   uuid?: string;
+  parentUuid?: string | null;
   isMeta?: boolean;
   isCompactSummary?: boolean;
   message?: { role?: string; content?: unknown; stop_reason?: unknown };
@@ -274,6 +275,21 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
     return turn;
   };
 
+  /** the last human prompt and the entry it hangs from: a send Claude Code cancelled before
+   *  any reply is re-sent as a sibling of it, and its own screen shows only the re-send */
+  let lastPrompt: { turn: ConversationTurn; parent: string | null | undefined; answered: boolean } | null = null;
+  const pushPrompt = (turn: ConversationTurn, entry: TranscriptEntry): void => {
+    if (lastPrompt !== null && !lastPrompt.answered && typeof entry.parentUuid === "string" && entry.parentUuid === lastPrompt.parent) {
+      const index = turns.indexOf(lastPrompt.turn);
+      if (index !== -1) turns.splice(index, 1);
+    }
+    turns.push(turn);
+    lastPrompt = { turn, parent: entry.parentUuid, answered: false };
+  };
+  const markPromptAnswered = (): void => {
+    if (lastPrompt !== null) lastPrompt.answered = true;
+  };
+
   for (const line of text.split("\n")) {
     if (line.trim().length === 0) continue;
     let entry: TranscriptEntry;
@@ -283,7 +299,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
       continue; // a torn tail line while Claude is mid-append
     }
     if (entry === null || typeof entry !== "object" || entry.isMeta) continue;
-    if (isContextClear(entry, "claude-transcript")) { turns.length = 0; pending.clear(); continue; }
+    if (isContextClear(entry, "claude-transcript")) { turns.length = 0; pending.clear(); lastPrompt = null; continue; }
     const content = entry.message?.content;
     // a compaction's summary marks where the conversation was folded, readable on request
     if (entry.isCompactSummary) {
@@ -340,7 +356,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
     if (entry.type === "user" && typeof content === "string") {
       if (notified(content, entry.timestamp ?? null)) continue;
       if (isCommandEntry(content)) continue;
-      turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(content) }] });
+      pushPrompt({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(content) }] }, entry);
       continue;
     }
 
@@ -369,11 +385,12 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
         if (image?.type !== "image" || image.source?.type !== "base64" || typeof image.source.media_type !== "string" || !IMAGE_TYPES.has(image.source.media_type)) return [];
         return [{ kind: "image" as const, media_type: image.source.media_type, ref: `${entry.uuid}:${index}` }];
       });
-      if (prompt.trim() || images.length > 0) turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [...images, ...(prompt.trim() ? [{ kind: "text" as const, text: unwrapPastes(prompt) }] : [])] });
+      if (prompt.trim() || images.length > 0) pushPrompt({ role: "user", ts: entry.timestamp ?? null, parts: [...images, ...(prompt.trim() ? [{ kind: "text" as const, text: unwrapPastes(prompt) }] : [])] }, entry);
       continue;
     }
 
     if (entry.type === "assistant" && Array.isArray(content)) {
+      markPromptAnswered();
       const turn = assistantTurn(entry.timestamp);
       // an entry that names no stop reason is still at work when it calls a tool
       const stop = entry.message?.stop_reason;
@@ -641,13 +658,37 @@ function opensTurn(source: StreamSource, line: string): boolean {
     block?.type === "text" && typeof block.text === "string" && !isCommandEntry(block.text.trim()));
 }
 
-function turnStarts(bytes: Buffer, source: StreamSource): number[] {
+/**
+ * Where the last turn-opening Claude prompt hangs, and whether an assistant entry has
+ * answered it since. A prompt Claude Code cancelled before any reply is written again as
+ * the re-send's sibling (same parentUuid): it continues the cancelled prompt's turn rather
+ * than opening a new one, so the cancelled record never settles into a page that reparses
+ * without it — the same sibling rule parseClaudeTranscript applies to the bytes.
+ */
+interface PromptChain { parent: string | null; answered: boolean }
+
+function turnStarts(bytes: Buffer, source: StreamSource, chain: PromptChain = { parent: null, answered: true }): number[] {
   const starts: number[] = [];
   for (let offset = 0; offset < bytes.length;) {
     const newline = bytes.indexOf(0x0a, offset);
     const end = newline === -1 ? bytes.length : newline;
     const line = bytes.subarray(offset, end);
-    if (line.includes(TURN_MARK[source]) && opensTurn(source, line.toString("utf8"))) starts.push(offset);
+    if (source === "claude-transcript" && line.includes('"type":"assistant"')) chain.answered = true;
+    if (line.includes(TURN_MARK[source]) && opensTurn(source, line.toString("utf8"))) {
+      if (source === "claude-transcript") {
+        let parent: string | null = null;
+        try {
+          const uuid: unknown = (JSON.parse(line.toString("utf8")) as TranscriptEntry | null)?.parentUuid;
+          parent = typeof uuid === "string" ? uuid : null;
+        } catch { /* opensTurn already read the line as JSON */ }
+        // a re-send of an unanswered prompt opens no turn of its own
+        if (chain.answered || parent === null || parent !== chain.parent) starts.push(offset);
+        chain.parent = parent;
+        chain.answered = false;
+      } else {
+        starts.push(offset);
+      }
+    }
     offset = end + 1;
   }
   return starts;
@@ -695,6 +736,8 @@ interface LiveScan {
   starts: number[];
   /** the bytes just before `scanned`: a file rewritten rather than appended to no longer has them */
   tail: string;
+  /** the prompt chain the scanned lines end on, which the next appended lines continue */
+  chain: PromptChain;
 }
 const liveScans = new Map<string, LiveScan>();
 
@@ -771,15 +814,16 @@ function newestPage(path: string, stream: TranscriptStream, source: StreamSource
   // there, as in pageBefore, and never counts as a start)
   if (!scan || scan.id !== stream.id || scan.source !== source || scan.scanned > stream.length || scan.scanned < from
     || bytesBefore(stream, scan.scanned) !== scan.tail) {
-    scan = { id: stream.id, source, scanned: from, starts: [], tail: bytesBefore(stream, from) };
+    scan = { id: stream.id, source, scanned: from, starts: [], tail: bytesBefore(stream, from), chain: { parent: null, answered: true } };
   }
   let pending: number[] = [];
   if (scan.scanned < stream.length) {
     const bytes = readStream(stream, scan.scanned, stream.length);
     const complete = bytes.lastIndexOf(0x0a) + 1;
-    for (const offset of turnStarts(bytes.subarray(0, complete), source)) scan.starts.push(scan.scanned + offset);
-    // a last line still without its newline counts now, and is scanned again once complete
-    pending = turnStarts(bytes.subarray(complete), source).map((offset) => scan!.scanned + complete + offset);
+    for (const offset of turnStarts(bytes.subarray(0, complete), source, scan.chain)) scan.starts.push(scan.scanned + offset);
+    // a last line still without its newline counts now, and is scanned again once
+    // complete, so it is scanned on a copy that leaves the kept chain untouched
+    pending = turnStarts(bytes.subarray(complete), source, { ...scan.chain }).map((offset) => scan!.scanned + complete + offset);
     scan.scanned += complete;
     scan.tail = bytesBefore(stream, scan.scanned);
   }

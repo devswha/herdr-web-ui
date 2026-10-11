@@ -80,7 +80,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { claudeHeldIsGrey, claudeInputDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
+import { claudeHeldIsGrey, claudeInputDraft, claudeRestoredDraft, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, lastChatSubmitted, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -189,6 +189,12 @@ const MAX_WAITING_KEYS = 256;
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
+/** between the two Esc presses that empty Claude Code's restored copy of the chat's message */
+const RESTORED_CLEAR_GAP_MS = 200;
+/** after them, before the box is read again */
+const RESTORED_CLEAR_SETTLE_MS = 300;
+/** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
+const RESTORED_CLEAR_RESERVE_MS = 2_000;
 const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
@@ -555,9 +561,8 @@ export function createServer(
       });
       inTime();
       if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
-        const [live, colors] = await claudeBoxReads(paneId);
+        await freeClaudeBox(paneId, pane?.agent_status === "working", authorize, arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
         inTime();
-        if (claudeInputDraft(live, colors)) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
       }
       try {
         await agentPrompt(paneId, closeMention(text));
@@ -697,6 +702,35 @@ export function createServer(
     return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
   }
 
+  /**
+   * The box check both chat sends share: a Claude Code input box that is not known to be empty is
+   * refused, except the chat's own last message, which Claude puts back as typed text when the send
+   * right after it is cancelled. That copy, while the agent is not working, two Esc presses empty
+   * again — never Ctrl+C, which would arm "press Ctrl-C again to exit" — then the box is read once
+   * more before the send. Every other draft, and a box still not empty after them, refuses as before.
+   * `authorize` throws once the sender may no longer send: it is asked before each Esc, and again
+   * right before herdr is written to. A send with less than RESTORED_CLEAR_RESERVE_MS left before its
+   * `deadline` clears nothing: it would erase the copy, then time out without sending.
+   */
+  async function freeClaudeBox(paneId: string, working: boolean, authorize: () => void, deadline: number): Promise<void> {
+    const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
+    const [live, colors] = await claudeBoxReads(paneId);
+    if (!claudeInputDraft(live, colors)) return;
+    if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
+      throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+    }
+    if (deadline - Date.now() < RESTORED_CLEAR_RESERVE_MS) throw new HerdrError("submit_timeout", "Too little time was left to clear Claude Code's input box and send; nothing was typed");
+    // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
+    // rewind dialog instead
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
+    await Bun.sleep(RESTORED_CLEAR_GAP_MS);
+    authorize();
+    await paneSendKeys(paneId, ["esc"], undefined, allowed);
+    await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
+    if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+  }
+
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean) => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
@@ -714,21 +748,30 @@ export function createServer(
       // a draft typed in the terminal is the user's: the paste would join it and the Enter send both (#609).
       // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
       // read comes after the colors, so text typed between the two is in the box and holds the message.
-      if (context.identity.agent === "claude" && claudeInputDraft(...await claudeBoxReads(paneId))) {
-        throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
-      }
+      if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working, () => authorizePending(owner, paneId, lease), arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
+      // asked again right before herdr is written to: its connect is awaited (#666)
+      const allowed = (): boolean => {
+        try { authorizePending(owner, paneId, lease); return true; } catch { return false; }
+      };
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
       wrote = true;
-      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`);
+      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`, undefined, allowed).catch((error: unknown) => {
+        // a paste the guard refused was never written: the message is unsent, not uncertain
+        if (error instanceof HerdrError && error.code === "cancelled") { wrote = false; authorizePending(owner, paneId, lease); }
+        throw error;
+      });
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
       const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
       if (automatic && beforeEnter.working) throw new HerdrError("pending_wait", "The agent started another turn before this queued message could be committed");
       authorizePending(owner, paneId, lease);
-      committing(!automatic && beforeEnter.working);
-      await paneSendKeys(paneId, ["Enter"]);
+      const steering = !automatic && beforeEnter.working;
+      committing(steering);
+      // Claude Code queues what Enter commits during a turn; Ctrl+Enter sends it now (#737). herdr
+      // encodes the key as the pane asked, and as a plain CR for a program that asked for nothing.
+      await paneSendKeys(paneId, [steering && beforeEnter.identity.agent === "claude" ? "ctrl+enter" : "Enter"], undefined, allowed);
       noteSubmitted(paneId, text);
       return { ok: true };
     } catch (error) {

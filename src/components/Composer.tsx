@@ -64,6 +64,8 @@ export interface ComposerProps {
   answerHint?: string | null;
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
   suggestion?: string | null;
+  /** a cancelled send the agent put back in its input box: the empty box takes it again, for editing and resending */
+  restored?: string | null;
   /** an empty chat's greeting: it stands over the composer's column and takes no row of its own */
   greeting?: ReactNode;
   /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
@@ -221,6 +223,7 @@ export function Composer({
   metadata,
   answerHint = null,
   suggestion = null,
+  restored = null,
   greeting = null,
   onSend,
   onAbort,
@@ -263,6 +266,8 @@ export function Composer({
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
   const caretRef = useRef(caret);
+  /** the restored text the box was filled with: only that fill is ever cleared, never the user's own typing */
+  const filledFrom = useRef<string | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [files, setFiles] = useState<string[]>([]);
   const [slashUsage, setSlashUsage] = useState<Record<string, number>>(readSlashUsage);
@@ -298,6 +303,29 @@ export function Composer({
   const placeholder = !connected
     ? t("Reconnecting… message held here, never queued")
     : answerHint ?? offered ?? t("Message {agent}…", { agent: agentLabel });
+
+  // A cancelled send the agent put back in its input box fills an empty box again — without
+  // focus, which would raise a phone's keyboard. When it is gone, only the untouched fill is
+  // cleared: text the user typed or edited over it is their own and stays.
+  useEffect(() => {
+    if (restored !== null) {
+      if (restored === filledFrom.current || textRef.current.trim() !== "" || sending) return;
+      setText(restored);
+      textRef.current = restored;
+      caretRef.current = restored.length;
+      setCaret(restored.length);
+      filledFrom.current = restored;
+      return;
+    }
+    if (filledFrom.current === null) return;
+    if (textRef.current === filledFrom.current) {
+      setText("");
+      textRef.current = "";
+      caretRef.current = 0;
+      setCaret(0);
+    }
+    filledFrom.current = null;
+  }, [restored]);
 
   useEffect(() => {
     let live = true;
