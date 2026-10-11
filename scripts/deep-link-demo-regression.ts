@@ -154,6 +154,73 @@ try {
       });
       console.log("PASS Back to an entry for a PC since removed stays on the pane shown, says so, opens none of its dialogs, and keeps Forward");
 
+      // the same Back before the PC list is in: the entry waits for it, then lands on this PC with the note
+      const heldContext = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "en-US" });
+      try {
+        // after a reload marked to hold it, the PC list (its fetch and its stream) waits for __releaseRoster
+        await heldContext.addInitScript(`
+          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
+          const hold = sessionStorage.getItem("hold-roster") === "1";
+          sessionStorage.removeItem("hold-roster");
+          let release = () => {};
+          const released = hold ? new Promise((done) => { release = done; }) : Promise.resolve();
+          window.__releaseRoster = () => release();
+          let fixtureFetch = window.fetch;
+          Object.defineProperty(window, "fetch", {
+            configurable: true, get: () => fixtureFetch,
+            set: (fetch) => {
+              fixtureFetch = async (input, init) => {
+                const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href).pathname;
+                if (path === "/api/machines") await released;
+                return fetch(input, init);
+              };
+            },
+          });
+          let fixtureSource = window.EventSource;
+          Object.defineProperty(window, "EventSource", {
+            configurable: true, get: () => fixtureSource,
+            set: (Source) => {
+              fixtureSource = class extends EventTarget {
+                static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
+                constructor(url, init) {
+                  super(); this.readyState = 0; this.url = String(url);
+                  this.source = new Source(url, init);
+                  const deliver = (event) => { const copy = new MessageEvent("message", { data: event.data }); this.onmessage?.(copy); this.dispatchEvent(copy); };
+                  this.source.onmessage = (event) => { void released.then(() => deliver(event)); };
+                  this.source.onopen = (event) => { this.readyState = 1; this.onopen?.(event); this.dispatchEvent(new Event("open")); };
+                  this.source.onerror = (event) => { this.onerror?.(event); this.dispatchEvent(new Event("error")); };
+                }
+                close() { this.readyState = 2; this.source.close(); }
+              };
+            },
+          });
+        `);
+        const page = await heldContext.newPage();
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(`${url}?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}`);
+        await waitSelected(page, INFRA);
+        await waitQuery(page, "pane", INFRA);
+        const here = await page.evaluate(() => window.location.search);
+        await page.evaluate((search) => {
+          history.pushState(null, "", `?machine=removed&ws=w9-gone&pane=${encodeURIComponent("w9:p1")}`);
+          history.pushState(null, "", `${window.location.pathname}${search}`);
+          sessionStorage.setItem("hold-roster", "1");
+        }, here);
+        await page.reload();
+        await page.waitForFunction(() => typeof (window as unknown as { __releaseRoster?: unknown }).__releaseRoster === "function" && document.querySelector(".sidebar-shell") !== null);
+        await page.goBack();
+        await waitQuery(page, "machine", "removed");
+        await page.evaluate(() => (window as unknown as { __releaseRoster: () => void }).__releaseRoster());
+        await page.locator(".header-note", { hasText: "That link's PC is not set up here" }).waitFor();
+        await page.locator('.agents-sidebar .agent-select[aria-current="true"]').waitFor();
+        await waitQuery(page, "machine", null);
+        assert.deepEqual(errors, []);
+      } finally {
+        await heldContext.close();
+      }
+      console.log("PASS Back before the PC list is in waits for it, then lands a removed PC's entry on this PC with the note");
+
       // a link to a Settings page opens it there; the address follows its pages and drops it on close
       await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}&settings=terminal`, async (page) => {
         const dialog = page.getByRole("dialog", { name: "Settings" });

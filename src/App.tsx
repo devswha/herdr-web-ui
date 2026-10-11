@@ -788,6 +788,15 @@ export function App() {
     const onPop = (event: PopStateEvent): void => {
       if (settingsEntry(event.state) !== null) return;
       const link = readLink(window.location.search);
+      // before the PCs are in, nothing can say the entry's PC is still set up: it waits as a link
+      // opened with the page does, settled against its roster or answered with a note once they are
+      if (machinesRef.current.length === 0) {
+        if (!link.pane && !link.workspace) return;
+        selectTargetRef.current(link.machine, link.pane, link.view ?? undefined);
+        pendingLink.current = link; pendingFile.current = null; setLinkLanded(false);
+        poppedTo.current = true;
+        return;
+      }
       const machine = machinesRef.current.find((candidate) => candidate.id === link.machine);
       const missing = !machine && machinesRef.current.length > 0;
       // the New workspace dialog is part of the address it was open on: Back closes it, Forward opens
