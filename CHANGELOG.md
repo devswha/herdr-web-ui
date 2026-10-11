@@ -22,7 +22,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   so RUN looked like BG (the same arc held still). It now fades in and out instead of turning. ([#841](https://github.com/devswha/herdr-web-ui/pull/841))
 - The update line above the pane stays one line on a phone and on a computer: a long sentence ends
   in an ellipsis instead of wrapping its buttons onto a second row, the line after an update closes
-  with an × like a PC's line, and an install's step, count and bar share one row.
+  with an × like a PC's line, and an install's step, count and bar share one row. The warning to
+  save unsent drafts before a reload is the one line still read in full, so it may wrap.
 
 ## [0.4.7] - 2026-10-12
 

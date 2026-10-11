@@ -45,6 +45,10 @@
   white-space: nowrap;
 }
 
+/* the reload warning is read in full on a phone: its sentence wraps instead of being cut */
+.update-notice.is-line.is-warning { flex-wrap: wrap; }
+.update-notice.is-line.is-warning > span { white-space: normal; overflow: visible; text-overflow: clip; }
+
 .update-notice-dismiss {
   margin-inline-end: calc(var(--space-2) * -1);
 }

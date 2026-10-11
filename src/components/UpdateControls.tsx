@@ -182,9 +182,10 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
     </div>;
   }
   if (needsReload) {
+    // a warning before a step that loses unsent drafts: read in full, so this line alone may wrap
     const text = t("App updated. Save unsent drafts before reloading.");
-    return <div className="update-notice is-line" role="status">
-      <span title={text}>{text}</span>
+    return <div className="update-notice is-line is-warning" role="status">
+      <span>{text}</span>
       <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button>
     </div>;
   }
