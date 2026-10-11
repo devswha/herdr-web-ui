@@ -29,11 +29,12 @@ const closeAgentWorkspaces = (page: Page) => page.evaluate(async () => {
   throw new Error("the demo still lists an agent workspace after 32 closes");
 });
 
+let server: ReturnType<typeof Bun.serve> | undefined;
 try {
   await buildDemoApp(app);
   const index = join(app, "index.html");
   writeFileSync(index, readFileSync(index, "utf8").replace(/<script type="module"/, '<script src="./demo-transport.js"></script>\n    <script type="module"'));
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     const prefix = "/app/";
     if (!path.startsWith(prefix)) return new Response("not found", { status: 404 });
@@ -107,7 +108,7 @@ try {
       await browser.close();
     }
   }
-  server.stop(true);
 } finally {
+  server?.stop(true);
   rmSync(app, { recursive: true, force: true });
 }
