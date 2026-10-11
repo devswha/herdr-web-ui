@@ -45,6 +45,7 @@ interface Read {
   calls: Map<string, { name: string; input: Row }>;
 }
 const reads = new Map<string, Read>();
+const readKey = (source: PlanSource, path: string): string => `${source}\0${path}`;
 
 /**
  * The plan in `path` now: its steps in the order they were made, null when there is none (or it
@@ -57,7 +58,7 @@ export function readPlan(source: PlanSource, path: string, budget = { left: PLAN
 function planState(source: PlanSource, path: string, budget: { left: number }): { steps: PlanStep[] | null; behind: boolean } {
   const stat = plain(path);
   if (stat === null) return { steps: null, behind: false };
-  const key = `${source}\0${path}`;
+  const key = readKey(source, path);
   let state = reads.get(key);
   if (!state || state.id !== stat.id || state.offset > stat.size) {
     state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map() };
@@ -253,11 +254,15 @@ export class SessionPlans {
   /** The pane's plan now, read on the spot; null when it has none or its transcript is not known. */
   planOf(paneId: string): PlanStep[] | null {
     const where = this.panes.get(paneId)?.where;
-    return where ? readPlan(where.source, where.path) : null;
+    if (!where) return null;
+    // a transcript still on its first read is read on by the poll, in its shared budget: a request reads none of it
+    return readPlan(where.source, where.path, reads.get(readKey(where.source, where.path))?.catching ? { left: 0 } : undefined);
   }
 
-  known(paneId: string): boolean {
-    return this.panes.get(paneId)?.where != null;
+  /** The pane's transcript is known, and was found for the session the pane runs now. */
+  known(pane: HerdrPane): boolean {
+    const tracked = this.panes.get(pane.pane_id);
+    return tracked?.where != null && tracked.key === keyOf(pane);
   }
 
   /**
