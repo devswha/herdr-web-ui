@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Folder, Star, Terminal } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
@@ -87,7 +87,18 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const next = pruneSidebarPins(pinned, live, machines);
     if (next.length !== pinned.length) { setPinned(next); saveSidebarPins(next); }
   }, [machines, rows, pinned]);
-  const setPin = (key: string): void => {
+  // a pin moves the row between the pinned list and its card, so React draws a new star: a star
+  // that had the keyboard focus hands it to its successor
+  const sectionRef = useRef<HTMLElement>(null);
+  const refocusPin = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const key = refocusPin.current;
+    if (key === null) return;
+    refocusPin.current = null;
+    sectionRef.current?.querySelector<HTMLButtonElement>(`.agent-pin-toggle[data-pin-key="${CSS.escape(key)}"]`)?.focus();
+  }, [pinned]);
+  const setPin = (key: string, star: HTMLButtonElement): void => {
+    if (document.activeElement === star) refocusPin.current = key;
     const next = toggleSidebarPin(pinned, key);
     setPinned(next);
     saveSidebarPins(next);
@@ -122,13 +133,13 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
         {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
         <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} status={online ? activity.status(machine.id, pane) : undefined} />
       </button>
-      <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={`${t("Pin agent")}: ${title}`} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} onClick={() => setPin(pinKey)}>
+      <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={`${t("Pin agent")}: ${[title, machineName(machine), workspace.label].filter(Boolean).join(" · ")}`} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} data-pin-key={pinKey} onClick={(event) => setPin(pinKey, event.currentTarget)}>
         <Star aria-hidden="true" fill={isPinned ? "currentColor" : "none"} />
       </button>
     </li>;
   };
 
-  return <section className={`agents-sidebar${collapsed ? " is-collapsed" : ""}${rows.length === 0 ? " is-empty" : ""}`} aria-label={t("Agents")}>
+  return <section ref={sectionRef} className={`agents-sidebar${collapsed ? " is-collapsed" : ""}${rows.length === 0 ? " is-empty" : ""}`} aria-label={t("Agents")}>
     <button type="button" className="agent-section-toggle sidebar-section-label" aria-expanded={!collapsed} aria-controls={listId} onClick={() => setCollapsed(!collapsed)}>
       {collapsed ? <ChevronRight className="agent-section-caret" aria-hidden="true" /> : <ChevronDown className="agent-section-caret" aria-hidden="true" />}
       <span>{t("Agents")}</span>

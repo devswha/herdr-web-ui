@@ -133,13 +133,15 @@ try {
         const agentSelect = agentRow.locator(".agent-select");
         // pin an agent that is not first: it must stand above the workspace cards, outside every card
         const pinnedRow = agent(page, INFRA);
-        const pin = pinnedRow.getByRole("button", { name: `Pin agent: ${INFRA}`, exact: true });
-        assert.equal(await pin.count(), 1, "each agent has a pin control named for it");
+        const pin = pinnedRow.getByRole("button", { name: `Pin agent: ${INFRA} · infra`, exact: true });
+        assert.equal(await pin.count(), 1, "each agent has a pin control named for it and its workspace");
+        const pinFocused = () => pinnedRow.locator(".agent-pin-toggle").evaluate((star) => document.activeElement === star);
         assert.equal(await pin.getAttribute("aria-pressed"), "false");
         await pin.focus();
         await page.keyboard.press("Space");
         await page.waitForFunction((key) => JSON.parse(localStorage.getItem("herdr-web-ui:sidebar-agent-pins") ?? "[]").includes(key), `local:${panes.infra}`);
         assert.equal(await pin.getAttribute("aria-pressed"), "true", "keyboard pin persists the agent and keeps the control's name");
+        assert.equal(await pinFocused(), true, "the star keeps the keyboard focus as it moves above the cards");
         assert.deepEqual(await agentTitles(page), [INFRA, ...AGENTS_HERDR_ORDER.filter((title) => title !== INFRA)], "a pinned agent moves to the top, the rest keep herdr's order");
         const pinnedLayout = () => page.evaluate((title) => {
           const list = document.querySelector(".agents-sidebar .agent-list")!;
@@ -151,8 +153,10 @@ try {
         await page.locator(".conn-live").waitFor({ state: "attached" });
         await agents(page).first().waitFor({ state: "attached" });
         assert.deepEqual(await pinnedLayout(), { inCard: false, firstIsPinnedRow: true }, "the pin survives a reload");
-        await agent(page, INFRA).getByRole("button", { name: `Pin agent: ${INFRA}`, exact: true }).click();
+        await pin.focus();
+        await page.keyboard.press("Enter");
         await page.waitForFunction(() => JSON.parse(localStorage.getItem("herdr-web-ui:sidebar-agent-pins") ?? "[]").length === 0);
+        assert.equal(await pinFocused(), true, "the star keeps the keyboard focus as it moves back into its card");
         assert.deepEqual(await agentTitles(page), AGENTS_HERDR_ORDER, "unpin restores the source order");
         assert.equal((await pinnedLayout()).inCard, true, "unpinned, the agent returns to its card");
         const refreshedAgentRow = agent(page, API);
@@ -202,7 +206,7 @@ try {
         await agentSelect.waitFor();
         assert.equal(await agentRow.getByRole("button").count(), 2, "touch rows expose selection and pin controls");
         assert.equal(await agents(page).locator('.agent-actions, .row-menu-toggle, [aria-haspopup="menu"]').count(), 0, "touch does not expose an agent menu trigger");
-        const pin = agentRow.getByRole("button", { name: `Pin agent: ${API}`, exact: true });
+        const pin = agentRow.getByRole("button", { name: `Pin agent: ${API} · checkout-api`, exact: true });
         await pin.tap();
         await page.waitForFunction((key) => JSON.parse(localStorage.getItem("herdr-web-ui:sidebar-agent-pins") ?? "[]").includes(key), `local:${panes.api}`);
         assert.equal(await pin.getAttribute("aria-pressed"), "true", "a tap pins the agent");
