@@ -26,7 +26,8 @@ export interface NewSessionDialogProps {
   /** set, the dialog makes a tab in that workspace instead of a workspace */
   tab?: NewTabTarget | null;
   onClose: () => void;
-  onCreated: (paneId: string) => void;
+  /** `agentStarted`: the pane runs the agent asked for, so it opens in an agent's lens */
+  onCreated: (paneId: string, agentStarted: boolean) => void;
   /** fields a link fills for this opening (`?new=`, lib/deepLink.ts); an agent herdr does not offer is left out */
   prefill?: DialogFields | null;
   /** what the fields say, a moment after they change, for the address */
@@ -122,7 +123,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (pending) return;
-    if (createdPaneId !== null) { onCreated(createdPaneId); return; }
+    if (createdPaneId !== null) { onCreated(createdPaneId, false); return; }
     setPending(true);
     setError(null);
     try {
@@ -141,7 +142,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
       // the dialog closes on this: left pending, its next opening would start a frame with the
       // fields disabled and Escape ignored, until the open effect's reset has rendered
       setPending(false);
-      onCreated(result.pane_id);
+      onCreated(result.pane_id, agentKind !== "" && result.agent_started !== false);
     } catch (reason: unknown) {
       setPending(false);
       if (reason instanceof ApiError && reason.code === "invalid_cwd") setError(t("Directory not found"));
