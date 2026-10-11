@@ -21,9 +21,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   still sends it at the turn's end. A held message shown in another tab, or after a reload, asks
   to be reviewed before Send now, since the tab that held it may still send it.
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
-- **Settings → Appearance → Agent logos: Color | Mono.** Mono draws every agent's logo in the text
-  color, Claude's without its orange tile, so a sidebar where nearly every agent is the same one is
-  not a column of colored tiles. Color, today's look, stays the default.
+- **Settings → Appearance → Agent logos: Color | Mono.** Mono draws the logos without color:
+  Claude's in the text color without its orange tile, the other logos with brand colors in grey,
+  so a sidebar where nearly every agent is the same one is not a column of colored tiles. Color,
+  today's look, stays the default. ([#850](https://github.com/devswha/herdr-web-ui/pull/850) by @phirschybar)
 
 ### Changed
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`

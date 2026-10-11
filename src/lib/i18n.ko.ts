@@ -212,7 +212,7 @@ export const KO: Record<string, string> = {
   "Quiet opened finishes": "열어 본 완료 표시 끄기",
   "A finished agent you have opened here loses its dot, as herdr's own view would clear it; remembered per PC on this browser": "여기서 열어 본 완료된 에이전트는 herdr에서 볼 때처럼 점이 사라집니다. 이 브라우저에서 PC별로 기억합니다",
   "Agent logos": "에이전트 로고",
-  "Draw each agent's logo in its brand colors, or in the text color": "각 에이전트의 로고를 브랜드 색상 또는 글자 색으로 표시합니다",
+  "Draw each agent's logo in its brand colors, or without color": "각 에이전트의 로고를 브랜드 색상 또는 색 없이 표시합니다",
   "Color": "색상",
   "Mono": "단색",
   "Drag to reorder · Alt+↑/↓": "끌어서 순서 바꾸기 · Alt+↑/↓",

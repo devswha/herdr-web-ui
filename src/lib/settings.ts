@@ -20,7 +20,7 @@ export type Density = "compact" | "comfortable";
 export type SidebarRows = "one" | "two";
 /** the Agents list's order: herdr's workspace order, or a waiting agent first and then the latest change */
 export type AgentOrder = "workspace" | "activity";
-/** how agent logos are drawn: in their brand colors, or in the text color (data-marks on <html>) */
+/** how agent logos are drawn: in their brand colors, or without color: Claude's in the text color, the others in grey (data-marks on <html>) */
 export type AgentMarks = "color" | "mono";
 /** what the plan meters count: the share of a limit used, or what is left of it */
 export type UsageCount = "used" | "left";
@@ -76,7 +76,7 @@ export interface Settings {
   agentPins: boolean;
   /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
   quietOpenedDone: boolean;
-  /** Agent logos: brand colors, or the text color, so a list of one agent is not a stripe of tiles */
+  /** Agent logos: brand colors, or without color, so a list of one agent is not a stripe of tiles */
   agentMarks: AgentMarks;
   /** the chrome color family, keyed as data-palette in src/styles.css */
   palette: Palette;

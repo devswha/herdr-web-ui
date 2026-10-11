@@ -204,7 +204,7 @@ export const TR: Record<string, string> = {
   "Quiet opened finishes": "Görüntülenen tamamlanmış ajanların işaretini gizle",
   "A finished agent you have opened here loses its dot, as herdr's own view would clear it; remembered per PC on this browser": "Burada görüntülediğiniz tamamlanmış ajanın işareti, herdr'ın kendi görünümünde olduğu gibi temizlenir. Bu tercih, bu tarayıcıda her bilgisayar için ayrı ayrı hatırlanır.",
   "Agent logos": "Ajan logoları",
-  "Draw each agent's logo in its brand colors, or in the text color": "Her ajanın logosunu marka renkleriyle ya da metin rengiyle çizer",
+  "Draw each agent's logo in its brand colors, or without color": "Her ajanın logosunu marka renkleriyle ya da renksiz çizer",
   "Color": "Renkli",
   "Mono": "Tek renk",
   "Drag to reorder · Alt+↑/↓": "Yeniden sıralamak için sürükleyin · Alt+↑/↓",
