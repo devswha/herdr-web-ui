@@ -6,6 +6,19 @@ function directoryPath(cwd: string | null | undefined): string | null {
   return path.replace(/\/+$/, "") || "/";
 }
 
+/**
+ * A folder that is no project to start a workspace in: a worktree checkout (herdr makes its own
+ * under ~/.herdr/worktrees; `worktrees` names the linked ones a PC has open) or a temporary
+ * directory. Recent folders leave these out.
+ */
+export function passingFolder(path: string, worktrees: readonly string[] = []): boolean {
+  const lexical = directoryPath(path) ?? path;
+  if (/\/\.herdr\/worktrees(?:\/|$)/u.test(lexical)) return true;
+  if (/^(?:\/private)?\/tmp(?:\/|$)|^\/var\/tmp(?:\/|$)|^(?:\/private)?\/var\/folders\//u.test(lexical)) return true;
+  if (/\/AppData\/Local\/Temp(?:\/|$)/iu.test(lexical)) return true;
+  return worktrees.some((root) => lexical === root || lexical.startsWith(`${root.replace(/\/+$/, "")}/`));
+}
+
 type DirectoryStorage = Pick<Storage, "getItem" | "setItem">;
 
 /** Store canonical absolute paths from snapshots; ~/ input is captured after the PC resolves it. */
