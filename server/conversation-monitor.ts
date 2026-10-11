@@ -36,6 +36,8 @@ export class ConversationMonitor {
     private readonly codexHome?: string,
     private readonly devinDbPath?: string,
     private readonly opencodeDb?: string,
+    private readonly hermesHome?: string,
+    private readonly grokHome?: string,
   ) {}
 
   get size(): number { return this.panes.size; }
@@ -76,9 +78,9 @@ export class ConversationMonitor {
     const transcript = state.transcript;
     if (!transcript) return false;
     const identity = fileIdentity(transcript.path);
-    const database = transcript.source === "devin-transcript" || transcript.source === "opencode-transcript";
+    const database = transcript.source === "devin-transcript" || transcript.source === "opencode-transcript" || transcript.source === "hermes-transcript";
     const wal = database ? fileIdentity(`${transcript.path}-wal`) : "";
-    const session = database ? transcript.session : "";
+    const session = transcript.source === "hermes-transcript" ? transcript.sessionId : database ? transcript.session : "";
     const cwd = transcript.source === "devin-transcript" ? transcript.cwd : "";
     const catalog = transcript.source === "agy-transcript" ? agyDatabasePath(transcript.path) : null;
     const catalogIdentity = catalog === null ? "" : `${fileIdentity(catalog)}:${fileIdentity(`${catalog}-wal`)}`;
@@ -106,7 +108,7 @@ export class ConversationMonitor {
       this.snapshot ??= sessionSnapshot().finally(() => { this.snapshot = null; });
       const snapshot = await this.snapshot;
       if (this.panes.get(paneId) !== state) return;
-      const transcript = await paneTranscript(paneId, this.codexHome, snapshot, this.devinDbPath, this.opencodeDb);
+      const transcript = await paneTranscript(paneId, this.codexHome, snapshot, this.devinDbPath, this.opencodeDb, this.hermesHome, this.grokHome);
       if (this.panes.get(paneId) !== state) return;
       state.transcript = transcript;
       present = this.read(paneId, state);
