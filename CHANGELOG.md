@@ -46,7 +46,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#775](https://github.com/devswha/herdr-web-ui/pull/775) by @vibewriter-hand)
 - A Claude Code or Codex pane's plan appears as progress in the header and sidebar. Open it
   from the header in Chat or Terminal to see its steps as a flow or a list, with the current
-  step and elapsed times. It is read from the agent's transcript.
+  step and elapsed times. It is read from the agent's transcript. **Settings → Appearance** can
+  take the count out of the header (**Plan count in the header**) and open the plan as the
+  list alone (**Plan flow**); both are on by default.
   ([#531](https://github.com/devswha/herdr-web-ui/pull/531) by @kilhyeonjun)
 - A `mermaid` code block in the chat is drawn as a diagram, with a full-screen lightbox to zoom and
   pan it, and the file viewer renders markdown files with local images; larger images are offered

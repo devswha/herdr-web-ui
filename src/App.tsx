@@ -1096,7 +1096,7 @@ export function App() {
           </div>
         )}
         {/* the selected pane's plan, in the chat and the terminal alike; an offline PC's cached plan cannot be read */}
-        {selectedPane && selectedMachine?.state === "connected" && (selectedPane as HerdrPane).plan && <PlanButton plan={(selectedPane as HerdrPane).plan!} onOpen={() => setPlanOpen(true)} />}
+        {settings.planButton && selectedPane && selectedMachine?.state === "connected" && (selectedPane as HerdrPane).plan && <PlanButton plan={(selectedPane as HerdrPane).plan!} onOpen={() => setPlanOpen(true)} />}
         <div className="header-meta">
           {/* speaks only while the bridge is not live; live, it stays in the document for a screen
               reader (and the browser scripts that wait on it), drawn by nothing (styles.css) */}

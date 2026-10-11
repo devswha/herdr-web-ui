@@ -72,6 +72,10 @@ export interface Settings {
   /** Each agent row carries a star that keeps it on top of the Agents list. */
   agentPins: boolean;
   /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
+  /** A plan opens as a flow of boxes with a switch to its list; off, as the list alone. */
+  planFlow: boolean;
+  /** The header carries the selected pane's plan count, which opens the plan. */
+  planButton: boolean;
   quietOpenedDone: boolean;
   /** the chrome color family, keyed as data-palette in src/styles.css */
   palette: Palette;
@@ -162,6 +166,8 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalCursorStyle: "block",
   terminalCursorBlink: true,
   terminalWheelSpeed: 1,
+  planFlow: true,
+  planButton: true,
   terminalFontFamily: "",
   paneClipboard: true,
   releasePaneAway: false,
@@ -317,6 +323,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     terminalCursorStyle: TERMINAL_CURSOR_STYLES.includes(record["terminalCursorStyle"] as TerminalCursorStyle)
       ? record["terminalCursorStyle"] as TerminalCursorStyle
       : DEFAULT_SETTINGS.terminalCursorStyle,
+    planFlow: record["planFlow"] !== false,
+    planButton: record["planButton"] !== false,
     terminalCursorBlink: typeof record["terminalCursorBlink"] === "boolean" ? record["terminalCursorBlink"] : DEFAULT_SETTINGS.terminalCursorBlink,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))

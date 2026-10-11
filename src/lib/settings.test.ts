@@ -66,6 +66,15 @@ it("shows the Agents list's pin stars only when they were turned on", () => {
   }
 });
 
+it("keeps the plan's flow and its header count unless they were turned off", () => {
+  expect([DEFAULT_SETTINGS.planFlow, DEFAULT_SETTINGS.planButton]).toEqual([true, true]);
+  expect(sanitizeSettings({})).toMatchObject({ planFlow: true, planButton: true });
+  expect(sanitizeSettings({ planFlow: false, planButton: false })).toMatchObject({ planFlow: false, planButton: false });
+  for (const value of [null, "false", 0]) {
+    expect(sanitizeSettings({ planFlow: value, planButton: value })).toMatchObject({ planFlow: true, planButton: true });
+  }
+});
+
 describe("clipboard from a pane", () => {
   it("is on in a fresh install", () => {
     expect(DEFAULT_SETTINGS.paneClipboard).toBe(true);

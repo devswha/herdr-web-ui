@@ -856,6 +856,8 @@ One set for both themes: the card is island black wherever it shows.
   (`--status-working`, `--status-done` once every step is done) and `done/total` in tabular
   figures, on the `--bg-elevated` hairline chip the switch uses. The sidebar's agent row repeats the
   count beside the background count, in its quiet mono figures and with no box (`.plan-count`).
+  Appearance's **Plan count in the header** (on by default) takes the header's button away when off;
+  the sidebar's count stays.
 - The plan opens as a modal (a bottom sheet under 641px): title, the pane's name (hidden on a
   phone), a Flow / Steps switch and a close button. Under them `N of M done` and, in
   `--status-working`, what the running step does now.
@@ -865,6 +867,8 @@ One set for both themes: the card is island black wherever it shows.
   edge on its tint; running: a 2px `--status-working` edge on its tint; waiting: a dashed hairline
   and dim text. A curve out of a done step is solid `--status-done`; one still waiting is a dim
   dashed line. A wave wider than the sheet scrolls sideways inside it, never the page.
+- Appearance's **Plan flow** is on by default. Off, the plan opens as Steps alone and the
+  Flow / Steps switch is not drawn.
 - Steps: the same steps in wave order, a status glyph, the name, what a running step does now and
   the meta line.
 
