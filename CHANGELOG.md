@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Fixed
+- A pane in use keeps the lens it shows: with **Panes open in → Chat**, a shell split beside an
+  agent no longer turns into its chat when an agent starts in it, and an agent pane no longer
+  turns into its terminal when the agent exits. A lens picked by hand still wins, and a new
+  Settings choice applies again to every pane.
+  ([#755](https://github.com/devswha/herdr-web-ui/pull/755))
 - Push alerts no longer reach every device while you are using the app: while any window of it
   is visible and focused, on any device, no device gets an alert. Alerts resume once no window
   is in use, and **Send test** still always sends.
