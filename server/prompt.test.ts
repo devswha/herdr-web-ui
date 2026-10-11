@@ -4249,6 +4249,17 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
         logged.length = 0;
         expect(await answer(prompt.id, { option_index: 0 })).toEqual({ status: 409, code: "prompt_changed" });
         expect(logged.some((line) => line.includes("[prompt/answer]") && line.includes("pane=p_1") && line.includes("prompt_matched=false") && line.includes("outcome=prompt_changed"))).toBe(true);
+        // the pane id is the client's until the snapshot has checked it: no newline or escape of it reaches the log
+        logged.length = 0;
+        const url = new URL("http://127.0.0.1/api/pane/prompt/answer");
+        const forged = "p_1\nFORGED \u001b[2J";
+        const response = (await handlePromptRequest(new Request(url, { method: "POST", body: JSON.stringify({ pane_id: forged, prompt_id: prompt.id, option_index: 0 }) }), url, {}))!;
+        expect(response.ok).toBe(false);
+        const line = logged.find((entry) => entry.includes("[prompt/answer]"));
+        expect(line).toBeDefined();
+        expect(line!.includes("\n")).toBe(false);
+        expect(line!.includes("\u001b")).toBe(false);
+        expect(line!.includes("pane=p_1?FORGED ?[2J")).toBe(true);
       });
     } finally { console.log = originalLog; }
   });
