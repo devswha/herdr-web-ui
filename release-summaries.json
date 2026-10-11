@@ -15,7 +15,7 @@
         "Chat follows the agent's transcript as it is written, not on a timer.",
         "Terminal: pick the cursor shape, pinch to resize the font, hold an arrow to repeat it.",
         "Anonymous counts also name the appearance settings you changed; the notice shows again.",
-        "Usage meters show each limit's pace and when it runs out before its reset."
+        "Usage meters can show each limit's pace and when it runs out (turn it on in Settings)."
       ],
       "fixed": [
         "A phone shows a split tab one pane at a time again, at full width.",
@@ -40,7 +40,7 @@
         "채팅이 일정 간격으로 다시 읽는 대신, 에이전트 기록이 쓰이는 대로 따라갑니다.",
         "터미널: 커서 모양 선택, 두 손가락으로 글자 크기 조절, 화살표 길게 눌러 반복.",
         "익명 집계에 기본값에서 바꾼 화면 설정의 이름이 포함되며, 안내가 한 번 더 표시됩니다.",
-        "사용량 표시가 각 한도의 소진 속도와, 초기화 전에 바닥날 시점을 알려 줍니다."
+        "사용량 표시에서 각 한도의 소진 속도와 바닥날 시점을 볼 수 있습니다(설정에서 켭니다)."
       ],
       "fixed": [
         "휴대폰에서 분할 탭이 다시 패널 하나씩 전체 폭으로 보입니다.",
@@ -65,7 +65,7 @@
         "チャットは一定間隔で読み直す代わりに、エージェントの記録が書かれるたびに追従します。",
         "ターミナル: カーソル形状の選択、ピンチで文字サイズ変更、矢印キー長押しで連続入力。",
         "匿名カウントに既定値から変更した外観設定の名前が含まれ、案内がもう一度表示されます。",
-        "使用量メーターが各上限の消費ペースと、リセット前に尽きる時刻を表示します。"
+        "使用量メーターで各上限の消費ペースと尽きる時刻を表示できます（設定で有効化）。"
       ],
       "fixed": [
         "スマートフォンで、分割タブが再びペインを1つずつ全幅で表示します。",
@@ -90,7 +90,7 @@
         "聊天随代理记录的写入而更新，不再按固定间隔重新读取。",
         "终端：可选择光标形状，双指缩放字号，长按方向键可连续输入。",
         "匿名统计会包含已从默认值更改的外观设置名称，并会再次显示提示。",
-        "用量仪表会显示各限额的消耗速度，以及是否会在重置前用完。"
+        "用量仪表可显示各限额的消耗速度及用完时间（需在设置中开启）。"
       ],
       "fixed": [
         "手机上的分屏标签页恢复为一次显示一个窗格，占满整个宽度。",
@@ -115,7 +115,7 @@
         "Sohbet, belirli aralıklarla yeniden okumak yerine ajanın kaydı yazıldıkça güncellenir.",
         "Terminal: imleç şeklini seçin, yazıyı iki parmakla boyutlandırın, ok tuşunu basılı tutun.",
         "Anonim sayaçlar, varsayılandan değiştirilen görünüm ayarlarının adlarını da içerir.",
-        "Kullanım göstergeleri her limitin hızını ve sıfırlanmadan önce biteceği zamanı gösterir."
+        "Kullanım göstergeleri her limitin hızını ve bitiş zamanını gösterebilir (Ayarlar'da açın)."
       ],
       "fixed": [
         "Telefonda bölünmüş sekme yeniden tek seferde bir paneli tam genişlikte gösterir.",

@@ -10,14 +10,15 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [0.4.7] - 2026-10-12
 
 ### Added
-- The usage meters show each limit's pace: a mark on its bar where an even pace would be by now,
+- **Settings → Subscription usage → Show pace** (off by default) makes the usage meters show each
+  limit's pace: a mark on its bar where an even pace would be by now,
   how fast it is being used (`15%/h` for a session, `18%/day` for a week), and **Runs out in 2d 1h**
   when that pace reaches the limit before it resets. A chip whose limit runs out before its reset
   turns its hairline red while its share is still low, and says when in its label; once that
   time has gone by, both stay until the reset as **Runs out before reset**. The pace is
   measured when the numbers were read, and shown only where the provider states the window's
   start or length (Claude, Codex, Grok), from 5% of the window on.
-  ([#513](https://github.com/devswha/herdr-web-ui/pull/513) by @kilhyeonjun)
+  ([#513](https://github.com/devswha/herdr-web-ui/pull/513) by @kilhyeonjun, [#834](https://github.com/devswha/herdr-web-ui/pull/834))
 - Turkish (Türkçe) UI translation: a full `i18n.tr.ts` dictionary, the language in the Settings menu with browser detection, and a Turkish README. ([#815](https://github.com/devswha/herdr-web-ui/pull/815) by @fitzgpt)
 - Native conversation transcripts for Hermes Agent: turns, thinking blocks, and tool calls are read directly from its SQLite session store. ([#604](https://github.com/devswha/herdr-web-ui/pull/604) by @RikiSanjayaa)
   A remote PC reads them once its bridge is updated to this release's runtime.
