@@ -45,7 +45,6 @@ interface Read {
   calls: Map<string, { name: string; input: Row }>;
 }
 const reads = new Map<string, Read>();
-const readKey = (source: PlanSource, path: string): string => `${source}\0${path}`;
 
 /**
  * The plan in `path` now: its steps in the order they were made, null when there is none (or it
@@ -58,7 +57,7 @@ export function readPlan(source: PlanSource, path: string, budget = { left: PLAN
 function planState(source: PlanSource, path: string, budget: { left: number }): { steps: PlanStep[] | null; behind: boolean } {
   const stat = plain(path);
   if (stat === null) return { steps: null, behind: false };
-  const key = readKey(source, path);
+  const key = `${source}\0${path}`;
   let state = reads.get(key);
   if (!state || state.id !== stat.id || state.offset > stat.size) {
     state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map() };
@@ -251,12 +250,14 @@ export class SessionPlans {
     return this.panes.get(paneId)?.summary ?? null;
   }
 
-  /** The pane's plan now, read on the spot; null when it has none or its transcript is not known. */
-  planOf(paneId: string): PlanStep[] | null {
-    const where = this.panes.get(paneId)?.where;
-    if (!where) return null;
-    // a transcript still on its first read is read on by the poll, in its shared budget: a request reads none of it
-    return readPlan(where.source, where.path, reads.get(readKey(where.source, where.path))?.catching ? { left: 0 } : undefined);
+  /**
+   * The plan of the pane as herdr has it now (undefined: herdr did not say), as the poll last read it: null when it has
+   * none, or its transcript is not known for the session it runs, or not read to its end yet.
+   */
+  planOf(pane: HerdrPane | undefined): PlanStep[] | null {
+    const where = pane !== undefined && this.known(pane) ? this.panes.get(pane.pane_id)?.where : null;
+    // a request reads nothing itself, however much was written since: the poll reads, in its shared budget
+    return where ? readPlan(where.source, where.path, { left: 0 }) : null;
   }
 
   /** The pane's transcript is known, and was found for the session the pane runs now. */

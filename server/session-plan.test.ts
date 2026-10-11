@@ -174,7 +174,7 @@ describe("SessionPlans", () => {
     plans.poll();
     expect(changes.at(-1)).toEqual(["p1", { done: 0, total: 2, current: "Doing one" }]);
     expect(changes).toHaveLength(2);
-    expect(plans.planOf("p1")?.map((step) => step.status)).toEqual(["in_progress", "pending"]);
+    expect(plans.planOf(pane("p1", "claude"))?.map((step) => step.status)).toEqual(["in_progress", "pending"]);
     // a Codex pane whose rollout was not found is not asked again at once
     await plans.refresh([pane("p1", "claude"), pane("p2", "codex")]);
     expect(codexLookups).toBe(1);
@@ -221,6 +221,35 @@ describe("SessionPlans", () => {
     expect(plans.known(pane("p3", "codex"))).toBe(true);
   });
 
+  it("tells a request the plan as the poll last read it, and reads nothing for it", async () => {
+    const s = claude();
+    s.create("One");
+    const plans = new SessionPlans({ claudePath: () => s.path, codexPath: async () => null, onChange: () => {} });
+    await plans.refresh([pane("p1", "claude")]);
+    // no poll has read the transcript yet: a request does not read it
+    expect(plans.planOf(pane("p1", "claude"))).toBeNull();
+    plans.poll();
+    expect(plans.planOf(pane("p1", "claude"))?.map((step) => step.label)).toEqual(["One"]);
+    // what was written since, however much, is the next poll's to read
+    s.create("Two", 2);
+    expect(plans.planOf(pane("p1", "claude"))?.map((step) => step.label)).toEqual(["One"]);
+    plans.poll();
+    expect(plans.planOf(pane("p1", "claude"))?.map((step) => step.label)).toEqual(["One", "Two"]);
+  });
+
+  it("tells a plan only for the pane as herdr has it now, in the session its transcript was found for", async () => {
+    const s = claude();
+    s.create("One");
+    const plans = new SessionPlans({ claudePath: () => s.path, codexPath: async () => null, onChange: () => {} });
+    await plans.refresh([pane("p1", "claude")]);
+    plans.poll();
+    expect(plans.planOf(pane("p1", "claude"))?.map((step) => step.label)).toEqual(["One"]);
+    // herdr did not say in time, or no longer has the pane: what was read for it is not told
+    expect(plans.planOf(undefined)).toBeNull();
+    // the pane runs another session now, not looked up yet
+    expect(plans.planOf(pane("p1", "claude", "s2"))).toBeNull();
+  });
+
   it("knows a pane's transcript only for the session it was found for", async () => {
     const f = file("rollout.jsonl");
     const plans = new SessionPlans({ claudePath: () => null, codexPath: async () => f.path, onChange: () => {} });
@@ -255,10 +284,10 @@ describe("SessionPlans", () => {
     plans.poll();
     expect(changes).toEqual([]);
     // the first read is the poll's, in its shared budget: a request does not read on with a budget of its own
-    expect(plans.planOf("p1")).toBeNull();
+    expect(plans.planOf(pane("p1", "claude"))).toBeNull();
     plans.poll();
     expect(changes).toEqual([{ done: 0, total: 2, current: null }]);
-    expect(plans.planOf("p1")?.map((step) => step.label)).toEqual(["Far", "Near"]);
+    expect(plans.planOf(pane("p1", "claude"))?.map((step) => step.label)).toEqual(["Far", "Near"]);
   });
 });
 

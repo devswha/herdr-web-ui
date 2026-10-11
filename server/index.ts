@@ -2244,9 +2244,8 @@ export function createServer(
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         const paneId = url.searchParams.get("pane_id");
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        // the pane as herdr has it now, for a second at most (a slow herdr answers with what is known): one the
-        // background lookup has not got to yet is looked up here, and so is one that runs another session than
-        // the one its transcript was found for, whose plan that transcript is not.
+        // the pane as herdr has it now, for a second at most: one the background lookup has not got to yet is looked
+        // up here, and so is one that runs another session than the one its transcript was found for.
         // An OmO pane reads as `claude` in herdr's own snapshot: its plan is no Claude task list
         const seen: { pane?: HerdrPane } = {};
         if (omo.sessionOf(paneId) === null) {
@@ -2257,8 +2256,9 @@ export function createServer(
             await plans.ensure(pane, true);
           })());
         }
-        // the session herdr has the pane in is not looked up yet (or runs no agent with a plan): no plan, not the one before's
-        const steps = seen.pane !== undefined && !plans.known(seen.pane) ? null : plans.planOf(paneId);
+        // only the pane as herdr has it now is told its plan: one herdr did not answer for in time, no longer has, or has
+        // in a session not looked up yet is told none, never the plan read before (session-plan.ts planOf)
+        const steps = plans.planOf(seen.pane);
         const answer: PanePlan = { plan: steps === null ? null : { steps }, server_time: new Date().toISOString() };
         return jsonResponse(answer);
       }
