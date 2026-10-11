@@ -32,8 +32,10 @@ export function toggleSidebarPin(keys: readonly string[], key: string): string[]
   return keys.includes(key) ? keys.filter((current) => current !== key) : [...keys, key];
 }
 
-export function pruneSidebarPins(keys: readonly string[], liveKeys: ReadonlySet<string>): string[] {
-  return keys.filter((key) => liveKeys.has(key));
+export function pruneSidebarPins(keys: readonly string[], liveKeys: ReadonlySet<string>, machines: readonly { id: string; snapshot: object | null }[]): string[] {
+  if (machines.length === 0) return [...keys];
+  const loading = machines.filter((machine) => machine.snapshot === null).map((machine) => `${machine.id}:`);
+  return keys.filter((key) => liveKeys.has(key) || loading.some((prefix) => key.startsWith(prefix)));
 }
 
 /** Pinned rows keep their saved order. Other rows retain the source roster order. */

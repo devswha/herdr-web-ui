@@ -13,7 +13,16 @@ describe("sidebar agent pins", () => {
   });
 
   it("prunes only panes absent from the live roster", () => {
-    expect(pruneSidebarPins(["pc-a:p1", "pc-b:p1"], new Set(["pc-b:p1"]))).toEqual(["pc-b:p1"]);
+    expect(pruneSidebarPins(["pc-a:p1", "pc-b:p1"], new Set(["pc-b:p1"]), [{ id: "pc-a", snapshot: {} }, { id: "pc-b", snapshot: {} }])).toEqual(["pc-b:p1"]);
+  });
+
+  it("keeps saved pins until each machine's agent roster has loaded", () => {
+    const pins = ["local:p1", "remote:p2"];
+    const live = new Set(["local:p1"]);
+    expect(pruneSidebarPins(pins, new Set(), [])).toEqual(pins);
+    expect(pruneSidebarPins(pins, new Set(), [{ id: "local", snapshot: null }, { id: "remote", snapshot: null }])).toEqual(pins);
+    expect(pruneSidebarPins(pins, live, [{ id: "local", snapshot: {} }, { id: "remote", snapshot: null }])).toEqual(pins);
+    expect(pruneSidebarPins(pins, live, [{ id: "local", snapshot: {} }, { id: "remote", snapshot: {} }])).toEqual(["local:p1"]);
   });
 
   it("places pinned rows first and keeps source order for the rest", () => {
