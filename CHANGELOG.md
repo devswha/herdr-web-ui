@@ -7,6 +7,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Added
+- **Settings → Composer → Send queued messages automatically** (on by default). Turned off, a
+  message sent while the agent works waits under the message box until you press **Send now**,
+  instead of going by itself when the turn ends. A PC whose bridge is older than this release
+  still sends it at the turn's end.
+
 ## [0.4.7] - 2026-10-12
 
 ### Added

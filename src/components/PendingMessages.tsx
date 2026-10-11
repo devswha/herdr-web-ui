@@ -36,7 +36,7 @@ export function PendingMessages({ messages, active = true, connected, blocked, u
     {messages.map((message) => {
       const busy = isBusy(message.id) || message.state === "sending";
       const uncertain = message.state === "uncertain";
-      const status = busy ? t("Sending…") : message.state === "queued" ? t("Next turn") : uncertain ? t("Not confirmed. Check the terminal before sending again.") : t("Held message — review and send");
+      const status = busy ? t("Sending…") : message.state === "queued" ? t("Next turn") : message.state === "held" && !message.error ? t("Waits for Send now") : uncertain ? t("Not confirmed. Check the terminal before sending again.") : t("Held message — review and send");
       return <li key={message.id} className="pending-message" data-state={message.state}>
         <div className="pending-message-bubble" aria-busy={busy || undefined}>{message.text}</div>
         <div className="pending-message-meta">

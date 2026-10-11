@@ -118,6 +118,29 @@ it("refuses queued delivery on older bridges without writing its text or a fallb
   }
 });
 
+it("holds a message for Send now only on bridges that list pending-hold", async () => {
+  for (const [features, held] of [[["submit", "pending-input"], false], [["submit", "pending-input", "pending-hold"], true]] as const) {
+    const client = new HerdrSocket("ws://test/ws");
+    client.connect();
+    const socket = FakeSocket.last;
+    socket.open();
+    socket.receive(snapshot([...features]));
+    expect(client.canHoldMessages()).toBe(held);
+    const result = client.submit("w1:p1", "later", "later", false, "hold");
+    if (!held) {
+      expect(await result).toMatchObject({ ok: false, code: "pending_input_unsupported" });
+      expect(submissions(socket)).toEqual([]);
+    } else {
+      for (let turn = 0; turn < 10 && submissions(socket).length === 0; turn++) await Promise.resolve();
+      expect(submissions(socket)).toEqual([{ type: "submit", id: 1, pane_id: "w1:p1", text: "later", payload: "later", delivery: "hold" }]);
+      const pending: PendingMessage = { id: "pending-1", request_id: 1, text: "later", state: "held", created_at: "2026-10-06T00:00:00Z" };
+      socket.receive({ type: "submit-result", id: 1, pane_id: "w1:p1", ok: true, pending });
+      expect(await result).toEqual({ ok: true, pending });
+    }
+    client.close();
+  }
+});
+
 it("accepts an owner-only pending item as the submit receipt when its separate ACK was lost", async () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();
