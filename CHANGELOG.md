@@ -54,6 +54,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Chat hides a rejected conversation immediately, even when reading its terminal fallback
   is slow or fails, so removed history does not remain on screen.
   ([#789](https://github.com/devswha/herdr-web-ui/pull/789) by @infowolfe)
+- When a chat message is not sent because Claude Code's input box in the terminal is not empty,
+  the note now says what the box holds, and a one-line draft there can be cleared from the chat
+  with Clear it and send. The chat did not show that text, so Send seemed to do nothing until the
+  text was found and deleted in the terminal. The cleared text comes back in the terminal with Ctrl+Y.
+  ([#728](https://github.com/devswha/herdr-web-ui/pull/728) by @jiunshinn)
 - A Claude Code chat whose session continued in a new transcript file (the old file holds only
   a `continued-in` record) now shows the conversation from the file Claude writes to, instead of
   an empty chat.
