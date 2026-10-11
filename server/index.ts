@@ -643,6 +643,9 @@ export function createServer(
             await clearScreenReady();
             const currentDraft = claudeClearableDraft(...reads);
             if (currentDraft !== clearDraft) throw new InputDraftError(currentDraft, identity ?? undefined);
+            // The final draft comparison and clearing keys are not atomic (herdr has no compare-and-clear),
+            // so terminal text another client types moments after the user's explicit "Clear it and send"
+            // click can also be cleared.
             // Connecting to herdr also yields: check the budget and authority again at the write.
             const allowed = (): boolean => {
               try { inTime(reserve); clearedDraft = true; return true; } catch { return false; }
