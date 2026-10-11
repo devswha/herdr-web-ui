@@ -10,7 +10,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ### Fixed
 - A PC window left in front while you used the terminal on a phone stayed at the phone's size
   when you came back, because it never lost the focus and so never took the pane back. A click
-  or a key in its terminal now returns the pane to the PC's size.
+  or a key in its terminal now returns the pane to the PC's size. ([#839](https://github.com/devswha/herdr-web-ui/pull/839))
 
 ## [0.4.7] - 2026-10-12
 
