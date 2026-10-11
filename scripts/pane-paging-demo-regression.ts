@@ -227,11 +227,16 @@ try {
             await page.screenshot({ path: join(evidence, "page-overlap-phone.png") });
             assert.ok(await page.locator(".settings-body:not([hidden])").evaluate((node) => node.scrollWidth <= node.clientWidth), "paging settings fit a narrow phone");
             await page.setViewportSize({ width: 1024, height: 600 });
+            await settled(page);
           }
           await page.keyboard.press("Escape");
+          await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor({ state: "hidden" });
           await composer.focus();
+          await transcript.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+          await settled(page);
+          const remappedBottom = await transcript.evaluate((node) => node.scrollTop);
           await page.keyboard.press("Meta+Shift+U");
-          assert.ok(await transcript.evaluate((node) => node.scrollTop) < bottom - 50, "letter overrides page without dedicated iPad PageUp keys");
+          assert.ok(await transcript.evaluate((node) => node.scrollTop) < remappedBottom - 50, "letter overrides page without dedicated iPad PageUp keys");
           await page.keyboard.press("Meta+Shift+D");
           await page.reload();
           await page.locator(".conn-live").waitFor();
