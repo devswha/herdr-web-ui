@@ -675,7 +675,8 @@ One set for both themes: the card is island black wherever it shows.
   close confirmation. A right-click opens tab actions at the pointer, including Move tab left/right
   when a neighbouring position exists. Desktop tabs have no close or dropdown buttons. Touch and narrow layouts show a `⋯` beside
   the selected tab for the same menu; Shift+F10 or the menu key opens it from a focused tab.
-  Pane actions are not tab actions.
+  Pane actions are not tab actions. Up to 768px, where a split tab shows one pane at a time, the
+  tab's menu lists the tab's panes first, the open one marked current, over a hairline.
 - Mouse dragging previews an accent insertion line, with edge scrolling for an overflowing strip.
   The snapshot's tab order is authoritative: a tab's stable `number` is not its place. A drop calls
   `tab.move` with an insertion boundary before removal, within that workspace and PC. The visible
@@ -698,6 +699,10 @@ One set for both themes: the card is island black wherever it shows.
   pane with the previously selected pane and retains the latter's focus. A close confirms when
   the pane is busy or is the last pane of the workspace. Rename is herdr's label; clearing it
   returns to its automatic title. Herdr owns every resulting layout and name.
+- Up to 768px a split has no room: the canvas shows the selected pane alone, full size and
+  borderless as a zoomed one, with no split boundary, and the tab's menu picks another. The
+  other panes stay mounted and hidden at the same full size. This is only what the browser draws:
+  herdr's layout and zoom are not changed, and a wider window draws the split again.
 - Zoom uses herdr's zoom flag and focused pane. The other panes keep their mounted terminals
   hidden, preserving attachments and drafts; unzoom restores their rectangles. Web selection
   stays local to this browser and does not change herdr's focus in another client.
