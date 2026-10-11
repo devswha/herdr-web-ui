@@ -31,3 +31,17 @@ export function processStartedAt(pid: number): number | null {
     return null;
   }
 }
+
+/**
+ * macOS has no /proc: Claude records the process's start as `ps -o lstart` text in UTC, which a reused PID cannot repeat.
+ * It records the C locale's order ("Fri Oct  9"); an en_GB server's ps would print "Fri  9 Oct" and match no record.
+ */
+export async function darwinProcessStart(pid: number): Promise<string | null> {
+  const child = Bun.spawn(["/bin/ps", "-o", "lstart=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+  const timer = setTimeout(() => child.kill(), 3000);
+  try {
+    const text = (await new Response(child.stdout).text()).replace(/\s+/g, " ").trim();
+    await child.exited;
+    return text || null;
+  } finally { clearTimeout(timer); }
+}
