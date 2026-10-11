@@ -504,11 +504,39 @@ try {
         await page.waitForFunction(() => !Object.keys(history.state ?? {}).includes("herdr-web-ui:sheet"));
         await page.goBack();
         await waitSelected(page, INFRA);
+        await page.goForward();
+        await waitSelected(page, DOCS);
+        // an item that opens a dialog on the sheet's address keeps the sheet's entry: the New tab
+        // dialog stays up once the sheet's closing has settled, and Back closes the dialog alone
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "New tab", exact: true }).tap();
+        const creation = page.locator(".new-session-modal");
+        await creation.waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(await creation.isVisible(), true, "the New tab dialog stays up after the sheet's entry settles");
+        assert.equal(await page.evaluate(() => history.length), length + 1, "the dialog took the sheet's entry");
+        await page.goBack();
+        await creation.waitFor({ state: "detached" });
+        assert.equal(await selected(page), DOCS, "Back closed the dialog and left the pane alone");
+        // a sheet opened from a sheet (More → Move pane to…) reuses the entry: one Back closes it
+        await more.tap();
+        await sheet.waitFor();
+        await sheet.getByRole("button", { name: "Move pane to…", exact: true }).tap();
+        const move = page.getByRole("dialog", { name: /^Move / });
+        await move.waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(await page.evaluate(() => history.length), length + 1, "the second sheet took the first's entry");
+        await page.goBack();
+        await move.waitFor({ state: "detached" });
+        assert.equal(await selected(page), DOCS, "Back closed the second sheet and left the pane alone");
+        await page.goBack();
+        await waitSelected(page, INFRA);
         assert.deepEqual(errors, []);
       } finally {
         await phone.close();
       }
-      console.log("PASS a phone's sheet closes on Back without leaving its pane, and a sheet closed by Cancel leaves no Back step behind");
+      console.log("PASS a phone's sheet closes on Back without leaving its pane; Cancel, New tab and a second sheet leave no Back step behind");
     } finally {
       await browser.close();
     }
