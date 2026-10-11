@@ -4446,3 +4446,70 @@ describe("Claude Code 2.1.29x approvals and questions", () => {
       .toEqual(["ctrl+k", "ctrl+u", "text:builder-c", "enter"]);
   });
 });
+
+// Claude Code 2.1.296's multiple choice, captured in #752: a ticked row is drawn [✔], and the
+// unnumbered Submit row between the typed answer and "Chat about this" takes the cursor too
+describe("Claude's multiple choice ticked in the terminal", () => {
+  const screen = (ticked: boolean, at: "A" | "B" | "Submit" | "Chat") => [
+    `←  ${ticked ? "☒" : "☐"} Pick  ✔ Submit  →`,
+    "Which ones?",
+    `${at === "A" ? "❯" : " "} 1. [${ticked ? "✔" : " "}] Option A`,
+    "         First description",
+    `${at === "B" ? "❯" : " "} 2. [${ticked ? "✔" : " "}] Option B`,
+    "         Second description",
+    "  3. [ ] Type something",
+    `${at === "Submit" ? "❯" : " "}    Submit`,
+    "─".repeat(40),
+    `${at === "Chat" ? "❯" : " "} 4. Chat about this`,
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+  ].join("\n");
+
+  test("reads [✔] rows as ticked, without the box in their labels", () => {
+    const prompt = parseInteractivePrompt("claude", screen(true, "B"))!;
+    expect(prompt).toMatchObject({ kind: "question", title: "Multiple choice", question: "Which ones?", multi_select: true, custom_option_index: null });
+    expect(prompt.options.map((option) => option.label)).toEqual(["Option A", "Option B"]);
+    // both are ticked: only A is wanted, so B (under the cursor) is unticked, never ticked again
+    expect(answerKeys(prompt, { option_indices: [0] })).toEqual([{ keys: ["enter"] }, { keys: ["right"] }]);
+    expect(answerKeys(prompt, { option_indices: [0, 1] })).toEqual([{ keys: ["right"] }]);
+  });
+
+  test("keeps the card with the cursor on Submit, counting the moves from that row", () => {
+    const prompt = parseInteractivePrompt("claude", screen(true, "Submit"))!;
+    expect(prompt).toMatchObject({ question: "Which ones?", multi_select: true });
+    expect(prompt.options.map((option) => option.label)).toEqual(["Option A", "Option B"]);
+    // Submit → Type something → Option B
+    expect(answerKeys(prompt, { option_indices: [0] })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }, { keys: ["right"] }]);
+  });
+
+  test("counts the Submit row between the typed answer and Chat about this", () => {
+    const prompt = parseInteractivePrompt("claude", screen(false, "Chat"))!;
+    // Chat about this → Submit → Type something → Option B → Option A
+    expect(answerKeys(prompt, { option_indices: [0] })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }, { keys: ["right"] }]);
+  });
+});
+
+// #542: the model list's hint as a narrow pane wraps it, and the same words quoted in Claude's output
+describe("Claude Code's model list under a hint wrapped anywhere", () => {
+  const list = (hint: string) => claudeModelList(1).replace(CLAUDE_MODEL_HINT, hint);
+
+  test("holds the screen and reads the list with the hint split inside a word", () => {
+    const split = list("  Enter to set as default · s to use this ses\n  sion only · Esc to cancel");
+    expect(modelListWaits("claude", split)).toBe(true);
+    expect(modelListWaits("claude", `${split}──────────── Session name ─\n`)).toBe(true);
+    expect(parseInteractivePrompt("claude", split)?.options.map((option) => option.label)).toEqual(CLAUDE_MODELS.slice(0, 10).map(([name]) => name));
+    // the same list's text above later output still holds nothing
+    expect(modelListWaits("claude", `${split}Some later output\nand more\n`)).toBe(false);
+  });
+
+  test("holds the screen and reads the list with the hint over seven lines", () => {
+    const tall = list("  Enter to\n  set as\n  default ·\n  s to use\n  this\n  session\n  only · Esc to cancel");
+    expect(modelListWaits("claude", tall)).toBe(true);
+    expect(parseInteractivePrompt("claude", tall)?.options).toHaveLength(10);
+  });
+
+  test("does not take the hint quoted in Claude's output for an open list", () => {
+    const quoted = `${CLAUDE_MODEL_CLOSED}⏺ Example: Enter to set as default · s to use this session only · Esc to\n  cancel\n──────────── Summary ─\n`;
+    expect(modelListWaits("claude", quoted)).toBe(false);
+    expect(modelListWaits("claude", `⏺ Enter to set as default · s to use this session only · Esc to cancel\n`)).toBe(false);
+  });
+});

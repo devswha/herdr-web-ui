@@ -30,16 +30,20 @@ const CLAUDE_TABS_RE = /^←\s+[☐☒☑✔]/;
 const CLAUDE_CONFIRM_HINT_RE = /enter to confirm.*esc to (?:cancel|exit|go back)/i;
 /** Claude Code took invisible characters out of a message and holds it in its input (2.1.294) */
 const CLAUDE_HELD_HINT_RE = /^Removed (\d+) invisible characters?\s*·\s*review and press \S+ to send$/i;
-// Claude Code's `/model` list, by the two keys it takes a pick with: Enter saves it as the default
-// for new sessions, `s` keeps it to this session
-const CLAUDE_MODEL_HINT_RE = /enter to set as default.*\bs to use this session only.*esc to cancel/i;
 // Claude Code's `/effort` slider (2.1.294), the same two keys in other words: Enter saves the level
 // as the default for new sessions, `s` keeps it to this session
 const CLAUDE_EFFORT_HINT_RE = /←\/→ to adjust\s*·\s*enter to confirm\s*·\s*s for this session only\s*·\s*esc to cancel/i;
 // The slider by its keys alone, for the guard that keeps the fallback card and pending input off
 // it: a hint cut inside a word, or drawn without `s`, is still a slider whose Enter saves a default
-const CLAUDE_EFFORT_GUARD_RE = new RegExp(["←/→ to adjust · Enter to confirm", "Esc to cancel"]
+const guardRe = (parts: string[]): RegExp => new RegExp(parts
   .map((part) => [...part.replace(/\s+/g, "")].map((char) => char.replace(/[/.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*")).join(".*"), "i");
+const CLAUDE_EFFORT_GUARD_RE = guardRe(["←/→ to adjust · Enter to confirm", "Esc to cancel"]);
+// Claude Code's `/model` list, by the two keys it takes a pick with: Enter saves it as the default
+// for new sessions, `s` keeps it to this session. Read with spaces optional, as the slider's, for a
+// hint a narrow pane cut inside a word (#542)
+const CLAUDE_MODEL_GUARD_RE = guardRe(["Enter to set as default", "s to use this session only", "Esc to cancel"]);
+/** lines a hint is read over at most: a phone-width pane wraps the model list's over seven (#542) */
+const CLAUDE_HINT_LINES = 16;
 // Codex's `/model` lists, by the footer of the row under the cursor (its keymap's own words): a
 // row that only opens the next list takes Enter, a row that picks takes `s` for this session and
 // Enter to save the pick as the default (`enter apply` on Ultra)
@@ -179,6 +183,17 @@ function wrapped(lines: string[], index: number, span = 3): string {
   return lines.slice(index, index + span).map(cleanLine).filter((line) => line && !isDivider(line)).join(" ");
 }
 
+/** Lines as one, every space taken out: a hint a narrow pane wrapped anywhere, inside a word too, reads whole. */
+function compactLines(lines: string[]): string {
+  return lines.map(cleanLine).filter((line) => !isDivider(line)).join("").replace(/\s+/g, "");
+}
+
+/** Whether hint `re` (spaces optional between its characters) begins line `index` and is read whole by line `end`. */
+function hintAt(lines: string[], index: number, re: RegExp, end = index + CLAUDE_HINT_LINES): boolean {
+  if (!cleanLine(lines[index] ?? "") || isDivider(cleanLine(lines[index]!))) return false;
+  return re.exec(compactLines(lines.slice(index, end)))?.index === 0;
+}
+
 function nearestQuestion(lines: string[], beforeIndex: number): string | null {
   for (let index = beforeIndex - 1; index >= Math.max(0, beforeIndex - 14); index -= 1) {
     const line = cleanLine(lines[index]!);
@@ -219,8 +234,9 @@ function parseNumberedRows(lines: string[], start: number, end: number): Numbere
     const match = lines[index]!.replace(ANSI_RE, "").trim().match(NUMBERED_OPTION_RE);
     if (!match) continue;
     let label = match[3]!.trim();
-    const checked = /^\[[xX✓]\]/.test(label);
-    label = label.replace(/^\[[ xX✓]\]\s*/, "").trim();
+    // Claude Code 2.1.296 ticks a row with ✔, older ones with ✓
+    const checked = /^\[[xX✓✔]\]/.test(label);
+    label = label.replace(/^\[[ xX✓✔]\]\s*/, "").trim();
     rows.push({ number: Number.parseInt(match[2]!, 10), label, selected: Boolean(match[1]), checked, lineIndex: index });
   }
   for (let index = 0; index < rows.length; index += 1) {
@@ -512,7 +528,12 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   // with a preview the options end at the rule above "Chat about this": nothing under it is theirs
   const end = preview ? findLastIndex(lines.slice(0, hintIndex), (line) => isDivider(line)) : hintIndex;
   const rows = menuRows(lines, Math.max(0, hintIndex - 64), end);
-  if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
+  // a multiple choice draws an unnumbered Submit row between the typed answer and "Chat about
+  // this", which the cursor moves through like any other row
+  const submitLine = rows.length < 2 ? undefined
+    : lines.slice(rows.at(-2)!.lineIndex + 1, rows.at(-1)!.lineIndex).map(cleanLine).find((line) => /^(?:[›>❯]\s*)?Submit$/.test(line));
+  const onSubmit = submitLine !== undefined && SELECTED_RE.test(submitLine);
+  if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== (onSubmit ? 0 : 1)) return null;
   const chatIndex = rows.findIndex((row) => row.label === "Chat about this");
   let customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));
   // typed into, the row shows the draft instead of "Type something.", with the cursor on it or
@@ -531,7 +552,12 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const chip = tabs === null ? claudeChip(lines, rows[0]!.lineIndex) : null;
   if (!question) return null;
   const optionRows = preview ? rows : rows.slice(0, customIndex);
-  const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]!));
+  const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓✔]\]/.test(lines[row.lineIndex]!));
+  if (onSubmit && !multiSelect) return null;
+  const submit = multiSelect && submitLine !== undefined;
+  const rowAt = rows.findIndex((row) => row.selected);
+  // the cursor's place among the rows it moves through, Submit counted before the last one
+  const selectedIndex = onSubmit ? rows.length - 1 : submit && rowAt === rows.length - 1 ? rowAt + 1 : rowAt;
   const current = tabs?.tabs.findIndex((tab) => !tab.answered) ?? -1;
   // a bar cut off by a narrow pane does not show how many questions there are
   const title = tabs && current >= 0 ? `${tabs.tabs[current]!.label}${tabs.whole && tabs.tabs.length > 1 ? ` · ${current + 1} of ${tabs.tabs.length}` : ""}`
@@ -541,8 +567,9 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
     multi_select: multiSelect, custom_option_index: multiSelect || preview ? null : customIndex,
   }, {
-    responder: "claude-question", menuLabels: rows.map((row) => row.label),
-    selectedIndex: rows.findIndex((row) => row.selected),
+    responder: "claude-question",
+    menuLabels: submit ? [...rows.slice(0, -1).map((row) => row.label), "Submit", rows.at(-1)!.label] : rows.map((row) => row.label),
+    selectedIndex,
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: preview ? null : customIndex, rejectWithEscapeIndex: null,
     // an answer typed into the draft would join it, so once the cursor is in the row it is
@@ -1688,15 +1715,19 @@ export function modelListWaits(agent: string, screen: string): boolean {
  * saves the row under the cursor as the default for every new session. `hint`: the effort slider's
  * instead, whose Enter saves a default the same way.
  */
-function claudeModelListWaits(screen: string, hint: RegExp = CLAUDE_MODEL_HINT_RE): boolean {
+function claudeModelListWaits(screen: string, hint: RegExp = CLAUDE_MODEL_GUARD_RE): boolean {
   const visible = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine).filter((line) => line && !isDivider(line));
-  // wider than the reader's own window: a hint wrapped further than it reads is still this list's.
-  // The match runs into the line it ends at, as in promptTailIsActive: a hint that ended above
-  // later output is an answered list's, and holds nothing
-  const ends = (lines: string[], end: number): boolean => [1, 2, 3, 4, 5, 6].some((span) => {
-    const from = Math.max(0, end - span);
-    return hint.test(lines.slice(from, end).join(" ")) && (span === 1 || !hint.test(lines.slice(from, end - 1).join(" ")));
-  });
+  // The hint is read with its spaces taken out over as many lines as a narrow pane wraps it to,
+  // also inside a word. The shortest run of lines holding it must begin with it, so the same
+  // words quoted in Claude's output (`\u23fa Example: Enter to set\u2026`) are no list, and run into
+  // the line it ends at, as in promptTailIsActive: a hint that ended above later output is an
+  // answered list's, and holds nothing
+  const ends = (lines: string[], end: number): boolean => {
+    for (let from = end - 1; from >= Math.max(0, end - CLAUDE_HINT_LINES); from -= 1) {
+      if (hint.test(compactLines(lines.slice(from, end)))) return hintAt(lines, from, hint, end) && !hint.test(compactLines(lines.slice(from, end - 1)));
+    }
+    return false;
+  };
   // Claude's own footer under the open list (the session's rule, its task list) is no later
   // output, and it sits under a wrapped hint as under a whole one
   const shown = withoutClaudeTasks(visible, ends);
@@ -1705,7 +1736,8 @@ function claudeModelListWaits(screen: string, hint: RegExp = CLAUDE_MODEL_HINT_R
 
 function parseClaudeModel(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
-  const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_MODEL_HINT_RE.test(wrapped(lines, index)));
+  // read as the guard reads it, so the card and the guard agree (#542)
+  const hintIndex = findLastIndex(lines, (_, index) => hintAt(lines, index, CLAUDE_MODEL_GUARD_RE));
   if (hintIndex < 0) return null;
   const { rows, below, last, unread } = listRows(lines, hintIndex, CLAUDE_MODEL_ROW_RE, CLAUDE_MODEL_MORE_RE);
   const under = lines.slice(last + 1, hintIndex).filter((line) => line.trim() !== "").length;
@@ -1863,7 +1895,7 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   if (prompt.responder === "claude-confirm") return ends(CLAUDE_CONFIRM_HINT_RE);
   // its parser already found the hint over the input box with only the footer under it
   if (prompt.responder === "claude-held") return true;
-  if (prompt.responder === "claude-model") return ends(CLAUDE_MODEL_HINT_RE);
+  if (prompt.responder === "claude-model") return claudeModelListWaits(screen);
   if (prompt.responder === "claude-effort") return ends(CLAUDE_EFFORT_HINT_RE);
   if (prompt.responder === "codex-model") return ends(/(?:^|\s)enter select\s*·\s*esc back$|(?:^|\s)enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i);
   if (prompt.responder === "omo-question" || prompt.responder === "omo-review" || prompt.responder === "omo-typing") {
