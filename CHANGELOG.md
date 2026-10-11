@@ -23,6 +23,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
 
 ### Changed
+- **Open in a new tab** on a markdown file opens a page of just the document, with its name, path,
+  **Open raw file** and **Download** above it, instead of a second copy of the whole app with the
+  file viewer over it. A link in the document to another file opens there, from the document's
+  folder, and Back returns. Links made before (`?file=…`) still open the app with the viewer.
 - New workspace's recent folders leave out worktree checkouts (herdr's under `~/.herdr/worktrees`
   and the linked worktrees a PC has open) and temporary folders such as `/tmp`, and offer up to
   eight folders instead of three: a phone swipes them sideways on one row, a wider screen wraps them.
