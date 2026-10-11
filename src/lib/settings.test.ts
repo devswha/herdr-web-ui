@@ -73,6 +73,15 @@ it("shows the Agents list's pin stars only when they were turned on", () => {
   }
 });
 
+it("draws agent logos in their brand colors unless Mono was chosen", () => {
+  expect(DEFAULT_SETTINGS.agentMarks).toBe("color");
+  expect(sanitizeSettings({}).agentMarks).toBe("color");
+  expect(sanitizeSettings({ agentMarks: "mono" }).agentMarks).toBe("mono");
+  for (const agentMarks of [null, "Mono", "off", 1]) {
+    expect(sanitizeSettings({ agentMarks }).agentMarks).toBe("color");
+  }
+});
+
 it("keeps the plan's flow and its header count unless they were turned off", () => {
   expect([DEFAULT_SETTINGS.planFlow, DEFAULT_SETTINGS.planButton]).toEqual([true, true]);
   expect(sanitizeSettings({})).toMatchObject({ planFlow: true, planButton: true });
