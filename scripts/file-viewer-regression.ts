@@ -426,6 +426,16 @@ try {
   // seven lines and the empty one after the final newline, which the source keeps (#710)
   assert.equal(await guide.locator(".file-viewer-text .hl-line").count(), 8);
   assert.match(await guide.locator(".file-viewer-text").innerText(), /# Guide/);
+  // the gutter is drawn: every line counts itself in a box of its own, which the text leaves out
+  assert.equal(await guide.locator(".file-viewer-text[data-line-numbers]").count(), 1, "a gutter");
+  assert.match(await guide.locator(".file-viewer-text").evaluate((pre) => getComputedStyle(pre).counterReset), /\bline\b/);
+  const gutter = await guide.locator(".file-viewer-text .hl-line").evaluateAll((lines) => lines.map((line) => {
+    const before = getComputedStyle(line, "::before");
+    return { content: before.content, width: parseFloat(before.width) || 0 };
+  }));
+  assert.ok(gutter.every((line) => line.content === "counter(line)" && line.width > 0), `numbers drawn: ${JSON.stringify(gutter)}`);
+  assert.doesNotMatch(await guide.locator(".file-viewer-text").innerText(), /^1/);
+  if (process.env.UI_EVIDENCE_DIR) await guide.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "code-line-numbers.png") });
   console.log("PASS Code shows the Markdown source, one numbered line each");
   const raw = guide.getByRole("link", { name: "Open raw file", exact: true });
   assert.equal(await raw.getAttribute("target"), "_blank");

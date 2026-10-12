@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
 
-import { OpenFileContext, resolveFromFile } from "../lib/filePaths.ts";
+import { OpenFileContext } from "../lib/filePaths.ts";
+import { resolveFromDocument } from "../lib/fileReader.ts";
 import type { Lines } from "../lib/highlight.ts";
 import type { MarkdownBlock } from "../lib/markdown.ts";
 import { useSettings, type MarkdownWidth } from "../lib/settings.ts";
@@ -31,7 +32,7 @@ export function TextFileView({ path, blocks, lines, onOpen, sourceRef }: TextFil
   // value changes only with the file, and the memoized Markdown and its links are left alone
   const onOpenRef = useRef(onOpen);
   useLayoutEffect(() => { onOpenRef.current = onOpen; });
-  const openLink = useCallback((href: string) => onOpenRef.current(resolveFromFile(path, href)), [path]);
+  const openLink = useCallback((href: string) => onOpenRef.current(resolveFromDocument(path, href)), [path]);
   return <div className="file-viewer-content">
     {blocks !== null
       ? <OpenFileContext.Provider value={openLink}><ParsedMarkdown className={MARKDOWN_CLASS[settings.markdownWidth]} blocks={blocks} /></OpenFileContext.Provider>

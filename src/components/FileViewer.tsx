@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Check, Code, Copy, Download, ExternalLink, TriangleAlert, X } from "lucide-react";
+import { Braces, Check, Code, Copy, Download, ExternalLink, TriangleAlert, X } from "lucide-react";
 
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -283,7 +283,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       {/* how the text shows: Preview or source is one choice of two, so one toggle; wrapping is a
           setting (Settings → File viewer), not an action here */}
       {textFile && previewable && <div className="file-viewer-group">
-        <button type="button" className="icon-button file-viewer-action" aria-pressed={mode === "code"} aria-label={t("Show source")} title={t("Show source")} onClick={() => setChosen({ path, mode: mode === "code" ? "preview" : "code" })}><Code aria-hidden="true" /></button>
+        <button type="button" className="icon-button file-viewer-action" aria-pressed={mode === "code"} aria-label={t("Show source")} title={t("Show source")} onClick={() => setChosen({ path, mode: mode === "code" ? "preview" : "code" })}><Braces aria-hidden="true" /></button>
       </div>}
       {/* the file itself: a Markdown tab is the reader; raw and download keep the original bytes */}
       <div className="file-viewer-group">

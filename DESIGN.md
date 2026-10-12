@@ -285,7 +285,7 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   on close or navigation and a 5 s fetch deadline. Partial text ends at the last whole line when
   one exists; the response's Content-Range supplies the total, and an empty 416 opens empty.
   A Markdown file its Preview cannot
-  be parsed for within 2 s, or whose Preview would draw over 20 000 elements, opens as its source
+  be parsed for within 2 s, or whose Preview would draw over 60 000 elements, opens as its source
   with a notice; code a worker cannot highlight within 2 s stays plain with one, and code of over
   20 000 lines is one text without line numbers, with one too.
 - All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
@@ -839,7 +839,8 @@ One set for both themes: the card is island black wherever it shows.
   Markdown files use the same renderer in the file viewer. **Open in a new tab** opens an
   app link to the resolved absolute file on its own PC, independent of the originating pane.
   **Open raw file** (Code glyph) opens the original bytes; Download still saves those bytes.
-  The reader page and dialog share **Show source**, highlighted source with CSS-counter line
+  The reader page and dialog share **Show source** (Braces glyph, pressed while the source shows, so it
+  never looks like Open raw file), highlighted source with CSS-counter line
   numbers, and **Copy file** for complete text (selecting the source if clipboard copy fails).
   There is no separate Raw action. HTML blocks in Markdown files are parsed in the preview worker
   with HTML enabled; local images still pass through the file endpoint's image-size check.

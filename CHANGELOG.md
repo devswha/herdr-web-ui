@@ -23,7 +23,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   when it is back. A watching device follows the shared settings and cannot change them for everyone. ([#854](https://github.com/devswha/herdr-web-ui/pull/854))
 
 ### Changed
-- Markdown file previews are parsed in a worker with a 2 s budget and a 20 000-element limit,
+- Markdown file previews are parsed in a worker with a 2 s budget and a 60 000-element limit,
   keeping the existing HTML blocks, images and reader-page navigation. A preview that cannot
   be drawn offers its source. Partial text and preview, highlighting or line-number limits are
   reported beside the file size with a warning icon and tooltip. **Open in a new tab**,
