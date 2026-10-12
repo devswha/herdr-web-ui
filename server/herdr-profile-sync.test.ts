@@ -351,6 +351,16 @@ describe("automatic herdr machine inheritance", () => {
     manager.syncHerdrProfiles([profile]);
     expect(manager.list()[1]).toMatchObject({ state: "error", action_required: "bridge_conflict", error: "Another bridge owns this session" });
   });
+  it("sends a connected PC's bridge update without bridge approval to its dialog instead of updating it", () => {
+    const { manager, internals } = fixture();
+    internals.profileState.allowConnection(profile.id, profile.target!);
+    manager.syncHerdrProfiles([profile]);
+    const machine = manager.list()[1]!;
+    let refused: unknown;
+    try { manager.updateBridge(machine.id); } catch (error) { refused = error; }
+    expect(refused).toMatchObject({ action: "update_bridge" });
+    expect(internals.profileState.approved(profile.id, profile.target!)).toBe(false);
+  });
   it("backs off repeated discovery errors and logs again only after recovery", async () => {
     const { manager } = fixture();
     const log = spyOn(console, "error").mockImplementation(() => {}); cleanups.push(() => log.mockRestore());

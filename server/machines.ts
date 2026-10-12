@@ -389,6 +389,9 @@ export class MachineManager {
     const runtime = this.machines.get(id);
     if (!runtime) throw new Error("PC not found");
     if (!this.mayConnect(runtime)) throw new MachineActionRequired("Connect this machine first", "connect");
+    // A saved herdr machine connected without bridge approval reviews the update in its dialog;
+    // an unattended update would also record that approval for later automatic updates.
+    if (!this.mayManageBridge(runtime)) throw new MachineActionRequired("Review the bridge update for this machine", "update_bridge");
     // the user's own Update bridge takes back an earlier Cancel; a scheduled one does not
     if (!scheduled) runtime.updateCancelled = false;
     return this.setup({ ...runtime.machine.target!, machine_id: id, update_remote: true }, { auto: true });
