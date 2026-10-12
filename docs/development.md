@@ -497,7 +497,8 @@ under `docs/`, ends in `.md` or `.txt`, is the root `LICENSE` or sits under
 `.github/ISSUE_TEMPLATE/`. Pushes, dispatches and runs called from `release.yml` or `pages.yml`
 always validate in full.
 
-The runner is an ephemeral Docker container that runs one job and exits. Its image ships Bun,
+The runner is an ephemeral Docker container that runs one job and exits. Containers have no CPU
+quota or total-memory limit; concurrent slots share the host's available resources. Its image ships Bun,
 Node 22, checksum-pinned herdr, Playwright Chromium and its system libraries, ffmpeg, git, the
 checksum-pinned GitHub CLI (`gh`) for deployment and release publishing, curl, jq, unzip,
 xz-utils and CA certificates, with no sudo. Self-hosted setup verifies the prepared tools and
@@ -506,7 +507,10 @@ its pins; its Bun pin must match `.github/actions/setup-ci/action.yml`, and its 
 must match `bun.lock`.
 
 The composite setup action used by `ci.yml`, `pages.yml` and `release.yml` keeps Bun's dependency
-cache in `.ci-cache/bun`, with separate keys per runner environment. Hosted browsers use
+cache in `.ci-cache/bun`. Only GitHub-hosted jobs restore/save that cache remotely: on the measured
+self-hosted connection, downloading the archive took longer than a fresh dependency install.
+Self-hosted jobs install directly from the lockfile without transferring a remote dependency cache.
+Hosted browsers use
 `.ci-cache/playwright`; self-hosted browsers come from the image. Neither cache restores a
 home-directory archive across different workspace depths. Tool/browser preparation no longer
 downloads on self-hosted jobs, but dependency installation, checkout and artifact transfers still

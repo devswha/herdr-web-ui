@@ -11,7 +11,7 @@ An ephemeral Docker GitHub Actions runner for this repository's Linux CI/CD jobs
 
 ```sh
 scripts/self-hosted-runner/run.sh                         # 1 slot, repo from the current checkout
-scripts/self-hosted-runner/run.sh --count 3 --cpus 8 --memory 12g
+scripts/self-hosted-runner/run.sh --count 3
 scripts/self-hosted-runner/run.sh --repo OWNER/NAME --labels herdr-ci --build
 scripts/self-hosted-runner/run.sh --once                  # one container per slot, then exit
 ```
@@ -20,6 +20,10 @@ The image `herdr-ci-runner:local` is built when missing or with `--build`. Ctrl+
 
 `--once` exits nonzero if registration-token retrieval or any container fails. Its exit status
 reports launcher/container execution, not the GitHub Actions job's conclusion.
+
+Runner containers have no CPU or total-memory quota and can use available host resources. The
+`--shm-size 2g` Docker setting sizes `/dev/shm` for browser scratch space; it is not a total RAM
+limit. The container still has a pids limit of 8192.
 
 ## Prepared tools and caches
 
@@ -30,14 +34,16 @@ download fallback. Rebuild with `--build` after changing the tool pins or Playwr
 The image's `BUN_VERSION` must match the default in `.github/actions/setup-ci/action.yml`, and
 `PLAYWRIGHT_VERSION` must match the lockfile.
 
-Bun dependencies are still installed from `bun.lock`. Their download cache lives at
-`.ci-cache/bun` inside the checkout, with separate hosted/self-hosted cache keys. Hosted browser
-caches use `.ci-cache/playwright`; self-hosted jobs skip that remote cache because the browser is
-already in the image. Workspace-relative archives avoid restoring home-directory paths from a
-different checkout depth (GitHub's workspace versus `/w`).
+Bun dependencies are installed from `bun.lock`, with the local install-cache directory at
+`.ci-cache/bun` retained inside the checkout. Only hosted jobs restore and save that directory as
+a remote dependency cache. Disposable self-hosted jobs install fresh with the frozen lockfile:
+on the measured connection, that took 7–20s versus 37–43s to transfer the cache archive. Hosted
+browser caches use `.ci-cache/playwright`; self-hosted jobs skip that remote cache because the
+browser is already in the image. Workspace-relative archives avoid restoring home-directory paths
+from a different checkout depth (GitHub's workspace versus `/w`).
 
-This removes per-job tool/browser downloads, not all network traffic: checkout, dependency cache
-transfers and artifacts still use the network. Compare setup time, test time and retries separately
+This removes per-job tool/browser downloads, not all network traffic: checkout, dependency
+installation and artifact transfers still use the network. Compare setup time, test time and retries separately
 on the same commit before claiming an end-to-end speedup. No persistent host cache is mounted into
 the disposable containers.
 

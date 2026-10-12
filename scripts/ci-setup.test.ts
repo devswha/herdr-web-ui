@@ -90,7 +90,9 @@ describe("CI cache contract", () => {
     expect(directory.env!.BUN_CACHE_DIR).toBe(`\${{ github.workspace }}/${cache.with!.path}`);
   });
 
-  it("does not download tool or browser caches over the prepared image", () => {
+  it("does not transfer dependency or browser caches over the prepared image", () => {
+    expect(action.runs.steps.find((step) => step.name === "Cache Bun dependencies")!.if)
+      .toBe("runner.environment != 'self-hosted'");
     for (const uses of ["oven-sh/setup-bun@v2", "actions/setup-node@v7"]) {
       expect(action.runs.steps.find((step) => step.uses === uses)!.if).toContain("runner.environment != 'self-hosted'");
     }

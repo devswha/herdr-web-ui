@@ -63,8 +63,6 @@ esac
       "--repo",
       "owner/repo",
       "--once",
-      "--cpus",
-      "1",
       "--count",
       String(options.count ?? 1),
     ], {
@@ -87,9 +85,14 @@ esac
 }
 
 describe.skipIf(process.platform === "win32")("self-hosted runner launcher", () => {
-  it("returns success when a one-shot container succeeds", () => {
-    const { result } = runRunner();
+  it("runs without CPU or memory quotas by default", () => {
+    const { result, calls } = runRunner();
     expect(result.status).toBe(0);
+    const dockerRun = calls.split("\n").find((call) => call.startsWith("docker run "));
+    expect(dockerRun).toBeDefined();
+    expect(dockerRun).not.toContain("--cpus");
+    expect(dockerRun).not.toContain("--memory");
+    expect(dockerRun).toContain("--shm-size 2g");
   });
 
   it("propagates a one-shot Docker failure status", () => {

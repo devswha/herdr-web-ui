@@ -2,7 +2,7 @@
 # Host launcher: keeps N ephemeral runner containers alive, one job per container.
 #
 # Usage: scripts/self-hosted-runner/run.sh [--repo OWNER/NAME] [--count N] [--labels herdr-ci]
-#                                          [--cpus C] [--memory 8g] [--build] [--once]
+#                                          [--build] [--once]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,8 +11,6 @@ IMAGE="herdr-ci-runner:local"
 REPO=""
 COUNT=1
 LABELS="herdr-ci"
-CPUS=""
-MEMORY="8g"
 BUILD=0
 ONCE=0
 
@@ -25,8 +23,6 @@ while [ $# -gt 0 ]; do
     --repo) REPO="${2:?--repo needs a value}"; shift 2 ;;
     --count) COUNT="${2:?--count needs a value}"; shift 2 ;;
     --labels) LABELS="${2:?--labels needs a value}"; shift 2 ;;
-    --cpus) CPUS="${2:?--cpus needs a value}"; shift 2 ;;
-    --memory) MEMORY="${2:?--memory needs a value}"; shift 2 ;;
     --build) BUILD=1; shift ;;
     --once) ONCE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -39,12 +35,6 @@ case "$COUNT" in ''|*[!0-9]*|0) echo "--count must be a positive integer" >&2; e
 if [ -z "$REPO" ]; then
   REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 fi
-if [ -z "$CPUS" ]; then
-  total="$(nproc)"
-  CPUS="$(( total / COUNT ))"
-  [ "$CPUS" -ge 1 ] || CPUS=1
-fi
-
 HOST="$(hostname -s)"
 PREFIX="herdr-ci-${HOST}-"
 
@@ -69,8 +59,6 @@ slot_loop() {
       --security-opt no-new-privileges \
       --cap-drop ALL \
       --pids-limit 8192 \
-      --cpus "$CPUS" \
-      --memory "$MEMORY" \
       --shm-size 2g \
       -e RUNNER_URL="https://github.com/$REPO" \
       -e RUNNER_NAME="$name" \
