@@ -100,12 +100,7 @@ export function DevicesPanel({ pairUrl, auth, onPaired }: DevicesPanelProps) {
     try {
       const fresh = await startPairing();
       await pairDevice(fresh.code, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0));
-      let list: PairedDevice[];
-      try { list = await fetchDevices(); }
-      catch {
-        setError(t("Could not confirm this browser is paired. Check that cookies are enabled, then try again."));
-        return;
-      }
+      const list = await fetchDevices();
       const current = list.find((device) => device.current);
       setDevices(list);
       known.current = new Set(list.map((device) => device.id));

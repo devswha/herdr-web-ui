@@ -136,6 +136,15 @@ it("keeps a forwarded first-pair gate open until a returned cookie is durably co
     expect((await stranger()).status).toBe(200);
     const confirmedCookie = await issue(await start());
     expect((await stranger()).status).toBe(200);
+    const blocked = join(root, `devices.json.${process.pid}.tmp`);
+    mkdirSync(blocked);
+    const failed = await fetch(`${base}/api/devices`, { headers: { ...forwarded, cookie: confirmedCookie } });
+    expect(failed.status).toBe(500);
+    expect(failed.headers.get("content-type")).toContain("application/json");
+    expect(await failed.json()).toMatchObject({ error: { code: "internal_error" } });
+    expect((await stranger()).status).toBe(200);
+    expect(() => readFileSync(join(root, "devices.json"), "utf8")).toThrow();
+    rmSync(blocked, { recursive: true });
     expect((await fetch(`${base}/api/devices`, { headers: { ...forwarded, cookie: confirmedCookie } })).status).toBe(200);
     expect((await stranger()).status).toBe(401);
     const registry = JSON.parse(readFileSync(join(root, "devices.json"), "utf8")) as { gate_closed_at: string | null; devices: unknown[] };
