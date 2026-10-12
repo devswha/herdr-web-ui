@@ -4,12 +4,13 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
+import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PaneMoved, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanSummary, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isServeOwnerRequest } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
+import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
@@ -28,6 +29,8 @@ import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { ClaudeSubagentStatus, claudeSubagents, within } from "./claude-subagents.ts";
 import { BackgroundWait } from "./background-wait.ts";
+import { SessionPlans } from "./session-plan.ts";
+import { codexOpenRollout, paneCodexHome } from "./codex.ts";
 import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
@@ -209,7 +212,7 @@ const RESTORED_CLEAR_GAP_MS = 200;
 const RESTORED_CLEAR_SETTLE_MS = 300;
 /** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
 const RESTORED_CLEAR_RESERVE_MS = 2_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -416,10 +419,13 @@ export function createServer(
     tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
+    grokHome?: string;
     /** OpenCode's database; defaults to where OpenCode finds it (OPENCODE_DB, XDG_DATA_HOME). Tests use an isolated store. */
     opencodeDb?: string;
     /** Native Devin store; tests pass an isolated SQLite database. */
     devinDbPath?: string;
+    /** Native Hermes store; pane process HERMES_HOME wins when this is unset. Tests use an isolated store. */
+    hermesHome?: string;
     updates?: UpdateService;
     /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
     herdrUpdate?: HerdrUpdater;
@@ -500,7 +506,7 @@ export function createServer(
         send(client, { type: "conversation-changed", pane_id: paneId, signature });
       }
     }
-  }, options.codexHome, options.devinDbPath, options.opencodeDb);
+  }, options.codexHome, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome);
 
   function releaseConversation(paneId: string): void {
     for (const client of clients) {
@@ -521,6 +527,7 @@ export function createServer(
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
+  const preferences = new PreferenceStore(options.stateDir ?? defaultStateDir());
   const usage = options.usage ?? new UsageService();
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
@@ -1019,31 +1026,40 @@ export function createServer(
     },
     onChange: (paneId, running, turnRunning, promptAt) => claudeAgentsChanged(paneId, running, turnRunning, promptAt),
   });
+  /** the plan each Claude Code and Codex pane's agent keeps, for the sidebar's progress (server/session-plan.ts) */
+  const plans = new SessionPlans({
+    claudePath: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null,
+    // only what is certain without reading the screen: the chat's own matching stays the chat's
+    codexPath: async (pane) => codexOpenRollout(pane.pane_id, pane.cwd, await paneCodexHome(pane.pane_id, options.codexHome)),
+    onChange: (paneId, summary) => planChanged(paneId, summary),
+  });
   /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
   const rawSnapshot = async (): Promise<SessionSnapshot> => {
     const snapshot = await sessionSnapshot();
     await omo.refresh(snapshot.panes);
     const named = omo.apply(snapshot);
-    // not waited for: finding a transcript costs process calls, and a snapshot must not wait on them
-    void claudeAgents.refresh(named.panes).catch(() => undefined);
+    // not waited for: finding a transcript costs process calls, and a snapshot must not wait on them.
+    // The plans come after: a Claude pane's transcript is the one the subagent tracker found
+    void claudeAgents.refresh(named.panes).catch(() => undefined).then(() => plans.refresh(named.panes)).catch(() => undefined);
     return named;
   };
   const backgroundOf = (paneId: string): number => omo.backgroundOf(paneId) || claudeAgents.countOf(paneId);
-  /** the snapshot clients get: finishes settled, OmO panes named, their running background tasks counted, the waits on them */
+  /** the snapshot clients get: finishes settled, OmO panes named, background tasks, waits and plan progress */
   const clientSnapshot = async (): Promise<SessionSnapshot> => {
     const snapshot = await completions.readSnapshot(rawSnapshot);
-    if (!snapshot.panes.some((pane) => backgroundOf(pane.pane_id) > 0 || waits.waiting(pane.pane_id))) return snapshot;
+    if (!snapshot.panes.some((pane) => backgroundOf(pane.pane_id) > 0 || waits.waiting(pane.pane_id) || plans.summaryOf(pane.pane_id) !== null)) return snapshot;
     return {
       ...snapshot,
       panes: snapshot.panes.map((pane) => {
         const background = backgroundOf(pane.pane_id);
         const waiting = waits.waiting(pane.pane_id);
-        return background > 0 || waiting ? { ...pane, ...(background > 0 ? { background_tasks: background } : {}), ...(waiting ? { background_wait: true as const } : {}) } : pane;
+        const plan = plans.summaryOf(pane.pane_id);
+        return background > 0 || waiting || plan !== null ? { ...pane, ...(background > 0 ? { background_tasks: background } : {}), ...(waiting ? { background_wait: true as const } : {}), ...(plan !== null ? { plan } : {}) } : pane;
       }),
     };
   };
   /** A pane's status frame: every one says whether the pane waits on its turn's background work. */
-  const paneStatus = (paneId: string, status: AgentStatus, about: { background_tasks?: number } = {}): ServerMessage =>
+  const paneStatus = (paneId: string, status: AgentStatus, about: { background_tasks?: number; plan?: PlanSummary | null } = {}): ServerMessage =>
     ({ type: "pane-status", pane_id: paneId, agent_status: status, ...about, ...(waits.waiting(paneId) ? { background_wait: true as const } : {}) });
   const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions, clientSnapshot);
   const bridgeToken = randomBytes(32).toString("hex");
@@ -1509,6 +1525,12 @@ export function createServer(
     }
   }
 
+  /** A pane's plan moved on: keep its current status and background wait, and alert nothing. */
+  function planChanged(paneId: string, plan: PlanSummary | null): void {
+    const status = completions.current(paneId);
+    if (status !== undefined) broadcastAll(paneStatus(paneId, status, { plan }));
+  }
+
   // a bridge (no roster of its own) tells its connection server instead (#555)
   const bridgeAgents = machines ? null : bridgeAgentNews(() => broadcastAll({ type: "session-changed" }));
 
@@ -1599,6 +1621,7 @@ export function createServer(
   claudeAgents.start();
   const waitTimer = setInterval(waitsRanOut, 1000);
   waitTimer.unref?.();
+  plans.start();
 
   const envPort = process.env["PORT"];
   const server = Bun.serve<SocketData>({
@@ -1686,7 +1709,7 @@ export function createServer(
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
           bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : pathname.endsWith("/worktree/create") ? 180 : 80);
           const deviceId = access.level === "full" ? access.device?.id : undefined;
-          const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : undefined);
+          const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : undefined, preferences);
           response.headers.set("cache-control", "no-store");
           return response;
         }
@@ -1730,6 +1753,8 @@ export function createServer(
       }
       if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
       if (pathname === "/api/telemetry") return handleTelemetryRequest(request, options.telemetry);
+      // what every browser of this server shares; a watching device reads it and cannot change it (above)
+      if (pathname === "/api/preferences") return handlePreferencesRequest(request, preferences);
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
       // a long clip can keep the provider silent past Bun's 10 s idle limit before the first line
@@ -2229,6 +2254,29 @@ export function createServer(
         return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });
       }
 
+      if (pathname === "/api/pane/plan") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        const paneId = url.searchParams.get("pane_id");
+        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+        // the pane as herdr has it now, for a second at most: one the background lookup has not got to yet is looked
+        // up here, and so is one that runs another session than the one its transcript was found for.
+        // An OmO pane reads as `claude` in herdr's own snapshot: its plan is no Claude task list
+        const seen: { pane?: HerdrPane } = {};
+        if (omo.sessionOf(paneId) === null) {
+          await within(1000, (async () => {
+            const pane = seen.pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+            if (pane === undefined || plans.known(pane)) return;
+            if (pane.agent === "claude") await claudeAgents.ensure(pane);
+            await plans.ensure(pane, true);
+          })());
+        }
+        // only the pane as herdr has it now is told its plan: one herdr did not answer for in time, no longer has, or has
+        // in a session not looked up yet is told none, never the plan read before (session-plan.ts planOf)
+        const steps = plans.planOf(seen.pane);
+        const answer: PanePlan = { plan: steps === null ? null : { steps }, server_time: new Date().toISOString() };
+        return jsonResponse(answer);
+      }
+
       if (pathname === "/api/pane/read") {
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         const paneId = url.searchParams.get("pane_id");
@@ -2330,10 +2378,10 @@ export function createServer(
         const ref = url.searchParams.get("ref");
         if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
         try {
-          const output = await toolOutput(paneId, ref, options.codexHome, options.opencodeDb);
+          const output = await toolOutput(paneId, ref, options.codexHome, options.opencodeDb, options.hermesHome, options.grokHome);
           if (output === null) return jsonResponse({ error: { code: "output_not_found", message: "no such tool call in this pane's conversation" } }, 404);
           // a tool call's id names its output for good; OpenCode's ref names a place in a row it rewrites in place
-          const cacheControl = OPENCODE_TOOL_REF.test(ref) ? "private, no-store" : "private, max-age=86400, immutable";
+          const cacheControl = (OPENCODE_TOOL_REF.test(ref) || /^grok:/.test(ref)) ? "private, no-store" : "private, max-age=86400, immutable";
           return new Response(output, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": cacheControl, "x-content-type-options": "nosniff" } });
         } catch (error) {
           return errorResponse(error);
@@ -2364,7 +2412,7 @@ export function createServer(
           from: url.searchParams.get("from") ?? undefined,
         };
         try {
-          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb);
+          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome);
           // no-store keeps the browser's own cache out of it, so the chat sees the 304.
           // weak: the same answer goes out gzipped or plain (compress.ts), which are not the same bytes
           const etag = `W/"${version}"`;
@@ -2545,7 +2593,7 @@ export function createServer(
       }
 
       // static client - public even when the API is gated, so the login UI can load
-      return serveStatic(pathname);
+      return serveStatic(pathname, request.headers.get("accept-encoding"));
       })());
     },
 
@@ -3021,13 +3069,14 @@ export function createServer(
                 send(client, { type: "error", code: "invalid_submit", message: "id must be an integer, pane_id, text and payload strings" });
                 break;
               }
-              if ((message.delivery !== undefined && message.delivery !== "immediate" && message.delivery !== "queue")
-                || (message.delivery === "queue" && message.typed !== undefined && message.typed !== false)) {
-                result(false, "invalid_delivery", "Use immediate delivery, or queue a chat message");
+              const waits = message.delivery === "queue" || message.delivery === "hold";
+              if ((message.delivery !== undefined && message.delivery !== "immediate" && !waits)
+                || (waits && message.typed !== undefined && message.typed !== false)) {
+                result(false, "invalid_delivery", "Use immediate delivery, or queue or hold a chat message");
                 break;
               }
               if (message.clear_draft !== undefined && (typeof message.clear_draft !== "string" || !message.clear_draft
-                || message.delivery === "queue" || (message.typed !== undefined && message.typed !== false))) {
+                || waits || (message.typed !== undefined && message.typed !== false))) {
                 result(false, "invalid_delivery", "Clear a terminal draft only for a chat message sent at once");
                 break;
               }
@@ -3042,11 +3091,11 @@ export function createServer(
               }
               const arrivedAt = Date.now();
               try {
-                if (message.delivery === "queue") {
+                if (waits) {
                   let book = pendingRequests.get(client);
                   if (!book) { book = new PendingRequestBook((reply: SubmitReply) => reply.pending !== undefined && pending.retains(client, reply.pending.id)); pendingRequests.set(client, book); }
                   // a digest, so a receipt kept for replay never holds a large request's bytes
-                  const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify([message.pane_id, message.text, message.payload])).digest("hex");
+                  const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify([message.pane_id, message.text, message.payload, message.delivery])).digest("hex");
                   const previous = book.get(message.id, fingerprint);
                   const lease = previous ? null : pendingLease(client, message.pane_id);
                   const reply = previous ?? book.run(message.id, fingerprint, () => serialize(message.pane_id, async (): Promise<SubmitReply> => {
@@ -3060,10 +3109,12 @@ export function createServer(
                       // A request that raced the turn's finish still needs cancellable
                       // paste + Enter; agent.prompt commits its key inside herdr. With a message
                       // already waiting its turn here, this one takes its place behind it instead.
-                      if (!pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
+                      // A held message is never typed by arriving after the turn: it waits for Send now.
+                      if (message.delivery === "queue" && !pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
                     }
                     pending.observe(message.pane_id, context.pane.agent_status, mark);
-                    const item = pending.enqueue(client, message.pane_id, message.id, text, lease!, context.identity);
+                    // hold: kept for the owner's Send now, never sent by the turn's end
+                    const item = pending.enqueue(client, message.pane_id, message.id, text, lease!, context.identity, message.delivery === "hold");
                     return { ok: true, pending: item.message };
                   }).catch((error): SubmitReply => ({ ok: false, ...pendingFault(error) })));
                   const answer = await reply;
@@ -3186,6 +3237,7 @@ export function createServer(
       omo.stop();
       claudeAgents.stop();
       clearInterval(waitTimer);
+      plans.stop();
       machines?.stop();
       registration?.close();
       for (const client of clients) killWatches(client);

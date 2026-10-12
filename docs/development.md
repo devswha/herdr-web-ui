@@ -14,17 +14,11 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 
 ## Checks
 
-Codex's `Enter` steers the current turn, but can leave the message pending until the next
-tool call. The explicit, connection-owned pending-message **Send now** action checks the
-live native steering panel beside the empty composer before sending one `Escape` to
-interrupt and submit it. A normal Send, automatic delivery, another agent or idle Codex
-never takes this interruption path. Browser-held copies retain their ordinary Submit path.
-Every fresh read retains the existing identity, connection, interactive-menu and secret
-input guards; if the panel or delivery cannot be confirmed, the message is uncertain and
-must be checked in the terminal rather than retried automatically. The restart gate waits
-for the interrupted turn's readiness followed by the new turn's working/ready cycle. If
-Native never exposes that cycle, remaining messages are held for explicit review.
-
+Production builds create Brotli (`.br`) and gzip (`.gz`) sidecars for JavaScript and CSS under
+`dist/assets/`. The static handler negotiates these with `Accept-Encoding` and sends
+`Vary: Accept-Encoding`; a client that excludes every available representation gets 406.
+Older builds without sidecars retain identity responses. The shell and service worker keep
+their revalidation policy, and user files and API responses are never compressed by this path.
 
 `bun run check` runs what CI runs, from the same script (`scripts/check.ts`):
 
@@ -32,6 +26,7 @@ Native never exposes that cycle, remaining messages are held for explicit review
 bun run check fast                  # CI's Fast checks: workflow syntax, generated types, typecheck, build, unit tests
 bun run check integration browser   # CI's Integration and browser: a build, then both lanes side by side
 bun run check full                  # fast, then both lanes
+bun run check concurrent            # full, with the unit tests moved beside both lanes: same steps, less wall time
 bun run check run bun test --timeout 15000 ./server/api.contract.test.ts   # one command on the same isolated herdr
 bun run check run --build bun scripts/ui-regression.ts                     # build and browser script under the same lock
 ```
@@ -56,6 +51,14 @@ checkout. (`check run` runs only its named command unless `--build` is supplied.
 Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
 eight slots again for its checkout and counts every active holder against its requested limit,
 including holders above its candidate range. A busy admission port refuses rather than waits.
+
+`check concurrent` runs the same steps as `check full`: workflow syntax, generated types,
+typecheck and build first, then the unit tests side by side with both lanes instead of before them.
+
+Unit tests run in parallel processes; `UNIT_TEST_WORKERS` sets the count (default: min(cores/2, 8)
+locally, 4 in CI). Each file runs independently in its own process; no shared state between
+processes. The queue is ordered largest file first, so long files start early. Without `sh`
+(native Windows) the files run serially in one process.
 Explicit `CHECK_DIR` and `CHECK_REPORT` paths are claimed exclusively by canonical path, even for
 `fast`, before writing reports, logs or isolated state. Pid markers are released at exit after the
 final report and session cleanup; a dead owner's marker is reclaimed under serialized admission.
@@ -99,6 +102,7 @@ bun scripts/settings-pages-demo-regression.ts # every Settings page on a 390px a
 bun scripts/chat-browser-qa.ts  # chat lens end to end
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
+bun scripts/recent-folders-regression.ts # owned workspaces: PC-scoped history, reload, three chips on one row that fill Directory, pending and failures
 bun run test:ssh                # remote-PC integration over SSH
 bun scripts/fresh-install-docker.ts [owner/repo] [ref]  # a new user's install in a bare Ubuntu (Docker)
 ```
@@ -131,9 +135,24 @@ bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quie
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/plugin-actions-demo-regression.ts # a plugin action that ends after the server stopped waiting: the late failure said, a traceback's height on a phone with its keyboard up
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
+bun scripts/narrow-pane-demo-regression.ts    # a split pane under 80 columns: the smaller font, its setting, a zoom, and a pane no font can bring to 80
 ```
 
 `FILE_VIEWER_CASE=landscape-notch` selects a viewer case; `FILE_VIEWER_CSS=/path/to/before.css` compares another stylesheet. These checks use Chromium mobile emulation and synthetic safe-area/keyboard geometry; they cannot verify actual iOS Safari keyboard dismissal or notch insets. The existing `bun scripts/file-viewer-regression.ts` separately checks history with an owned herdr pane. The original `scripts/mobile-viewport-regression.ts` exports `checkMobileViewport` for the real-app `bun run test:ui` suite; it also checks the command palette and xterm focus transitions. The demo runners build the real client into a temporary directory, inject the committed fictional-session transport and serve it only on loopback; they do not use a live herdr session or download website media. Run on its own, each builds the client itself (`scripts/demo-build.ts`); the browser lane builds it once and names the directory in `HERDR_DEMO_BUILD`, and each runner copies that instead. They exercise real-app viewport and alert geometry, but not live herdr connectivity.
+
+## Codex Send now
+
+Codex's `Enter` steers the current turn, but can leave the message pending until the next
+tool call. The explicit, connection-owned pending-message **Send now** action checks the
+live native steering panel beside the empty composer, and that the panel holds the message it
+just submitted, before sending one `Escape` to interrupt and submit it. A normal Send,
+automatic delivery, another agent or idle Codex never takes this interruption path.
+Browser-held copies retain their ordinary Submit path. Every fresh read retains the existing
+identity, connection, interactive-menu and secret input guards; if the panel or delivery
+cannot be confirmed, the message is uncertain and must be checked in the terminal rather than
+retried automatically. The restart gate waits for the interrupted turn's readiness followed
+by the new turn's working/ready cycle. If Codex never exposes that cycle, remaining messages
+are held for explicit review.
 
 ## Conversation refresh
 
