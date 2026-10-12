@@ -1,7 +1,7 @@
 /**
  * UI text in the user's language. The English string is the key: `t("Rename pane")`,
  * `t("Worked for {duration}", { duration })`. A key a dictionary (i18n.ko.ts, i18n.ja.ts,
- * i18n.zh.ts, i18n.tr.ts) lacks comes back in English, so a new string is never blank, and
+ * i18n.zh.ts, i18n.tr.ts, i18n.ru.ts) lacks comes back in English, so a new string is never blank, and
  * src/lib/i18n.test.ts scans the code for every `t("…")` and fails when one is missing from
  * any dictionary.
  *
@@ -12,21 +12,22 @@
 import { useMemo } from "react";
 import { JA } from "./i18n.ja.ts";
 import { KO } from "./i18n.ko.ts";
+import { RU } from "./i18n.ru.ts";
 import { TR } from "./i18n.tr.ts";
 import { ZH } from "./i18n.zh.ts";
 import { useSettings } from "./settings.ts";
 
 // in the order the Language menu lists them
-export const LANGUAGE_SETTINGS = ["system", "en", "zh", "ja", "ko", "tr"] as const;
+export const LANGUAGE_SETTINGS = ["system", "en", "zh", "ja", "ko", "tr", "ru"] as const;
 export type LanguageSetting = (typeof LANGUAGE_SETTINGS)[number];
 export type Language = Exclude<LanguageSetting, "system">;
 
-export const LANGUAGE_NAMES: Record<LanguageSetting, string> = { system: "System", en: "English", ko: "한국어", ja: "日本語", zh: "简体中文", tr: "Türkçe" };
+export const LANGUAGE_NAMES: Record<LanguageSetting, string> = { system: "System", en: "English", ko: "한국어", ja: "日本語", zh: "简体中文", tr: "Türkçe", ru: "Русский" };
 
 /** The BCP 47 tag for `<html lang>` and Intl formatting. */
-export const LOCALE_TAGS: Record<Language, string> = { en: "en-US", ko: "ko-KR", ja: "ja-JP", zh: "zh-CN", tr: "tr-TR" };
+export const LOCALE_TAGS: Record<Language, string> = { en: "en-US", ko: "ko-KR", ja: "ja-JP", zh: "zh-CN", tr: "tr-TR", ru: "ru-RU" };
 
-const DICTIONARIES: Record<Language, Record<string, string>> = { en: {}, ko: KO, ja: JA, zh: ZH, tr: TR };
+const DICTIONARIES: Record<Language, Record<string, string>> = { en: {}, ko: KO, ja: JA, zh: ZH, tr: TR, ru: RU };
 
 /**
  * `system` follows the browser: the first tag in its list for a supported language picks it
@@ -36,7 +37,7 @@ const DICTIONARIES: Record<Language, Record<string, string>> = { en: {}, ko: KO,
 export function resolveLanguage(setting: LanguageSetting, languages: readonly string[] = typeof navigator !== "undefined" ? navigator.languages : []): Language {
   if (setting !== "system") return setting;
   for (const tag of languages) {
-    const match = /^(en|ko|ja|zh|tr)\b/i.exec(tag);
+    const match = /^(en|ko|ja|zh|tr|ru)\b/i.exec(tag);
     if (match) return match[1]!.toLowerCase() as Language;
   }
   return "en";

@@ -77,7 +77,7 @@ running terminals: see [development](docs/development.md#checks).
   `*.contract.test.ts`.
 - **herdr wire types:** never edit `shared/herdr-api.generated.ts`; run `bun run generate:types`.
 - **UI text:** every new `t("…")` string needs an entry in `src/lib/i18n.ko.ts`, `i18n.ja.ts`,
-  `i18n.zh.ts` and `i18n.tr.ts`, with the same placeholders. `bun run test:unit` fails on a missing, unused or
+  `i18n.zh.ts`, `i18n.tr.ts` and `i18n.ru.ts`, with the same placeholders. `bun run test:unit` fails on a missing, unused or
   untranslated entry.
 - **UI:** component CSS uses the tokens in `src/styles.css` (see [DESIGN.md](DESIGN.md)).
 - **The browser demo:** the [demo](https://herdrweb.dev/demo/) redeploys on every

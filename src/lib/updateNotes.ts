@@ -1,5 +1,6 @@
-import type { InstalledNotes, ReleaseHighlights, ReleaseNote, SummaryLanguage, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
+import type { InstalledNotes, ReleaseHighlights, ReleaseNote, UpdateNotes, UpdateStatus } from "../../shared/update.ts";
 import { ApiError } from "./api.ts";
+import type { Language } from "./i18n.ts";
 
 /**
  * The notes to show beside an offered update: those read from the very commit the status
@@ -59,7 +60,9 @@ export function notesRetryDelay(error: unknown, attempt: number): number | null 
  * A release's highlights in the app's language, else in English; null for a release that wrote
  * none, whose changelog section is then what there is to read.
  */
-export function summaryFor(release: Pick<ReleaseNote, "summary">, language: SummaryLanguage): ReleaseHighlights | null {
+export function summaryFor(release: Pick<ReleaseNote, "summary">, language: Language): ReleaseHighlights | null {
+  // Russian is a UI language, not a historical release-summary language.
+  if (language === "ru") return release.summary?.en ?? null;
   return release.summary?.[language] ?? release.summary?.en ?? null;
 }
 

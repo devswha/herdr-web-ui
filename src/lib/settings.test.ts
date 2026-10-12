@@ -140,6 +140,8 @@ describe("telemetry settings snapshot", () => {
       markdownWidth: "full",
     });
     expect(telemetrySettings(snapshot)).toEqual(snapshot);
+    const russian = telemetrySettingsSnapshot(sanitizeSettings({ language: "ru" }));
+    expect(telemetrySettings(russian)?.language).toBe("ru");
     expect(telemetrySettingsSnapshot(DEFAULT_SETTINGS)).toMatchObject({
       terminalFontCustom: false,
       chatFontCustom: false,

@@ -181,6 +181,14 @@ describe("replaceIfUnchanged", () => {
 });
 
 describe("dictationLocale", () => {
+  it("uses the Russian UI locale for auto and sends its primary subtag", () => {
+    expect(dictationLocale("auto", "system", "ru", ["ru-BY"])).toBe("ru-RU");
+    expect(dictationLocale("auto", "system", "ru", ["RU-KZ"])).toBe("ru-RU");
+    expect(dictationLocale("auto", "ru", "ru", ["en-US"])).toBe("ru-RU");
+    expect(dictationLocale("en-US", "system", "ru", ["ru-RU"])).toBe("en-US");
+    expect(transcribeLanguage("ru-RU", "en")).toBe("ru");
+  });
+
   it("maps the UI language to a recognition locale when the browser names none", () => {
     expect(dictationLocale("auto", "system", "ko", [])).toBe("ko-KR");
     expect(dictationLocale("auto", "system", "ja", [])).toBe("ja-JP");

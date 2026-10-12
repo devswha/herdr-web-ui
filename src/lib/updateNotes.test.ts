@@ -130,13 +130,19 @@ describe("a release's summary", () => {
     expect(summaryFor({ summary }, "ja")).toEqual({ new: ["A thing."] });
   });
 
+  it("falls back to English highlights for Russian without widening historical summaries", () => {
+    expect(summaryFor({ summary }, "ru")).toBe(summary.en);
+    expect(summaryFor({ summary: { ko: summary.ko } }, "ru")).toBeNull();
+    expect(SUMMARY_LANGUAGES).not.toContain("ru");
+  });
+
   it("is none for a release that wrote none: its changelog section is what there is", () => {
     expect(summaryFor({}, "ko")).toBeNull();
     expect(summaryFor({ summary: { ko: { new: ["기능 하나."] } } }, "ja")).toBeNull();
   });
 
-  it("is written in the languages the app has", () => {
-    expect([...SUMMARY_LANGUAGES].sort()).toEqual(LANGUAGE_SETTINGS.filter((language) => language !== "system").sort());
+  it("is written in the historical summary languages, with Russian using the English fallback", () => {
+    expect([...SUMMARY_LANGUAGES].sort()).toEqual(LANGUAGE_SETTINGS.filter((language) => language !== "system" && language !== "ru").sort());
   });
 
   it("arrives with its release, and without what is not a line under a list of such a language", () => {

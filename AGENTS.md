@@ -46,7 +46,7 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
 - Multi-PC: pane and workspace calls go through `useMachineApi()`, and storage keys use `paneStorageId(machineId, paneId)`. Never use a mutable global target in async work.
 - Component CSS is colocated and uses tokens only: no color literals, no `!important`. `DESIGN.md` must match the token values in `src/styles.css`; no test checks this, so update both together.
 - Endless animations use `steps()` or `var(--ease-pulse)` (`src/motion.test.ts` enforces it).
-- i18n: the English string is the key and must be a string literal. Every new `t("…")` needs an entry in `src/lib/i18n.ko.ts`, `i18n.ja.ts` and `i18n.zh.ts`; `i18n.test.ts` fails on a missing, unused or untranslated entry.
+- i18n: the English string is the key and must be a string literal. Every new `t("…")` needs an entry in `src/lib/i18n.ko.ts`, `i18n.ja.ts`, `i18n.zh.ts`, `i18n.tr.ts` and `i18n.ru.ts`; `i18n.test.ts` fails on a missing, unused or untranslated entry.
 - Shortcuts are Mod+Shift+key so the pty keeps Ctrl+key. To add one, update `SHORTCUTS`, `KEY_TO_ID` and the switch in `src/lib/shortcuts.ts`.
 - Icons come from lucide-react only; brand marks live in `AgentMark.tsx`. When icon files change, bump the `?v=` query in `index.html` and `CACHE_NAME` in `public/sw.js` together.
 - UI wording: "New workspace", not "New session". "Session" means the herdr server session or an agent's history.

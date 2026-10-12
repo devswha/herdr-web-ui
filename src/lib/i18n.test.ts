@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JA } from "./i18n.ja.ts";
 import { KO } from "./i18n.ko.ts";
+import { RU } from "./i18n.ru.ts";
 import { TR } from "./i18n.tr.ts";
 import { ZH } from "./i18n.zh.ts";
-import { resolveLanguage, translate } from "./i18n.ts";
+import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, LOCALE_TAGS, currentLocale, resolveLanguage, setCurrentLanguage, translate } from "./i18n.ts";
+import { sanitizeSettings } from "./settings.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -77,7 +79,9 @@ function labelMapKeys(): string[] {
   ];
 }
 
-const DICTIONARIES = { Korean: KO, Japanese: JA, Chinese: ZH, Turkish: TR };
+const DICTIONARIES = { Korean: KO, Japanese: JA, Chinese: ZH, Turkish: TR, Russian: RU };
+/** Color theme names Russian keeps in English, as the Settings menu lists them. */
+const RU_THEME_NAMES = ["Amber", "Dark report", "Charcoal", "Catppuccin", "Lilac", "Forest"];
 
 describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary) => {
   const inCode = keysInCode();
@@ -106,12 +110,53 @@ describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary)
     // names and key caps read the same in every language; Chinese UIs leave "Shell" and "Agent" in English,
     // Turkish reads "Terminal", "Plan", the background-state abbreviation "BG" and bare skill counts the same
     const sameOnPurpose = new Set(["PC {name}", "Control C", "Control D", "Control Z", "Shift Tab", "Shell", "Agent", "Catppuccin", "Terminal", "Plan", "BG", "{n} skill", "{n} skills"]);
-    const same = Object.entries(dictionary).filter(([en, text]) => en === text && /[a-z]{3}/i.test(en) && !sameOnPurpose.has(en));
+    const same = Object.entries(dictionary).filter(([en, text]) => en === text && /[a-z]{3}/i.test(en) && !sameOnPurpose.has(en) && !(dictionary === RU && RU_THEME_NAMES.includes(en)));
     expect(same.map(([en]) => en)).toEqual([]);
   });
 });
 
 describe("translate", () => {
+  it("keeps the Russian dictionary in parity with every shipped dictionary", () => {
+    for (const dictionary of [KO, JA, ZH, TR]) expect(Object.keys(RU).sort()).toEqual(Object.keys(dictionary).sort());
+  });
+
+  it("preserves Russian keycaps and named commands without English fallback entries", () => {
+    const unchanged = new Set([...RU_THEME_NAMES, "Control C", "Control D", "Control Z", "Shift Tab", "—", "…"]);
+    expect(Object.entries(RU).filter(([key, value]) => key === value && !unchanged.has(key))).toEqual([]);
+    for (const key of unchanged) expect(RU[key]).toBe(key);
+    const literals = ["⌘⇧B", "⌘⇧J", "⌘⇧K", "⌘⇧,", "Mod+Shift", "Mod+Enter", "Alt+↑/↓", "alt+↓", "tailscale up", "/tree", "HERDR_WEB_OPENAI_API_KEY", "HERDR_WEB_TELEMETRY=0", "DO_NOT_TRACK"];
+    for (const [key, value] of Object.entries(RU)) for (const literal of literals) if (key.includes(literal)) expect(value).toContain(literal);
+    const key = "Worked for {duration}";
+    expect(translate("ru", key, { duration: "7 с" })).toBe(RU[key]!.replace("{duration}", "7 с"));
+  });
+
+  it("detects Russian regions in browser order and retains a saved choice", () => {
+    expect(resolveLanguage("system", ["ru-RU", "en-US"])).toBe("ru");
+    expect(resolveLanguage("system", ["RU-BY", "en-US"])).toBe("ru");
+    expect(resolveLanguage("system", ["fr-FR", "ru-KZ"])).toBe("ru");
+    expect(resolveLanguage("system", ["en-US", "ru-RU"])).toBe("en");
+    expect(resolveLanguage("system", ["rue-UA", "en-US"])).toBe("en");
+    const saved = sanitizeSettings(JSON.parse(JSON.stringify({ language: "ru" })));
+    expect(saved.language).toBe("ru");
+    expect(resolveLanguage(saved.language, ["en-US"])).toBe("ru");
+    expect(LANGUAGE_SETTINGS).toContain("ru");
+    expect(LANGUAGE_NAMES[saved.language]).toBeDefined();
+  });
+
+  it("uses the Russian locale for numeric and date formatting outside React", () => {
+    try {
+      setCurrentLanguage("ru");
+      expect(currentLocale()).toBe("ru-RU");
+      expect(currentLocale()).toBe(LOCALE_TAGS.ru);
+      expect(new Intl.NumberFormat(currentLocale()).format(1234.5)).toBe(new Intl.NumberFormat("ru-RU").format(1234.5));
+      const date = new Date("2026-10-11T12:00:00Z");
+      const options = { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" } as const;
+      expect(new Intl.DateTimeFormat(currentLocale(), options).format(date)).toBe(new Intl.DateTimeFormat("ru-RU", options).format(date));
+    } finally {
+      setCurrentLanguage("en");
+    }
+  });
+
   it("fills placeholders, falls back to English, and leaves unknown placeholders alone", () => {
     expect(translate("en", "Worked for {duration}", { duration: "7s" })).toBe("Worked for 7s");
     expect(translate("ko", "Worked for {duration}", { duration: "7초" })).toBe(KO["Worked for {duration}"]!.replace("{duration}", "7초"));
