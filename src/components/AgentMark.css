@@ -1,7 +1,8 @@
 /* Settings → Appearance → Agent logos → Mono (data-marks on <html>, lib/settings.ts): Claude's
    asterisk without its tile, in the text color, so a list where most rows run Claude is not a
-   stripe of orange tiles; the other marks with brand fills lose their color. The marks that
-   already ride currentColor (codex, cursor, pi and others) look the same either way. */
+   stripe of orange tiles; the other marks with brand fills (is-brand, AgentMark.tsx) lose their
+   color. The marks that already ride currentColor (codex, cursor, cline, the fallback initial)
+   keep the text color, whatever the theme tints it. */
 [data-marks="mono"] .agent-mark .agent-mark-tile {
   display: none;
 }
@@ -10,6 +11,6 @@
   fill: currentColor;
 }
 
-[data-marks="mono"] .agent-mark:not(.claude) svg {
+[data-marks="mono"] .agent-mark.is-brand:not(.claude) svg {
   filter: grayscale(1);
 }

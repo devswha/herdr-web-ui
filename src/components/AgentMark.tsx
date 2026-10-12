@@ -170,6 +170,18 @@ function FallbackMark({ agent, size }: { agent: string; size: number }) {
 }
 
 const DRAWN_MARKS = new Set(["claude", "omp", "codex", "cursor", "opencode", "gjc", "omo"]);
+/** the drawn marks with brand fills; codex and cursor ride currentColor */
+const BRAND_MARKS = new Set(["claude", "omp", "opencode", "gjc", "omo"]);
+
+/**
+ * Whether `agent`'s mark carries its own brand colors (as against riding currentColor, like codex,
+ * cursor and the fallback initial): Settings → Appearance → Agent logos → Mono greys only these.
+ */
+export function hasBrandColors(agent: string): boolean {
+  if (BRAND_MARKS.has(agent)) return true;
+  const svg = AGENT_SVG_MARKS[agent];
+  return svg !== undefined && /fill="#(?!fff\b|ffffff\b)/i.test(svg.body);
+}
 
 /** Whether `agent` has a mark of its own rather than the fallback's initial. */
 export function hasAgentMark(agent: string): boolean {
@@ -197,5 +209,5 @@ export function AgentMark({ agent, size = 16, className }: AgentMarkProps) {
     ) : (
       <FallbackMark agent={agent} size={size} />
     );
-  return <span className={["agent-mark", agent, className].filter(Boolean).join(" ")}>{mark}</span>;
+  return <span className={["agent-mark", agent, hasBrandColors(agent) ? "is-brand" : null, className].filter(Boolean).join(" ")}>{mark}</span>;
 }
