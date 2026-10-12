@@ -70,6 +70,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#860](https://github.com/devswha/herdr-web-ui/pull/860))
 
 ### Fixed
+- A bridge install that was cut off mid-upload no longer blocks every later update with "Another
+  installation is in progress": a stale `install.lock` is reclaimed, and the upload is bounded
+  ([#895](https://github.com/devswha/herdr-web-ui/pull/895) by @suho-han).
 - A message another Claude Code session sends into a pane (its `peer` messages) shows in the chat as
   a folded **Message from another session: {name}** that opens its own turn, instead of being skipped so the work it
   started was appended to the answer before it.
