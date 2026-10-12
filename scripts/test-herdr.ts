@@ -24,7 +24,7 @@ export const TEST_SESSION = process.env["HERDR_TEST_SESSION"] || "herdr-web-ui-t
 /** Where herdr puts a named session's socket: APPDATA on Windows, XDG_CONFIG_HOME elsewhere. */
 export function testSocketPath(): string {
   const config = join(process.platform === "win32"
-    ? process.env["APPDATA"] ?? ""
+    ? process.env["APPDATA"] || join(homedir(), "AppData", "Roaming")
     : process.env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr");
   return join(config, "sessions", TEST_SESSION, "herdr.sock");
 }
