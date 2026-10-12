@@ -59,6 +59,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
 ### Changed
+- Next/previous pane shortcuts cycle status filters while the command palette is open, keeping the search and background pane in place.
 - Install and update counts include app setting values such as theme, text size and notification
   choices, rather than only the names of changed appearance settings. Custom text and account
   identifiers stay out; custom choices use flags or counts. The expanded notice is shown again

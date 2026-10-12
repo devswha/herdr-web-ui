@@ -1,5 +1,5 @@
 import { MachineContext, useMachineApi, useMachineId } from "../lib/machineContext.tsx";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ComponentType, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { Bell, Columns2, FolderOpen, LoaderCircle, LockKeyhole, Maximize2, MessageSquarePlus, Minimize2, Monitor, PanelLeft, Plus, Puzzle, RefreshCw, Rows2, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
@@ -20,7 +20,7 @@ import { folderName, placeLine } from "../lib/paneName.ts";
 import { agentTabName } from "../lib/sidebarAgents.ts";
 import { tabLabel } from "../lib/tabName.ts";
 import { useT } from "../lib/i18n.ts";
-import { useFocusTrap } from "../lib/useFocusTrap.ts";
+import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
 import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
@@ -33,6 +33,7 @@ const RECENT_SHOWN = 3;
 
 interface CommandPaletteProps {
   open: boolean;
+  paneNavigation: MutableRefObject<((direction: -1 | 1) => void) | null>;
   onClose: () => void;
   machines: readonly Machine[];
   onSelect(machineId: string, paneId: string): void;
@@ -121,7 +122,7 @@ function ShortcutHint({ shortcutId }: { shortcutId?: ShortcutId }) {
   return <span className="palette-shortcut" aria-label={keys.join(" + ")}>{keys.map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span>;
 }
 
-export function CommandPalette({ open, onClose, machines, onSelect, snapshot, online, selectedPaneId, view, actions }: CommandPaletteProps) {
+export function CommandPalette({ paneNavigation, open, onClose, machines, onSelect, snapshot, online, selectedPaneId, view, actions }: CommandPaletteProps) {
   const t = useT();
   const machineId = useMachineId();
   const api = useMachineApi();
@@ -259,6 +260,16 @@ export function CommandPalette({ open, onClose, machines, onSelect, snapshot, on
   const selectedMachineName = machines.find((machine) => machine.id === machineId)?.name;
   const counts = useMemo(() => statusCounts(allPanes), [allPanes]);
   const { actionsOnly, text } = parseQuery(query);
+  useLayoutEffect(() => {
+    if (!open) return;
+    // A kereső fókusza és szövege megmarad; a háttér pane-je nem kapja meg a kombinációt.
+    paneNavigation.current = (direction) => {
+      if (actionsOnly || nativeModalOver(surface.current)) return;
+      setSelection(NO_SELECTION);
+      setFilter((current) => STATUS_FILTERS[(STATUS_FILTERS.indexOf(current) + direction + STATUS_FILTERS.length) % STATUS_FILTERS.length]!);
+    };
+    return () => { paneNavigation.current = null; };
+  }, [open, actionsOnly, paneNavigation]);
 
   // herdr's Goto picker: a row per pane under its workspace; `>` keeps the actions alone (T3 Code's
   // palette); a status filter is about panes, so it leaves the actions out, the plugins' with them;

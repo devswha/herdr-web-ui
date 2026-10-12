@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 import { useSettings } from "./settings.ts";
 import type { ShortcutOverrides } from "./shortcutBindings.ts";
 import { physicalKey } from "./keys.ts";
@@ -144,7 +144,7 @@ export function formatKeys(keys: readonly string[]): string[] {
   return keys.map((key) => (key === "Mod" ? mod : key));
 }
 
-export function useShortcuts(actions: AppActions, enabled: boolean): void {
+export function useShortcuts(actions: AppActions, enabled: boolean, paneNavigation?: RefObject<((direction: -1 | 1) => void) | null>): void {
   const { settings } = useSettings();
   useEffect(() => {
     if (!enabled) return;
@@ -152,6 +152,13 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
     const onKeyDown = (event: KeyboardEvent): void => {
       const shortcut = matchShortcut(event, platformIsMac, settings.shortcutOverrides);
       if (shortcut === null) return;
+      // A nyitott paletta a pane-váltó kombinációt a saját szűrőihez használja.
+      if ((shortcut === "previous-pane" || shortcut === "next-pane") && paneNavigation?.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        paneNavigation.current(shortcut === "previous-pane" ? -1 : 1);
+        return;
+      }
       if (event.key.startsWith("Arrow") && keepsArrowsForText(event.target)) return;
       event.preventDefault();
       switch (shortcut) {
@@ -189,5 +196,5 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [actions, enabled, settings.shortcutOverrides]);
+  }, [actions, enabled, settings.shortcutOverrides, paneNavigation]);
 }
