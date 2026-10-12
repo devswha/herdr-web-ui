@@ -7,6 +7,8 @@
  *   bun run check integration browser   CI's "Integration and browser" job: a build, then the named
  *                                       lanes side by side (either name alone runs that lane)
  *   bun run check full                  fast, then both lanes
+ *   bun run check concurrent            the steps of full, with the unit tests run side by side
+ *                                       with both lanes instead of before them
  *   bun run check run [--build] <command…>  any command on the same isolated herdr; --build builds
  *                                           dist/ first (a run without it does not build)
  *
@@ -19,9 +21,11 @@
  * CHECK_REPORT overrides the durable JSON report path; otherwise the report is in CHECK_DIR or
  * node_modules/.cache/check/<run-id>. The report and streamed logs are outside ephemeral isolation.
  *
- * Only one herdr-backed run at a time on this PC: contract and browser tests are bound by timing,
- * and two runs side by side fail each other. A second one says so and exits. The lock is a loopback
- * port the run listens on (LOCK_PORT), so a run that died holds nothing.
+ * A few herdr-backed runs at a time on this PC (CHECK_MAX_RUNS, see maxRuns): contract and browser
+ * tests are bound by timing, so too many side by side fail each other. Each run holds a slot, a
+ * loopback port it listens on (LOCK_PORT and the ports after it), so a run that died holds nothing.
+ * A run that finds every slot taken names the holders and exits, and so does a second run in the
+ * same checkout, which would share its dist/ and generated types.
  *
  * What a run still shares with the PC: the checkout (`fast` rewrites the generated types file
  * while it checks it, and fast/lane modes build into dist/), herdr's worktree root, and Playwright's
@@ -29,10 +33,10 @@
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { availableParallelism, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { finished } from "node:stream/promises";
 import { DISPOSABLE_CONFIG_ENV, DISPOSABLE_CONFIG_FILE } from "./disposable-config.ts";
 import {
@@ -51,32 +55,33 @@ import {
   type SourceIdentity,
 } from "./check-report.ts";
 
-export const MODES = ["fast", "integration", "browser", "full", "run"] as const;
+export const MODES = ["fast", "integration", "browser", "full", "concurrent", "run"] as const;
 export type Mode = (typeof MODES)[number];
 const LANES = { integration: "bun run test:integration", browser: "bash scripts/ci-browser.sh" } as const;
 type Lane = keyof typeof LANES;
 
-const USAGE = "Usage: bun run check fast | integration | browser | integration browser | full | run [--build] <command…>";
+const USAGE = "Usage: bun run check fast | integration | browser | integration browser | full | concurrent | run [--build] <command…>";
 
 /** What to run, from the arguments: the fast steps, the lanes, or one command. */
-export function plan(args: readonly string[]): { fast: boolean; lanes: Lane[]; command: string[] | null; build: boolean } {
+export function plan(args: readonly string[]): { fast: boolean; lanes: Lane[]; command: string[] | null; build: boolean; concurrent: boolean } {
   const [first, ...rest] = args;
   if (first === "run") {
     const build = rest[0] === "--build";
     const command = rest.slice(build ? 1 : 0);
     if (command[0] === "--") command.shift();
     if (command.length === 0) throw new Error(USAGE);
-    return { fast: false, lanes: [], command, build };
+    return { fast: false, lanes: [], command, build, concurrent: false };
   }
   if (args.length === 0 || args.some((arg) => arg === "run" || !(MODES as readonly string[]).includes(arg))) throw new Error(USAGE);
+  const concurrent = args.includes("concurrent");
   const full = args.includes("full");
-  const lanes = (Object.keys(LANES) as Lane[]).filter((lane) => full || args.includes(lane));
-  return { fast: full || args.includes("fast"), lanes, command: null, build: false };
+  const lanes = (Object.keys(LANES) as Lane[]).filter((lane) => full || concurrent || args.includes(lane));
+  return { fast: (full || args.includes("fast")) && !concurrent, lanes, command: null, build: false, concurrent };
 }
 
 /** Herdr-backed commands share the existing per-PC lane lock, including `run` commands. */
 export function needsLock(todo: ReturnType<typeof plan>): boolean {
-  return todo.lanes.length > 0 || todo.command !== null;
+  return todo.lanes.length > 0 || todo.command !== null || todo.concurrent;
 }
 
 /** Keep command arguments useful without persisting common inline credentials. Environment values are never serialized. */
@@ -163,27 +168,59 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
   return { env, sessions, remove: () => { if (!kept) rmSync(dir, { recursive: true, force: true }); } };
 }
 
-/** The loopback port a herdr-backed run listens on while it runs: the lock. */
+/** The first loopback port a herdr-backed run listens on while it runs: slot 1. Slot n is LOCK_PORT + n - 1. */
 export const LOCK_PORT = 41737;
+/** The most slots CHECK_MAX_RUNS may ask for; every run looks at all of them for its own checkout. */
+export const MAX_RUNS_LIMIT = 8;
 
 /**
- * One run with a lane at a time on this PC. The lock is a listening loopback port: taking it is
- * one step, and it is free again the moment its run is gone, however it ended, so there is no
- * lock left behind to take over. Whoever holds it answers a connection with its pid. Resolves
- * with the release, or with the pid of the run that holds it (NaN when something else listens
- * there).
+ * How many herdr-backed runs may share this PC: CHECK_MAX_RUNS (1 to 8), else one per eight cores,
+ * at least one and at most two. On a 32-core PC two side by side stayed green; with three,
+ * machine-conflict-regression.ts lost Chromium screenshots, and with four integration tests
+ * that wait on live processes failed (measured for the PR that added slots).
  */
-export function lock(port = LOCK_PORT, pid = process.pid): Promise<{ release: () => void } | { heldBy: number }> {
+export function maxRuns(env: Record<string, string | undefined>, cores = availableParallelism()): number {
+  const asked = env["CHECK_MAX_RUNS"];
+  if (asked === undefined || asked === "") return Math.max(1, Math.min(2, Math.floor(cores / 8)));
+  const count = /^\d+$/.test(asked) ? Number(asked) : Number.NaN;
+  if (!(count >= 1 && count <= MAX_RUNS_LIMIT)) throw new Error(`CHECK_MAX_RUNS must be a whole number from 1 to ${MAX_RUNS_LIMIT}, not "${asked}"`);
+  return count;
+}
+
+/** What a slot's holder says: its pid (NaN when what listens there is no run) and its checkout, when it names one. */
+export type Holder = { heldBy: number; checkout?: string };
+
+/** Asks the holder of a port who it is; null when nothing listens there. */
+function ask(port: number): Promise<Holder | null> {
+  return new Promise((resolve) => {
+    let said = "";
+    let refused = false;
+    const client = connect(port, "127.0.0.1");
+    client.setTimeout(2_000, () => client.destroy());
+    client.on("data", (chunk) => { said += chunk.toString(); });
+    client.on("error", (error: NodeJS.ErrnoException) => { refused = error.code === "ECONNREFUSED"; });
+    client.on("close", () => {
+      if (refused) { resolve(null); return; }
+      // `<pid>` from a run before slots, `<pid>\n<checkout>` from one since
+      const match = /^(\d+)(?:\n([^]+))?$/.exec(said);
+      resolve(!match ? { heldBy: Number.NaN } : match[2] ? { heldBy: Number(match[1]), checkout: match[2] } : { heldBy: Number(match[1]) });
+    });
+  });
+}
+
+/**
+ * One slot. The lock is a listening loopback port: taking it is one step, and it is free again the
+ * moment its run is gone, however it ended, so there is no lock left behind to take over. Whoever
+ * holds it answers a connection with its pid and checkout. Resolves with the release, or with who
+ * holds it (NaN when something else listens there).
+ */
+export function lock(port = LOCK_PORT, pid = process.pid, checkout?: string): Promise<{ release: () => void } | Holder> {
   return new Promise((resolve, reject) => {
-    const server = createServer((socket) => { socket.on("error", () => undefined); socket.end(String(pid)); });
+    const answer = checkout === undefined ? String(pid) : `${pid}\n${checkout}`;
+    const server = createServer((socket) => { socket.on("error", () => undefined); socket.end(answer); });
     server.once("error", (error: NodeJS.ErrnoException) => {
       if (error.code !== "EADDRINUSE") { reject(error); return; }
-      let said = "";
-      const client = connect(port, "127.0.0.1");
-      client.setTimeout(2_000, () => client.destroy());
-      client.on("data", (chunk) => { said += chunk.toString(); });
-      client.on("error", () => undefined);
-      client.on("close", () => resolve({ heldBy: /^\d+$/.test(said) ? Number(said) : Number.NaN }));
+      void ask(port).then((holder) => resolve(holder ?? { heldBy: Number.NaN }));
     });
     server.listen(port, "127.0.0.1", () => {
       // the lock must not keep the run alive once its work is done
@@ -193,12 +230,114 @@ export function lock(port = LOCK_PORT, pid = process.pid): Promise<{ release: ()
   });
 }
 
+export type SlotHolder = Holder & { port: number };
+
+/**
+ * Admission is serialized on the port after the slot range. While holding it, claim explicit
+ * resources and take a candidate slot, then scan ALL slots again: an earlier holder may have
+ * turned over while we asked it. Zero slots claims only resources (fast needs no herdr slot).
+ * The admission port also serializes dead-pid marker reclamation, so two reclaimers cannot
+ * unlink each other's newly acquired marker. A busy admission port refuses rather than waits.
+ */
+export async function acquire(
+  { slots, checkout, base = LOCK_PORT, pid = process.pid, scan = MAX_RUNS_LIMIT, resources = [], reports = [] }: { slots: number; checkout: string; base?: number; pid?: number; scan?: number; resources?: readonly string[]; reports?: readonly string[] },
+): Promise<{ release: () => void; port: number | null } | { refused: "busy" | "same-checkout" | "resource"; holders: SlotHolder[]; resource?: string }> {
+  const admissionPort = base + Math.max(slots, scan);
+  const admission = await lock(admissionPort, pid, checkout);
+  if (!("release" in admission)) return { refused: "busy", holders: [{ ...admission, port: admissionPort }] };
+  let taken: { release: () => void; port: number } | null = null;
+  const markers: string[] = [];
+  let admitted = false;
+  const release = (): void => {
+    taken?.release();
+    for (const marker of markers.splice(0)) rmSync(marker);
+  };
+  try {
+    // A report is written by renaming over its name (check-report.ts), which replaces a symlink
+    // there whatever it points to: its lock is the name in its real directory, never the target.
+    const claims = [...resources.map((path) => ({ path, report: false })), ...reports.map((path) => ({ path, report: true }))];
+    for (const { path, report } of claims) {
+      const absolute = resolve(path);
+      mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
+      const isDir = !report && existsSync(absolute) && statSync(absolute).isDirectory();
+      const canonical = isDir ? realpathSync(absolute) : join(realpathSync(dirname(absolute)), basename(absolute));
+      const marker = isDir ? join(canonical, ".check-lock") : `${canonical}.check-lock`;
+      if (markers.includes(marker)) continue;
+      if (existsSync(marker)) {
+        // a marker that cannot be read may be a live holder's: only one that was read and is not
+        // JSON (a write cut short) is taken over
+        const text = readFileSync(marker, "utf8");
+        let owner: { pid: number; checkout: string };
+        try {
+          owner = JSON.parse(text) as { pid: number; checkout: string };
+        } catch {
+          rmSync(marker, { force: true });
+          writeFileSync(marker, JSON.stringify({ pid, checkout }), { flag: "wx", mode: 0o600 });
+          markers.push(marker);
+          continue;
+        }
+        if (owner === null || typeof owner !== "object" || !Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error(`invalid check lock owner: ${marker}`);
+        let dead = false;
+        try { process.kill(owner.pid, 0); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+          dead = true;
+        }
+        if (!dead) return { refused: "resource", resource: canonical, holders: [{ port: admissionPort, heldBy: owner.pid, checkout: owner.checkout }] };
+        rmSync(marker);
+      }
+      writeFileSync(marker, JSON.stringify({ pid, checkout }), { flag: "wx", mode: 0o600 });
+      markers.push(marker);
+    }
+    for (let index = 0; index < slots; index++) {
+      const port = base + index;
+      const result = await lock(port, pid, checkout);
+      if ("release" in result) { taken = { release: result.release, port }; break; }
+    }
+    const holders: SlotHolder[] = [];
+    for (let index = 0; slots > 0 && index < Math.max(slots, scan); index++) {
+      const port = base + index;
+      if (port === taken?.port) continue;
+      const holder = await ask(port);
+      if (holder) holders.push({ ...holder, port });
+    }
+    const same = holders.filter((holder) => holder.checkout === checkout);
+    if (same.length > 0) return { refused: "same-checkout", holders: same };
+    // a run from before slots names no checkout and counts on having the PC to itself: nothing
+    // can say it is not in this checkout, so it is alone until it ends
+    const alone = holders.filter((holder) => !Number.isNaN(holder.heldBy) && holder.checkout === undefined);
+    if (alone.length > 0) return { refused: "busy", holders: alone };
+    if (slots > 0 && (!taken || holders.length >= slots)) return { refused: "busy", holders };
+    admitted = true;
+    return { release, port: taken?.port ?? null };
+  } finally {
+    if (!admitted) release();
+    admission.release();
+  }
+}
+
+/** One line per holder for a refusal. */
+export function describeHolders(holders: readonly SlotHolder[]): string {
+  return holders.map((holder) => Number.isNaN(holder.heldBy)
+    ? `port ${holder.port}: something that is no check run`
+    : `port ${holder.port}: pid ${holder.heldBy}${holder.checkout ? ` in ${holder.checkout}` : ""}`).join("; ");
+}
+
 async function main(): Promise<void> {
   let todo: ReturnType<typeof plan>;
   const args = process.argv.slice(2);
   try { todo = plan(args); } catch (error) { console.error((error as Error).message); process.exit(2); }
   const needsHerdr = needsLock(todo);
   const cwd = process.cwd();
+  const runId = createRunId();
+  const paths = reportPaths(cwd, process.env, runId);
+  const resources: string[] = [];
+  if (process.env["CHECK_DIR"]) {
+    const dir = resolve(cwd, process.env["CHECK_DIR"]!);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    resources.push(dir);
+  }
+  const reports = process.env["CHECK_REPORT"] || process.env["CHECK_DIR"] ? [paths.reportPath] : [];
   const cleanups: (() => void)[] = [];
   let cleaned = false;
   const cleanup = (): void => {
@@ -206,30 +345,33 @@ async function main(): Promise<void> {
     cleaned = true;
     for (const step of cleanups.reverse()) try { step(); } catch (error) { console.error(`check: cleanup failed: ${(error as Error).message}`); }
   };
-  if (needsHerdr) {
+  if (needsHerdr || resources.length > 0 || reports.length > 0) {
     try {
-      const held = await lock();
-      if ("heldBy" in held) {
-        const message = Number.isNaN(held.heldBy)
-          ? `port ${LOCK_PORT} on 127.0.0.1, which a herdr-backed check run holds while it runs, is in use by something else`
-          : `another \`bun run check\` with a herdr-backed command is running on this PC (pid ${held.heldBy}); wait for it to end`;
+      let slots: number;
+      try { slots = needsHerdr ? maxRuns(process.env) : 0; } catch (error) { console.error(`check: ${(error as Error).message}`); process.exit(2); }
+      const held = await acquire({ slots, checkout: realpathSync(cwd), resources, reports });
+      if ("refused" in held) {
+        const message = held.refused === "same-checkout"
+          ? `another herdr-backed \`bun run check\` is running in this checkout, and the two would share dist/ and the generated types (${describeHolders(held.holders)}); wait for it to end or use another worktree`
+          : held.refused === "resource"
+            ? `check resource ${held.resource} is already held (${describeHolders(held.holders)}); use a different CHECK_DIR / CHECK_REPORT or wait for the holder`
+            : `herdr-backed check admission is busy or the ${slots}-run limit is reached (${describeHolders(held.holders)}); wait for one to end, or set CHECK_MAX_RUNS (1 to ${MAX_RUNS_LIMIT})`;
         console.error(`check: ${message}`);
         process.exit(1);
       }
-      cleanups.push(held.release);
+      // Keep output ownership through cleanup AND the final report write.
+      process.once("exit", held.release);
     } catch (error) {
       console.error(`check: could not acquire the herdr-backed check lock: ${(error as Error).message}`);
       process.exit(1);
     }
   }
-  const runId = createRunId();
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
-  const paths = reportPaths(cwd, process.env, runId);
   const logDirectory = paths.logDirectory;
   mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") chmodSync(logDirectory, 0o700);
-  const sourceExcludes = [paths.reportPath, logDirectory];
+  const sourceExcludes = [paths.reportPath, `${paths.reportPath}.check-lock`, logDirectory];
   if (process.env["CHECK_DIR"]) {
     const checkDirectory = resolve(cwd, process.env["CHECK_DIR"]!);
     const relativeCheckDirectory = relative(cwd, checkDirectory);
@@ -239,7 +381,7 @@ async function main(): Promise<void> {
   }
   const bun = process.execPath;
   const specs: { name: string; command: string[] | null }[] = [];
-  if (todo.fast) {
+  if (todo.fast || todo.concurrent) {
     specs.push({ name: "workflow syntax", command: null });
     specs.push({ name: "generated types are fresh", command: [bun, "run", "generate:types", "--check"] });
     specs.push({ name: "typecheck", command: [bun, "run", "typecheck"] });
@@ -247,7 +389,7 @@ async function main(): Promise<void> {
     specs.push({ name: "unit tests", command: [bun, "run", "test:unit"] });
   }
   if (todo.lanes.length > 0) {
-    if (!todo.fast) specs.push({ name: "build", command: [bun, "run", "build"] });
+    if (!todo.fast && !todo.concurrent) specs.push({ name: "build", command: [bun, "run", "build"] });
     specs.push({ name: "lanes", command: [bun, "scripts/ci-lanes.ts", ...todo.lanes.map((lane) => `${lane}=${LANES[lane]}`)] });
   }
   if (todo.command) {
@@ -342,6 +484,9 @@ async function main(): Promise<void> {
   let activeStepFinished: Promise<void> | null = null;
   let ending = false;
   let interruptedBy: NodeJS.Signals | null = null;
+  // `check concurrent` runs the unit tests beside the lanes step, outside `run`'s single `child`.
+  let concurrentUnit: ChildProcess | null = null;
+  let concurrentUnitFinished: Promise<number> | null = null;
   const finalize = (status: CheckReport["status"], exitCode: number): void => {
     const endedAtMs = Date.now();
     let sourceEnd = unavailableSource();
@@ -411,8 +556,12 @@ async function main(): Promise<void> {
         // The step runs in a process group of its own, and a lane starts processes of its own
         // in it: the whole group gets the signal, and has ended before the herdr and the
         // directory it uses are taken away.
-        if (child?.pid !== undefined) await endGroup(child.pid, signal);
+        await Promise.all([
+          child?.pid !== undefined ? endGroup(child.pid, signal) : undefined,
+          concurrentUnit?.pid !== undefined ? endGroup(concurrentUnit.pid, signal) : undefined,
+        ]);
         if (activeStepFinished) await activeStepFinished;
+        if (concurrentUnitFinished) await concurrentUnitFinished;
         cleanup();
         finalize("interrupted", signal === "SIGINT" ? 130 : 143);
         process.exit(signal === "SIGINT" ? 130 : 143);
@@ -581,7 +730,8 @@ async function main(): Promise<void> {
   let code = 0;
   try {
     // A run command shares the same herdr and dist state, so it uses the same lock as named lanes.
-    if (todo.fast) {
+    if (todo.fast || todo.concurrent) {
+      // `concurrent` runs the same pre-steps as `fast`; only the unit tests move beside the lanes.
       const actionlintResult = await actionlint(run, plain, (reason) => skip("workflow syntax", reason), (message) => recordIssue("workflow syntax", message, "failure"));
       code = actionlintResult;
       for (const [label, command] of [
@@ -592,9 +742,80 @@ async function main(): Promise<void> {
         code = await run(label, [...command], plain);
       }
       if (code === 0 && !ending) code = await build(plain);
-      if (code === 0 && !ending) code = await run("unit tests", [bun, "run", "test:unit"], plain);
+      if (todo.fast && code === 0 && !ending) code = await run("unit tests", [bun, "run", "test:unit"], plain);
     }
-    if (code === 0 && needsHerdr && !ending) {
+    if (todo.concurrent && code === 0 && !ending) {
+      const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
+      if (!Bun.which(herdr)) throw new Error("concurrent mode needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
+      const herdrVersion = spawnSync(herdr, ["--version"], { encoding: "utf8", env: process.env, timeout: 5_000 });
+      const herdrVersionLine = herdrVersion.stdout?.trim().split(/\r?\n/, 1)[0] ?? "";
+      report.toolchain.herdrVersion = herdrVersion.status === 0 && /^herdr\s+v?\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?$/i.test(herdrVersionLine)
+        ? herdrVersionLine
+        : null;
+      saveReport();
+      const isolation = isolate(process.env);
+      cleanups.push(isolation.remove);
+      const env: Record<string, string | undefined> = { ...isolation.env, ...identity };
+      const shards = env["HERDR_TEST_SHARDS"]!;
+      const shardCount = /^\d+$/.test(shards) ? Number(shards) : Number.NaN;
+      report.toolchain.herdrTestShards = Number.isSafeInteger(shardCount) ? shardCount : null;
+      saveReport();
+      cleanups.push(() => {
+        for (const session of existsSync(isolation.sessions) ? readdirSync(isolation.sessions) : []) {
+          spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: "ignore", timeout: 10_000 });
+        }
+      });
+      console.log(`\ncheck: herdr session ${env["HERDR_TEST_SESSION"]}, config and state in ${resolve(isolation.sessions, "../../..")}`);
+      console.log("check: running unit tests, integration and browser in parallel");
+
+      // The unit tests run beside `run`'s lanes step: their process group is tracked in
+      // `concurrentUnit` so an interrupt ends it with the lanes, and the step settles on
+      // 'close', once the process has exited and its output pipes have drained.
+      const unitStep = getStep("unit tests", [bun, "run", "test:unit"]);
+      unitStep.cwd = resolve(cwd);
+      const unitStartedAtMs = Date.now();
+      unitStep.startedAt = new Date(unitStartedAtMs).toISOString();
+      saveReport();
+      console.log(`\n=== unit tests: ${sanitizeCommand([bun, "run", "test:unit"]).join(" ")}`);
+      const unitStdout = createWriteStream(unitStep.stdout, { flags: "w", mode: 0o600 });
+      const unitStderr = createWriteStream(unitStep.stderr, { flags: "w", mode: 0o600 });
+      let unitLogsFailed = false;
+      unitStdout.on("error", (error) => { unitLogsFailed = true; console.error(`check: unit stdout log failed: ${error.message}`); });
+      unitStderr.on("error", (error) => { unitLogsFailed = true; console.error(`check: unit stderr log failed: ${error.message}`); });
+      const unit = spawn(bun, ["run", "test:unit"], { stdio: ["inherit", "pipe", "pipe"], env: plain, cwd, detached: true });
+      concurrentUnit = unit;
+      unit.stdout?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); unitStdout.write(chunk); });
+      unit.stderr?.on("data", (chunk: Buffer) => { process.stderr.write(chunk); unitStderr.write(chunk); });
+      concurrentUnitFinished = (async () => {
+        const [exitCode, exitSignal] = await new Promise<[number | null, NodeJS.Signals | null]>((done) => {
+          unit.once("error", (error) => { unitStderr.write(`${error.message}\n`); done([127, null]); });
+          unit.once("close", (closeCode, closeSignal) => done([closeCode, closeSignal]));
+        });
+        concurrentUnit = null;
+        unitStdout.end();
+        unitStderr.end();
+        await Promise.all([finished(unitStdout).catch(() => undefined), finished(unitStderr).catch(() => undefined)]);
+        const endedAtMs = Date.now();
+        unitStep.endedAt = new Date(endedAtMs).toISOString();
+        unitStep.durationMs = endedAtMs - unitStartedAtMs;
+        unitStep.exitCode = ending ? null : exitCode;
+        unitStep.signal = ending ? interruptedBy ?? exitSignal : exitSignal;
+        unitStep.status = ending ? "interrupted" : exitCode === 0 && !unitLogsFailed ? "success" : "failure";
+        if (ending) unitStep.reason = `interrupted by ${interruptedBy ?? exitSignal ?? "signal"}`;
+        else if (exitSignal) unitStep.reason = `process terminated by ${exitSignal}`;
+        else if (unitLogsFailed) unitStep.reason = "could not persist command output logs";
+        if (unitStep.status === "failure") {
+          report.errors.push(exitSignal ? `unit tests terminated by ${exitSignal}` : unitLogsFailed ? "unit tests output logs could not be persisted" : `unit tests exited with code ${exitCode}`);
+        }
+        saveReport();
+        return unitStep.status === "success" ? 0 : exitCode || 1;
+      })();
+
+      const lanesCode = await run("lanes", [bun, "scripts/ci-lanes.ts", ...todo.lanes.map((lane) => `${lane}=${LANES[lane]}`)], env);
+      const unitCode = await concurrentUnitFinished;
+      code = unitCode !== 0 ? unitCode : lanesCode;
+    }
+    if (code === 0 && needsHerdr && !ending && !todo.concurrent) {
       const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
       if (!Bun.which(herdr)) throw new Error("this needs herdr on PATH (or HERDR_WEB_HERDR_BIN)");
       const herdrVersion = spawnSync(herdr, ["--version"], { encoding: "utf8", env: process.env, timeout: 5_000 });
