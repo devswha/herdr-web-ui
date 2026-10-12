@@ -220,9 +220,15 @@ try {
             const field = document.createElement("textarea"); field.id = "owned-paging-editable";
             document.querySelector(".pane-frame.is-current")!.append(field); field.focus();
           });
+          await settled(page);
+          assert.equal(await page.evaluate(() => document.activeElement?.id), "owned-paging-editable");
+          // The extra field changes the pane's flex layout before the key is pressed.
+          const editableBottom = await transcript.evaluate((node) => node.scrollTop);
           await page.keyboard.press("PageUp");
-          assert.equal(await transcript.evaluate((node) => node.scrollTop), guardedBottom, "other editable controls retain their plain page keys");
+          await settled(page);
+          assert.equal(await transcript.evaluate((node) => node.scrollTop), editableBottom, `other editable controls retain their plain page keys: ${JSON.stringify(await scrollGeometry(page))}`);
           await page.evaluate(() => document.querySelector("#owned-paging-editable")!.remove());
+          await settled(page);
           await page.keyboard.press("Meta+Shift+Comma");
           await openSettingsPage(page, "Chat");
           await plainToggle.click();
