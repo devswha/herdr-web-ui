@@ -20,6 +20,24 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Claude's in the text color without its orange tile, the other logos with brand colors in grey,
   so a sidebar where nearly every agent is the same one is not a column of colored tiles. Color,
   today's look, stays the default. ([#850](https://github.com/devswha/herdr-web-ui/pull/850) by @phirschybar)
+- File paths in a tool call's command and output, and in a code block with no language (a log
+  an agent pasted), open in the file viewer like the paths in its prose: a line such as
+  `/tmp/shot/t0.png (1600, 1000) -> (1255, 960)` opens the picture, from a phone or another PC
+  as well, since the server reads the file. An HTML file now shows as its page, with a switch to
+  its source: its own script runs in a sandbox with no origin, storage or network (not the web
+  either), and the pictures, stylesheet and script it takes from its own folder are put into it,
+  so an agent's report with its screenshots draws whole. Files outside that folder, hidden ones such as `.env`,
+  and anything of another kind than the tag asks for are never put in.
+  ([#691](https://github.com/devswha/herdr-web-ui/pull/691) by @MovieHolic-Plex)
+- PCs saved in herdr appear automatically. Connect once per PC to enable automatic reconnection;
+  installing or starting a bridge still needs separate approval. Changing the address, port or
+  session clears both permissions and cached panes.
+  ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
+
+### Fixed
+- Web UI SSH connections no longer open extra tunnels configured in the account’s SSH config.
+  ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
+
 
 ### Changed
 - The sidebar's RUN mark is a working-colored dot that breathes, as T3 Code's does, instead of a

@@ -34,7 +34,7 @@ export interface FileViewerProps {
 
 /**
  * A file an agent wrote, opened in the browser: images, video and audio (streamed, so they
- * play and seek at once), PDFs, and the start of a text file (markdown drawn, its images read through the file endpoint). Anything can be downloaded.
+ * play and seek at once), PDFs, HTML pages, and the start of a text file (markdown drawn, its images read through the file endpoint). Anything can be downloaded.
  */
 export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActive = true, page = false }: FileViewerProps) {
   const t = useT();
@@ -50,6 +50,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const [candidates, setCandidates] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState<string | null>(null);
+  // an HTML page shows as the page, or as its source when asked
+  const [source, setSource] = useState(false);
   const [textTruncated, setTextTruncated] = useState(false);
   const [textTotal, setTextTotal] = useState<number | undefined>(undefined);
   // Escape closes it, Tab stays in it, and the focus goes back to the row that opened it
@@ -62,7 +64,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     const abort = new AbortController();
     let deadline: ReturnType<typeof setTimeout> | undefined;
     setTextTruncated(false); setTextTotal(undefined);
-    setInfo(null); setCandidates(null); setError(null); setText(null); setDirectory(null);
+    setInfo(null); setCandidates(null); setError(null); setText(null); setDirectory(null); setSource(false);
     fetchFileInfo(path, paneId).then(async (next) => {
       if (cancelled) return;
       if ("candidates" in next) { setCandidates(next.candidates); return; }
@@ -102,6 +104,14 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
 
   // the file found (a bare name may have been found deeper in the folder), else as asked
   const url = fileUrl(info?.path ?? path, paneId);
+  // drawn by its own script in a sandbox with no origin and no network (server/file-view.ts); a PC
+  // whose bridge predates `render` answers with the source, which the frame shows as text
+  const htmlPage = info !== null && info.kind === "text" && info.mime === "text/html";
+  const pageUrl = `${url}&render=1`;
+  const modes = <div className="segmented file-viewer-modes" role="group" aria-label={t("Show the HTML file as")}>
+    <button type="button" aria-pressed={!source} onClick={() => setSource(false)}>{t("Page")}</button>
+    <button type="button" aria-pressed={source} onClick={() => setSource(true)}>{t("Source")}</button>
+  </div>;
   const filePath = info?.path ?? path;
   const markdown = info?.kind === "text" && /\.(?:md|markdown)$/i.test(info.name);
   // a page of just the document, not the app over it (FileReader)
@@ -130,7 +140,12 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       case "pdf":
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "text":
+        if (htmlPage && !source) return <>
+          {modes}
+          <iframe className="file-viewer-page" src={pageUrl} sandbox="allow-scripts" title={info.name} />
+        </>;
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
+          {htmlPage && modes}
           {markdown
             ? <MarkdownImageContext.Provider value={imagePreview}><Markdown className="file-viewer-markdown" html>{text}</Markdown></MarkdownImageContext.Provider>
             : <pre className="file-viewer-text">{text}</pre>}
@@ -167,7 +182,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       <section ref={surface} className="modal file-viewer" role="dialog" aria-modal="true" aria-label={info?.name ?? path} tabIndex={-1}>
         <header className="modal-header file-viewer-header">
           {title}
-          <a className="icon-button" href={markdown ? previewUrl : url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>
+          <a className="icon-button" href={htmlPage && !source ? pageUrl : markdown ? previewUrl : url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>
           {markdown && <a className="icon-button" href={url} target="_blank" rel="noopener" aria-label={t("Open raw file")} title={t("Open raw file")}><Code aria-hidden="true" /></a>}
           {download}
           <button type="button" className="icon-button" aria-label={t("Close file")} onClick={onClose}><X aria-hidden="true" /></button>
