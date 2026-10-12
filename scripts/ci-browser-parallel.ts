@@ -126,7 +126,11 @@ async function main(): Promise<void> {
       const evidenceDir = baseEvidenceDir ? join(baseEvidenceDir, scriptName) : undefined;
       if (evidenceDir) mkdirSync(evidenceDir, { recursive: true });
 
-      const shouldDisableEvidence = baseEvidenceDir && (script === "scripts/ui-regression.ts" || script === "scripts/key-bar-customization-demo-regression.ts");
+      const shouldDisableEvidence = baseEvidenceDir && (
+        script === "scripts/ui-regression.ts" ||
+        script === "scripts/ui-contexts-regression.ts" ||
+        script === "scripts/key-bar-customization-demo-regression.ts"
+      );
 
       const log = join(logDir, `${scriptName}.log`);
       console.log(`[worker-${workerId}] START ${script}`);

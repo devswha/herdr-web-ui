@@ -179,6 +179,8 @@ jobs:
         if: needs.changes.outputs.draft != 'true'
       - name: Integration tests (updater restart and rollback included)
         if: needs.changes.outputs.draft != 'true'
+        env:
+          HERDR_TEST_SHARDS: ${{ runner.environment == 'self-hosted' && '4' || '1' }}
         run: bun run check integration
       - name: Preserve check report and verification logs
         if: always()
@@ -227,10 +229,11 @@ jobs:
           key: playwright-workspace-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
       - run: bun run build
         if: needs.changes.outputs.draft != 'true'
-      - name: Browser regression (ui-regression.ts)
+      - name: Browser regression (UI suites)
         if: needs.changes.outputs.draft != 'true'
         env:
-          BROWSER_SCRIPTS: scripts/ui-regression.ts
+          BROWSER_SCRIPTS: scripts/ui-regression.ts,scripts/ui-contexts-regression.ts
+          BROWSER_WORKERS: 2
         run: bun scripts/ci-browser-parallel.ts
       - name: Preserve browser logs and evidence
         if: always()
@@ -252,7 +255,6 @@ jobs:
     timeout-minutes: 15
     env:
       CHECK_DIR: ${{ github.workspace }}/.ci
-      BROWSER_WORKERS: 4
     steps:
       - uses: actions/checkout@v7
         with:
@@ -284,8 +286,9 @@ jobs:
       - name: Browser regression (parallel)
         if: needs.changes.outputs.draft != 'true'
         env:
-          # Every script of scripts/ci-browser.sh except the one browser-main runs.
-          BROWSER_EXCLUDE: scripts/ui-regression.ts
+          # Every script of scripts/ci-browser.sh except the two browser-main runs.
+          BROWSER_EXCLUDE: scripts/ui-regression.ts,scripts/ui-contexts-regression.ts
+          BROWSER_WORKERS: ${{ runner.environment == 'self-hosted' && '6' || '4' }}
         run: bun scripts/ci-browser-parallel.ts
       - name: Preserve browser logs and evidence
         if: always()

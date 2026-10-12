@@ -84,8 +84,8 @@ the test runner. A report is evidence, not an authorization to merge or publish.
 
 A local pass is not CI's: the PC has its own Node (CI pins 22), its own cores and its own system
 libraries. The browser lane uses the lockfile's Chromium, which it downloads into Playwright's
-cache on first use. `HERDR_TEST_SHARDS=4` runs four integration files at a time, as a way to
-look for timing failures; the default is one, as in CI.
+cache on first use. `HERDR_TEST_SHARDS=4` runs four integration files at a time, each with an
+isolated herdr session. Local checks and hosted CI default to one; self-hosted CI uses four.
 
 The single commands still work on their own:
 
@@ -434,13 +434,19 @@ The [CI workflow](../.github/workflows/ci.yml) runs on every PR and `main` push:
   - **Integration tests** runs `bun run check integration`: a build and
     `bun run test:integration` on a herdr of the run's own ([Checks](#checks)). The
     integration files can run a few at a time, each worker on a herdr session of its own
-    (`scripts/ci-tests.ts`); they run one by one (`HERDR_TEST_SHARDS`, default 1 in
-    `scripts/check.ts`) until the timing-bound contract tests hold under load.
+    (`scripts/ci-tests.ts`); hosted CI runs one by one, while self-hosted CI sets
+    `HERDR_TEST_SHARDS=4`. `scripts/check.ts` still defaults to one for local checks.
     Missing herdr fails the run. Its herdr servers are stopped even on failure.
     Integration tests have a 15-second default timeout so their bounded process-startup
     probes can finish; individual tests can still specify a longer timeout.
-  - **Browser regression (ui-regression)** runs `scripts/ui-regression.ts` alone.
-  - **Browser regression (other scripts)** runs every other browser script, four at a time.
+  - **Browser regression (ui-regression)** runs `scripts/ui-regression.ts` and
+    `scripts/ui-contexts-regression.ts` concurrently. The core's stateful flow stays serial;
+    the extracted feature checks own a separate temporary herdr config/session, Chromium
+    process, server and fixture panes. Those helpers stay sequential within their own fixture.
+    The context suite prints each helper's elapsed time and stops its owned daemon on exit.
+    `bun run test:ui` also runs both suites.
+  - **Browser regression (other scripts)** runs every other browser script, four at a time
+    on hosted CI and six at a time on self-hosted CI.
 
   Both browser jobs run `scripts/ci-browser-parallel.ts`, which takes its script list from
   `scripts/ci-browser.sh` (`BROWSER_SCRIPTS` picks from it, `BROWSER_EXCLUDE` leaves scripts out,
