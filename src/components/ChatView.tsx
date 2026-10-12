@@ -878,6 +878,8 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
     if (node === null || anchor === null) return;
     prepended.current = null;
     node.scrollTop = anchor.top + (node.scrollHeight - anchor.height);
+    // Keeping the reader's place is not a downward scroll: it must not undo an explicit page away.
+    lastScrollTop.current = node.scrollTop;
   }, [older]);
 
   // Prompts belong to the visible screen, not the native transcript: a Codex directory-trust
@@ -1005,7 +1007,8 @@ export const ChatView = memo(function ChatView({ paneId, pageScroll, refreshKey,
         onScroll();
         return;
       }
-      if (node.scrollTop === before) return;
+      // At the loaded top, PageUp still asks for the earlier page the scroll position cannot reach.
+      if (node.scrollTop === before) { if (direction < 0) onScroll(); return; }
       lastScrollTop.current = before;
       if (direction < 0) pagingAway.current = true;
       // Apply the intent before output or a deferred scroll event can restore following.
