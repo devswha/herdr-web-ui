@@ -62,7 +62,8 @@ try {
       await dialog.getByRole("button", { name: "Install and connect", exact: true }).waitFor();
       assert.equal(await dialog.getByLabel("SSH alias or user@address").count(), 0, "inherited setup requires no repeated address entry");
       assert.equal(submitted.length, 1);
-      assert.deepEqual({ ...submitted[0], machine_id: "stable" }, { destination: "127.0.0.1", port: 1, session: "project-agents", name: "Build machine", machine_id: "stable" });
+      // the catalog names an inherited PC: the dialog sends no name (a label longer than a PC name may be still connects)
+      assert.deepEqual({ ...submitted[0], machine_id: "stable" }, { destination: "127.0.0.1", port: 1, session: "project-agents", machine_id: "stable" });
       assert.ok(submitted[0]?.machine_id);
       assert.equal(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth), true);
       if (evidence) await page.screenshot({ path: join(evidence, phone ? "phone-approval.png" : "desktop-approval.png"), fullPage: true });
