@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Folder, Star, Terminal } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
@@ -89,11 +89,6 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   // pins lead: alone, the pinned rows stand first; in cards, each stays in its own card, first there,
   // and a card that holds one comes before the cards that hold none
   const split = useMemo(() => splitPinnedRows(rows, settings.agentPins ? pinned : NO_PINS, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned, settings.agentPins]);
-  useEffect(() => {
-    const live = new Set(rows.map(({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)));
-    const next = pruneSidebarPins(pinned, live, machines);
-    if (next.length !== pinned.length) setSidebarPins(next);
-  }, [machines, rows, pinned]);
   // a pin moves the row, and maybe its card, so React may draw a new star: a star that had the
   // keyboard focus hands it to its successor
   const sectionRef = useRef<HTMLElement>(null);
@@ -106,8 +101,10 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   }, [pinned]);
   const setPin = (key: string, star: HTMLButtonElement): void => {
     if (document.activeElement === star) refocusPin.current = key;
-    const next = toggleSidebarPin(pinned, key);
-    setSidebarPins(next);
+    // pins of panes gone from this server leave with a change of the user's, never by themselves: the
+    // list is shared, and a pane this page has not seen yet (a PC still loading) is not gone
+    const live = new Set(rows.map(({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)));
+    setSidebarPins(toggleSidebarPin(pruneSidebarPins(pinned, live, machines), key));
   };
   const carded = settings.agentCards && !byActivity;
   const groups = useMemo(() => !carded ? null : groupRows([...split.pinned, ...split.rest], ({ machine, entry }) => JSON.stringify([machine.id, entry.workspace.workspace_id])), [split, carded]);

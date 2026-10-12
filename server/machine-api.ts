@@ -23,7 +23,7 @@ function transportFailure(id: string, path: string, error: unknown): Response {
 }
 
 export async function handleMachineRequest(request: Request, manager: MachineManager, onRevoke?: (close: () => void) => () => void,
-  preferences?: { subscribe(listener: (preferences: SharedPreferences) => void): () => void }): Promise<Response> {
+  preferences?: { get(): SharedPreferences; subscribe(listener: (preferences: SharedPreferences) => void): () => void }): Promise<Response> {
   const url = new URL(request.url);
   // A PC's file opens as this PC's /api/fs/file does, from any navigation: reading it changes
   // nothing, and Chrome on Android shows a PDF in the viewer's frame as an "Open" button whose
@@ -55,8 +55,11 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
           if (closed) return;
           const send = (text: string) => { if (closed) return; if ((controller.desiredSize ?? 0) < -4) { close(); return; } try { controller.enqueue(encoder.encode(text)); } catch { close(); } };
           stop = manager.subscribe((event) => send(`data: ${JSON.stringify(event)}\n\n`));
-          // the shared preferences ride the same stream: one connection per browser
-          stopPreferences = preferences?.subscribe((shared) => send(`data: ${JSON.stringify({ type: "preferences", preferences: shared } satisfies MachineEvent)}\n\n`));
+          // the shared preferences ride the same stream, one connection per browser; the document
+          // opens it, so a page that reconnects (or whose GET lost a race) holds the latest
+          const sendPreferences = (shared: SharedPreferences) => send(`data: ${JSON.stringify({ type: "preferences", preferences: shared } satisfies MachineEvent)}\n\n`);
+          stopPreferences = preferences?.subscribe(sendPreferences);
+          if (preferences) sendPreferences(preferences.get());
           if (closed) { cleanup(); return; }
           heartbeat = setInterval(() => send(": heartbeat\n\n"), 15_000);
           request.signal.addEventListener("abort", close, { once: true });

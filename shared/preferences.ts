@@ -16,14 +16,15 @@ export type SharedSettingKey = (typeof SHARED_SETTING_KEYS)[number];
 export interface SharedPreferences {
   /** 0 until a browser first writes; each write adds one */
   revision: number;
+  /** only the settings some browser has shared: one nobody changed is absent, and stays each device's own */
   settings: Partial<Record<SharedSettingKey, unknown>>;
-  /** sidebar pin keys (`machine:pane`), in their order */
-  pins: string[];
+  /** sidebar pin keys (`machine:pane`), in their order; absent until a browser first shares its pins */
+  pins?: string[];
 }
 
 export const MAX_PINS = 500;
 const MAX_PIN_LENGTH = 300;
-/** a shared value is a few words or a short list; the whole document stays small */
+/** a shared value is a few words or a short list; a change and the whole document it makes stay small */
 export const MAX_PREFERENCES_BYTES = 64 * 1024;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);

@@ -464,6 +464,7 @@ export function App() {
     events.onmessage = (event) => {
       let payload: MachineEvent;
       try { payload = JSON.parse(event.data); } catch { return; }
+      if (payload.type === "preferences") { receivePreferencesRef.current(payload.preferences); return; }
       // A poll started before this event can carry an older roster or pane status.
       snapshotRequests.current.invalidate();
       if (payload.type === "machines") {
@@ -471,7 +472,6 @@ export function App() {
         setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
         return;
       }
-      if (payload.type === "preferences") { receivePreferencesRef.current(payload.preferences); return; }
       const machine = machinesRef.current.find((m) => m.id === payload.machine_id);
       if (!machine) return;
       const message = payload.message;
