@@ -4,13 +4,20 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
+import { changedSettings, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
 
 it("keeps a tab's pane while out of use until this device turns the pause on", () => {
   expect(DEFAULT_SETTINGS.releasePaneAway).toBe(false);
   expect(sanitizeSettings({}).releasePaneAway).toBe(false);
   expect(sanitizeSettings({ releasePaneAway: true }).releasePaneAway).toBe(true);
   expect(sanitizeSettings({ releasePaneAway: "true" }).releasePaneAway).toBe(false);
+});
+
+it("shrinks a narrow split pane's font until this device turns it off", () => {
+  expect(DEFAULT_SETTINGS.narrowPaneFont).toBe(true);
+  expect(sanitizeSettings({}).narrowPaneFont).toBe(true);
+  expect(sanitizeSettings({ narrowPaneFont: false }).narrowPaneFont).toBe(false);
+  expect(sanitizeSettings({ narrowPaneFont: "false" }).narrowPaneFont).toBe(true);
 });
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
@@ -46,6 +53,31 @@ it("keeps sidebar rows on two lines unless one line was chosen", () => {
   for (const sidebarRows of [null, true, "three", 2]) {
     expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("two");
   }
+});
+
+it("draws workspace cards in the Agents list only when they were turned on", () => {
+  expect(DEFAULT_SETTINGS.agentCards).toBe(false);
+  expect(sanitizeSettings({}).agentCards).toBe(false);
+  expect(sanitizeSettings({ agentCards: true }).agentCards).toBe(true);
+  for (const agentCards of [null, "true", 1]) {
+    expect(sanitizeSettings({ agentCards }).agentCards).toBe(false);
+  }
+});
+
+it("shows the Agents list's pin stars only when they were turned on", () => {
+  expect(DEFAULT_SETTINGS.agentPins).toBe(false);
+  expect(sanitizeSettings({}).agentPins).toBe(false);
+  expect(sanitizeSettings({ agentPins: true }).agentPins).toBe(true);
+  for (const agentPins of [null, "true", 1]) {
+    expect(sanitizeSettings({ agentPins }).agentPins).toBe(false);
+  }
+});
+
+it("names the appearance settings changed from their defaults, and no other setting", () => {
+  expect(changedSettings(DEFAULT_SETTINGS)).toEqual([]);
+  expect(changedSettings({ ...DEFAULT_SETTINGS, agentPins: true, theme: "light", agentCards: true })).toEqual(["theme", "agentCards", "agentPins"]);
+  // a setting the user types, or one outside the list, is never named
+  expect(changedSettings({ ...DEFAULT_SETTINGS, terminalFontFamily: "D2Coding", terminalFontSize: 16, quietOpenedDone: true })).toEqual([]);
 });
 
 describe("clipboard from a pane", () => {
@@ -376,6 +408,10 @@ describe("quick replies row", () => {
     expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
     expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
     expect(DEFAULT_SETTINGS.usageCount).toBe("used");
+    // the pace is shown only once chosen
+    expect(DEFAULT_SETTINGS.usagePace).toBe(false);
+    expect(sanitizeSettings({ usagePace: true }).usagePace).toBe(true);
+    expect(sanitizeSettings({ usagePace: "yes" }).usagePace).toBe(false);
     expect(sanitizeSettings({ usageCount: "left" }).usageCount).toBe("left");
     expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("used");
     expect(DEFAULT_SETTINGS.usageGlance).toBe("week");

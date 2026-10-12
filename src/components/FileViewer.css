@@ -182,6 +182,8 @@
  * with the viewer, or lets it fill the viewer (then its text starts on the title's edge).
  */
 .file-viewer-markdown {
+  align-self: stretch;
+  min-width: 0;
   margin-inline: auto;
   padding: var(--space-2);
 }
@@ -210,6 +212,10 @@
   .file-viewer-header-stacked .file-viewer-actions {
     grid-area: actions;
     justify-content: flex-end;
+  }
+
+  .file-reader-header {
+    grid-template-areas: "title title" "actions actions";
   }
 }
 
@@ -267,4 +273,29 @@
   font-size: var(--fs-xs);
   text-align: left;
   overflow-wrap: anywhere;
+}
+
+/* a markdown file in a tab of its own (FileReader): the document is the page */
+.file-reader {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.file-reader-header {
+  /* lined up with the document under it: its column, then the body's own padding */
+  padding-inline: max(var(--space-3), calc((100% - 980px) / 2 + var(--space-3)));
+  border-bottom: var(--hairline) solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.file-reader-header .modal-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.file-reader-body .file-viewer-markdown {
+  width: min(100%, 980px);
+  align-self: center;
 }
