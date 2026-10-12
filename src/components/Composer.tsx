@@ -1183,6 +1183,9 @@ export function Composer({
               aria-label={t("Send message")}
               title={t("Send message")}
               disabled={!connected || uploading || sending || text.trim().length === 0}
+              // focus stays in the text box: leaving it closes the soft keyboard and moves the button
+              // out from under the tap before the click lands
+              onPointerDown={(event) => event.preventDefault()}
               onClick={() => send()}
             >
               <ArrowUp aria-hidden="true" />
