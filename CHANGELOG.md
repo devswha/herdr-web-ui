@@ -77,6 +77,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   itself offers to interrupt the turn and send it. An ordinary Send and the automatic next-turn
   delivery never interrupt Codex.
   ([#783](https://github.com/devswha/herdr-web-ui/pull/783) by @kilhyeonjun)
+- The **agent picker** in the New workspace and New worktree dialogs no longer closes when an
+  unrelated element scrolls, such as a text field scrolling its own text. It closes when the
+  window resizes or when something that holds it scrolls. Moving through a long list with the
+  arrow keys scrolls only the list, so the dialog no longer moves and closes the picker.
 
 ## [0.4.8] - 2026-10-12
 
