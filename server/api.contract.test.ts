@@ -2674,7 +2674,7 @@ describe("token auth", () => {
     // the health body is JSON off the wire; LanExposure is the shape this endpoint adds to it
     type HealthBody = { lan_exposure?: LanExposure };
     const readExposure = async (root: string): Promise<HealthBody["lan_exposure"]> => {
-      const instance = createServer({ port: 0, hostname: root === "open" ? "0.0.0.0" : "127.0.0.1", stateDir: mkdtempSync(join(tmpdir(), `herdr-lan-${root}-`)) });
+      const instance = createServer({ port: 0, hostname: root === "open" ? "0.0.0.0" : "127.0.0.1", token: "", stateDir: mkdtempSync(join(tmpdir(), `herdr-lan-${root}-`)) });
       try {
         const res = await fetch(`http://127.0.0.1:${instance.port}/api/health`);
         const body = await res.json() as HealthBody;
