@@ -67,10 +67,13 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/portal                    -> PortalStatus (an optional public HTTPS address through
  *         Portal, server/portal.ts), no-store
  *  POST   /api/portal/start              -> 202 { accepted: true }; body { relay }; 400 invalid_relay,
- *         409 token_required / serve_only / portal_busy / portal_unsupported
+ *         409 token_required / serve_only / portal_busy / portal_state_in_use / portal_unsupported
  *  POST   /api/portal/stop               -> 202 { accepted: true }; 409 portal_unsupported
- *         Portal POSTs require X-Herdr-Update: 1 and same-origin, like the update POSTs; a
- *         watch-only device gets read_only.
+ *         Portal POSTs require X-Herdr-Update: 1 and same-origin, like the update POSTs:
+ *         403 invalid_portal_request (or invalid_origin from the outer origin gate).
+ *         Unsupported methods/actions get 405 method_not_allowed; a watch-only device gets
+ *         403 read_only. Startup holds HTTP/WS requests until leftover Portal cleanup completes;
+ *         unreadable saved state or unverifiable cleanup fails closed with 500 internal_error.
  *  GET    /api/updates                   -> UpdateStatus (shared/update.ts), no-store
  *  POST   /api/updates/check             -> 202 { accepted: true }
  *  POST   /api/updates/install           -> 202 { accepted: true }
