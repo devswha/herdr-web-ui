@@ -278,8 +278,10 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 - Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.
 - `highlightCode` colors code in the chat and the file viewer by its language (default on; off
   shows plain text).
-- File viewer: `wrapCode` (wrap long lines instead of scrolling sideways; default off) and
-  `markdownWidth`: `readable` (the chat lane, `--chat-w`, centered; default) or `full`.
+- File viewer: `wrapCode` (wrap long lines instead of scrolling sideways; default off),
+  `markdownWidth`: `readable` (the chat lane, `--chat-w`, centered; default) or `full`, and
+  `diffStyle`: `unified` (default) or `split` for a repository diff (a phone draws one column
+  whatever it says, and the viewer says so).
   These layout choices stay on this device, like chat width; code highlighting is shared across browsers.
   The viewer loads a Markdown file's first 256 KB through one bounded streaming reader, with abort
   on close or navigation and a 5 s deadline; any other text that fits 256 KB reads whole under the
@@ -805,6 +807,52 @@ One set for both themes: the card is island black wherever it shows.
 - The browser demo answers the same list/create/open/remove worktree APIs with fictional
   checkout records, so its branch rows and dialogs work without a filesystem or live herdr.
 
+### Changes list and diff viewer (`.repo-changes`, `.repo-diff*`)
+- Files has two faces, **Browse** | **Changes** (`.segmented` in its header). **Changes** lists
+  what a comparison changed in the repository the pane sits in: the working tree against the
+  index, the index against HEAD, or two commits named by hand (**From commit**, **To commit**,
+  **Compare**); a Refresh button re-reads it, nothing polls. Under the controls, the branch
+  (`Detached HEAD`, `No commits yet`) beside a `GitBranch` glyph and the repository's root, mono,
+  cut from its start. One `.repo-change` row per file, like the folder browser's rows: git's own
+  letter in a `.repo-change-mark` chip (M, A, D, R, C, T, U, ?), the path in mono with a rename's
+  old path dimmed before an arrow, and `+added −removed` in `--syntax-inserted` /
+  `--syntax-deleted`, or **Binary**. The chip is tinted as the diff's rows are: added and
+  untracked on `--status-done-tint`, deleted and conflicts on `--status-blocked-tint`, modified on
+  `--accent-tint`; an untracked file's chip has the dashed edge of an unknown state. The status
+  word is kept for assistive tech (`.visually-hidden`), so the letter is never the only name.
+  Empty and refused comparisons say so in the list's own words (`No uncommitted changes`,
+  `Nothing staged`, `These commits are the same`, a cut list with its counts, a folder outside
+  git, a commit that does not exist, a bridge too old for the routes), never in git's.
+- A row opens `.repo-diff-viewer`, a modal above the list with a history entry of its own
+  (lib/useRepoDiffViewer.ts, as a file preview has): Back, Escape, Close and the scrim each close
+  it alone and return the focus to its row; a reload restores it. Its header is the file viewer's:
+  the name cut inside its stem, a mono meta line with the status in words (`.repo-diff-status`,
+  tinted like the chip), the counts, a `--notice` warning with an icon when the rows are left
+  plain or forced to one column, the comparison (`Working tree`, `Staged`, `abc1234..def5678`),
+  and the folder giving way first. Its actions: **Unified** | **Split** (`.segmented`, the
+  `diffStyle` setting; Split is disabled at `<=640px` with the reason as its tooltip and the note
+  in the meta line), **Fold context** (an `aria-pressed` icon button: one unchanged line around
+  each change instead of the three git printed, the rest counted in the separators), **Open
+  file** (the file viewer, on the PC that holds the repository; not for a deleted file) and
+  **Copy patch** (git's own text; without a clipboard the patch becomes a selected text box, as
+  the file viewer's Copy does). On a phone the actions take the second row under Close.
+- The rows are `@pierre/diffs`' `FileDiff` inside its `Virtualizer`: a window of a few hundred
+  rows whatever the patch's length, drawn in the shadow root with the same tokens as a
+  virtualized source (the `--diffs-*` hooks of lib/sourceTheme.ts): text `--text`, background
+  `--bg`, numbers `--line-number`, and `--syntax-inserted` / `--syntax-deleted` as the package's
+  base colors: its gutter bars, signs and word emphasis take them verbatim, and it mixes the added
+  and removed rows' backgrounds from them and `--bg` (no tint token is handed to it, since it
+  would be mixed again); separators on `--bg-elevated` with the package's own `N unmodified
+  lines`. Old and new line numbers sit in the gutters, outside a
+  selection and a copy; a blank row keeps its newline. Colors come from the package's worker
+  within the source bounds (256 KB, 5 000 lines), else the rows stay plain and the header says
+  `Too long to highlight`. Between hunks nothing expands: the routes serve the patch alone, not
+  the files around it; **Open file** is the way to the whole file.
+- What has no rows says so in a `.repo-diff-note`: a binary file, a change past the server's
+  patch cap (with the cap in bytes), a merge conflict, a path that is not a regular file, a pure
+  rename or mode change (`No lines changed.`), a file that no longer differs, and every refusal of
+  the routes in the app's words.
+
 ### Header context and connection
 - A selected pane shows agent mark + title (`--fs-md`), then on the same line the crumb
   PC › workspace › folder (`--fs-xs`, `--text-dim`). The folder shows as its last name, and only
@@ -1249,7 +1297,7 @@ One set for both themes: the card is island black wherever it shows.
 - Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family, highlight code; then
   **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, files at once, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
-  lines, Markdown width), **Terminal** (font size, 80 columns in a split, font family, wheel
+  lines, Markdown width, Diff layout), **Terminal** (font size, 80 columns in a split, font family, wheel
   speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings, then **Paging** with a 0–100 line overlap stepper; one line by default, zero for a full viewport), **Phone & devices** (the phone address,
   Keep screen on, Install; then Portal, where the server offers it; then paired devices),

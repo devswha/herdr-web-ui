@@ -16,6 +16,16 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   workspaces and nullable refs for the settings and tab controls.
 
 ### Added
+- **Files → Changes** lists what changed in the repository a pane sits in: the working tree, the
+  index, or two commits named by hand, one row per file with git's status letter, the path (a
+  rename's old path too) and its added and removed lines. A row opens the file's diff from
+  `@pierre/diffs` as a bounded window of rows, unified or side by side (Settings → File viewer →
+  Diff layout; a phone shows one column and says so), with old and new line numbers, the context
+  around each change folded to a line or shown whole, the file itself one tap away on the PC that
+  holds it, and the patch copied as git printed it. Binary, too-large, conflicted and vanished
+  changes, a folder outside git and a commit that does not exist each say what they are. Back,
+  Escape and Close each close the diff alone and return the focus to its row; a remote PC's
+  repository reads through its bridge; the demo answers from its fixture.
 - The file viewer opens a source file whole up to 8 MB and 200 000 lines (a Markdown file keeps
   its 256 KB Preview), and draws a source of more than 2 000 lines as a window of rows from
   `@pierre/diffs`, so a 120 000-line file scrolls with a few hundred rows in the page. Up to

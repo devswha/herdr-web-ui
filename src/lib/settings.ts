@@ -164,16 +164,22 @@ export interface Settings {
   highlightCode: boolean;
   /** the width of a Markdown preview: the chat's lane (--chat-w), centered, or the viewer's width */
   markdownWidth: MarkdownWidth;
+  /** a repository diff as one column of old and new lines, or the two side by side (a phone shows one column either way) */
+  diffStyle: DiffStyle;
 }
 
 export const MARKDOWN_WIDTHS = ["readable", "full"] as const;
 export type MarkdownWidth = (typeof MARKDOWN_WIDTHS)[number];
+export const DIFF_STYLES = ["unified", "split"] as const;
+export type DiffStyle = (typeof DIFF_STYLES)[number];
 
 /** Raw custom text, key combinations and account keys are never copied. Requiring every other
  * Settings field in the projection makes a new field require an explicit collection decision. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
-  | "quickReplies" | "usageOrder" | "usageHidden">;
+  | "quickReplies" | "usageOrder" | "usageHidden"
+  // not collected: the report's schema (shared/telemetry.ts) has no field for it yet
+  | "diffStyle">;
 
 /** Compare structured custom settings by content against this app's built-in defaults. */
 function differsFromDefault(value: unknown, defaultValue: unknown): boolean {
@@ -257,7 +263,7 @@ export const SETTING_SCOPE = {
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
   voiceInput: "device", voiceLanguage: "device", voicePolishChat: "device", voicePolishTerminal: "device",
   // Viewer layout follows this screen, as chatWidth does; highlighting remains shared.
-  wrapCode: "device", markdownWidth: "device",
+  wrapCode: "device", markdownWidth: "device", diffStyle: "device",
 } as const satisfies Record<keyof Settings, "shared" | "device">;
 
 /** The shared part of `settings`, by the names shared/preferences.ts lists. */
@@ -320,6 +326,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wrapCode: false,
   highlightCode: true,
   markdownWidth: "readable",
+  diffStyle: "unified",
 };
 
 export const QUICK_REPLIES_MAX = 12;
@@ -498,6 +505,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     wrapCode: typeof record["wrapCode"] === "boolean" ? record["wrapCode"] : DEFAULT_SETTINGS.wrapCode,
     highlightCode: typeof record["highlightCode"] === "boolean" ? record["highlightCode"] : DEFAULT_SETTINGS.highlightCode,
     markdownWidth: MARKDOWN_WIDTHS.find((width) => width === record["markdownWidth"]) ?? DEFAULT_SETTINGS.markdownWidth,
+    diffStyle: DIFF_STYLES.find((style) => style === record["diffStyle"]) ?? DEFAULT_SETTINGS.diffStyle,
   };
 }
 

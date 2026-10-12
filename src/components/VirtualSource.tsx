@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createCSSVariablesTheme, DEFAULT_VIRTUAL_FILE_METRICS, registerCustomTheme, type FileContents, type VirtualizedFile, type Virtualizer as VirtualizerInstance } from "@pierre/diffs";
+import { DEFAULT_VIRTUAL_FILE_METRICS, type FileContents, type VirtualizedFile, type Virtualizer as VirtualizerInstance } from "@pierre/diffs";
 import { File, useVirtualizer, Virtualizer, WorkerPoolContextProvider, type FileOptions } from "@pierre/diffs/react";
 
 import { VIRTUAL_HIGHLIGHT_LINES } from "../lib/sourcePreview.ts";
+import { contentKey, HIGHLIGHTER_OPTIONS, keepEmptyRows, POOL_OPTIONS, SCROLL_CONFIG, SHADOW_CSS, SOURCE_THEME } from "../lib/sourceTheme.ts";
 import "./VirtualSource.css";
 
 export interface VirtualSourceProps {
@@ -22,94 +23,10 @@ type FileOptionsOf = FileOptions<undefined, undefined>;
 type Align = "center" | "start";
 interface Reveal { line: number; align: Align; passes: number }
 
-const SOURCE_THEME = "herdr-source";
-registerCustomTheme(SOURCE_THEME, async () => {
-  const theme = createCSSVariablesTheme({
-    name: SOURCE_THEME,
-    variablePrefix: "--herdr-code-",
-    fontStyle: false,
-  });
-  return {
-    ...theme,
-    tokenColors: [...(theme.tokenColors ?? []), {
-      scope: ["markup.heading", "punctuation.definition.heading", "punctuation.definition.list.begin.markdown"],
-      settings: { foreground: "var(--herdr-code-token-link)" },
-    }],
-  };
-});
-
-/**
- * The app's tokens for the rows inside the virtualizer's shadow root, where the document's rules do
- * not reach but its custom properties do. The hooks are the package's own theming properties, in
- * its `unsafe` layer, so neither Pierre's white nor its black code background is painted here.
- */
-const SHADOW_CSS = `
-:host {
-  --herdr-code-foreground: var(--text);
-  --herdr-code-background: var(--bg);
-  --herdr-code-token-comment: var(--syntax-comment);
-  --herdr-code-token-keyword: var(--syntax-keyword);
-  --herdr-code-token-constant: var(--syntax-number);
-  --herdr-code-token-string: var(--syntax-string);
-  --herdr-code-token-string-expression: var(--syntax-string);
-  --herdr-code-token-function: var(--syntax-function);
-  --herdr-code-token-parameter: var(--syntax-variable);
-  --herdr-code-token-punctuation: var(--text);
-  --herdr-code-token-link: var(--syntax-meta);
-  --herdr-code-token-inserted: var(--syntax-inserted);
-  --herdr-code-token-deleted: var(--syntax-deleted);
-  --herdr-code-token-changed: var(--syntax-meta);
-  --diffs-light-bg: var(--bg);
-  --diffs-dark-bg: var(--bg);
-  --diffs-light: var(--text);
-  --diffs-dark: var(--text);
-  --diffs-fg-number-override: var(--line-number);
-  --diffs-bg-selection-override: var(--accent-tint);
-  --diffs-bg-selection-number-override: var(--accent-tint);
-  --diffs-selection-number-fg: var(--accent);
-  --diffs-font-family: var(--font-mono);
-  --diffs-font-size: var(--fs-xs);
-  --diffs-line-height: calc(var(--fs-xs) * var(--lh-base));
-}
-`;
-
-// the window of rows the virtualizer keeps mounted around the view, in pixels
-const SCROLL_CONFIG = { overscrollSize: 600, intersectionObserverMargin: 1200 };
-
 // a reveal re-reads the line's position after each render it causes: wrapped rows are estimated
 // until they mount, so the first scroll can land short, and the virtualizer's own anchor fix after
 // a re-measure can move an aligned row again. Six passes settle every measured case with room.
 const MAX_REVEAL_PASSES = 6;
-
-/**
- * The highlighter runs in the package's own worker, never on the page: the whole file is colored
- * at once, and 8 MiB of it measured 54 s of blocked page without one. Two workers color one file
- * at a time; the pool is created with the first colored source and ended with the last.
- */
-const POOL_OPTIONS = { workerFactory: (): Worker => new Worker(new URL("@pierre/diffs/worker/worker.js", import.meta.url), { type: "module" }), poolSize: 2 };
-// the JavaScript regex engine: the app's CSP allows no WebAssembly compilation
-const HIGHLIGHTER_OPTIONS = { theme: SOURCE_THEME, preferredHighlighter: "shiki-js" as const };
-
-/** A key for the worker's highlight cache: two contents of one name and length must not share one (FNV-1a, 32 bit). */
-function contentKey(name: string, text: string): string {
-  let hash = 0x811c9dc5;
-  for (let at = 0; at < text.length; at++) {
-    hash ^= text.charCodeAt(at);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return `${name}:${text.length}:${(hash >>> 0).toString(16)}`;
-}
-
-/**
- * A blank source line is an empty span in its row, which the browser's text serializer skips: a
- * selection over it loses the line. A line break inside the span keeps the line's newline in a
- * copy, without changing the row's height. Colored rows arrive with one; plain rows get it here.
- */
-function keepEmptyRows(shadow: ShadowRoot): void {
-  for (const span of shadow.querySelectorAll<HTMLElement>("[data-line] > span")) {
-    if (span.textContent === "" && span.firstElementChild === null) span.append(document.createElement("br"));
-  }
-}
 
 function VirtualizerProbe({ onInstance }: { onInstance: (instance: VirtualizerInstance | undefined) => void }) {
   const instance = useVirtualizer();
