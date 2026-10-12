@@ -399,9 +399,11 @@ export class MachineManager {
   setup(request: SetupRequest, options: { auto?: boolean } = {}): SetupJob {
     if (this.stopped) throw new Error("Server stopping");
     let target = validateTarget(request);
-    if (request.name !== undefined && (typeof request.name !== "string" || request.name.length > 100)) throw new Error("PC name must be at most 100 characters");
-    if ([...this.jobs.values()].filter((j) => !["connected", "failed", "cancelled"].includes(j.public.phase)).length >= 4) throw new Error("Finish or cancel the current connection jobs first");
     const existing = request.machine_id ? this.machines.get(request.machine_id) : undefined;
+    // a PC saved in herdr is named by its catalog (any length); a name sent with it is not read
+    const name = existing?.machine.herdr_profile_id ? undefined : request.name;
+    if (name !== undefined && (typeof name !== "string" || name.length > 100)) throw new Error("PC name must be at most 100 characters");
+    if ([...this.jobs.values()].filter((j) => !["connected", "failed", "cancelled"].includes(j.public.phase)).length >= 4) throw new Error("Finish or cancel the current connection jobs first");
     if (request.machine_id && !existing) throw new Error("PC not found");
     if (existing && [...this.jobs.values()].some((j) => j.public.machine_id === existing.machine.id && !["connected", "failed", "cancelled"].includes(j.public.phase))) throw new Error("A connection job for this PC is already running");
     const id = randomUUID();
@@ -418,7 +420,7 @@ export class MachineManager {
     job.timer.unref();
     this.jobs.set(id, job);
     if (this.jobs.size > 40) for (const [key, j] of this.jobs) if (["connected", "failed", "cancelled"].includes(j.public.phase) && key !== id) { this.jobs.delete(key); break; }
-    const runtime = existing ?? this.runtime({ id: machineId, name: request.name?.trim() || target.destination, kind: "ssh", enabled: true, state: "connecting", target, snapshot: null, error: null });
+    const runtime = existing ?? this.runtime({ id: machineId, name: name?.trim() || target.destination, kind: "ssh", enabled: true, state: "connecting", target, snapshot: null, error: null });
     this.disconnect(runtime);
     runtime.machine.target = target;
     const ssh = new SshConnection(target, this.sshDir, join(this.sshDir, machineId));

@@ -117,6 +117,18 @@ describe("automatic herdr machine inheritance", () => {
     expect(manager.list()[1]?.name).toBe("Build machine");
     expect(calls).toBe(3);
   });
+  it("connects a saved machine whose catalog label is longer than a PC name may be, and keeps that label", () => {
+    const { manager } = fixture();
+    const label = "L".repeat(101);
+    manager.syncHerdrProfiles([{ ...profile, label }]);
+    const id = manager.list()[1]!.id;
+    expect(manager.list()[1]?.name).toBe(label);
+    const job = manager.setup({ ...profile.target!, machine_id: id, name: label });
+    expect(job.phase).toBe("connecting");
+    expect(manager.list()[1]?.name).toBe(label);
+    manager.action(job.id, { action: "cancel" });
+  });
+
   it("cancels a real pending authentication job when its source changes, disables or disappears", async () => {
     const start = spyOn(SshConnection.prototype, "start").mockImplementation(async function (challenge) {
       if (!challenge) throw new Error("test requires interactive setup");

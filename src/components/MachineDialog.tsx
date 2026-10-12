@@ -49,7 +49,8 @@ export function MachineDialog({ machine, updateRemote = false, onClose, onConnec
   const begin = async () => {
     if (pending) return;
     setError(null); setPending(true);
-    try { const next = await startMachineSetup({ destination: destination.trim(), ...(name.trim() ? { name: name.trim() } : {}), ...(port ? { port: Number(port) } : {}), ...(key.trim() ? { identity_file: key.trim() } : {}), ...(session.trim() ? { session: session.trim() } : {}), ...(machine ? { machine_id: machine.id } : {}), ...(needsBridgeUpdate || updateRemote ? { update_remote: true } : {}) });
+    // a PC saved in herdr keeps its catalog name, which the server does not read from here
+    try { const next = await startMachineSetup({ destination: destination.trim(), ...(name.trim() && !machine?.herdr_profile_id ? { name: name.trim() } : {}), ...(port ? { port: Number(port) } : {}), ...(key.trim() ? { identity_file: key.trim() } : {}), ...(session.trim() ? { session: session.trim() } : {}), ...(machine ? { machine_id: machine.id } : {}), ...(needsBridgeUpdate || updateRemote ? { update_remote: true } : {}) });
       if (mounted.current) setJob(next);
       else if (!["connected", "failed", "cancelled", "installing", "starting"].includes(next.phase)) await answerMachineSetup(next.id, { action: "cancel" });
     }
