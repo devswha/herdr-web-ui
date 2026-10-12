@@ -1062,7 +1062,10 @@ export type ClientMessage =
    * `clear_draft`: an immediate chat message only, sent again over the `draft` its input_draft
    * refusal named: the server clears Claude's input box first while it still holds exactly that,
    * and refuses again (input_draft) when it holds anything else or does not read empty after. */
-  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" | "hold"; clear_draft?: string }
+  /** `delivery:steer` requires "steering-submit" and a UUID `steering_id`. One request uses the
+   * guarded pending steering path immediately, or starts the next turn if the agent finished.
+   * Explicit retries reuse that ID across connections; durable receipts never repeat a possible write. */
+  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" | "hold" | "steer"; steering_id?: string; clear_draft?: string }
   | { type: "pending-action"; id: number; pane_id: string; pending_id: string; action: "steer" | "discard" }
   /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
@@ -1081,7 +1084,7 @@ export type ClientMessage =
   | { type: "unwatch"; pane_id: string };
 
 /** What a server supports beyond the base protocol, listed in its first snapshot; older bridges list nothing. */
-export type ServerFeature = "submit" | "pending-input" | "pending-hold" | "secret-input" | "input-ready" | "take-over" | "watch" | "conversation-watch";
+export type ServerFeature = "submit" | "pending-input" | "pending-hold" | "steering-submit" | "secret-input" | "input-ready" | "take-over" | "watch" | "conversation-watch";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }

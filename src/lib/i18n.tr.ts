@@ -96,6 +96,8 @@ export const TR: Record<string, string> = {
   "Terminal font": "Terminal yazı tipi",
   "Comma-separated, tried in order. A font this device does not have falls back to the default.": "Virgülle ayrılmış, sırayla denenir. Bu cihazda bulunmayan bir yazı tipi varsayılana düşer.",
   "Composer": "Mesaj yazma alanı",
+  "Steer immediately while running": "Çalışırken hemen yönlendir",
+  "Enter, Send and quick replies send to the active turn. Failed messages stay available for review.": "Enter, Gönder ve hızlı yanıtlar etkin tura gönderilir. Başarısız mesajlar gözden geçirmek için saklanır.",
   "Enter sends": "Enter gönderir",
   "When off, Mod+Enter sends": "Kapalıyken Mod+Enter gönderir",
   "Files at once": "Tek seferde dosya",

@@ -739,6 +739,12 @@ it("keeps page overlap whole, bounded and persistent, including full-viewport pa
 });
 
 describe("shared settings", () => {
+  it("keeps immediate steering opt-in and preserves explicit preferences", () => {
+    expect(DEFAULT_SETTINGS.steerImmediately).toBe(false);
+    expect(sanitizeSettings({ steerImmediately: true }).steerImmediately).toBe(true);
+    expect(sanitizeSettings({ steerImmediately: false }).steerImmediately).toBe(false);
+    expect(sanitizeSettings({ steerImmediately: "true" }).steerImmediately).toBe(false);
+  });
   it("shares exactly the settings SETTING_SCOPE marks shared", () => {
     const shared = Object.entries(SETTING_SCOPE).filter(([, scope]) => scope === "shared").map(([key]) => key).sort();
     expect([...SHARED_SETTING_KEYS].sort() as string[]).toEqual(shared);

@@ -9,6 +9,14 @@ const storage = () => {
 const message = (id: string, state: PendingMessage["state"] = "queued", text = "check the tests"): PendingMessage => ({ id, request_id: 1, text, state, created_at: "2026-10-06T00:00:00Z" });
 
 describe("pending message ownership", () => {
+  it("restores a steering ID for explicit receipt retry without arming automatic delivery", () => {
+    const port = storage(), live = new PendingMessageStore(() => port);
+    live.saveSteering("local:pane", message("steering-id", "sending"));
+    const restored = new PendingMessageStore(() => port);
+    expect(restored.read("local:pane")[0]).toMatchObject({ id: "steering-id", steering: true, state: "uncertain", serverOwned: false });
+    restored.fail("local:pane", "steering-id", { code: "steering_refused", message: "Nothing typed" }, false);
+    expect(new PendingMessageStore(() => port).read("local:pane")[0]).toMatchObject({ steering: true, state: "held" });
+  });
   it("restores saved queued and sending text as uncertain, without arming delivery", () => {
     const port = storage(), live = new PendingMessageStore(() => port);
     live.accept("pc:pane", message("q"), "connection-1");

@@ -515,3 +515,25 @@ input regression matrix.
 | [`docs/`](.) | Remote PCs, updates, flow control, chat audit, brand assets and README media (`docs/media/`) |
 | [`site/`](../site/) | The website, built by `scripts/build-site.ts` and deployed by GitHub Pages |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |
+
+## Immediate chat steering
+
+Settings → Chat → Composer → **Steer immediately while running** is opt-in. Enter, Send and
+quick replies use one `submit` frame (`delivery: "steer"`, feature `steering-submit`). Shift+Enter
+keeps a newline, including while completion suggestions are open. Prompt answers keep their
+existing checked endpoint. Queued messages keep **Send queued messages automatically**.
+
+For a deployment whose owner has approved enabling this on all clients, build with
+`HERDR_WEB_STEER_IMMEDIATELY=1 bun run build`. This sets the default for the new preference;
+explicit saved preferences still win. Ordinary release builds default to off.
+
+The browser saves a UUID and text before sending. The bridge records a fingerprint and pane
+identity in `stateDir/steering-receipts/` before a possible paste, then records its delivery
+receipt. These private files contain no message text and are retained across bridge updates;
+do not delete them while browser retry copies remain. Automatic input replay is never enabled.
+An explicit Send now retries the same UUID: a delivered receipt confirms without typing, a
+pre-write refusal can try again, and a possible write stays uncertain without another paste.
+The existing checked steering path handles Claude Ctrl+Enter, Codex's native steering panel,
+and an agent that finishes before submission. A terminal receipt confirms input delivery,
+not successful execution of the agent's instruction. Protocol 22 has no transactional agent
+execution receipt; ambiguous writes require inspection in the terminal.

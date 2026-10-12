@@ -22,6 +22,7 @@ const thirdPartyNotices: Plugin = {
 export default defineConfig({
   plugins: [react(), thirdPartyNotices, compressedAssets()],
   define: {
+    __HERDR_STEER_IMMEDIATELY__: process.env["HERDR_WEB_STEER_IMMEDIATELY"] === "1",
     __APP_REVISION__: JSON.stringify(revision),
     __APP_VERSION__: JSON.stringify((JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version),
   },

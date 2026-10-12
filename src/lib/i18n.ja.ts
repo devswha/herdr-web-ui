@@ -98,6 +98,8 @@ export const JA: Record<string, string> = {
   "Terminal font": "ターミナルのフォント",
   "Comma-separated, tried in order. A font this device does not have falls back to the default.": "カンマ区切りで、先頭から順に使います。このデバイスにないフォントは既定のフォントで表示します。",
   "Composer": "入力欄",
+  "Steer immediately while running": "実行中にすぐ指示を送信",
+  "Enter, Send and quick replies send to the active turn. Failed messages stay available for review.": "Enter、送信、クイック返信は現在のターンに送信します。失敗したメッセージは確認用に残ります。",
   "Enter sends": "Enter で送信",
   "When off, Mod+Enter sends": "オフの場合は Mod+Enter で送信します",
   "Files at once": "一度に添付するファイル数",

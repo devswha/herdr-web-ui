@@ -34,7 +34,7 @@ export function composerPayload(text: string, bracketedPaste: boolean): string {
 /** The server refused the message before any of it reached the pane: nothing was typed. */
 export function submitNotTyped(code: string): boolean {
   return ["agent_blocked", "read_only", "submit_timeout", "agent_not_ready", "pending_input_unsupported", "invalid_delivery", "invalid_submit_text",
-    "invalid_submit_id", "pending_limit", "pending_not_found", "pending_busy", "invalid_pending_action", "pending_target_changed", "pending_lease_lost", "not_attached", "input_not_ready", "attach_held", "pane_not_found", "retired_submit_id", "input_draft"].includes(code);
+    "invalid_submit_id", "steering_unsupported", "steering_refused", "pending_limit", "pending_not_found", "pending_busy", "invalid_pending_action", "pending_target_changed", "pending_lease_lost", "not_attached", "input_not_ready", "attach_held", "pane_not_found", "retired_submit_id", "input_draft"].includes(code);
 }
 
 /** A send refused over a one-row draft in Claude's terminal input box: the note, and the draft a send may clear first. */
@@ -155,8 +155,8 @@ export function composerSendShown(state: { working: boolean; text: string }): bo
 }
 
 /** While an agent works, Send accepts a follow-up for its next turn. A shell sends immediately. */
-export function composerDelivery(agent: string | null, status?: AgentStatus): "queue" | "immediate" {
-  return agent !== null && status === "working" ? "queue" : "immediate";
+export function composerDelivery(agent: string | null, status?: AgentStatus, steerImmediately = false): "queue" | "immediate" | "steer" {
+  return agent !== null && status === "working" ? steerImmediately ? "steer" : "queue" : "immediate";
 }
 
 /**

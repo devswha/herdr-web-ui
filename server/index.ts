@@ -97,6 +97,7 @@ import { mirrorInput } from "./mirror-input.ts";
 import { PendingInputs, PendingInputError, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
+import { SteeringReceipts } from "./steering-receipts.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
@@ -214,7 +215,7 @@ const RESTORED_CLEAR_GAP_MS = 200;
 const RESTORED_CLEAR_SETTLE_MS = 300;
 /** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
 const RESTORED_CLEAR_RESERVE_MS = 2_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "steering-submit", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
 
 /** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
 const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
@@ -530,6 +531,7 @@ export function createServer(
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
+  const steeringReceipts = new SteeringReceipts(options.stateDir ?? defaultStateDir());
   const preferences = new PreferenceStore(options.stateDir ?? defaultStateDir());
   const usage = options.usage ?? new UsageService();
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
@@ -855,7 +857,7 @@ export function createServer(
   }
 
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
-    automatic: boolean, arrivedAt: number, committing: (working: boolean, restarting?: boolean) => void = () => {}, interruptWorkingCodex = false): Promise<SubmitReply> {
+    automatic: boolean, arrivedAt: number, committing: (working: boolean, restarting?: boolean) => void = () => {}, interruptWorkingCodex = false, writing: () => void = () => {}): Promise<SubmitReply> {
     let wrote = false;
     // what the checks below read is older than a status event that arrives while they run
     let mark = pending.mark(paneId);
@@ -880,6 +882,7 @@ export function createServer(
       };
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
+      writing();
       wrote = true;
       await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`, undefined, allowed).catch((error: unknown) => {
         // a paste the guard refused was never written: the message is unsent, not uncertain
@@ -3101,13 +3104,14 @@ export function createServer(
                 break;
               }
               const waits = message.delivery === "queue" || message.delivery === "hold";
-              if ((message.delivery !== undefined && message.delivery !== "immediate" && !waits)
-                || (waits && message.typed !== undefined && message.typed !== false)) {
+              const steers = message.delivery === "steer";
+              if ((message.delivery !== undefined && message.delivery !== "immediate" && !waits && !steers)
+                || ((waits || steers) && message.typed !== undefined && message.typed !== false)) {
                 result(false, "invalid_delivery", "Use immediate delivery, or queue or hold a chat message");
                 break;
               }
               if (message.clear_draft !== undefined && (typeof message.clear_draft !== "string" || !message.clear_draft
-                || waits || (message.typed !== undefined && message.typed !== false))) {
+                || waits || steers || (message.typed !== undefined && message.typed !== false))) {
                 result(false, "invalid_delivery", "Clear a terminal draft only for a chat message sent at once");
                 break;
               }
@@ -3122,6 +3126,26 @@ export function createServer(
               }
               const arrivedAt = Date.now();
               try {
+                if (steers) {
+                  authorizeSocket(client);
+                  if (typeof message.steering_id !== "string") throw new HerdrError("invalid_submit_id", "Steering requires a stable message ID");
+                  const text = pendingText(message.text);
+                  const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify([message.pane_id, text])).digest("hex");
+                  const answer = await steeringReceipts.run(message.steering_id, fingerprint, (writing, bind) => serialize(message.pane_id, async () => {
+                    const lease = pendingLease(client, message.pane_id);
+                    const target = pendingIdentity(await paneGet(message.pane_id));
+                    bind(target);
+                    const context = await pendingContext(client, message.pane_id, lease, target);
+                    if (context.identity.agent === null) throw new HerdrError("agent_not_ready", "No agent is in front of this pane now; nothing was typed");
+                    pending.steeringStarted(message.pane_id, message.steering_id!);
+                    const reply = await dispatchPendingText(client, message.pane_id, text, lease, context.identity, false, arrivedAt,
+                      (working, restarting) => pending.steeringCommitted(message.pane_id, message.steering_id!, working, restarting), true, writing);
+                    pending.steeringSettled(message.pane_id, message.steering_id!, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed");
+                    return reply;
+                  }));
+                  result(answer.ok, answer.code, answer.message);
+                  break;
+                }
                 if (waits) {
                   let book = pendingRequests.get(client);
                   if (!book) { book = new PendingRequestBook((reply: SubmitReply) => reply.pending !== undefined && pending.retains(client, reply.pending.id)); pendingRequests.set(client, book); }

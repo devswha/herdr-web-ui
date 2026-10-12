@@ -38,6 +38,21 @@ const snapshot = (features: string[]) => ({ type: "snapshot", snapshot: { worksp
 const secrets = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "secret");
 const submissions = (socket: FakeSocket) => socket.sent.filter((frame) => ["submit", "input", "keys"].includes(frame.type));
 
+it("uses one tracked steering submit and refuses older bridges without a terminal fallback", async () => {
+  for (const supported of [false, true]) {
+    const client = new HerdrSocket("ws://test/ws"); client.connect();
+    const socket = FakeSocket.last; socket.open(); socket.receive(snapshot(supported ? ["submit", "steering-submit"] : ["submit", "pending-input"]));
+    const key = crypto.randomUUID();
+    const result = client.submit("w1:p1", "steering", "paste", false, "steer", undefined, key);
+    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    if (supported) {
+      expect(submissions(socket)).toEqual([{ type: "submit", id: 1, pane_id: "w1:p1", text: "steering", payload: "paste", delivery: "steer", steering_id: key }]);
+      socket.receive({ type: "submit-result", id: 1, pane_id: "w1:p1", ok: true }); expect(await result).toEqual({ ok: true });
+    } else { expect(await result).toMatchObject({ ok: false, code: "steering_unsupported" }); expect(submissions(socket)).toEqual([]); }
+    client.close();
+  }
+});
+
 it("refuses clear-and-send on a legacy bridge without sending payload or Enter", async () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();

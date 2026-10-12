@@ -11,6 +11,15 @@ function fixture() {
 }
 
 describe("bridge pending input", () => {
+  it("keeps deliberately queued input behind a durable Codex steering restart", () => {
+    const f = fixture(); const queued = f.enqueue(1);
+    f.queue.status("p1", "working"); f.queue.steeringStarted("p1", "durable-steer");
+    f.queue.steeringCommitted("p1", "durable-steer", true, true);
+    f.queue.steeringSettled("p1", "durable-steer");
+    f.queue.status("p1", "idle"); expect(f.queue.next("p1")).toBeNull();
+    f.queue.status("p1", "working"); expect(f.queue.next("p1")).toBeNull();
+    f.queue.status("p1", "done"); expect(f.queue.next("p1")).toBe(queued);
+  });
   it("deduplicates the same connection's request and rejects id reuse for another message", () => {
     const f = fixture();
     const first = f.enqueue(1);

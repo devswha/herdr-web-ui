@@ -829,7 +829,7 @@ export function Composer({
           setSelectedIndex((current) => (Math.min(current, choices.length - 1) + direction + choices.length) % choices.length);
           return;
         }
-        if (event.key === "Enter" || event.key === "Tab") {
+        if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
           event.preventDefault();
           const choice = choices[selectedIndex];
           if (choice !== undefined) selectCompletion(choice, trigger);

@@ -1152,6 +1152,8 @@ const SHELL_COMMANDS: Record<string, string> = {
   "cat src/money.ts": "export const cents = (amount: string): number => Math.round(Number(amount) * 100);\r\nexport const format = (cents: number): string => (cents / 100).toFixed(2);",
 };
 
+const steeringReceipts = new Map<string, { fingerprint: string }>();
+
 class DemoSocket extends EventTarget {
   static readonly CONNECTING = 0; static readonly OPEN = 1; static readonly CLOSING = 2; static readonly CLOSED = 3;
   readonly url: string;
@@ -1184,7 +1186,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch"] });
+      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "steering-submit", "secret-input", "input-ready", "conversation-watch"] });
     }, 20);
     this.timers.add(opening);
   }
@@ -1217,10 +1219,10 @@ class DemoSocket extends EventTarget {
 
   send(raw: string): void {
     if (this.readyState !== 1) return;
-    let message: { type: string; pane_id?: string; cols?: number; rows?: number; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; clear_draft?: unknown; pending_id?: string; action?: unknown; enabled?: boolean };
+    let message: { type: string; pane_id?: string; cols?: number; rows?: number; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; steering_id?: string; clear_draft?: unknown; pending_id?: string; action?: unknown; enabled?: boolean };
     try { message = JSON.parse(raw); } catch { return; }
     if ((message.type === "submit" || message.type === "pending-action") && Number.isSafeInteger(message.id)) {
-      const signature = JSON.stringify({ type: message.type, pane_id: message.pane_id, text: message.text, payload: message.payload, typed: message.typed, delivery: message.delivery, clear_draft: message.clear_draft, pending_id: message.pending_id, action: message.action });
+      const signature = JSON.stringify({ type: message.type, pane_id: message.pane_id, text: message.text, payload: message.payload, typed: message.typed, delivery: message.delivery, steering_id: message.steering_id, clear_draft: message.clear_draft, pending_id: message.pending_id, action: message.action });
       const previous = this.requests.get(message.id!);
       if (previous) {
         if (previous.signature !== signature) {
@@ -1301,17 +1303,26 @@ class DemoSocket extends EventTarget {
         }
         if (message.pane_id && message.text !== undefined && message.id !== undefined) {
           const queued = message.delivery === "queue" || message.delivery === "hold";
-          const text = queued ? message.text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n") : message.text;
+          const steering = message.delivery === "steer";
+          const text = queued || steering ? message.text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n") : message.text;
           let code: string | null = null;
-          if ((message.delivery !== undefined && message.delivery !== "immediate" && !queued) || (queued && message.typed !== undefined && message.typed !== false)) code = "invalid_delivery";
+          const fingerprint = JSON.stringify([message.pane_id, text]);
+          const receipt = steering && message.steering_id ? steeringReceipts.get(message.steering_id) : undefined;
+          if ((message.delivery !== undefined && message.delivery !== "immediate" && !queued && !steering) || ((queued || steering) && message.typed !== undefined && message.typed !== false)) code = "invalid_delivery";
           else if (message.clear_draft !== undefined && (typeof message.clear_draft !== "string" || !message.clear_draft
-            || queued || (message.typed !== undefined && message.typed !== false))) code = "invalid_delivery";
+            || queued || steering || (message.typed !== undefined && message.typed !== false))) code = "invalid_delivery";
           else if (this.mode === "observe") code = "read_only";
           else if (message.clear_draft !== undefined) code = "unsupported";
-          else if (queued && (text.trim().length === 0 || text.length > 20_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(text))) code = "invalid_submit_text";
-          else if (queued) code = this.pendingTargetError(message.pane_id);
+          else if ((queued || steering) && (text.trim().length === 0 || text.length > 20_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(text))) code = "invalid_submit_text";
+          else if (queued || steering) code = this.pendingTargetError(message.pane_id);
+          if (steering && !message.steering_id) code = "invalid_submit_id";
+          if (receipt && receipt.fingerprint !== fingerprint) code = "invalid_submit_id";
           if (code) {
             this.completeRequest({ type: "submit-result", id: message.id, pane_id: message.pane_id, ok: false, code, message: "The demo agent cannot take this submission." });
+            break;
+          }
+          if (receipt) {
+            this.completeRequest({ type: "submit-result", id: message.id, pane_id: message.pane_id, ok: true });
             break;
           }
           if (queued && (message.delivery === "hold" || paneOf(message.pane_id)?.agent_status === "working")) {
@@ -1322,6 +1333,7 @@ class DemoSocket extends EventTarget {
             this.publishPending(message.pane_id);
             this.push(reply);
           } else {
+            if (steering) steeringReceipts.set(message.steering_id!, { fingerprint });
             submitToChat(message.pane_id, text);
             this.completeRequest({ type: "submit-result", id: message.id, pane_id: message.pane_id, ok: true });
           }

@@ -54,7 +54,7 @@ export function PendingMessages({ messages, active = true, connected, blocked, u
         <div className="pending-message-bubble" aria-busy={busy || undefined}>{message.text}</div>
         <div className="pending-message-meta">
           <span className="pending-message-note" role="status">{status}</span>
-          {!uncertain && <button type="button" className="icon-button pending-message-action pending-message-send"
+          {(!uncertain || message.steering) && <button type="button" className="icon-button pending-message-action pending-message-send"
             aria-label={`${t("Send now")}: ${message.text}`} aria-busy={busy || undefined} title={t("Send now")}
             disabled={!connected || blocked || busy} onClick={(event) => {
               const target = event.currentTarget, keyboard = event.detail === 0, stack = target.closest(".terminal-stack"), owner = stack?.getAttribute("data-pane-owner") ?? null;

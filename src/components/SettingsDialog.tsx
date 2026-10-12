@@ -232,6 +232,9 @@ function ChatPage() {
         <SettingsRow label={t("Files at once")} description={t("How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.")}>
           <Stepper label={t("Files at once")} value={settings.attachLimit} text={String(settings.attachLimit)} min={ATTACH_LIMIT_MIN} max={ATTACH_LIMIT_MAX} decreaseLabel={t("Attach fewer files at once")} increaseLabel={t("Attach more files at once")} onChange={(attachLimit) => update({ attachLimit })} />
         </SettingsRow>
+        <SettingsRow label={t("Steer immediately while running")} description={t("Enter, Send and quick replies send to the active turn. Failed messages stay available for review.")}>
+          <Toggle label={t("Steer immediately while running")} checked={settings.steerImmediately} onChange={(steerImmediately) => update({ steerImmediately })} />
+        </SettingsRow>
         <SettingsRow label={t("Send queued messages automatically")} description={t("A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.")}>
           <Toggle label={t("Send queued messages automatically")} checked={settings.autoSendQueued} onChange={(autoSendQueued) => update({ autoSendQueued })} />
         </SettingsRow>

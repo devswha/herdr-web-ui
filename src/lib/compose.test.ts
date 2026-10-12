@@ -2,6 +2,13 @@ import { describe, expect, it } from "bun:test";
 
 import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage } from "./compose.ts";
 
+it("steers explicit working submissions when opted in, preserving idle, blocked and shell routing", () => {
+  expect(composerDelivery("codex", "working", true)).toBe("steer");
+  expect(composerDelivery("codex", "working", false)).toBe("queue");
+  for (const state of ["idle", "done", "blocked"] as const) expect(composerDelivery("codex", state, true)).toBe("immediate");
+  expect(composerDelivery(null, "working", true)).toBe("immediate");
+});
+
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {
     expect(composerMessage("line one\r\nline two\n\n")).toBe("line one\nline two");

@@ -117,6 +117,8 @@ export interface Settings {
   attachLimit: number;
   /** true: a message sent while the agent works goes by itself when the turn ends; false: it waits for Send now */
   autoSendQueued: boolean;
+  /** Explicit chat sends steer the running turn; deliberately queued messages keep their policy. */
+  steerImmediately: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
   showThinking: boolean;
   /** request a screen wake lock while a pane is open in this visible tab */
@@ -172,7 +174,7 @@ export type MarkdownWidth = (typeof MARKDOWN_WIDTHS)[number];
 /** Raw custom text, key combinations and account keys are never copied. Requiring every other
  * Settings field in the projection makes a new field require an explicit collection decision. */
 type TelemetrySourceSettings = Omit<Settings,
-  "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
+  "keyBarExtras" | "keyBarItems" | "steerImmediately" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
   | "quickReplies" | "usageOrder" | "usageHidden">;
 
 /** Compare structured custom settings by content against this app's built-in defaults. */
@@ -247,7 +249,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
  */
 export const SETTING_SCOPE = {
   theme: "shared", palette: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared", agentCards: "shared",
-  agentPins: "shared", agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
+  agentPins: "shared", agentMarks: "shared", autoSendQueued: "shared", steerImmediately: "shared", showThinking: "shared", quickReplies: "shared",
   showQuickReplies: "shared", showSuggestionChip: "shared", showUsage: "shared", usageCount: "shared", usagePace: "shared",
   usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", highlightCode: "shared", defaultView: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
@@ -264,6 +266,8 @@ export const SETTING_SCOPE = {
 export function sharedSettings(settings: Settings): Partial<Record<SharedSettingKey, unknown>> {
   return Object.fromEntries(SHARED_SETTING_KEYS.map((key) => [key, settings[key]]));
 }
+
+declare const __HERDR_STEER_IMMEDIATELY__: boolean;
 
 export const DEFAULT_SETTINGS: Settings = {
   terminalInputMode: "auto",
@@ -295,6 +299,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enterSends: true,
   attachLimit: 20,
   autoSendQueued: true,
+  steerImmediately: typeof __HERDR_STEER_IMMEDIATELY__ !== "undefined" && __HERDR_STEER_IMMEDIATELY__,
   showThinking: false,
   keepScreenOn: false,
   language: "system",
@@ -470,6 +475,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       ? Math.min(ATTACH_LIMIT_MAX, Math.max(ATTACH_LIMIT_MIN, Math.round(record["attachLimit"])))
       : DEFAULT_SETTINGS.attachLimit,
     autoSendQueued: typeof record["autoSendQueued"] === "boolean" ? record["autoSendQueued"] : DEFAULT_SETTINGS.autoSendQueued,
+    steerImmediately: typeof record["steerImmediately"] === "boolean" ? record["steerImmediately"] : DEFAULT_SETTINGS.steerImmediately,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,
     language: LANGUAGE_SETTINGS.includes(record["language"] as LanguageSetting) ? record["language"] as LanguageSetting : DEFAULT_SETTINGS.language,

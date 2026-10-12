@@ -6,7 +6,7 @@ type Handler = (message: ServerMessage) => void;
 /** A submit was delivered, accepted into the bridge's pending queue, or refused. */
 /** `draft`: an input_draft refusal's one-row Claude draft, which a send with clearDraft may clear */
 /** immediate: typed now; queue: waits for the next turn; hold: waits for the user's Send now */
-export type SubmitDelivery = "immediate" | "queue" | "hold";
+export type SubmitDelivery = "immediate" | "queue" | "hold" | "steer";
 export type SubmitResult = { ok: true; pending?: PendingMessage } | { ok: false; code: string; message: string; draft?: string };
 
 /** Right after a reconnect the snapshot that says what the server supports may still be on its way. */
@@ -384,6 +384,10 @@ export class HerdrSocket {
     return this.canQueueMessages() && this.features.has("pending-hold");
   }
 
+  canSteerMessages(): boolean {
+    return this.connected && this.mode === "interact" && this.features.has("steering-submit");
+  }
+
   sendInput(paneId: string, text: string): boolean {
     if (!this.canInput(paneId)) return false;
     try { this.rawSend({ type: "input", pane_id: paneId, text }); return true; } catch { return false; }
@@ -400,13 +404,14 @@ export class HerdrSocket {
    */
   /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage).
    * `clearDraft`: an immediate send over the draft an input_draft refusal named (ClientMessage `clear_draft`) */
-  submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string): Promise<SubmitResult> | null {
+  submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string, steeringId?: string): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
       if (!this.connected || this.socket !== socket) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot submit messages." };
+      if (delivery === "steer" && (!this.canSteerMessages() || !steeringId)) return { ok: false, code: "steering_unsupported", message: "Update this PC to steer immediately. Nothing was typed." };
       // hold is decided once the snapshot said what the bridge supports: one too old to hold queues it as before
       if (delivery === "hold" && !this.canHoldMessages()) delivery = "queue";
       if (delivery === "queue" && !this.canQueueMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to queue messages." };
@@ -417,7 +422,7 @@ export class HerdrSocket {
       }
       const id = this.nextSubmit++;
       return this.submitRequest({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}), ...(delivery !== "immediate" ? { delivery } : {}),
-        ...(clearDraft !== undefined ? { clear_draft: clearDraft } : {}) });
+        ...(clearDraft !== undefined ? { clear_draft: clearDraft } : {}), ...(steeringId ? { steering_id: steeringId } : {}) });
     })();
   }
 

@@ -96,6 +96,8 @@ export const KO: Record<string, string> = {
   "Terminal font": "터미널 글꼴",
   "Comma-separated, tried in order. A font this device does not have falls back to the default.": "쉼표로 구분하며 앞에서부터 차례로 사용합니다. 이 기기에 없는 글꼴은 기본 글꼴로 대체합니다.",
   "Composer": "입력창",
+  "Steer immediately while running": "작업 중 즉시 지시 보내기",
+  "Enter, Send and quick replies send to the active turn. Failed messages stay available for review.": "Enter, 보내기 및 빠른 답장이 현재 턴으로 전송됩니다. 실패한 메시지는 검토할 수 있도록 남습니다.",
   "Enter sends": "Enter로 보내기",
   "When off, Mod+Enter sends": "끄면 Mod+Enter로 보냅니다",
   "Files at once": "한 번에 첨부할 파일 수",

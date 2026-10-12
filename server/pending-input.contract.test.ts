@@ -91,7 +91,7 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
   while (!existsSync(log)) { if (Date.now() > deadline) throw new Error("recorder did not start"); await Bun.sleep(25); }
   // "plain" is a program herdr knows as no agent
   if (agent !== "plain") await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent, state: "working" });
-  const server = createServer({ ...options, port: 0, stateDir: join(root, `state-${id}`) });
+  let server = createServer({ ...options, port: 0, stateDir: join(root, `state-${id}`) });
   entry.stop = server.stop;
   const socket = new Socket(server.port); entry.sockets.push(socket);
   await socket.attach(pane);
@@ -123,10 +123,65 @@ async function setup(label: string, agent = "claude", screen = "› Message\n", 
   };
   const removed = (id: string, outcome = "sent", reader = socket) => reader.wait((frame) => frame.type === "pending-messages" && frame.pane_id === pane && frame.removed?.some((entry: any) => entry.id === id && entry.outcome === outcome));
   const another = async (attach = true) => { const reader = new Socket(server.port); entry.sockets.push(reader); if (attach) await reader.attach(pane); else await reader.wait((frame) => frame.type === "snapshot"); return reader; };
-  return { pane, port: server.port, socket, bytes, waitBytes, state, showScreen, queue, removed, another };
+  const restart = async () => { server.stop(); server = createServer({ ...options, port: 0, stateDir: join(root, `state-${id}`) }); entry.stop = server.stop; return another(); };
+  return { pane, port: server.port, socket, bytes, waitBytes, state, showScreen, queue, removed, another, restart };
 }
 
 describe("connection-owned pending input", () => {
+  it("a single steering submission delivers once across concurrent clients and reconnect", async () => {
+    const f = await setup("atomic-steer"); const other = await f.another();
+    const key = crypto.randomUUID();
+    const frame = { type: "submit", pane_id: f.pane, text: "steer once\nwith attachment @/tmp/test.png ", payload: "unused", delivery: "steer", steering_id: key };
+    f.socket.send({ ...frame, id: 1 }); other.send({ ...frame, id: 2 });
+    expect(await f.socket.result(1)).toMatchObject({ ok: true });
+    expect(await other.result(2)).toMatchObject({ ok: true });
+    await f.waitBytes("\r"); const delivered = f.bytes();
+    expect(delivered).toBe(`${paste(frame.text)}\r`);
+    await f.socket.disconnect(); const reconnected = await f.another();
+    reconnected.send({ ...frame, id: 3 });
+    expect(await reconnected.result(3)).toMatchObject({ ok: true });
+    expect(f.bytes()).toBe(delivered);
+    const restarted = await f.restart(); restarted.send({ ...frame, id: 4 });
+    expect(await restarted.result(4)).toMatchObject({ ok: true }); expect(f.bytes()).toBe(delivered);
+    restarted.send({ ...frame, text: "different text", id: 5 }); expect(await restarted.result(5)).toMatchObject({ ok: false });
+    expect(f.bytes()).toBe(delivered);
+  }, 30_000);
+
+  it("keeps a prompt refusal retryable under the same steering ID without answering it", async () => {
+    const f = await setup("atomic-prompt", "codex", approval); const key = crypto.randomUUID();
+    const frame = { type: "submit", pane_id: f.pane, text: "next instruction", payload: "unused", delivery: "steer", steering_id: key };
+    f.socket.send({ ...frame, id: 1 });
+    expect(await f.socket.result(1)).toMatchObject({ ok: false }); expect(f.bytes()).toBe("");
+    await f.showScreen("› Message\n"); await f.state("idle");
+    f.socket.send({ ...frame, id: 2 }); expect(await f.socket.result(2)).toMatchObject({ ok: true });
+    await f.waitBytes("\r"); expect(f.bytes()).toBe(`${paste(frame.text)}\r`);
+  }, 30_000);
+
+  it("starts one next turn when the agent finishes during steering submission", async () => {
+    const f = await setup("atomic-finish", "codex", "› Message\n", { submitDelayMs: 500 });
+    f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "once after finish", payload: "unused", delivery: "steer", steering_id: crypto.randomUUID() });
+    await f.waitBytes("\u001b[201~"); await f.state("idle");
+    expect(await f.socket.result(1)).toMatchObject({ ok: true });
+    await f.waitBytes("\r"); expect(f.bytes()).toBe(`${paste("once after finish")}\r`);
+  }, 30_000);
+
+  it("never repeats an ambiguous paste after disconnect", async () => {
+    const f = await setup("atomic-uncertain", "claude", "› Message\n", { submitDelayMs: 500 });
+    const frame = { type: "submit", pane_id: f.pane, text: "retain uncertain", payload: "unused", delivery: "steer", steering_id: crypto.randomUUID() };
+    f.socket.send({ ...frame, id: 1 }); await f.waitBytes("\u001b[201~"); await f.socket.disconnect();
+    const other = await f.another(); other.send({ ...frame, id: 2 });
+    expect(await other.result(2)).toMatchObject({ ok: false, code: "submit_changed" });
+    expect(f.bytes()).toBe(paste(frame.text));
+  }, 30_000);
+
+  it("a single Codex steering request uses the tracked native steering panel", async () => {
+    const f = await setup("atomic-codex", "codex");
+    const frame = { type: "submit", id: 1, pane_id: f.pane, text: "send this now", payload: "unused", delivery: "steer", steering_id: crypto.randomUUID() };
+    f.socket.send(frame); await f.waitBytes("\r"); await f.showScreen(codexSteering());
+    expect(await f.socket.result(1)).toMatchObject({ ok: true }); await f.waitBytes("\u001b");
+    expect(f.bytes()).toBe(`${paste(frame.text)}\r\u001b`);
+  }, 30_000);
+
   it("interrupts an explicit Codex Send now only after its native steering panel appears", async () => {
     const f = await setup("codex-send-now", "codex"); const message = await f.queue(1, "send this now");
     f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });

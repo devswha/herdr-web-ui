@@ -100,6 +100,8 @@ export const ZH: Record<string, string> = {
   "Terminal font": "终端字体",
   "Comma-separated, tried in order. A font this device does not have falls back to the default.": "以逗号分隔，按顺序使用。此设备上没有的字体会回退到默认字体。",
   "Composer": "输入框",
+  "Steer immediately while running": "运行时立即发送指令",
+  "Enter, Send and quick replies send to the active turn. Failed messages stay available for review.": "Enter、发送和快捷回复将发送到当前轮次。发送失败的消息会保留以供检查。",
   "Enter sends": "按 Enter 发送",
   "When off, Mod+Enter sends": "关闭后按 Mod+Enter 发送",
   "Files at once": "每次附加的文件数",

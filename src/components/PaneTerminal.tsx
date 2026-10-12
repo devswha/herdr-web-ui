@@ -1941,6 +1941,34 @@ export function PaneTerminal({
   // must not turn a one-letter message into a control key. Offline it sends nothing and
   // keeps its text (never-queue); a message the server could not deliver keeps it too,
   // with the reason. Bracketed-paste wrapping follows the pane program's mode.
+  const steerComposerMessage = useCallback(async (text: string, id: string = crypto.randomUUID()): Promise<boolean> => {
+    const term = termRef.current, socket = socketRef.current, pane = paneRef.current;
+    if (!term || !socket?.connected || pane === null || secretRef.current !== null || heldRef.current) return false;
+    const owner = paneStorageId(machineId, pane);
+    const previous = pendingMessages.read(owner).find((row) => row.id === id);
+    if (pendingMessages.isBusy(owner, id)) return false;
+    pendingMessages.saveSteering(owner, { id, request_id: 0, text: composerMessage(text), state: "sending", created_at: previous?.created_at ?? new Date().toISOString() });
+    pendingMessages.begin(owner, id);
+    const releaseSubmit = submitRetention?.retain(pane);
+    try {
+      const result = await socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, "steer", undefined, id);
+      if (result?.ok) {
+        pendingMessages.removeCopy(owner, id);
+        rememberGreeting(owner, afterSend(greetingMemory(owner))); redrawGreeting();
+        if (paneRef.current === pane) { setChatSent((current) => current + 1); setChatRefresh((current) => current + 1); }
+        onChatSuggestion(pane, null);
+      } else {
+        const fault = result ?? { code: "disconnected", message: "Reconnect and retry this same message." };
+        pendingMessages.fail(owner, id, { code: fault.code, message: fault.message }, !submitNotTyped(fault.code));
+      }
+    } catch {
+      pendingMessages.fail(owner, id, { code: "disconnected", message: "Delivery could not be confirmed. Retry checks the same message ID." }, true);
+    } finally { pendingMessages.end(owner, id); releaseSubmit?.(); }
+    // Accepted text is now delivered or retained in a visible row. A failure never leaves a second
+    // sendable copy in the composer, and retries always address the original durable receipt.
+    return true;
+  }, [machineId, onChatSuggestion, submitRetention]);
+
   const submitComposerMessage = useCallback((text: string, delivery: SubmitDelivery = "immediate", clearDraft?: string): Promise<SubmitResult> | null => {
     const term = termRef.current;
     const socket = socketRef.current;
@@ -2167,12 +2195,13 @@ export function PaneTerminal({
       // an older bridge is told apart by the socket, once this connection's snapshot has said what it supports.
       // A draft is cleared only by a send at once: one that waits its turn is checked when it goes
       // with automatic sending off, a follow-up waits for Send now; the socket queues it on a PC too old to hold one
-      const queued = composerDelivery(agent, agentStatus);
+      const queued = composerDelivery(agent, agentStatus, settings.steerImmediately);
       const delivery: SubmitDelivery = queued === "queue" && !settings.autoSendQueued ? "hold" : queued;
+      if (delivery === "steer") return steerComposerMessage(text);
       const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined);
       return result === null ? false : result.then((answer) => answer.ok ? true : submitRefusal(answer.code, answer.message, answer.draft));
     },
-    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, submitComposerMessage, queueStore, machineId, settings.autoSendQueued],
+    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, submitComposerMessage, steerComposerMessage, queueStore, machineId, settings.autoSendQueued, settings.steerImmediately],
   );
 
   const actOnPending = useCallback(async (id: string, action: "steer" | "discard"): Promise<void> => {
@@ -2183,7 +2212,8 @@ export function PaneTerminal({
     pendingMessages.refresh(owner);
     const message = pendingMessages.read(owner).find((item) => item.id === id);
     if (!message || message.state === "sending") return;
-    if (action === "steer" && (message.state === "uncertain" || !socket?.connected || heldRef.current || secretRef.current !== null || observeRef.current || ended || heldByOpenQueue || answering !== null)) return;
+    if (action === "steer" && ((message.state === "uncertain" && !message.steering) || !socket?.connected || heldRef.current || secretRef.current !== null || observeRef.current || ended || heldByOpenQueue || answering !== null)) return;
+    if (message.steering && action === "steer") { await steerComposerMessage(message.text, id); return; }
     if (message.serverOwned && !pendingMessages.isOwned(owner, id, scope)) return;
     if (!pendingMessages.begin(owner, id)) return;
     try {
@@ -2217,7 +2247,7 @@ export function PaneTerminal({
     } catch {
       pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
     } finally { pendingMessages.end(owner, id); }
-  }, [answering, ended, heldByOpenQueue, paneId, queueOwner, submitComposerMessage, submitRetention]);
+  }, [answering, ended, heldByOpenQueue, paneId, queueOwner, submitComposerMessage, steerComposerMessage, submitRetention]);
 
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.

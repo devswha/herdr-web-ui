@@ -1,6 +1,6 @@
 import type { PendingMessage } from "../../shared/protocol.ts";
 
-export interface PendingMessageView extends PendingMessage { serverOwned: boolean }
+export interface PendingMessageView extends PendingMessage { serverOwned: boolean; steering?: boolean }
 type StoragePort = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type Removal = { id: string; outcome: "sent" | "discarded" };
 const PREFIX = "herdr-web-ui:pending:";
@@ -39,7 +39,8 @@ export class PendingMessageStore {
         ids.add(message.id);
         const error = message.error && typeof message.error.code === "string" && typeof message.error.message === "string" ? message.error : undefined;
         return [{ id: message.id, request_id: message.request_id, text: message.text, created_at: message.created_at,
-          state: message.state === "held" ? "held" as const : "uncertain" as const, ...(error ? { error } : {}), serverOwned: false }];
+          state: message.state === "held" ? "held" as const : "uncertain" as const, ...(error ? { error } : {}), serverOwned: false,
+          ...((item as PendingMessageView).steering === true ? { steering: true } : {}) }];
       });
     } catch { return []; }
   }
@@ -94,6 +95,12 @@ export class PendingMessageStore {
     const next = [...previous];
     if (at < 0) next.push(view); else next[at] = view;
     this.write(owner, next);
+  }
+
+  /** Save before submitting. Explicit retry uses this same ID, even after reload or in another tab. */
+  saveSteering(owner: string, message: PendingMessage): void {
+    this.refresh(owner);
+    this.write(owner, [...this.read(owner).filter((row) => row.id !== message.id), { ...message, serverOwned: false, steering: true }]);
   }
   publish(owner: string, messages: PendingMessage[], removed: Removal[], scope: string): void {
     for (const message of messages) this.accept(owner, message, scope);

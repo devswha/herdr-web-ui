@@ -106,10 +106,25 @@ export class PendingInputs<Owner, Lease> {
   /** Status cycles before the committing key belong to earlier work, never this submission. */
   committing(item: PendingRecord<Owner, Lease>, steeringWorkingTurn = false, restartingWorkingTurn = false): void {
     if (this.records.get(item.message.id) !== item || !item.inFlight) return;
-    this.gates.set(item.paneId, { by: item.message.id, committed: true, sawWorking: steeringWorkingTurn && !restartingWorkingTurn, completed: false,
+    this.steeringCommitted(item.paneId, item.message.id, steeringWorkingTurn, restartingWorkingTurn);
+  }
+
+  /** A durable steering request shares the next-turn gate without creating another pending row. */
+  steeringStarted(paneId: string, id: string): void {
+    if (!this.gates.get(paneId)?.committed) this.gates.set(paneId, { by: id, committed: false, sawWorking: false, completed: false, deadline: null });
+  }
+
+  steeringCommitted(paneId: string, id: string, steeringWorkingTurn = false, restartingWorkingTurn = false): void {
+    this.gates.set(paneId, { by: id, committed: true, sawWorking: steeringWorkingTurn && !restartingWorkingTurn, completed: false,
       deadline: steeringWorkingTurn && !restartingWorkingTurn ? null : this.now() + this.startTimeoutMs,
       ...(restartingWorkingTurn ? { restart: "interruption" as const } : {}),
     });
+  }
+
+  steeringSettled(paneId: string, id: string, fault?: Fault, uncertain = false): void {
+    const gate = this.gates.get(paneId);
+    if (uncertain || gate?.completed || (fault && gate?.by === id)) this.gates.delete(paneId);
+    if (uncertain && fault) this.holdPane(paneId, fault);
   }
 
   settle(item: PendingRecord<Owner, Lease>, fault?: Fault, uncertain = false, retryWhenReady = false): void {
