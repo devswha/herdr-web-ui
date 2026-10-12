@@ -9,7 +9,7 @@ import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientR
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
-import { cameThroughProxy, decideAccess, isLoopbackAddress, isServeOwnerRequest, lanExposed, LOOPBACK_BIND_HOSTNAMES } from "./access.ts";
+import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
 import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
@@ -3264,7 +3264,7 @@ if (import.meta.main) {
   process.on("SIGINT", shutdown);
   if (process.env["HERDR_WEB_MANAGED"] === "1") process.on("disconnect", shutdown);
   console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
-  if (!LOOPBACK_BIND_HOSTNAMES.includes(instance.hostname)) {
+  if (!isLoopbackBind(instance.hostname)) {
     if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "") {
       console.error(
         `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,

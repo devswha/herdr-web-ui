@@ -25,18 +25,36 @@ import { createServer } from "../server/index.ts";
  */
 const NOTICE = '[data-testid="lan-exposure-notice"]';
 
-async function notice(page: Page): Promise<{ visible: boolean; text: string | null; tint: string | null }> {
+type Found = {
+  visible: boolean;
+  text: string | null;
+  /** the notice's computed background beside the danger token resolved on the same page */
+  tint: { actual: string; danger: string } | null;
+  /** the title of the Settings page the notice's button opened */
+  settings: string | null;
+};
+
+async function notice(page: Page): Promise<Found> {
   const locator = page.locator(NOTICE);
   await locator.waitFor({ state: "attached", timeout: 5000 }).catch(() => undefined);
   const visible = await locator.isVisible().catch(() => false);
-  return {
-    visible,
-    text: visible ? (await locator.innerText()).replace(/\s+/g, " ").trim() : null,
-    tint: visible ? await locator.evaluate((node) => getComputedStyle(node).backgroundColor) : null,
-  };
+  if (!visible) return { visible, text: null, tint: null, settings: null };
+  const text = (await locator.innerText()).replace(/\s+/g, " ").trim();
+  const tint = await locator.evaluate((node) => {
+    const probe = document.createElement("div");
+    probe.style.background = "var(--danger-tint)";
+    document.body.append(probe);
+    const danger = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { actual: getComputedStyle(node).backgroundColor, danger };
+  });
+  await locator.locator("button").click();
+  const title = page.locator(".settings-dialog .modal-title");
+  await title.waitFor({ timeout: 5000 });
+  return { visible, text, tint, settings: (await title.innerText()).trim() };
 }
 
-async function read(browser: Browser, hostname: string): Promise<{ visible: boolean; text: string | null; tint: string | null }> {
+async function read(browser: Browser, hostname: string): Promise<Found> {
   const stateDir = mkdtempSync(join(tmpdir(), `herdr-lan-${hostname === "0.0.0.0" ? "exposed" : "loopback"}-`));
   // no token and nothing paired in both cases: the only difference is where it is reachable.
   // The token is pinned empty so a HERDR_WEB_TOKEN in the runner's environment cannot gate it.
@@ -45,7 +63,12 @@ async function read(browser: Browser, hostname: string): Promise<{ visible: bool
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(String(error)));
+    // the absent case must not pass on a page that never asked: wait for the health answer the
+    // notice is drawn from, and for the session to be live, before looking
+    const health = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/health" && response.status() === 200, { timeout: 15_000 });
     await page.goto(`http://127.0.0.1:${server.port}`, { waitUntil: "load" });
+    await health;
+    await page.locator(".conn-live").waitFor({ timeout: 15_000 });
     const found = await notice(page);
     assert.deepEqual(errors, [], "the page raised no error");
     return found;
@@ -67,8 +90,10 @@ try {
   console.log(`exposed   : ${JSON.stringify(exposed)}`);
   assert.ok(exposed.visible, "the notice appears on a server reachable from the network");
   assert.ok(exposed.text?.includes("0.0.0.0"), "the notice names the address it is reachable at");
-  assert.ok(exposed.tint !== null, "the notice carries a background of its own");
-  console.log("PASS the open-to-the-network notice appears and names the address");
+  assert.notEqual(exposed.tint?.actual, "rgba(0, 0, 0, 0)", "the notice carries a background of its own");
+  assert.equal(exposed.tint?.actual, exposed.tint?.danger, "the notice's background is the danger tint");
+  assert.equal(exposed.settings, "Phone & devices", "the notice's button opens Settings on the devices page");
+  console.log("PASS the open-to-the-network notice appears, names the address and opens Phone & devices");
 
   const loopback = await read(browser, "127.0.0.1");
   console.log(`loopback  : ${JSON.stringify(loopback)}`);

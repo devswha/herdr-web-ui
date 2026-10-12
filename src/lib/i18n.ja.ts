@@ -162,7 +162,7 @@ export const JA: Record<string, string> = {
   "Live terminal is coming to Windows PCs: herdr cannot attach a terminal there yet. The chat lens works now.": "Windows PC のライブターミナルは準備中です。herdr はまだ Windows でターミナルをアタッチできません。チャットは今すぐ使えます。",
   "Terminal": "ターミナル",
   "Terminal for {title}": "{title} のターミナル",
-  "Anyone who can reach {host} on your network can type into every pane: no access token is set and no device is paired yet.": "{host} に届く同じネットワークの人なら誰にでも、すべての pane に直接入力できます。アクセストークンは設定されておらず、ペアリングされた端末もまだありません。",
+  "Anyone who can reach {host} on your network can type into every pane: no access token is set and no device is paired yet.": "同じネットワークで {host} に届く人なら誰でも、すべてのペインに入力できます。アクセストークンは設定されておらず、ペアリング済みのデバイスもまだありません。",
   "locked — the token gate is asking again": "ロック中 — トークンゲートが再度確認しています",
   "herdr {version} · protocol {protocol}": "herdr {version} · プロトコル {protocol}",
   "live": "接続中",
