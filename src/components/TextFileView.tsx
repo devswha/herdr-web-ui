@@ -36,6 +36,6 @@ export function TextFileView({ path, blocks, lines, onOpen, sourceRef }: TextFil
   return <div className="file-viewer-content">
     {blocks !== null
       ? <OpenFileContext.Provider value={openLink}><ParsedMarkdown className={MARKDOWN_CLASS[settings.markdownWidth]} blocks={blocks} /></OpenFileContext.Provider>
-      : <CodeLines ref={sourceRef} className="file-viewer-text" lines={lines} lineNumbers wrap={settings.wrapCode} />}
+      : <CodeLines ref={sourceRef} className="file-viewer-text" lines={lines} open={null} lineNumbers wrap={settings.wrapCode} />}
   </div>;
 }

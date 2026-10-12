@@ -27,6 +27,11 @@ writeFileSync(transcript, [
   // more lines than are drawn one element each (LINE_ELEMENT_LIMIT): 30 000 elements held the page
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Lines:\n\n\`\`\`\n${"x\n".repeat(30_000)}\`\`\`` }] } },
   ...fidelitySources.map((source, index) => ({ type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `\`\`\`${index === 0 ? "ts" : "text"}\n${source}\n\`\`\`` }] } })),
+  // a tool's output and a log in a plain code block name the files they wrote
+  { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Take the screenshots." }] } },
+  { type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "shoot", arguments: JSON.stringify({ cmd: "python3 shoot.py --out shots/report.html" }) } },
+  { type: "response_item", payload: { type: "function_call_output", call_id: "shoot", output: `${join(root, "shots", "t00000.png")} (1600, 1000) -> (1255, 960)\nsaved shots/report.html\ndisplay image 1: [image/png]` } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Shots:\n\n\`\`\`\n${join(root, "shots", "t00000.png")} (1600, 1000) -> (1255, 960)\n\`\`\`` }] } },
 ].map((row) => JSON.stringify(row)).join("\n"));
 const db = new Database(join(codexHome, "state_5.sqlite"));
 db.exec("CREATE TABLE threads (id TEXT, rollout_path TEXT, cwd TEXT, archived INTEGER, agent_role TEXT, created_at INTEGER, updated_at INTEGER, source TEXT, first_user_message TEXT)");
@@ -59,6 +64,16 @@ writeFileSync(join(root, "lines.txt"), "\n".repeat(TEXT_LOAD_LIMIT));
 writeFileSync(join(root, "list.md"), "- a\n".repeat(TEXT_LOAD_LIMIT / 4));
 // an empty file has no first byte: its range answers 416, which is not an error
 writeFileSync(join(root, "empty.txt"), "");
+mkdirSync(join(root, "shots"));
+// a 1x1 PNG
+writeFileSync(join(root, "shots", "t00000.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64"));
+// a page whose script runs, and reports what it may not reach: the network and this app's storage
+writeFileSync(join(root, "shots", "report.html"), `<!doctype html><meta charset="utf-8"><title>Report</title><body><h1 id="ran">static</h1><p id="net">waiting</p><p id="store"></p><img id="shot" alt="shot" src="t00000.png"><p id="pic">no picture</p><script>
+document.getElementById("shot").decode().then(() => { document.getElementById("pic").textContent = "picture drawn"; }, () => {});
+document.getElementById("ran").textContent = "script ran";
+try { localStorage.length; document.getElementById("store").textContent = "storage reachable"; } catch { document.getElementById("store").textContent = "no storage"; }
+fetch("/api/health").then(() => { document.getElementById("net").textContent = "network reachable"; }, () => { document.getElementById("net").textContent = "network blocked"; });
+</script></body>`);
 const markdownPath = join(root, "preview #1 & 한글.MD");
 const markdownSource = "<p align=\"center\">\n  <img src=\"./preview.svg\" alt=\"Logo\" width=\"64\">\n</p>\n\n<p align=\"center\"><a href=\"https://example.com/\">website</a> &middot; <strong>bold</strong></p>\n\n# Markdown preview\n\n한글 문서도 새 탭에서 읽을 수 있습니다.\n\n| Item | State |\n| --- | --- |\n| Preview | Ready |\n\n- [x] Rendered\n\nSee [the other notes](other.md).\n\n```ts\nconst answer = 42;\n```\n\n![Local image](./preview.svg)\n\n```mermaid\ngraph LR\n  A[Read] --> B[Preview]\n```\n";
 writeFileSync(markdownPath, markdownSource);
@@ -89,6 +104,8 @@ try {
   // family are set, so a Markdown preview can be shown to take them over. Long tasks are recorded
   // from the first paint: nothing an agent writes may hold the page for a second
   await page.addInitScript(() => {
+    // the app's own document only: a sandboxed HTML page the viewer frames has no storage to seed
+    if (window.top !== window) return;
     if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", chatFontSize: 17, chatFontFamily: "Georgia" }));
     const record = window as unknown as { longTasks: number[] };
     record.longTasks = [];
@@ -752,6 +769,69 @@ try {
   console.log("PASS A file of too many lines shows as one text, a Markdown file of too many elements as its source, and the page never freezes");
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
+
+  // a path in a tool's output opens the file it names; the rest of the output stays its text
+  const shotPath = join(root, "shots", "t00000.png");
+  await page.locator(".work-block-head").last().click();
+  await page.locator(".work-row-head", { hasText: "shoot.py" }).click();
+  const output = page.locator(".chat-tool-output pre").last();
+  assert.equal(await output.innerText(), `${shotPath} (1600, 1000) -> (1255, 960)\nsaved shots/report.html\ndisplay image 1: [image/png]`, "the output reads as it was written");
+  assert.equal(await output.getByRole("button", { name: "image/png" }).count(), 0, "a MIME type is not a file");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "tool-output-links.png") });
+  await output.getByRole("button", { name: shotPath, exact: true }).tap();
+  const shot = page.getByRole("dialog", { name: "t00000.png", exact: true });
+  await shot.locator("img.file-viewer-media").waitFor();
+  assert.equal(await shot.locator("img.file-viewer-media").evaluate((image: HTMLImageElement) => image.naturalWidth), 1);
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "tool-output-image-open.png") });
+  await shot.getByRole("button", { name: "Close file", exact: true }).click();
+  await shot.waitFor({ state: "hidden" });
+  console.log("PASS A file path in a tool's output opens the picture through touch");
+  // the command names one too; a relative path is found from the pane's folder
+  await page.locator(".work-row-detail .chat-tool-io pre").getByRole("button", { name: "shots/report.html", exact: true }).first().tap();
+  const report = page.getByRole("dialog", { name: "report.html", exact: true });
+  const frame = page.frameLocator(".file-viewer-page");
+  await frame.getByText("script ran", { exact: true }).waitFor();
+  await frame.getByText("network blocked", { exact: true }).waitFor();
+  await frame.getByText("no storage", { exact: true }).waitFor();
+  // a picture beside the page is put into it, so it draws though the page may ask this server for nothing
+  await frame.getByText("picture drawn", { exact: true }).waitFor();
+  assert.equal(await report.locator(".file-viewer-page").getAttribute("sandbox"), "allow-scripts");
+  assert.equal(await report.getByRole("button", { name: "Show source", exact: true }).count(), 0, "HTML uses only Page | Source");
+  assert.equal(await report.getByRole("button", { name: "Page", exact: true }).getAttribute("aria-pressed"), "true");
+  assert.equal(await report.getByRole("link", { name: "Open in a new tab" }).getAttribute("href").then((href) => href?.includes("render=1")), true, "the page opens as the page");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "tool-output-html-page.png") });
+  await report.getByRole("button", { name: "Source", exact: true }).click();
+  await report.locator(".file-viewer-text[data-line-numbers] .hl-line").first().waitFor();
+  await report.locator(".file-viewer-text .hl-string").first().waitFor();
+  assert.equal(await report.locator(".file-viewer-text button").count(), 0, "file source paths remain text");
+  await report.getByRole("button", { name: "Copy file", exact: true }).waitFor();
+  assert.equal(await report.getByRole("link", { name: "Download", exact: true }).getAttribute("download"), "report.html");
+  assert.match(await report.locator(".file-viewer-text").innerText(), /<h1 id="ran">static<\/h1>/);
+  assert.equal(await report.getByRole("link", { name: "Open in a new tab" }).getAttribute("href").then((href) => href?.includes("render=1")), false, "the source opens as the source");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "tool-output-html-source.png") });
+  await report.getByRole("button", { name: "Page", exact: true }).click();
+  await frame.getByText("script ran", { exact: true }).waitFor();
+  // Copy from a page has no source element yet: a refused clipboard must reveal and select it.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: () => Promise.reject(new Error("no clipboard")) }, configurable: true });
+    document.execCommand = () => false;
+  });
+  await report.getByRole("button", { name: "Copy file", exact: true }).click();
+  await report.locator(".file-viewer-text[data-line-numbers]").waitFor();
+  assert.equal(await report.getByRole("button", { name: "Source", exact: true }).getAttribute("aria-pressed"), "true");
+  assert.match(await page.evaluate(() => window.getSelection()?.toString() ?? ""), /<h1 id="ran">static<\/h1>/);
+  await report.getByRole("button", { name: "Close file", exact: true }).click();
+  await report.waitFor({ state: "hidden" });
+  console.log("PASS An HTML file a command names opens as its page, sandboxed with no network or storage, and as its source");
+  // a log in a plain code block: its paths open as well
+  const log = page.locator(".markdown-code").last();
+  await log.getByRole("button", { name: shotPath, exact: true }).tap();
+  await shot.locator("img.file-viewer-media").waitFor();
+  await shot.getByRole("button", { name: "Close file", exact: true }).click();
+  await shot.waitFor({ state: "hidden" });
+  assert.equal(await log.locator(".hl-code").innerText(), `${shotPath} (1600, 1000) -> (1255, 960)`, "a copy of the block is still its text");
+  assert.deepEqual(errors, []);
+  console.log("PASS A file path in a plain code block opens the file, and the block's text is unchanged");
 
   // Settings → Highlight code, off: code is plain text, in the chat and the viewer
   await page.evaluate(() => {
