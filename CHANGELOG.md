@@ -39,11 +39,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   session clears both permissions and cached panes.
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
-### Fixed
-- Web UI SSH connections no longer open extra tunnels configured in the account’s SSH config.
-  ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
-
-
 ### Changed
 - Markdown file previews are parsed in a worker with a 2 s budget and a 60 000-element limit,
   keeping the existing HTML blocks, images and reader-page navigation. A preview that cannot
@@ -56,6 +51,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   dims to half in a few steps, and every running row breathes in step. BG is a still ring in the
   same color, so the two read apart without motion; it breathes under reduced motion too.
   ([#860](https://github.com/devswha/herdr-web-ui/pull/860))
+
+### Fixed
+- Web UI SSH connections no longer open extra tunnels configured in the account’s SSH config.
+  ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
 ## [0.4.8] - 2026-10-12
 
