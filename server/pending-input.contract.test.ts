@@ -153,6 +153,30 @@ describe("connection-owned pending input", () => {
     expect((await f.socket.wait((frame) => frame.type === "pending-messages" && frame.messages.some((item: any) => item.id === message.id && item.state === "uncertain"))).messages[0].state).toBe("uncertain");
   }, 30_000);
 
+  it("withholds Codex Escape when its deadline passes while the key RPC connects", async () => {
+    const f = await setup("codex-guard-deadline", "codex"); const message = await f.queue(1, "send this now");
+    f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });
+    await f.waitBytes("\r");
+    const hold = holdConnect("keys"); await f.showScreen(codexSteering()); await hold.reached;
+    // the panel was read in time; by the time herdr is written to, Codex may have taken the steering itself
+    await Bun.sleep(1_600);
+    hold.release();
+    expect(await f.socket.action(10)).toMatchObject({ ok: false, code: "submit_changed" });
+    expect(f.bytes()).toBe(`${paste("send this now")}\r`);
+  }, 30_000);
+
+  it("withholds Codex Escape when the pane's status moves while the key RPC connects", async () => {
+    const f = await setup("codex-guard-status", "codex"); const message = await f.queue(1, "send this now");
+    f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });
+    await f.waitBytes("\r");
+    const hold = holdConnect("keys"); await f.showScreen(codexSteering()); await hold.reached;
+    // the turn ended on its own: Escape would now cancel whatever Codex opened next
+    await f.state("idle");
+    hold.release();
+    expect(await f.socket.action(10)).toMatchObject({ ok: false, code: "submit_changed" });
+    expect(f.bytes()).toBe(`${paste("send this now")}\r`);
+  }, 30_000);
+
   it("never interrupts an ordinary queue submit that races from idle into working Codex", async () => {
     const f = await setup("codex-send-race", "codex", "› Message\n", { submitDelayMs: 500 });
     await f.state("idle");

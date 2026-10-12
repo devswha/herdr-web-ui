@@ -45,6 +45,24 @@ describe("Codex's live steering buffer", () => {
     expect(codexSteeringPending(live(`  ↳ LLLL w0 w1 w2\n    w3 w4 w5\n    …\n`), long)).toBe(true);
   });
 
+  it("reads a message whose own second line starts with the arrow", () => {
+    // Codex indents continuation rows two deeper than the entry's arrow; an arrow there is text
+    expect(codexSteeringPending(live("  ↳ explain\n    ↳ send this now\n"), "explain\n↳ send this now")).toBe(true);
+    expect(codexSteeringPending(live("  ↳ explain\n    ↳ send this now\n"), "send this now")).toBe(false);
+  });
+
+  it("compares only the steering section's last entry, not a later section's", () => {
+    const sections = "  ↳ older steer\n• Messages to be submitted at end of turn\n  ↳ send this now\n";
+    expect(codexSteeringPending(live(sections), "send this now")).toBe(false);
+    expect(codexSteeringPending(live("  ↳ send this now\n• Messages to be submitted at end of turn\n  ↳ queued for later\n"), "send this now")).toBe(true);
+  });
+
+  it("takes a trailing ellipsis for a cut only on its own row", () => {
+    expect(codexSteeringPending(live("  ↳ wait…\n"), "wait for tests")).toBe(false);
+    expect(codexSteeringPending(live("  ↳ wait…\n"), "wait…")).toBe(true);
+    expect(codexSteeringPending(live("  ↳ …\n"), "anything")).toBe(false);
+  });
+
   for (const [name, entries, text] of [
     ["an entry that was already waiting", "  ↳ older entry\n", "send this now"],
     ["an older entry above the newest one", "  ↳ send this now\n  ↳ typed in the terminal\n", "send this now"],
@@ -62,7 +80,7 @@ function fixture(contexts: CodexSteeringContext[] = [working]) {
   const effects: string[] = [];
   const io = {
     read: async () => contexts[Math.min(reads++, contexts.length - 1)]!,
-    escape: async () => { effects.push("Escape"); },
+    escape: async (fresh: () => boolean) => { effects.push(fresh() ? "Escape" : "Escape withheld"); },
     restarting: () => { effects.push("restart gate"); },
     now: () => now,
     wait: async (ms: number) => { now += ms; },
@@ -108,6 +126,12 @@ describe("explicit Codex Send now", () => {
     const f = fixture([{ ...working, screen: frame("Queued follow-up inputs") }]);
     await expect(interruptCodexSteering(true, "send this now", working, f.io)).rejects.toThrow("not confirmed");
     expect(f.effects).toEqual([]); expect(f.elapsed()).toBeLessThanOrEqual(1500);
+  });
+
+  it("hands the key write a freshness check that fails once the deadline has passed", async () => {
+    const f = fixture(); f.io.escape = async (fresh) => { f.advance(1600); f.effects.push(fresh() ? "Escape" : "Escape withheld"); };
+    await interruptCodexSteering(true, "send this now", working, f.io);
+    expect(f.effects).toEqual(["restart gate", "Escape withheld"]);
   });
 
   it("checks the deadline again after a slow screen read before sending Escape", async () => {

@@ -141,6 +141,9 @@ export class PendingInputs<Owner, Lease> {
   /** The pane's status events so far. A snapshot read after this point is applied with it (observe). */
   mark(paneId: string): number { return this.events.get(paneId) ?? 0; }
 
+  /** The pane's last applied status, from an event or an observed snapshot. */
+  current(paneId: string): AgentStatus | undefined { return this.statuses.get(paneId); }
+
   /** A status event from the collector. */
   status(paneId: string, status: AgentStatus): void {
     this.events.set(paneId, this.mark(paneId) + 1);
