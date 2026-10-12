@@ -77,7 +77,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   itself offers to interrupt the turn and send it. An ordinary Send and the automatic next-turn
   delivery never interrupt Codex.
   ([#783](https://github.com/devswha/herdr-web-ui/pull/783) by @kilhyeonjun)
-- On Windows, OmO is offered when creating a workspace or a tab, as gjc already was.
+- On Windows, OmO is offered when creating a workspace or a tab, as gjc already was. ([#885](https://github.com/devswha/herdr-web-ui/pull/885) by @willowite)
 
 ## [0.4.8] - 2026-10-12
 
