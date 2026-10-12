@@ -80,7 +80,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - On Windows, a pane that runs a launcher which starts OmO as its child is recognized as OmO. herdr
   names only the launcher there, so the bridge now also looks for OmO below the pane's shell in the
   PC's process table, so its chat and session are found. Only processes below that pane's own
-  shell count.
+  shell count. ([#886](https://github.com/devswha/herdr-web-ui/pull/886) by @willowite)
 
 ## [0.4.8] - 2026-10-12
 
