@@ -36,7 +36,7 @@ function holdConnect(rpc: "text" | "keys"): { reached: Promise<void>; release: (
   return { reached: at, release };
 }
 const approval = "Would you like to run the following command?\n\n$ rm -rf junk\n\n› 1. Yes, proceed (y)\n  2. No, and tell Codex what to do differently (esc)\n\nPress enter to confirm or esc to cancel\n";
-const codexSteering = "• Working (2s • esc to interrupt)\n• Messages to be submitted after next tool call (press esc to interrupt and send immediately)\n  ↳ send this now\n› Ask Codex to do anything\n  gpt-6.1 default · /workspace\n";
+const codexSteering = (entry = "send this now") => `• Working (2s • esc to interrupt)\n• Messages to be submitted after next tool call (press esc to interrupt and send immediately)\n  ↳ ${entry}\n› Ask Codex to do anything\n  gpt-6.1 default · /workspace\n`;
 
 class Socket {
   readonly seen: any[] = [];
@@ -131,7 +131,7 @@ describe("connection-owned pending input", () => {
     const f = await setup("codex-send-now", "codex"); const message = await f.queue(1, "send this now");
     f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });
     await f.waitBytes("\r"); expect(f.bytes()).toBe(`${paste("send this now")}\r`);
-    await f.showScreen(codexSteering);
+    await f.showScreen(codexSteering());
     expect(await f.socket.action(10)).toMatchObject({ ok: true }); await f.removed(message.id); await f.waitBytes("\u001b");
     const received = f.socket.seen.length;
     f.socket.send({ type: "pending-action", id: 11, pane_id: f.pane, pending_id: message.id, action: "steer" });
@@ -144,7 +144,7 @@ describe("connection-owned pending input", () => {
     const f = await setup("codex-guard-escape", "codex"); const message = await f.queue(1, "send this now");
     f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });
     await f.waitBytes("\r");
-    const hold = holdConnect("keys"); await f.showScreen(codexSteering); await hold.reached;
+    const hold = holdConnect("keys"); await f.showScreen(codexSteering()); await hold.reached;
     f.socket.send({ type: "role", mode: "observe" }); await f.socket.wait((frame) => frame.type === "role-ack" && frame.mode === "observe");
     f.socket.send({ type: "role", mode: "interact" }); await f.socket.wait((frame) => frame.type === "role-ack" && frame.mode === "interact");
     hold.release();
@@ -157,7 +157,7 @@ describe("connection-owned pending input", () => {
     const f = await setup("codex-send-race", "codex", "› Message\n", { submitDelayMs: 500 });
     await f.state("idle");
     f.socket.send({ type: "submit", id: 1, pane_id: f.pane, text: "ordinary send", payload: "unused", delivery: "queue" });
-    await f.waitBytes("\u001b[201~"); await f.state("working"); await f.showScreen(codexSteering);
+    await f.waitBytes("\u001b[201~"); await f.state("working"); await f.showScreen(codexSteering());
     expect(await f.socket.result(1)).toMatchObject({ ok: true }); await f.waitBytes("\r");
     expect(f.bytes()).toBe(`${paste("ordinary send")}\r`);
   }, 30_000);
@@ -667,7 +667,7 @@ describe("connection-owned pending input", () => {
     const other = await codex.queue(1, "codex steer");
     codex.socket.send({ type: "pending-action", id: 10, pane_id: codex.pane, pending_id: other.id, action: "steer" });
     await codex.waitBytes("\r");
-    await codex.showScreen(codexSteering);
+    await codex.showScreen(codexSteering("codex steer"));
     expect(await codex.socket.action(10)).toMatchObject({ ok: true }); await codex.waitBytes("\u001b");
     expect(codex.bytes()).toBe(`${paste("codex steer")}\r\u001b`);
   }, 45_000);

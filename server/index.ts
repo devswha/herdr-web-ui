@@ -892,7 +892,7 @@ export function createServer(
       // Claude Code queues what Enter commits during a turn; Ctrl+Enter sends it now (#737). herdr
       // encodes the key as the pane asked, and as a plain CR for a program that asked for nothing.
       await paneSendKeys(paneId, [steering && beforeEnter.identity.agent === "claude" ? "ctrl+enter" : "Enter"], undefined, allowed);
-      await interruptCodexSteering(interruptWorkingCodex, { agent: beforeEnter.identity.agent, working: beforeEnter.working, screen: beforeEnter.screen }, {
+      await interruptCodexSteering(interruptWorkingCodex, closeMention(text), { agent: beforeEnter.identity.agent, working: beforeEnter.working, screen: beforeEnter.screen }, {
         read: async () => {
           const current = await pendingContext(owner, paneId, lease, identity, true);
           return { agent: current.identity.agent, working: current.working, screen: current.screen };
