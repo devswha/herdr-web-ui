@@ -1,0 +1,26 @@
+/* the picker and its favorite star side by side, as Directory's path and its Browse button */
+.agent-picker {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.agent-picker-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* as tall as the trigger beside it, which a dialog may grow to the touch target */
+.agent-picker-favorite {
+  align-self: stretch;
+  height: auto;
+}
+
+.agent-picker-favorite.is-favorite,
+.agent-picker-menu .agent-picker-favorite-mark {
+  color: var(--accent);
+}
+
+/* Shell is never a favorite: the primitive's opacity alone leaves an empty star looking pressable */
+.agent-picker-favorite:disabled {
+  color: var(--text-dim);
+}

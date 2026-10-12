@@ -371,6 +371,8 @@ export const ZH: Record<string, string> = {
   // ---- new workspace ----
   "Close dialog": "关闭对话框",
   "Agent": "Agent",
+  "Add to favorites": "添加到收藏",
+  "Remove from favorites": "从收藏中移除",
   "Directory": "目录",
   "Browse": "浏览",
   "absolute path or ~/…": "绝对路径或 ~/…",

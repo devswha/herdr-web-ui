@@ -78,6 +78,9 @@ export interface Settings {
   agentCards: boolean;
   /** Each agent row carries a star that keeps it on top of the Agents list. */
   agentPins: boolean;
+  /** agent kinds the creation dialogs' picker lists right after Shell (lib/agentFavorites.ts); a kind
+   *  one PC lacks is kept for the PCs that have it */
+  agentFavorites: string[];
   /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
   quietOpenedDone: boolean;
   /** Agent logos: brand colors, or without color, so a list of one agent is not a stripe of tiles */
@@ -167,11 +170,11 @@ export interface Settings {
 export const MARKDOWN_WIDTHS = ["readable", "full"] as const;
 export type MarkdownWidth = (typeof MARKDOWN_WIDTHS)[number];
 
-/** Raw custom text, key combinations and account keys are never copied. Requiring every other
+/** Raw custom text, key combinations, account keys and agent kinds are never copied. Requiring every other
  * Settings field in the projection makes a new field require an explicit collection decision. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
-  | "quickReplies" | "usageOrder" | "usageHidden">;
+  | "quickReplies" | "usageOrder" | "usageHidden" | "agentFavorites">;
 
 /** Compare structured custom settings by content against this app's built-in defaults. */
 function differsFromDefault(value: unknown, defaultValue: unknown): boolean {
@@ -244,7 +247,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
  */
 export const SETTING_SCOPE = {
   theme: "shared", palette: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared", agentCards: "shared",
-  agentPins: "shared", agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
+  agentPins: "shared", agentFavorites: "shared", agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
   showQuickReplies: "shared", showSuggestionChip: "shared", showUsage: "shared", usageCount: "shared", usagePace: "shared",
   usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", highlightCode: "shared", defaultView: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
@@ -275,6 +278,7 @@ export const DEFAULT_SETTINGS: Settings = {
   agentOrder: "workspace",
   agentCards: false,
   agentPins: false,
+  agentFavorites: [],
   quietOpenedDone: false,
   agentMarks: "color",
   palette: "amber",
@@ -326,6 +330,15 @@ export const USAGE_KEYS_MAX = 64;
 function usageKeys(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 512))].slice(0, USAGE_KEYS_MAX);
+}
+
+/** favorite agent kinds kept; herdr knows far fewer, so more are a hand-edited record */
+export const AGENT_FAVORITES_MAX = 64;
+
+/** Favorite agent kinds: strings only, each once, bounded. */
+function agentKinds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((kind): kind is string => typeof kind === "string" && kind.length > 0 && kind.length <= 128))].slice(0, AGENT_FAVORITES_MAX);
 }
 export const QUICK_REPLY_MAX_CHARS = 200;
 
@@ -439,6 +452,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     agentOrder: record["agentOrder"] === "workspace" || record["agentOrder"] === "activity" ? record["agentOrder"] : DEFAULT_SETTINGS.agentOrder,
     agentCards: record["agentCards"] === true,
     agentPins: record["agentPins"] === true,
+    agentFavorites: agentKinds(record["agentFavorites"]),
     quietOpenedDone: record["quietOpenedDone"] === true,
     agentMarks: record["agentMarks"] === "color" || record["agentMarks"] === "mono" ? record["agentMarks"] : DEFAULT_SETTINGS.agentMarks,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" || record["palette"] === "forest" ? record["palette"] : DEFAULT_SETTINGS.palette,

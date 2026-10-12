@@ -369,6 +369,8 @@ export const JA: Record<string, string> = {
   // ---- new workspace ----
   "Close dialog": "ダイアログを閉じる",
   "Agent": "エージェント",
+  "Add to favorites": "お気に入りに追加",
+  "Remove from favorites": "お気に入りから削除",
   "Directory": "ディレクトリ",
   "Browse": "参照",
   "absolute path or ~/…": "絶対パスまたは ~/…",

@@ -6,7 +6,7 @@ import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
 import { SHARED_SETTING_KEYS } from "../../shared/preferences.ts";
 import { NOTICE_VERSION, telemetrySettings } from "../../shared/telemetry.ts";
-import { SETTING_SCOPE, telemetrySettingsSnapshot, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
+import { AGENT_FAVORITES_MAX, SETTING_SCOPE, telemetrySettingsSnapshot, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
 
 it("keeps a tab's pane while out of use until this device turns the pause on", () => {
   expect(DEFAULT_SETTINGS.releasePaneAway).toBe(false);
@@ -73,6 +73,34 @@ it("shows the Agents list's pin stars only when they were turned on", () => {
   for (const agentPins of [null, "true", 1]) {
     expect(sanitizeSettings({ agentPins }).agentPins).toBe(false);
   }
+});
+
+describe("favorite agent kinds", () => {
+  it("start empty, and anything but a list is none", () => {
+    expect(DEFAULT_SETTINGS.agentFavorites).toEqual([]);
+    expect(sanitizeSettings({}).agentFavorites).toEqual([]);
+    for (const agentFavorites of [null, "codex", { codex: true }, 1]) {
+      expect(sanitizeSettings({ agentFavorites }).agentFavorites).toEqual([]);
+    }
+  });
+
+  it("keep each non-empty kind once, in order, a kind of another PC included", () => {
+    expect(sanitizeSettings({ agentFavorites: ["codex", "", 42, null, "omo", "codex", "remote-only"] }).agentFavorites)
+      .toEqual(["codex", "omo", "remote-only"]);
+  });
+
+  it("stay bounded, and are the same list after a save and a reload", () => {
+    expect(sanitizeSettings({ agentFavorites: ["x".repeat(129), "pi"] }).agentFavorites).toEqual(["pi"]);
+    expect(sanitizeSettings({ agentFavorites: Array.from({ length: 100 }, (_, index) => `kind-${index}`) }).agentFavorites)
+      .toHaveLength(AGENT_FAVORITES_MAX);
+    const saved = sanitizeSettings({ agentFavorites: ["pi", "codex"] });
+    expect(sanitizeSettings(JSON.parse(JSON.stringify(saved))).agentFavorites).toEqual(["pi", "codex"]);
+  });
+
+  it("are shared by every browser of the server, as the pins are", () => {
+    expect(SETTING_SCOPE.agentFavorites).toBe("shared");
+    expect(SHARED_SETTING_KEYS).toContain("agentFavorites");
+  });
 });
 
 it("draws agent logos in their brand colors unless Mono was chosen", () => {
@@ -161,6 +189,7 @@ describe("telemetry settings snapshot", () => {
       quickReplies: ["private quick reply"],
       usageOrder: ["private-order-account-id"],
       usageHidden: ["private-hidden-account-id"],
+      agentFavorites: ["private-favorite-kind"],
     });
     const snapshot = telemetrySettingsSnapshot(settings);
     const serialized = JSON.stringify(snapshot);
@@ -174,10 +203,10 @@ describe("telemetry settings snapshot", () => {
       quickReplyCount: 1,
       usageHiddenCount: 1,
     });
-    for (const key of ["keyBarExtras", "keyBarItems", "shortcutOverrides", "terminalFontFamily", "chatFontFamily", "quickReplies", "usageOrder", "usageHidden"]) {
+    for (const key of ["keyBarExtras", "keyBarItems", "shortcutOverrides", "terminalFontFamily", "chatFontFamily", "quickReplies", "usageOrder", "usageHidden", "agentFavorites"]) {
       expect(snapshot).not.toHaveProperty(key);
     }
-    for (const raw of ["private-terminal-font", "private-chat-font", "private quick reply", "private-order-account-id", "private-hidden-account-id"]) {
+    for (const raw of ["private-terminal-font", "private-chat-font", "private quick reply", "private-order-account-id", "private-hidden-account-id", "private-favorite-kind"]) {
       expect(serialized).not.toContain(raw);
     }
   });

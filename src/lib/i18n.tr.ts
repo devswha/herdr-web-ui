@@ -348,6 +348,8 @@ export const TR: Record<string, string> = {
   "No matching panes or actions": "Eşleşen panel veya eylem yok",
   "Close dialog": "Pencereyi kapat",
   "Agent": "Ajan",
+  "Add to favorites": "Favorilere ekle",
+  "Remove from favorites": "Favorilerden çıkar",
   "Directory": "Dizin",
   "Browse": "Göz at",
   "absolute path or ~/…": "mutlak yol veya ~/…",

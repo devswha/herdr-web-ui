@@ -693,6 +693,12 @@ One set for both themes: the card is island black wherever it shows.
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
   the selected pane cwd and name is an optional workspace label.
+- Beside the select, an outlined `.icon-button` star as tall as the select marks the agent it shows
+  as a favorite (`settings.agentFavorites`, shared like the pins); it reads **Add to favorites** or
+  **Remove from favorites** with the agent's name, turns `--accent` and filled once on, and is
+  disabled with a `--text-dim` glyph for Shell. A press never changes the selection and closes an
+  open list. Favorites follow Shell in the server's order, each with a filled `--accent` star at the
+  row's end; the rest keep their order after them. The worktree dialog's picker is the same.
 - Recent folders appear as neutral `.btn` chips with `--radius-pill` and `--space-2` gaps: the
   three most recent, on one row that never wraps. Each shows the folder basename with ellipsis
   and the full path in its tooltip and accessible name. Clicking puts the folder in Directory and

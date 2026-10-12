@@ -1,8 +1,12 @@
 import { forwardRef, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { ChevronDown, Terminal } from "lucide-react";
+import { ChevronDown, Star, Terminal } from "lucide-react";
 
 import type { AgentKind } from "../../shared/protocol.ts";
+import { favoritesFirst, toggleFavorite } from "../lib/agentFavorites.ts";
+import { useT } from "../lib/i18n.ts";
+import { useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import "./AgentPicker.css";
 
 /** The shell entry is a program name like the agents beside it, so it stays in English. */
 const SHELL_LABEL = "Shell";
@@ -49,9 +53,14 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [place, setPlace] = useState<CSSProperties>({});
-  const options: AgentKind[] = [{ kind: "", label: SHELL_LABEL }, ...agents];
+  const t = useT();
+  const { settings, update } = useSettings();
+  const favorites = settings.agentFavorites;
+  const options: AgentKind[] = [{ kind: "", label: SHELL_LABEL }, ...favoritesFirst(agents, favorites)];
   const selectedIndex = Math.max(0, options.findIndex((option) => option.kind === value));
   const selected = options[selectedIndex]!;
+  const favorite = favorites.includes(selected.kind);
+  const favoriteLabel = `${t(favorite ? "Remove from favorites" : "Add to favorites")}: ${selected.label}`;
 
   useEffect(() => {
     if (!open) return;
@@ -152,6 +161,21 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
         <span className="agent-picker-label">{selected.label}</span>
         <ChevronDown className="agent-picker-chevron" aria-hidden="true" />
       </button>
+      {/* acts on the agent the trigger shows, never on a remembered kind this PC lacks, and selects nothing;
+          its label names what a press does, so it carries no aria-pressed */}
+      <button
+        type="button"
+        className={`icon-button is-outlined agent-picker-favorite${favorite ? " is-favorite" : ""}`}
+        aria-label={favoriteLabel}
+        title={favoriteLabel}
+        disabled={disabled || !selected.kind}
+        onClick={() => {
+          setOpen(false);
+          update({ agentFavorites: toggleFavorite(favorites, selected.kind) });
+        }}
+      >
+        <Star aria-hidden="true" fill={favorite ? "currentColor" : "none"} />
+      </button>
       {open && (
         <div id={listId} className="menu agent-picker-menu" role="listbox" aria-labelledby={labelledBy} style={place}>
           {options.map((option, index) => (
@@ -168,6 +192,7 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
             >
               <OptionMark kind={option.kind} />
               <span className="menu-item-main">{option.label}</span>
+              {favorites.includes(option.kind) && <Star className="agent-picker-favorite-mark" aria-hidden="true" fill="currentColor" />}
             </div>
           ))}
         </div>

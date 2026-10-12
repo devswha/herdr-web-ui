@@ -367,6 +367,8 @@ export const KO: Record<string, string> = {
   // ---- new workspace ----
   "Close dialog": "창 닫기",
   "Agent": "에이전트",
+  "Add to favorites": "즐겨찾기에 추가",
+  "Remove from favorites": "즐겨찾기에서 제거",
   "Directory": "폴더",
   "Browse": "찾아보기",
   "absolute path or ~/…": "절대 경로 또는 ~/…",
