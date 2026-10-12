@@ -82,7 +82,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   or a server restart before the turn ends no longer leaves it held with "The pane connection
   changed". Codex takes such a message into the turn it is working on. **Settings → Composer →
   Queue messages while the agent works** brings back the bridge's queue for the next turn; it starts
-  on for anyone who had turned **Send queued messages automatically** off.
+  on for anyone who had turned **Send queued messages automatically** off. ([#894](https://github.com/devswha/herdr-web-ui/pull/894) by @willowite)
 
 ## [0.4.8] - 2026-10-12
 
