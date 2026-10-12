@@ -21,6 +21,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   overwrites anything: a server that holds no shared settings yet takes them from the first change,
   and the browser that shares first brings its pins along. A page that lost its connection catches up
   when it is back. A watching device follows the shared settings and cannot change them for everyone. ([#854](https://github.com/devswha/herdr-web-ui/pull/854))
+- **Settings → Appearance → Agent logos: Color | Mono.** Mono draws the logos without color:
+  Claude's in the text color without its orange tile, the other logos with brand colors in grey,
+  so a sidebar where nearly every agent is the same one is not a column of colored tiles. Color,
+  today's look, stays the default. ([#850](https://github.com/devswha/herdr-web-ui/pull/850) by @phirschybar)
 
 ### Changed
 - Markdown file previews are parsed in a worker with a 2 s budget and a 60 000-element limit,
