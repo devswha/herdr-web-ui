@@ -8,6 +8,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- The file viewer and Markdown reader page offer **Show source**, highlighted source with
+  CSS-counter line numbers, and **Copy file**, which selects the source when copying is unavailable.
+  **Settings → Chat → File viewer** controls line wrapping and Markdown width; previews inherit
+  the chat's font and, in the viewer, the opening pane's chat width.
+  ([#429](https://github.com/devswha/herdr-web-ui/pull/429) by @aNNdii)
 - **Shared settings and pins.** The browsers of one server, a PC's and a phone's, keep the same
   pinned agents and the same settings that do not depend on the device: theme and colors, language,
   the sidebar's rows, order, cards and pins, chat and usage-meter choices. A
@@ -40,6 +45,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 
 ### Changed
+- Markdown file previews are parsed in a worker with a 2 s budget and a 60 000-element limit,
+  keeping the existing HTML blocks, images and reader-page navigation. A preview that cannot
+  be drawn offers its source. Partial text and preview, highlighting or line-number limits are
+  reported beside the file size with a warning icon and tooltip. **Open in a new tab**,
+  **Open raw file** and **Download** retain their existing destinations without a duplicate Raw action.
+  ([#429](https://github.com/devswha/herdr-web-ui/pull/429) by @aNNdii)
 - The sidebar's RUN mark is a working-colored dot that breathes, as T3 Code's does, instead of a
   spinning arc that read as flicker beside the rows: it holds full most of a 2-second cycle and
   dims to half in a few steps, and every running row breathes in step. BG is a still ring in the

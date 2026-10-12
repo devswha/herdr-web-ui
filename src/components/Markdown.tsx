@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, Copy, Maximize2 } from "lucide-react";
 
 import { foldCode, mathNestsTooDeep, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
@@ -273,8 +273,19 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
   })}</>;
 }
 
-/** `html`: a markdown file's HTML blocks (a README's centered logo and badges) are drawn as markdown */
-export function Markdown({ children, className, html = false }: { children: string; className?: string; html?: boolean }) {
+/**
+ * Markdown rendered. Its props are primitive values, so `memo` skips a parent's re-render: a long plan in
+ * the file viewer is not rendered again every time the app polls.
+ */
+export const Markdown = memo(function Markdown({ children, className, html = false }: { children: string; className?: string; html?: boolean }) {
   const blocks = useMemo(() => parseMarkdown(children, 0, html), [children, html]);
+  return <ParsedMarkdown blocks={blocks} className={className} />;
+});
+
+/**
+ * Markdown parsed elsewhere, rendered as `Markdown` renders its text: the file viewer parses a file
+ * in a worker, so a file the parser is slow on cannot hold the page.
+ */
+export const ParsedMarkdown = memo(function ParsedMarkdown({ blocks, className }: { blocks: MarkdownBlock[]; className?: string }) {
   return <div className={className === undefined ? "markdown" : `markdown ${className}`}><Blocks blocks={blocks} /></div>;
-}
+});
