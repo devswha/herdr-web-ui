@@ -281,17 +281,35 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 - File viewer: `wrapCode` (wrap long lines instead of scrolling sideways; default off) and
   `markdownWidth`: `readable` (the chat lane, `--chat-w`, centered; default) or `full`.
   These layout choices stay on this device, like chat width; code highlighting is shared across browsers.
-  The viewer loads the first 256 KB of a text file through one bounded streaming reader, with abort
-  on close or navigation and a 5 s fetch deadline. Partial text ends at the last whole line when
-  one exists; the response's Content-Range supplies the total, and an empty 416 opens empty.
-  A Markdown file its Preview cannot
-  be parsed for within 2 s, or whose Preview would draw over 60 000 elements, opens as its source
-  with a notice; code a worker cannot highlight within 2 s stays plain with one, and code of over
-  20 000 lines is one text without line numbers, with one too.
+  The viewer loads a Markdown file's first 256 KB through one bounded streaming reader, with abort
+  on close or navigation and a 5 s deadline; any other text that fits 256 KB reads whole under the
+  same budget, and a larger one reads up to 8 MB and 200 000 lines with a 30 s deadline
+  (`readBudget`, src/lib/sourcePreview.ts). Partial text ends at the last whole line when one
+  exists; the response's Content-Range supplies the total, and an empty 416 opens empty. A cut is
+  told in the header: by size (`8 MB of 9 MB`) when the bytes ended it, by lines when the cap did.
+  A cut prefix is shown to its last complete line (the reader's line count): the row after its
+  final newline is not drawn, and a reference to the line just past the cap is explained as unseen,
+  never marked. A complete file keeps the empty row after its final newline, its last line.
+  A Markdown file its Preview cannot be parsed for within 2 s, or whose Preview would draw over
+  60 000 elements, opens as its source with a notice. A source of up to 2 000 lines is an element
+  per line, colored on the page or in the app's worker (code a worker cannot highlight within 2 s
+  stays plain with a notice). A longer source is a window of rows from `@pierre/diffs`
+  (`VirtualSource`): the DOM holds a few hundred rows whatever the length, every row is numbered,
+  and the rows take the viewer's tokens inside the package's shadow root (`--bg`, `--text`,
+  `--line-number`, `--accent-tint` and `--accent` for the marked line, `--font-mono` at `--fs-xs` /
+  `--lh-base`), never the package's own code background. Up to 256 KB and 5 000 lines it is
+  colored in the package's worker by a CSS-variable theme mapped to the same `--syntax-*`
+  tokens as small sources and chat; palette changes reach the tokens inside the shadow root.
+  Past that the rows are plain with the
+  "Too long to highlight" notice, since the whole-file highlight measured 55 s and 192 MB for
+  8 MB of JavaScript. The wrap setting applies to the rows; a wrap toggle or a width change keeps
+  the marked line in place when it is in view, else the top line.
   File links keep `:line[:column]` and `#Lline[-Lline]` references. A reference opens the source,
   marks and centers its first line with `--accent-tint` and an `--accent` gutter number; columns
-  and range ends do not move the caret. Unseen or unnumbered lines get an explicit header notice,
-  never a misleading jump. Markdown reader tabs retain the requested line.
+  and range ends do not move the caret. A line past the loaded part or past the end gets an
+  explicit header notice, never a misleading jump. Markdown reader tabs retain the requested line.
+  Copy file copies the loaded text; when the clipboard is out of reach it selects the source
+  `<pre>`, or shows a virtualized source as one readonly text box, selected.
 - All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
 
 ## 4. Spacing & Layout
@@ -845,7 +863,8 @@ One set for both themes: the card is island black wherever it shows.
   **Open raw file** (Code glyph) opens the original bytes; Download still saves those bytes.
   The reader page and dialog share **Show source** (Braces glyph, pressed while the source shows, so it
   never looks like Open raw file), highlighted source with CSS-counter line
-  numbers, and **Copy file** for complete text (selecting the source if clipboard copy fails).
+  numbers (past 2 000 lines, the virtualizer's numbered rows; see File viewer under Typography),
+  and **Copy file** for complete text (selecting the source if clipboard copy fails).
   There is no separate Raw action. HTML blocks in Markdown files are parsed in the preview worker
   with HTML enabled; local images still pass through the file endpoint's image-size check.
   The page has an h1 and no Close or new-tab action; the dialog keeps its focus trap and sheet swipe.

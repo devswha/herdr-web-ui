@@ -19,6 +19,8 @@
     "scripts/grok-chat-browser-qa.ts",
     "scripts/file-preview-text-browser-qa.ts",
     "scripts/file-preview-text-fixture.tsx",
+    "scripts/virtual-source-browser-qa.ts",
+    "scripts/virtual-source-fixture.tsx",
     "scripts/lan-exposure-notice-regression.ts",
     "scripts/application-paging-regression.ts",
     "scripts/pane-paging-demo-regression.ts"

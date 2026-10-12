@@ -558,10 +558,10 @@ export const KO: Record<string, string> = {
   "Too long to highlight": "너무 길어 강조 표시를 생략했습니다",
   "Empty task": "빈 할 일",
   "Too long to preview": "너무 길어 미리보기를 생략했습니다",
-  "Too many lines to number": "줄이 너무 많아 줄 번호를 생략했습니다",
   "Line {line} is past the part of this file shown here. Download it to read the rest.": "{line}번째 줄은 미리보기 범위를 벗어납니다. 나머지를 읽으려면 다운로드하세요.",
   "This file has {count} lines; there is no line {line}.": "이 파일은 {count}줄이며 {line}번째 줄은 없습니다.",
-  "Files over {limit} lines are shown without line numbers, so line {line} is not marked.": "{limit}줄을 넘는 파일은 줄 번호 없이 표시되어 {line}번째 줄을 표시할 수 없습니다.",
+  "Showing the first {count} lines of this file. Download it to read the rest.": "이 파일의 처음 {count}줄만 보입니다. 나머지를 읽으려면 다운로드하세요.",
+  "File source": "파일 소스",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "재연결 중… 메시지는 여기에 보관되고 대기열에 넣지 않습니다",

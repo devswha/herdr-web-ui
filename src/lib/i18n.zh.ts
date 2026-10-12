@@ -562,10 +562,10 @@ export const ZH: Record<string, string> = {
   "Too long to highlight": "内容过长，未做语法高亮",
   "Empty task": "空任务",
   "Too long to preview": "内容过长，未显示预览",
-  "Too many lines to number": "行数过多，未显示行号",
   "Line {line} is past the part of this file shown here. Download it to read the rest.": "第 {line} 行超出了此文件的预览范围。请下载以阅读其余内容。",
   "This file has {count} lines; there is no line {line}.": "此文件有 {count} 行，不存在第 {line} 行。",
-  "Files over {limit} lines are shown without line numbers, so line {line} is not marked.": "超过 {limit} 行的文件不显示行号，因此未标记第 {line} 行。",
+  "Showing the first {count} lines of this file. Download it to read the rest.": "仅显示此文件的前 {count} 行。请下载以阅读其余内容。",
+  "File source": "文件源码",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "正在重连… 消息保留在此处，不会加入队列",

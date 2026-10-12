@@ -16,16 +16,17 @@ import { useOpeningPaneLane } from "../lib/chatLane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { copyText, selectContents } from "../lib/clipboard.ts";
 import { fileLineTarget, pathParts } from "../lib/filePaths.ts";
-import { lineRequest } from "../lib/sourcePreview.ts";
-import { languageForPath, LINE_ELEMENT_LIMIT } from "../lib/highlight.ts";
-import { useT } from "../lib/i18n.ts";
+import { lineRequest, readBudget, shownSource, sourceLayout, virtualHighlightable } from "../lib/sourcePreview.ts";
+import { canHighlight, countLines, languageForPath, normalizeCode } from "../lib/highlight.ts";
+import { useLocale, useT } from "../lib/i18n.ts";
+import { useSettings } from "../lib/settings.ts";
 import { MAX_INLINE_IMAGE_BYTES, markdownImagePreview } from "../lib/markdownImages.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import type { MarkdownBlock } from "../lib/markdown.ts";
 import { knownPreview, parsePreviewOffThread } from "../lib/markdownPreview.ts";
 import { hasPreview, type TextViewMode } from "../lib/textPreview.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
-import { readFilePreviewText, TEXT_PREVIEW_BYTES, type FilePreviewText } from "../lib/filePreviewText.ts";
+import { readFilePreviewText, SOURCE_PREVIEW_LINES, type FilePreviewText } from "../lib/filePreviewText.ts";
 import { readerHref } from "../lib/fileReader.ts";
 
 type Preview = { status: "none" | "pending" | "failed" } | { status: "ready"; blocks: MarkdownBlock[] };
@@ -75,10 +76,11 @@ export interface FileViewerProps {
 /**
  * Copies the whole file; owns its "copied" flip, so only the button re-renders for it. When nothing
  * copies it (no clipboard API on plain-HTTP LAN, and the browser's copy command refused: copyText)
- * it selects the source `<pre>` instead; in a Markdown Preview there is none, so `onShowSource`
- * switches to Code first and the viewer selects it once rendered.
+ * it selects the source `<pre>` instead; in a Markdown Preview there is none, and a virtualized
+ * source has no element holding the whole text, so `onShowSource` shows a selectable source first
+ * and the viewer selects it once rendered.
  */
-function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourceRef: RefObject<HTMLPreElement | null>; onShowSource: () => void }) {
+function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourceRef: RefObject<HTMLElement | null>; onShowSource: () => void }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -99,12 +101,20 @@ function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourc
   </button>;
 }
 
+/** Selects a source element for a copy by hand: a text box selects its value, anything else its contents. */
+function selectSource(element: HTMLElement): void {
+  if (element instanceof HTMLTextAreaElement) { element.focus(); element.select(); }
+  else selectContents(element);
+}
+
 /**
  * A file an agent wrote, opened in the browser: images, video and audio (streamed, so they
  * play and seek at once), PDFs, HTML pages, and the start of a text file (markdown drawn, its images read through the file endpoint). Anything can be downloaded.
  */
 export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActive = true, page = false }: FileViewerProps) {
   const t = useT();
+  const locale = useLocale();
+  const { settings } = useSettings();
   const { fetchFileInfo, fileUrl, fetchDirectories } = useMachineApi();
   // a remote PC's bridge reads a relative folder from the pane's folder only from its next bundle
   // on; until then it would list the bridge's own folder, so only an absolute or ~/ one is listed there
@@ -128,21 +138,25 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // a line reference defaults to Code; otherwise Preview. A new path never paints the old choice.
   const [chosen, setChosen] = useState<{ path: string; mode: TextViewMode } | null>(null);
   const mode = chosen?.path === path ? chosen.mode : target.line === null ? "preview" : "code";
-  // the code <pre> while the code shows, which Copy selects when the clipboard is out of reach
-  const sourceRef = useRef<HTMLPreElement>(null);
+  // the source element while the code shows (its <pre>, or a virtualized source's text box), which
+  // Copy selects when the clipboard is out of reach
+  const sourceRef = useRef<HTMLElement>(null);
+  // a virtualized source shown as one readonly text box, for that selection: its rows hold only a window of the text
+  const [selectable, setSelectable] = useState(false);
   // Copy failed in a Preview: select the source as soon as the Code view has rendered
   const selectSourceOnCode = useRef(false);
   /** Switches a Preview to its source and has it selected once rendered, for Copy without a clipboard. */
   const showSourceToSelect = (): void => {
     selectSourceOnCode.current = true;
+    setSelectable(true);
     setChosen({ path, mode: "code" });
     setSource(true);
   };
   useLayoutEffect(() => {
     if (!selectSourceOnCode.current || mode !== "code") return;
     selectSourceOnCode.current = false;
-    if (sourceRef.current) selectContents(sourceRef.current);
-  }, [mode, loaded, source]);
+    if (sourceRef.current) selectSource(sourceRef.current);
+  }, [mode, loaded, source, selectable]);
 
   useSheetSwipe(surface, page ? null : onClose);
   useEffect(() => setPath(asked), [asked]);
@@ -152,17 +166,20 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     let cancelled = false;
     const abort = new AbortController();
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    setInfo(null); setCandidates(null); setError(null); setLoaded(null); setDirectory(null);
+    setInfo(null); setCandidates(null); setError(null); setLoaded(null); setDirectory(null); setSelectable(false);
     fetchFileInfo(target.path, paneId).then(async (next) => {
       if (cancelled) return;
       if ("candidates" in next) { setCandidates(next.candidates); return; }
       setInfo(next);
       if (next.kind !== "text") return;
-      // only the first part of a text file travels: a range, whatever the file's size
-      deadline = setTimeout(() => abort.abort(), 5_000);
+      // only a bounded part of a text file travels: a range, whatever the file's size, and a line
+      // cap, so the rows handed to the viewer are counted (readBudget: a Markdown file keeps its
+      // Preview's budget, a larger source reads up to the source budget)
+      const budget = readBudget(languageForPath(next.path), next.size);
+      deadline = setTimeout(() => abort.abort(), budget.timeoutMs);
       try {
-        const response = await fetch(fileUrl(next.path, paneId), { signal: abort.signal, headers: { range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } });
-        const body = await readFilePreviewText(response, TEXT_PREVIEW_BYTES, { signal: abort.signal });
+        const response = await fetch(fileUrl(next.path, paneId), { signal: abort.signal, headers: { range: `bytes=0-${budget.bytes - 1}` } });
+        const body = await readFilePreviewText(response, budget.bytes, { signal: abort.signal, maxLines: budget.lines, timeoutMs: budget.timeoutMs });
         if (!cancelled) setLoaded(body);
       } finally { clearTimeout(deadline); }
     }).catch(async (reason: unknown) => {
@@ -209,32 +226,43 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const previewable = hasPreview(language) && !previewRefused;
   const view = previewable && mode === "preview" ? "markdown" : "code";
   const codeShown = textFile && loaded !== null && view === "code" && (!htmlPage || source);
-  // a file's code has no length limit (the load limit bounds it): only a worker that gave up leaves it plain
-  const code = useHighlightedLines(codeShown ? loaded.text : "", codeShown ? language : null);
+  // the source as shown (a cut prefix without the row after its final newline): past
+  // VIRTUAL_SOURCE_LINES it is the virtualizer's rows, colored in its worker while small enough
+  // (virtualHighlightable), else plain with the notice; below, CodeLines
+  const sourceText = useMemo(() => codeShown ? shownSource(normalizeCode(loaded.text), loaded.truncated) : "", [codeShown, loaded]);
+  const sourceLines = useMemo(() => countLines(sourceText), [sourceText]);
+  const layout = sourceLayout(sourceLines);
+  const colorable = settings.highlightCode && canHighlight(language);
+  const virtual = useMemo(() => codeShown && layout === "virtual" ? { text: sourceText, colored: colorable && virtualHighlightable(sourceText.length, sourceLines) } : null, [codeShown, layout, sourceText, colorable, sourceLines]);
+  // CodeLines' code has no length limit of its own (the layout bounds it): only a worker that gave up leaves it plain
+  const code = useHighlightedLines(codeShown && layout === "elements" ? sourceText : "", codeShown ? language : null);
   const shownPath = info?.path ?? target.path;
   const { stem, extension } = pathParts(info?.name ?? shownPath);
   const { folder } = pathParts(shownPath);
   // what holds for the whole file is said with its size, where it is seen first, not after a megabyte of text
   const cutShort = textFile && (!htmlPage || source) && loaded !== null && loaded.truncated;
-  const request = useMemo(() => codeShown ? lineRequest(target.line, loaded.text, loaded.truncated) : null, [codeShown, target.line, loaded]);
+  const budget = textFile ? readBudget(language, info.size) : null;
+  // a cut at the byte budget is told in sizes; one at the line cap in lines
+  const cutBytes = cutShort && budget !== null && loaded.truncatedBy !== "lines" && (loaded.total ?? info.size) > budget.bytes ? { shown: budget.bytes, total: loaded.total ?? info.size } : null;
+  // a cut prefix's lines are the reader's count of complete lines: the line just past the cap is unseen
+  const request = useMemo(() => codeShown ? lineRequest(target.line, sourceText, loaded.truncated, loaded.lines) : null, [codeShown, target.line, sourceText, loaded]);
   const requestNotice = (() => {
     if (request === null) return null;
     switch (request.kind) {
       case "shown": return null;
       case "past-preview": return t("Line {line} is past the part of this file shown here. Download it to read the rest.", { line: request.line });
       case "past-end": return t("This file has {count} lines; there is no line {line}.", { count: request.lines, line: request.line });
-      case "unnumbered": return t("Files over {limit} lines are shown without line numbers, so line {line} is not marked.", { limit: LINE_ELEMENT_LIMIT, line: request.line });
     }
   })();
   const notes = [
     requestNotice,
-    cutShort && ((loaded.total ?? info.size) > TEXT_PREVIEW_BYTES
-      ? t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(loaded.total ?? info.size) })
-      : t("Only part of this file is shown. Download it to read the rest.")),
+    cutShort && (loaded.truncatedBy === "lines"
+      ? t("Showing the first {count} lines of this file. Download it to read the rest.", { count: SOURCE_PREVIEW_LINES.toLocaleString(locale) })
+      : cutBytes !== null
+        ? t("Showing the first {shown} of {total}.", { shown: formatBytes(cutBytes.shown), total: formatBytes(cutBytes.total) })
+        : t("Only part of this file is shown. Download it to read the rest.")),
     textFile && loaded !== null && previewRefused && t("Too long to preview"),
-    codeShown && code.tooLong && t("Too long to highlight"),
-    // past it the code is one text (CodeLines), and line numbers are an element per line
-    codeShown && code.lines.length > LINE_ELEMENT_LIMIT && t("Too many lines to number"),
+    codeShown && (code.tooLong || (virtual !== null && colorable && !virtual.colored)) && t("Too long to highlight"),
   ].filter((note): note is string => typeof note === "string");
   const noticed = notes.length > 0;
   const copyable = textFile && loaded !== null && !loaded.truncated;
@@ -281,7 +309,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
               <button type="button" className="btn btn-ghost" onClick={() => setChosen({ path, mode: "code" })}>{t("Show source")}</button>
             </div>
             : <p className="file-viewer-note" role="alert">{t("The file could not be opened.")}</p>}>
-            <MarkdownImageContext.Provider value={imagePreview}><TextFileView path={info.path} blocks={view === "markdown" && preview.status === "ready" ? preview.blocks : null} lines={code.lines} onOpen={onOpen ?? setPath} sourceRef={sourceRef} markedLine={request?.kind === "shown" ? request.line : null} /></MarkdownImageContext.Provider>
+            <MarkdownImageContext.Provider value={imagePreview}><TextFileView path={info.path} blocks={view === "markdown" && preview.status === "ready" ? preview.blocks : null} lines={code.lines} virtual={virtual} selectable={selectable} onOpen={onOpen ?? setPath} sourceRef={sourceRef} markedLine={request?.kind === "shown" ? request.line : null} /></MarkdownImageContext.Provider>
           </RenderBoundary>}
         </>;
       default:
@@ -302,7 +330,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
         {info && (noticed
           ? <span className="file-viewer-notice" title={notes.join("\n")}>
             <TriangleAlert aria-hidden="true" />
-            <span>{cutShort && (loaded.total ?? info.size) > TEXT_PREVIEW_BYTES ? t("{done} of {total}", { done: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(loaded.total ?? info.size) }) : formatBytes(info.size)}</span>
+            <span>{cutBytes !== null ? t("{done} of {total}", { done: formatBytes(cutBytes.shown), total: formatBytes(cutBytes.total) }) : formatBytes(info.size)}</span>
             <span className="visually-hidden">{notes.join(". ")}</span>
           </span>
           : <span className="file-viewer-size">{formatBytes(info.size)}</span>)}
@@ -326,18 +354,21 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     </div>
     {!page && <button type="button" className="icon-button file-viewer-action file-viewer-close" aria-label={t("Close file")} title={t("Close file")} onClick={onClose}><X aria-hidden="true" /></button>}
   </header>;
+  // a virtualized source fills the viewer: its rows are a window the user scrolls, so the body
+  // takes a definite height for the scroll root to fill, instead of growing with the text
+  const bodyClass = virtual !== null && view === "code" ? "file-viewer-body file-viewer-body-virtual" : "file-viewer-body";
   if (page) return (
     <main ref={surface} className="file-reader">
       {header}
-      <div className="file-viewer-body file-reader-body">{body}</div>
+      <div className={`${bodyClass} file-reader-body`}>{body}</div>
     </main>
   );
 
   return (
     <div className="modal-scrim file-viewer-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal file-viewer" role="dialog" aria-modal="true" aria-label={info?.name ?? path} ref={surface} tabIndex={-1}>
+      <section className={virtual !== null && view === "code" ? "modal file-viewer file-viewer-virtual" : "modal file-viewer"} role="dialog" aria-modal="true" aria-label={info?.name ?? path} ref={surface} tabIndex={-1}>
         {header}
-        <div className="file-viewer-body">{body}</div>
+        <div className={bodyClass}>{body}</div>
       </section>
     </div>
   );

@@ -21,9 +21,9 @@ const fidelitySources = ["const last = 7;\n\n", "first\n", "first\n\nlast", "\n"
 writeFileSync(transcript, [
   { type: "session_meta", payload: { id: thread, cwd: root } },
   { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Show me the demo video." }] } },
-  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [guide](./docs/guide.md) or [big](./big.txt) or [big code](./big.ts) or [deep quotes](./deep.md) or [empty](./empty.txt) or [slow preview](./slow.md) or [long notes](./long.md) or [many lines](./lines.txt) or [long list](./list.md) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}\n\n\`\`\`ts\nconst answer = 42;\n\nexport { answer };\n\`\`\`` }] } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [guide](./docs/guide.md) or [big](./big.txt) or [big code](./big.ts) or [mid code](./mid.ts) or [deep quotes](./deep.md) or [empty](./empty.txt) or [slow preview](./slow.md) or [long notes](./long.md) or [many lines](./lines.txt) or [long list](./list.md) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}\n\n\`\`\`ts\nconst answer = 42;\n\nexport { answer };\n\`\`\`` }] } },
   // a block the highlighter is quadratic on (a line of dashes in YAML): seconds on the page
-  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "References: [source column](./target.ts:60:8), [source range](./target.ts#L60-L65), [Markdown line](./docs/guide.md#L6), [past end](./notes.txt:999), [past preview](./big.ts:99999), [unnumbered line](./lines.txt:5)." }] } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "References: [source column](./target.ts:60:8), [source range](./target.ts#L60-L65), [Markdown line](./docs/guide.md#L6), [past end](./notes.txt:999), [past preview](./big.txt:999999), [capped line](./lines.txt:5)." }] } },
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Dashes:\n\n\`\`\`yaml\n${"-".repeat(90_000)}\n\`\`\`` }] } },
   // more lines than are drawn one element each (LINE_ELEMENT_LIMIT): 30 000 elements held the page
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Lines:\n\n\`\`\`\n${"x\n".repeat(30_000)}\`\`\`` }] } },
@@ -48,11 +48,16 @@ writeFileSync(join(root, "target.ts"), targetSource);
 // in a subfolder, so a link is resolved from the file's folder (../notes.txt), not the pane's
 mkdirSync(join(root, "docs"));
 writeFileSync(join(root, "docs", "guide.md"), "# Guide\n\nSee [notes](../notes.txt).\n\n```ts\nconst x = 1;\n```\n");
-// the viewer loads the first 256 KB of a text file (TEXT_PREVIEW_BYTES in src/lib/filePreviewText.ts)
+// the viewer loads the first 256 KB of a Markdown file (TEXT_PREVIEW_BYTES in src/lib/filePreviewText.ts),
+// and up to 8 MB or 200 000 lines of any other text (SOURCE_PREVIEW_BYTES, SOURCE_PREVIEW_LINES)
 const TEXT_LOAD_LIMIT = 256 * 1024;
-writeFileSync(join(root, "big.txt"), "a line of plain text, 0123456789\n".repeat(Math.ceil(TEXT_LOAD_LIMIT / 30)).slice(0, TEXT_LOAD_LIMIT + 10));
-// code past the load limit: its first 256 KB, still highlighted
+const SOURCE_LOAD_LIMIT = 8 * 1024 * 1024;
+// plain text past the source budget, in lines long enough that the bytes cut it before the line cap
+writeFileSync(join(root, "big.txt"), `a line of plain text, ${"0123456789".repeat(8)}\n`.repeat(Math.ceil((SOURCE_LOAD_LIMIT + 1024 * 1024) / 103)));
+// code past the colors bound of a virtualized source (VIRTUAL_HIGHLIGHT_CHARS in src/lib/sourcePreview.ts): whole, plain
 writeFileSync(join(root, "big.ts"), "export const value = 1;\n".repeat(Math.ceil((TEXT_LOAD_LIMIT + 1024) / 24)));
+// code past an element per line (VIRTUAL_SOURCE_LINES) but within the colors bound: colored in the virtualizer's worker
+writeFileSync(join(root, "mid.ts"), Array.from({ length: 3_000 }, (_, index) => `export const value${index + 1} = ${index + 1};`).join("\n") + "\n");
 // 20 KB of nested quotes: parsed one level per `>`, they overflowed the stack and blanked the app
 writeFileSync(join(root, "deep.md"), `${">".repeat(20_000)} deepest\n`);
 // a YAML block of dashes in a Markdown file: seconds for the highlighter in Chromium as in Bun (8 s at
@@ -61,7 +66,7 @@ writeFileSync(join(root, "deep.md"), `${">".repeat(20_000)} deepest\n`);
 writeFileSync(join(root, "slow.md"), `Notes on a slow file.\n\n\`\`\`yaml\n${"-".repeat(90_000)}\n\`\`\`\n`);
 // ordinary Markdown past the load limit: its start is previewed
 writeFileSync(join(root, "long.md"), "# Notes\n\nA paragraph of ordinary notes, with *emphasis* and a [link](./notes.txt).\n\n".repeat(4_000));
-// more lines than are drawn one element each (LINE_ELEMENT_LIMIT): 256 KB of line breaks held the page 4 s
+// more lines than the source budget keeps (SOURCE_PREVIEW_LINES): 256 KB of line breaks, cut at the line cap
 writeFileSync(join(root, "lines.txt"), "\n".repeat(TEXT_LOAD_LIMIT));
 // more list items than a Preview draws (PREVIEW_ELEMENT_LIMIT): 65 536 of them held the page 1.6 s
 writeFileSync(join(root, "list.md"), "- a\n".repeat(TEXT_LOAD_LIMIT / 4));
@@ -504,21 +509,27 @@ try {
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
 
-  // a text file past the load limit: shown in part, so it cannot be copied whole
+  // a text file past the source budget: its first 8 MB as a window of rows, shown in part, so it cannot be copied whole
+  const virtualRows = () => page.evaluate(() => document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]").length ?? 0);
+  const coloredRows = () => page.evaluate(() => document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line] span[style*='--herdr-code-token']").length ?? 0);
   await page.getByRole("button", { name: "big", exact: true }).click();
   const big = page.getByRole("dialog", { name: "big.txt", exact: true });
-  // the note is the header's size, where it is seen before the text: "256 KB of …"
+  // the note is the header's size, where it is seen before the text: "8 MB of 9 MB"
   const cut = big.locator(".file-viewer-meta .file-viewer-notice");
   await cut.waitFor();
-  assert.match(await cut.innerText(), /^256 KB of \d/);
-  assert.match(await cut.getAttribute("title") ?? "", /^Showing the first 256 KB/);
+  assert.match(await cut.innerText(), /^8 MB of 9 MB/);
+  assert.equal(await cut.getAttribute("title"), "Showing the first 8 MB of 9 MB.");
   assert.equal(await big.getByRole("button", { name: "Copy file", exact: true }).count(), 0);
   assert.equal(await big.getByText("Too long to highlight").count(), 0, "plain text is never too long to highlight");
-  console.log("PASS A text file past the load limit says so in its header and has no Copy");
+  await page.waitForFunction(() => (document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]").length ?? 0) > 0);
+  assert.ok((await virtualRows()) < 500, "8 MB of text is a bounded window of rows");
+  assert.equal(await big.locator(".file-viewer-text").count(), 0, "not an element per line");
+  assert.deepEqual(await frozen(), [], "no task held the page for a second");
+  console.log("PASS A text file past the source budget shows its first 8 MB as a window of rows, says so in its header and has no Copy");
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
 
-  // code past the load limit: its first 256 KB, highlighted (in the worker), and the header says it is cut
+  // code past the colors bound: whole, as a window of plain rows, and the header says why it is plain
   await page.evaluate(() => {
     const settings = JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}") as Record<string, unknown>;
     localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ ...settings, wrapCode: true }));
@@ -527,12 +538,24 @@ try {
   await page.locator(".conn-live").waitFor();
   await page.getByRole("button", { name: "big code", exact: true }).click();
   const bigCode = page.getByRole("dialog", { name: "big.ts", exact: true });
-  await bigCode.locator(".file-viewer-text .hl-keyword", { hasText: "export" }).first().waitFor();
-  assert.match(await bigCode.locator(".file-viewer-meta .file-viewer-notice").getAttribute("title") ?? "", /^Showing the first 256 KB of /);
-  assert.equal(await bigCode.getByRole("button", { name: "Copy file", exact: true }).count(), 0);
-  console.log("PASS Code past the load limit shows its first 256 KB, highlighted");
-  await bigCode.locator(".file-viewer-text[data-wrap]").waitFor();
+  await page.waitForFunction(() => (document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]").length ?? 0) > 0);
+  assert.equal(await bigCode.locator(".file-viewer-meta .file-viewer-notice").getAttribute("title"), "Too long to highlight");
+  assert.equal(await coloredRows(), 0, "the rows are plain");
+  await bigCode.getByRole("button", { name: "Copy file", exact: true }).waitFor();
+  console.log("PASS Code past the colors bound opens whole as plain rows, and the header says why");
+  assert.equal(await page.evaluate(() => document.querySelector("diffs-container")!.shadowRoot!.querySelector("pre")!.getAttribute("data-overflow")), "wrap");
   console.log("PASS Settings → Wrap long lines wraps the code");
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await page.locator(".file-viewer").waitFor({ state: "hidden" });
+
+  // code past an element per line but within the colors bound: colored in the virtualizer's worker, served by this server under its CSP
+  await page.getByRole("button", { name: "mid code", exact: true }).click();
+  const midCode = page.getByRole("dialog", { name: "mid.ts", exact: true });
+  await page.waitForFunction(() => (document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line] span[style*='--herdr-code-token']").length ?? 0) > 0, undefined, { timeout: 20_000 });
+  assert.equal(await midCode.locator(".file-viewer-notice").count(), 0, "a colored source has no notice");
+  await midCode.getByRole("button", { name: "Copy file", exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+  console.log("PASS Code of 3 000 lines is colored in the virtualizer's worker under the server's CSP");
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
 
@@ -571,17 +594,26 @@ try {
   assert.equal(await anchored.locator(".hl-line.is-marked").count(), 0);
   await anchored.getByRole("button", { name: "Close file", exact: true }).click();
   await anchored.waitFor({ state: "hidden" });
-  for (const [label, name, line] of [["past end", "notes.txt", "999"], ["past preview", "big.ts", "99999"], ["unnumbered line", "lines.txt", "5"]] as const) {
+  for (const [label, name, line] of [["past end", "notes.txt", "999"], ["past preview", "big.txt", "999999"]] as const) {
     await page.getByRole("button", { name: label, exact: true }).click();
     const target = page.getByRole("dialog", { name, exact: true });
-    await target.locator(".file-viewer-text").waitFor();
+    await target.locator(".file-viewer-text, diffs-container").first().waitFor();
     const notice = target.locator(".file-viewer-notice");
     await notice.waitFor();
     assert.ok((await notice.getAttribute("title"))?.includes(line), "notice names the unavailable requested line");
     assert.equal(await target.locator(".hl-line.is-marked").count(), 0, "no misleading jump");
+    assert.equal(await page.evaluate(() => document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line][data-selected-line]").length ?? 0), 0, "no misleading mark");
     await target.getByRole("button", { name: "Close file", exact: true }).click();
     await target.waitFor({ state: "hidden" });
   }
+  // a file cut at the line cap keeps every line it shows numbered, so a line within it is marked
+  await page.getByRole("button", { name: "capped line", exact: true }).click();
+  const capped = page.getByRole("dialog", { name: "lines.txt", exact: true });
+  await page.waitForFunction(() => document.querySelector("diffs-container")?.shadowRoot?.querySelector('[data-line="5"][data-selected-line]') != null);
+  assert.equal(await capped.locator(".file-viewer-notice").getAttribute("title"), "Showing the first 200,000 lines of this file. Download it to read the rest.");
+  assert.equal(await capped.getByRole("button", { name: "Copy file", exact: true }).count(), 0, "a cut file has no Copy");
+  await capped.getByRole("button", { name: "Close file", exact: true }).click();
+  await capped.waitFor({ state: "hidden" });
   console.log("PASS Line references mark and scroll the first source line, survive Markdown reader tabs, and explain unavailable lines");
 
   // a quote nested 20 000 deep renders as a quote nested to the parser's limit, the rest its text
@@ -809,23 +841,25 @@ try {
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
 
-  // a file of more lines than are numbered shows as one text, and a Markdown file of more than a
-  // Preview draws opens as its source; neither holds the page, and the header says why
+  // a file of more lines than the source budget keeps shows its first 200 000 as a window of rows,
+  // and a Markdown file of more than a Preview draws opens as its source; neither holds the page,
+  // and the header says why
   await page.getByRole("button", { name: "many lines", exact: true }).click();
   const manyLines = page.getByRole("dialog", { name: "lines.txt", exact: true });
-  await page.waitForFunction(() => document.querySelector(".file-viewer-notice")?.getAttribute("title") === "Too many lines to number");
-  await manyLines.locator(".file-viewer-text").waitFor();
-  assert.equal(await manyLines.locator(".file-viewer-text .hl-line").count(), 0, "no element per line");
-  assert.equal(await manyLines.locator(".file-viewer-text[data-line-numbers]").count(), 0, "and no gutter");
+  await page.waitForFunction(() => document.querySelector(".file-viewer-notice")?.getAttribute("title") === "Showing the first 200,000 lines of this file. Download it to read the rest.");
+  await page.waitForFunction(() => (document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]").length ?? 0) > 0);
+  assert.equal(await manyLines.locator(".file-viewer-text").count(), 0, "no element per line");
+  assert.ok((await virtualRows()) < 500, "a bounded window of rows");
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "long list", exact: true }).click();
   const longList = page.getByRole("dialog", { name: "list.md", exact: true });
   await page.waitForFunction(() => (document.querySelector(".file-viewer-notice")?.getAttribute("title") ?? "").includes("Too long to preview"), undefined, { timeout: 15_000 });
-  await longList.locator(".file-viewer-text").waitFor();
+  // its 65 536-line source is past an element per line: a window of rows
+  await page.waitForFunction(() => (document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]").length ?? 0) > 0);
   assert.equal(await longList.locator(".file-viewer-markdown").count(), 0, "the Preview is not drawn");
   assert.deepEqual(await frozen(), [], "no task held the page for a second");
-  console.log("PASS A file of too many lines shows as one text, a Markdown file of too many elements as its source, and the page never freezes");
+  console.log("PASS A file of too many lines shows its first 200 000 as rows, a Markdown file of too many elements as its source, and the page never freezes");
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
 

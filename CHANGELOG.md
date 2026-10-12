@@ -16,6 +16,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   workspaces and nullable refs for the settings and tab controls.
 
 ### Added
+- The file viewer opens a source file whole up to 8 MB and 200 000 lines (a Markdown file keeps
+  its 256 KB Preview), and draws a source of more than 2 000 lines as a window of rows from
+  `@pierre/diffs`, so a 120 000-line file scrolls with a few hundred rows in the page. Up to
+  256 KB and 5 000 lines the rows are colored in the package's own worker; a longer source stays
+  plain and says so. A line reference reveals its line against the mounted row, on a phone with
+  wrapping too; a cut file says whether its bytes or its lines ended it; and Copy, without a
+  clipboard, shows the whole source as a selected text box.
 - File links with `:line[:column]` or `#Lline[-Lline]` open the source at the first
   requested line, including Markdown reader tabs. Lines outside the bounded preview
   are explained rather than silently opening at the top.
