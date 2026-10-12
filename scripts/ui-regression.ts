@@ -891,6 +891,12 @@ try {
   const pendingBytes = () => readFileSync(pendingLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as string).join("");
   const reportPending = (state: string) => herdrRpc("pane.report_agent", { pane_id: pendingPane, source: "manual", agent: "claude", state });
   await reportPending("working");
+  // Send types a working agent's message in at once unless Settings queues it in the bridge
+  // (scripts/send-while-working-regression.ts): every check from here on is the queue's
+  await page.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(page, "Chat");
+  await page.getByRole("switch", { name: "Queue messages while the agent works", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await page.locator(`.pane-select[title^="${pendingPane} —"]`).click();
   await page.getByRole("group", { name: "Pane view", exact: true }).getByRole("button", { name: "Chat", exact: true }).click();
   await page.locator('.composer-status[data-status="working"]').waitFor();

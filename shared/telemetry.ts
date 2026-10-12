@@ -48,6 +48,7 @@ export interface TelemetrySettings {
   chatFontSize: number | null;
   chatWidth: "narrow" | "default" | "wide" | "full";
   enterSends: boolean;
+  queueWhileWorking: boolean;
   autoSendQueued: boolean;
   showThinking: boolean;
   keepScreenOn: boolean;
@@ -121,6 +122,7 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   chatFontSize: nullableIntegerBetween(11, 24),
   chatWidth: oneOf(["narrow", "default", "wide", "full"]),
   enterSends: booleanValue,
+  queueWhileWorking: booleanValue,
   autoSendQueued: booleanValue,
   showThinking: booleanValue,
   keepScreenOn: booleanValue,

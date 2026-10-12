@@ -113,6 +113,9 @@ export interface Settings {
   chatWidth: ChatWidth;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
   enterSends: boolean;
+  /** false: a message sent while the agent works is typed in at once and the agent's own queue keeps it;
+   *  true: the bridge keeps it for the next turn (lib/compose.ts composerDelivery), sent as autoSendQueued says */
+  queueWhileWorking: boolean;
   /** true: a message sent while the agent works goes by itself when the turn ends; false: it waits for Send now */
   autoSendQueued: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
@@ -201,6 +204,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     chatFontSize: settings.chatFontSize,
     chatWidth: settings.chatWidth,
     enterSends: settings.enterSends,
+    queueWhileWorking: settings.queueWhileWorking,
     autoSendQueued: settings.autoSendQueued,
     showThinking: settings.showThinking,
     keepScreenOn: settings.keepScreenOn,
@@ -244,7 +248,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
  */
 export const SETTING_SCOPE = {
   theme: "shared", palette: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared", agentCards: "shared",
-  agentPins: "shared", agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
+  agentPins: "shared", agentMarks: "shared", queueWhileWorking: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
   showQuickReplies: "shared", showSuggestionChip: "shared", showUsage: "shared", usageCount: "shared", usagePace: "shared",
   usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", highlightCode: "shared", defaultView: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
@@ -290,6 +294,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatFontFamily: "",
   chatWidth: "default",
   enterSends: true,
+  queueWhileWorking: false,
   autoSendQueued: true,
   showThinking: false,
   keepScreenOn: false,
@@ -460,6 +465,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
+    // saved before this choice existed, automatic sending turned off asked that nothing go by itself: it stays queued
+    queueWhileWorking: typeof record["queueWhileWorking"] === "boolean" ? record["queueWhileWorking"] : record["autoSendQueued"] === false,
     autoSendQueued: typeof record["autoSendQueued"] === "boolean" ? record["autoSendQueued"] : DEFAULT_SETTINGS.autoSendQueued,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,

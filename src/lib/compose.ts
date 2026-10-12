@@ -148,9 +148,15 @@ export function composerSendShown(state: { working: boolean; text: string }): bo
   return !state.working || state.text.trim().length > 0;
 }
 
-/** While an agent works, Send accepts a follow-up for its next turn. A shell sends immediately. */
-export function composerDelivery(agent: string | null, status?: AgentStatus): "queue" | "immediate" {
-  return agent !== null && status === "working" ? "queue" : "immediate";
+/**
+ * Send types the message in at once, also while an agent works, as Enter in its terminal would:
+ * the agent's own input queue keeps it (Claude Code until the turn ends; Codex takes it into the
+ * turn it is on). With `queue` (Settings → Composer) a working agent's follow-up goes to the
+ * bridge's pending list instead, which a pane switch or a reconnect holds for Send now (#874).
+ * A shell sends immediately.
+ */
+export function composerDelivery(agent: string | null, status: AgentStatus | undefined, queue: boolean): "queue" | "immediate" {
+  return queue && agent !== null && status === "working" ? "queue" : "immediate";
 }
 
 /**

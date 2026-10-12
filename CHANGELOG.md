@@ -77,6 +77,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   itself offers to interrupt the turn and send it. An ordinary Send and the automatic next-turn
   delivery never interrupt Codex.
   ([#783](https://github.com/devswha/herdr-web-ui/pull/783) by @kilhyeonjun)
+- A message sent while the agent works is typed into its terminal at once, as Enter there does, and
+  the agent's own queue keeps it: switching panes or workspaces, a phone going to sleep, a reconnect
+  or a server restart before the turn ends no longer leaves it held with "The pane connection
+  changed". Codex takes such a message into the turn it is working on. **Settings → Composer →
+  Queue messages while the agent works** brings back the bridge's queue for the next turn; it starts
+  on for anyone who had turned **Send queued messages automatically** off.
 
 ## [0.4.8] - 2026-10-12
 

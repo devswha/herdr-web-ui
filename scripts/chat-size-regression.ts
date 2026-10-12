@@ -548,7 +548,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           try { await ready.promise; } finally { clearTimeout(deadline); }
         }
         page = await openRecording(browser, contexts, origin, scenario === "held" ? heldPane : first,
-          { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal", releasePaneAway: true },
+          { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal", releasePaneAway: true, queueWhileWorking: queueScenario },
           scenario === "mount", queueScenario || scenario === "writes" ? setup : undefined);
         if (scenario === "held") {
           await page.getByText("Another app has this pane open.", { exact: false }).waitFor();

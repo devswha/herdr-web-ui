@@ -146,16 +146,18 @@ describe("composer presentation helpers", () => {
     expect(composerStatusCompact(0)).toBe(false);
   });
 
-  it("uses one Stop or Send control and queues all agents' working-turn messages", () => {
+  it("uses one Stop or Send control and types a working-turn message in at once unless queueing was chosen", () => {
     expect(composerSendShown({ working: true, text: "" })).toBe(false);
     expect(composerSendShown({ working: true, text: " \n" })).toBe(false);
     expect(composerSendShown({ working: true, text: "check the tests" })).toBe(true);
     expect(composerSendShown({ working: false, text: "" })).toBe(true);
     for (const agent of ["codex", "claude", "pi", "omo"]) {
-      expect(composerDelivery(agent, "working")).toBe("queue");
-      for (const state of ["idle", "blocked", "done", "unknown"] as const) expect(composerDelivery(agent, state)).toBe("immediate");
+      // the agent's own input queue keeps it: a pane switch or a reconnect cannot hold it (#874)
+      for (const state of ["working", "idle", "blocked", "done", "unknown"] as const) expect(composerDelivery(agent, state, false)).toBe("immediate");
+      expect(composerDelivery(agent, "working", true)).toBe("queue");
+      for (const state of ["idle", "blocked", "done", "unknown"] as const) expect(composerDelivery(agent, state, true)).toBe("immediate");
     }
-    expect(composerDelivery(null, "working")).toBe("immediate");
+    for (const queue of [true, false]) expect(composerDelivery(null, "working", queue)).toBe("immediate");
   });
 
   it("says the reconnecting sentence in the status content only once there is a draft", () => {

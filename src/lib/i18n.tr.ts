@@ -550,6 +550,8 @@ export const TR: Record<string, string> = {
   "Attach files": "Dosya ekle",
   "Next turn": "Sıradaki tur",
   "Waits for Send now": "Şimdi gönder'e basınca gönderilir",
+  "Queue messages while the agent works": "Ajan çalışırken mesajları kuyruğa al",
+  "Off, Send types the message in at once, as Enter in the terminal does: the agent's own queue keeps it, and Codex takes it into the turn it is on. On, it waits under the message box, and switching panes or reconnecting holds it for Send now.": "Kapalıyken Gönder, terminalde Enter'a basmak gibi mesajı hemen yazar ve ajanın kendi kuyruğu onu tutar; Codex onu sürmekte olan tura alır. Açıkken mesaj, mesaj kutusunun altında bekler; panel değiştirmek ya da yeniden bağlanmak onu Şimdi gönder'e basana kadar bekletir.",
   "Send queued messages automatically": "Kuyruktaki mesajları otomatik gönder",
   "A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.": "Ajan çalışırken gönderilen mesaj, tur bitince kendiliğinden gider. Kapalıyken Şimdi gönder'e basana kadar bekler.",
   "Discard saved copy": "Kayıtlı kopyayı sil",

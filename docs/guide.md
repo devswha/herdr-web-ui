@@ -193,7 +193,7 @@ A pane's plan is the task list a Claude Code agent keeps (`TaskCreate` / `TaskUp
 | **Find in terminal** | **More → Find in terminal** or Mod+Shift+F searches literal text in herdr's history, with a match count, previous/next navigation and visible match highlights. Drag the terminal scrollbar or focus it and use arrows, Page Up/Down, Home or End. Search jumps and scrolling move the same viewport in every attached client, including the TUI. Older bridges retain search navigation without automatic highlights; read-only views cannot move the scrollbar. |
 | **Jump across PCs** | The command palette (Mod+Shift+K) searches all connected PCs at once by PC, workspace, branch, tab, pane title or agent kind. PC names distinguish results, and Recent remembers each pane's PC. Picking a result opens that PC and pane directly. Disconnected PCs are omitted; app and plugin actions remain on the currently selected PC. |
 | **Answer prompts** | Approval, question and plan menus become cards. Tap an option, or type its number in the composer. The server checks that the menu is still current before answering. |
-| **Compose** | `/` commands and `@` file mentions, any file or image up to 8 MB attached by path, and a draft per pane. Send during work schedules a next-turn message; use its ↑ Send now action to send it now. |
+| **Compose** | `/` commands and `@` file mentions, any file or image up to 8 MB attached by path, and a draft per pane. Send during work types the message in at once, and the agent's own queue keeps it; Settings can queue it in the bridge for the next turn instead. |
 | **Follow every agent** | Live RUN / INPUT / DONE / READY status for all panes, and alerts when an agent needs input, finishes or its terminal ends. |
 | **Open what agents make** | A file path in an answer opens in a viewer (images, video, audio, PDF, text), or find it with **Browse files**, and download it to your phone. |
 | **Manage sessions** | Start an agent in a folder you type or pick with **Browse**. In New workspace, Browse filters the currently loaded folders as you type (case-insensitive); open a result, then choose **Use this folder**. It does not search subfolders or folders beyond the displayed 500. Add a tab to a workspace (as herdr's prefix+c), switch tabs from the strip over the pane, rename workspaces from their ⋯/right-click menu and panes from their own menu, move a pane through header More → Move pane to…, reorder workspaces (drag a row, or on a phone long-press it and drag; Alt+Up/Down moves a focused row one step), and jump anywhere from the command palette. |
@@ -202,8 +202,14 @@ A pane's plan is the task list a Claude Code agent keeps (`TaskCreate` / `TaskUp
 | **Make it yours** | English, Korean, Japanese, Simplified Chinese or Turkish, following the browser or chosen in Settings. Dark, light or system theme, compact density, terminal and chat font sizes, a resizable composer, Enter behavior and thinking visibility. |
 
 Every agent has the same chat controls on desktop and phones: Stop while it works with an empty
-draft, Send when you type, and Send at rest. With a draft in the box, Escape stops the agent. Sending during work adds a message bubble above the
-input card. It waits for the current response, then goes to the agent's next turn. Use a pending message's
+draft, Send when you type, and Send at rest. With a draft in the box, Escape stops the agent. Sending during work
+types the message in at once, as Enter in the agent's own terminal does: Claude Code keeps it in its
+queue until the turn ends, and Codex takes it into the turn it is working on. Nothing waits in the
+browser, so switching panes, a sleeping phone, a reconnect or a server restart cannot hold it.
+
+With **Settings → Composer → Queue messages while the agent works** on, sending during work adds a
+message bubble above the input card instead. It waits for the current response, then goes to the
+agent's next turn. Use a pending message's
 **↑ Send now** action to send it now. The bridge immediately delivers it; when the agent reads
 it is controlled by that agent, so this does not promise instant interruption. The small X discards it.
 The bridge claims the same message ID for Send now and an automatic send, so they cannot both
@@ -419,7 +425,7 @@ If `devices.json` under `HERDR_WEB_STATE_DIR` (default `~/.config/herdr-web-ui`)
 
 Nothing is typed without you:
 - Input typed while disconnected waits as a draft for you to send or discard.
-- On a current bridge, a message sent while the agent works goes to its next turn on its own, but only while the connection that sent it stays open and still holds the pane: losing either cancels it, even if the connection rejoins later. A reload or reconnect never resumes that: the saved copy of such a message comes back marked not confirmed, to copy or discard after checking the terminal. Other held messages stay with their PC and pane until you choose **Send now** or **Discard**. If the browser cannot save the queue, it says so: keep the tab open or copy the messages before reloading.
+- With **Queue messages while the agent works** on, a message sent while the agent works goes to its next turn on its own on a current bridge, but only while the connection that sent it stays open and still holds the pane: losing either cancels it, even if the connection rejoins later. A reload or reconnect never resumes that: the saved copy of such a message comes back marked not confirmed, to copy or discard after checking the terminal. Other held messages stay with their PC and pane until you choose **Send now** or **Discard**. If the browser cannot save the queue, it says so: keep the tab open or copy the messages before reloading.
 - A typed answer that picks an option of an approval, plan or menu waits for **Confirm**.
 
 Attaches and reconnects wait when another client holds the terminal. **Open here** on the waiting

@@ -580,6 +580,8 @@ export const KO: Record<string, string> = {
   "Attach files": "파일 첨부",
   "Next turn": "다음 차례",
   "Waits for Send now": "지금 보내기를 누르면 보냅니다",
+  "Queue messages while the agent works": "에이전트 작업 중 메시지 대기열에 넣기",
+  "Off, Send types the message in at once, as Enter in the terminal does: the agent's own queue keeps it, and Codex takes it into the turn it is on. On, it waits under the message box, and switching panes or reconnecting holds it for Send now.": "끄면 보내기가 터미널에서 Enter를 누른 것처럼 메시지를 바로 입력하고, 에이전트의 자체 대기열이 보관합니다. Codex는 진행 중인 턴에 반영합니다. 켜면 입력창 아래에서 기다리며, 패널을 전환하거나 다시 연결하면 지금 보내기를 누를 때까지 보류됩니다.",
   "Send queued messages automatically": "대기 메시지 자동 전송",
   "A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.": "에이전트가 작업 중일 때 보낸 메시지는 턴이 끝나면 저절로 전송됩니다. 끄면 지금 보내기를 누를 때까지 기다립니다.",
   "Discard saved copy": "저장된 사본 버리기",

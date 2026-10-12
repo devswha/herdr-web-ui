@@ -60,9 +60,10 @@ describe("browser lane", () => {
   it("summarizes every script and exits zero on success without enabling local evidence", async () => {
     const { text, code, evidence } = await lane();
     expect(code).toBe(0);
-    expect(rows(text)).toHaveLength(43);
+    expect(rows(text)).toHaveLength(44);
     expect(rows(text).map((row) => row.script)).toContain("scripts/agy-chat-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/pending-pane-switch-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/send-while-working-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/lan-exposure-notice-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/chat-fallback-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/file-preview-text-browser-qa.ts");

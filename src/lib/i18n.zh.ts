@@ -584,6 +584,8 @@ export const ZH: Record<string, string> = {
   "Attach files": "附加文件",
   "Next turn": "下一轮",
   "Waits for Send now": "按“立即发送”后发送",
+  "Queue messages while the agent works": "智能体工作时将消息排队",
+  "Off, Send types the message in at once, as Enter in the terminal does: the agent's own queue keeps it, and Codex takes it into the turn it is on. On, it waits under the message box, and switching panes or reconnecting holds it for Send now.": "关闭时，发送会像在终端中按 Enter 一样立即输入消息，由智能体自己的队列保留；Codex 会将其并入当前这一轮。开启时，消息在输入框下方等待，切换窗格或重新连接会将其保留，直到你按下“立即发送”。",
   "Send queued messages automatically": "自动发送排队消息",
   "A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.": "智能体工作时发送的消息会在本轮结束后自动发出。关闭后，消息会等到你按下“立即发送”。",
   "Discard saved copy": "丢弃已保存的副本",

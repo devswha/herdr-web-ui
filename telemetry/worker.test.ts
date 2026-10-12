@@ -30,6 +30,7 @@ const settings: TelemetrySettings = {
   chatFontSize: 24,
   chatWidth: "narrow",
   enterSends: true,
+  queueWhileWorking: true,
   autoSendQueued: false,
   showThinking: true,
   keepScreenOn: false,

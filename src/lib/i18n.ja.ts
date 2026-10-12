@@ -582,6 +582,8 @@ export const JA: Record<string, string> = {
   "Attach files": "ファイルを添付",
   "Next turn": "次のターン",
   "Waits for Send now": "「今すぐ送信」で送信します",
+  "Queue messages while the agent works": "エージェントの作業中はメッセージをキューに入れる",
+  "Off, Send types the message in at once, as Enter in the terminal does: the agent's own queue keeps it, and Codex takes it into the turn it is on. On, it waits under the message box, and switching panes or reconnecting holds it for Send now.": "オフにすると、ターミナルで Enter を押したときと同じように、送信でメッセージをすぐに入力し、エージェント自身のキューが保持します。Codex は作業中のターンに取り込みます。オンにすると入力欄の下で待機し、ペインの切り替えや再接続があると「今すぐ送信」を押すまで保留されます。",
   "Send queued messages automatically": "送信待ちメッセージを自動で送信",
   "A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.": "エージェントの作業中に送ったメッセージは、ターンが終わると自動で送信されます。オフにすると、「今すぐ送信」を押すまで待ちます。",
   "Discard saved copy": "保存したコピーを破棄",

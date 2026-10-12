@@ -12,6 +12,8 @@ const origin = `http://127.0.0.1:${fixture.port}`;
 const evidence = join(process.cwd(), "evidence/machines"); mkdirSync(evidence, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env["CHROME_PATH"] ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+// the pending checks below are the bridge queue's: Send types a working agent's message in at once unless Settings queues it
+await context.addInitScript(() => { if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ queueWhileWorking: true })); });
 const page = await context.newPage(); page.setDefaultTimeout(15_000);
 const errors: string[] = []; page.on("pageerror", (e) => errors.push(e.message));
 const inputs: { machine: string; pane: string }[] = [];

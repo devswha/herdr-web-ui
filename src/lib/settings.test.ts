@@ -728,6 +728,19 @@ it("keeps page overlap whole, bounded and persistent, including full-viewport pa
   expect(sanitizeSettings(JSON.parse(JSON.stringify(saved))).pageOverlapRows).toBe(3);
 });
 
+it("types a message sent while the agent works in at once unless queueing is on, shared like the queue's own choice", () => {
+  expect(DEFAULT_SETTINGS.queueWhileWorking).toBe(false);
+  expect(SETTING_SCOPE.queueWhileWorking).toBe("shared");
+  for (const queueWhileWorking of [true, false]) {
+    expect(sanitizeSettings(JSON.parse(JSON.stringify(sanitizeSettings({ queueWhileWorking })))).queueWhileWorking).toBe(queueWhileWorking);
+  }
+  expect(sanitizeSettings({ queueWhileWorking: "on" }).queueWhileWorking).toBe(false);
+  // saved before the choice existed: automatic sending turned off asked that nothing go by itself
+  expect(sanitizeSettings({ autoSendQueued: false }).queueWhileWorking).toBe(true);
+  expect(sanitizeSettings({ autoSendQueued: true }).queueWhileWorking).toBe(false);
+  expect(sanitizeSettings({ autoSendQueued: false, queueWhileWorking: false }).queueWhileWorking).toBe(false);
+});
+
 describe("shared settings", () => {
   it("shares exactly the settings SETTING_SCOPE marks shared", () => {
     const shared = Object.entries(SETTING_SCOPE).filter(([, scope]) => scope === "shared").map(([key]) => key).sort();
