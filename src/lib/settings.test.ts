@@ -66,12 +66,13 @@ it("draws workspace cards in the Agents list only when they were turned on", () 
   }
 });
 
-it("shows the Agents list's pin stars only when they were turned on", () => {
-  expect(DEFAULT_SETTINGS.agentPins).toBe(false);
-  expect(sanitizeSettings({}).agentPins).toBe(false);
+it("shows the Agents list's pin stars unless they were turned off", () => {
+  expect(DEFAULT_SETTINGS.agentPins).toBe(true);
+  expect(sanitizeSettings({}).agentPins).toBe(true);
   expect(sanitizeSettings({ agentPins: true }).agentPins).toBe(true);
-  for (const agentPins of [null, "true", 1]) {
-    expect(sanitizeSettings({ agentPins }).agentPins).toBe(false);
+  expect(sanitizeSettings({ agentPins: false }).agentPins).toBe(false);
+  for (const agentPins of [null, "true", "false", 0, 1]) {
+    expect(sanitizeSettings({ agentPins }).agentPins).toBe(true);
   }
 });
 

@@ -48,6 +48,19 @@ describe("preferences sync", () => {
     expect(preferencesChange(overtaken.base, { settings: { ...light, theme: "dark" }, pins: [] })).toBeNull();
   });
 
+  it("keeps pins on for a server that holds no choice, and keeps a shared false", () => {
+    // a server that never saw the setting leaves the default alone, and nothing is sent for it
+    const empty = takePreferences(base(DEFAULT_SETTINGS, null), { settings: DEFAULT_SETTINGS, pins: [] }, { revision: 1, settings: {} }, null);
+    expect(empty.patch).toEqual({});
+    expect(preferencesChange(empty.base, { settings: DEFAULT_SETTINGS, pins: [] })).toBeNull();
+    // a server that holds false turns the stars off here, and that is not sent back
+    const off = takePreferences(base(DEFAULT_SETTINGS, null), { settings: DEFAULT_SETTINGS, pins: [] }, { revision: 1, settings: { agentPins: false } }, null);
+    expect(off.patch).toEqual({ agentPins: false });
+    expect(preferencesChange(off.base, { settings: { ...DEFAULT_SETTINGS, agentPins: false }, pins: [] })).toBeNull();
+    // turning them off here is a change to share
+    expect(preferencesChange(empty.base, { settings: { ...DEFAULT_SETTINGS, agentPins: false }, pins: [] })).toEqual({ settings: { agentPins: false }, pins: [] });
+  });
+
   it("leaves a value this browser cannot read, and does not send its own back", () => {
     const taken = takePreferences(base(DEFAULT_SETTINGS, null), { settings: DEFAULT_SETTINGS, pins: [] }, { revision: 1, settings: { theme: "purple", agentCards: "yes", palette: "forest" } }, null);
     expect(taken.patch).toEqual({ palette: "forest" });

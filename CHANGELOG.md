@@ -52,6 +52,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#606](https://github.com/devswha/herdr-web-ui/pull/606) by @sobir-git)
 
 ### Changed
+- **Settings → Appearance → Pin agents** is on by default: the Agents list shows a star beside
+  each agent until you turn it off. A choice already stored in a browser, or shared by its server,
+  is kept, off included.
 - Install and update counts include app setting values such as theme, text size and notification
   choices, rather than only the names of changed appearance settings. Custom text and account
   identifiers stay out; custom choices use flags or counts. The expanded notice is shown again

@@ -82,14 +82,14 @@ try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
     try {
       // Workspace menus no longer mix in pane operations; header More keeps pane movement.
-      // off by default: herdr's order in a flat list, each row naming its own workspace
+      // herdr's order in a flat list, each row naming its own workspace and offering a pin
       await withPage(browser, {}, async (page) => {
         assert.deepEqual(await agentTitles(page), AGENTS_HERDR_ORDER);
         assert.equal(await page.locator(".agents-sidebar .agent-group").count(), 0, "no workspace cards unless Settings turns them on");
-        assert.equal(await page.locator(".agents-sidebar .agent-pin-toggle").count(), 0, "no pin stars unless Settings turns them on");
+        assert.equal(await page.locator(".agents-sidebar .agent-pin-toggle").count(), AGENTS_HERDR_ORDER.length, "every agent offers a pin by default");
         assert.match(await agent(page, API).locator(".agent-context").textContent() ?? "", /checkout-api/, "a row outside a card names its workspace");
       });
-      console.log("PASS by default the Agents list is flat, in herdr's order, with no pin stars");
+      console.log("PASS by default the Agents list is flat, in herdr's order, with pin stars");
 
       // a pane's plan: the composer's chip shows how far it got and opens its steps, as the background
       // tasks do; the header carries no plan of its own
