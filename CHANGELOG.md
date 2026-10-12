@@ -16,6 +16,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   overwrites anything: a server that holds no shared settings yet takes them from the first change,
   and the browser that shares first brings its pins along. A page that lost its connection catches up
   when it is back. A watching device follows the shared settings and cannot change them for everyone. ([#854](https://github.com/devswha/herdr-web-ui/pull/854))
+- **Settings → Appearance → Agent logos: Color | Mono.** Mono draws the logos without color:
+  Claude's in the text color without its orange tile, the other logos with brand colors in grey,
+  so a sidebar where nearly every agent is the same one is not a column of colored tiles. Color,
+  today's look, stays the default. ([#850](https://github.com/devswha/herdr-web-ui/pull/850) by @phirschybar)
 
 ## [0.4.8] - 2026-10-12
 
@@ -26,10 +30,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   still sends it at the turn's end. A held message shown in another tab, or after a reload, asks
   to be reviewed before Send now, since the tab that held it may still send it.
   ([#836](https://github.com/devswha/herdr-web-ui/pull/836))
-- **Settings → Appearance → Agent logos: Color | Mono.** Mono draws the logos without color:
-  Claude's in the text color without its orange tile, the other logos with brand colors in grey,
-  so a sidebar where nearly every agent is the same one is not a column of colored tiles. Color,
-  today's look, stays the default. ([#850](https://github.com/devswha/herdr-web-ui/pull/850) by @phirschybar)
 
 ### Changed
 - With **Workspace cards** on, a pinned agent stays in its workspace's card, first there, and the
