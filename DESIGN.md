@@ -279,8 +279,9 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 - `highlightCode` colors code in the chat and the file viewer by its language (default on; off
   shows plain text).
 - File viewer: `wrapCode` (wrap long lines instead of scrolling sideways; default off) and
-  `markdownWidth`: `readable` (the chat lane, `--chat-w`, centered; default) or `full`. The
-  viewer loads the first 256 KB of a text file through one bounded streaming reader, with abort
+  `markdownWidth`: `readable` (the chat lane, `--chat-w`, centered; default) or `full`.
+  These layout choices stay on this device, like chat width; code highlighting is shared across browsers.
+  The viewer loads the first 256 KB of a text file through one bounded streaming reader, with abort
   on close or navigation and a 5 s fetch deadline. Partial text ends at the last whole line when
   one exists; the response's Content-Range supplies the total, and an empty 416 opens empty.
   A Markdown file its Preview cannot
