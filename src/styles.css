@@ -1033,15 +1033,10 @@ button {
   gap: var(--space-1);
 }
 
-/* Settings: the gear in the sidebar's top row from 769px; below, the drawer's footer keeps it.
-   With the gear up top, the footer stays only for the plan meters, so Agents reaches the bottom */
+/* Settings: the gear in the sidebar's top row from 769px; below, the drawer's footer keeps it
+   (components/Sidebar.css) */
 @media (max-width: 768px) {
   .header-side .sidebar-settings-button { display: none; }
-}
-
-@media (min-width: 769px) {
-  .sidebar-footer .sidebar-footer-settings { display: none; }
-  .sidebar-footer:not(:has(.usage)) { display: none; }
 }
 
 .header-meta {

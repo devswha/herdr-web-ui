@@ -510,6 +510,13 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   min-width: 0;
 }
 
+/* from 769px Settings is the gear in the sidebar's top row (App.tsx), so the footer stays only
+   for the plan meters and Agents reaches the bottom; the drawer's footer keeps its Settings row */
+@media (min-width: 769px) {
+  .sidebar-footer .sidebar-footer-settings { display: none; }
+  .sidebar-footer:not(:has(.usage)) { display: none; }
+}
+
 .sidebar-install-help {
   margin: 0;
   padding: 0 var(--space-2) var(--space-1) var(--side-box);

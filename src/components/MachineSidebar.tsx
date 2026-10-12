@@ -35,7 +35,7 @@ export function MachineSidebar(props: Props) {
     </div>
     <AgentSidebar machines={props.machines} selectedMachineId={props.selectedMachineId} selectedPaneId={props.selectedPaneId} stateWord={(machine) => t(STATE_WORD[machine.state])} onSelect={props.onSelect} />
     {/* Install app lives in Settings → Devices. From 769px Settings is the gear in the sidebar's top
-        row (App.tsx), and this footer stays only for the plan meters (styles.css) */}
+        row (App.tsx), and this footer stays only for the plan meters (Sidebar.css) */}
     <footer className="sidebar-footer">
       <div className="sidebar-footer-row">
         <button className="btn btn-ghost sidebar-footer-action sidebar-footer-settings" title={t("Settings (⌘⇧,)")} onClick={props.actions.openSettings}><Settings aria-hidden="true" />{t("Settings")}</button>

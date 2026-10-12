@@ -1343,7 +1343,7 @@ export function App() {
             <PanelLeft />
           </button>
           {/* the palette and Settings close the sidebar's top row together; the gear stands in for
-              the footer's Settings from 769px, where the drawer's footer keeps it below (styles.css) */}
+              the footer's Settings from 769px, where the drawer's footer keeps it below (styles.css, Sidebar.css) */}
           <span className="header-side-end">
             <button type="button" className="icon-button palette-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => setPaletteOpen(true)}>
               <Search />
