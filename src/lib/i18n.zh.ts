@@ -10,6 +10,13 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Find in messages": "在消息中查找",
+  "Match case": "区分大小写",
+  "Search earlier messages": "搜索更早的消息",
+  "Cancel search": "取消搜索",
+  "Searching earlier messages…": "正在搜索更早的消息…",
+  "Matches in loaded message source, including folded content.": "在已加载的消息原文中查找，包括折叠的内容。",
+  "Matching source": "匹配的原文",
   "PageUp / PageDown scroll chat": "PageUp / PageDown 滚动聊天",
   "Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.": "输入时也可滚动对话。在终端中，普通翻页键仍由正在运行的程序处理。",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 聊天暂不可用。请打开终端查看运行状态和工具调用。",

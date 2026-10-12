@@ -2375,6 +2375,7 @@ export function PaneTerminal({
           <ChatView
             key={paneId}
             paneId={paneId}
+            active={active}
             pageScroll={pageScroll}
             refreshKey={chatRefresh}
             invalidationKey={chatInvalidation}

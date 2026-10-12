@@ -71,6 +71,10 @@
     background: linear-gradient(var(--bg), transparent);
     pointer-events: none;
   }
+  .terminal-host:first-child .chat-view-virtual::before {
+    top: 0;
+    margin: 0 0 calc(-1 * var(--space-5));
+  }
 }
 
 .chat-transcript {

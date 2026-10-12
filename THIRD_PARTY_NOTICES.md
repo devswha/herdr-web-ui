@@ -2,6 +2,53 @@
 
 herdr web ui includes material from the projects below, under their own licenses.
 
+## Legend List
+
+The chat timeline uses [`@legendapp/list`](https://github.com/LegendApp/legend-list) 3.3.5.
+
+```
+MIT License
+
+Copyright (c) 2022 Moo.do LLC
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### t3code DOM reorder adaptation
+
+The web ESM entry adapts t3code's state-preserving `Element.moveBefore` approach
+from revision `bed923986fbcbe8279f23b9367efde1596bde1f9`, under the MIT License
+printed above, with this copyright notice:
+
+```
+Copyright (c) 2026 T3 Tools Inc.
+```
+
+### use-sync-external-store
+
+Legend List also uses `use-sync-external-store`, under the MIT License printed above,
+with this copyright notice:
+
+```
+Copyright (c) Meta Platforms, Inc. and affiliates.
+```
+
 ## TanStack Highlight
 
 Code highlighting in the client and its worker uses

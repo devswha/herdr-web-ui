@@ -7,6 +7,13 @@
  * keep their English names.
  */
 export const TR: Record<string, string> = {
+  "Find in messages": "Mesajlarda bul",
+  "Match case": "Büyük/küçük harf eşleştir",
+  "Search earlier messages": "Önceki mesajlarda ara",
+  "Cancel search": "Aramayı iptal et",
+  "Searching earlier messages…": "Önceki mesajlar aranıyor…",
+  "Matches in loaded message source, including folded content.": "Daraltılmış içerik dahil, yüklenen mesaj kaynağında arar.",
+  "Matching source": "Eşleşen kaynak",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity sohbeti kullanılamıyor. Etkinliği ve araç çağrılarını görmek için Terminal'i açın.",
   "Chat read timed out.": "Sohbet okunurken zaman aşımına uğradı.",
   "Thinking…": "Düşünüyor…",

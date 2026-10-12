@@ -6,6 +6,13 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Find in messages": "메시지에서 찾기",
+  "Match case": "대소문자 구분",
+  "Search earlier messages": "이전 메시지 검색",
+  "Cancel search": "검색 취소",
+  "Searching earlier messages…": "이전 메시지 검색 중…",
+  "Matches in loaded message source, including folded content.": "접힌 내용을 포함해 불러온 메시지 원문에서 찾습니다.",
+  "Matching source": "일치하는 원문",
   "PageUp / PageDown scroll chat": "PageUp / PageDown으로 채팅 스크롤",
   "Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.": "입력 중에도 대화를 스크롤합니다. 터미널에서는 일반 페이지 키가 실행 중인 프로그램에 전달됩니다.",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 채팅을 사용할 수 없습니다. 터미널을 열어 작업 상태와 도구 호출을 확인하세요.",

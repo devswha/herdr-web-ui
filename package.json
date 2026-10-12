@@ -26,6 +26,7 @@
     "test:ssh": "bun run scripts/ssh-integration.ts"
   },
   "dependencies": {
+    "@legendapp/list": "3.3.5",
     "@lydell/node-pty": "1.1.0",
     "@pierre/diffs": "1.5.2",
     "@tanstack/highlight": "^1.0.0",
@@ -54,6 +55,7 @@
     "vite": "^8.3.4"
   },
   "patchedDependencies": {
+    "@legendapp/list@3.3.5": "patches/@legendapp%2Flist@3.3.5.patch",
     "@xterm/xterm@5.5.0": "patches/@xterm%2Fxterm@5.5.0.patch"
   }
 }

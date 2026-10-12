@@ -876,6 +876,26 @@ One set for both themes: the card is island black wherever it shows.
   document as a `role="status"` a screen reader can read (`.conn-live`; never `display: none`).
 
 ### Chat turn (`.chat-turn`)
+- Native conversation rows use LegendList 3.3.5, with the chat view as the single
+  scroll owner. The centered lane, exchange spacing and prompt portal stay separate from
+  row lifetime. The list anchors prepends by a browser-local slot, never by a timestamp or
+  mutable message text; machine, pane and history replacement reset that slot scope.
+  Selected ranges and focused rows remain mounted outside the visible window. Disclosure
+  choices and completed whole-output reads belong to logical rows and survive eviction.
+  Spare list containers may remain offscreen after a selection ends; this is not an
+  unlimited transcript DOM or a promise of bounded memory for all loaded source data.
+  The web ESM patch orders pooled DOM slots before paint, uses state-preserving
+  `moveBefore` where available, and clears stale prepend locks on explicit navigation.
+  These changes preserve native drag/copy order and prevent a later layout from undoing
+  Find navigation; the React Native and keyboard patches from t3code are not included.
+- The chat-local **Find in messages** button and Mod+F search supplied message source,
+  including folded work, rather than the mounted DOM window. The existing Mod+Shift+F
+  terminal action remains unchanged. The panel takes its own space above the transcript,
+  never covering a match, with existing search controls and `--accent-tint` match emphasis. A selectable
+  source excerpt makes a match in folded content readable without expanding every tool.
+  **Search earlier messages** reads older pages sequentially until a new match or the
+  beginning; Cancel stops further pages. The scope label distinguishes loaded source from
+  history that has not been read. Escape closes the panel and restores its button's focus.
 - The chat lens is a centered `--chat-w` transcript over the still-attached terminal surface.
   At the Default chat width the lane follows the pane: min 820px, max 60rem (960px at a 16px
   root), 71% of the pane (`.terminal-stack`) between. `PaneTerminal` measures the pane and writes
