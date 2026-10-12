@@ -77,7 +77,9 @@ export function isLoopbackAddress(address: string): boolean {
  */
 export function isLoopbackBind(hostname: string): boolean {
   const name = hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, "$1");
-  return name === "localhost" || name.endsWith(".localhost") || isLoopbackAddress(name);
+  // the address tests apply to an address: a DNS name such as 127.devbox.example may point anywhere
+  const literal = /^[\d.]+$/.test(name) || name.includes(":");
+  return name === "localhost" || name.endsWith(".localhost") || (literal && isLoopbackAddress(name));
 }
 
 /**

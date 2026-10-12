@@ -142,7 +142,10 @@ describe("lanExposed", () => {
   it("names the one state a warning belongs to: bound past this PC, no token, nothing paired", () => {
     expect(lanExposed(open)).toBe(true);
     // every address, the LAN, the tailnet, a name: all reachable beyond this PC
-    for (const hostname of ["::", "[::]", "192.168.0.10", "100.64.0.2", "fd7a::1", "my-pc.local"]) expect(warned({ hostname })).toBe(true);
+    for (const hostname of ["::", "[::]", "192.168.0.10", "100.64.0.2", "fd7a::1", "my-pc.local", "127.devbox.example", "localhost.example"]) {
+      expect(isLoopbackBind(hostname)).toBe(false);
+      expect(warned({ hostname })).toBe(true);
+    }
   });
 
   it("is quiet whenever one of the three is not the case", () => {
