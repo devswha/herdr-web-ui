@@ -486,6 +486,7 @@ The snapshot is the last one a browser reported to this server, not a list of de
 | --- | --- |
 | `Mod+Shift+K` | Command palette |
 | `Mod+Shift+J` | Switch Chat / Terminal |
+| `Mod+Shift+PageUp` / `PageDown` | Scroll the current pane up / down, retaining the configured overlap |
 | `Mod+Shift+B` | Toggle sidebar |
 | `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
@@ -502,11 +503,33 @@ composing, keys stay with it. In a text field with text, Mod+Shift+arrows keep t
 behavior; from an empty one, such as the chat's empty message box, they switch panes.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
-scrollbar, arrows move a line, Page Up/Down a viewport, and Home/End the start/end of history.
+scrollbar, arrows move a line, Page Up/Down a viewport minus the configured overlap, and Home/End the start/end of history.
 
 On a phone, use the header and More menu for app actions; Command palette is available there
 without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
 An external keyboard uses the same app bindings as a desktop.
+
+**Settings → Chat → Composer → PageUp / PageDown scroll chat** opts into plain page keys
+for the transcript, even while its message box is focused. It is off by default and saved on
+this device; the draft, caret, selection and focus stay intact. Modified page keys, composition,
+other editable controls and modal input retain their own behavior. Plain terminal page keys
+continue to belong to the running program.
+
+Paging shortcuts work while the message box is focused, preserving the draft, caret and selection.
+Chat scrolls its transcript immediately; Terminal scrolls herdr's shared history, so other
+clients see the same terminal position. When herdr explicitly reports zero native history,
+the shortcut instead sends plain PageUp/PageDown to the running application through its live
+input lease. That application owns its page length; the overlap setting cannot change it.
+Unavailable or invalid history data never causes application input, and no key is queued
+while disconnected.
+**Settings → Shortcuts → Paging → Page overlap** sets the lines retained between pages:
+one by default, from 0 to 100; 0 scrolls a full viewport. Chat uses the displayed text's line
+height, and Terminal uses native rows. A large overlap still advances by at least one pixel
+in chat or one terminal row. Focused scrollbar PageUp/PageDown uses the same setting.
+For an iPad with an external keyboard that lacks PageUp/PageDown, assign letters such as
+U and D to **Scroll pane up** and **Scroll pane down** in Settings → Shortcuts. Mod+Shift
+stays fixed. This lets you read history without leaving the message box or reaching for
+the screen. Shift+PageUp/PageDown alone retains the focused control's own behavior.
 
 Enter sends and Shift+Enter adds a line. Settings can switch sending to Mod+Enter.
 

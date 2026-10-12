@@ -8,6 +8,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Two tabs side by side** on a desktop, from different workspaces or PCs: drag a tab down out
+  of its strip, or a sidebar row over the pane area, and drop it on the left or right half. A guide
+  shows the two halves as soon as the drag starts and keeps its side steady at the centre; Escape
+  or a drop elsewhere leaves everything as it was. Each half draws its tab at herdr's own layout,
+  with its own tab strip and a bar with its lens and a close, and a tab is never shown in both
+  halves. A press in a half makes it the one the header, the palette and the shortcuts act on.
+  The split is kept across a reload, and a narrower window shows the active half alone. Drag
+  guide by @flam-ing. ([#861](https://github.com/devswha/herdr-web-ui/pull/861) by @Yoonwoo-Ha)
 - The file viewer and Markdown reader page offer **Show source**, highlighted source with
   CSS-counter line numbers, and **Copy file**, which selects the source when copying is unavailable.
   **Settings → Chat → File viewer** controls line wrapping and Markdown width; previews inherit
@@ -172,6 +180,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   start or length (Claude, Codex, Grok), from 5% of the window on.
   ([#513](https://github.com/devswha/herdr-web-ui/pull/513) by @kilhyeonjun, [#834](https://github.com/devswha/herdr-web-ui/pull/834))
 - Turkish (Türkçe) UI translation: a full `i18n.tr.ts` dictionary, the language in the Settings menu with browser detection, and a Turkish README. ([#815](https://github.com/devswha/herdr-web-ui/pull/815) by @fitzgpt)
+- Configurable paging shortcuts scroll the current chat transcript or native terminal history with Mod+Shift+PageUp/PageDown and 0–100 lines of overlap (one by default). Settings → Chat can opt into plain PageUp/PageDown while composing, preserving the draft, selection and focus. When herdr explicitly reports no native history, a paging action sends plain page keys to the running application, which controls its own page length. ([#811](https://github.com/devswha/herdr-web-ui/pull/811) by @kratam)
 - Native conversation transcripts for Hermes Agent: turns, thinking blocks, and tool calls are read directly from its SQLite session store. ([#604](https://github.com/devswha/herdr-web-ui/pull/604) by @RikiSanjayaa)
   A remote PC reads them once its bridge is updated to this release's runtime.
 - **Deep links.** The address now says where you are, and opens there: the PC, the workspace (by id and a short slug of its name, so `?ws=w2K-herdr-web-ui&pane=w2K:p1&view=chat` reads like the place), the pane and its lens, an open file, a Settings page and group (`&settings=about&section=updates`), the New workspace dialog with its fields filled (`?new=workspace&cwd=…&name=…&agent=…`; a link never creates anything), and a collapsed sidebar (`&sidebar=hidden`). Opening another pane is a history entry, so Back returns to the last one. A link to a pane that has closed opens its workspace, a link to nothing open says so, and **Copy link** in the header's More menu copies the address on a phone.

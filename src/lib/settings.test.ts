@@ -716,10 +716,32 @@ it("keeps the Markdown preview's width to readable or full, readable by default"
   for (const bad of ["narrow", "medium", "wide", "", null, 80]) expect(sanitizeSettings({ markdownWidth: bad }).markdownWidth).toBe("readable");
 });
 
+it("keeps page overlap whole, bounded and persistent, including full-viewport paging", () => {
+  expect(DEFAULT_SETTINGS.pageOverlapRows).toBe(1);
+  expect(sanitizeSettings({}).pageOverlapRows).toBe(1);
+  expect(sanitizeSettings({ pageOverlapRows: 0 }).pageOverlapRows).toBe(0);
+  expect(sanitizeSettings({ pageOverlapRows: 3.6 }).pageOverlapRows).toBe(4);
+  expect(sanitizeSettings({ pageOverlapRows: -8 }).pageOverlapRows).toBe(0);
+  expect(sanitizeSettings({ pageOverlapRows: 101 }).pageOverlapRows).toBe(100);
+  for (const value of ["3", null, true, NaN, Infinity]) expect(sanitizeSettings({ pageOverlapRows: value }).pageOverlapRows).toBe(1);
+  const saved = sanitizeSettings({ ...DEFAULT_SETTINGS, pageOverlapRows: 3 });
+  expect(sanitizeSettings(JSON.parse(JSON.stringify(saved))).pageOverlapRows).toBe(3);
+});
+
 describe("shared settings", () => {
   it("shares exactly the settings SETTING_SCOPE marks shared", () => {
     const shared = Object.entries(SETTING_SCOPE).filter(([, scope]) => scope === "shared").map(([key]) => key).sort();
     expect([...SHARED_SETTING_KEYS].sort() as string[]).toEqual(shared);
     expect(Object.keys(SETTING_SCOPE).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
   });
+});
+
+it("keeps plain chat paging opt-in and saves the keyboard choice on this device", () => {
+  expect(DEFAULT_SETTINGS.chatPageKeys).toBe(false);
+  expect(SETTING_SCOPE.chatPageKeys).toBe("device");
+  expect(SETTING_SCOPE.pageOverlapRows).toBe("device");
+  for (const chatPageKeys of [true, false]) {
+    expect(sanitizeSettings(JSON.parse(JSON.stringify(sanitizeSettings({ chatPageKeys })))).chatPageKeys).toBe(chatPageKeys);
+  }
+  for (const chatPageKeys of [null, "true", 1]) expect(sanitizeSettings({ chatPageKeys }).chatPageKeys).toBe(false);
 });
