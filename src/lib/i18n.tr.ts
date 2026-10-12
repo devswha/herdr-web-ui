@@ -7,6 +7,15 @@
  * keep their English names.
  */
 export const TR: Record<string, string> = {
+  "Paging": "Sayfa kaydırma",
+  "Page overlap": "Sayfa örtüşmesi",
+  "Lines kept visible between pages in chat and terminal history. Zero scrolls a full page.": "Sohbet ve terminal geçmişinde sayfalar arasında görünür kalan satır sayısı. Sıfır, tam bir sayfa kaydırır.",
+  "Decrease page overlap": "Sayfa örtüşmesini azalt",
+  "Increase page overlap": "Sayfa örtüşmesini artır",
+  "Scroll pane up": "Paneli yukarı kaydır",
+  "Scroll pane down": "Paneli aşağı kaydır",
+  "PageUp / PageDown scroll chat": "PageUp / PageDown sohbeti kaydırır",
+  "Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.": "Yazarken bile sohbeti kaydırır. Terminalde, değiştirici olmadan kullanılan sayfa tuşları çalışan programda kalır.",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity sohbeti kullanılamıyor. Etkinliği ve araç çağrılarını görmek için Terminal'i açın.",
   "Chat read timed out.": "Sohbet okunurken zaman aşımına uğradı.",
   "Thinking…": "Düşünüyor…",

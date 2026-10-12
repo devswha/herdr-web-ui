@@ -1221,7 +1221,7 @@ One set for both themes: the card is island black wherever it shows.
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
 - Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family, highlight code; then
-  **Composer**: Enter sends, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
+  **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
   lines, Markdown width), **Terminal** (font size, 80 columns in a split, font family, wheel
   speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings, then **Paging** with a 0–100 line overlap stepper; one line by default, zero for a full viewport), **Phone & devices** (the phone address,
@@ -1409,7 +1409,12 @@ One set for both themes: the card is island black wherever it shows.
   Bindings belong to this browser, not the remote PC or pane. Hold-to-dictate remains fixed.
 - Text-field selection and IME composition keep their keys. Focus-local list/tab navigation and
   reordering are separate from global bindings; they must not intercept terminal input.
-  Global actions target the selected pane, and a handled shortcut must never also reach its PTY.
+  Global actions target the selected pane, and the original handled chord must never also reach its PTY.
+  Paging scrolls herdr history when present; an explicit valid zero-history result instead sends
+  one plain PageUp/PageDown through the existing live input lease to the running application.
+  Application-owned paging has its own page length; no page input is queued across disconnects.
+  The opt-in plain chat page keys preserve composer draft, selection and focus, excluding modified
+  keys, composition, other editable controls and modal input. They do not capture terminal keys.
 - On touch screens app actions stay in buttons and menus, including the palette in More on phones.
   The key bar sends terminal input only; it is not an app-action toolbar. Hardware keyboards use
   the same global bindings on phones and desktops.

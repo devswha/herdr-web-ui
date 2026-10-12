@@ -66,6 +66,8 @@ export interface Settings {
   keyBarItems: KeyBarItem[];
   shortcutOverrides: ShortcutOverrides;
   pageOverlapRows: number;
+  /** Plain page keys scroll chat, including while its composer is focused. */
+  chatPageKeys: boolean;
   theme: ThemeSetting;
   density: Density;
   /** How much a workspace row says: its name, or its pane's title over its place. */
@@ -180,7 +182,7 @@ export const SETTING_SCOPE = {
   agentPins: "shared", agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
   showQuickReplies: "shared", showSuggestionChip: "shared", showUsage: "shared", usageCount: "shared", usagePace: "shared",
   usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", highlightCode: "shared", defaultView: "device",
-  terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", density: "device",
+  terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
   quietOpenedDone: "device", terminalFontSize: "device", terminalCursorStyle: "device", terminalCursorBlink: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
   narrowPaneFont: "device", chatFontSize: "device", chatFontFamily: "device", chatWidth: "device", enterSends: "device",
@@ -201,6 +203,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keyBarItems: DEFAULT_KEY_BAR_ITEMS,
   shortcutOverrides: {},
   pageOverlapRows: 1,
+  chatPageKeys: false,
   theme: "dark",
   density: "comfortable",
   sidebarRows: "two",
@@ -362,6 +365,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     keyBarExtras,
     keyBarItems: sanitizeKeyBarItems(record["keyBarItems"], keyBarFallback),
     shortcutOverrides: sanitizeShortcutOverrides(record["shortcutOverrides"]),
+    chatPageKeys: typeof record["chatPageKeys"] === "boolean" ? record["chatPageKeys"] : DEFAULT_SETTINGS.chatPageKeys,
     pageOverlapRows: typeof record["pageOverlapRows"] === "number" && Number.isFinite(record["pageOverlapRows"])
       ? Math.min(100, Math.max(0, Math.round(record["pageOverlapRows"]))) : DEFAULT_SETTINGS.pageOverlapRows,
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,

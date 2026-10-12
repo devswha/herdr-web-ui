@@ -622,3 +622,13 @@ describe("shared settings", () => {
     expect(Object.keys(SETTING_SCOPE).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
   });
 });
+
+it("keeps plain chat paging opt-in and saves the keyboard choice on this device", () => {
+  expect(DEFAULT_SETTINGS.chatPageKeys).toBe(false);
+  expect(SETTING_SCOPE.chatPageKeys).toBe("device");
+  expect(SETTING_SCOPE.pageOverlapRows).toBe("device");
+  for (const chatPageKeys of [true, false]) {
+    expect(sanitizeSettings(JSON.parse(JSON.stringify(sanitizeSettings({ chatPageKeys })))).chatPageKeys).toBe(chatPageKeys);
+  }
+  for (const chatPageKeys of [null, "true", 1]) expect(sanitizeSettings({ chatPageKeys }).chatPageKeys).toBe(false);
+});

@@ -507,9 +507,19 @@ On a phone, use the header and More menu for app actions; Command palette is ava
 without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
 An external keyboard uses the same app bindings as a desktop.
 
-Paging works while the message box is focused, preserving the draft, caret and selection.
+**Settings → Chat → Composer → PageUp / PageDown scroll chat** opts into plain page keys
+for the transcript, even while its message box is focused. It is off by default and saved on
+this device; the draft, caret, selection and focus stay intact. Modified page keys, composition,
+other editable controls and modal input retain their own behavior. Plain terminal page keys
+continue to belong to the running program.
+
+Paging shortcuts work while the message box is focused, preserving the draft, caret and selection.
 Chat scrolls its transcript immediately; Terminal scrolls herdr's shared history, so other
-clients see the same terminal position. The shortcut sends no keys to the terminal program.
+clients see the same terminal position. When herdr explicitly reports zero native history,
+the shortcut instead sends plain PageUp/PageDown to the running application through its live
+input lease. That application owns its page length; the overlap setting cannot change it.
+Unavailable or invalid history data never causes application input, and no key is queued
+while disconnected.
 **Settings → Shortcuts → Paging → Page overlap** sets the lines retained between pages:
 one by default, from 0 to 100; 0 scrolls a full viewport. Chat uses the displayed text's line
 height, and Terminal uses native rows. A large overlap still advances by at least one pixel

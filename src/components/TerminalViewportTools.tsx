@@ -17,6 +17,7 @@ interface Props {
   terminal: Terminal | null;
   paneId: string;
   pageScroll?: { current: ((direction: -1 | 1) => void) | null };
+  onApplicationPage?: (direction: -1 | 1) => void;
   viewportId: string;
   enabled: boolean;
   interactive: boolean;
@@ -25,7 +26,7 @@ interface Props {
 }
 
 /** UI over the attach stream. History belongs to herdr; xterm still has zero scrollback. */
-export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, viewportId, enabled, interactive, search, onError }: Props) {
+export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, onApplicationPage, viewportId, enabled, interactive, search, onError }: Props) {
   const t = useT();
   const api = useMachineApi();
   const { settings } = useSettings();
@@ -155,6 +156,11 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
     };
     const scrollPage = (direction: -1 | 1) => {
       const metrics = scrollRef.current;
+      if (!interactive || !alive || viewportIntent.isSearching() || !showing()) return;
+      if (validScroll(metrics) && metrics.max_offset_from_bottom === 0) {
+        onApplicationPage?.(direction);
+        return;
+      }
       if (validScroll(metrics)) writeRef.current((previewRef.current ?? metrics.offset_from_bottom) - direction * pageScrollDistance(metrics.viewport_rows, 1, overlapRef.current));
     };
     if (pageScroll) pageScroll.current = scrollPage;
@@ -189,7 +195,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
       refreshRef.current = () => {}; writeRef.current = () => {};
       drag.current = null;
     };
-  }, [terminal, paneId, enabled, interactive, query, api, t, viewportIntent, pageScroll]);
+  }, [terminal, paneId, enabled, interactive, query, api, t, viewportIntent, pageScroll, onApplicationPage]);
 
   useEffect(() => { refreshRef.current(); }, [search?.result]);
   const metrics = validScroll(scroll) ? { ...scroll, offset_from_bottom: preview === null ? scroll.offset_from_bottom : Math.min(scroll.max_offset_from_bottom, preview) } : null;

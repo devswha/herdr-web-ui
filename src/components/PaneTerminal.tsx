@@ -44,6 +44,7 @@ import { useSettings, terminalTheme, type Palette, type ResolvedTheme, type Term
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
+import { plainPageDirection } from "../lib/pageScroll.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { fileUriPath, hyperlinkFilter, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
@@ -2222,6 +2223,32 @@ export function PaneTerminal({
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
 
+  useEffect(() => {
+    if (!active || !paneId || !settings.chatPageKeys) return;
+    const onPage = (event: KeyboardEvent) => {
+      const direction = plainPageDirection(event);
+      if (direction === null || event.defaultPrevented || !activeRef.current || !presentedRef.current || !chatViewRef.current || modalOpen()
+          || isAppShortcut(event, shortcutSettings.current) || pageScroll.current === null) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable=true]") && !target.matches(".composer-text")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pageScroll.current(direction);
+    };
+    window.addEventListener("keydown", onPage, true);
+    return () => window.removeEventListener("keydown", onPage, true);
+  }, [active, paneId, settings.chatPageKeys]);
+
+  const sendApplicationPage = useCallback((direction: -1 | 1) => {
+    const pane = paneRef.current, socket = socketRef.current;
+    if (!pane || !socket?.connected || !activeRef.current || !presentedRef.current || chatViewRef.current || modalOpen()
+        || observeRef.current || heldRef.current || endedRef.current || releasedRef.current || secretRef.current !== null
+        || composingRef.current || compositionCommitPendingRef.current) return;
+    // An explicit page action follows the program's own history when herdr has none.
+    // The live input lease refuses an unready pane and never queues this key for later.
+    socket.sendInput(pane, direction < 0 ? "\x1b[5~" : "\x1b[6~");
+  }, []);
+
   useLayoutEffect(() => {
     if (!controls || !active || !paneId) return;
     const current: PaneControls = {
@@ -2332,6 +2359,7 @@ export function PaneTerminal({
         <span className="terminal-font-size" ref={pinchBadgeRef} hidden aria-hidden="true" />
         {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
           pageScroll={chatView ? undefined : pageScroll}
+          onApplicationPage={sendApplicationPage}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
           interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}
         {presented && paneId !== null && chatView && (
