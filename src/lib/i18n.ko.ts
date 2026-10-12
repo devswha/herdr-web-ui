@@ -941,7 +941,6 @@ export const KO: Record<string, string> = {
   "New tab in {workspace}": "{workspace}에 새 탭",
   "Tab {n}": "탭 {n}",
   "Tab name (optional)": "탭 이름 (선택)",
-  "Uses the workspace's folder": "워크스페이스의 폴더를 그대로 씁니다",
   "Rename tab": "탭 이름 바꾸기",
   "Close tab": "탭 닫기",
   "Tab name": "탭 이름",

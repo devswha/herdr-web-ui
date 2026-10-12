@@ -1429,9 +1429,11 @@ try {
   worktreeWorkspaces.splice(worktreeWorkspaces.indexOf(worktree.workspace_id), 1);
   console.log("PASS a worktree row sits under its repository's row, and its menu deletes the checkout, asking twice for a dirty one");
 
-  // A second tab from the tab strip's +: the dialog is New tab, with the workspace's folder shown
-  // and not asked for; the new pane opens, the workspace stays one row, and a strip over the pane
-  // lists both tabs from then on. The header's More menu has New tab too, and opens the same dialog.
+  // A second tab from the tab strip's +: the dialog is New tab, with the same folder field,
+  // Browse and recent folders as New workspace, the field starting at the workspace's folder. A
+  // folder typed there is the new tab's alone: the first tab's pane keeps its own. The new pane
+  // opens, the workspace stays one row, and a strip over the pane lists both tabs from then on.
+  // The header's More menu has New tab too, and opens the same dialog.
   // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
   await until(() => painted.has(created.pane_id), "created pane paint");
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
@@ -1439,8 +1441,12 @@ try {
   await page.locator(".tab-strip-add").click();
   const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
   await tabDialog.waitFor();
-  assert.equal(await tabDialog.locator(".new-session-folder").textContent(), root, "the folder is the workspace's, shown");
-  assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 0, "the folder is not asked for");
+  const tabFolderField = tabDialog.locator("#new-session-cwd");
+  assert.equal(await tabFolderField.inputValue(), root, "the folder field starts at the workspace's folder");
+  assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 1, "the new tab can choose its own folder");
+  const tabFolder = join(root, "tab-folder");
+  mkdirSync(tabFolder);
+  await tabFolderField.fill(tabFolder);
   const tabNameField = tabDialog.getByLabel(/^Name/);
   await tabNameField.fill("second");
   // The command palette takes the keyboard above a dialog. Escape closes only the palette,
@@ -1456,6 +1462,9 @@ try {
   await tabDialog.getByRole("button", { name: "Start", exact: true }).click();
   const createdTab = await (await tabResponse).json() as WorkspaceCreated;
   assert.equal(createdTab.workspace_id, created.workspace_id, "the tab joins the workspace");
+  const paneFolder = async (paneId: string): Promise<string | null | undefined> => (await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.cwd;
+  await until(async () => await paneFolder(createdTab.pane_id) === tabFolder, "the new tab's pane opens in the chosen folder");
+  assert.equal(await paneFolder(created.pane_id), root, "the first tab's pane keeps its folder");
   await tabDialog.waitFor({ state: "hidden" });
   await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the new tab's pane is selected, and the row shows it");
   assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).count(), 0, "the workspace stays one row");
@@ -1478,6 +1487,19 @@ try {
   await runMoreItem(page, "New tab");
   await tabDialog.waitFor();
   assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
+  assert.equal(await tabDialog.locator("#new-session-cwd").inputValue(), root, "the pane in front, not the last tab's folder, seeds the field");
+  // a folder a tab was made in is remembered like a workspace's (temporary folders, which this
+  // run's are, are left out of the chips); the chips are the same ones New workspace has
+  const remembered = await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:recent-directories:local") ?? "[]") as string[]);
+  assert.ok(remembered.some((path) => path.replaceAll("\\", "/") === tabFolder.replaceAll("\\", "/")), "the tab's folder is among the recent folders");
+  await page.evaluate(() => localStorage.setItem("herdr-web-ui:recent-directories:local", JSON.stringify(["/herdr-web-ui-recent-probe/project"])));
+  await page.keyboard.press("Escape");
+  await tabDialog.waitFor({ state: "hidden" });
+  await runMoreItem(page, "New tab");
+  await tabDialog.waitFor();
+  await tabDialog.getByRole("group", { name: "Recent folders", exact: true }).getByRole("button", { name: /project$/ }).click();
+  assert.equal(await tabDialog.locator("#new-session-cwd").inputValue(), "/herdr-web-ui-recent-probe/project", "a recent folder fills the new tab's field");
+  console.log("PASS New tab starts in the workspace's folder, opens in the folder typed, keeps the first pane's, and offers recent folders");
   await page.keyboard.press("Escape");
   await tabDialog.waitFor({ state: "hidden" });
   // the PC's + is New workspace again, not a tab in the workspace the last dialog was for

@@ -896,7 +896,6 @@ export const TR: Record<string, string> = {
   "New tab in {workspace}": "{workspace} içinde yeni sekme",
   "Tab {n}": "Sekme {n}",
   "Tab name (optional)": "Sekme adı (isteğe bağlı)",
-  "Uses the workspace's folder": "Çalışma alanının klasörünü kullanır",
   "Rename tab": "Sekmeyi yeniden adlandır",
   "Close tab": "Sekmeyi kapat",
   "Tab name": "Sekme adı",

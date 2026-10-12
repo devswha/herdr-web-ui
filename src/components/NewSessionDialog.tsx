@@ -14,7 +14,7 @@ import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
 import { passingFolder, recentDirectories } from "../lib/recent-directories.ts";
 
-/** The dialog as New tab: the workspace the tab joins, whose folder it uses, and the number herdr will give it. */
+/** The dialog as New tab: the workspace the tab joins, the folder its field starts with, and the number herdr will give it. */
 export interface NewTabTarget {
   workspaceId: string;
   workspaceLabel: string;
@@ -62,7 +62,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const { createTab, createWorkspace, fetchAgentKinds } = useMachineApi();
   const [agents, setAgents] = useState<AgentKind[]>([]);
   const [agentKind, setAgentKind] = useState(rememberedAgent);
-  const [cwd, setCwd] = useState(defaultCwd ?? "");
+  const [cwd, setCwd] = useState((tab ? tab.cwd : defaultCwd) ?? "");
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,15 +74,16 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const firstFieldRef = useRef<HTMLButtonElement>(null);
   const surface = useFocusTrap<HTMLFormElement>(open, { initialFocus: firstFieldRef });
   useSheetSwipe(surface, pending ? null : onClose);
-  const defaultCwdRef = useRef(defaultCwd);
-  defaultCwdRef.current = defaultCwd;
+  // a tab starts in its own folder (a worktree's checkout, else the pane in front), not the selected pane's
+  const startCwdRef = useRef((tab ? tab.cwd : defaultCwd) ?? "");
+  startCwdRef.current = (tab ? tab.cwd : defaultCwd) ?? "";
   const prefillRef = useRef(prefill);
   prefillRef.current = prefill;
 
   useEffect(() => {
     if (!open) return;
     const filled = prefillRef.current;
-    setCwd(filled?.cwd ?? defaultCwdRef.current ?? "");
+    setCwd(filled?.cwd ?? startCwdRef.current);
     setName(filled?.name ?? "");
     setError(null);
     setPending(false);
@@ -140,9 +141,9 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
     try {
       rememberAgent(agentKind);
       const agent = agentKind ? { kind: agentKind } : null;
-      // a tab keeps the workspace's folder, which the dialog shows and does not ask for
+      // the folder applies to the new tab only: the workspace's other panes keep theirs
       const result = tab
-        ? await createTab({ workspace_id: tab.workspaceId, cwd: tab.cwd, label: name.trim() || null, agent })
+        ? await createTab({ workspace_id: tab.workspaceId, cwd: directory.trim() || null, label: name.trim() || null, agent })
         : await createWorkspace({ cwd: directory.trim() || null, label: name.trim() || null, agent });
       if (agentKind && !result.agent_started && result.error?.message) {
         setPending(false);
@@ -150,7 +151,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
         setCreatedPaneId(result.pane_id);
         return;
       }
-      if (!tab && (!agentKind || result.agent_started)) {
+      if (!agentKind || result.agent_started) {
         setRecentFolders(recentDirectories.remember(machineId, [directory.trim()], true));
       }
       // the dialog closes on this: left pending, its next opening would start a frame with the
@@ -182,30 +183,19 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
             <span className="field-label" id="new-session-agent">{t("Agent")}</span>
             <AgentPicker ref={firstFieldRef} agents={agents} value={agentKind} disabled={fieldsDisabled} labelledBy="new-session-agent" onChange={setAgentKind} />
           </div>
-          {tab ? (
-            <div className="field">
-              <span className="field-label">{t("Directory")}</span>
-              <div className="new-session-folder">
+          <div className="field">
+            <label className="field-label" htmlFor="new-session-cwd">{t("Directory")}</label>
+            <div className="new-session-cwd">
+              <input id="new-session-cwd" className="input" value={cwd} disabled={fieldsDisabled} autoComplete="off" onChange={(event) => setCwd(event.target.value)} />
+              <button type="button" className="btn" aria-expanded={browsing} disabled={fieldsDisabled} onClick={() => setBrowsing((open) => !open)}>
                 <FolderOpen aria-hidden="true" />
-                <span>{tab.cwd ?? tab.workspaceLabel}</span>
-              </div>
-              <span className="field-hint">{t("Uses the workspace's folder")}</span>
+                {t("Browse")}
+              </button>
             </div>
-          ) : (
-            <div className="field">
-              <label className="field-label" htmlFor="new-session-cwd">{t("Directory")}</label>
-              <div className="new-session-cwd">
-                <input id="new-session-cwd" className="input" value={cwd} disabled={fieldsDisabled} autoComplete="off" onChange={(event) => setCwd(event.target.value)} />
-                <button type="button" className="btn" aria-expanded={browsing} disabled={fieldsDisabled} onClick={() => setBrowsing((open) => !open)}>
-                  <FolderOpen aria-hidden="true" />
-                  {t("Browse")}
-                </button>
-              </div>
-              {browsing && <DirectoryBrowser start={cwd} onPick={(picked) => { setCwd(picked); setBrowsing(false); }} />}
-              <span className="field-hint">{t("absolute path or ~/…")}</span>
-            </div>
-          )}
-          {!tab && shownFolders.length > 0 && <div className="field new-session-recents">
+            {browsing && <DirectoryBrowser start={cwd} onPick={(picked) => { setCwd(picked); setBrowsing(false); }} />}
+            <span className="field-hint">{t("absolute path or ~/…")}</span>
+          </div>
+          {shownFolders.length > 0 && <div className="field new-session-recents">
             <span className="field-label" id="new-session-recents">{t("Recent folders")}</span>
             <RecentFolderChips folders={shownFolders} disabled={fieldsDisabled} labelledBy="new-session-recents" basename={directoryBasename}
               onPick={(path) => { setCwd(path); setBrowsing(false); }} />

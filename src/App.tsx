@@ -1247,7 +1247,7 @@ export function App() {
   }, [machines, selectTarget]);
 
   // a link to the New workspace dialog opens it once the PCs are in; one for a tab, once the
-  // linked workspace's pane is selected (its folder is the workspace's, as the tab strip's + does)
+  // linked workspace's pane is selected (its folder field starts as the tab strip's + does, unless the link names one)
   const [createTick, setCreateTick] = useState(0);
   useEffect(() => {
     const linked = pendingCreate.current;

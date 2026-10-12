@@ -943,7 +943,6 @@ export const JA: Record<string, string> = {
   "New tab in {workspace}": "{workspace} に新しいタブ",
   "Tab {n}": "タブ {n}",
   "Tab name (optional)": "タブ名 (任意)",
-  "Uses the workspace's folder": "ワークスペースのフォルダーをそのまま使います",
   "Rename tab": "タブの名前を変更",
   "Close tab": "タブを閉じる",
   "Tab name": "タブ名",
