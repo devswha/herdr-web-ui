@@ -26,6 +26,9 @@ interface Props {
 }
 
 /** UI over the attach stream. History belongs to herdr; xterm still has zero scrollback. */
+/** how long a page asked for on stale metrics waits for the read that tells history from a program's screen */
+const HELD_PAGE_MS = 1000;
+
 export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, onApplicationPage, viewportId, enabled, interactive, search, onError }: Props) {
   const t = useT();
   const api = useMachineApi();
@@ -59,6 +62,11 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
     let dirty = false;
     let version = 0;
     let outputVersion = 0;
+    // the output the current metrics were read after: a program leaving its alternate screen hands the
+    // history back, and until the next read says so its zero-history metrics must not turn a page into
+    // keys for the shell. A page asked for meanwhile waits for that read, briefly.
+    let metricsOutput = -1;
+    let heldPage: { direction: -1 | 1; at: number } | null = null;
     let data: PaneFindResponse | null = null;
     let lastKey = "";
     const showing = () => document.visibilityState !== "hidden" && !!terminal.element?.getClientRects().length
@@ -112,8 +120,15 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
         const metrics = found?.scroll ?? await api.fetchPaneScroll(paneId);
         if (!alive || revision !== version || cols !== terminal.cols || rows !== terminal.rows) return;
         setScroll((old) => validScroll(metrics) ? old && old.offset_from_bottom === metrics.offset_from_bottom && old.max_offset_from_bottom === metrics.max_offset_from_bottom && old.viewport_rows === metrics.viewport_rows ? old : metrics : null);
+        if (validScroll(metrics)) { scrollRef.current = metrics; metricsOutput = output; }
         data = output === outputVersion ? found : null;
         paint();
+        // a page held on stale metrics runs on the first read after the latest output, while it is recent
+        if (heldPage && output === outputVersion) {
+          const held = heldPage;
+          heldPage = null;
+          if (Date.now() - held.at < HELD_PAGE_MS) scrollPage(held.direction);
+        }
       } catch {
         if (alive && revision === version) { clearHits(); if (!query) setScroll(null); }
       } finally {
@@ -129,10 +144,11 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
       version++;
       clearHits();
       try {
+        const output = outputVersion;
         const request = viewportIntent.scroll(() => api.scrollPane(paneId, target));
         if (!request) return;
         const metrics = await request;
-        if (alive && validScroll(metrics)) { scrollRef.current = metrics; setScroll(metrics); }
+        if (alive && validScroll(metrics)) { scrollRef.current = metrics; metricsOutput = output; setScroll(metrics); }
       } catch (cause) {
         if (alive) {
           desired = null;
@@ -158,6 +174,9 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
       const metrics = scrollRef.current;
       if (!interactive || !alive || viewportIntent.isSearching() || !showing()) return;
       if (validScroll(metrics) && metrics.max_offset_from_bottom === 0) {
+        // keys for the program only on metrics read after its latest output: it may just have left
+        // its alternate screen, and the shell behind it has history to scroll instead
+        if (metricsOutput !== outputVersion) { heldPage = { direction, at: Date.now() }; dirty = true; schedule(0); return; }
         onApplicationPage?.(direction);
         return;
       }
@@ -184,7 +203,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
     document.addEventListener("visibilitychange", visibility);
     paint(); void read();
     return () => {
-      alive = false; desired = null; version++;
+      alive = false; desired = null; version++; heldPage = null;
       if (pageScroll?.current === scrollPage) pageScroll.current = null;
       previewRef.current = null;
       unregisterCancellation();
