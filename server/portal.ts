@@ -24,7 +24,7 @@ import type { PortalStatus } from "../shared/protocol.ts";
 import { errorResponse, isJsonObject, jsonResponse } from "./http.ts";
 import { chunksOf } from "./remote-bundle.ts";
 import { updateRequestAllowed } from "./update-api.ts";
-import { windowsProcessTable } from "./windows-processes.ts";
+import { windowsArgv, windowsProcessTable } from "./windows-processes.ts";
 
 /** the first release with `--strip-request-header` and an address tied to the identity */
 const PORTAL_VERSION = "v2.6.1";
@@ -32,6 +32,8 @@ const PORTAL_VERSION = "v2.6.1";
 const READY_TIMEOUT_MS = 60_000;
 /** Portal unregisters from the relay on SIGTERM; one still running after this is killed, within the 6 s the supervisor gives this server to stop */
 const STOP_GRACE_MS = 4_000;
+const PROCESS_POLL_MS = 100;
+const KILL_CONFIRM_MS = 1_000;
 const VERSION_TIMEOUT_MS = 2_500;
 /** the panel polls the status; `portal version` is a process each time */
 const VERSION_CACHE_MS = 5_000;
@@ -127,6 +129,112 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function processErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  return typeof error.code === "string" ? error.code : null;
+}
+
+function processPresence(pid: number): "alive" | "gone" | "unknown" {
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const end = stat.lastIndexOf(")");
+      // A zombie still has a PID but cannot be running or signaled.
+      if (end >= 0 && stat.slice(end + 1).trimStart().startsWith("Z")) return "gone";
+    } catch { /* process.kill below distinguishes a gone pid from an unreadable one */ }
+  }
+  try {
+    process.kill(pid, 0);
+    return "alive";
+  } catch (error) {
+    const code = processErrorCode(error);
+    if (code === "ESRCH") return "gone";
+    if (code === "EPERM") return "alive";
+    return "unknown";
+  }
+}
+
+function portalExecutable(value: string | undefined): boolean {
+  return /^(?:portal)(?:\.exe)?$/i.test(value?.split(/[\\/]/).at(-1) ?? "");
+}
+
+function scriptInterpreter(value: string | undefined): boolean {
+  return /^(?:sh|bash|dash|zsh|ksh|ash)(?:\.exe)?$/i.test(value?.split(/[\\/]/).at(-1) ?? "");
+}
+
+/** `ps` has no argv mode on every supported Unix, so parse its quoted command conservatively. */
+function splitCommandLine(command: string): string[] | null {
+  const args: string[] = [];
+  let arg = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  let started = false;
+  for (const char of command.trim()) {
+    if (escaped) {
+      arg += char;
+      escaped = false;
+      started = true;
+    } else if (char === "\\") {
+      escaped = true;
+      started = true;
+    } else if (quote !== null) {
+      if (char === quote) quote = null;
+      else arg += char;
+      started = true;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+      started = true;
+    } else if (/\s/.test(char)) {
+      if (started) {
+        args.push(arg);
+        arg = "";
+        started = false;
+      }
+    } else {
+      arg += char;
+      started = true;
+    }
+  }
+  if (quote !== null || escaped) return null;
+  if (started) args.push(arg);
+  return args.length > 0 ? args : null;
+}
+
+async function processArgv(pid: number, timeoutMs: number): Promise<string[] | null> {
+  try {
+    if (process.platform === "win32") {
+      const row = (await windowsProcessTable(timeoutMs)).find((entry) => entry.pid === pid);
+      if (row?.commandLine === null || row?.commandLine === undefined) return null;
+      const argv = windowsArgv(row.commandLine);
+      if (argv.length === 0) return null;
+      if (row.path !== null) argv[0] = row.path;
+      return argv;
+    }
+    if (process.platform === "linux") {
+      const text = readFileSync(`/proc/${pid}/cmdline`, "utf8");
+      const argv = text.split("\0");
+      if (argv.at(-1) === "") argv.pop();
+      return argv.length > 0 && argv[0] !== "" ? argv : null;
+    }
+    const ps = Bun.spawn(["ps", "-ww", "-o", "command=", "-p", String(pid)], {
+      stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: timeoutMs, killSignal: "SIGKILL",
+    });
+    const [code, text] = await Promise.all([ps.exited, new Response(ps.stdout as ReadableStream<Uint8Array>).text()]);
+    return code === 0 ? splitCommandLine(text) : null;
+  } catch { return null; }
+}
+
+function isPortalExpose(argv: readonly string[], identityPath: string): boolean {
+  const direct = portalExecutable(argv[0]) && argv[1] === "expose";
+  // A shebang script (including the shell stand-in used by tests) appears as interpreter, script, argv.
+  const script = scriptInterpreter(argv[0]) && portalExecutable(argv[1]) && argv[2] === "expose";
+  if (!direct && !script) return false;
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] === "--identity-path" && argv[i + 1] === identityPath) return true;
+  }
+  return false;
+}
+
 /** Portal's last warning or error, else its last line, for a failure that has no words of its own. */
 function lastWords(lines: readonly string[]): string {
   const line = [...lines].reverse().find((candidate) => /\b(WRN|ERR|FTL)\b/.test(candidate)) ?? lines.at(-1);
@@ -151,9 +259,16 @@ export class PortalService {
   private child: Child | null = null;
   /** a start between its request and its process, or the boot's cleanup: one at a time */
   private launching = false;
-  /** the child asked to end, once: its exit is no failure */
+  /** invalidates starts/resumes that are still waiting on a version, relay or old process */
+  private operation = 0;
+  /** shutdown is final for this server instance, even if a start has not spawned yet */
+  private shutdownRequested = false;
+  private cleanup: Promise<void> | null = null;
+  /** a child asked to end, once: its exit is no failure */
   private ending: Child | null = null;
   private versionRead: { at: number; bin: string | null; value: Promise<string | null> } | null = null;
+  /** the port this service represents; a service for another port must not change the owner's saved choice */
+  private serverPort: number | null = null;
   private readonly dir: string;
 
   constructor(private readonly options: PortalServiceOptions) {
@@ -198,34 +313,43 @@ export class PortalService {
    * comes back, so an app update does not take it down for good.
    */
   async resume(request: Omit<StartRequest, "relay">): Promise<void> {
+    if (this.shutdownRequested || this.child !== null || this.launching) return;
     const saved = this.saved();
     this.relay = saved.relay;
+    this.serverPort = request.port;
     // a server on another port shares this state directory: what runs is its own
     if (saved.port !== null && saved.port !== request.port) return;
+    const operation = ++this.operation;
     this.launching = true;
-    try { await this.stopLeftover(saved.pid); } finally { this.launching = false; }
+    try { await this.cleanLeftover(saved.pid); } finally { this.launching = false; }
+    if (this.shutdownRequested || this.operation !== operation) return;
     if (saved.enabled && saved.relay !== null && blockedBy(request) === null) this.start({ ...request, relay: saved.relay });
   }
 
-  start(request: StartRequest): "started" | "busy" | "token_required" | "serve_only" {
+  start(request: StartRequest): "started" | "busy" | "token_required" | "serve_only" | "state_in_use" {
     const blocked = blockedBy(request);
     if (blocked !== null) return blocked;
-    if (this.child !== null || this.launching) return "busy";
+    if (this.shutdownRequested || this.child !== null || this.launching) return "busy";
+    const saved = this.saved();
+    this.serverPort = request.port;
+    if (saved.port !== null && saved.port !== request.port) return "state_in_use";
     this.phase = "starting";
     this.relay = request.relay;
     this.url = null;
     this.error = null;
     this.lines = [];
     this.launching = true;
-    void this.launch(request)
+    const operation = ++this.operation;
+    void this.launch(request, operation)
       // a start stopped meanwhile failed for no one
-      .catch((error: unknown) => { if (this.phase === "starting") this.fail(messageOf(error)); })
+      .catch((error: unknown) => { if (this.isCurrentStart(operation)) this.fail(messageOf(error)); })
       .finally(() => { this.launching = false; });
     return "started";
   }
 
-  /** Takes the address down, then remembers that it is off. */
+  /** Takes this server's address down and remembers that it is off when this server owns the saved state. */
   stop(): void {
+    this.operation++;
     this.url = null;
     this.error = null;
     if (this.child !== null) {
@@ -235,18 +359,21 @@ export class PortalService {
       // a start still asking its relay ends there
       this.phase = "idle";
     }
-    this.save({ enabled: false });
+    const saved = this.saved();
+    if (saved.port === null || saved.port === this.serverPort) this.save({ enabled: false });
   }
 
   /** The server is going away: Portal goes with it, and the saved choice stays for the next server. Settles once Portal has exited. */
   shutdown(): Promise<void> {
+    this.shutdownRequested = true;
+    this.operation++;
     const child = this.child;
     if (child === null) {
       if (this.phase === "starting") this.phase = "idle";
-      return Promise.resolve();
+      return this.cleanup ?? Promise.resolve();
     }
     this.end(child);
-    return child.exited.then(() => undefined);
+    return Promise.all([child.exited, this.cleanup]).then(() => undefined);
   }
 
   private end(child: Child): void {
@@ -264,16 +391,23 @@ export class PortalService {
     if (this.child !== null) this.end(this.child);
   }
 
-  private async launch({ relay, port }: StartRequest): Promise<void> {
+  private isCurrentStart(operation: number): boolean {
+    return !this.shutdownRequested && this.operation === operation && this.phase === "starting";
+  }
+
+  private async launch({ relay, port }: StartRequest, operation: number): Promise<void> {
     const bin = this.bin();
     const version = bin === null ? null : await this.version(true);
+    if (!this.isCurrentStart(operation)) return;
     if (bin === null || version === null) throw new Error("Portal is not installed on this PC.");
     if (!atLeast(version, PORTAL_VERSION)) throw new Error(`This PC has Portal ${version}; the app needs ${PORTAL_VERSION} or later.`);
     await this.checkRelay(relay);
+    if (!this.isCurrentStart(operation)) return;
     // another server of this app on this identity: two Portals keep taking the address from each other
-    await this.stopLeftover(this.saved().pid);
-    // stopped meanwhile; from here to the spawn nothing waits, so a stop comes after it
-    if (this.phase !== "starting") return;
+    await this.cleanLeftover(this.saved().pid);
+    if (!this.isCurrentStart(operation)) return;
+    // Portal needs its identity parent before it starts; it contains the saved address.
+    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const child = Bun.spawn([
       bin, "expose",
       "--http-route", `/=${port}`,
@@ -345,7 +479,7 @@ export class PortalService {
   private async checkRelay(relay: string): Promise<void> {
     let body: unknown;
     try {
-      const response = await (this.options.fetch ?? fetch)(`${relay}/sdk/domain`, { signal: AbortSignal.timeout(RELAY_TIMEOUT_MS) });
+      const response = await (this.options.fetch ?? fetch)(`${relay}/sdk/domain`, { signal: AbortSignal.timeout(RELAY_TIMEOUT_MS), redirect: "error" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       body = await response.json();
     } catch (error) {
@@ -361,23 +495,67 @@ export class PortalService {
    * running, or one another server of this app runs. A pid outlives its process, so only the one
    * recorded here, and only while its command line is `portal expose` on this identity, is stopped.
    */
+  private async cleanLeftover(pid: number | null): Promise<void> {
+    const cleanup = this.stopLeftover(pid);
+    this.cleanup = cleanup;
+    try { await cleanup; } finally {
+      if (this.cleanup === cleanup) this.cleanup = null;
+    }
+  }
+
   private async stopLeftover(pid: number | null): Promise<void> {
     if (pid === null || pid === this.child?.pid) return;
-    let command: string | null = null;
-    try {
-      if (process.platform === "win32") {
-        command = (await windowsProcessTable()).find((row) => row.pid === pid)?.commandLine ?? null;
-      } else {
-        const ps = Bun.spawn(["ps", "-ww", "-o", "command=", "-p", String(pid)], { stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: VERSION_TIMEOUT_MS, killSignal: "SIGKILL" });
-        command = await new Response(ps.stdout as ReadableStream<Uint8Array>).text();
-      }
-    } catch { /* an unreadable process table tells nothing */ }
-    if (command === null || !command.includes(" expose ") || !command.includes(this.identityPath)) return;
-    try { process.kill(pid, "SIGTERM"); } catch { return; }
-    for (const until = Date.now() + (this.options.stopGraceMs ?? STOP_GRACE_MS); Date.now() < until; await Bun.sleep(100)) {
-      try { process.kill(pid, 0); } catch { return; }
+    // All inspection and termination fits inside the supervisor's six-second shutdown budget.
+    const deadline = Date.now() + STOP_GRACE_MS + KILL_CONFIRM_MS;
+    const argv = await this.identifyProcess(pid, deadline);
+    if (argv === null || !isPortalExpose(argv, this.identityPath)) return;
+    if (!this.signalLeftover(pid, "SIGTERM")) return;
+    const queryBudget = process.platform === "linux" ? 0 : VERSION_TIMEOUT_MS;
+    const graceDeadline = Math.min(Date.now() + (this.options.stopGraceMs ?? STOP_GRACE_MS), deadline - queryBudget - KILL_CONFIRM_MS);
+    while (Date.now() < graceDeadline) {
+      await Bun.sleep(Math.min(PROCESS_POLL_MS, graceDeadline - Date.now()));
+      if (this.processIsGone(pid)) return;
     }
-    try { process.kill(pid, "SIGKILL"); } catch { /* gone meanwhile */ }
+    // The pid may have been recycled while Portal was given its grace period.
+    const currentArgv = await this.identifyProcess(pid, deadline);
+    if (currentArgv === null || !isPortalExpose(currentArgv, this.identityPath)) return;
+    if (!this.signalLeftover(pid, "SIGKILL")) return;
+    const killDeadline = Math.min(Date.now() + KILL_CONFIRM_MS, deadline);
+    for (;;) {
+      if (this.processIsGone(pid)) return;
+      if (Date.now() >= killDeadline) throw new Error(`Portal process ${pid} did not exit after SIGKILL.`);
+      await Bun.sleep(Math.min(PROCESS_POLL_MS, killDeadline - Date.now()));
+    }
+  }
+
+  private processArgv(pid: number, timeoutMs: number): Promise<string[] | null> {
+    return processArgv(pid, timeoutMs);
+  }
+
+  private async identifyProcess(pid: number, deadline: number): Promise<string[] | null> {
+    if (this.processIsGone(pid)) return null;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(`Timed out inspecting recorded Portal process ${pid}.`);
+    const argv = await this.processArgv(pid, Math.min(VERSION_TIMEOUT_MS, remaining));
+    if (argv !== null) return argv;
+    if (this.processIsGone(pid)) return null;
+    throw new Error(`Could not verify the identity of recorded Portal process ${pid}.`);
+  }
+
+  private processIsGone(pid: number): boolean {
+    const presence = processPresence(pid);
+    if (presence === "unknown") throw new Error(`Could not determine whether recorded Portal process ${pid} is running.`);
+    return presence === "gone";
+  }
+
+  private signalLeftover(pid: number, signal: NodeJS.Signals): boolean {
+    try {
+      process.kill(pid, signal);
+      return true;
+    } catch (error) {
+      if (processErrorCode(error) === "ESRCH") return false;
+      throw new Error(`Could not send ${signal} to recorded Portal process ${pid} (${messageOf(error)}).`);
+    }
   }
 
   private saved(): SavedState {
@@ -433,5 +611,6 @@ export async function handlePortalRequest(request: Request, pathname: string, po
   if (started === "token_required") return fail("token_required", "Set HERDR_WEB_TOKEN and restart the app before you start Portal: anyone on the internet can open its address.", 409);
   if (started === "serve_only") return fail("serve_only", "Turn off HERDR_WEB_TAILSCALE_SERVE_ONLY and restart the app before you start Portal: it says tailscale serve is the only way in.", 409);
   if (started === "busy") return fail("portal_busy", "Portal is busy; try again once it is idle.", 409);
+  if (started === "state_in_use") return fail("portal_state_in_use", "Another server owns this Portal state directory. Give this server its own HERDR_WEB_STATE_DIR, or stop Portal from the server that owns this state before retrying.", 409);
   return reply({ accepted: true }, 202);
 }

@@ -1632,12 +1632,25 @@ export function createServer(
   waitTimer.unref?.();
   plans.start();
 
+  type PortalStartup = { ok: true } | { ok: false; error: unknown };
+  let settlePortalStartup!: (result: PortalStartup) => void;
+  let portalStartupResult: PortalStartup | undefined;
+  const portalStartup = new Promise<PortalStartup>((resolve) => {
+    settlePortalStartup = (result) => {
+      if (portalStartupResult !== undefined) return;
+      portalStartupResult = result;
+      resolve(result);
+    };
+  });
+
   const envPort = process.env["PORT"];
   const server = Bun.serve<SocketData>({
     port: options.port ?? (envPort ? Number(envPort) : DEFAULT_PORT),
     hostname,
 
     async fetch(request, bunServer) {
+      const startup = portalStartupResult ?? await portalStartup;
+      if (!startup.ok) return compressResponse(request, errorResponse(startup.error));
       // the route's answer, gzipped for a browser that takes it (server/compress.ts)
       return compressResponse(request, await (async (): Promise<Response | undefined> => {
       const url = new URL(request.url);
@@ -3233,10 +3246,22 @@ export function createServer(
     },
   });
 
+  if (options.portal) {
+    let resume: Promise<void>;
+    try {
+      resume = options.portal.resume({ port: server.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
+    } catch (error) {
+      resume = Promise.reject(error);
+    }
+    void resume.then(
+      () => settlePortalStartup({ ok: true }),
+      (error: unknown) => settlePortalStartup({ ok: false, error }),
+    );
+  } else {
+    settlePortalStartup({ ok: true });
+  }
+
   const registration = options.registerBridge ? registerBridge(server.port ?? 0, bridgeToken) : null;
-  // a Portal the last server left running stops, and an address left on comes back (an app
-  // update restarts the server)
-  void options.portal?.resume({ port: server.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
 
   // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
   const outputTimer = setInterval(() => {
@@ -3252,6 +3277,7 @@ export function createServer(
     alertsSettled: () => push.settled(),
     stop: () => {
       stopped = true;
+      settlePortalStartup({ ok: false, error: new Error("Server stopped before Portal startup cleanup completed") });
       conversations.stop();
       clearInterval(outputTimer);
       collector.stop();

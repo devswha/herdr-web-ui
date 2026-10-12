@@ -535,6 +535,50 @@ describe("phone access", () => {
 });
 
 describe("Portal API", () => {
+  it("does not serve requests until startup cleanup completes", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-portal-startup-gate-"));
+    let releaseCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    class DeferredPortal extends PortalService {
+      override resume(): Promise<void> { return cleanup; }
+    }
+    const server = createServer({ port: 0, stateDir: state, token: "", portal: new DeferredPortal({ stateDir: state }) });
+    try {
+      let resolved = false;
+      const request = fetch(`http://127.0.0.1:${server.port}/api/health?scope=bridge`).then((response) => {
+        resolved = true;
+        return response;
+      });
+      const deadline = Date.now() + 50;
+      while (!resolved && Date.now() < deadline) await Bun.sleep(5);
+      expect(resolved).toBe(false);
+      releaseCleanup();
+      const response = await request;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, bridge_protocol: expect.any(Number) });
+    } finally {
+      releaseCleanup();
+      server.stop();
+      rmSync(state, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when startup cleanup rejects", async () => {
+    const state = mkdtempSync(join(tmpdir(), "herdr-portal-startup-failure-"));
+    class FailedPortal extends PortalService {
+      override resume(): Promise<void> { return Promise.reject(new Error("Portal cleanup failed")); }
+    }
+    const server = createServer({ port: 0, stateDir: state, token: "", portal: new FailedPortal({ stateDir: state }) });
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/health?scope=bridge`);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({ error: { code: "internal_error" } });
+    } finally {
+      server.stop();
+      rmSync(state, { recursive: true, force: true });
+    }
+  });
+
   it("opens a public address only behind the token, and closes it again", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-portal-api-"));
     const standIn = join(state, "stand-in-portal");

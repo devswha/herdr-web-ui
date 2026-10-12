@@ -22,7 +22,7 @@ export function PortalPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [typed, setTyped] = useState<string | null>(null);
   if (!status?.supported) return null;
   const relay = typed ?? status.relay ?? "";
-  const on = status.phase === "starting" || status.phase === "running" || status.phase === "stopping";
+  const on = status.phase === "starting" || status.phase === "running" || status.phase === "stopping" || status.phase === "error";
   const progress = status.phase === "starting" ? t("Starting…") : status.phase === "stopping" ? t("Stopping…") : null;
   let control;
   if (on) {
