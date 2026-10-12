@@ -78,6 +78,9 @@ export interface TelemetrySettings {
   quickRepliesCustom: boolean;
   quickReplyCount: number;
   usageHiddenCount: number;
+  /** paging shortcuts (#811): lines kept between pages, and plain PageUp/PageDown while composing */
+  pageOverlapRows: number;
+  chatPageKeys: boolean;
 }
 
 /** The browser's full, non-sensitive snapshot. */
@@ -148,6 +151,8 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   quickRepliesCustom: booleanValue,
   quickReplyCount: integerBetween(0, 12),
   usageHiddenCount: integerBetween(0, 64),
+  pageOverlapRows: integerBetween(0, 100),
+  chatPageKeys: booleanValue,
 } satisfies Record<keyof TelemetrySettings, (value: unknown) => boolean>;
 
 const TELEMETRY_SETTINGS_KEYS = Object.keys(TELEMETRY_SETTINGS_VALIDATORS) as (keyof TelemetrySettings)[];

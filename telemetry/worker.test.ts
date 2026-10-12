@@ -60,6 +60,8 @@ const settings: TelemetrySettings = {
   quickRepliesCustom: true,
   quickReplyCount: 12,
   usageHiddenCount: 64,
+  pageOverlapRows: 1,
+  chatPageKeys: false,
 };
 const now = new Date("2026-10-08T13:45:00Z");
 
@@ -75,10 +77,23 @@ const post = (body: string, type = "application/json") =>
 const from = (request: Request, cf: unknown) => Object.assign(request, { cf });
 
 describe("telemetry receiver", () => {
+  test("refuses a field no sender has ever had, and still takes an older sender's changed_settings", async () => {
+    const { env, rows } = fakeDb();
+    const refused = await handle(from(post(JSON.stringify({ ...event, settings, email: "person@example.com" })), { country: "KR" }), env, now);
+    expect(refused.status).toBe(400);
+    expect(rows).toHaveLength(0);
+    const { settings: _current, ...legacy } = { ...event, settings } as Record<string, unknown>;
+    const accepted = await handle(from(post(JSON.stringify({ ...legacy, changed_settings: ["theme", "palette"] })), { country: "KR" }), env, now);
+    expect(accepted.status).toBe(204);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.values.at(-1)).toBeNull();
+    expect(JSON.stringify(rows)).not.toContain("changed_settings");
+  });
+
   test("stores a normalized complete settings snapshot, the event fields and the country, never the address", async () => {
     const { env, rows } = fakeDb();
     const unordered = Object.fromEntries(Object.entries(settings).reverse());
-    const body = { ...event, settings: unordered, email: "person@example.com" };
+    const body = { ...event, settings: unordered };
     expect(new TextEncoder().encode(JSON.stringify(body)).byteLength).toBeLessThan(8192);
     const response = await handle(from(post(JSON.stringify(body)), { country: "KR", city: "Seoul", postalCode: "04524", latitude: "37.5" }), env, now);
     expect(response.status).toBe(204);
@@ -86,7 +101,7 @@ describe("telemetry receiver", () => {
     expect(rows[0]!.query).toContain("INSERT OR IGNORE");
     expect(rows[0]!.values).toEqual(["2026-10-08", "update", event.install_id, "0.4.2", "0.4.1", "linux", "x64", "plugin", "KR", JSON.stringify(settings)]);
     expect(JSON.stringify(rows)).not.toContain("203.0.113.9");
-    expect(JSON.stringify(rows)).not.toMatch(/Seoul|04524|37\.5|person@example\.com/);
+    expect(JSON.stringify(rows)).not.toMatch(/Seoul|04524|37\.5/);
     expect(readEvent({ ...event, settings: unordered }, now)?.settings).toEqual(settings);
   });
 

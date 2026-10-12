@@ -46,9 +46,13 @@ export function requestCountry(request: Request): string | null {
 }
 
 /** the event as it is stored, or null when the body is not one */
+/** the fields an event has ever carried; `changed_settings` is what senders before 0.4.9 told and is not kept */
+const EVENT_KEYS = new Set(["event", "install_id", "version", "previous_version", "os", "arch", "install_method", "settings", "changed_settings"]);
+
 export function readEvent(body: unknown, now: Date): StoredEvent | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
   const value = body as Record<string, unknown>;
+  if (Object.keys(value).some((key) => !EVENT_KEYS.has(key))) return null;
   const { event, install_id, version, previous_version, os, arch, install_method } = value;
   if (typeof event !== "string" || !EVENTS.has(event)) return null;
   if (typeof install_id !== "string" || !UUID.test(install_id)) return null;

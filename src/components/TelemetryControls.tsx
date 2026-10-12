@@ -26,18 +26,25 @@ export function TelemetryNotice({ enabled, onOpen }: { enabled: boolean; onOpen:
   const settingsSnapshotRef = useRef(settingsSnapshot);
   settingsSnapshotRef.current = settingsSnapshot;
   const submittedSettingsSignature = useRef<string | null>(null);
+  // the server's word on the switch, the environment and the notice: the snapshot is told only where
+  // an event may go out, so an install that is off, blocked or has not seen the notice keeps its
+  // settings to itself. The first snapshot rides with the acknowledgement below.
+  const [status, setStatus] = useState<TelemetryStatus | null>(null);
+  const allowed = status !== null && status.enabled && !status.blocked_by_env && status.notice_seen;
   useEffect(() => {
-    if (!enabled || submittedSettingsSignature.current === settingsSignature) return;
+    if (!enabled || !allowed || submittedSettingsSignature.current === settingsSignature) return;
     submittedSettingsSignature.current = settingsSignature;
-    changeTelemetry({ settings: settingsSnapshot }).catch((error: unknown) => {
+    changeTelemetry({ settings: settingsSnapshot }).then(setStatus, (error: unknown) => {
       if (!(error instanceof ApiError && error.status === 404)) console.error("telemetry settings", error);
     });
-  }, [enabled, settingsSignature, settingsSnapshot]);
+  }, [enabled, allowed, settingsSignature, settingsSnapshot]);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    fetchTelemetry().then((status) => {
-      if (live && status && !status.notice_seen && status.enabled && !status.blocked_by_env) setShown(true);
+    fetchTelemetry().then((current) => {
+      if (!live || !current) return;
+      setStatus(current);
+      if (!current.notice_seen && current.enabled && !current.blocked_by_env) setShown(true);
     }, (error: unknown) => console.error("telemetry status", error));
     return () => { live = false; };
   }, [enabled]);
@@ -53,11 +60,13 @@ export function TelemetryNotice({ enabled, onOpen }: { enabled: boolean; onOpen:
     const record = () => {
       if (recorded || document.visibilityState !== "visible") return;
       recorded = true;
+      const snapshot = settingsSnapshotRef.current;
       changeTelemetry({
         notice_seen: true,
         notice_version: NOTICE_VERSION,
-        settings: settingsSnapshotRef.current,
-      }).catch((error: unknown) => console.error("telemetry notice", error));
+        settings: snapshot,
+      }).then((next) => { submittedSettingsSignature.current = JSON.stringify(snapshot); setStatus(next); },
+        (error: unknown) => console.error("telemetry notice", error));
     };
     const onVisibility = () => { if (document.visibilityState === "visible") afterPaint(); };
     afterPaint();
@@ -69,7 +78,7 @@ export function TelemetryNotice({ enabled, onOpen }: { enabled: boolean; onOpen:
     setTurningOff(true);
     setOffFailed(false);
     // the line stays until the server has the switch off, so a failure is seen and can be retried
-    changeTelemetry({ enabled: false }).then(() => setClosed(true), (error: unknown) => {
+    changeTelemetry({ enabled: false }).then((next) => { setStatus(next); setClosed(true); }, (error: unknown) => {
       console.error("telemetry off", error);
       setOffFailed(true);
     }).finally(() => setTurningOff(false));
@@ -108,6 +117,12 @@ export function TelemetryControls() {
         setStatus(null);
         return;
       }
+      // off, blocked or before the notice: the switch and the preview show the server's state, and the
+      // snapshot stays in the browser
+      if (!current.enabled || current.blocked_by_env || !current.notice_seen) {
+        setStatus(current);
+        return;
+      }
       return changeTelemetry({ settings: snapshot }).then((next) => {
         if (!live || request !== statusRequest.current) return;
         setStatus(next);
@@ -130,7 +145,8 @@ export function TelemetryControls() {
     const request = ++statusRequest.current;
     setSaving(true);
     setError(null);
-    changeTelemetry({ enabled }).then(
+    // turned on, the switch brings the snapshot the browser kept to itself while it was off
+    changeTelemetry(enabled ? { enabled, settings: settingsSnapshotRef.current } : { enabled }).then(
       (next) => { if (request === statusRequest.current) setStatus(next); },
       (failure: unknown) => { if (request === statusRequest.current) setError(failure instanceof Error ? failure.message : String(failure)); },
     ).finally(() => setSaving(false));

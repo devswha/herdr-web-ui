@@ -232,6 +232,8 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     quickRepliesCustom: differsFromDefault(settings.quickReplies, DEFAULT_SETTINGS.quickReplies),
     quickReplyCount: settings.quickReplies.length,
     usageHiddenCount: settings.usageHidden.length,
+    pageOverlapRows: settings.pageOverlapRows,
+    chatPageKeys: settings.chatPageKeys,
   };
 }
 

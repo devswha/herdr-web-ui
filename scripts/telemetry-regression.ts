@@ -117,6 +117,8 @@ export async function checkTelemetrySettings(browser: Browser): Promise<void> {
     await notice.waitFor({ state: "visible" });
     await until(async () => (await statusAt(origin)).notice_seen, "the visible notice is reacknowledged");
     assert.ok(changes.some((change) => change.notice_seen === true && change.notice_version === NOTICE_VERSION), "the browser acknowledges exactly the current notice version");
+    assert.equal(changes.findIndex((change) => change.settings !== undefined), changes.findIndex((change) => change.notice_seen === true),
+      "no settings snapshot leaves the browser before the notice is acknowledged; the first rides with the acknowledgement");
     await until(async () => {
       const settings = (await statusAt(origin)).next?.settings;
       return settings?.palette === "forest" && settings.terminalFontSize === 17;
@@ -169,8 +171,16 @@ export async function checkTelemetrySettings(browser: Browser): Promise<void> {
     fixtureNow += SEND_GRACE_MS + 1;
     await telemetry.report();
     assert.deepEqual(sent, [], "the grace period and fixture-only transport prevent outgoing telemetry");
+    // turned off, a page keeps its settings to itself: the status is read, nothing is told
+    const beforeReload = changes.length;
+    const statusRead = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/telemetry" && response.request().method() === "GET");
+    await page.reload();
+    await statusRead;
+    await page.locator(".conn-live").waitFor();
+    await page.waitForTimeout(500);
+    assert.equal(changes.slice(beforeReload).some((change) => change.settings !== undefined), false, "an opted-out install sends no settings snapshot to its server");
     assert.deepEqual(errors, []);
-    console.log("PASS telemetry settings: current notice reacknowledged, safe preview and snapshot update, opt-out stops pending delivery");
+    console.log("PASS telemetry settings: current notice reacknowledged, snapshot first with the acknowledgement, safe preview and snapshot update, opt-out stops pending delivery and later snapshots");
   } finally {
     await context?.close();
     telemetry?.stop();
