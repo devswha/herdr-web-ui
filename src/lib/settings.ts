@@ -72,10 +72,6 @@ export interface Settings {
   agentCards: boolean;
   /** Each agent row carries a star that keeps it on top of the Agents list. */
   agentPins: boolean;
-  /** A plan opens as a flow of boxes with a switch to its list; off, as the list alone. */
-  planFlow: boolean;
-  /** The header carries the selected pane's plan count, which opens the plan. */
-  planButton: boolean;
   /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
   quietOpenedDone: boolean;
   /** the chrome color family, keyed as data-palette in src/styles.css */
@@ -109,6 +105,8 @@ export interface Settings {
   chatWidth: ChatWidth;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
   enterSends: boolean;
+  /** true: a message sent while the agent works goes by itself when the turn ends; false: it waits for Send now */
+  autoSendQueued: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
   showThinking: boolean;
   /** request a screen wake lock while a pane is open in this visible tab */
@@ -134,6 +132,8 @@ export interface Settings {
   /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
   showUsage: boolean;
   usageCount: UsageCount;
+  /** the meters show each limit's pace: the mark of an even pace, the rate so far and when it runs out before its reset. Off: none of it. */
+  usagePace: boolean;
   usageGlance: UsageGlance;
   /** every pane's lens until switched in that pane; changing it puts every pane back on it */
   defaultView: DefaultView;
@@ -168,8 +168,6 @@ export const DEFAULT_SETTINGS: Settings = {
   agentOrder: "workspace",
   agentCards: false,
   agentPins: false,
-  planFlow: true,
-  planButton: true,
   quietOpenedDone: false,
   palette: "amber",
   terminalFontSize: 13,
@@ -184,6 +182,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatFontFamily: "",
   chatWidth: "default",
   enterSends: true,
+  autoSendQueued: true,
   showThinking: false,
   keepScreenOn: false,
   language: "system",
@@ -197,6 +196,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showSuggestionChip: true,
   showUsage: false,
   usageCount: "used",
+  usagePace: false,
   usageGlance: "week",
   defaultView: "auto",
   usageOrder: [],
@@ -326,8 +326,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     agentOrder: record["agentOrder"] === "workspace" || record["agentOrder"] === "activity" ? record["agentOrder"] : DEFAULT_SETTINGS.agentOrder,
     agentCards: record["agentCards"] === true,
     agentPins: record["agentPins"] === true,
-    planFlow: record["planFlow"] !== false,
-    planButton: record["planButton"] !== false,
     quietOpenedDone: record["quietOpenedDone"] === true,
     palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" || record["palette"] === "catppuccin" || record["palette"] === "lilac" || record["palette"] === "forest" ? record["palette"] : DEFAULT_SETTINGS.palette,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
@@ -348,6 +346,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
+    autoSendQueued: typeof record["autoSendQueued"] === "boolean" ? record["autoSendQueued"] : DEFAULT_SETTINGS.autoSendQueued,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,
     language: LANGUAGE_SETTINGS.includes(record["language"] as LanguageSetting) ? record["language"] as LanguageSetting : DEFAULT_SETTINGS.language,
@@ -364,6 +363,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     showSuggestionChip: typeof record["showSuggestionChip"] === "boolean" ? record["showSuggestionChip"] : DEFAULT_SETTINGS.showSuggestionChip,
     showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
     usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
+    usagePace: record["usagePace"] === true,
     usageGlance: record["usageGlance"] === "week" || record["usageGlance"] === "session" ? record["usageGlance"] : DEFAULT_SETTINGS.usageGlance,
     defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
     usageOrder: usageKeys(record["usageOrder"]),

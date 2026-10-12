@@ -14,6 +14,12 @@ bun run dev      # Vite on :5173, proxies /api and /ws
 
 ## Checks
 
+Production builds create Brotli (`.br`) and gzip (`.gz`) sidecars for JavaScript and CSS under
+`dist/assets/`. The static handler negotiates these with `Accept-Encoding` and sends
+`Vary: Accept-Encoding`; a client that excludes every available representation gets 406.
+Older builds without sidecars retain identity responses. The shell and service worker keep
+their revalidation policy, and user files and API responses are never compressed by this path.
+
 `bun run check` runs what CI runs, from the same script (`scripts/check.ts`):
 
 ```bash
@@ -96,6 +102,7 @@ bun scripts/settings-pages-demo-regression.ts # every Settings page on a 390px a
 bun scripts/chat-browser-qa.ts  # chat lens end to end
 bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
+bun scripts/recent-folders-regression.ts # owned workspaces: PC-scoped history, reload, three chips on one row that fill Directory, pending and failures
 bun run test:ssh                # remote-PC integration over SSH
 bun scripts/fresh-install-docker.ts [owner/repo] [ref]  # a new user's install in a bare Ubuntu (Docker)
 ```
