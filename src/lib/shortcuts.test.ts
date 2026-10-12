@@ -139,6 +139,8 @@ describe("isReservedShortcutKey", () => {
     expect(isReservedShortcutKey("q", true)).toBe(true);
     expect(isReservedShortcutKey("j", false)).toBe(true);
     expect(isReservedShortcutKey("o", false)).toBe(true);
+    expect(isReservedShortcutKey("PageUp", false)).toBe(true);
+    expect(isReservedShortcutKey("PageDown", false)).toBe(true);
     expect(isReservedShortcutKey("3", true)).toBe(true);
     expect(isReservedShortcutKey("4", true)).toBe(true);
     expect(isReservedShortcutKey("5", true)).toBe(true);
@@ -148,6 +150,7 @@ describe("isReservedShortcutKey", () => {
     expect(isReservedShortcutKey("k", false)).toBe(false);
     expect(isReservedShortcutKey("ArrowUp", true)).toBe(false);
     expect(isReservedShortcutKey("j", true)).toBe(false);
+    expect(isReservedShortcutKey("PageUp", true)).toBe(false);
     expect(isReservedShortcutKey("3", false)).toBe(false);
   });
 

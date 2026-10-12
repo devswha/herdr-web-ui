@@ -94,7 +94,8 @@ try {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await openSettingsPage(page, "Shortcuts");
     const overlap = page.getByRole("group", { name: "Page overlap", exact: true }).locator("output");
-    while (Number(await overlap.textContent()) !== rows) {
+    for (let clicks = 0; Number(await overlap.textContent()) !== rows; clicks++) {
+      assert.ok(clicks <= 100, `page overlap reaches ${rows}, showing ${await overlap.textContent()}`);
       await page.getByRole("button", { name: Number(await overlap.textContent()) < rows ? "Increase page overlap" : "Decrease page overlap", exact: true }).click();
     }
     await page.keyboard.press("ControlOrMeta+Shift+PageUp");
