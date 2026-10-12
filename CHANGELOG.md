@@ -11,7 +11,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - **Favorite agents.** A star beside the Agent picker of New workspace, New tab and the worktree
   dialog marks the agent it shows as a favorite; favorites come right after Shell, in the order the
   list already had. Starring never changes the chosen agent, and Shell has no star. Favorites are
-  shared by the browsers of one server, like the pinned agents.
+  shared by the browsers of one server, like the pinned agents. ([#892](https://github.com/devswha/herdr-web-ui/pull/892) by @willowite)
 - **Two tabs side by side** on a desktop, from different workspaces or PCs: drag a tab down out
   of its strip, or a sidebar row over the pane area, and drop it on the left or right half. A guide
   shows the two halves as soon as the drag starts and keeps its side steady at the centre; Escape
