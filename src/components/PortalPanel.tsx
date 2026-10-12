@@ -15,7 +15,7 @@ const PORTAL_INSTALL = "https://github.com/gosuda/portal-tunnel#quick-start";
  * user picks, run by the `portal` installed there. Any device that can type starts and stops it;
  * the server refuses without a token. Hidden where the server offers none.
  */
-export function PortalPanel() {
+export function PortalPanel({ readOnly = false }: { readOnly?: boolean }) {
   const t = useT();
   const { status, error, pending, busy, request } = usePortal();
   // what was typed; until then, the relay this PC used last
@@ -28,7 +28,7 @@ export function PortalPanel() {
   if (on) {
     control = (
       <SettingsRow label={t("Relay")} description={status.relay ?? undefined}>
-        <button type="button" className="btn" disabled={pending || status.phase === "stopping"} onClick={() => void request("stop")}>{t("Stop")}</button>
+        <button type="button" className="btn" disabled={readOnly || pending || status.phase === "stopping"} onClick={() => void request("stop")}>{t("Stop")}</button>
       </SettingsRow>
     );
   } else if (status.blocked !== null) {
@@ -46,8 +46,8 @@ export function PortalPanel() {
     control = (
       <SettingsRow label={t("Relay")} htmlFor="portal-relay" description={t("A relay you trust, from portal list: it holds the address's certificate, so one set up to intercept could read the traffic.")} wide>
         <form className="portal-start" onSubmit={(event) => { event.preventDefault(); void request("start", relay); }}>
-          <input id="portal-relay" className="input" inputMode="url" value={relay} placeholder="https://relay.example.com" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={busy} onChange={(event) => setTyped(event.currentTarget.value)} />
-          <button type="submit" className="btn btn-primary" disabled={busy || relay.trim() === ""}>{t("Start")}</button>
+          <input id="portal-relay" className="input" inputMode="url" value={relay} placeholder="https://relay.example.com" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={readOnly || busy} onChange={(event) => setTyped(event.currentTarget.value)} />
+          <button type="submit" className="btn btn-primary" disabled={readOnly || busy || relay.trim() === ""}>{t("Start")}</button>
         </form>
       </SettingsRow>
     );
