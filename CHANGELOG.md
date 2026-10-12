@@ -7,7 +7,18 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+### Changed
+- App, site and demo builds run Vite 8 on Bun rather than the first Node on PATH,
+  while type checking uses TypeScript 7. The terminal sidecar still supports Node 18,
+  and the client keeps its previous browser syntax targets.
+  ([#830](https://github.com/devswha/herdr-web-ui/pull/830) by @todor-a)
+- The browser client uses React 19.3, with native inert handling for offline
+  workspaces and nullable refs for the settings and tab controls.
+
 ### Added
+- File links with `:line[:column]` or `#Lline[-Lline]` open the source at the first
+  requested line, including Markdown reader tabs. Lines outside the bounded preview
+  are explained rather than silently opening at the top.
 - **Settings → Phone & devices → Portal** gives this PC a public HTTPS address through
   [Portal](https://github.com/gosuda/portal-tunnel), with no account and no domain of your own.
   With Portal v2.6.1 or later installed, **Start** runs it on a relay you enter, dropping any

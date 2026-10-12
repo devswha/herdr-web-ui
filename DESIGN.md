@@ -288,6 +288,10 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   be parsed for within 2 s, or whose Preview would draw over 60 000 elements, opens as its source
   with a notice; code a worker cannot highlight within 2 s stays plain with one, and code of over
   20 000 lines is one text without line numbers, with one too.
+  File links keep `:line[:column]` and `#Lline[-Lline]` references. A reference opens the source,
+  marks and centers its first line with `--accent-tint` and an `--accent` gutter number; columns
+  and range ends do not move the caret. Unseen or unnumbered lines get an explicit header notice,
+  never a misleading jump. Markdown reader tabs retain the requested line.
 - All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
 
 ## 4. Spacing & Layout

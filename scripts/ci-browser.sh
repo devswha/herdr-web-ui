@@ -77,6 +77,7 @@ run_script scripts/grok-chat-browser-qa.ts
 run_script scripts/agy-chat-browser-qa.ts
 run_script scripts/math-browser-qa.ts
 run_script scripts/file-viewer-regression.ts
+run_script scripts/pwa-update-browser-qa.ts
 run_script scripts/file-preview-text-browser-qa.ts
 run_script scripts/keyboard-viewport-regression.ts
 run_script scripts/file-viewer-mobile-regression.ts

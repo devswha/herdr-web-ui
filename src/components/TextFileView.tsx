@@ -22,20 +22,25 @@ export interface TextFileViewProps {
   lines: Lines;
   onOpen: (path: string) => void;
   /** set to the code `<pre>` while the code shows, for Copy to select when the clipboard is out of reach */
-  sourceRef: RefObject<HTMLPreElement>;
+  sourceRef: RefObject<HTMLPreElement | null>;
+  markedLine: number | null;
 }
 
 /** The text of a file: Markdown rendered, or its code with line numbers. */
-export function TextFileView({ path, blocks, lines, onOpen, sourceRef }: TextFileViewProps) {
+export function TextFileView({ path, blocks, lines, onOpen, sourceRef, markedLine }: TextFileViewProps) {
   const { settings } = useSettings();
   // the app hands a new onOpen on every render (each poll): read it from a ref, so the context
   // value changes only with the file, and the memoized Markdown and its links are left alone
   const onOpenRef = useRef(onOpen);
   useLayoutEffect(() => { onOpenRef.current = onOpen; });
   const openLink = useCallback((href: string) => onOpenRef.current(resolveFromDocument(path, href)), [path]);
+  // Colors arriving from the worker do not change geometry: scroll only on a target or view change.
+  useLayoutEffect(() => {
+    if (blocks === null && markedLine !== null) sourceRef.current?.querySelector(".hl-line.is-marked")?.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [path, blocks, markedLine, sourceRef]);
   return <div className="file-viewer-content">
     {blocks !== null
       ? <OpenFileContext.Provider value={openLink}><ParsedMarkdown className={MARKDOWN_CLASS[settings.markdownWidth]} blocks={blocks} /></OpenFileContext.Provider>
-      : <CodeLines ref={sourceRef} className="file-viewer-text" lines={lines} open={null} lineNumbers wrap={settings.wrapCode} />}
+      : <CodeLines ref={sourceRef} className="file-viewer-text" lines={lines} open={null} lineNumbers wrap={settings.wrapCode} markedLine={markedLine} />}
   </div>;
 }

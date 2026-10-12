@@ -1,6 +1,6 @@
 # src/
 
-React 18 + xterm.js browser client. The render-state machine, xterm lifecycle and mobile-keyboard handling live only here.
+React 19 + xterm.js browser client. The render-state machine, xterm lifecycle and mobile-keyboard handling live only here.
 
 ## ANTI-PATTERNS
 - Never persist the auth token client-side: the HttpOnly cookie is the only storage; no localStorage/sessionStorage anywhere.

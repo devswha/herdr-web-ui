@@ -559,6 +559,9 @@ export const KO: Record<string, string> = {
   "Empty task": "빈 할 일",
   "Too long to preview": "너무 길어 미리보기를 생략했습니다",
   "Too many lines to number": "줄이 너무 많아 줄 번호를 생략했습니다",
+  "Line {line} is past the part of this file shown here. Download it to read the rest.": "{line}번째 줄은 미리보기 범위를 벗어납니다. 나머지를 읽으려면 다운로드하세요.",
+  "This file has {count} lines; there is no line {line}.": "이 파일은 {count}줄이며 {line}번째 줄은 없습니다.",
+  "Files over {limit} lines are shown without line numbers, so line {line} is not marked.": "{limit}줄을 넘는 파일은 줄 번호 없이 표시되어 {line}번째 줄을 표시할 수 없습니다.",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "재연결 중… 메시지는 여기에 보관되고 대기열에 넣지 않습니다",

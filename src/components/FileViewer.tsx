@@ -15,7 +15,8 @@ import { LOCAL_MACHINE, paneStorageId } from "../../shared/machines.ts";
 import { useOpeningPaneLane } from "../lib/chatLane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { copyText, selectContents } from "../lib/clipboard.ts";
-import { pathParts } from "../lib/filePaths.ts";
+import { fileLineTarget, pathParts } from "../lib/filePaths.ts";
+import { lineRequest } from "../lib/sourcePreview.ts";
 import { languageForPath, LINE_ELEMENT_LIMIT } from "../lib/highlight.ts";
 import { useT } from "../lib/i18n.ts";
 import { MAX_INLINE_IMAGE_BYTES, markdownImagePreview } from "../lib/markdownImages.ts";
@@ -59,7 +60,7 @@ function useMarkdownPreview(text: string | null): Preview {
 }
 
 export interface FileViewerProps {
-  /** absolute, `~/…`, or relative to the pane's folder */
+  /** absolute, `~/…`, or relative to the pane's folder; optionally with a line reference */
   path: string;
   paneId: string | null;
   onClose: () => void;
@@ -77,7 +78,7 @@ export interface FileViewerProps {
  * it selects the source `<pre>` instead; in a Markdown Preview there is none, so `onShowSource`
  * switches to Code first and the viewer selects it once rendered.
  */
-function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourceRef: RefObject<HTMLPreElement>; onShowSource: () => void }) {
+function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourceRef: RefObject<HTMLPreElement | null>; onShowSource: () => void }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -112,6 +113,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const [directory, setDirectory] = useState<string | null>(null);
   // the path as given, until a choice among files of that name replaces it
   const [path, setPath] = useState(asked);
+  const target = useMemo(() => fileLineTarget(path), [path]);
   const [info, setInfo] = useState<FileInfo | null>(null);
   const [candidates, setCandidates] = useState<string[] | null>(null);
   // an HTML page shows as the page, or as its source when asked
@@ -123,9 +125,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // a kind, not a message: it is said in the language of the moment it shows
   const [error, setError] = useState<"missing" | "unreadable" | null>(null);
   const [loaded, setLoaded] = useState<FilePreviewText | null>(null);
-  // the mode is the user's choice for this path, else Preview: derived, so a new path never paints the old mode
+  // a line reference defaults to Code; otherwise Preview. A new path never paints the old choice.
   const [chosen, setChosen] = useState<{ path: string; mode: TextViewMode } | null>(null);
-  const mode = chosen?.path === path ? chosen.mode : "preview";
+  const mode = chosen?.path === path ? chosen.mode : target.line === null ? "preview" : "code";
   // the code <pre> while the code shows, which Copy selects when the clipboard is out of reach
   const sourceRef = useRef<HTMLPreElement>(null);
   // Copy failed in a Preview: select the source as soon as the Code view has rendered
@@ -144,13 +146,14 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
 
   useSheetSwipe(surface, page ? null : onClose);
   useEffect(() => setPath(asked), [asked]);
+  useEffect(() => setSource(target.line !== null), [path, target.line]);
 
   useEffect(() => {
     let cancelled = false;
     const abort = new AbortController();
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    setInfo(null); setCandidates(null); setError(null); setLoaded(null); setDirectory(null); setSource(false);
-    fetchFileInfo(path, paneId).then(async (next) => {
+    setInfo(null); setCandidates(null); setError(null); setLoaded(null); setDirectory(null);
+    fetchFileInfo(target.path, paneId).then(async (next) => {
       if (cancelled) return;
       if ("candidates" in next) { setCandidates(next.candidates); return; }
       setInfo(next);
@@ -165,9 +168,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     }).catch(async (reason: unknown) => {
       if (cancelled) return;
       // a folder is listed from the pane's folder, as a file is found from it
-      if (reason instanceof ApiError && reason.status === 404 && (!remote || /^(?:\/|~(?:\/|$)|[A-Za-z]:[\\/])/.test(path))) {
+      if (reason instanceof ApiError && reason.status === 404 && (!remote || /^(?:\/|~(?:\/|$)|[A-Za-z]:[\\/])/.test(target.path))) {
         try {
-          const listing = await fetchDirectories(path, false, true, paneId);
+          const listing = await fetchDirectories(target.path, false, true, paneId);
           if (!cancelled) setDirectory(listing.path);
           return;
         } catch { /* retain the file error when the target is not a readable directory */ }
@@ -176,7 +179,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       setError(reason instanceof ApiError && reason.status === 404 ? "missing" : "unreadable");
     });
     return () => { cancelled = true; clearTimeout(deadline); abort.abort(); };
-  }, [path, paneId, fetchFileInfo, fileUrl, fetchDirectories, remote]);
+  }, [target.path, paneId, fetchFileInfo, fileUrl, fetchDirectories, remote]);
 
   useEffect(() => {
     if (!keyboardActive || page) return;
@@ -189,7 +192,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   }, [onClose, keyboardActive, page]);
 
   // the file found (a bare name may have been found deeper in the folder), else as asked
-  const url = fileUrl(info?.path ?? path, paneId);
+  const url = fileUrl(info?.path ?? target.path, paneId);
   // drawn by its own script in a sandbox with no origin and no network (server/file-view.ts); a PC
   // whose bridge predates `render` answers with the source, which the frame shows as text
   const htmlPage = info !== null && info.kind === "text" && info.mime === "text/html";
@@ -199,7 +202,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     <button type="button" aria-pressed={source} onClick={() => setSource(true)}>{t("Source")}</button>
   </div>;
   const textFile = info?.kind === "text";
-  const language = languageForPath(info?.path ?? path);
+  const language = languageForPath(info?.path ?? target.path);
   // a Preview its parser gave up on (too slow, or failed) opens the source instead
   const preview = useMarkdownPreview(textFile && loaded !== null && mode === "preview" && hasPreview(language) ? loaded.text : null);
   const previewRefused = preview.status === "failed";
@@ -208,12 +211,23 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const codeShown = textFile && loaded !== null && view === "code" && (!htmlPage || source);
   // a file's code has no length limit (the load limit bounds it): only a worker that gave up leaves it plain
   const code = useHighlightedLines(codeShown ? loaded.text : "", codeShown ? language : null);
-  const shownPath = info?.path ?? path;
+  const shownPath = info?.path ?? target.path;
   const { stem, extension } = pathParts(info?.name ?? shownPath);
   const { folder } = pathParts(shownPath);
   // what holds for the whole file is said with its size, where it is seen first, not after a megabyte of text
   const cutShort = textFile && (!htmlPage || source) && loaded !== null && loaded.truncated;
+  const request = useMemo(() => codeShown ? lineRequest(target.line, loaded.text, loaded.truncated) : null, [codeShown, target.line, loaded]);
+  const requestNotice = (() => {
+    if (request === null) return null;
+    switch (request.kind) {
+      case "shown": return null;
+      case "past-preview": return t("Line {line} is past the part of this file shown here. Download it to read the rest.", { line: request.line });
+      case "past-end": return t("This file has {count} lines; there is no line {line}.", { count: request.lines, line: request.line });
+      case "unnumbered": return t("Files over {limit} lines are shown without line numbers, so line {line} is not marked.", { limit: LINE_ELEMENT_LIMIT, line: request.line });
+    }
+  })();
   const notes = [
+    requestNotice,
     cutShort && ((loaded.total ?? info.size) > TEXT_PREVIEW_BYTES
       ? t("Showing the first {shown} of {total}.", { shown: formatBytes(TEXT_PREVIEW_BYTES), total: formatBytes(loaded.total ?? info.size) })
       : t("Only part of this file is shown. Download it to read the rest.")),
@@ -226,7 +240,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const copyable = textFile && loaded !== null && !loaded.truncated;
   const markdown = info?.kind === "text" && /\.(?:md|markdown)$/i.test(info.name);
   // a page of just the document, not the app over it (FileReader)
-  const previewUrl = readerHref(machineId, shownPath);
+  const previewUrl = readerHref(machineId, shownPath + (target.line === null ? "" : `#L${target.line}`));
   // images of a markdown file load through the file endpoint, as the file itself does
   const imagePreview = useCallback((src: string) => markdownImagePreview(
     src, shownPath, (target) => fetchFileInfo(target, paneId), (target, download) => fileUrl(target, paneId, download),
@@ -235,8 +249,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     if (directory !== null) return <DirectoryBrowser key={directory} start={directory} onOpenFile={onOpen ?? setPath} />;
     if (error !== null) return <p className="file-viewer-note" role="alert">{error === "missing" ? t("No readable file at this path.") : t("The file could not be opened.")}</p>;
     if (candidates !== null) return <div className="file-viewer-choices">
-      <p className="file-viewer-note">Several files are named {path.split("/").pop()}:</p>
-      <ul>{candidates.map((candidate) => <li key={candidate}><button type="button" className="btn btn-ghost" onClick={() => setPath(candidate)}>{candidate}</button></li>)}</ul>
+      <p className="file-viewer-note">Several files are named {target.path.split("/").pop()}:</p>
+      <ul>{candidates.map((candidate) => <li key={candidate}><button type="button" className="btn btn-ghost" onClick={() => setPath(candidate + path.slice(target.path.length))}>{candidate}</button></li>)}</ul>
     </div>;
     if (info === null) return <p className="file-viewer-note">{t("Opening…")}</p>;
     switch (info.kind) {
@@ -267,7 +281,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
               <button type="button" className="btn btn-ghost" onClick={() => setChosen({ path, mode: "code" })}>{t("Show source")}</button>
             </div>
             : <p className="file-viewer-note" role="alert">{t("The file could not be opened.")}</p>}>
-            <MarkdownImageContext.Provider value={imagePreview}><TextFileView path={info.path} blocks={view === "markdown" && preview.status === "ready" ? preview.blocks : null} lines={code.lines} onOpen={onOpen ?? setPath} sourceRef={sourceRef} /></MarkdownImageContext.Provider>
+            <MarkdownImageContext.Provider value={imagePreview}><TextFileView path={info.path} blocks={view === "markdown" && preview.status === "ready" ? preview.blocks : null} lines={code.lines} onOpen={onOpen ?? setPath} sourceRef={sourceRef} markedLine={request?.kind === "shown" ? request.line : null} /></MarkdownImageContext.Provider>
           </RenderBoundary>}
         </>;
       default:

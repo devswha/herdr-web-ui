@@ -284,7 +284,7 @@ function ChatPage() {
   );
 }
 
-function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefObject<HTMLButtonElement>; onEditKeyBar: () => void }) {
+function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefObject<HTMLButtonElement | null>; onEditKeyBar: () => void }) {
   const { settings, update } = useSettings();
   const t = useT();
   return (

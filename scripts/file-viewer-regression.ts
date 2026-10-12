@@ -23,6 +23,7 @@ writeFileSync(transcript, [
   { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Show me the demo video." }] } },
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [guide](./docs/guide.md) or [big](./big.txt) or [big code](./big.ts) or [deep quotes](./deep.md) or [empty](./empty.txt) or [slow preview](./slow.md) or [long notes](./long.md) or [many lines](./lines.txt) or [long list](./list.md) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}\n\n\`\`\`ts\nconst answer = 42;\n\nexport { answer };\n\`\`\`` }] } },
   // a block the highlighter is quadratic on (a line of dashes in YAML): seconds on the page
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "References: [source column](./target.ts:60:8), [source range](./target.ts#L60-L65), [Markdown line](./docs/guide.md#L6), [past end](./notes.txt:999), [past preview](./big.ts:99999), [unnumbered line](./lines.txt:5)." }] } },
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Dashes:\n\n\`\`\`yaml\n${"-".repeat(90_000)}\n\`\`\`` }] } },
   // more lines than are drawn one element each (LINE_ELEMENT_LIMIT): 30 000 elements held the page
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Lines:\n\n\`\`\`\n${"x\n".repeat(30_000)}\`\`\`` }] } },
@@ -42,6 +43,8 @@ writeFileSync(standIn, "#!/bin/sh\nsleep 600\n");
 chmodSync(standIn, 0o755);
 copyFileSync(join(import.meta.dir, "fixtures", "file-preview.webm"), join(root, "preview.webm"));
 writeFileSync(join(root, "notes.txt"), "File preview history regression\n");
+const targetSource = Array.from({ length: 80 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join("\n") + "\n\n";
+writeFileSync(join(root, "target.ts"), targetSource);
 // in a subfolder, so a link is resolved from the file's folder (../notes.txt), not the pane's
 mkdirSync(join(root, "docs"));
 writeFileSync(join(root, "docs", "guide.md"), "# Guide\n\nSee [notes](../notes.txt).\n\n```ts\nconst x = 1;\n```\n");
@@ -533,6 +536,54 @@ try {
   await page.getByRole("button", { name: "Close file", exact: true }).click();
   await page.locator(".file-viewer").waitFor({ state: "hidden" });
 
+  for (const label of ["source column", "source range"]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    const target = page.getByRole("dialog", { name: "target.ts", exact: true });
+    const marked = target.locator(".file-viewer-text .hl-line.is-marked");
+    await marked.waitFor();
+    await sheetsSettled(page);
+    assert.equal(await marked.count(), 1);
+    assert.equal(await marked.getAttribute("data-line"), "60");
+    assert.equal(await marked.textContent(), "export const line60 = 60;");
+    assert.equal(await target.locator(".file-viewer-text code").textContent(), targetSource);
+    const visible = await marked.evaluate((line) => {
+      const body = line.closest(".file-viewer-body");
+      if (!body) return false;
+      const target = line.getBoundingClientRect(), viewport = body.getBoundingClientRect();
+      return target.top >= viewport.top && target.bottom <= viewport.bottom && body.scrollTop > 0;
+    });
+    assert.ok(visible, "requested first line is scrolled into the viewer");
+    await target.getByRole("button", { name: "Close file", exact: true }).click();
+    await target.waitFor({ state: "hidden" });
+  }
+  await page.getByRole("button", { name: "Markdown line", exact: true }).click();
+  const anchored = page.getByRole("dialog", { name: "guide.md", exact: true });
+  await anchored.locator(".hl-line.is-marked[data-line='6']").waitFor();
+  assert.equal(await anchored.getByRole("button", { name: "Show source", exact: true }).getAttribute("aria-pressed"), "true");
+  const popupOpened = page.waitForEvent("popup");
+  await anchored.getByRole("link", { name: "Open in a new tab", exact: true }).click();
+  const anchoredTab = await popupOpened;
+  await anchoredTab.locator(".file-reader .hl-line.is-marked[data-line='6']").waitFor();
+  assert.ok(new URL(anchoredTab.url()).searchParams.get("read")?.endsWith("guide.md#L6"));
+  await anchoredTab.close();
+  await anchored.getByRole("button", { name: "Show source", exact: true }).click();
+  await anchored.locator(".file-viewer-markdown").getByRole("heading", { name: "Guide", exact: true }).waitFor();
+  assert.equal(await anchored.locator(".hl-line.is-marked").count(), 0);
+  await anchored.getByRole("button", { name: "Close file", exact: true }).click();
+  await anchored.waitFor({ state: "hidden" });
+  for (const [label, name, line] of [["past end", "notes.txt", "999"], ["past preview", "big.ts", "99999"], ["unnumbered line", "lines.txt", "5"]] as const) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    const target = page.getByRole("dialog", { name, exact: true });
+    await target.locator(".file-viewer-text").waitFor();
+    const notice = target.locator(".file-viewer-notice");
+    await notice.waitFor();
+    assert.ok((await notice.getAttribute("title"))?.includes(line), "notice names the unavailable requested line");
+    assert.equal(await target.locator(".hl-line.is-marked").count(), 0, "no misleading jump");
+    await target.getByRole("button", { name: "Close file", exact: true }).click();
+    await target.waitFor({ state: "hidden" });
+  }
+  console.log("PASS Line references mark and scroll the first source line, survive Markdown reader tabs, and explain unavailable lines");
+
   // a quote nested 20 000 deep renders as a quote nested to the parser's limit, the rest its text
   await page.getByRole("button", { name: "deep quotes", exact: true }).click();
   const deep = page.getByRole("dialog", { name: "deep.md", exact: true });
@@ -639,6 +690,14 @@ try {
       await popup.goBack();
       await rendered.getByRole("heading", { name: "Markdown preview", exact: true }).waitFor();
       await popup.close();
+      await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}&file=${encodeURIComponent(join(root, "target.ts") + ":60:8")}`);
+      const marked = page.locator(".file-viewer-text .hl-line.is-marked");
+      await marked.waitFor();
+      await sheetsSettled(page);
+      await page.evaluate(() => document.fonts.ready.then(() => undefined));
+      assert.equal(await marked.getAttribute("data-line"), "60");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `source-line-${width}-${theme}.png`) });
       await context.close();
       console.log(`PASS Markdown inline/new tab/reload/raw/download: ${width}px ${theme}`);
     }

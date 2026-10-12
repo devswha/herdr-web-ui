@@ -424,6 +424,14 @@ try {
     const offlineAgent = offlinePage.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneB}"] .agent-select`);
     await offlineAgent.waitFor();
     assert.equal(await offlineAgent.isDisabled(), true, "a cached offline agent cannot select its pane");
+    const offlineWorkspace = offlinePage.locator('.machine-offline').first();
+    assert.equal(await offlineWorkspace.evaluate((element) => element.inert), true,
+      "offline workspace controls use native inert handling");
+    assert.equal(await offlineWorkspace.evaluate((element) => {
+      const button = element.querySelector<HTMLButtonElement>("button");
+      button?.focus();
+      return element.contains(document.activeElement);
+    }), false, "offline workspace controls cannot take keyboard focus");
     const selectionBefore = await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection"));
     await offlineAgent.dispatchEvent("click");
     assert.equal(await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection")), selectionBefore,

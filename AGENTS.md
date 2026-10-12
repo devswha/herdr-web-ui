@@ -1,6 +1,6 @@
 # herdr-web-ui
 
-Browser UI for the herdr terminal multiplexer: a React 18 + xterm.js client (`src/`) and a Bun.serve backend (`server/`) that bridges herdr's newline-JSON unix-socket API. `shared/` is the wire contract both sides import.
+Browser UI for the herdr terminal multiplexer: a React 19 + xterm.js client (`src/`) and a Bun.serve backend (`server/`) that bridges herdr's newline-JSON unix-socket API. `shared/` is the wire contract both sides import.
 
 ## Scope
 

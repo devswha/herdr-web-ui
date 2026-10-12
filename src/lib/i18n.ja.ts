@@ -561,6 +561,9 @@ export const JA: Record<string, string> = {
   "Empty task": "空のタスク",
   "Too long to preview": "長すぎるためプレビューを省略しました",
   "Too many lines to number": "行数が多すぎるため行番号を省略しました",
+  "Line {line} is past the part of this file shown here. Download it to read the rest.": "{line}行目はプレビューの範囲外です。続きを読むにはダウンロードしてください。",
+  "This file has {count} lines; there is no line {line}.": "このファイルは{count}行で、{line}行目はありません。",
+  "Files over {limit} lines are shown without line numbers, so line {line} is not marked.": "{limit}行を超えるファイルは行番号なしで表示されるため、{line}行目は強調されません。",
 
   // ---- composer ----
   "Reconnecting… message held here, never queued": "再接続しています… メッセージはここに保持され、キューには入りません",
