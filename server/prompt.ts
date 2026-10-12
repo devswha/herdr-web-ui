@@ -6,6 +6,7 @@ import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessi
 import { omoTranscriptForPane } from "./omo.ts";
 import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
+import { claudePlanFile } from "./claude-plan.ts";
 
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const SELECTED_RE = /^[❯›>]\s*/;
@@ -3252,6 +3253,15 @@ export interface PromptRequestOptions {
   serialize?: <T>(paneId: string, task: () => Promise<T>) => Promise<T>;
   /** Native Codex store, for the rollout behind a collapsed queue; defaults to CODEX_HOME */
   codexHome?: string;
+  /** a Claude pane's transcript, for the plan file behind a plan card */
+  claudeTranscript?: (paneId: string) => string | null;
+}
+
+/** A Claude plan card with the whole plan from Claude's plan file, as the screen shows only what fits the pane. */
+async function withPlanFile(prompt: InteractivePrompt | null, transcript: string | null | undefined): Promise<InteractivePrompt | null> {
+  if (!prompt || !transcript || parsedByPublicPrompt.get(prompt)?.responder !== "claude-plan") return prompt;
+  const plan = await claudePlanFile(transcript);
+  return plan ? { ...prompt, body: plan.text.slice(0, 12_000), plan_file: plan.path } : prompt;
 }
 
 export async function handlePromptRequest(request: Request, url: URL, options: PromptRequestOptions = {}): Promise<Response | null> {
@@ -3263,7 +3273,9 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       if (request.method !== "GET") return badRequest("method_not_allowed", "GET is required.");
       const paneId = url.searchParams.get("pane_id")?.trim();
       if (!paneId) return badRequest("missing_pane_id", "pane_id is required.");
-      const { agent, status, prompt } = await readPrompt(paneId, options.codexHome);
+      const read = await readPrompt(paneId, options.codexHome);
+      const { agent, status } = read;
+      const prompt = await withPlanFile(read.prompt, options.claudeTranscript?.(paneId));
       // no menu up: what Claude suggests typing next, for the composer's placeholder, and the chat's
       // own last message where Claude put it back into the box on a cancel. Only a nicety: it is read
       // only while Claude waits for the next prompt (a working agent shows none), and a failed or

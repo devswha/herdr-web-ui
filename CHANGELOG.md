@@ -54,6 +54,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#787](https://github.com/devswha/herdr-web-ui/pull/787) by @kilhyeonjun)
 
 ### Fixed
+- Claude's plan card shows the whole plan, not only the part that fits the pane: the text comes
+  from Claude's plan file (`<config dir>/plans/<slug>.md`), and **View plan** opens that file in the
+  file viewer as Markdown. A session without a plan file shows the screen's text, as before.
 - The file viewer draws the HTML a README is written with (a centered logo, a row of badges and
   links, `<details>`) as markdown instead of showing its tags as text: paragraphs and headings,
   centered where `align="center"` says so, links, images with their width, emphasis and line breaks.

@@ -2119,6 +2119,89 @@ describe("Claude's suggestion on a prompt poll", () => {
   }, 4_000);
 });
 
+describe("Claude's plan card on a prompt poll", () => {
+  const SCREEN = `
+Ready to code?
+
+Here is Claude's plan:
+4. The last step that fits the pane.
+
+Claude has written up a plan and is ready to execute. Would you like to proceed?
+
+❯ 1. Yes, auto-accept edits
+  2. Yes, manually approve edits
+  3. Tell Claude what to change
+     shift+tab to approve with this feedback
+`;
+
+  /** a herdr whose one Claude pane shows the plan dialog, and a Claude store with the session's plan file */
+  async function planHerdr(run: (transcript: string, planFile: string) => Promise<void>): Promise<void> {
+    const root = mkdtempSync(join(tmpdir(), "herdr-prompt-plan-"));
+    const path = join(root, "herdr.sock");
+    mkdirSync(join(root, "claude", "projects", "-work"), { recursive: true });
+    mkdirSync(join(root, "claude", "plans"), { recursive: true });
+    const transcript = join(root, "claude", "projects", "-work", "0b8e6f0e-8d3f-4c1a-9a53-6c2b7a1d9e42.jsonl");
+    const planFile = join(root, "claude", "plans", "mellow-purring-pike.md");
+    writeFileSync(transcript, `${JSON.stringify({ type: "user", slug: "mellow-purring-pike" })}\n`);
+    writeFileSync(planFile, "# Plan\n\n1. The first step, gone from the pane.\n4. The last step that fits the pane.\n");
+    const sockets = new Set<Socket>();
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.on("error", () => undefined);
+      let input = "";
+      socket.on("data", (chunk) => {
+        input += chunk.toString();
+        if (!input.includes("\n")) return;
+        const request = JSON.parse(input.split("\n")[0]!) as { id: string; method: string };
+        const answer = (result: unknown) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
+        if (request.method === "session.snapshot") {
+          return answer({ snapshot: { panes: [{ pane_id: "p_1", agent: "claude", agent_status: "blocked" }], layouts: [] } });
+        }
+        if (request.method !== "pane.read") throw new Error(`unexpected fixture RPC: ${request.method}`);
+        answer({ read: { text: SCREEN } });
+      });
+    });
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, resolve); });
+    const previous = process.env["HERDR_SOCKET"];
+    process.env["HERDR_SOCKET"] = path;
+    try { await run(transcript, planFile); } finally {
+      if (previous === undefined) delete process.env["HERDR_SOCKET"];
+      else process.env["HERDR_SOCKET"] = previous;
+      for (const socket of sockets) socket.destroy();
+      server.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  async function poll(claudeTranscript?: (paneId: string) => string | null): Promise<InteractivePrompt | null> {
+    const url = new URL("http://127.0.0.1/api/pane/prompt?pane_id=p_1");
+    const response = await handlePromptRequest(new Request(url), url, { claudeTranscript });
+    return ((await response!.json()) as { prompt: InteractivePrompt | null }).prompt;
+  }
+
+  test("takes the whole plan from Claude's plan file, with the same id", async () => {
+    await planHerdr(async (transcript, planFile) => {
+      const screen = await poll();
+      const filed = await poll((paneId) => paneId === "p_1" ? transcript : null);
+      expect(screen).toMatchObject({ kind: "plan" });
+      expect(screen?.plan_file).toBeUndefined();
+      expect(screen?.body).not.toContain("The first step");
+      expect(filed).toMatchObject({ kind: "plan", id: screen!.id, plan_file: planFile });
+      expect(filed?.body).toContain("1. The first step, gone from the pane.");
+    });
+  }, 4_000);
+
+  test("keeps the screen's text when the session has no plan file", async () => {
+    await planHerdr(async (transcript, planFile) => {
+      rmSync(planFile);
+      const prompt = await poll(() => transcript);
+      expect(prompt?.plan_file).toBeUndefined();
+      expect(prompt?.body).toContain("The last step that fits the pane.");
+    });
+  }, 4_000);
+});
+
 // Captured from pi 0.87.1 driving its own dialogs: the pane's footer stays under the dialog,
 // so the hint is near the end of the screen without being it.
 describe("pi's dialogs", () => {

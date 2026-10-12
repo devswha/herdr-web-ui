@@ -475,6 +475,7 @@ export const TR: Record<string, string> = {
   "Questions": "Sorular",
   "(answered)": "(yanıtlandı)",
   "Agent is asking": "Ajan soruyor",
+  "View plan": "Planı görüntüle",
   "input needed": "girdi gerekli",
   "Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed.": "Codex bu arada çalışmaya devam eder. Buradan yanıtlayın; soru, yanıtlanana veya kapatılana dek terminalin girdisini tutar.",
   "Codex keeps working meanwhile. Answer here; the message box still talks to Codex.": "Codex bu arada çalışmaya devam eder. Buradan yanıtlayın; mesaj kutusu hâlâ Codex ile konuşur.",
