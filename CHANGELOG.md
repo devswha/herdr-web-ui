@@ -21,6 +21,12 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   so a sidebar where nearly every agent is the same one is not a column of colored tiles. Color,
   today's look, stays the default. ([#850](https://github.com/devswha/herdr-web-ui/pull/850) by @phirschybar)
 
+### Changed
+- The sidebar's RUN mark is a working-colored dot that breathes, as T3 Code's does, instead of a
+  spinning arc that read as flicker beside the rows: it holds full most of a 2-second cycle and
+  dims to half in a few steps, and every running row breathes in step. BG is a still ring in the
+  same color, so the two read apart without motion; it breathes under reduced motion too.
+
 ## [0.4.8] - 2026-10-12
 
 ### Added

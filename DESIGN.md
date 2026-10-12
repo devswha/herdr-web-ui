@@ -495,10 +495,10 @@ One set for both themes: the card is island black wherever it shows.
 - The written label and unknown dashed edge keep color from being the only signal.
 - The sidebar's compact variant weights each state by how much it asks of the user. Waiting for
   an answer is the one filled glyph, a filled message circle in `--status-blocked`; finished and
-  not yet looked at is an 8px dot in `--status-done`, as an unread mark is; working is a stepped
-  spinning arc in `--text-dim`, since its motion already says it; BG is the same arc held still in
-  `--status-working`, since nothing about it moves until its work ends; ready and unknown draw
-  nothing. A pane herdr could not restore
+  not yet looked at is an 8px dot in `--status-done`, as an unread mark is; working is the same
+  dot in `--status-working` that breathes (`--dur-breathe`); BG is an 8px ring in
+  `--status-working` held still, since nothing about it moves until its work ends; ready and
+  unknown draw nothing. A pane herdr could not restore
   draws a warning triangle in `--status-blocked`. The element, its label and its tooltip are there
   for every state, and each drawn state has its own glyph as well as its color. Background tasks
   are a quiet count beside it (`.background-count`), not a badge.
@@ -644,7 +644,7 @@ One set for both themes: the card is island black wherever it shows.
   a tree hairline; a worktree whose repository workspace is not open stays at the top level.
 - Rows use only shared theme tokens in dark and light. Touch keeps row menus and folds visible,
   with `--touch-target` controls, and draws no hover fill; reduced motion removes row transitions
-  and the status spinner.
+  and keeps the working dot's breath (opacity only).
 - Footer holds the contextual **Install app** action and Settings with the plan meters beside it,
   as rows on the same grid with no rule above.
   It carries no product name or version: the running versions are read in Settings.
@@ -1301,7 +1301,8 @@ One set for both themes: the card is island black wherever it shows.
 | Micro | `--dur-fast` | `120ms` | Hover, active, toggle and control state |
 | Standard | `--dur-base` | `180ms` | Drawer slide; reserved dialog timing token |
 | Pulse | `--dur-pulse` | `1600ms` | Working and reconnecting dots (trough opacity 0.35; text never pulses) |
-| Spin | `--dur-spin` | `1600ms` | The sidebar's working arc: forty-eight steps over the turn (about 30 frames a second), under a pixel of travel each, where a coarser count reads as a stutter; the step count sets the frame rate, so this endless animation stays stepped |
+| Spin | `--dur-spin` | `1600ms` | One turn of a stepped spinner (the command palette's busy arc); the step count sets the frame rate |
+| Breathe | `--dur-breathe` | `2000ms` | The sidebar's working dot: full for 40% of the cycle, six steps down to opacity 0.5, held, six steps back; every dot shares the document clock's phase, so several runs breathe together. It replaced a spinning arc that read as flicker beside the rows |
 | Easing | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Finite transitions |
 | Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Endless working and reconnecting dots; avoids drawing every display refresh |
 | Spring easing | `--ease-spring` | `cubic-bezier(0.32, 0.72, 0, 1)` | Voice recording pill enter (180ms, scale 0.96->1 + opacity, from the mic button) and exit (120ms); a phone's sheet rising and springing back |
@@ -1319,8 +1320,8 @@ One set for both themes: the card is island black wherever it shows.
   a state change, not a dialog, so the snap rule above does not apply to it.
 - `prefers-reduced-motion: reduce` removes pulses, drawer/control transitions, sheet rise and drop,
   smooth chat scrolling and settings toggle motion; a drag still follows the finger. State remains legible without animation.
-  One exception: the sidebar's RUN arc stops turning and takes the stepped opacity `pulse` instead,
-  since a held-still arc is how BG reads; nothing moves.
+  One exception: the sidebar's RUN dot keeps its stepped breath, opacity only and nothing moving,
+  so a running agent does not look frozen.
 - Under reduced motion the voice pill swaps its bars for one level bar updated at 4 Hz and drops
   the ring and the morph; the **Recording** label and the timer stay.
 
