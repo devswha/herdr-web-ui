@@ -214,6 +214,10 @@ export const JA: Record<string, string> = {
   "Show a star beside each agent that keeps it at the top of the Agents list": "各エージェントの横に星を表示し、星を付けたエージェントを一覧の一番上に置きます",
   "Quiet opened finishes": "開いた完了の印を消す",
   "A finished agent you have opened here loses its dot, as herdr's own view would clear it; remembered per PC on this browser": "ここで開いた完了済みのエージェントは、herdr で見たときと同じように点が消えます。このブラウザーで PC ごとに記憶します",
+  "Agent logos": "エージェントのロゴ",
+  "Draw each agent's logo in its brand colors, or without color": "各エージェントのロゴをブランドの色、または色なしで表示します",
+  "Color": "カラー",
+  "Mono": "モノクロ",
   "Drag to reorder · Alt+↑/↓": "ドラッグで並べ替え · Alt+↑/↓",
   "Resize sidebar": "サイドバーの幅を変更",
   "Pane name": "ペイン名",
@@ -386,6 +390,9 @@ export const JA: Record<string, string> = {
   "No readable file at this path.": "このパスに読み取り可能なファイルはありません。",
   "The file could not be opened.": "ファイルを開けませんでした。",
   "Open {path}": "{path} を開く",
+  "Show the HTML file as": "HTML ファイルの表示",
+  "Page": "ページ",
+  "Source": "ソース",
 
   // ---- PC dialog ----
   "Update remote bridge": "リモートブリッジを更新",
