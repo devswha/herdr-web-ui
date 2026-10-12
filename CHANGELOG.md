@@ -8,6 +8,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Shared settings and pins.** The browsers of one server, a PC's and a phone's, keep the same
+  pinned agents and the same settings that do not depend on the device: theme and colors, language,
+  the sidebar's rows, order, cards and pins, chat and usage-meter choices. A
+  change shows on the other open pages at once. Each device keeps its own terminal and chat font
+  sizes, key bar, shortcuts, density, alerts, microphone, the lens panes open in and the like. Opening a page never
+  overwrites anything: a server that holds no shared settings yet takes them from the first change.
+  A watching device follows the shared settings and cannot change them for everyone.
 - **Settings → Composer → Send queued messages automatically** (on by default). Turned off, a
   message sent while the agent works waits under the message box until you press **Send now**,
   instead of going by itself when the turn ends. A PC whose bridge is older than this release

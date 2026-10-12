@@ -14,6 +14,7 @@ import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
 import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
+import { usePreferencesSync } from "./lib/preferencesSync.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
@@ -326,6 +327,9 @@ export function App() {
   const [pushOn, setPushOn] = useState(false);
   const pushOnRef = useRef(pushOn);
   pushOnRef.current = pushOn;
+  // the shared settings and pins, the same in every browser of this server, once the app is in
+  const receivePreferences = usePreferencesSync(locked === false);
+  const receivePreferencesRef = useRef(receivePreferences); receivePreferencesRef.current = receivePreferences;
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   // last-seen agent status per pane: the baseline that decides whether a push is news
@@ -467,6 +471,7 @@ export function App() {
         setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
         return;
       }
+      if (payload.type === "preferences") { receivePreferencesRef.current(payload.preferences); return; }
       const machine = machinesRef.current.find((m) => m.id === payload.machine_id);
       if (!machine) return;
       const message = payload.message;
