@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import type { ConversationPart, ConversationTurn } from "../shared/protocol.ts";
+import type { ConversationPart, ConversationTurn, ConversationResponse } from "../shared/protocol.ts";
 import { toolSummary } from "./transcript-records.ts";
 import { trimOutput } from "./tool-output.ts";
 
@@ -34,7 +34,7 @@ export function grokEvent(line: string, expectedSession?: string): GrokEvent | n
   return { update, session: params.sessionId, ts };
 }
 
-interface Prompt { index: number; start: number; end: number; answered: boolean; calls: Set<string> }
+interface Prompt { index: number; start: number; end: number; answered: boolean; calls: Set<string>; activity: NonNullable<ConversationResponse["activity"]> }
 interface Call { owner: Prompt; revision: number; digest: string }
 interface Index {
   identity: string; changed: string; size: number; scanned: number; revision: number;
@@ -68,7 +68,7 @@ function apply(index: Index, event: GrokEvent | null, start: number, end: number
       if (current.answered) throw new GrokUnavailable();
     } else {
       if (current && (number as number) <= current.index) throw new GrokUnavailable();
-      current = { index: number as number, start, end, answered: false, calls: new Set() };
+      current = { index: number as number, start, end, answered: false, calls: new Set(), activity: "working" };
       index.prompts.push(current);
     }
   }
@@ -87,6 +87,10 @@ function apply(index: Index, event: GrokEvent | null, start: number, end: number
     }
   }
   if (current) {
+    if (u?.sessionUpdate === "turn_completed") current.activity = "idle";
+    else if (u?.sessionUpdate === "agent_thought_chunk") current.activity = "thinking";
+    else if (u && ["agent_message_chunk", "tool_call"].includes(String(u.sessionUpdate))) current.activity = "working";
+    // Background tool updates after completion must not reopen a finished turn.
     // A retained prompt ends before a rewind marker, not at the following replacement.
     // Only physically adjacent records extend its segment.
     if (current.end === start || current.start === start) current.end = end;
@@ -97,15 +101,18 @@ function apply(index: Index, event: GrokEvent | null, start: number, end: number
 }
 
 export interface GrokProjection {
+  activity: NonNullable<ConversationResponse["activity"]>;
   segments: { start: number; end: number }[];
   promptStarts: number[];
   revision: string;
 }
 
 /** Scan complete records once in bounded chunks. An unfinished catch-up is unavailable,
- * never a partially validated history. The next poll continues the same scan. */
-export function grokProjection(path: string, size: number): GrokProjection {
-  const stat = statSync(path);
+ * never a partially validated history. The next poll continues the same scan. Size,
+ * identity and change all come from the caller's one stat, so an append between two
+ * stats cannot reset a finished scan. */
+export function grokProjection(path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): GrokProjection {
+  const { size } = stat;
   const identity = `${stat.dev}:${stat.ino}`;
   const changed = `${stat.mtimeMs}:${stat.ctimeMs}`;
   let index = indexes.get(path);
@@ -157,7 +164,7 @@ export function grokProjection(path: string, size: number): GrokProjection {
     else segments.push({ start: prompt.start, end: prompt.end });
     length += prompt.end - prompt.start;
   }
-  return { segments, promptStarts, revision: index.revision.toString(36) };
+  return { segments, promptStarts, revision: index.revision.toString(36), activity: index.prompts.at(-1)?.activity ?? "idle" };
 }
 
 function outputText(value: unknown): string {
@@ -258,7 +265,7 @@ export function parseGrokTranscript(text: string, path?: string, wholeCall?: str
 export function grokToolOutput(path: string, ref: string): string | null {
   if (!GROK_TOOL_REF.test(ref)) return null;
   try {
-    grokProjection(path, statSync(path).size);
+    grokProjection(path, statSync(path));
     const index = indexes.get(path)!;
     for (const [id, call] of index.calls) {
       if (outputRef(path, id) !== ref) continue;

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { forgetTranscriptState, HistoryChanged, transcriptPage } from "./conversation.ts";
-import { grokToolOutput, GrokUnavailable, parseGrokTranscript } from "./grok.ts";
+import { grokToolOutput, grokProjection, GrokUnavailable, parseGrokTranscript } from "./grok.ts";
 import { grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath } from "./grok-store.ts";
 import type { ConversationPart } from "../shared/protocol.ts";
 
@@ -27,6 +27,24 @@ const page = () => transcriptPage("grok-transcript", path);
 const lastTool = () => page().turns.flatMap((t) => t.parts).find((p): p is Tool => p.kind === "tool")!;
 
 describe("Grok native event adapter", () => {
+  test("native activity follows thoughts, tools, completion and rewind without pane status", () => {
+    const activity = () => grokProjection(path, statSync(path)).activity;
+    writeFileSync(path, user(0));
+    expect(activity()).toBe("working");
+    appendFileSync(path, event({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "fictional thought" } }));
+    expect(activity()).toBe("thinking");
+    expect(page().turns).toHaveLength(1);
+    appendFileSync(path, tool());
+    expect(activity()).toBe("working");
+    appendFileSync(path, event({ sessionUpdate: "turn_completed" }));
+    expect(activity()).toBe("idle");
+    appendFileSync(path, update("late background result"));
+    expect(activity()).toBe("idle");
+    appendFileSync(path, user(1));
+    expect(activity()).toBe("working");
+    appendFileSync(path, rewind(1));
+    expect(activity()).toBe("idle");
+  });
   test("replays an isolated native tool call and its two updates", () => {
     writeFileSync(path, readFileSync(new URL("./fixtures/grok/native-tool.jsonl", import.meta.url), "utf8"));
     const part = lastTool();

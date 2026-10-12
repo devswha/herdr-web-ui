@@ -63,6 +63,19 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     await page.keyboard.press("Escape");
     await strip.waitFor();
 
+    // the pace is a setting of its own, off until chosen: no warning in the strip, no red hairline on a low share, no mark or rate in the popover
+    assert.doesNotMatch(await strip.getAttribute("aria-label") ?? "", /Runs out/);
+    assert.equal(await page.locator(".usage-chip.is-fast").count(), 0);
+    await strip.click();
+    await page.getByRole("dialog", { name: "Subscription usage", exact: true }).locator(".usage-row").first().waitFor();
+    assert.equal(await page.locator(".usage-bar-pace, .usage-row-pace").count(), 0);
+    await page.keyboard.press("Escape");
+    await settingsButton.click();
+    await openSettingsPage(page, "Subscription usage");
+    await page.getByRole("switch", { name: "Show pace", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await page.locator(".usage-chip.is-fast").first().waitFor();
+
     // three chips and "+4" past four accounts, in the server's order, each its plan's week; one near its limit is red; two Codex accounts apart;
     // a week running out before its reset says when, and its hairline turns red while its share is still low
     assert.equal(await page.locator(".usage-chip").count(), 3);

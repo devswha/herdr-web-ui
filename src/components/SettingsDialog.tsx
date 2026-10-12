@@ -7,7 +7,7 @@ import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, isMacPlatform, shortcutDisplayKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
 import { isReservedShortcutKey } from "../lib/shortcutBindings.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, TERMINAL_CURSOR_STYLES, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, type DictationLanguage, type TerminalCursorStyle, type VoiceButton } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, TERMINAL_CURSOR_STYLES, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, type DictationLanguage, type TerminalCursorStyle, type VoiceButton } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
 import { KeyBarSettings } from "./KeyBarSettings.tsx";
@@ -32,6 +32,7 @@ import { PushTestControls } from "./PushTestControls.tsx";
 import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 import { TelemetryControls } from "./TelemetryControls.tsx";
+import { useSheetSwipe } from "../lib/sheets.ts";
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -173,8 +174,17 @@ function AppearancePage() {
       <SettingsRow label={t("Agents order")} description={t("Activity keeps a waiting agent on top, then the one that changed last; herdr's own order is not changed")} wide>
         <Segmented label={t("Agents order")} value={settings.agentOrder} onChange={(agentOrder) => update({ agentOrder })} options={[{ value: "workspace", label: t("Workspaces") }, { value: "activity", label: t("Activity") }]} />
       </SettingsRow>
+      <SettingsRow label={t("Workspace cards")} description={t("In the Workspaces order, put each workspace's agents in a card under the workspace's name")}>
+        <Toggle label={t("Workspace cards")} checked={settings.agentCards} onChange={(agentCards) => update({ agentCards })} />
+      </SettingsRow>
+      <SettingsRow label={t("Pin agents")} description={t("Show a star beside each agent that keeps it at the top of the Agents list")}>
+        <Toggle label={t("Pin agents")} checked={settings.agentPins} onChange={(agentPins) => update({ agentPins })} />
+      </SettingsRow>
       <SettingsRow label={t("Quiet opened finishes")} description={t("A finished agent you have opened here loses its dot, as herdr's own view would clear it; remembered per PC on this browser")}>
         <Toggle label={t("Quiet opened finishes")} checked={settings.quietOpenedDone} onChange={(quietOpenedDone) => update({ quietOpenedDone })} />
+      </SettingsRow>
+      <SettingsRow label={t("Agent logos")} description={t("Draw each agent's logo in its brand colors, or without color")} wide>
+        <Segmented label={t("Agent logos")} value={settings.agentMarks} onChange={(agentMarks) => update({ agentMarks })} options={[{ value: "color", label: t("Color") }, { value: "mono", label: t("Mono") }]} />
       </SettingsRow>
     </SettingsGroup>
   );
@@ -215,6 +225,9 @@ function ChatPage() {
         <SettingsRow label={t("Enter sends")} description={t("When off, Mod+Enter sends")}>
           <Toggle label={t("Enter sends")} checked={settings.enterSends} onChange={(enterSends) => update({ enterSends })} />
         </SettingsRow>
+        <SettingsRow label={t("Send queued messages automatically")} description={t("A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.")}>
+          <Toggle label={t("Send queued messages automatically")} checked={settings.autoSendQueued} onChange={(autoSendQueued) => update({ autoSendQueued })} />
+        </SettingsRow>
         <SettingsRow label={t("Suggestion chip")} description={t("On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.")}>
           <Toggle label={t("Suggestion chip")} checked={settings.showSuggestionChip} onChange={(showSuggestionChip) => update({ showSuggestionChip })} />
         </SettingsRow>
@@ -250,6 +263,16 @@ function ChatPage() {
           </div>
         </div>
       </SettingsGroup>
+
+      <SettingsGroup title={t("File viewer")}>
+        <SettingsRow label={t("Wrap long lines")}>
+          <Toggle label={t("Wrap long lines")} checked={settings.wrapCode} onChange={(wrapCode) => update({ wrapCode })} />
+        </SettingsRow>
+        <SettingsRow label={t("Markdown width")}>
+          {/* literal keys, so the i18n check finds them */}
+          <Segmented label={t("Markdown width")} value={settings.markdownWidth} onChange={(markdownWidth) => update({ markdownWidth })} options={MARKDOWN_WIDTHS.map((markdownWidth) => ({ value: markdownWidth, label: markdownWidth === "full" ? t("Full width") : t("Default") }))} />
+        </SettingsRow>
+      </SettingsGroup>
     </>
   );
 }
@@ -261,6 +284,9 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
     <SettingsGroup>
       <SettingsRow label={t("Terminal font size")} description={t("Applied to every terminal pane")}>
         <Stepper label={t("Terminal font size")} value={settings.terminalFontSize} text={`${settings.terminalFontSize}px`} min={TERMINAL_FONT_MIN} max={TERMINAL_FONT_MAX} decreaseLabel={t("Decrease terminal font size")} increaseLabel={t("Increase terminal font size")} onChange={(terminalFontSize) => update({ terminalFontSize })} />
+      </SettingsRow>
+      <SettingsRow label={t("Fit 80 columns in a split pane")} description={t("A split pane narrower than 80 columns draws in a smaller font, down to 10px, so a program that needs 80 columns still fits. Turn it off to keep your font size in every pane.")}>
+        <Toggle label={t("Fit 80 columns in a split pane")} checked={settings.narrowPaneFont} onChange={(narrowPaneFont) => update({ narrowPaneFont })} />
       </SettingsRow>
       <SettingsRow label={t("Terminal font")} description={t("Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
         <FontFamilyInput value={settings.terminalFontFamily} label={t("Terminal font")} onCommit={(terminalFontFamily) => update({ terminalFontFamily })} />
@@ -496,6 +522,9 @@ function UsagePage() {
           </SettingsRow>
           <SettingsRow label={t("Limit shown")} description={t("The limit each chip shows. Session is the short one, 5 hours on Claude and Codex. A plan without the chosen limit shows the one closest to running out.")} wide>
             <Segmented label={t("Limit shown")} value={settings.usageGlance} onChange={(usageGlance) => update({ usageGlance })} options={[{ value: "week", label: t("Weekly") }, { value: "session", label: t("Session") }]} />
+          </SettingsRow>
+          <SettingsRow label={t("Show pace")} description={t("On each limit, a mark where an even pace would be by now, the rate so far, and a warning when it runs out before its reset. Claude, Codex and Grok only.")}>
+            <Toggle label={t("Show pace")} checked={settings.usagePace} onChange={(usagePace) => update({ usagePace })} />
           </SettingsRow>
         </>}
       </SettingsGroup>
@@ -751,6 +780,7 @@ function OpenSettingsDialog({ section = null, linkPage = null, linkSection = nul
   const settingsScrollRef = useRef(0);
   // Tab stays inside the dialog, and the focus returns to whatever opened it
   const surface = useFocusTrap<HTMLElement>(true, { initialFocus: backRef });
+  useSheetSwipe(surface, onClose);
   const shown = useRef<{ page: SettingsPage | null; keyBar: boolean } | null>(null);
   const label = (id: SettingsPage): string => t(id === "appearance" ? "Appearance" : id === "chat" ? "Chat" : id === "terminal" ? "Terminal" : id === "alerts" ? "Alerts" : id === "voice" ? "Voice input"
     : id === "usage" ? "Subscription usage" : id === "shortcuts" ? "Shortcuts" : id === "devices" ? "Phone & devices" : id === "remote" ? "Remote PCs" : id === "integrations" ? "Agent integrations" : "About");

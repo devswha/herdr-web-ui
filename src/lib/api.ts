@@ -1,3 +1,4 @@
+import type { PreferencesChange, SharedPreferences } from "../../shared/preferences.ts";
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
@@ -23,6 +24,7 @@ import type {
   PaneMoved,
   PaneDirection,
   PaneInfo,
+  PanePlan,
   PaneReadResult,
   PaneResized,
   PaneSplit,
@@ -30,6 +32,7 @@ import type {
   PaneZoomed,
   PaneFindRequest,
   PaneFindResponse,
+  PlanStep,
   PromptAnswer,
   PushKey,
   RemoteAccess,
@@ -56,7 +59,7 @@ import type {
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import { readInstalledNotes, readUpdateNotes, type HerdrUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { TelemetryStatus } from "../../shared/telemetry.ts";
+import type { ReportedSetting, TelemetryStatus } from "../../shared/telemetry.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
@@ -104,12 +107,25 @@ export async function requestHerdrUpdate(): Promise<void> {
 }
 
 /** Anonymous install and update counts; null from a server that sends none (404). */
+/** What every browser of this server shares (shared/preferences.ts); null where the server predates it. */
+export async function fetchPreferences(): Promise<SharedPreferences | null> {
+  try { return await getJson<SharedPreferences>("/api/preferences"); }
+  catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error; }
+}
+
+export async function savePreferences(body: PreferencesChange): Promise<SharedPreferences> {
+  const url = "/api/preferences";
+  const response = await fetch(url, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!response.ok) throw await errorFrom(url, response);
+  return (await response.json()) as SharedPreferences;
+}
+
 export async function fetchTelemetry(): Promise<TelemetryStatus | null> {
   try { return await getJson<TelemetryStatus>("/api/telemetry"); }
   catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error; }
 }
 
-export async function changeTelemetry(change: { enabled?: boolean; notice_seen?: true }): Promise<TelemetryStatus> {
+export async function changeTelemetry(change: { enabled?: boolean; notice_seen?: true; changed_settings?: ReportedSetting[] }): Promise<TelemetryStatus> {
   const url = "/api/telemetry";
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify(change) });
   if (!response.ok) throw await errorFrom(url, response);
@@ -630,6 +646,12 @@ export async function fetchPaneOmoActivity(paneId: string, machineId = "local"):
   const activity = await getJson<Partial<OmoActivity>>(machinePath(machineId, `pane/omo-tasks?pane_id=${encodeURIComponent(paneId)}`));
   // a bridge from before workflows answers tasks only
   return { tasks: activity.tasks ?? [], runs: activity.runs ?? [], serverTime: activity.server_time ?? null };
+}
+
+/** GET /api/pane/plan: the plan the pane's Claude Code or Codex session keeps, and that PC's clock. */
+export async function fetchPanePlan(paneId: string, machineId = "local"): Promise<{ steps: PlanStep[] | null; serverTime: string | null }> {
+  const answer = await getJson<Partial<PanePlan>>(machinePath(machineId, `pane/plan?pane_id=${encodeURIComponent(paneId)}`));
+  return { steps: answer.plan?.steps ?? null, serverTime: answer.server_time ?? null };
 }
 
 /** GET /api/pane/files: paths under the pane's cwd matching `query`, for @-mentions. */

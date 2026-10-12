@@ -4,13 +4,21 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
-import { alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
+import { SHARED_SETTING_KEYS } from "../../shared/preferences.ts";
+import { SETTING_SCOPE, changedSettings, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
 
 it("keeps a tab's pane while out of use until this device turns the pause on", () => {
   expect(DEFAULT_SETTINGS.releasePaneAway).toBe(false);
   expect(sanitizeSettings({}).releasePaneAway).toBe(false);
   expect(sanitizeSettings({ releasePaneAway: true }).releasePaneAway).toBe(true);
   expect(sanitizeSettings({ releasePaneAway: "true" }).releasePaneAway).toBe(false);
+});
+
+it("shrinks a narrow split pane's font until this device turns it off", () => {
+  expect(DEFAULT_SETTINGS.narrowPaneFont).toBe(true);
+  expect(sanitizeSettings({}).narrowPaneFont).toBe(true);
+  expect(sanitizeSettings({ narrowPaneFont: false }).narrowPaneFont).toBe(false);
+  expect(sanitizeSettings({ narrowPaneFont: "false" }).narrowPaneFont).toBe(true);
 });
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
@@ -46,6 +54,40 @@ it("keeps sidebar rows on two lines unless one line was chosen", () => {
   for (const sidebarRows of [null, true, "three", 2]) {
     expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("two");
   }
+});
+
+it("draws workspace cards in the Agents list only when they were turned on", () => {
+  expect(DEFAULT_SETTINGS.agentCards).toBe(false);
+  expect(sanitizeSettings({}).agentCards).toBe(false);
+  expect(sanitizeSettings({ agentCards: true }).agentCards).toBe(true);
+  for (const agentCards of [null, "true", 1]) {
+    expect(sanitizeSettings({ agentCards }).agentCards).toBe(false);
+  }
+});
+
+it("shows the Agents list's pin stars only when they were turned on", () => {
+  expect(DEFAULT_SETTINGS.agentPins).toBe(false);
+  expect(sanitizeSettings({}).agentPins).toBe(false);
+  expect(sanitizeSettings({ agentPins: true }).agentPins).toBe(true);
+  for (const agentPins of [null, "true", 1]) {
+    expect(sanitizeSettings({ agentPins }).agentPins).toBe(false);
+  }
+});
+
+it("draws agent logos in their brand colors unless Mono was chosen", () => {
+  expect(DEFAULT_SETTINGS.agentMarks).toBe("color");
+  expect(sanitizeSettings({}).agentMarks).toBe("color");
+  expect(sanitizeSettings({ agentMarks: "mono" }).agentMarks).toBe("mono");
+  for (const agentMarks of [null, "Mono", "off", 1]) {
+    expect(sanitizeSettings({ agentMarks }).agentMarks).toBe("color");
+  }
+});
+
+it("names the appearance settings changed from their defaults, and no other setting", () => {
+  expect(changedSettings(DEFAULT_SETTINGS)).toEqual([]);
+  expect(changedSettings({ ...DEFAULT_SETTINGS, agentPins: true, theme: "light", agentCards: true })).toEqual(["theme", "agentCards", "agentPins"]);
+  // a setting the user types, or one outside the list, is never named
+  expect(changedSettings({ ...DEFAULT_SETTINGS, terminalFontFamily: "D2Coding", terminalFontSize: 16, quietOpenedDone: true })).toEqual([]);
 });
 
 describe("clipboard from a pane", () => {
@@ -115,14 +157,19 @@ describe("chat width", () => {
     expect(step("narrow")).toBe("var(--content-w)");
     expect(step("wide")).toBe("72rem");
     expect(step("full")).toBe("100%");
-    // the default step has no rule here: PaneTerminal writes its pane's lane on .terminal-stack
+    // the default step has no rule here: PaneTerminal writes its pane's lane on .terminal-stack, and a
+    // file viewer, outside every pane, the lane of the pane that opened it on itself (lib/chatLane.ts)
     expect(step("default")).toBeUndefined();
     // a percentage in the token would resolve against each column's own box; Full is the one
     // step that means exactly that
     expect([...tokens.matchAll(/--chat-w: ([^;]+);/g)].map((match) => match[1]).filter((value) => value?.includes("%"))).toEqual(["100%"]);
-    expect(css("components/PaneTerminal.tsx")).toContain(`setProperty("--chat-w", chatLaneLength(`);
+    // one rule for both, so a change to it cannot miss the viewer
+    expect(css("lib/chatLane.ts")).toContain(`setProperty("--chat-w", chatLaneLength(`);
+    expect(css("components/PaneTerminal.tsx")).toContain("usePaneLane(stackRef)");
+    expect(css("components/FileViewer.tsx")).toContain("useOpeningPaneLane(");
+    for (const name of ["components/PaneTerminal.tsx", "components/FileViewer.tsx"]) expect(css(name)).not.toContain("chatLaneLength(");
     // the root font size is not read in JS: the ceiling is 60rem in the length itself
-    expect(css("components/PaneTerminal.tsx")).not.toContain("chatLaneWidth(");
+    expect(css("lib/chatLane.ts")).not.toContain("chatLaneWidth(");
     // Settings and New workspace stay on --content-w. That the chat columns share the lane is
     // measured in the browser (scripts/ui-regression.ts), not read from the stylesheets
     for (const file of ["components/SettingsDialog.css", "components/NewSessionDialog.css"]) {
@@ -371,6 +418,10 @@ describe("quick replies row", () => {
     expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
     expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
     expect(DEFAULT_SETTINGS.usageCount).toBe("used");
+    // the pace is shown only once chosen
+    expect(DEFAULT_SETTINGS.usagePace).toBe(false);
+    expect(sanitizeSettings({ usagePace: true }).usagePace).toBe(true);
+    expect(sanitizeSettings({ usagePace: "yes" }).usagePace).toBe(false);
     expect(sanitizeSettings({ usageCount: "left" }).usageCount).toBe("left");
     expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("used");
     expect(DEFAULT_SETTINGS.usageGlance).toBe("week");
@@ -540,6 +591,17 @@ it("highlights code unless turned off, and keeps a stored choice only when it is
   expect(sanitizeSettings({}).highlightCode).toBe(true);
 });
 
+it("keeps the file viewer's wrap setting only when it is a boolean", () => {
+  expect(DEFAULT_SETTINGS.wrapCode).toBe(false);
+  expect(sanitizeSettings({ wrapCode: true }).wrapCode).toBe(true);
+  expect(sanitizeSettings({ wrapCode: "yes" }).wrapCode).toBe(false);
+});
+
+it("keeps the Markdown preview's width to readable or full, readable by default", () => {
+  expect(DEFAULT_SETTINGS.markdownWidth).toBe("readable");
+  for (const width of MARKDOWN_WIDTHS) expect(sanitizeSettings({ markdownWidth: width }).markdownWidth).toBe(width);
+  for (const bad of ["narrow", "medium", "wide", "", null, 80]) expect(sanitizeSettings({ markdownWidth: bad }).markdownWidth).toBe("readable");
+});
 
 it("keeps page overlap whole, bounded and persistent, including full-viewport paging", () => {
   expect(DEFAULT_SETTINGS.pageOverlapRows).toBe(1);
@@ -551,4 +613,12 @@ it("keeps page overlap whole, bounded and persistent, including full-viewport pa
   for (const value of ["3", null, true, NaN, Infinity]) expect(sanitizeSettings({ pageOverlapRows: value }).pageOverlapRows).toBe(1);
   const saved = sanitizeSettings({ ...DEFAULT_SETTINGS, pageOverlapRows: 3 });
   expect(sanitizeSettings(JSON.parse(JSON.stringify(saved))).pageOverlapRows).toBe(3);
+});
+
+describe("shared settings", () => {
+  it("shares exactly the settings SETTING_SCOPE marks shared", () => {
+    const shared = Object.entries(SETTING_SCOPE).filter(([, scope]) => scope === "shared").map(([key]) => key).sort();
+    expect([...SHARED_SETTING_KEYS].sort() as string[]).toEqual(shared);
+    expect(Object.keys(SETTING_SCOPE).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
+  });
 });

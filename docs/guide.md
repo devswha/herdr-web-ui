@@ -153,6 +153,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **Devin CLI** | Native SQLite session, showing the active branch when herdr or the live process explicitly identifies the session; otherwise terminal text | — use Terminal |
 | **Grok** | Linux native update log with exact process/session evidence, on the `grok-1.0.50-linux-x86_64` build only; other builds use Terminal. See [Grok setup and limits](grok-chat.md). | — use Terminal |
 | **Hermes** | Native SQLite session store | — use Terminal |
+| **Antigravity (agy)** | **Experimental; macOS untested.** Native ledger, selected by the running process’s held conversation lock. Linux native-tested; Windows uses terminal text. See [Agy behavior and limits](agy-chat.md). | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
 Devin sessions are never selected by directory or recency alone. A plain `devin` shows the
@@ -176,9 +177,11 @@ A ring by the message box shows how much of the model's context the last request
 its exact token counts on a tap. A pi pane shows it once `~/.pi/agent/models.json` states that
 model's window, which is the file pi reads its own providers from; a model it states no window
 for shows no ring rather than a guessed one, because pi answers those from a catalogue or a
-running llama.cpp server that this app cannot ask. The model and reasoning effort come from what the session recorded, never from answer text. A todo list shows where the agent recorded it, in the turn's work block: Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. Plain-text plans and Claude Code `TaskCreate` / `TaskUpdate` calls are not currently reconstructed. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
+running llama.cpp server that this app cannot ask. The model and reasoning effort come from what the session recorded, never from answer text. A todo list shows where the agent recorded it, in the turn's work block: Claude Code's `TodoWrite`, Codex's `update_plan`, or omp, omo and gjc todo calls. Plain-text plans are not reconstructed, and Claude Code `TaskCreate` / `TaskUpdate` calls are not drawn in the work block: the task list they build is the pane's plan, below. Details and verification are in the [chat-mode audit](chat-mode-audit.md).
 
 Background tasks have a button by the message box, with a count while some run: an OmO pane's `task` children, and a Claude Code pane's subagents (the `Agent` tool), read from the session's own files. A Claude Code pane's background commands (`run_in_background`, Ctrl+B, or one moved there by its timeout) are listed with them. It lists what runs and the newest ten that ended in the last day, and the sidebar badge shows the running count. A Claude Code turn that ends while work it started still runs reads **BG**, not DONE: that work's notice starts the next turn by itself, and the finish is alerted once, when that turn ends (a turn is held at most 30 minutes). A subagent that ends leaves a card in the chat with its answer, and a Claude Code subagent whose pane no longer runs that session reads as lost.
+
+A pane's plan is the task list a Claude Code agent keeps (`TaskCreate` / `TaskUpdate`) or the checklist Codex keeps (`update_plan`), read back from the session's transcript. While there is one, the background-task button by the message box starts with **Plan** and how many of its steps are done (`2/5`); the same button opens one list with the plan's steps first and the background tasks below. Steps are listed so a step comes after the steps it waits on (Claude Code's `blockedBy`; a Codex step waits on the one before it). The running step says what it does now, and each step shows how long it took. The sidebar row carries the same count. Claude Code empties its task list once every task is done, and so does this: the first task after that starts a new plan. A teammate of an agent team that changes a task writes that in its own transcript, which is not read.
 
 ## Features
 
@@ -196,7 +199,7 @@ Background tasks have a button by the message box, with a count while some run: 
 | **Manage sessions** | Start an agent in a folder you type or pick with **Browse**. In New workspace, Browse filters the currently loaded folders as you type (case-insensitive); open a result, then choose **Use this folder**. It does not search subfolders or folders beyond the displayed 500. Add a tab to a workspace (as herdr's prefix+c), switch tabs from the strip over the pane, rename workspaces from their ⋯/right-click menu and panes from their own menu, move a pane through header More → Move pane to…, reorder workspaces (drag a row, or on a phone long-press it and drag; Alt+Up/Down moves a focused row one step), and jump anywhere from the command palette. |
 | **Speak instead of typing** | A mic beside Attach in the composer and beside Send in the terminal input line. Hold to talk or tap twice; the words land at the caret and are never sent by themselves. See [Voice input](#voice-input). |
 | **Watch your plan limits** | Beside Settings, how much of each AI subscription signed in on the PC is used, or what is left: the week's or the session's limit per account, and every limit with its reset time on a tap. See [Subscription usage](#subscription-usage). |
-| **Make it yours** | English, Korean, Japanese or Simplified Chinese, following the browser or chosen in Settings. Dark, light or system theme, compact density, terminal and chat font sizes, a resizable composer, Enter behavior and thinking visibility. |
+| **Make it yours** | English, Korean, Japanese, Simplified Chinese or Turkish, following the browser or chosen in Settings. Dark, light or system theme, compact density, terminal and chat font sizes, a resizable composer, Enter behavior and thinking visibility. |
 
 Every agent has the same chat controls on desktop and phones: Stop while it works with an empty
 draft, Send when you type, and Send at rest. With a draft in the box, Escape stops the agent. Sending during work adds a message bubble above the
@@ -467,9 +470,9 @@ This is for Linux and macOS. On Windows, and for a remote PC, update herdr on th
 
 ## Anonymous usage counts
 
-The app tells its maintainer how many installs there are, which versions they run and which countries they are in, and nothing else. It sends one small message when it is first installed and one each time it runs a new version, never in between. The first time you open the app, a line under the header says so, with **What is sent** and **Turn off**. Nothing is sent before that line has been shown, and the first message waits ten minutes after it, so **Turn off** on that line stops it.
+The app tells its maintainer how many installs there are, which versions they run, which countries they are in and which appearance settings people change from their defaults, and nothing else. It sends one small message when it is first installed and one each time it runs a new version, never in between. The first time you open the app, a line under the header says so, with **What is sent** and **Turn off**. Nothing is sent before that line has been shown, and the first message waits ten minutes after it, so **Turn off** on that line stops it. An install that saw the line before it mentioned the settings sees it once more, and sends nothing until then.
 
-A message holds the event (`install` or `update`), a random ID made on this PC, the app's version and the version an update replaced, the OS and CPU architecture, and how the app was installed (herdr plugin, `bun run start`, or `bun run server`). Nothing about your terminals, agents, files, workspaces or accounts is in it. The receiver ([`telemetry/`](../telemetry/README.md)) keeps those fields, the day and the country the message came from (two letters, such as `KR`, worked out by its host from the connection), and never stores your IP address or anything finer than the country.
+A message holds the event (`install` or `update`), a random ID made on this PC, the app's version and the version an update replaced, the OS and CPU architecture, how the app was installed (herdr plugin, `bun run start`, or `bun run server`), and the names of the appearance settings changed from their defaults in the browser that last opened the app: theme, density, colors, sidebar rows, Agents order, workspace cards, pin agents, plan flow and the plan count in the header. It holds the names only, never what a setting is set to, and never a setting you type (a font, a shortcut, the key bar). Nothing about your terminals, agents, files, workspaces or accounts is in it. The receiver ([`telemetry/`](../telemetry/README.md)) keeps those fields, the day and the country the message came from (two letters, such as `KR`, worked out by its host from the connection), and never stores your IP address or anything finer than the country.
 
 **Settings → About → Anonymous usage counts** shows the next message exactly as it would be sent, and its switch turns the counts off for this PC. `HERDR_WEB_TELEMETRY=0` or `DO_NOT_TRACK=1` in the server's environment turns them off whatever the switch says, and they are always off in CI. A remote PC's bridge sends nothing.
 
@@ -494,7 +497,8 @@ and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
 
 Known browser/OS reservations are marked, but other combinations can also be intercepted by
 your browser, OS or extensions. Installed-app mode may behave differently. While an IME is
-composing, keys stay with it. In text fields, Mod+Shift+arrows keep their text-selection behavior.
+composing, keys stay with it. In a text field with text, Mod+Shift+arrows keep their text-selection
+behavior; from an empty one, such as the chat's empty message box, they switch panes.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
 scrollbar, arrows move a line, Page Up/Down a viewport minus the configured overlap, and Home/End the start/end of history.

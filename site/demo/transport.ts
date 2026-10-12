@@ -12,7 +12,7 @@
  * one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PaneMoved, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
@@ -92,6 +92,11 @@ function addAgent(pane: Pane): void {
 /** The OmO pane's background tasks (the composer's "2 background tasks"), timed from now. */
 const OMO_TASKS_PANE = "docs";
 const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+const planSteps: PlanStep[] = [
+  { id: "1", label: "Trace replayed requests", active: null, status: "completed", blocked_by: [], owner: null, started_at: ago(8), ended_at: ago(6) },
+  { id: "2", label: "Count idempotent replays", active: "Adding the replay metric", status: "in_progress", blocked_by: ["1"], owner: null, started_at: ago(5), ended_at: null },
+  { id: "3", label: "Cover the metric with tests", active: null, status: "pending", blocked_by: ["2"], owner: null, started_at: null, ended_at: null },
+];
 const omoTasks = () => [
   { id: "st_demo1", title: "Check every link in the guide", category: "quick", model: "Claude Haiku 4.5", status: "running", started_at: ago(3), ended_at: null, turns: 6, tool_calls: 41, tokens: 52_300 },
   { id: "st_demo2", title: "Rewrite the install section for Windows", category: "writing", model: "Claude Opus 5.5", status: "running", started_at: ago(1), ended_at: null, turns: 2, tool_calls: 7, tokens: 18_900 },
@@ -146,6 +151,7 @@ function backfillPanes(): void {
 }
 backfillPanes();
 for (const pane of snapshot().panes) if (keyOfPane.get(pane.pane_id) === OMO_TASKS_PANE) Object.assign(pane, { background_tasks: 2 });
+for (const pane of snapshot().panes) if (keyOfPane.get(pane.pane_id) === "api") Object.assign(pane, { plan: { done: 1, total: planSteps.length, current: "Adding the replay metric" } });
 
 // Fictional repositories keep their checkout catalog after a workspace closes. The list joins
 // each checkout to the current snapshot, so closed checkouts can be opened again without git.
@@ -657,7 +663,13 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const agent = agentOf(paneId);
     if (!chat) return json({ source: "scrollback", turns: [] });
     const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : agent === "devin" ? "devin-transcript" : agent === "hermes" ? "hermes-transcript" : "omp-transcript";
+    // These demo fixtures have no native Grok/Agy lifecycle: omit optional activity.
     return json({ source, turns: chat.turns, metadata: chat.metadata, cursor: null });
+  }
+  if (path === "/api/pane/plan") {
+    if (method !== "GET") return error("method_not_allowed", "use GET", 400);
+    if (!paneId) return error("missing_pane_id", "pane_id query parameter is required", 400);
+    return json({ plan: keyOfPane.get(paneId) === "api" ? { steps: planSteps } : null, server_time: new Date().toISOString() } satisfies PanePlan);
   }
   if (path === "/api/pane/prompt") return json({ prompt: keyOfPane.get(paneId) === "web" && promptOpen ? { ...PROMPT, id: promptId } : null });
   if (path === "/api/pane/prompt/answer") {
@@ -1169,7 +1181,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "secret-input", "input-ready", "conversation-watch"] });
+      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch"] });
     }, 20);
     this.timers.add(opening);
   }
@@ -1285,7 +1297,7 @@ class DemoSocket extends EventTarget {
           break;
         }
         if (message.pane_id && message.text !== undefined && message.id !== undefined) {
-          const queued = message.delivery === "queue";
+          const queued = message.delivery === "queue" || message.delivery === "hold";
           const text = queued ? message.text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n") : message.text;
           let code: string | null = null;
           if ((message.delivery !== undefined && message.delivery !== "immediate" && !queued) || (queued && message.typed !== undefined && message.typed !== false)) code = "invalid_delivery";
@@ -1299,8 +1311,8 @@ class DemoSocket extends EventTarget {
             this.completeRequest({ type: "submit-result", id: message.id, pane_id: message.pane_id, ok: false, code, message: "The demo agent cannot take this submission." });
             break;
           }
-          if (queued && paneOf(message.pane_id)?.agent_status === "working") {
-            const pending: PendingMessage = { id: `demo-pending-${nextPending++}`, request_id: message.id, text, state: "queued", created_at: now() };
+          if (queued && (message.delivery === "hold" || paneOf(message.pane_id)?.agent_status === "working")) {
+            const pending: PendingMessage = { id: `demo-pending-${nextPending++}`, request_id: message.id, text, state: message.delivery === "hold" ? "held" : "queued", created_at: now() };
             this.pending.set(message.pane_id, [...(this.pending.get(message.pane_id) ?? []), pending]);
             const reply: ServerMessage = { type: "submit-result", id: message.id, pane_id: message.pane_id, ok: true, pending: structuredClone(pending) };
             this.rememberRequest(reply);
