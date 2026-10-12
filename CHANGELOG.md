@@ -80,6 +80,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - First-device pairing waits for the browser to return its device cookie before restricting
   access. A proxy that drops the cookie no longer locks out an otherwise open installation;
   Settings reports the failed pairing instead. Already restricted installations stay restricted.
+  ([#915](https://github.com/devswha/herdr-web-ui/pull/915))
 - A message another Claude Code session sends into a pane (its `peer` messages) shows in the chat as
   a folded **Message from another session: {name}** that opens its own turn, instead of being skipped so the work it
   started was appended to the answer before it.
