@@ -8,6 +8,14 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Shared settings and pins.** The browsers of one server, a PC's and a phone's, keep the same
+  pinned agents and the same settings that do not depend on the device: theme and colors, language,
+  the sidebar's rows, order, cards and pins, chat and usage-meter choices. A
+  change shows on the other open pages at once. Each device keeps its own terminal and chat font
+  sizes, key bar, shortcuts, density, alerts, microphone, the lens panes open in and the like. Opening a page never
+  overwrites anything: a server that holds no shared settings yet takes them from the first change,
+  and the browser that shares first brings its pins along. A page that lost its connection catches up
+  when it is back. A watching device follows the shared settings and cannot change them for everyone. ([#854](https://github.com/devswha/herdr-web-ui/pull/854))
 - PCs saved in herdr appear automatically. Connect once per PC to enable automatic reconnection;
   installing or starting a bridge still needs separate approval. Changing the address, port or
   session clears both permissions and cached panes.
