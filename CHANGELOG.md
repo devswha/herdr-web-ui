@@ -12,7 +12,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   button and recent folders as New workspace. The field starts at the workspace's folder (a
   worktree's checkout, else the pane in front), and a link's `cwd` fills it. The folder applies to
   the new tab only; the panes already open keep theirs. A folder a tab was made in is remembered
-  like a workspace's.
+  like a workspace's. ([#890](https://github.com/devswha/herdr-web-ui/pull/890) by @willowite)
 - **Two tabs side by side** on a desktop, from different workspaces or PCs: drag a tab down out
   of its strip, or a sidebar row over the pane area, and drop it on the left or right half. A guide
   shows the two halves as soon as the drag starts and keeps its side steady at the centre; Escape
