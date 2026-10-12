@@ -55,6 +55,7 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
 
     // off until chosen: nothing is shown and no sign-in is sent anywhere
     await settingsButton.waitFor();
+    assert.equal(await page.locator(".header-side-end").evaluate((end) => end.querySelector(".palette-button") !== null && end.querySelector(".sidebar-settings-button") !== null), true, "the gear sits beside search");
     assert.equal(await strip.count(), 0);
     assert.deepEqual(asked, [], "no usage request before the user turns it on");
     await settingsButton.click();
@@ -179,9 +180,12 @@ export async function checkUsageMeters(browser: Browser, origin: string): Promis
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     if (process.env.UI_EVIDENCE_DIR) await page.locator(".sidebar-shell").screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "usage-popover-phone.png") });
 
-    // Settings on the phone: every account row fits its card, controls included
+    // Settings on the phone: the drawer's footer row, not the gear; every account row fits its card, controls included
     await page.keyboard.press("Escape");
-    await page.locator(".sidebar-footer-row .sidebar-footer-action").click();
+    assert.equal(await page.locator(".sidebar-settings-button").isVisible(), false, "no gear on a phone");
+    const footerSettings = page.locator(".sidebar-footer-row .sidebar-footer-settings");
+    assert.equal(await footerSettings.isVisible(), true, "the drawer's footer keeps Settings");
+    await footerSettings.click();
     await openSettingsPage(page, "Subscription usage");
     const accounts = page.locator(".usage-accounts");
     await accounts.scrollIntoViewIfNeeded();

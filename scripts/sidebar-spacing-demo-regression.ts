@@ -89,6 +89,8 @@ try {
           agentsHeight: agents.height,
           contentsOverflow: getComputedStyle(contents).overflowY,
           footerBottom: footer.bottom,
+          footerShown: footer.height > 0,
+          footerHasUsage: document.querySelector(".sidebar-footer .usage") !== null,
           shellBottom: shell.bottom,
         };
       });
@@ -96,8 +98,10 @@ try {
       assert.ok(metrics.listBottom - metrics.machineBottom <= spacing, `${label} folded list padding is ${metrics.listBottom - metrics.machineBottom}px`);
       assert.ok(metrics.agentsHeight <= metrics.shellHeight / 2 + 1, `${label} Agents keeps its half-sidebar cap`);
       assert.equal(metrics.contentsOverflow, "auto", `${label} Agents keeps scroll ownership`);
-      // from 769px a footer with nothing to show is hidden (Settings is the gear), and has no bottom to keep
-      if (metrics.footerBottom > 0) assert.equal(Math.round(metrics.footerBottom), Math.round(metrics.shellBottom), `${label} footer stays at the bottom`);
+      // from 769px Settings is the gear, so the footer is shown only for the plan meters; the drawer keeps it
+      const footerExpected = mobile || metrics.footerHasUsage;
+      assert.equal(metrics.footerShown, footerExpected, `${label} footer is ${footerExpected ? "shown" : "hidden"}`);
+      if (footerExpected) assert.equal(Math.round(metrics.footerBottom), Math.round(metrics.shellBottom), `${label} footer stays at the bottom`);
       assert.deepEqual(await page.locator(".agents-sidebar .agent-title").allTextContents(), before, `${label} agent order is unchanged`);
 
       await agentToggle.click();
