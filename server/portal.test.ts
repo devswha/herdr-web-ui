@@ -300,6 +300,55 @@ describe("running Portal", () => {
     }
   });
 
+  it("still finishes shutdown when pending leftover cleanup fails", async () => {
+    const stateDir = mkdtempSync(join(root, "state-"));
+    seedSavedPortal(stateDir);
+    const service = new PortalService({ stateDir, fetch: relay() });
+    const entered = deferred();
+    const release = deferred();
+    const cleanup = spyOn(service as unknown as { stopLeftover(pid: number | null): Promise<void> }, "stopLeftover")
+      .mockImplementation(async () => {
+        entered.resolve();
+        await release.promise;
+        throw new Error("fixture cleanup failure");
+      });
+    const resumed = service.resume({ port: 7317, ...open });
+    const failed = resumed.catch((error: unknown) => error);
+    try {
+      await bounded(entered.promise, "cleanup entered");
+      const stopped = service.shutdown();
+      release.resolve();
+      await bounded(stopped, "shutdown settled despite cleanup failure");
+      expect(await failed).toMatchObject({ message: "fixture cleanup failure" });
+      expect(service.start({ relay: RELAY, port: 7317, ...open })).toBe("busy");
+    } finally {
+      release.resolve();
+      await failed;
+      cleanup.mockRestore();
+    }
+  });
+
+  it("rejects damaged saved state without overwriting it or assuming no tunnel exists", async () => {
+    for (const contents of [
+      "{", "null", "{}",
+      JSON.stringify({ enabled: true, relay: RELAY, port: 7317, pid: "invalid" }),
+      JSON.stringify({ enabled: true, relay: null, port: null, pid: null }),
+    ]) {
+      const stateDir = mkdtempSync(join(root, "state-"));
+      seedSavedPortal(stateDir);
+      const path = join(stateDir, "portal", "state.json");
+      writeFileSync(path, contents);
+      const service = new PortalService({ stateDir, fetch: relay() });
+      await expect(service.resume({ port: 7317, tokenSet: false, serveOnly: false })).rejects.toThrow();
+      expect(() => service.start({ port: 7317, relay: RELAY, ...open })).toThrow();
+      expect(readFileSync(path, "utf8")).toBe(contents);
+    }
+    const stateDir = mkdtempSync(join(root, "state-"));
+    mkdirSync(join(stateDir, "portal", "state.json"), { recursive: true });
+    const service = new PortalService({ stateDir, fetch: relay() });
+    await expect(service.resume({ port: 7317, ...open })).rejects.toThrow("Could not read saved Portal state");
+  });
+
   it("rechecks cancellation after awaiting the version before examining leftovers", async () => {
     const portal = standIn();
     const service = new PortalService({ stateDir: mkdtempSync(join(root, "state-")), bin: portal.path, fetch: relay() });

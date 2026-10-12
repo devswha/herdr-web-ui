@@ -367,13 +367,17 @@ export class PortalService {
   shutdown(): Promise<void> {
     this.shutdownRequested = true;
     this.operation++;
+    // resume already fails the startup gate closed; a cleanup error must not strand shutdown.
+    const cleanup = this.cleanup?.catch((error: unknown) => {
+      console.error(`Portal cleanup failed during shutdown: ${messageOf(error)}`);
+    });
     const child = this.child;
     if (child === null) {
       if (this.phase === "starting") this.phase = "idle";
-      return this.cleanup ?? Promise.resolve();
+      return cleanup ?? Promise.resolve();
     }
     this.end(child);
-    return Promise.all([child.exited, this.cleanup]).then(() => undefined);
+    return Promise.all([child.exited, cleanup]).then(() => undefined);
   }
 
   private end(child: Child): void {
@@ -559,19 +563,24 @@ export class PortalService {
   }
 
   private saved(): SavedState {
+    let value: unknown;
     try {
-      const value: unknown = JSON.parse(readFileSync(this.statePath, "utf8"));
-      if (isJsonObject(value)) {
-        const { port, pid } = value;
-        return {
-          enabled: value["enabled"] === true,
-          relay: relayOrigin(value["relay"]),
-          port: typeof port === "number" && Number.isInteger(port) ? port : null,
-          pid: typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : null,
-        };
-      }
-    } catch { /* none yet, or unreadable: nothing is on */ }
-    return { enabled: false, relay: null, port: null, pid: null };
+      value = JSON.parse(readFileSync(this.statePath, "utf8"));
+    } catch (error) {
+      if (processErrorCode(error) === "ENOENT") return { enabled: false, relay: null, port: null, pid: null };
+      throw new Error("Could not read saved Portal state; refusing to assume its tunnel is stopped.", { cause: error });
+    }
+    if (!isJsonObject(value)) throw new Error("Saved Portal state is invalid.");
+    const { enabled, relay, port, pid } = value;
+    const origin = relayOrigin(relay);
+    if (typeof enabled !== "boolean"
+      || (relay !== null && origin === null)
+      || (port !== null && !(typeof port === "number" && Number.isSafeInteger(port) && port > 0 && port <= 65535))
+      || (pid !== null && !(typeof pid === "number" && Number.isSafeInteger(pid) && pid > 0))
+      || (enabled && (origin === null || port === null || pid === null))) {
+      throw new Error("Saved Portal state is invalid.");
+    }
+    return { enabled, relay: origin, port: port as number | null, pid: pid as number | null };
   }
 
   /** at once, not awaited: a stop and a start's own save never interleave */
@@ -607,10 +616,11 @@ export async function handlePortalRequest(request: Request, pathname: string, po
   try { body = await request.json(); } catch { /* checked below */ }
   const relay = relayOrigin(isJsonObject(body) ? body["relay"] : undefined);
   if (relay === null) return fail("invalid_relay", "Give the relay as an https address, such as https://relay.example.com.", 400);
-  const started = portal.start({ ...context, relay });
+  let started: ReturnType<PortalService["start"]>;
+  try { started = portal.start({ ...context, relay }); } catch (error) { return errorResponse(error); }
   if (started === "token_required") return fail("token_required", "Set HERDR_WEB_TOKEN and restart the app before you start Portal: anyone on the internet can open its address.", 409);
   if (started === "serve_only") return fail("serve_only", "Turn off HERDR_WEB_TAILSCALE_SERVE_ONLY and restart the app before you start Portal: it says tailscale serve is the only way in.", 409);
   if (started === "busy") return fail("portal_busy", "Portal is busy; try again once it is idle.", 409);
-  if (started === "state_in_use") return fail("portal_state_in_use", "Another server owns this Portal state directory. Give this server its own HERDR_WEB_STATE_DIR, or stop Portal from the server that owns this state before retrying.", 409);
+  if (started === "state_in_use") return fail("portal_state_in_use", "Another server owns this Portal state directory. Give this server its own HERDR_WEB_STATE_DIR.", 409);
   return reply({ accepted: true }, 202);
 }
