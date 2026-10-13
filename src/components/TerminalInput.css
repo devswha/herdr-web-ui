@@ -17,9 +17,15 @@
   height: 0;
 }
 
+/* the chat lens keeps the masked input in this slot too (PaneTerminal.tsx), in flow: no box */
+.terminal-stack.is-chat > .terminal-input-slot {
+  display: contents;
+}
+
 /* the terminal's input line on touch screens (TerminalInput.tsx): one row that grows to four,
    with a send button that reads Enter while the line is empty. It hangs from the slot's bottom
-   edge, so it grows upward; the dictation pill floats above it */
+   edge, so it grows upward; the dictation pill floats above it. It reaches the grid's top at
+   most (--terminal-input-room, measured by PaneTerminal.tsx): past that the text scrolls */
 .terminal-input {
   position: absolute;
   right: 0;
@@ -28,6 +34,8 @@
   z-index: var(--z-banner); /* over xterm's layers, like the banners */
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+  max-height: var(--terminal-input-room);
   gap: var(--space-2);
   align-items: end;
   padding: var(--space-2) var(--space-2) 0;
@@ -52,6 +60,7 @@
 
 .terminal-input-text {
   min-height: var(--touch-target);
+  max-height: 100%; /* of its row, which the line's cap above shortens */
   padding: var(--space-2) var(--space-3);
   border: var(--hairline) solid var(--border);
   border-radius: var(--radius-lg);

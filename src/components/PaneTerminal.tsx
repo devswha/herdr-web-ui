@@ -2267,6 +2267,24 @@ export function PaneTerminal({
   /> : null;
   // the input line's row, kept while the masked input stands in for it
   const lineSlot = presented && paneId !== null && !observing && !ended && inputLine;
+  // What floats from the slot may reach up to the grid's top and no further (TerminalInput.css):
+  // in a short pane (a split, a phone in landscape with its keyboard up) a grown line or the masked
+  // input would otherwise cover the find bar, or be clipped under the pane's frame
+  const [inputSlot, setInputSlot] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const surface = stackRef.current?.querySelector(".terminal-surface");
+    if (!stackRef.current || !surface || !inputSlot) return;
+    const measure = () => {
+      const room = inputSlot.getBoundingClientRect().bottom - surface.getBoundingClientRect().top;
+      inputSlot.style.setProperty("--terminal-input-room", `${Math.max(0, Math.floor(room))}px`);
+    };
+    measure();
+    // the surface moves with the find bar and resizes with the stack and the key bar under it
+    const observer = new ResizeObserver(measure);
+    observer.observe(stackRef.current);
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, [inputSlot]);
 
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
@@ -2497,7 +2515,6 @@ export function PaneTerminal({
       {presented && paneId !== null && chatView && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
-      {chatView && secretInput}
       {presented && paneId !== null && chatView && !secretActive && !observing && !ended && (
         <Composer
           key={paneId}
@@ -2531,9 +2548,11 @@ export function PaneTerminal({
       {/* In the terminal lens the input line and the masked input float over the grid's last rows
           from a slot that keeps one row's height in flow: a line that grows while it is typed, a
           note under it or the masked input taking its place would otherwise take rows from the
-          grid, and each change of its height resizes the shared pty */}
-      {!chatView && (lineSlot || secretInput) && <div className={`terminal-input-slot${lineSlot ? "" : " is-empty"}`}>
-        {secretInput ?? (lineSlot && !secretActive && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />)}
+          grid, and each change of its height resizes the shared pty. The masked input sits in this
+          slot in the chat lens too (a box-less slot there, TerminalInput.css), so switching lenses
+          keeps it mounted: a remount would drop what was typed and a send still on its way */}
+      {((!chatView && lineSlot) || secretInput) && <div ref={setInputSlot} className={`terminal-input-slot${!chatView && lineSlot ? "" : " is-empty"}`}>
+        {secretInput ?? (!chatView && lineSlot && !secretActive && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />)}
       </div>}
       {presented && paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
         holdScope={`${paneStorageId(machineId, paneId)}:${view}`}

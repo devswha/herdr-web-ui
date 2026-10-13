@@ -15,6 +15,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   const sent: any[] = [];
   const resizes: any[] = [];
   let acknowledge: (() => void) | undefined;
+  let refuse: (() => void) | undefined;
   let ready: (() => void) | undefined;
   let delayReady = false;
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
@@ -29,6 +30,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
       if (frame.type === "submit") {
         sent.push(frame);
         acknowledge = () => socket.send(JSON.stringify({ type: "submit-result", id: frame.id, pane_id: frame.pane_id, ok: true }));
+        refuse = () => socket.send(JSON.stringify({ type: "submit-result", id: frame.id, pane_id: frame.pane_id, ok: false, code: "agent_blocked", message: "" }));
       } else if (frame.type === "input") sent.push(frame);
       else {
         if (frame.type === "resize") resizes.push(frame);
@@ -100,6 +102,46 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     assert.equal(resizes.length, resizesBefore, "typing three lines and Send send no resize");
     sent.length = 0;
     acknowledge = undefined;
+
+    // a note under the one-row line (a refused send) floats too, and so does its going
+    await line.fill("refused");
+    await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
+    await until(() => !!refuse);
+    refuse!();
+    const note = page.locator(".terminal-input-note");
+    await note.waitFor();
+    await frame();
+    assert.equal(await gridHeight(), restingGrid, "a note under the line keeps the grid's height");
+    await line.fill("");
+    await note.waitFor({ state: "detached" });
+    await frame();
+    assert.equal(await gridHeight(), restingGrid, "the note's going keeps the grid's height");
+    assert.equal(await page.evaluate(() => (window as any).gridResized), 0, "the grid's observer never fired for the note");
+    sent.length = 0;
+    acknowledge = refuse = undefined;
+
+    // the slot's row is a hand-made calc of the line's metrics: it must match at either density
+    const density = await page.evaluate(() => document.documentElement.getAttribute("data-density"));
+    await page.evaluate(() => document.documentElement.setAttribute("data-density", "compact"));
+    await frame();
+    assert(Math.abs(await height(".terminal-input") - await height(".terminal-input-slot")) < 1, "a one-row line covers no grid row at the compact density");
+    await page.evaluate((density) => { if (density === null) document.documentElement.removeAttribute("data-density"); else document.documentElement.setAttribute("data-density", density); }, density);
+
+    // a short pane: the grown line reaches the grid's top at most, and its text scrolls past that
+    await page.setViewportSize({ width: 1280, height: 160 });
+    await frame();
+    const surfaceTop = () => page.locator(".terminal-surface").evaluate((element) => element.getBoundingClientRect().top);
+    const shortSurface = await height(".terminal-surface");
+    assert(shortSurface < 100, `the pane is shorter than a grown line (${shortSurface}px)`);
+    await line.fill("one\ntwo\nthree\nfour");
+    await until(async () => (await line.getAttribute("rows")) === "4");
+    await frame();
+    const lineTop = await page.locator(".terminal-input").evaluate((element) => element.getBoundingClientRect().top);
+    assert(lineTop >= await surfaceTop() - 1, `the grown line stays under the grid's top (${lineTop} < ${await surfaceTop()})`);
+    assert(await line.evaluate((element) => element.scrollHeight > element.clientHeight), "the capped line scrolls its text");
+    await line.fill("");
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await until(async () => (await line.getAttribute("rows")) === "1");
 
     await line.fill("draft 한글 😀");
     await remountLine();
