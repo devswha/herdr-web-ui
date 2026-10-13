@@ -2536,10 +2536,19 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
     }, steadyFields(question, body, steady.read)));
   }
   if (selectionMenu) {
-    const above = shown.filter((index) => index < selectionMenu.start).map((index) => cleanLine(lines[index]!));
     // the selector's own heading: the block of lines right above its rows, never an earlier question
     let headEnd = selectionMenu.start;
     while (headEnd > 0 && (!cleanLine(lines[headEnd - 1]!) || isDivider(lines[headEnd - 1]!))) headEnd -= 1;
+    // GJC's question dialog has its own opening border before the title. The transcript and
+    // ticking status above it do not belong to this asking. Its outer borders are unindented
+    // and identical; Markdown title rules have left padding. Keep every title paragraph inside,
+    // including approval details; without the matching frame keep the whole screen.
+    const closing = lines[findLastIndex(lines, (line) => Boolean(line.trim()))]?.trimEnd();
+    const border = closing && isDivider(closing) && !/^\s/.test(closing)
+      ? findLastIndex(lines.slice(0, headEnd), (line) => line.trimEnd() === closing)
+      : -1;
+    const dialogShown = border < 0 ? shown : shown.filter((index) => index > border);
+    const above = dialogShown.filter((index) => index < selectionMenu.start).map((index) => cleanLine(lines[index]!));
     let headStart = headEnd;
     while (headStart > 0 && cleanLine(lines[headStart - 1]!) && !isDivider(lines[headStart - 1]!)) headStart -= 1;
     const heading = lines.slice(headStart, headEnd).map((line) => cleanLine(line));
@@ -2553,7 +2562,7 @@ export function parseFallbackPrompt(agent: string, screen: string): InteractiveP
       { label: "Esc", steps: keySteps([KEY.escape]) },
     ];
     const body = withoutLine(above, question);
-    return screenCard(lines, shown, steady, finishPrompt(agent, {
+    return screenCard(lines, dialogShown, steady, finishPrompt(agent, {
       kind: "menu", fallback: true, title: "Waiting for your answer", question: question ?? "The agent is waiting for your answer.",
       body,
       options: choices.map(({ label }) => ({ label, description: null })),

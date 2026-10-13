@@ -1858,6 +1858,33 @@ Step 4: Credential source
     expect(labels(parseFallbackPrompt("claude", `Pick one:\n\n❯ Alpha\n  Beta\n${footer}\n`))).toEqual(generic);
   });
 
+  test("hashes a framed GJC question without the transcript or ticking status above it", () => {
+    const dialog = "──────────────\n\nUse staging only.\n\nWhich approach?\n\n──────────────\n│❯ First     │\n│  Second    │\n──────────────\n\nup/down navigate  enter select  esc cancel\n\n──────────────\n";
+    const first = parseFallbackPrompt("gjc", `Earlier output\n◷ 12h23m\n${dialog}`);
+    const later = parseFallbackPrompt("gjc", `New output\n◷ 12h24m\n${dialog}`);
+    expect(later.id).toBe(first.id);
+    expect(first.question).toBe("Which approach?");
+    expect(first.body).toBe("Use staging only.");
+    expect(parseFallbackPrompt("gjc", dialog.replace("Use staging only.", "Use production.")).id).not.toBe(first.id);
+    expect(parseFallbackPrompt("gjc", dialog.replace("Which approach?", "Delete everything?")).id).not.toBe(first.id);
+    expect(parseFallbackPrompt("gjc", dialog.replace("Second", "Remove")).id).not.toBe(first.id);
+    expect(parseFallbackPrompt("gjc", dialog.replace("│❯ First     │", "│  First     │").replace("│  Second    │", "│❯ Second    │")).id).toBe(first.id);
+  });
+
+  test("keeps approval details above a padded Markdown rule in a framed GJC title", () => {
+    const dialog = (target: string) => `──────────────\n\n Delete ${target}.\n\n ────────── \n\n Proceed?\n\n❯ Yes\n  No\n\nup/down navigate  enter select  esc cancel\n\n──────────────\n`;
+    const staging = parseFallbackPrompt("gjc", dialog("staging"));
+    expect(staging.body).toBe("Delete staging.");
+    expect(parseFallbackPrompt("gjc", dialog("production")).id).not.toBe(staging.id);
+  });
+
+  test("keeps the full GJC screen when a matching outer frame is absent", () => {
+    for (const close of ["", "────"]) {
+      const screen = (target: string) => `Delete ${target}.\n──────────────\n\nProceed?\n\n❯ Yes\n  No\n\nup/down navigate  enter select  esc cancel\n\n${close}\n`;
+      expect(parseFallbackPrompt("gjc", screen("production")).id).not.toBe(parseFallbackPrompt("gjc", screen("staging")).id);
+    }
+  });
+
   test("titles a GJC selector with its own heading, not an earlier question on the screen", () => {
     const prompt = parseFallbackPrompt("gjc", "Delete your project?\nDone, it is kept.\n\nChoose a provider\n\n❯ Alpha\n  Beta\n[↑↓ to navigate, Enter to select, Esc to cancel]\n");
     expect(prompt.question).toBe("Choose a provider");
@@ -3258,6 +3285,27 @@ ${heldRule}
     await withPane("gjc", "blocked", gjcSelector(), async (pane) => {
       const prompt = (await card())!;
       pane.onSent = (sent) => { if (sent === "down") pane.screen = gjcSelector(1, ["Resume", "Delete"]); };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
+      expect(pane.sent).toEqual(["down"]);
+    });
+  });
+
+  test("answers a framed GJC question across unrelated output and status redraws", async () => {
+    const screen = (at: number, tick: number) => `Output ${tick}\n◷ 12h${tick}m\n──────────────\n\n${gjcSelector(at)}\n──────────────\n`;
+    await withPane("gjc", "blocked", screen(0, 23), async (pane) => {
+      const prompt = (await card())!;
+      pane.screen = screen(0, 24);
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = screen(1, 25); };
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "enter"]);
+    });
+  });
+
+  test("refuses a framed GJC answer when its approval details change during navigation", async () => {
+    const screen = (target: string, at = 0) => `──────────────\n\n Delete ${target}.\n\n ────────── \n\n Proceed?\n\n${at === 0 ? "❯" : " "} Yes\n${at === 1 ? "❯" : " "} No\n\nup/down navigate  enter select  esc cancel\n\n──────────────\n`;
+    await withPane("gjc", "blocked", screen("staging"), async (pane) => {
+      const prompt = (await card())!;
+      pane.onSent = (sent) => { if (sent === "down") pane.screen = screen("production", 1); };
       expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 409, code: "prompt_changed" });
       expect(pane.sent).toEqual(["down"]);
     });
