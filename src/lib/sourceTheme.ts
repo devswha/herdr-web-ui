@@ -63,9 +63,11 @@ export const SCROLL_CONFIG = { overscrollSize: 600, intersectionObserverMargin: 
 /**
  * The highlighter runs in the package's own worker, never on the page: the whole file is colored
  * at once, and 8 MiB of it measured 54 s of blocked page without one. Two workers color one file
- * at a time; the pool is created with the first colored source and ended with the last.
+ * at a time; the pool is created with the first colored source and ended with the last. Its two
+ * result caches (files, diffs) hold 12 entries each, not the package's 100: one colored file can
+ * be megabytes of heap, and stepping through a repository's changes keeps the pool alive.
  */
-export const POOL_OPTIONS = { workerFactory: (): Worker => new Worker(new URL("@pierre/diffs/worker/worker.js", import.meta.url), { type: "module" }), poolSize: 2 };
+export const POOL_OPTIONS = { workerFactory: (): Worker => new Worker(new URL("@pierre/diffs/worker/worker.js", import.meta.url), { type: "module" }), poolSize: 2, totalASTLRUCacheSize: 12 };
 /** The JavaScript regex engine: the app's CSP allows no WebAssembly compilation. */
 export const HIGHLIGHTER_OPTIONS = { theme: SOURCE_THEME, preferredHighlighter: "shiki-js" as const };
 

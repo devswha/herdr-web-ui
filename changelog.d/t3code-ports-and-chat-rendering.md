@@ -63,9 +63,6 @@
   holds.
 - The command palette finds Settings pages and actions by related words (try "theme" or "font"),
   opens the page directly, and lists matches found only through such words after title matches.
-- The command palette can be opened already filtered through `actions.openPalette(query)`, so a
-  button or empty state can send you straight to the matching panes or actions. Nothing in the app
-  uses it yet.
 - File rows in the Files dialog's Browse and Changes lists and in the folder browser show a glyph
   for the file's kind (code, JSON, config, image, archive, lockfile, ...) and mark a `.git` folder,
   so a list can be scanned at a glance.

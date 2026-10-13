@@ -913,15 +913,19 @@ export function PaneTerminal({
         }
       }
       if (!range) return;
+      // herdr's text covers the whole range; the visible text in its place does not, so the quote
+      // then names no line range rather than one its text does not hold
+      let fromHerdr = true;
       const text = fetchPaneSelection(d.pane, range[0], range[1], machineId).catch(() => {
         if (current() && d.scrolled) noteClipboard("could not read the selection from herdr");
+        fromHerdr = false;
         return visibleText;
       }).then((value) => {
         if (!current()) throw new Error("selection changed");
         // A redraw can remove the range before herdr reads it. Keep what the user
         // actually selected instead of replacing a successful copy with nothing.
         copiedText = value || visibleText;
-        setSelectionQuote({ pane: d.pane, text: copiedText, range: { start: range[0].row, end: range[1].row } });
+        setSelectionQuote({ pane: d.pane, text: copiedText, range: fromHerdr && value ? { start: range[0].row, end: range[1].row } : null });
         return copiedText;
       });
       // Reserve the write NOW, supplying the server text when it arrives. Never

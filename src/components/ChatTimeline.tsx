@@ -113,8 +113,16 @@ export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source,
     const settle = () => {
       if (following.current && !manualLayout.current && node.scrollHeight - node.clientHeight - node.scrollTop > 1) listRef.current?.scrollToEnd({ animated: false });
     };
-    node.addEventListener("scrollend", settle);
-    return () => node.removeEventListener("scrollend", settle);
+    // `in` narrows the element to never: the DOM types always declare onscrollend
+    if ("onscrollend" in (node as object)) {
+      node.addEventListener("scrollend", settle);
+      return () => node.removeEventListener("scrollend", settle);
+    }
+    // Safari before 26 fires no scrollend: settle once the scroll events have been quiet a moment
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const scrolled = () => { clearTimeout(quiet); quiet = setTimeout(settle, 150); };
+    node.addEventListener("scroll", scrolled, { passive: true });
+    return () => { clearTimeout(quiet); node.removeEventListener("scroll", scrolled); };
   }, [scroller, listRef, following, smoothFollow]);
 
   useLayoutEffect(() => {
