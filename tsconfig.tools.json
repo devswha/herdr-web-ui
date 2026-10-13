@@ -10,6 +10,7 @@
     "scripts/ci-tests.ts",
     "scripts/release-notes.ts",
     "scripts/release-guards.ts",
+    "scripts/changelog-fold.ts",
     "site/demo/transport.ts",
     "scripts/build-remote-bundle.ts",
     "scripts/ssh-integration.ts",

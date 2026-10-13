@@ -356,10 +356,13 @@ after changing the staged session. Files, images, push and remote PCs are not pa
 ## Releasing
 
 1. Open a release PR that bumps `version` in `package.json` and `herdr-plugin.toml`,
-   moves the `Unreleased` notes in [CHANGELOG.md](../CHANGELOG.md) under the new version,
-   and tells the release in [release-summaries.json](../release-summaries.json) the way a
-   game's patch notes do: under the version, for each of `en`, `ko`, `ja`, `zh` and `tr`, the lists
-   `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
+   runs `bun scripts/changelog-fold.ts X.Y.Z [YYYY-MM-DD]` (it moves the `Unreleased` notes in
+   [CHANGELOG.md](../CHANGELOG.md) and the [changelog.d/](../changelog.d/README.md) fragments under
+   the new version, dated today in local time by default, links each fragment's PR and deletes the
+   fragments; then add the `by @login` credits; a fragment merged later must be moved into the
+   version by hand, since the release workflow refuses while one is left), and tells the release
+   in [release-summaries.json](../release-summaries.json) the way a game's patch notes do: under
+   the version, for each of `en`, `ko`, `ja`, `zh` and `tr`, the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
    plain text, 90 characters at most, the same number of lines in every language. It is what
    an install shows before and after the update, with the changelog section folded under it,
    so a line names what changes for the people who use the app and leaves out PR numbers and
