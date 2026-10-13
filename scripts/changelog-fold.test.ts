@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { conflictMarkers, foldChangelog, FRAGMENTS_DIR, fragmentFiles, linkPr, parseFragment } from "./changelog-fold.ts";
 import { releaseNotes } from "./release-notes.ts";
@@ -39,6 +40,8 @@ describe("changelog fold", () => {
     expect(releaseNotes("1.2.3", "1.2.3", 'version = "1.2.3"', folded, summaries)).toEndWith(
       `<details><summary>Full changelog</summary>\n\n### Added\n- Old feature. ([#1](${pull(1)}))\n\n### Fixed\n- Old fix.\n  Continued.\n- New fix.\n\n</details>`);
     expect(folded).toContain("## [Unreleased]\n\n## [1.2.3]");
+    // a fragment merged after the fold would ship unnoted, so the pre-tag gate refuses it
+    expect(() => releaseNotes("1.2.3", "1.2.3", 'version = "1.2.3"', folded, summaries, ["late.md"])).toThrow("changelog.d/ still holds late.md");
   });
 
   test("an empty Unreleased with fragments, and Unreleased with no fragments, both release", () => {
@@ -63,6 +66,8 @@ describe("changelog fold", () => {
       [changelog.replace("## [1.2.2] - 2026-01-01", "## [1.2.3] - 2026-01-01"), "already has 1.2.3"],
     ];
     for (const [text, message] of cases) expect(() => foldChangelog(text, [], "1.2.3", "2026-02-03")).toThrow(message);
+    // the line number is the file's, not the Unreleased section's
+    expect(() => foldChangelog(changelog.replace("- Old fix.\n", "- Old fix.\nStray.\n"), [], "1.2.3", "2026-02-03")).toThrow("CHANGELOG.md:9: \"Stray.\"");
     expect(() => foldChangelog(changelog, [], "v1.2.3", "2026-02-03")).toThrow("X.Y.Z");
     expect(() => foldChangelog(changelog, [], "1.2.3", "today")).toThrow("YYYY-MM-DD");
   });
@@ -82,11 +87,23 @@ describe("changelog fold", () => {
       ["### Fixed\n- A.\n", "fix.txt", "rename"],
     ];
     for (const [text, name, message] of bad) expect(() => parseFragment(text, name)).toThrow(message);
+    expect([...parseFragment("\uFEFF### Fixed\r\n- A.\r\n", "x.md")]).toEqual([["Fixed", ["- A."]]]);
   });
 
-  test("the release links the PR that merged a fragment, unless an entry already links one", () => {
-    const linked = linkPr(parseFragment(`### Fixed\n- A.\n  Wrapped.\n- B. ([#5](${pull(5)}) by @x)\n`, "x.md"), 9);
-    expect(linked.get("Fixed")).toEqual([`- A.\n  Wrapped.\n  ([#9](${pull(9)}))`, `- B. ([#5](${pull(5)}) by @x)`]);
+  test("the release links the PR that merged a fragment, unless an entry already links that PR", () => {
+    const linked = linkPr(parseFragment(`### Fixed\n- A.\n  Wrapped.\n- B. ([#9](${pull(9)}) by @x)\n- Follow-up to [#80](${pull(80)}).\n`, "x.md"), 9);
+    expect(linked.get("Fixed")).toEqual([`- A.\n  Wrapped.\n  ([#9](${pull(9)}))`, `- B. ([#9](${pull(9)}) by @x)`, `- Follow-up to [#80](${pull(80)}).\n  ([#9](${pull(9)}))`]);
+  });
+
+  test("only regular, visible files besides the README are fragments", () => {
+    const dir = mkdtempSync(join(tmpdir(), "changelog-d-"));
+    try {
+      for (const name of ["b.md", "a.md", "README.md", ".a.md.swp", ".DS_Store"]) writeFileSync(join(dir, name), "");
+      mkdirSync(join(dir, "sub"));
+      expect(fragmentFiles(dir)).toEqual(["a.md", "b.md"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("conflict markers are found only as whole markers at a line start", () => {
@@ -121,7 +138,9 @@ describe("changelog.d", () => {
   test("the next release folds today's Unreleased notes and fragments (bun scripts/changelog-fold.ts X.Y.Z)", () => {
     // An entry an older PR appended to CHANGELOG.md that the fold cannot place fails here, naming the line.
     const fragments = fragmentFiles(join(root, FRAGMENTS_DIR)).map((name) => fragment(name, readFileSync(join(root, FRAGMENTS_DIR, name), "utf8")));
-    const folded = foldChangelog(readFileSync(join(root, "CHANGELOG.md"), "utf8"), [...fragments, fragment("zz-probe.md", "### Fixed\n- Probe.\n")], "999.0.0", "2099-01-01");
+    // CRLF only from a Windows checkout's autocrlf; the fold itself writes and wants LF
+    const text = readFileSync(join(root, "CHANGELOG.md"), "utf8").replace(/\r\n/g, "\n");
+    const folded = foldChangelog(text, [...fragments, fragment("zz-probe.md", "### Fixed\n- Probe.\n")], "999.0.0", "2099-01-01");
     expect(folded).toContain("## [Unreleased]\n\n## [999.0.0] - 2099-01-01\n");
   });
 });
