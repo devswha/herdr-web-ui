@@ -1072,6 +1072,8 @@ export interface PushPayload {
   /** Absent in legacy payloads means local. */
   machine_id?: string;
   pane_id: string | null;
+  /** The workspace the pane was last seen in, so the tap of an ended pane opens that workspace. Absent when not known. */
+  workspace_id?: string;
   title: string;
   body: string;
   tag: string;

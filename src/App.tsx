@@ -53,7 +53,7 @@ import {
   type NotificationState,
 } from "./lib/notifications.ts";
 import { ensurePushSubscription, pushSupported, removePushSubscription } from "./lib/push.ts";
-import { notificationTargetFromSearch, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
+import { machineGone, notificationLanding, notificationTargetFromSearch, sameLink, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
 import { useUpdates } from "./lib/updates.ts";
 import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { LanExposureNotice } from "./components/LanExposureNotice.tsx";
@@ -76,6 +76,8 @@ import { createAlertTurnPlayer } from "./lib/alertTurns.ts";
 import { dockPane, draggedPane, dropSide, otherSlot, PANE_DRAG_TYPE, sameTarget, slotSide, storedSplit, storeSplit, type SplitSide, type SplitSlot, type SplitState, type SplitTarget } from "./lib/split.ts";
 import { paneDrag } from "./lib/paneDrag.ts";
 import { SplitDropPreview } from "./components/SplitDropPreview.tsx";
+import { CrashProbe, RegionCrash } from "./components/AppCrash.tsx";
+import { RenderBoundary } from "./components/RenderBoundary.tsx";
 
 const APP_TITLE = "herdr web ui";
 /** how soon after a key press a focus counts as the user's own (lastKeyAtRef) */
@@ -244,8 +246,26 @@ export function App() {
   const pendingLink = useRef<AppLink | null>(initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink)) ? initialLink : null);
   // state, not only the ref: what waits on the link landing (the address, its file) runs again when it does
   const [linkLanded, setLinkLanded] = useState(() => pendingLink.current === null);
+  // A PC is gone only by a roster the server sent after it was named (lib/notificationTarget.ts
+  // machineGone): the count of rosters in, and the count when the pending link and the selection
+  // were made (a remembered selection: 0, so the first roster checks it)
+  const rosterSeq = useRef(0);
+  const linkSince = useRef(0);
+  const selectionSince = useRef(0);
+  // the checks run again on a roster that came in while a link waits (the same list, kept as it
+  // was, changes nothing they watch), and on a link a tap set (its pane may be the one selected)
+  const [rosterTick, setRosterTick] = useState(0);
+  const [linkTick, setLinkTick] = useState(0);
+  const rosterIn = useCallback((): void => {
+    rosterSeq.current += 1;
+    if (pendingLink.current !== null) setRosterTick(rosterSeq.current);
+  }, []);
   // the file a link named, opened over its pane once that pane is shown
   const pendingFile = useRef<string | null>(initialLink ? fileFromLink(initialLink) : null);
+  // the workspace a tapped alert named for the pane it selected at once: a roster in hand may
+  // still list a pane that has ended (a phone resumed from the background), and when the next
+  // one drops it, that workspace opens with a word, as a link's does. Any other pick clears it.
+  const selectionHint = useRef<{ machine: string; pane: string; workspace: string } | null>(null);
   // a short word in the header: a link that could not open what it named, or a link copied
   const [headerNote, setHeaderNote] = useState<LinkNote | "copied" | null>(null);
   useEffect(() => {
@@ -384,6 +404,8 @@ export function App() {
   // the dialog makes a tab in this workspace instead of a workspace, while set
   const [newTab, setNewTab] = useState<NewTabTarget | null>(null);
   const [connected, setConnected] = useState(false);
+  // the active slot's pane could not be drawn: no terminal is attached there to say so itself
+  const paneLost = useCallback(() => setConnected(false), []);
   const [outputStopped, setOutputStopped] = useState(false);
   const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
   // this device has a server-side push subscription: alerts come from the server, not the tab
@@ -419,6 +441,7 @@ export function App() {
     try {
       await snapshotRequests.current.read(fetchMachines, (next) => {
         setMachines((previous) => sameData(previous, next) ? previous : next);
+        rosterIn();
         setMachineRosterLoaded(true);
         setError(null); setLocked(false);
       });
@@ -427,7 +450,7 @@ export function App() {
       if (err instanceof ApiError && err.status === 401) { setLocked(true); return; }
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [rosterIn]);
 
   useEffect(() => {
     const tick = (): void => {
@@ -553,6 +576,7 @@ export function App() {
       if (payload.type === "machines") {
         seedStatuses(statusRef.current, alerting(payload.machines), { started: turnStartRef.current, lasted: lastTurnRef.current });
         setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
+        rosterIn();
         setMachineRosterLoaded(true);
         return;
       }
@@ -572,7 +596,7 @@ export function App() {
           dropIn(machine, pane, kind);
           chime(machine, pane, kind);
         }
-        if (pane && shouldNotifyStatus(previous, status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, status, () => selectTargetRef.current(machine.id, message.pane_id, "chat"), machine.id);
+        if (pane && shouldNotifyStatus(previous, status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, status, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
         setMachines((list) => {
           let changed = false;
           const next = list.map((m) => {
@@ -595,7 +619,7 @@ export function App() {
       }
       if (message.type === "pane-exited" && alertsOnRef.current && !pushOnRef.current && alertsRef.current.done !== "off") {
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-        if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id, "chat"), machine.id);
+        if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
       }
       if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
     };
@@ -706,6 +730,9 @@ export function App() {
     storeSelection(machineId, paneId);
     // a pane picked (a tapped notification, the sidebar, Back) before a link landed supersedes the link
     pendingLink.current = null; pendingFile.current = null; setLinkLanded(true);
+    selectionHint.current = null;
+    // a PC picked now (Open PC, before load() brings it) is checked against a roster sent after this
+    selectionSince.current = rosterSeq.current;
   }, [inOtherHalf, setSplit]);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   // the moves this client asked for and has no answer to yet (MovePaneMenu): the effect below
@@ -767,17 +794,29 @@ export function App() {
       // the pane is gone because this client is moving it and the roster outran the answer:
       // the answer names the id to follow (actions.paneMoved), and herdr's focus is not it
       if (paneMovePending(selectedMachineId, selectedPaneId)) return;
+      // a pane a tapped alert selected: the workspace the alert named opens, and says so
+      const hint = selectionHint.current;
+      selectionHint.current = null;
+      if (hint && hint.machine === selectedMachineId && hint.pane === selectedPaneId) {
+        const landed = resolveLink(current, { workspace: hint.workspace, workspaceSlug: null, pane: hint.pane });
+        if (landed.note) setHeaderNote(landed.note);
+        setNotificationViewTarget(null);
+        setSelectedPaneId(landed.pane ?? fallback(current));
+        setAutoSelected(true);
+        return;
+      }
       setSelectedPaneId(fallback(current));
       setAutoSelected(true);
     }).catch(() => { /* a failed read is not evidence that the pane disappeared */ });
     return () => { cancelled = true; };
-  }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state, movesVersion]);
+  }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state, movesVersion, linkTick]);
   useEffect(() => {
     storeSelection(selectedMachineId, selectedPaneId);
   }, [selectedMachineId, selectedPaneId]);
 
   const selectPane = useCallback((paneId: string, focusInput = true) => {
     pendingLink.current = null; pendingFile.current = null; setLinkLanded(true);
+    selectionHint.current = null;
     const open = splitRef.current;
     const current = selectionRef.current;
     if (open && current.paneId !== null && inOtherHalf(current.machineId, paneId)) {
@@ -797,8 +836,28 @@ export function App() {
     else console.warn(what, err);
   }, [t]);
 
-  // a tapped notification focuses this window and names the pane (public/sw.js)
-  useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id, target.view)), []);
+  // a tapped notification focuses this window and names the pane (public/sw.js). A pane not known
+  // yet waits as a link does (this also keeps a cold start's link, which the worker names again
+  // once the page is up), and so does one on a PC this roster lacks: a roster asked for now says
+  // whether it was removed (the [machines] effect below) or set up since this one was read
+  const takeNotificationTarget = useCallback((target: NotificationTarget): void => {
+    const landing = notificationLanding(machinesRef.current, target);
+    if (landing.kind === "select") {
+      selectTargetRef.current(target.machine_id, target.pane_id, target.view);
+      if (target.workspace_id) selectionHint.current = { machine: target.machine_id, pane: target.pane_id, workspace: target.workspace_id };
+      return;
+    }
+    // the worker names one tap twice, before and after focus: the second leaves the first's lookup be
+    if (sameLink(pendingLink.current, landing.link)) return;
+    selectTargetRef.current(target.machine_id, target.pane_id, target.view);
+    pendingLink.current = landing.link; pendingFile.current = null; setLinkLanded(false);
+    linkSince.current = rosterSeq.current;
+    setLinkTick((tick) => tick + 1);
+    if (landing.stale) void load();
+  }, [load]);
+  // the tab's own alerts shown without a worker (lib/notifications.ts) land the same way
+  const takeNotificationTargetRef = useRef(takeNotificationTarget); takeNotificationTargetRef.current = takeNotificationTarget;
+  useEffect(() => onNotificationTarget(takeNotificationTarget), [takeNotificationTarget]);
 
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
@@ -1069,6 +1128,7 @@ export function App() {
         if (!link.pane && !link.workspace) return;
         selectTargetRef.current(link.machine, link.pane, link.view ?? undefined);
         pendingLink.current = link; pendingFile.current = null; setLinkLanded(false);
+        linkSince.current = rosterSeq.current;
         poppedTo.current = true;
         return;
       }
@@ -1243,16 +1303,20 @@ export function App() {
   // pane's title, and the palette is the menu's first item.
   const paletteItem: RowMenuItem = { id: "palette", label: t("Command palette"), icon: Search, run: () => openPalette() };
   // a link to a PC this app does not have lands on this PC instead, and says so: the roster lists
-  // every configured PC, connected or not, so one missing from it is not set up here
+  // every configured PC, connected or not, so one missing from it is not set up here. So does a
+  // selection of a PC removed since (a reload, a new window), here or on another device. Only a
+  // roster the server sent after the PC was named decides (lib/notificationTarget.ts machineGone)
   useEffect(() => {
     const linked = pendingLink.current;
-    if (!linked || machines.length === 0 || machines.some((machine) => machine.id === linked.machine)) return;
+    const machineId = linked ? linked.machine : selectedMachineRef.current;
+    const since = linked ? linkSince.current : selectionSince.current;
+    if (!machineGone(machines, rosterSeq.current, since, machineId)) return;
     pendingLink.current = null; pendingFile.current = null;
     setLinkLanded(true);
     setHeaderNote("machine-missing");
     // no pane: the link's pane id means nothing on another PC, so the pane herdr has in front opens
-    selectTarget("local", null);
-  }, [machines, selectTarget]);
+    selectTargetRef.current("local", null);
+  }, [machines, rosterTick, linkTick]);
 
   // a link to the New workspace dialog opens it once the PCs are in; one for a tab, once the
   // linked workspace's pane is selected (its folder is the workspace's, as the tab strip's + does)
@@ -1448,7 +1512,11 @@ export function App() {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          {/* a sidebar that cannot be drawn leaves the panes working */}
+          <RenderBoundary resetKey={null} fallback={(retry) => <RegionCrash message={t("The sidebar can't be shown.")} retry={retry} />}>
+            <CrashProbe region="sidebar" />
+            <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          </RenderBoundary>
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
 
@@ -1518,6 +1586,10 @@ export function App() {
                     </button>
                   </div>
                 )}
+                {/* a pane this half cannot draw leaves the sidebar and the other half working; picking
+                    another pane tries again */}
+                <RenderBoundary resetKey={`${machineId}:${paneId ?? ""}`} fallback={(retry) => <RegionCrash message={t("This pane can't be shown.")} retry={retry} onShown={active ? paneLost : undefined} />}>
+                <CrashProbe region="pane" />
                 {slotSnapshot && pane && workspace && (
                   <TabStrip snapshot={slotSnapshot} workspace={workspace} selectedPane={pane} panelId={slotPanelId} splitDrag={wideScreen} onSelectPane={onSelect}
                     onNewTab={() => actions.openNewTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
@@ -1572,6 +1644,7 @@ export function App() {
                     </OpenFileContext.Provider>} />
                   </div>
                 </main>
+                </RenderBoundary>
               </div>
               </MachineContext.Provider>
             );
