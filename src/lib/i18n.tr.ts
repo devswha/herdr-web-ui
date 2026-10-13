@@ -1172,6 +1172,7 @@ export const TR: Record<string, string> = {
   "Code blocks, the file viewer, diffs, paths and keycaps; the terminal has a font of its own. Comma-separated, tried in order. A font this device does not have falls back to the default.": "Kod blokları, dosya görüntüleyici, farklar, yollar ve tuş etiketleri; terminalin kendi yazı tipi vardır. Virgülle ayrılır, sırayla denenir. Bu cihazda olmayan bir yazı tipi varsayılana döner.",
   "{font} is not monospace. Code needs a fixed-width font, so the current font was kept.": "{font} sabit genişlikli değil. Kod için sabit genişlikli bir yazı tipi gerekir, bu yüzden mevcut yazı tipi korundu.",
   "Working folder": "Çalışma klasörü",
+  "Worktree": "Worktree klasörü",
   "Browse folders in the palette": "Klasörlere paletten göz at",
   "Files edited in this turn": "Bu turda düzenlenen dosyalar",
   "Open working-tree diff for {path}": "{path} için çalışma ağacı farkını aç",

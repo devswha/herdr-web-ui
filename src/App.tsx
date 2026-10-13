@@ -1622,6 +1622,8 @@ export function App() {
                         plan={machine?.state === "connected" ? (item as HerdrPane | undefined)?.plan ?? null : null}
                         backgroundWait={item?.background_wait === true}
                         cwd={item?.cwd ?? null}
+                        workspaceId={item?.workspace_id ?? null}
+                        linkedWorktree={item !== null && slotSnapshot?.workspaces.find((workspace) => workspace.workspace_id === item.workspace_id)?.worktree?.is_linked_worktree === true}
                         machineName={machine?.name ?? machineId}
                         view={item ? lensOf(item) : slotView}
                         // the other half never takes the keyboard: a press in it makes it active first

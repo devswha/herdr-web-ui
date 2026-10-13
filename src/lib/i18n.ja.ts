@@ -1219,6 +1219,7 @@ export const JA: Record<string, string> = {
   "Code blocks, the file viewer, diffs, paths and keycaps; the terminal has a font of its own. Comma-separated, tried in order. A font this device does not have falls back to the default.": "コードブロック、ファイルビューア、差分、パス、キー表示に適用され、ターミナルは独自のフォントを使います。カンマ区切りで順に試します。この端末にないフォントはデフォルトのフォントで代替されます。",
   "{font} is not monospace. Code needs a fixed-width font, so the current font was kept.": "{font} は等幅フォントではありません。コードには等幅フォントが必要なため、現在のフォントを維持しました。",
   "Working folder": "作業フォルダ",
+  "Worktree": "ワークツリー",
   "Browse folders in the palette": "パレットでフォルダを参照",
   "Files edited in this turn": "このターンで編集したファイル",
   "Open working-tree diff for {path}": "{path} の作業ツリーの差分を開く",

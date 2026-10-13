@@ -1221,6 +1221,7 @@ export const ZH: Record<string, string> = {
   "Code blocks, the file viewer, diffs, paths and keycaps; the terminal has a font of its own. Comma-separated, tried in order. A font this device does not have falls back to the default.": "适用于代码块、文件查看器、差异、路径和按键标签；终端使用自己的字体。以逗号分隔，按顺序尝试。此设备没有的字体会回退到默认字体。",
   "{font} is not monospace. Code needs a fixed-width font, so the current font was kept.": "{font} 不是等宽字体。代码需要等宽字体，因此保留了当前字体。",
   "Working folder": "工作文件夹",
+  "Worktree": "工作树",
   "Browse folders in the palette": "在命令面板中浏览文件夹",
   "Files edited in this turn": "本轮编辑的文件",
   "Open working-tree diff for {path}": "打开 {path} 的工作树差异",

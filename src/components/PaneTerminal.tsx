@@ -21,6 +21,7 @@ import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRo
 import { arrangeNotices, dismissNotice, NO_DISMISSALS, settleDismissed, type DismissedNotices } from "../lib/composerNotices.ts";
 import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, submitNote, submitNotTyped, submitRefusal } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
+import { DETACHED, usePaneBranch } from "../lib/paneBranch.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
@@ -93,6 +94,10 @@ export interface PaneTerminalProps {
   backgroundWait?: boolean;
   /** the pane's working directory and its PC's name: an empty chat's greeting names them */
   cwd?: string | null;
+  /** the pane's workspace: its checkout's branch stands beside the folder under the composer */
+  workspaceId?: string | null;
+  /** that workspace is a linked worktree of its repository */
+  linkedWorktree?: boolean;
   machineName?: string;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
@@ -149,6 +154,8 @@ export function PaneTerminal({
   plan = null,
   backgroundWait = false,
   cwd = null,
+  workspaceId = null,
+  linkedWorktree = false,
   machineName = "",
   view,
   findRequest = 0,
@@ -176,6 +183,7 @@ export function PaneTerminal({
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
   const machineId = useMachineId();
+  const branchWord = usePaneBranch(machineId, workspaceId);
   const machineSessions = useMachineSessions();
   const sessionRef = useRef<MachineSession | null>(null);
   const submitRetention = useContext(PaneSubmitContext);
@@ -2723,6 +2731,8 @@ export function PaneTerminal({
           key={paneId}
           paneId={paneId}
           cwd={cwd}
+          branch={branchWord === DETACHED ? t("Detached HEAD") : branchWord}
+          worktree={linkedWorktree}
           autoFocus={active && !autoSelected && !coarse}
           active={active}
           agent={agent}

@@ -1217,6 +1217,7 @@ export const KO: Record<string, string> = {
   "Code blocks, the file viewer, diffs, paths and keycaps; the terminal has a font of its own. Comma-separated, tried in order. A font this device does not have falls back to the default.": "코드 블록, 파일 뷰어, 변경 사항, 경로, 키 표시에 적용되며 터미널은 자체 글꼴을 씁니다. 쉼표로 구분하며 순서대로 시도합니다. 이 기기에 없는 글꼴은 기본 글꼴로 대체됩니다.",
   "{font} is not monospace. Code needs a fixed-width font, so the current font was kept.": "{font}은(는) 고정폭 글꼴이 아닙니다. 코드에는 고정폭 글꼴이 필요하므로 현재 글꼴을 유지했습니다.",
   "Working folder": "작업 폴더",
+  "Worktree": "워크트리",
   "Browse folders in the palette": "팔레트에서 폴더 탐색",
   "Files edited in this turn": "이 턴에서 편집한 파일",
   "Open working-tree diff for {path}": "{path}의 작업 트리 변경 사항 열기",

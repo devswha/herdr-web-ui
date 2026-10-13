@@ -1180,6 +1180,8 @@ One set for both themes: the card is island black wherever it shows.
   working folder at its start (lucide `Folder`, the folder's last name, the whole path in its
   `title`) and the branch at its end (lucide `GitBranch`), each a glyph the text's size and a
   name in `--text-dim` at `--fs-xs`, `--chip-h` tall; a name that does not fit is cut short.
+  A linked worktree's folder takes lucide `FolderGit2` and the word Worktree after its name, in
+  a `--border` hairline box with `--radius-sm` corners.
   Nothing in it is pressed. `composerStrip` (`src/lib/composerStrip.ts`) decides what it draws from
   the composer's optional `cwd` and `branch`: a blank one is absent, and with neither there is no
   strip at all. The card stands over it (`z-index: 1`, so its popovers go with it and still rise
