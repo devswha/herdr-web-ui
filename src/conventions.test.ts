@@ -146,6 +146,9 @@ describe("icon cache", () => {
     if (hash !== current.sha256) {
       throw new Error(`The icon files (${iconFiles().join(", ")}) changed, but ?v=${CURRENT_ICONS} still names the old ones. Pick a new query, set it on every icon URL in index.html, public/manifest.webmanifest and public/sw.js, give public/sw.js a new CACHE_NAME, then add { sha256: "${hash}", cacheName: <the new CACHE_NAME> } under the new query to ICON_VERSIONS in src/conventions.test.ts and point CURRENT_ICONS at it. Keep the old entries.`);
     }
+    if (current.cacheName !== cacheName) {
+      throw new Error(`public/sw.js's CACHE_NAME is "${cacheName}": set cacheName of ICON_VERSIONS.${CURRENT_ICONS} in src/conventions.test.ts to it, so the next icon change can tell the cache moved.`);
+    }
     const reused = Object.entries(ICON_VERSIONS).filter(([query, entry]) => query !== CURRENT_ICONS && entry.cacheName === cacheName);
     fail(reused.map(([query]) => `CACHE_NAME "${cacheName}" is the cache of the icons under ?v=${query}`),
       "public/sw.js needs a new CACHE_NAME for the new icons: an installed app keeps serving the old icons out of the old cache.");
