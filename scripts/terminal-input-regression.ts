@@ -13,6 +13,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
   });
   const sent: any[] = [];
+  const resizes: any[] = [];
   let acknowledge: (() => void) | undefined;
   let ready: (() => void) | undefined;
   let delayReady = false;
@@ -29,7 +30,10 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
         sent.push(frame);
         acknowledge = () => socket.send(JSON.stringify({ type: "submit-result", id: frame.id, pane_id: frame.pane_id, ok: true }));
       } else if (frame.type === "input") sent.push(frame);
-      else server.send(raw);
+      else {
+        if (frame.type === "resize") resizes.push(frame);
+        server.send(raw);
+      }
     });
   });
   const line = page.getByRole("textbox", { name: "Terminal input line", exact: true });
@@ -50,6 +54,53 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
     assert.equal(await page.locator(".key-bar").isVisible(), false, "a desktop shows no key bar under the terminal");
     assert.equal(await page.getByRole("button", { name: "Type straight into the terminal", exact: true }).count(), 0);
+
+    // The line grows over the grid's last rows: neither its growth nor its collapse after Send
+    // changes the grid's height, which is the shared pty's size.
+    await line.waitFor();
+    const gridHeight = () => page.locator(".pane-terminal").evaluate((element) => element.getBoundingClientRect().height);
+    const height = (selector: string) => page.locator(selector).evaluate((element) => element.getBoundingClientRect().height);
+    const frame = () => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await page.evaluate(() => {
+      const grid = document.querySelector(".pane-terminal")!;
+      (window as any).gridResized = 0;
+      let first = true;
+      new ResizeObserver(() => { if (first) first = false; else (window as any).gridResized += 1; }).observe(grid);
+    });
+    await frame();
+    const restingGrid = await gridHeight();
+    const resizesBefore = resizes.length;
+    const restingLine = await height(".terminal-input");
+    await line.click();
+    await page.keyboard.type("first line");
+    await page.keyboard.press("Shift+Enter");
+    await page.keyboard.type("second line");
+    await page.keyboard.press("Shift+Enter");
+    await page.keyboard.type("third line");
+    await until(async () => (await line.getAttribute("rows")) === "3");
+    await frame();
+    assert(await height(".terminal-input") > restingLine + 20, "three lines grow the line");
+    if (process.env.UI_EVIDENCE_DIR) {
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: `${process.env.UI_EVIDENCE_DIR}/terminal-input-grown.png` });
+    }
+    assert.equal(await gridHeight(), restingGrid, "a growing input line keeps the grid's height");
+    const submitsBefore = sent.length;
+    await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
+    await until(() => sent.length > submitsBefore && !!acknowledge);
+    assert.equal(sent.at(-1).text, "first line\nsecond line\nthird line");
+    acknowledge!();
+    await until(async () => (await line.inputValue()) === "" && (await line.getAttribute("rows")) === "1");
+    await frame();
+    assert.equal(await gridHeight(), restingGrid, "the line's collapse after Send keeps the grid's height");
+    assert.equal(await page.evaluate(() => (window as any).gridResized), 0, "the grid's observer never fired");
+    assert(Math.abs(await height(".terminal-input") - await height(".terminal-input-slot")) < 1, "a one-row line covers no grid row");
+    // what PaneTerminal's observer would have sent comes 120 ms after a change, and none happened
+    assert.equal(resizes.length, resizesBefore, "typing three lines and Send send no resize");
+    sent.length = 0;
+    acknowledge = undefined;
+
     await line.fill("draft 한글 😀");
     await remountLine();
     assert.equal(await line.inputValue(), "draft 한글 😀");
