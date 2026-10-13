@@ -92,4 +92,4 @@ running terminals: see [development](docs/development.md#checks).
 
 Maintainers only: see [development](docs/development.md#releasing). App releases are cut by the
 Release workflow; never push a `vX.Y.Z` tag by hand, since installed updaters act on tags alone.
-Remote-PC runtime bundles are released separately with a `remote-vN` tag.
+Remote-PC runtime bundles are published with a `remote-vN` tag, and an app release requires the matching one.

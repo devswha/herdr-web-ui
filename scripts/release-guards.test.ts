@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { bundleInput, bundleProblems, check, DEPLOYED_FILE, WORKER_SOURCES, workerFingerprint, workerProblems } from "./release-guards.ts";
+import { BUNDLE_WORKFLOW, bundleInput, bundleProblems, check, DEPLOYED_FILE, WORKER_SOURCES, workerFingerprint, workerProblems } from "./release-guards.ts";
 
 const made: string[] = [];
 /** a throwaway identity, unsigned whatever the user's git config says */
@@ -117,6 +117,29 @@ describe("check", () => {
     expect(check(dir, true).problems[0]).toContain("remote-v2 is not published");
     run(dir, "tag", "remote-v2");
     expect(check(dir, true).problems).toEqual([]);
+  });
+
+  it("passes a change merged after the release PR, which the Release run checks instead", () => {
+    const dir = released({ "server/index.ts": "b", "shared/machines.ts": 'export const REMOTE_BUNDLE_VERSION = "2";\n' });
+    releasePr(dir);
+    expect(check(dir, false, "HEAD^1").version).toBe("1.1.0");
+    run(dir, "tag", "remote-v2");
+    writeFileSync(join(dir, "server/other.ts"), "c");
+    run(dir, "add", "-A");
+    run(dir, "commit", "-qm", "feature");
+    expect(check(dir, false, "HEAD^1")).toEqual({ version: null, problems: [] });
+    expect(check(dir, false, "0000000000000000000000000000000000000000").problems[0]).toContain("server/other.ts");
+    expect(check(dir, true).problems[0]).toContain("from 2 to 3");
+  });
+
+  it("fails a release that moved the bun pin the Linux bundles carry", () => {
+    const pin = (version: string) => `steps:\n  - uses: oven-sh/setup-bun@v2\n    with:\n      bun-version: ${version}\n`;
+    const dir = released({ [BUNDLE_WORKFLOW]: pin("1.4.2") });
+    run(dir, "tag", "-f", "remote-v1");
+    writeFileSync(join(dir, BUNDLE_WORKFLOW), pin("1.5.0"));
+    run(dir, "commit", "-qam", "bun");
+    releasePr(dir);
+    expect(check(dir, false).problems[0]).toContain(`${BUNDLE_WORKFLOW} bun-version`);
   });
 
   it("fails a release whose Worker changed without a recorded deploy, and one without patch notes", () => {
