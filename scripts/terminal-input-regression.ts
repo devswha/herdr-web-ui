@@ -178,7 +178,8 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     assert.equal(await line.inputValue(), "draft 한글 😀");
 
     // `note` is the input line's note locator declared above
-    const noteText = async () => (await note.count()) === 0 ? null : await note.textContent();
+    // one read: a note that goes between a count and a textContent would wait out the timeout
+    const noteText = () => note.evaluateAll((elements) => elements[0]?.textContent ?? null);
     const sendButton = page.getByRole("button", { name: "Send to the terminal", exact: true });
     // A real composition (Chrome's IME path, as Gboard composes every word): the Send keeps focus,
     // so the tap itself must finish the word, and it sends the committed line at once.
@@ -254,7 +255,8 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
       });
       await page.waitForTimeout(40);
     }
-    await until(async () => (await noteText()) === "Finish the word, then send.");
+    // already withdrawn when the chain ends: a wait re-armed per composition would still be open
+    assert.equal(await noteText(), "Finish the word, then send.", "the tap's deadline holds through a chain of compositions");
     await line.dispatchEvent("compositionend", { data: "한" });
     await page.waitForTimeout(100);
     assert.equal(sent.length, 2, "a chain of compositions past the deadline sends nothing");
