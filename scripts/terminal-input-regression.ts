@@ -181,7 +181,10 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await pasteIntoTerminal("x\ny");
     await page.waitForTimeout(100);
     assert.equal(sent.length, afterEscape, "a multi-line paste beside a held draft reaches nothing");
-    if (await banner.isVisible()) await dismissBanner();
+    // never a silent drop: refused with the note, or taken into the draft (a draft that folds line breaks)
+    const multiLineNoted = await banner.isVisible();
+    assert(multiLineNoted || (await page.locator(".draft-text").textContent()) !== "ab", "a multi-line paste is told or held, never dropped in silence");
+    if (multiLineNoted) await dismissBanner();
     // the input line is refused beside a held draft too, with the held-input reason, not "disconnected"
     await setMode("line");
     const lineNote = page.locator(".terminal-input-note");
