@@ -133,12 +133,26 @@ async function selectRows(page: Page, from: number, to: number, startOffset?: nu
     const selection = window.getSelection()!;
     selection.removeAllRanges();
     selection.addRange(range);
+    (window as unknown as { selectedRows: HTMLElement[] }).selectedRows = [first, last];
     return selection.toString();
   }, [from, to, startOffset, endOffset] as const);
 }
-async function copied(page: Page): Promise<string> {
-  await page.keyboard.press("ControlOrMeta+c");
-  return page.evaluate(() => navigator.clipboard.readText());
+/**
+ * Selects rows as `selectRows` does and copies them with a real Cmd+C. Shortly after a mount the
+ * virtualizer rebuilds the rows it already drew (its first intersection pass resets the render
+ * range, and a highlight pass renders again), which drops a live selection, so the copy is empty;
+ * a load (CI's parallel browsers) delays that rebuild past "rows mounted". A copy whose selected
+ * rows were replaced underneath it is selected and copied again, a few times at most: only a
+ * detected rebuild retries, so a copy that is wrong over unchanged rows still fails.
+ */
+async function selectAndCopy(page: Page, from: number, to: number, startOffset?: number, endOffset?: number): Promise<{ selected: string; copied: string }> {
+  for (let attempt = 1; ; attempt += 1) {
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    const selected = await selectRows(page, from, to, startOffset, endOffset);
+    await page.keyboard.press("ControlOrMeta+c");
+    const [copied, intact] = await page.evaluate(async () => [await navigator.clipboard.readText(), (window as unknown as { selectedRows: HTMLElement[] }).selectedRows.every((row) => row.isConnected)] as const);
+    if (intact || attempt === 3) return { selected, copied };
+  }
 }
 async function scrollRootTo(page: Page, where: "middle" | "end"): Promise<void> {
   await page.evaluate((where) => {
@@ -354,12 +368,14 @@ try {
     if (colored) await page.waitForFunction(() => document.querySelector("diffs-container")!.shadowRoot!.querySelectorAll("[data-line] span[style*='--herdr-code-token']").length > 0, undefined, { timeout: 20_000 });
     // rows 25..35 hold the blank line 30: an exact copy keeps it, and no gutter digit
     const interior = lines.slice(24, 35).join("\n");
-    assert.equal(await selectRows(page, 25, 35), interior, `${path}: a selection over an interior blank line is the source's text`);
-    assert.equal(await copied(page), interior, `${path}: a real copy of it is exact`);
+    const whole = await selectAndCopy(page, 25, 35);
+    assert.equal(whole.selected, interior, `${path}: a selection over an interior blank line is the source's text`);
+    assert.equal(whole.copied, interior, `${path}: a real copy of it is exact`);
     // a partial selection keeps its exact ends
     const partial = `${lines[25]!.slice(3)}\n${lines[26]!}\n${lines[27]!.slice(0, 5)}`;
-    assert.equal(await selectRows(page, 26, 28, 3, 5), partial, `${path}: a partial selection is exact`);
-    assert.equal(await copied(page), partial, `${path}: a real copy of a partial selection is exact`);
+    const part = await selectAndCopy(page, 26, 28, 3, 5);
+    assert.equal(part.selected, partial, `${path}: a partial selection is exact`);
+    assert.equal(part.copied, partial, `${path}: a real copy of a partial selection is exact`);
     // blank lines at the start and the end of a selection serialize as a native pre/code does
     const edges = lines.slice(29, 41).join("\n");
     assert.equal(await selectRows(page, 30, 41), await nativeSelection(page, edges), `${path}: blank first and last lines read as a native pre/code`);
@@ -369,8 +385,9 @@ try {
     await page.waitForFunction((last) => document.querySelector("diffs-container")!.shadowRoot!.querySelector(`[data-line="${last}"]`) !== null, lines.length);
     const tail = lines.slice(lines.length - 4).join("\n");
     assert.ok(tail.endsWith("\n\n"), `${path}: the fixture ends with a blank line and its newline`);
-    assert.equal(await selectRows(page, lines.length - 3, lines.length), tail, `${path}: a selection to the end keeps the trailing blank line and the final newline`);
-    assert.equal(await copied(page), tail, `${path}: a real copy of the tail is the source's tail`);
+    const end = await selectAndCopy(page, lines.length - 3, lines.length);
+    assert.equal(end.selected, tail, `${path}: a selection to the end keeps the trailing blank line and the final newline`);
+    assert.equal(end.copied, tail, `${path}: a real copy of the tail is the source's tail`);
     // a blank row is an empty span given a line break (plain rows) or a bare newline (colored rows)
     const heights = await page.evaluate(() => [...document.querySelector("diffs-container")!.shadowRoot!.querySelectorAll<HTMLElement>("[data-line]")].map((row) => ({ line: Number(row.dataset["line"]), empty: row.textContent === "" || row.textContent === "\n", height: row.getBoundingClientRect().height })));
     const base = heights.find((row) => !row.empty)!.height;

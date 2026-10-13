@@ -11,6 +11,7 @@ import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/clien
 import { openSettingsPage } from "./settings-page.ts";
 import { sheetsSettled } from "./sheets-settled.ts";
 import type { Machine } from "../shared/protocol.ts";
+import { FAVICON_CANDIDATES } from "../src/lib/projectFavicon.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-file-back-"));
 const codexHome = join(root, "codex-home");
@@ -754,7 +755,10 @@ try {
       if (request.pathname === "/api/machines") { await route.fulfill({ json: { machines: [...roster.machines, remote] } }); return; }
       if (request.pathname === "/api/machines/remote-fixture/session") { await route.fulfill({ json: { snapshot: remote.snapshot } }); return; }
       if (request.pathname.includes("/fs/")) {
-        fileRequests.push(request.pathname);
+        // the sidebar probes each workspace folder for its project icon on its own PC; only the
+        // document's reads are the link's
+        const asked = request.searchParams.get("path") ?? "";
+        if (!FAVICON_CANDIDATES.some((candidate) => asked.endsWith(`/${candidate}`))) fileRequests.push(request.pathname);
         if (request.pathname.startsWith("/api/machines/remote-fixture/")) {
           request.pathname = request.pathname.replace("/api/machines/remote-fixture/", "/api/");
           await route.fulfill({ response: await route.fetch({ url: request.href }) });
