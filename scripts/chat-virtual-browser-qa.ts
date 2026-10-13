@@ -97,6 +97,8 @@ try {
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname.endsWith("/pane/conversation/tool-output")) { wholeReads++; return new Response(WHOLE_OUTPUT); }
+    // the chat asks for the pane's slash commands to mark skill names in an answer: this pane has none
+    if (url.pathname.endsWith("/pane/commands")) return Response.json({ commands: [] });
     if (url.pathname.endsWith("/pane/conversation")) {
       const machine = url.pathname.includes("/machines/remote/") ? "remote" : "local";
       const older = url.searchParams.has("before");

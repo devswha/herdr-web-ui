@@ -8,11 +8,17 @@ import {
 import "./ChatView.css";
 
 import { AgentMark } from "./AgentMark.tsx";
-import { Markdown } from "./Markdown.tsx";
+import { AnimatedHeight } from "./AnimatedHeight.tsx";
+import { ChatDiffContext, TurnChangedFiles } from "./TurnChangedFiles.tsx";
+import type { RepoDiffTarget } from "../lib/repoDiff.ts";
+import { Markdown, ReservedImage } from "./Markdown.tsx";
+import { ImageLightbox } from "./ImageLightbox.tsx";
 import { PromptCard } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { ChatTimeline } from "./ChatTimeline.tsx";
 import { ChatFind } from "./ChatFind.tsx";
+import { ChatMinimap } from "./ChatMinimap.tsx";
+import { minimapTurns } from "../lib/chatMinimap.ts";
 import { chatSearchText, type ChatSearchMatch } from "../lib/chatSearch.ts";
 import type { LegendListRef } from "@legendapp/list/react";
 import { appendChatRowSlots, createChatRowSlots, prependChatRowSlots } from "../lib/chatRows.ts";
@@ -22,6 +28,7 @@ import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
 import { copyText } from "../lib/clipboard.ts";
+import { attachmentFileName, mentionFileName, type GalleryImage } from "../lib/imageViewer.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
 import { isLiveWorkTurn, isWaitingWorkTurn, formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
@@ -30,6 +37,8 @@ import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoS
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
 import { useSettings } from "../lib/settings.ts";
 import { pageScrollDistance } from "../lib/pageScroll.ts";
+import { followGlides } from "../lib/followScroll.ts";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import { ConversationRefresh } from "../lib/conversationRefresh.ts";
 import { usePageVisible } from "../lib/visibility.ts";
@@ -38,14 +47,18 @@ import { useFacesArrived } from "../lib/fontFaces.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { linkFilePaths } from "./FilePathLink.tsx";
 import { patchText } from "../../shared/patch.ts";
-import { toolVerb } from "../lib/toolVerbs.ts";
-import { machinePath } from "../../shared/machines.ts";
+import { workRowLabel } from "../lib/workRowLabel.ts";
+import { machinePath, paneStorageId } from "../../shared/machines.ts";
+import { chatRestoreIndex, chatTurnAnchor, readChatPosition, rememberChatPosition, type ChatPosition } from "../lib/chatScrollMemory.ts";
 import { fileUrl } from "../lib/api.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
+import { useSkillMatcher } from "../lib/useSkillMatcher.ts";
+import type { SkillMatcher } from "../lib/skillMentions.ts";
 import { lineDiff } from "../lib/diff.ts";
 import { formatTokens, sameMessage } from "../lib/compose.ts";
 import { formatElapsed, taskCallItems, taskResultMarkdown } from "../lib/omoTasks.ts";
 import { sendUserFileCall } from "../lib/sendUserFile.ts";
+import { shouldFoldUserMessage } from "../lib/userMessageFold.ts";
 
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 const ChatPaneContext = createContext<string | null>(null);
@@ -53,6 +66,7 @@ const ChatHistoryContext = createContext("");
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
+import { formatChatTimestamp } from "../lib/chatTimestamp.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
 const TRANSCRIPT_LINES = 400;
@@ -62,6 +76,8 @@ const LOAD_OLDER_PX = 400;
 
 export interface ChatViewProps {
   paneId: string;
+  cwd?: string | null;
+  onOpenDiff?: (target: RepoDiffTarget) => void;
   /** Only the active pane owns the chat-local Mod+F shortcut. */
   active?: boolean;
   pageScroll?: { current: ((direction: -1 | 1) => void) | null };
@@ -116,10 +132,12 @@ interface ChatState {
 const EMPTY_STATE: ChatState = { source: "conversation", turns: [], messages: [], truncated: false };
 
 
-function formatTime(ts: string | null): string | null {
-  if (ts === null) return null;
-  const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" });
+/** One turn's time: day-aware text, the full date as tooltip, focusable so a keyboard reaches the tooltip. */
+function TurnTime({ ts }: { ts: string | null }) {
+  const t = useT();
+  const stamp = formatChatTimestamp(ts, Date.now(), currentLocale(), t);
+  if (stamp === null) return null;
+  return <time className="chat-time" dateTime={ts ?? undefined} title={stamp.full} tabIndex={0}>{stamp.label}</time>;
 }
 
 function plainText(markdown: string): string {
@@ -298,15 +316,37 @@ function useWholeOutput(ref: string | undefined): { text: string | null; state: 
   return saved === undefined ? result : { text: saved, state: "idle", load: result.load };
 }
 
+/** A chat thumbnail: a tap opens the message's pictures over the page (ImageLightbox), this one first. */
+function ImageThumb({ image, onOpen }: { image: GalleryImage; onOpen: () => void }) {
+  const t = useT();
+  // the focus is placed on the thumbnail before the viewer opens, so the viewer's focus trap
+  // records it as the opener and gives the focus back here on close (Safari does not focus a
+  // clicked button on its own)
+  return <button type="button" className="chat-user-image" title={t("Open image")} onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); onOpen(); }}>
+    <ReservedImage src={image.src} alt={image.name} slot />
+  </button>;
+}
+
+/** The thumbnails of a message's pictures, and the viewer over the page while one is open. */
+function ImageGallery({ images, className }: { images: GalleryImage[]; className: string }) {
+  const [shown, setShown] = useState<number | null>(null);
+  return <div className={className}>
+    {images.map((image, index) => <ImageThumb key={image.src} image={image} onOpen={() => setShown(index)} />)}
+    {shown !== null && <ImageLightbox images={images} index={shown} onClose={() => setShown(null)} />}
+  </div>;
+}
+
 /** Images a tool returned (pi reads a picture into the result); opened with the row. */
 function ToolImages({ paneId, part }: { paneId: string; part: ToolPartType }) {
   const t = useT();
   const machineId = useMachineId();
   if (part.images === undefined || part.images.length === 0) return null;
-  return <div className="chat-tool-images">{part.images.map((image) => {
-    const src = machinePath(machineId, `pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: image.ref }).toString()}`);
-    return <a key={image.ref} className="chat-user-image" href={src} target="_blank" rel="noopener noreferrer" title={t("Open image")}><img src={src} alt={t("Attached image")} loading="lazy" /></a>;
-  })}</div>;
+  const images = part.images.map((image, index): GalleryImage => ({
+    src: machinePath(machineId, `pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: image.ref }).toString()}`),
+    name: t("Attached image"),
+    file: attachmentFileName(image.media_type, index),
+  }));
+  return <ImageGallery images={images} className="chat-tool-images" />;
 }
 
 /**
@@ -323,18 +363,18 @@ function WorkRow({ paneId, part, stateKey }: { paneId: string; part: ToolPartTyp
   const whole = useWholeOutput(part.output_ref);
   const summary = part.arguments_omitted ? t("Arguments omitted (too large)") : todoCallSummary(part) ?? part.summary;
   // reads the call's input: once per call, not on every poll of the transcript
-  const verb = useMemo(() => toolVerb({ name: part.name, input: part.input }, summary), [part.name, part.input, summary]);
+  const { verb, narration } = useMemo(() => workRowLabel({ name: part.name, input: part.input }, summary), [part.name, part.input, summary]);
   // the list is the answer of a todo call: its raw text would say it twice
   const output = isTodoTool(part.name) && parseTodoAnswer(part.output) !== null ? "" : whole.text ?? part.output;
   return <div className={`work-row${part.error ? " is-error" : ""}`}>
-    <button type="button" className="work-row-head" aria-expanded={open} title={verb !== null ? `${part.name} · ${summary}` : undefined} onClick={() => setOpen(!open)}>
+    <button type="button" className="work-row-head" aria-expanded={open} title={narration || verb !== null ? `${part.name} · ${summary}` : undefined} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
-      {verb !== null ? <span className="work-row-name is-verb">{t(verb)}</span> : <span className="work-row-name">{part.name}</span>}
+      {!narration && (verb !== null ? <span className="work-row-name is-verb">{t(verb)}</span> : <span className="work-row-name">{part.name}</span>)}
       {/* the spaces are for a screen reader: the row is read as words, not "Ranbun test" */}
-      {part.error && verb === null && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
+      {!narration && part.error && verb === null && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
       {summary.length > 0 && summary !== part.name && <>{" "}<span className="work-row-summary">{summary}</span></>}
-      {/* after a verb the word follows the object: "Ran pnpm test failed", not "Ran failed pnpm test" */}
-      {part.error && verb !== null && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
+      {/* after a verb, or the agent's own sentence, the word follows it: "Ran pnpm test failed", not "Ran failed pnpm test" */}
+      {part.error && (narration || verb !== null) && <>{" "}<span className="work-row-failed">{t("failed")}</span></>}
     </button>
     {open && <div className="work-row-detail">{verb !== null && <p className="work-row-tool">{part.name}</p>}<ToolInputView part={part} /><ToolImages paneId={paneId} part={part} />{output.length > 0 && <section className="chat-tool-output"><h4>{t(part.error ? "Error" : "Output")}</h4><pre className={`chat-tool-io${whole.text !== null ? " is-whole" : ""}`}>{linkFilePaths(output, openFile)}</pre>
       {part.output_ref !== undefined && whole.text === null && <button type="button" className="btn btn-ghost chat-tool-more" disabled={whole.state === "loading"} onClick={whole.load}>
@@ -382,10 +422,15 @@ function WorkBlockView({ paneId, parts, duration, live, waiting, defaultOpen, sh
       {/* its own span: the counts before it are cut on a narrow screen, a failure never is */}
       {failed > 0 && <span className="work-block-failed">· {t("{n} failed", { n: failed })}</span>}
     </button>
-    {open && <div className="work-block-rows" onFocus={keepOpen} onClick={keepOpen}>{visible.map((part, index) =>
-      part.kind === "thinking" ? <ThinkingRow key={index} stateKey={`thinking:${parts.indexOf(part)}`} text={part.text} />
-        : part.kind === "text" ? <div key={index} className="work-narration"><Markdown>{part.text}</Markdown></div>
-          : part.kind === "tool" ? <WorkRow key={index} stateKey={`tool:${parts.indexOf(part)}`} paneId={paneId} part={part} /> : null)}</div>}
+    {/* the rows open and fold at the block's measured height; folded and settled, they are not drawn */}
+    <AnimatedHeight open={open} animateContent={false}>
+      <div className="work-block-rows" onFocus={keepOpen} onClick={keepOpen}>{visible.map((part, index) =>
+        part.kind === "thinking" ? <ThinkingRow key={index} stateKey={`thinking:${parts.indexOf(part)}`} text={part.text} />
+          : part.kind === "text" ? <div key={index} className="work-narration"><Markdown>{part.text}</Markdown></div>
+            : part.kind === "tool" ? <WorkRow key={index} stateKey={`tool:${parts.indexOf(part)}`} paneId={paneId} part={part} /> : null)}
+        <TurnChangedFiles paneId={paneId} parts={parts} />
+      </div>
+    </AnimatedHeight>
   </section>;
 }
 
@@ -435,21 +480,74 @@ const IMAGE_MENTION = /(?:^|\s)@(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)/gi;
 function UserImages({ paneId, parts, text }: { paneId: string; parts: ConversationPart[]; text: string }) {
   const t = useT();
   const machineId = useMachineId();
-  const open = useContext(OpenFileContext);
   const pasted = parts.filter((part): part is Extract<ConversationPart, { kind: "image" }> => part.kind === "image");
   const mentioned = [...new Set([...text.matchAll(IMAGE_MENTION)].map((match) => match[1]!))];
   if (pasted.length === 0 && mentioned.length === 0) return null;
-  return <div className="chat-user-images">
-    {pasted.map((part) => {
-      const src = machinePath(machineId, `pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: part.ref }).toString()}`);
-      return <a key={part.ref} className="chat-user-image" href={src} target="_blank" rel="noopener noreferrer" title={t("Open image")}><img src={src} alt={t("Attached image")} loading="lazy" /></a>;
-    })}
-    {mentioned.map((path) => {
-      const src = fileUrl(path, paneId, machineId);
-      return open !== null
-        ? <button key={path} type="button" className="chat-user-image" title={t("Open {path}", { path })} onClick={() => open(path)}><img src={src} alt={path} loading="lazy" /></button>
-        : <a key={path} className="chat-user-image" href={src} target="_blank" rel="noopener noreferrer" title={path}><img src={src} alt={path} loading="lazy" /></a>;
-    })}
+  // one gallery for the message: its pasted pictures first, then the files it mentioned
+  const images: GalleryImage[] = [
+    ...pasted.map((part, index): GalleryImage => ({
+      src: machinePath(machineId, `pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: part.ref }).toString()}`),
+      name: t("Attached image"),
+      file: attachmentFileName(part.media_type, index),
+    })),
+    ...mentioned.map((path): GalleryImage => ({ src: fileUrl(path, paneId, machineId), name: path, file: mentionFileName(path) })),
+  ];
+  return <ImageGallery images={images} className="chat-user-images" />;
+}
+
+/**
+ * The user's words as a raised card. A long message (lib/userMessageFold.ts) is capped at the
+ * lines `--chat-fold-lines` names; where the cap cuts it (measured on that message alone, never on
+ * every row) the last line fades into the card and "Show full message" opens it. Opened, it stays
+ * open while its row leaves and re-enters the list (useChatRowToggle), and Find landing on the
+ * turn opens it, so a match is never left behind the fold.
+ */
+function UserMessage({ text, matched }: { text: string; matched: boolean }) {
+  const t = useT();
+  const canFold = useMemo(() => shouldFoldUserMessage(text), [text]);
+  const [chosen, setOpen] = useChatRowToggle("fold", false);
+  const open = chosen === true;
+  const capped = canFold && !open;
+  const body = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const node = body.current;
+    if (!capped || node === null) { setClipped(false); return; }
+    const measure = (): void => setClipped(node.scrollHeight > node.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [capped]);
+  // Find arriving on this turn opens a cut message once; it does not hold it open, so Show less
+  // still works while the match stays on the row
+  const revealed = useRef(false);
+  useEffect(() => {
+    if (!matched) { revealed.current = false; return; }
+    if (revealed.current || !clipped) return;
+    revealed.current = true;
+    setOpen(true);
+  }, [matched, clipped, setOpen]);
+  const card = useRef<HTMLDivElement>(null);
+  const folding = useRef(false);
+  const toggle = (): void => {
+    folding.current = open;
+    setOpen(!open);
+  };
+  // "Show less" sits at the bottom of a long message: after folding, bring the card's top back
+  // into view rather than leave the reader far below it (as a code block's fold does)
+  useLayoutEffect(() => {
+    if (!folding.current) return;
+    folding.current = false;
+    const node = card.current;
+    const view = node?.closest(".chat-view");
+    if (node && view && node.getBoundingClientRect().top < view.getBoundingClientRect().top) node.scrollIntoView({ block: "start" });
+  }, [open]);
+  return <div ref={card} className={`chat-bubble${capped ? " is-capped" : ""}${clipped ? " is-folded" : ""}`}>
+    <div ref={body} className="chat-bubble-body"><Markdown>{text}</Markdown></div>
+    {(open || clipped) && <div className="chat-bubble-foot">
+      <button type="button" className="chat-bubble-fold" aria-expanded={open} onClick={toggle}>{open ? t("Show less") : t("Show full message")}</button>
+    </div>}
   </div>;
 }
 
@@ -461,6 +559,10 @@ interface TurnProps {
   /** ...and "Needs you" while the agent is blocked */
   waiting: boolean;
   showThinking: boolean;
+  /** the pane's skill names: an answer's text chips them */
+  skills?: SkillMatcher | null;
+  /** Find's current match is this turn: a folded message opens so the match can be read */
+  matched?: boolean;
 }
 
 const TASK_RESULT_ICONS: Record<OmoTaskResult["status"], ComponentType<LucideProps>> = { completed: CircleCheck, failed: CircleX, cancelled: CircleSlash };
@@ -507,17 +609,17 @@ function noticeLabel(t: ReturnType<typeof useT>, notice: Extract<ConversationPar
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
-const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: TurnProps) {
+const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking, skills = null, matched = false }: TurnProps) {
   const t = useT();
   // under the turn, not in its meta row: that row fades out once the pointer and focus leave
   const [copyFailed, setCopyFailed] = useChatRowToggle("copy-failed", false);
   const copyError = copyFailed && <p className="chat-copy-error" role="alert">{t("Couldn't copy. Select the text and copy it manually.")}</p>;
   const copied = (ok: boolean): void => setCopyFailed(!ok);
-  const time = formatTime(turn.ts);
+  const time = turn.ts === null ? null : <TurnTime ts={turn.ts} />;
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
   if (compact !== undefined) {
     return <ChatDetails memoryKey="compact" className="chat-compact">
-      <summary>{t("Conversation compacted")}{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
+      <summary>{t("Conversation compacted")}{time !== null && <> · {time}</>}</summary>
       <div className="chat-compact-text"><Markdown>{compact.text}</Markdown></div>
     </ChatDetails>;
   }
@@ -526,7 +628,7 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
   if (ended !== undefined) {
     const heading = ended.tasks.length === 1 ? t("Background task ended") : t("{n} background tasks ended", { n: ended.tasks.length });
     return <section className="chat-task-results" aria-label={heading}>
-      <p className="chat-task-results-head"><Layers aria-hidden="true" /><span>{heading}</span>{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</p>
+      <p className="chat-task-results-head"><Layers aria-hidden="true" /><span>{heading}</span>{time !== null && <> · {time}</>}</p>
       {ended.tasks.map((task) => <TaskResultRow key={task.id} task={task} />)}
     </section>;
   }
@@ -534,7 +636,7 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
   const notice = turn.parts.find((part): part is Extract<ConversationPart, { kind: "notice" }> => part.kind === "notice");
   if (notice !== undefined) {
     return <ChatDetails memoryKey="notice" className="chat-compact chat-notice">
-      <summary><span className="chat-notice-label">{noticeLabel(t, notice)}</span>{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
+      <summary><span className="chat-notice-label">{noticeLabel(t, notice)}</span>{time !== null && <> · {time}</>}</summary>
       <pre className="chat-compact-text chat-notice-text">{notice.text}</pre>
     </ChatDetails>;
   }
@@ -544,8 +646,8 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
       {/* one row: with a mouse the time and copy sit beside the bubble, on touch under it */}
       <div className="chat-user-row">
-        {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
-        <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} onResult={copied} />}</div>
+        {text.length > 0 && <UserMessage text={text} matched={matched} />}
+        <div className="chat-turn-meta">{time}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} onResult={copied} />}</div>
       </div>
       {copyError}
       {/* the skill this message invoked (omp, omo, pi): the runtime recorded its instructions with it */}
@@ -559,12 +661,12 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking }: T
     <SkillActivityList parts={turn.parts} />
     {goal !== null && <GoalActivity goal={goal} />}
     {work.length > 0 && <WorkBlockView paneId={paneId} parts={work} duration={formatWorkDuration(turn.ts, turn.end_ts ?? null)} live={live} waiting={waiting} defaultOpen={workStartsOpen(live, turn.parts)} showThinking={showThinking} />}
-    {answer.map((part, index) => <Markdown key={index}>{part.text}</Markdown>)}
+    {answer.map((part, index) => <Markdown key={index} skills={skills}>{part.text}</Markdown>)}
     {answerText.length > 0 && <div className="chat-turn-meta chat-agent-meta">
       {/* a mouse reads one copy glyph and the words "Plain text"; touch reads the two formats */}
       <CopyButton className="chat-meta-btn" text={answerText} label={t("Copy as markdown")} onResult={copied}><span className="chat-meta-fmt">MD</span></CopyButton>
       <CopyButton className="chat-meta-btn chat-meta-plain" text={plainText(answerText)} label={t("Copy as plain text")} onResult={copied}><span className="chat-meta-fmt">TXT</span><span className="chat-meta-word">{t("Plain text")}</span></CopyButton>
-      {time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}
+      {time}
     </div>}
     {copyError}
   </article>;
@@ -612,11 +714,13 @@ function TerminalFallback({ paneId }: { paneId: string }) {
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, active = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff, active = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
   const machineId = useMachineId();
+  const diffContext = useMemo(() => onOpenDiff ? { openDiff: onOpenDiff, cwd } : null, [onOpenDiff, cwd]);
+  const skillMatcher = useSkillMatcher(paneId);
   // polls pause while the page is hidden and pick up at once when it is back
   const visible = usePageVisible();
   /** the answer last laid out: an unchanged poll (a 304) hands back this very object */
@@ -628,6 +732,8 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
   // Native Grok/Agy events can arrive while Herdr still reports ready/done. This is display
   // feedback only: sending, queuing and stopping retain the server's input authority.
   const activity = state.activity ?? (agentStatus === "working" ? "working" : "idle");
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const smoothFollow = followGlides({ working: activity !== "idle" && agentStatus !== "blocked", reducedMotion });
   const workStatus = state.activity !== undefined && agentStatus !== "blocked" ? activity === "idle" ? "idle" : "working" : agentStatus;
   const [error, setError] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
@@ -688,6 +794,9 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
   const [historyId, setHistoryId] = useState<string | undefined>(undefined);
   const shownPane = useRef(paneId);
   const prependAnchor = useRef<{ key: string; offset: number } | null>(null);
+  /** where the reader left this pane before (lib/chatScrollMemory.ts), until the first answer puts it back */
+  const restoring = useRef<ChatPosition | null>(null);
+  const stopRestore = useRef<(() => void) | null>(null);
   const [pollKey, setPollKey] = useState(0);
   /**
    * The assistant turn that was last when a message went out, with the turns it was read from.
@@ -713,6 +822,8 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
 
   useLayoutEffect(() => {
     shownPane.current = paneId;
+    stopRestore.current?.();
+    restoring.current = readChatPosition(paneStorageId(machineId, paneId)) ?? null;
     history.current = undefined; setHistoryId(undefined);
     pagingAway.current = false; stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setPrompt(null); setAbandoned(null); setRestored(null);
     dropOlder();
@@ -1083,7 +1194,24 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
     }
     setAway(!stickToBottom.current);
     if (stickToBottom.current) setNewMessages(false);
+    if (loaded && restoring.current === null && state.source === "conversation") rememberPlace(node);
     if (node.scrollTop < LOAD_OLDER_PX && olderState === "idle") void loadOlder();
+  };
+  // the turn at the top of the view and its offset there, or the end while the reader follows it
+  const rememberPlace = (node: HTMLDivElement): void => {
+    const top = node.getBoundingClientRect().top;
+    let first: { key: string; top: number } | null = null;
+    for (const row of node.querySelectorAll<HTMLElement>("[data-chat-row]")) {
+      const rect = row.getBoundingClientRect();
+      if (rect.bottom > top && (first === null || rect.top < first.top)) first = { key: row.dataset.chatRow ?? "", top: rect.top };
+    }
+    const turn = first === null ? undefined : timelineRows.find((row) => row.key === first.key)?.turn;
+    rememberChatPosition(paneStorageId(machineId, paneId), {
+      historyId: history.current ?? null,
+      turn: turn === undefined ? "" : chatTurnAnchor(turn),
+      offset: first === null ? 0 : first.top - top,
+      atEnd: stickToBottom.current || turn === undefined,
+    });
   };
   const scrollToBottom = (): void => {
     const node = scroller.current;
@@ -1164,13 +1292,58 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
     pagingAway.current = true; stickToBottom.current = false; setAway(true);
     void timeline.current?.scrollToIndex({ index, animated: false, viewPosition: 0.35 });
   }, [timelineRows]);
-  const renderTurn = useCallback((row: { turn: ConversationTurn }, index: number) => {
+  // Back in a pane the reader left away from the end: the first answer read puts the turn they
+  // were on back where it sat, before paint. The list's index scroll starts from estimated heights,
+  // so the row is brought to its offset once measured, for a few frames at most; any scroll of the
+  // reader's own, or an earlier page loaded above (the prepend anchor), takes over at once.
+  useLayoutEffect(() => {
+    const saved = restoring.current;
+    if (saved === null || !loaded || error !== null || state.source !== "conversation") return;
+    restoring.current = null;
+    const index = chatRestoreIndex(saved, history.current ?? null, timelineRows.map((row) => chatTurnAnchor(row.turn)));
+    const list = timeline.current, node = scroller.current;
+    if (index === null || list === null || node === null) return;
+    const key = timelineRows[index]!.key;
+    pagingAway.current = true; stickToBottom.current = false; setAway(true);
+    void list.scrollToIndex({ index, viewPosition: 0, viewOffset: saved.offset, animated: false });
+    const olderAt = olderCount.current;
+    let frame = 0, frames = 0, stable = 0;
+    const stop = (): void => {
+      cancelAnimationFrame(frame);
+      for (const type of ["wheel", "touchmove", "pointerdown"]) node.removeEventListener(type, stop);
+      document.removeEventListener("keydown", stop, true);
+      if (stopRestore.current === stop) stopRestore.current = null;
+    };
+    const settle = (): void => {
+      if (++frames > 30 || timeline.current !== list || olderCount.current !== olderAt || prependAnchor.current !== null) { stop(); return; }
+      const row = node.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(key)}"]`);
+      if (row !== null) {
+        const delta = row.getBoundingClientRect().top - node.getBoundingClientRect().top - saved.offset;
+        if (Math.abs(delta) > 1) { stable = 0; void list.scrollToOffset({ offset: node.scrollTop + delta, animated: false }); }
+        else if (++stable >= 2) { stop(); return; }
+      }
+      frame = requestAnimationFrame(settle);
+    };
+    for (const type of ["wheel", "touchmove", "pointerdown"]) node.addEventListener(type, stop, { passive: true });
+    document.addEventListener("keydown", stop, true);
+    stopRestore.current = stop;
+    frame = requestAnimationFrame(settle);
+  }, [loaded, error, state.source, timelineRows]);
+  useEffect(() => () => stopRestore.current?.(), []);
+  const minimap = useMemo(() => minimapTurns(shownTurns), [shownTurns]);
+  const rowKeys = useMemo(() => timelineRows.map((row) => row.key), [timelineRows]);
+  // a tick takes the reader to its turn the way Find does: reading there, follow left off
+  const jumpToTurn = useCallback((index: number) => {
+    pagingAway.current = true; stickToBottom.current = false; setAway(true);
+    void timeline.current?.scrollToIndex({ index, animated: false, viewPosition: 0 });
+  }, []);
+  const renderTurn = useCallback((row: { key: string; turn: ConversationTurn }, index: number) => {
     const { turn } = row;
     const live = isLiveWorkTurn(turn, index === shownTurns.length - 1, workStatus, finishedBeforeSend);
     return <RenderBoundary resetKey={turnRevision(turn, true)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-      <Turn paneId={paneId} turn={turn} live={live} waiting={isWaitingWorkTurn(live, agentStatus)} showThinking={settings.showThinking} />
+      <Turn paneId={paneId} turn={turn} live={live} waiting={isWaitingWorkTurn(live, agentStatus)} showThinking={settings.showThinking} skills={skillMatcher} matched={row.key === matchKey} />
     </RenderBoundary>;
-  }, [shownTurns.length, workStatus, finishedBeforeSend, t, paneId, agentStatus, settings.showThinking]);
+  }, [shownTurns.length, workStatus, finishedBeforeSend, t, paneId, agentStatus, settings.showThinking, skillMatcher, matchKey]);
   const header = <>
       {/* the conversation below is not all the file holds: a /tree left these behind, and pi moved
           its leaf without writing anything, so nothing here could say they were ever there. First
@@ -1208,7 +1381,7 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
   </>;
   const jump = newMessages ? <button type="button" className="btn chat-new-messages chat-virtual-jump" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
     : away && <button type="button" className="btn chat-new-messages chat-virtual-jump is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>;
-  return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}>
+  return <ChatDiffContext.Provider value={diffContext}><ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}>
     <div className="chat-frame">
     {state.source === "conversation" && findOpen && <ChatFind key={timelineScope} rows={searchRows} older={typeof olderCursor === "string"} olderState={olderState} onOlder={loadOlder} onMatch={showMatch} onClose={closeFind} />}
     <div className="chat-frame-body">
@@ -1219,6 +1392,7 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
       scroller={scroller}
       listRef={timeline}
       following={stickToBottom}
+      smoothFollow={smoothFollow}
       memories={rowMemories}
       outputChanged={outputChanged}
       header={header}
@@ -1235,6 +1409,7 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
         {footer}
       </div>
     </div>}
+    {state.source === "conversation" && <ChatMinimap turns={minimap} rowKeys={rowKeys} scroller={scroller} onJump={jumpToTurn} />}
     {jump}
     {state.source === "conversation" && !findOpen && <button ref={findButton} type="button" className="icon-button chat-find-open" aria-label={t("Find in messages")} title={t("Find in messages")} onClick={() => setFindOpen(true)}><Search aria-hidden="true" /></button>}
     </div>
@@ -1251,5 +1426,5 @@ export const ChatView = memo(function ChatView({ paneId, active = true, pageScro
       if (prompt.steps) setPromptPollKey((key) => key + 1);
       onPendingAnswerDone?.(paneId, prompt.id);
     }} />, promptDock)}
-  </ChatHistoryContext.Provider></ChatPaneContext.Provider>;
+  </ChatHistoryContext.Provider></ChatPaneContext.Provider></ChatDiffContext.Provider>;
 });

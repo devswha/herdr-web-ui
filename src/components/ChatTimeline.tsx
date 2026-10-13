@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 
 import { ChatRowMemoryContext, type ChatRowMemory } from "../lib/chatRowState.tsx";
+import { chatMarkdownClipboardPayload } from "../lib/markdownClipboard.ts";
 import "./ChatTimeline.css";
 
 export interface ChatTimelineRow {
@@ -16,6 +17,8 @@ export interface ChatTimelineProps<Row extends ChatTimelineRow> {
   scroller: RefObject<HTMLDivElement | null>;
   listRef: RefObject<LegendListRef | null>;
   following: RefObject<boolean>;
+  /** A turn works and motion is welcome: following the end glides. */
+  smoothFollow: boolean;
   memories: Map<string, ChatRowMemory>;
   outputChanged: () => void;
   header: ReactNode;
@@ -28,7 +31,7 @@ export interface ChatTimelineProps<Row extends ChatTimelineRow> {
 }
 
 /** One scroll owner; selected and focused rows stay real DOM nodes outside its window. */
-export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source, scroller, listRef, following, memories, outputChanged, header, footer, label, matchKey, finding, onScroll, renderRow }: ChatTimelineProps<Row>) {
+export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source, scroller, listRef, following, smoothFollow, memories, outputChanged, header, footer, label, matchKey, finding, onScroll, renderRow }: ChatTimelineProps<Row>) {
   const [selectionKeys, setSelectionKeys] = useState<string[]>([]);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   useLayoutEffect(() => {
@@ -83,13 +86,36 @@ export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source,
     node.addEventListener("focusin", focusChanged);
     node.addEventListener("focusout", focusOut);
     node.addEventListener("click", interaction, true);
+    const copy = (event: ClipboardEvent) => {
+      const selection = getSelection();
+      if (event.defaultPrevented || !event.clipboardData || !selection) return;
+      const payload = chatMarkdownClipboardPayload(selection, node);
+      if (!payload) return;
+      event.clipboardData.setData("text/plain", payload.text);
+      event.clipboardData.setData("text/html", payload.html);
+      event.preventDefault();
+    };
+    node.addEventListener("copy", copy);
     return () => {
       document.removeEventListener("selectionchange", selectionChanged);
       node.removeEventListener("focusin", focusChanged);
       node.removeEventListener("focusout", focusOut);
       node.removeEventListener("click", interaction, true);
+      node.removeEventListener("copy", copy);
     };
   }, [scroller, positions, rowKeys]);
+
+  // A glide aims at the end it saw; content that grew meanwhile leaves it short. Where it stops, a
+  // reader still following is put at the end at once.
+  useEffect(() => {
+    const node = scroller.current;
+    if (node === null || !smoothFollow) return;
+    const settle = () => {
+      if (following.current && !manualLayout.current && node.scrollHeight - node.clientHeight - node.scrollTop > 1) listRef.current?.scrollToEnd({ animated: false });
+    };
+    node.addEventListener("scrollend", settle);
+    return () => node.removeEventListener("scrollend", settle);
+  }, [scroller, listRef, following, smoothFollow]);
 
   useLayoutEffect(() => {
     const transcript = scroller.current?.querySelector<HTMLElement>(".chat-transcript");
@@ -136,7 +162,12 @@ export function ChatTimeline<Row extends ChatTimelineRow>({ rows, scope, source,
     onScroll={onScroll}
     onLoad={() => { if (following.current) listRef.current?.scrollToEnd({ animated: false }); }}
     onItemSizeChanged={() => {
-      if (following.current && !manualLayout.current) listRef.current?.scrollToEnd({ animated: false });
+      if (!following.current || manualLayout.current) return;
+      // The browser's own glide yields to any scroll the reader or a jump makes next; the list's
+      // animated scroll keeps retrying toward the end and would pull them back.
+      const node = scroller.current;
+      if (smoothFollow && node !== null) node.scrollTo({ top: node.scrollHeight - node.clientHeight, behavior: "smooth" });
+      else listRef.current?.scrollToEnd({ animated: false });
     }}
   />;
 }
