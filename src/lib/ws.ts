@@ -272,13 +272,11 @@ export class HerdrSocket {
         /* ignore malformed frame */
         return;
       }
-      if (message.type === "pong") {
-        // ended before the handlers run, so the input checks they make already read true
-        if (this.probeIds.has(message.id)) {
-          this.probeDrops = 0;
-          this.endProbe();
-        }
-        return;
+      // ended before the handlers run, so the input checks they make already read true; the pong
+      // goes on to them, so a view that read input as refused during the probe reads it again
+      if (message.type === "pong" && this.probeIds.has(message.id)) {
+        this.probeDrops = 0;
+        this.endProbe();
       }
       // The server can force this connection to observe. Apply its authority before
       // waking pending submits or notifying UI handlers about the acknowledged role.
@@ -289,6 +287,10 @@ export class HerdrSocket {
         this.features = new Set(message.features ?? []);
         this.snapshotKnown = true;
         this.pingKnown = this.features.has("ping");
+        // a probe sent before this snapshot (running or paused), on ping support remembered from an
+        // earlier connection: this bridge does not answer pings (an older one after a reconnect), so
+        // its connection is trusted as before rather than dropped at the deadline or left paused
+        if (!this.pingKnown && this.probing) this.endProbe();
         if (!this.features.has("input-ready")) for (const pane of this.outputSeen) if (this.attached.has(pane)) this.inputReady.add(pane);
         // Capabilities arrive after open's role/attach replay. Restore only current interest,
         // never send an unknown frame to an older bridge or replay a hidden/detached chat.
