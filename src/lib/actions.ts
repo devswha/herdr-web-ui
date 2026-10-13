@@ -9,6 +9,12 @@ import type { ZoomMode } from "./layoutMap.ts";
 
 export type PaneView = "chat" | "terminal";
 
+/** The selected pane’s mounted input and history, bound to its PC. */
+export interface PaneControls {
+  focusInput: () => void;
+  scrollPage: (direction: -1 | 1) => void;
+}
+
 export interface AppActions {
   selectPane: (paneId: string) => void;
   /** the previous/next pane in sidebar order; wraps around */
@@ -17,13 +23,15 @@ export interface AppActions {
   toggleView: () => void;
   /** Focus the selected pane's mounted input without sending any text or keys. */
   focusInput: () => void;
+  scrollPage: (direction: -1 | 1) => void;
   openNewSession: () => void;
   /**
    * The New tab dialog for a workspace: the named one (a sidebar row's menu, on its own PC),
    * else the selected pane's. Nothing happens without a workspace to add the tab to.
    */
   openNewTab: (target?: { machineId: string; workspaceId: string }) => void;
-  openPalette: () => void;
+  /** the palette, blank or opened on `query` (a `>` prefix keeps the actions alone) */
+  openPalette: (query?: string) => void;
   /**
    * A pane this client moved (POST /api/pane/move), under the id it answers to now: the lens
    * and drafts kept under the old id follow it, and the selection too when it was the

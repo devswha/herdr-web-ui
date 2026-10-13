@@ -207,7 +207,8 @@ describe("parseClaudeTranscript", () => {
       { role: "user", ts: "2026-09-19T08:00:00.000Z", parts: [{ kind: "text", text: "리팩터링 시작해줘" }] },
       { role: "assistant", ts: "2026-09-19T08:00:02.000Z", end_ts: "2026-09-19T08:00:05.000Z", parts: [
         { kind: "text", text: "먼저 상태를 확인하겠습니다." },
-        { kind: "tool", name: "Bash", summary: "git status --short", input: expect.stringContaining("git status"), output: "M src/app.ts" },
+        // the row says what the agent said the command is for; the command stays in the input
+        { kind: "tool", name: "Bash", summary: "check tree", input: expect.stringContaining("git status"), output: "M src/app.ts" },
         { kind: "thinking", text: "internal reasoning stays private" },
         { kind: "text", text: "변경된 파일이 하나입니다." },
       ] },
@@ -1044,6 +1045,77 @@ describe("transcript pages", () => {
   const texts = (turns: { parts: { kind: string; text?: string; output?: string }[] }[]) =>
     turns.map((turn) => turn.parts.map((part) => part.kind === "tool" ? `[${part.output}]` : part.text).join(" "));
 
+  it("shows another session's message as its own notice turn, so the work it starts is not appended to the answer before it", () => {
+    const path = join(temp(), "peer.jsonl");
+    const envelope = (body: string) => `<cross-session-message from="uds:x" from-name="FUSION" from-mode="bypass">\n${body}\n</cross-session-message>`;
+    let delivered = 0;
+    const origin = (body: string) => ({ kind: "peer", from: "uds:x", msg_id: `m${++delivered}`, name: "FUSION", body });
+    const say = (text: string) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
+    writeFileSync(path, `${[
+      { type: "user", timestamp: "2026-10-08T03:04:00.000Z", message: { role: "user", content: "deck status?" } },
+      say("the deck is done"),
+      // arrives between turns: a meta user entry
+      { type: "user", isMeta: true, timestamp: "2026-10-08T03:05:01.000Z", origin: origin("R18 is ready"), message: { role: "user", content: `Another Claude session sent a message:\n${envelope("R18 is ready")}` } },
+      say("recorded both decisions"),
+      // arrives mid-turn: a queued attachment, its own turn in the order it was taken in
+      { type: "attachment", timestamp: "2026-10-08T03:06:00.000Z", attachment: { type: "queued_command", commandMode: "prompt", prompt: envelope("coordinates sent"), origin: origin("coordinates sent") } },
+      say("rebuilt slide 4"),
+      // a meta entry that is not another session's message stays hidden
+      { type: "user", isMeta: true, message: { role: "user", content: "<local-command-caveat>x</local-command-caveat>" } },
+    ].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const page = transcriptPage("claude-transcript", path);
+    expect(page.turns.map((turn) => [turn.role, turn.parts.map((part) => part.kind === "notice" ? `${part.source}|${part.text}` : part.kind === "text" ? part.text : part.kind).join(" ")])).toEqual([
+      ["user", "deck status?"],
+      ["assistant", "the deck is done"],
+      ["user", "peer:FUSION|R18 is ready"],
+      ["assistant", "recorded both decisions"],
+      ["user", "peer:FUSION|coordinates sent"],
+      ["assistant", "rebuilt slide 4"],
+    ]);
+  });
+
+  it("shows one notice for a delivery Claude recorded twice, and says 'another session' for an unnamed sender", () => {
+    const path = join(temp(), "peer-echo.jsonl");
+    const origin = { kind: "peer", from: "uds:x", msg_id: "m7", name: "FUSION", body: "R18 is ready" };
+    writeFileSync(path, `${[
+      { type: "user", timestamp: "2026-10-08T03:04:00.000Z", message: { role: "user", content: "deck status?" } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "working on it" }] } },
+      // queued mid-turn, then echoed as a meta entry once the turn ended: one message
+      { type: "attachment", timestamp: "2026-10-08T03:05:00.000Z", attachment: { type: "queued_command", commandMode: "prompt", prompt: "<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>", origin } },
+      { type: "user", isMeta: true, timestamp: "2026-10-08T03:05:01.000Z", origin, message: { role: "user", content: "Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>" } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "noted" }] } },
+      // a sender without a name
+      { type: "user", isMeta: true, timestamp: "2026-10-08T03:06:00.000Z", origin: { kind: "peer", from: "uds:y", msg_id: "m8", body: "ping" }, message: { role: "user", content: "Another Claude session sent a message:\n<cross-session-message>\nping\n</cross-session-message>" } },
+    ].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const page = transcriptPage("claude-transcript", path);
+    expect(page.turns.map((turn) => turn.parts.map((part) => part.kind === "notice" ? `${part.source}|${part.text}` : part.kind === "text" ? part.text : part.kind).join(" "))).toEqual([
+      "deck status?", "working on it", "peer:FUSION|R18 is ready", "noted", "peer:|ping",
+    ]);
+  });
+
+  it("pages back across other sessions' messages without gaps or overlaps", () => {
+    const path = join(temp(), "peer-pages.jsonl");
+    const envelope = (n: number) => `<cross-session-message from-name="FUSION">\nreply ${n}\n</cross-session-message>`;
+    const origin = (n: number) => ({ kind: "peer", from: "uds:x", msg_id: `m${n}`, name: "FUSION", body: `reply ${n}` });
+    // in both forms Claude records them: the meta entry between turns, the queued attachment mid-turn
+    const peer = (n: number) => JSON.stringify(n % 2 === 0
+      ? { type: "user", isMeta: true, timestamp: "2026-10-08T00:00:00.000Z", origin: origin(n), message: { role: "user", content: `Another Claude session sent a message:\n${envelope(n)}` } }
+      : { type: "attachment", timestamp: "2026-10-08T00:00:00.000Z", attachment: { type: "queued_command", commandMode: "prompt", prompt: envelope(n), origin: origin(n) } })
+      + "\n" + JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: `handled ${n}` }] } });
+    writeFileSync(path, `${Array.from({ length: 120 }, (_, n) => n % 3 === 0 ? peer(n) : claudeTurn(n)).join("\n")}\n`);
+    const seen: string[] = [];
+    let page = transcriptPage("claude-transcript", path);
+    for (let pages = 0; ; pages++) {
+      expect(pages).toBeLessThan(20);
+      seen.unshift(...texts(page.turns));
+      if (!page.cursor) break;
+      page = transcriptPage("claude-transcript", path, { before: page.cursor });
+    }
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.filter((text) => text.startsWith("reply ")).length).toBe(40);
+    expect(seen.filter((text) => text.startsWith("prompt ")).length).toBe(80);
+  });
+
   it("titles a background task that ends a prompt after the one that started it, live and cold alike", () => {
     const root = temp();
     const path = join(root, "omo.jsonl");
@@ -1491,6 +1563,53 @@ describe("Agy native ledger through shared paging", () => {
     forgetTranscriptState();
   });
   afterEach(() => { db.close(); forgetTranscriptState(); rmSync(root, { recursive: true, force: true }); });
+  it("tracks native turn boundaries without treating each DONE tool step as completion", () => {
+    expect(page().activity).toBe("idle");
+    // Agy 1.3.3's captured native sequence: user, context, planner call, result,
+    // context, another call/result, then the tool-free final planner answer.
+    add(0, "USER_INPUT", "fictional request");
+    add(1, "EPHEMERAL_MESSAGE", "hidden context");
+    expect(page().activity).toBe("working");
+    add(2, "PLANNER_RESPONSE", "", { thinking: "saved reasoning", tool_calls: [{ name: "run_command", args: { CommandLine: "echo fiction" } }] });
+    add(3, "GENERIC", "fictional output");
+    add(4, "EPHEMERAL_MESSAGE", "hidden context");
+    expect(page().activity).toBe("working");
+    expect(JSON.stringify(page().turns)).not.toContain("saved reasoning");
+    add(5, "PLANNER_RESPONSE", "More work", { tool_calls: [{ name: "view_file", args: { AbsolutePath: "/fiction.txt" } }] });
+    add(6, "GENERIC", "another output");
+    expect(page().activity).toBe("working");
+    add(7, "PLANNER_RESPONSE", "Finished", { tool_calls: [] });
+    expect(page().activity).toBe("idle");
+    add(8, "GENERIC", "late result");
+    add(9, "EPHEMERAL_MESSAGE", "late context");
+    expect(page().activity).toBe("idle");
+    add(10, "USER_INPUT", "next turn");
+    expect(page().activity).toBe("working");
+    // Rewind the new prompt; completion of the retained turn still clears activity.
+    db.exec("DELETE FROM steps WHERE idx >= 10");
+    expect(page().activity).toBe("idle");
+    forgetTranscriptState();
+    expect(page().activity).toBe("idle");
+  });
+  it("does not complete activity from a partial, unadmitted or unfinished planner answer", () => {
+    add(0, "USER_INPUT", "one");
+    add(1, "PLANNER_RESPONSE", "", { thinking: "saved reasoning" });
+    expect(page().activity).toBe("working");
+    add(2, "PLANNER_RESPONSE", "unfinished", { status: "RUNNING" });
+    expect(page().activity).toBe("working");
+    db.exec("INSERT INTO steps VALUES (3)");
+    const final = row(3, "PLANNER_RESPONSE", "complete");
+    appendFileSync(path, final.slice(0, -2));
+    expect(page().activity).toBe("working");
+    appendFileSync(path, final.slice(-2));
+    expect(page().activity).toBe("idle");
+    appendFileSync(path, row(4, "USER_INPUT", "export ahead of DB"));
+    expect(page().activity).toBe("idle");
+    db.exec("INSERT INTO steps VALUES (4)");
+    expect(page().activity).toBe("working");
+    forgetTranscriptState();
+    expect(page().activity).toBe("working");
+  });
   it("renders native messages, multiple planner calls and independent results without guessed pairing", () => {
     add(0, "USER_INPUT", "<USER_REQUEST>Keep <USER_REQUEST>literal</USER_REQUEST> tags</USER_REQUEST>\n<ADDITIONAL_METADATA>hidden</ADDITIONAL_METADATA>");
     add(1, "EPHEMERAL_MESSAGE", "hidden context");

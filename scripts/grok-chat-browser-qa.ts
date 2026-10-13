@@ -63,8 +63,35 @@ try {
   appendFileSync(path, event({ sessionUpdate: "rewind_marker", target_prompt_index: 0 }, true) + user("Replacement after rewind."));
   await log.getByText("Replacement after rewind.", { exact: true }).waitFor();
   assert.equal(await log.getByText("Fictional Grok answer.", { exact: true }).count(), 0);
+  // The stand-in never reports working. Native events still show activity and open tool rows.
+  let promptIndex = 0;
+  for (const viewport of [{ width: 1100, height: 800 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    appendFileSync(path, event({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "A silent turn" }, _meta: { promptIndex: ++promptIndex } })
+      + event({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "fictional hidden thought" } }));
+    const activity = log.locator(".chat-activity");
+    await activity.waitFor({ state: "visible" });
+    await log.locator(".chat-activity", { hasText: "Thinking…" }).waitFor();
+    assert.notEqual((await sessionSnapshot()).panes.find(p => p.pane_id === pane)?.agent_status, "working");
+    const box = await activity.boundingBox();
+    assert.ok(box && box.y >= 0 && box.y + box.height <= viewport.height, "working status is visible above the composer");
+    appendFileSync(path, event({ sessionUpdate: "tool_call", toolCallId: `activity-${promptIndex}`, title: `Activity tool ${promptIndex}`, rawInput: { path: "fiction.txt" } }));
+    // a tool row opens the turn's work block, whose head says Working: the line under it goes
+    await log.locator(".work-block.is-live .work-row-head").last().waitFor({ state: "visible" });
+    await log.locator(".work-block.is-live .work-block-title", { hasText: "Working…" }).waitFor();
+    await activity.waitFor({ state: "detached" });
+    if (viewport.width === 390 && process.env.UI_EVIDENCE_DIR) {
+      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "grok-mobile-activity.png") });
+    }
+    appendFileSync(path, event({ sessionUpdate: "turn_completed" }));
+    await activity.waitFor({ state: "detached" });
+  }
+  await page.route(/\/pane\/conversation\?/, route => route.fulfill({ json: { source: "scrollback", turns: [] } }));
+  await page.reload();
+  await log.getByText("Grok chat is unavailable. Open Terminal to see activity and tool calls.", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
-  console.log("PASS Grok native chat, expanded-output refresh, shrink and rewind in the real browser");
+  console.log("PASS Grok native tools, output refresh, rewind, desktop/mobile silent activity and unavailable-chat notice");
 } finally {
   // Attempt every cleanup even if an earlier one fails. A cleanup error never replaces
   // the original failure; it is reported and fails a run that otherwise passed.

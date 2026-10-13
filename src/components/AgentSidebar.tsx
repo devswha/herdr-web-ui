@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronRight, Folder, Star, Terminal } from "lucide-react";
 
 import type { Machine } from "../../shared/machines.ts";
@@ -9,7 +9,7 @@ import { agentContext, agentTabName, groupRows, paneMark, sidebarAgents, type Si
 import { useSettings } from "../lib/settings.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
 import { activityOrder } from "../lib/sidebarOrder.ts";
-import { loadSidebarPins, pruneSidebarPins, saveSidebarPins, sidebarPinKey, splitPinnedRows, toggleSidebarPin } from "../lib/sidebarPins.ts";
+import { currentSidebarPins, pruneSidebarPins, setSidebarPins, sidebarPinKey, splitPinnedRows, subscribeSidebarPins, toggleSidebarPin } from "../lib/sidebarPins.ts";
 import { AgentMark, hasAgentMark } from "./AgentMark.tsx";
 import { BackgroundBadge, displayPaneTitle, PlanBadge, StatusBadge } from "./Sidebar.tsx";
 import "./AgentSidebar.css";
@@ -59,21 +59,26 @@ export interface AgentSidebarProps {
 
 /** the width under which the sidebar is a drawer (src/styles.css) */
 const DRAWER_QUERY = "(max-width: 768px)";
+/** Settings → Pin agents off: saved pins stay stored, and none of them leads the list */
+const NO_PINS: readonly string[] = [];
 
 interface AgentRow { machine: Machine; entry: SidebarAgent }
 
 /**
  * All PCs' live agents form a second list; workspace and PC folds do not hide these rows.
  * In the phone's drawer the list starts folded, leaving the room to the workspaces.
- * In herdr's order the pinned agents stand first, then each workspace's other agents on a PC sit in
- * a card under its name; Activity order mixes workspaces, so its rows stand alone, pinned ones first.
+ * The pinned agents stand first. With Settings → Workspace cards on, herdr's order puts each
+ * workspace's agents on a PC in a card under its name, a pinned agent first in its own card and
+ * the cards that hold pins first; off (the default), or in Activity order, which mixes
+ * workspaces, the rows stand alone.
  */
 export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stateWord, onSelect }: AgentSidebarProps) {
   const t = useT();
   const listId = useId();
   const [collapsed, setCollapsed] = useState(() => window.matchMedia?.(DRAWER_QUERY).matches === true);
   const { settings } = useSettings();
-  const [pinned, setPinned] = useState(loadSidebarPins);
+  // shared with the other browsers of this server (lib/preferencesSync.ts)
+  const pinned = useSyncExternalStore(subscribeSidebarPins, currentSidebarPins, currentSidebarPins);
   const activity = useSidebarActivity();
   // Settings → Agents order: herdr's order, or Activity within each PC (each herdr counts its own changes)
   const byActivity = settings.agentOrder === "activity";
@@ -81,15 +86,11 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     const agents = sidebarAgents(machine.snapshot);
     return (byActivity ? activityOrder(agents, (entry) => entry.pane, activity.seqs(machine.id)) : agents).map((entry): AgentRow => ({ machine, entry }));
   }), [machines, byActivity, activity]);
-  // pins lead: in herdr order the pinned agents stand above the cards, which keep only the others
-  const split = useMemo(() => splitPinnedRows(rows, pinned, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned]);
-  useEffect(() => {
-    const live = new Set(rows.map(({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)));
-    const next = pruneSidebarPins(pinned, live, machines);
-    if (next.length !== pinned.length) { setPinned(next); saveSidebarPins(next); }
-  }, [machines, rows, pinned]);
-  // a pin moves the row between the pinned list and its card, so React draws a new star: a star
-  // that had the keyboard focus hands it to its successor
+  // pins lead: alone, the pinned rows stand first; in cards, each stays in its own card, first there,
+  // and a card that holds one comes before the cards that hold none
+  const split = useMemo(() => splitPinnedRows(rows, settings.agentPins ? pinned : NO_PINS, ({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)), [rows, pinned, settings.agentPins]);
+  // a pin moves the row, and maybe its card, so React may draw a new star: a star that had the
+  // keyboard focus hands it to its successor
   const sectionRef = useRef<HTMLElement>(null);
   const refocusPin = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -100,11 +101,13 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
   }, [pinned]);
   const setPin = (key: string, star: HTMLButtonElement): void => {
     if (document.activeElement === star) refocusPin.current = key;
-    const next = toggleSidebarPin(pinned, key);
-    setPinned(next);
-    saveSidebarPins(next);
+    // pins of panes gone from this server leave with a change of the user's, never by themselves: the
+    // list is shared, and a pane this page has not seen yet (a PC still loading) is not gone
+    const live = new Set(rows.map(({ machine, entry }) => sidebarPinKey(machine.id, entry.pane.pane_id)));
+    setSidebarPins(toggleSidebarPin(pruneSidebarPins(pinned, live, machines), key));
   };
-  const groups = useMemo(() => byActivity ? null : groupRows(split.rest, ({ machine, entry }) => JSON.stringify([machine.id, entry.workspace.workspace_id])), [split, byActivity]);
+  const carded = settings.agentCards && !byActivity;
+  const groups = useMemo(() => !carded ? null : groupRows([...split.pinned, ...split.rest], ({ machine, entry }) => JSON.stringify([machine.id, entry.workspace.workspace_id])), [split, carded]);
   // herdr names a PC only beside another: the rows' line, and a card's head, do the same
   const machineName = (machine: Machine): string | null => machines.length > 1 ? machine.name : null;
 
@@ -134,9 +137,9 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
         {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
         <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} plan={online ? pane.plan : undefined} status={online ? activity.status(machine.id, pane) : undefined} />
       </button>
-      <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={`${t("Pin agent")}: ${[title, machineName(machine), workspace.label].filter(Boolean).join(" · ")}`} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} data-pin-key={pinKey} onClick={(event) => setPin(pinKey, event.currentTarget)}>
+      {settings.agentPins && <button type="button" className={`agent-pin-toggle${isPinned ? " is-pinned" : ""}`} aria-label={`${t("Pin agent")}: ${[title, machineName(machine), workspace.label].filter(Boolean).join(" · ")}`} aria-pressed={isPinned} title={t(isPinned ? "Unpin agent" : "Pin agent")} data-pin-key={pinKey} onClick={(event) => setPin(pinKey, event.currentTarget)}>
         <Star aria-hidden="true" fill={isPinned ? "currentColor" : "none"} />
-      </button>
+      </button>}
     </li>;
   };
 
@@ -148,7 +151,6 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     </button>
     <div className="agent-list-contents" id={listId} hidden={collapsed}>
       {rows.length === 0 ? <p className="agent-empty" role="status">{t("No agents running")}</p> : <ul className="agent-list">
-        {groups && split.pinned.map((row) => agentItem(row, false))}
         {groups ? groups.map(({ key, rows: members }, index) => {
           const { machine, entry } = members[0]!;
           const headId = `${listId}-group-${index}`;

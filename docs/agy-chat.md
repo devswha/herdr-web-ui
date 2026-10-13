@@ -22,6 +22,20 @@ metadata suffix; standalone literal wrapper text is preserved. Error-only record
 without text are not rendered. Only completed (`DONE`) exported steps are rendered; an unfinished last row waits,
 and an unfinished historical row does not hide later completed turns.
 
+Chat shows Working from the current native turn, even while Herdr reports ready or done.
+A completed user step starts activity. A planner response with tools continues it; a
+completed tool-free planner answer clears it. Tool results and hidden context do not
+restart a finished turn. This follows the captured Agy 1.3.3 prompt/tool/final-answer
+sequence; `DONE` on a tool step alone does not finish the turn. The database still supplies
+only active indices, not guessed numeric status meanings. AGY does not export live thought
+chunks, so Chat shows Working rather than inferring Thinking from saved reasoning.
+
+This is display feedback, not input readiness. Interrupted or errored turns without a
+final planner answer can remain active, including a saved rewind retaining an unfinished
+turn. A new native turn or rewind recomputes the indicator from the retained history.
+Unsupported completion patterns may have the same limitation. Unavailable native history
+gets an explicit notice; session identity and terminal fallback rules are unchanged.
+
 Linux process/lock discovery and native lifecycle behavior were tested with Agy 1.3.3.
 macOS uses `lsof` for the same held-file evidence but has not been tested natively.
 Its `ps` process-birth check has one-second resolution; same-second PID reuse is not distinguished.
