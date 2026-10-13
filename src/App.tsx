@@ -242,17 +242,17 @@ export function App() {
   const [linkLanded, setLinkLanded] = useState(() => pendingLink.current === null);
   // A PC is gone only by a roster the server sent after it was named (lib/notificationTarget.ts
   // machineGone): the count of rosters in, and the count when the pending link and the selection
-  // were made. The selection's is checked once (null after): a remembered one against the first roster
+  // were made (a remembered selection: 0, so the first roster checks it)
   const rosterSeq = useRef(0);
   const linkSince = useRef(0);
-  const selectionSince = useRef<number | null>(0);
-  // the checks run again on a roster that came in while one waits (the same list, kept as it was,
-  // changes nothing they watch), and on a link a tap set (its pane may be the one selected already)
+  const selectionSince = useRef(0);
+  // the checks run again on a roster that came in while a link waits (the same list, kept as it
+  // was, changes nothing they watch), and on a link a tap set (its pane may be the one selected)
   const [rosterTick, setRosterTick] = useState(0);
   const [linkTick, setLinkTick] = useState(0);
   const rosterIn = useCallback((): void => {
     rosterSeq.current += 1;
-    if (pendingLink.current !== null || selectionSince.current !== null) setRosterTick(rosterSeq.current);
+    if (pendingLink.current !== null) setRosterTick(rosterSeq.current);
   }, []);
   // the file a link named, opened over its pane once that pane is shown
   const pendingFile = useRef<string | null>(initialLink ? fileFromLink(initialLink) : null);
@@ -1274,8 +1274,6 @@ export function App() {
     const linked = pendingLink.current;
     const machineId = linked ? linked.machine : selectedMachineRef.current;
     const since = linked ? linkSince.current : selectionSince.current;
-    // a selection is checked once, against the first roster sent after it was made
-    if (!linked && since !== null && rosterSeq.current > since) selectionSince.current = null;
     if (!machineGone(machines, rosterSeq.current, since, machineId)) return;
     pendingLink.current = null; pendingFile.current = null;
     setLinkLanded(true);
