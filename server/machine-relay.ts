@@ -63,12 +63,15 @@ export class MachineRelay {
       } else this.send(raw);
     };
     this.upstream.onclose = (event) => this.close(upstreamCloseCode(event.code), event.reason || "Remote connection ended");
-    this.timer = setInterval(() => {
-      const buffered = Math.max(this.client?.getBufferedAmount() ?? 0, this.upstream.bufferedAmount);
-      const code = this.stall.sample(buffered, Date.now());
-      if (code) this.close(code, "terminal transport stalled");
-    }, 100);
+    this.timer = setInterval(() => this.tick(), 100);
     this.timer.unref();
+  }
+  /** One stall-clock sample of both sockets' queues; the 100 ms timer calls it, and tests inject `now`. */
+  tick(now = Date.now()): void {
+    if (this.closed) return;
+    const buffered = Math.max(this.client?.getBufferedAmount() ?? 0, this.upstream.bufferedAmount);
+    const code = this.stall.sample(buffered, now);
+    if (code) this.close(code, "terminal transport stalled");
   }
   bind(client: ServerWebSocket<unknown>): void {
     this.client = client;
