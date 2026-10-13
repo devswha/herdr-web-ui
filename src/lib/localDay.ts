@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 
 /** The start of `nowMs`'s local calendar day, in ms: the same number all day, a new one after local midnight. */
 export function localDayKey(nowMs: number): number {
@@ -93,7 +93,11 @@ const browserDay = createDayStore({
   },
 });
 
+/** The day store `useLocalDay` reads: the browser clock unless a provider (a test) gives another. */
+export const DayStoreContext = createContext<DayStore>(browserDay);
+
 /** The local day key (see `localDayKey`); the component re-renders when the local day changes, and only then. */
 export function useLocalDay(): number {
-  return useSyncExternalStore(browserDay.subscribe, browserDay.getSnapshot, browserDay.getSnapshot);
+  const store = useContext(DayStoreContext);
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
