@@ -53,7 +53,7 @@ Bun backend: HTTP API + WebSocket fan-out over herdr's unix-socket API, plus the
 - Machine proxy forwards only allowlisted pane/workspace routes and its own bridge bearer credential. Never forward browser cookies/Authorization or remote Set-Cookie.
 - SSH askpass secrets are in memory through private Unix sockets; persistent private keys and registries are 0600. Host-key changes fail closed.
 - Remote process replacement requires explicit setup update approval, authenticated bridge/PID verification and managed_remote ownership. Never stop herdr itself or an independent bridge.
-- Bundled runtime releases are immutable checksum-addressed directories. MachineRelay carries ACKs unchanged; never acknowledge remote output before the browser has parsed it. Its own 4008 (`RelayStall`) fires only after 2 s of queued bytes with no progress: bytes leaving a queue, or a browser ACK that moved.
+- Bundled runtime releases are immutable checksum-addressed directories. MachineRelay carries ACKs unchanged; never acknowledge remote output before the browser has parsed it.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
