@@ -77,22 +77,22 @@ async function fileFor(path) {
 }
 
 /**
- * The shell just fetched is this cache's "/", and the caches of other names go only once this
- * one also holds every file that shell starts with: the worker before may have answered them,
- * and a network that drops before the page asks again must not leave a shell without them.
- * Until then the old caches stay, the complete start they hold with them. Their typefaces and
- * icons move to FILES first.
+ * The shell just fetched becomes this cache's "/" once the cache holds every file that shell
+ * starts with: the worker before may have answered them, and a network that drops before the
+ * page asks again must not leave a shell without them. Until then the old caches and their
+ * shell stay, a complete start offline. Then the caches of other names go, their typefaces and
+ * icons moved to FILES first.
  */
 async function keepShell(response) {
   const html = await response.clone().text();
   const cache = await caches.open(CACHE);
-  await cache.put("/", response);
   for (const path of shellFiles(html)) {
     if (await cache.match(path)) continue;
     const file = await fileFor(path);
     if (!file) return;
     await cache.put(path, file);
   }
+  await cache.put("/", response);
   const files = await caches.open(FILES);
   const names = (await caches.keys()).filter((name) => name !== CACHE && name !== FILES);
   for (const name of names) {

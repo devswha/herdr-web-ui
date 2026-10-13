@@ -317,14 +317,16 @@ describe("a service worker of a new build", () => {
     worker.network.online = false;
     await kept();
     expect(worker.names()).toContain(`${current}-aaaaaaaaaaaa`);
-    // offline, what the worker before kept still answers
-    expect(await worker.navigate()).toBe(shellB);
-    expect(await worker.get("/assets/index-b.js")).toBe("b script");
+    // offline, the start the worker before kept: its shell, not one whose stylesheet is nowhere
+    expect(await worker.navigate()).toBe("shell a");
+    expect(await worker.get("/assets/index-a.js")).toBe("a script");
+    expect(await worker.get("/assets/index-b.css")).toBeNull();
     // the next navigation that reaches the server finishes the copy and retires it
     worker.network.online = true;
     expect(await worker.navigate()).toBe(shellB);
     expect(worker.names().sort()).toEqual([`${current}-bbbbbbbbbbbb`, FILES].sort());
-    expect(worker.entries(`${current}-bbbbbbbbbbbb`).sort()).toEqual(["/", "/assets/index-b.css", "/assets/index-b.js"]);
+    // the old page's bundle it asked for meanwhile came along, as any file the old cache answers does
+    expect(worker.entries(`${current}-bbbbbbbbbbbb`).sort()).toEqual(["/", "/assets/index-a.js", "/assets/index-b.css", "/assets/index-b.js"]);
   });
 
   it("keeps the typefaces and icons a phone already has across an update", async () => {
