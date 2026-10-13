@@ -30,6 +30,8 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           bun scripts/release-notes.ts "$RELEASE_VERSION"
+          # the remote-vN this version names is published from this tree, and the Worker deploy is recorded
+          bun scripts/release-guards.ts --release "$RELEASE_VERSION"
           if git show-ref --verify --quiet "refs/tags/v$RELEASE_VERSION"; then
             echo 'This version already has a tag; choose a new version.' >&2
             exit 1
