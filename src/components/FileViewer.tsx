@@ -247,8 +247,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   // what holds for the whole file is said with its size, where it is seen first, not after a megabyte of text
   const cutShort = textFile && (!htmlPage || source) && loaded !== null && loaded.truncated;
   const budget = textFile ? readBudget(language, info.size) : null;
-  // a cut at the byte budget is told in sizes; one at the line cap in lines
-  const cutBytes = cutShort && budget !== null && loaded.truncatedBy !== "lines" && (loaded.total ?? info.size) > budget.bytes ? { shown: budget.bytes, total: loaded.total ?? info.size } : null;
+  // a cut at the byte budget is told in sizes; one at the line cap in lines; one by the deadline
+  // (a slow link) only says part is shown, since its size is not the budget's
+  const cutBytes = cutShort && budget !== null && loaded.truncatedBy !== "lines" && loaded.truncatedBy !== "time" && (loaded.total ?? info.size) > budget.bytes ? { shown: budget.bytes, total: loaded.total ?? info.size } : null;
   // a cut prefix's lines are the reader's count of complete lines: the line just past the cap is unseen
   const request = useMemo(() => codeShown ? lineRequest(target.line, sourceText, loaded.truncated, loaded.lines) : null, [codeShown, target.line, sourceText, loaded]);
   const requestNotice = (() => {

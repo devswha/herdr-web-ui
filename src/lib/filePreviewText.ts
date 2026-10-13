@@ -10,8 +10,8 @@ export interface FilePreviewText {
   truncated: boolean;
   /** The whole size reported with the body, not the earlier stat. */
   total?: number;
-  /** Only with `maxLines`, and only when truncated: which budget (or a server range cut, as "bytes") ended the text. */
-  truncatedBy?: "bytes" | "lines";
+  /** Only with `maxLines`, and only when truncated: which budget (or a server range cut, as "bytes") ended the text; "time" when the deadline did (`partialOnTimeout`). */
+  truncatedBy?: "bytes" | "lines" | "time";
   /** Only with `maxLines`: logical lines of `text`, i.e. newline-terminated lines plus an unterminated final one. */
   lines?: number;
 }
@@ -39,14 +39,14 @@ export async function readFilePreviewText(response: Response, limit: number, opt
   const reader = response.body?.getReader();
   // a 206 names the file's whole size, so a cut there can say how much is shown
   const total = range ? { total: Number(range[2]) } : {};
-  const budgeted = (result: FilePreviewText, by: "bytes" | "lines"): FilePreviewText =>
+  const budgeted = (result: FilePreviewText, by: "bytes" | "lines" | "time"): FilePreviewText =>
     maxLines === undefined ? result : { ...result, ...(result.truncated ? { truncatedBy: by } : {}), lines: countLines(result.text) };
   if (!reader) return budgeted({ text: "", truncated: range !== null, ...total }, "bytes");
   const decoder = new TextDecoder();
   let text = "";
   let bytes = 0;
   // Only partial files lose an incomplete final line; a single huge line keeps its whole characters.
-  const finish = (truncated: boolean, by: "bytes" | "lines" = "bytes"): FilePreviewText => {
+  const finish = (truncated: boolean, by: "bytes" | "lines" | "time" = "bytes"): FilePreviewText => {
     const newline = text.lastIndexOf("\n");
     return budgeted({ text: truncated ? (newline < 0 ? text : text.slice(0, newline + 1)) : text + decoder.decode(), truncated, ...total }, by);
   };
@@ -91,7 +91,7 @@ export async function readFilePreviewText(response: Response, limit: number, opt
     }
   } catch (error) {
     // a slow link still shows the part it delivered, as a cut prefix, rather than nothing
-    if (error === timedOut && options.partialOnTimeout && bytes > 0) return finish(true);
+    if (error === timedOut && options.partialOnTimeout && bytes > 0) return finish(true, "time");
     throw error;
   } finally {
     clearTimeout(timer); options.signal?.removeEventListener("abort", aborted); reader.releaseLock();
