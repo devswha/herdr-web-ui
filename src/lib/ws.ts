@@ -117,6 +117,12 @@ export class HerdrSocket {
   private lastFrameAt = 0;
   /** the deadline of the ping in flight; null while no probe waits */
   private probeTimer: number | null = null;
+  /**
+   * a probe the page hid before its pong: its deadline is stopped (it must not run out while the
+   * page is frozen), but it is not answered, so input stays refused and submits keep waiting; the
+   * page coming back pings again
+   */
+  private probePaused = false;
   /** the ids of the probe's pings: only their pong ends it */
   private readonly probeIds = new Set<number>();
   /** settles when the probe in flight ends (answered, given up, or the connection ended) */
@@ -132,8 +138,9 @@ export class HerdrSocket {
   /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
   private readonly onWake = (): void => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-      // a deadline must not run out while the page is frozen: the page coming back asks again
-      this.endProbe();
+      // a deadline must not run out while the page is frozen, and a probe cut short is not an
+      // answer: it pauses, and the page coming back asks again
+      this.pauseProbe();
       return;
     }
     this.wake();
@@ -170,6 +177,14 @@ export class HerdrSocket {
     this.listenForWake();
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
+    }
+    // A socket still CLOSING (or CLOSED before its close event ran) is replaced: end it first, so its
+    // probe, its waiting submits and the disconnect handlers settle now rather than never (its
+    // close event would find it replaced). A late 4008 from it still stops output.
+    const previous = this.socket;
+    if (previous) {
+      this.endConnection();
+      this.endedEarly.add(previous);
     }
     const socket = new WebSocket(this.url);
     this.socket = socket;
@@ -347,8 +362,24 @@ export class HerdrSocket {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.pingKnown || this.probeTimer !== null) return;
     this.connectionState = "probing";
-    this.probeDone = new Promise((resolve) => { this.markProbeDone = resolve; });
+    // a paused probe goes on with a fresh ping: whoever waits on it keeps waiting
+    if (this.probePaused) this.probePaused = false;
+    else this.probeDone = new Promise((resolve) => { this.markProbeDone = resolve; });
     this.ping(socket, 1);
+  }
+
+  /** Stops a probe's deadline while the page is hidden, without answering it (see probePaused). */
+  private pauseProbe(): void {
+    if (this.probeTimer === null) return;
+    window.clearTimeout(this.probeTimer);
+    this.probeTimer = null;
+    this.probeIds.clear();
+    this.probePaused = true;
+  }
+
+  /** A probe waits for its pong: running, or paused while the page is hidden. */
+  private get probing(): boolean {
+    return this.probeTimer !== null || this.probePaused;
   }
 
   /** Sends one of the probe's pings and arms its deadline; `attempt` 2 is the last before a drop. */
@@ -381,6 +412,7 @@ export class HerdrSocket {
   private endProbe(): void {
     if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
     this.probeTimer = null;
+    this.probePaused = false;
     this.probeIds.clear();
     this.markProbeDone();
     if (this.connectionState === "probing") this.connectionState = "open";
@@ -388,7 +420,7 @@ export class HerdrSocket {
 
   /** Waits out a probe in flight on `socket`; true when it is still this connection afterwards. */
   private async probeSettled(socket: WebSocket): Promise<boolean> {
-    while (this.probeTimer !== null && this.socket === socket) await this.probeDone;
+    while (this.probing && this.socket === socket) await this.probeDone;
     return this.connected && this.socket === socket;
   }
 
@@ -623,7 +655,7 @@ export class HerdrSocket {
 
   /** False while a liveness probe waits: typing goes to the held draft until the connection answers its ping. */
   canInput(paneId: string): boolean {
-    return this.connected && this.probeTimer === null && this.mode === "interact" && this.inputReady.has(paneId);
+    return this.connected && !this.probing && this.mode === "interact" && this.inputReady.has(paneId);
   }
 
   /** Whether this connection can accept and manage pending messages on the bridge. */

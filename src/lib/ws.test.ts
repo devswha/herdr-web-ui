@@ -1001,7 +1001,7 @@ it("does not drop a connection over a probe deadline that ran out while the page
   }
 });
 
-it("cancels a probe when the page is hidden and starts a fresh one when it is shown again", () => {
+it("pauses a probe when the page is hidden and pings again when it is shown", () => {
   jest.useFakeTimers();
   const listeners = new Map<string, () => void>();
   const page = { visibilityState: "visible", addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: () => {} };
@@ -1013,7 +1013,9 @@ it("cancels a probe when the page is hidden and starts a fresh one when it is sh
     client.wake();
     page.visibilityState = "hidden";
     listeners.get("visibilitychange")!();
-    expect(client.state).toBe("open");
+    // a probe cut short is not an answer: typing stays refused until a pong comes
+    expect(client.state).toBe("probing");
+    expect(client.canInput("w1:p1")).toBe(false);
     jest.advanceTimersByTime(60_000);
     expect(FakeSocket.last).toBe(socket);
     page.visibilityState = "visible";
@@ -1125,6 +1127,78 @@ it("leaves a socket the server is closing to its close event when a probe times 
     expect(client.state).toBe("stopped");
     jest.advanceTimersByTime(10_000);
     expect(FakeSocket.last).toBe(socket);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("keeps a submit and a secret waiting when the page hides during a probe, and sends them after the next pong", async () => {
+  jest.useFakeTimers();
+  const listeners = new Map<string, () => void>();
+  const page = { visibilityState: "visible", addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: () => {} };
+  const globalDocument = globalThis as unknown as { document?: unknown };
+  const previous = globalDocument.document;
+  globalDocument.document = page;
+  const { client, socket } = liveClient(["submit", "secret-input", "ping"]);
+  try {
+    client.wake();
+    const submit = client.submit("w1:p1", "later", "later");
+    const secret = client.sendSecret("w1:p1", "Password:", "hunter2");
+    await settle();
+    page.visibilityState = "hidden";
+    listeners.get("visibilitychange")!();
+    await settle();
+    const requests = () => socket.sent.filter((frame) => ["submit", "secret"].includes(frame.type));
+    // nothing goes out on a socket no pong has vouched for
+    expect(requests()).toEqual([]);
+    page.visibilityState = "visible";
+    listeners.get("visibilitychange")!();
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }, { type: "ping", id: 2 }]);
+    await settle();
+    expect(requests()).toEqual([]);
+    socket.receive({ type: "pong", id: 2 });
+    await settle();
+    expect(requests().map((frame) => frame.type)).toEqual(["submit", "secret"]);
+    expect(submit).not.toBeNull();
+    expect(secret).not.toBeNull();
+  } finally {
+    client.close();
+    globalDocument.document = previous;
+    jest.useRealTimers();
+  }
+});
+
+it("settles a submit waiting on a probe when a CLOSING socket is replaced, and takes input on the new one", async () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    let disconnects = 0;
+    client.onDisconnect(() => { disconnects++; });
+    client.wake();
+    let outcome: unknown = null;
+    void client.submit("w1:p1", "later", "later")!.then((result) => { outcome = result; });
+    await settle();
+    // the closing handshake started, and a pane mount connects again before the close event
+    socket.closing();
+    client.connect();
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    await settle();
+    expect(outcome).toMatchObject({ ok: false, code: "disconnected" });
+    expect(disconnects).toBe(1);
+    fresh.open();
+    fresh.receive(snapshot(["input-ready", "submit", "ping"]));
+    fresh.receive({ type: "input-ready", pane_id: "w1:p1" });
+    // the old probe's deadline does not hold the new socket's input
+    expect(client.canInput("w1:p1")).toBe(true);
+    jest.advanceTimersByTime(12_000);
+    expect(FakeSocket.last).toBe(fresh);
+    expect(socket.sent.filter((frame) => frame.type === "submit")).toEqual([]);
+    // its late close changes nothing
+    socket.closeEvent(1000);
+    expect(disconnects).toBe(1);
+    expect(client.connected).toBe(true);
   } finally {
     client.close();
     jest.useRealTimers();
