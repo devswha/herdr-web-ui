@@ -7,7 +7,7 @@ import { useT } from "../lib/i18n.ts";
 import type { MarkdownBlock } from "../lib/markdown.ts";
 import { useSettings, type MarkdownWidth } from "../lib/settings.ts";
 import { CodeLines } from "./HighlightedCode.tsx";
-import { ParsedMarkdown } from "./Markdown.tsx";
+import { ProgressiveMarkdown } from "./Markdown.tsx";
 
 // the virtualizer and its highlighter are their own chunk, loaded with the first source that needs them
 const VirtualSource = lazy(() => import("./VirtualSource.tsx"));
@@ -56,7 +56,7 @@ export function TextFileView({ path, blocks, lines, virtual, selectable, onOpen,
   })();
   return <div className={virtual !== null && blocks === null ? "file-viewer-content file-viewer-content-virtual" : "file-viewer-content"}>
     {blocks !== null
-      ? <OpenFileContext.Provider value={openLink}><ParsedMarkdown className={MARKDOWN_CLASS[settings.markdownWidth]} blocks={blocks} /></OpenFileContext.Provider>
+      ? <OpenFileContext.Provider value={openLink}><ProgressiveMarkdown className={MARKDOWN_CLASS[settings.markdownWidth]} blocks={blocks} /></OpenFileContext.Provider>
       : code}
   </div>;
 }

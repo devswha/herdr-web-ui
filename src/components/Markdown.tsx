@@ -14,6 +14,7 @@ import { formatBytes } from "../lib/bridgeProgress.ts";
 import { MermaidLightbox } from "./MermaidLightbox.tsx";
 import { copyText } from "../lib/clipboard.ts";
 import type { SkillMatcher } from "../lib/skillMentions.ts";
+import { previewChunks } from "../lib/textPreview.ts";
 
 /** The pane's skill names: a name in an answer's plain text, in its trigger form, reads as a chip. */
 const SkillMatcherContext = createContext<SkillMatcher | null>(null);
@@ -339,4 +340,28 @@ export const Markdown = memo(function Markdown({ children, className, html = fal
  */
 export const ParsedMarkdown = memo(function ParsedMarkdown({ blocks, className }: { blocks: MarkdownBlock[]; className?: string }) {
   return <div className={className === undefined ? "markdown" : `markdown ${className}`}><Blocks blocks={blocks} /></div>;
+});
+
+const BlockChunk = memo(function BlockChunk({ blocks }: { blocks: MarkdownBlock[] }) {
+  return <Blocks blocks={blocks} />;
+});
+
+/**
+ * `ParsedMarkdown` drawn a chunk of blocks per task (previewChunks), for a whole file's Preview: up
+ * to PREVIEW_ELEMENT_LIMIT elements drawn and laid out in one task held a slow page past a second.
+ * The first chunk shows at once and each later one is added in a task of its own; a drawn chunk is
+ * never drawn again, and new blocks start over from the first chunk.
+ */
+export const ProgressiveMarkdown = memo(function ProgressiveMarkdown({ blocks, className }: { blocks: MarkdownBlock[]; className?: string }) {
+  const chunks = useMemo(() => previewChunks(blocks), [blocks]);
+  const [drawn, setDrawn] = useState<{ blocks: MarkdownBlock[]; count: number }>({ blocks, count: 1 });
+  const count = drawn.blocks === blocks ? drawn.count : 1;
+  useEffect(() => {
+    if (count >= chunks.length) return;
+    const timer = setTimeout(() => setDrawn({ blocks, count: count + 1 }), 0);
+    return () => clearTimeout(timer);
+  }, [blocks, chunks.length, count]);
+  return <div className={className === undefined ? "markdown" : `markdown ${className}`}>
+    {chunks.slice(0, count).map((chunk, index) => <BlockChunk key={index} blocks={chunk} />)}
+  </div>;
 });
