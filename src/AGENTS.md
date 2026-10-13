@@ -5,7 +5,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 ## ANTI-PATTERNS
 - Never persist the auth token client-side: the HttpOnly cookie is the only storage; no localStorage/sessionStorage anywhere.
 - Key bar taps and Stop go through `term.input()`. PaneTerminal routes held-modifier chords and the plain arrow keys through WS `keys` so Herdr encodes the target pane's keyboard protocol and cursor-key mode (the attach stream never passes DECCKM on to xterm); other input uses WS `input`. A left press let go in its own cell with nothing selected is replayed to xterm as a click for the program; a drag, or a press with the selection modifier held, stays a selection. Composer and TerminalInput text sends use `socket.submit()` (WS `submit` when advertised, else `input` + `\r`); their text is never modified by held keys. Prompt-card answers use `/api/pane/prompt/answer`.
-- Never hardcode a color in component CSS: the light theme is only token overrides.
+- Never hardcode a color in component CSS: the light theme is only token overrides (`src/conventions.test.ts` enforces it).
 - `term.reset()` fires only in the paneId effect, never mid-stream.
 - Output ACKs run in xterm's write callback and capture the connection and pane subscription; never queue them across reconnects or pane switches. A 4008 overload close stops automatic reconnect and shows a notice; selecting another pane explicitly reconnects. Normal reconnect replays stored role/attach/geometry once, without a second control-frame queue.
 - A WS receipt matches the request type, the captured pane and (for a pending action) the pending ID on its own connection, never an ID alone. A submit unanswered for 90 s gives up and keeps the text in the box; the client never sends it again.
@@ -24,7 +24,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 
 ## CONVENTIONS
 - main.tsx owns the side-effect imports: `./styles.css` and `./lib/viewport.ts` load there, never inside components. `./styles.css` is imported BEFORE `./App.tsx`: Vite emits CSS in import order, and a component stylesheet's single-class override of a primitive (`.sidebar-footer-action` over `.btn`) only wins when the primitive comes first (2026-09-21: the reversed order silently centered footer buttons and centered the palette).
-- Component CSS is colocated (`X.css` next to `X.tsx`); new component styles go there, not into styles.css. Override primitives at the same specificity and rely on order, never on `!important` or selector stacking.
+- Component CSS is colocated (`X.css` next to `X.tsx`); new component styles go there, not into styles.css. Override primitives at the same specificity and rely on order, never on `!important` or selector stacking (`!important` is refused by `src/conventions.test.ts`).
 - Status surfaces (conn pill, banners, tree states) use `role="status"`; `role="alert"` is for error text (the App and sidebar error blocks, dialog and form errors, the prompt card's confirm).
 - index.html owns document meta (`interactive-widget=resizes-content`, `theme-color`, manifest link); client code never re-declares it.
 - A branch CSS alone cannot decide (a menu that is a bottom sheet or a popover, layout that has to know which side of a breakpoint it is on) reads `useMediaQuery` from `lib/useMediaQuery.ts`, never `matchMedia(...).matches` once at mount: the viewport moves while a menu is open.
