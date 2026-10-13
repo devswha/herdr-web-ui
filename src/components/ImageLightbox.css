@@ -27,9 +27,10 @@
   box-shadow: var(--shadow-pop);
 }
 
+/* clear of a notch or a rounded corner: the page is laid out with viewport-fit=cover */
 .image-lightbox-bar {
-  top: var(--space-3);
-  right: var(--space-3);
+  top: calc(var(--space-3) + env(safe-area-inset-top, 0px));
+  right: calc(var(--space-3) + env(safe-area-inset-right, 0px));
 }
 
 .image-lightbox-zoom {
@@ -97,10 +98,10 @@
 /* the caption and the gallery's steps, centred on the bottom edge, above a phone's home bar */
 .image-lightbox-foot {
   bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
-  left: var(--space-3);
-  right: var(--space-3);
+  left: calc(var(--space-3) + env(safe-area-inset-left, 0px));
+  right: calc(var(--space-3) + env(safe-area-inset-right, 0px));
   width: fit-content;
-  max-width: calc(100% - 2 * var(--space-3));
+  max-width: calc(100% - 2 * var(--space-3) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
   margin: 0 auto;
   flex-direction: column;
   gap: var(--space-1);
