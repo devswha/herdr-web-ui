@@ -8,6 +8,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { PtySession } from "../server/pty/session.ts";
 import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { chromePath } from "./chrome-path.ts";
 
 /** how long a resize that should not happen gets to show up */
 const NO_RESIZE_WAIT_MS = 400;
@@ -763,7 +764,7 @@ if (import.meta.main) {
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
   let browser: Browser | undefined;
   try {
-    browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox", "--accept-lang=en-US"] });
+    browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox", "--accept-lang=en-US"] });
     const origin = `http://127.0.0.1:${server.port}`;
     if (process.env.CHAT_SIZE_CASE === "reclaim") await checkFocusedWindowReclaimsTerminalSize(browser, origin);
     else if (process.env.CHAT_SIZE_CASE) await checkInactiveAttachLifecycle(browser, origin);
