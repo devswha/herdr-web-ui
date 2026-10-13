@@ -1,26 +1,24 @@
 import { authenticatedWebSocket } from "./remote-websocket.ts";
 import type { ServerWebSocket } from "bun";
-import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_LOW_BYTES, OUTPUT_STALL_MS } from "./output-window.ts";
+import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import type { MachineManager } from "./machines.ts";
 
-/** The relay's own transport stalled: the phone reconnects and re-attaches instead of stopping for good. */
-export const RELAY_STALL_CLOSE_CODE = 1012;
-
 /**
- * The relay's backstop against its own sockets backing up. It uses the local bridge's
- * hysteresis (blocked from OUTPUT_HIGH_BYTES until OUTPUT_LOW_BYTES), because a slow phone
- * link keeps a few KB queued in userspace while output still moves; the end-to-end ACK window
- * is enforced by the remote bridge. Returns the close code to use, or 0 to keep going.
+ * The relay's backstop against its own sockets backing up, with this PC's rule (reconcileOutput):
+ * blocked only while OUTPUT_HIGH_BYTES or more is queued, closed after OUTPUT_STALL_MS of that.
+ * A slow phone link keeps a few KB queued in userspace while output still moves, so any byte
+ * must not count. The end-to-end ACK window is enforced by the remote bridge. A stall closes
+ * with 4008 like this PC's: an overload is never auto-replayed. Returns the close code, or 0.
  */
 export class RelayStallClock {
   private blockedAt: number | null = null;
 
   sample(buffered: number, now: number): number {
     if (buffered > OUTPUT_HARD_BYTES) return OUTPUT_STALLED_CLOSE_CODE;
-    if (buffered <= OUTPUT_LOW_BYTES) this.blockedAt = null;
-    else if (buffered >= OUTPUT_HIGH_BYTES && this.blockedAt === null) this.blockedAt = now;
-    return this.blockedAt !== null && now - this.blockedAt >= OUTPUT_STALL_MS ? RELAY_STALL_CLOSE_CODE : 0;
+    if (buffered < OUTPUT_HIGH_BYTES) this.blockedAt = null;
+    else if (this.blockedAt === null) this.blockedAt = now;
+    return this.blockedAt !== null && now - this.blockedAt >= OUTPUT_STALL_MS ? OUTPUT_STALLED_CLOSE_CODE : 0;
   }
 }
 
@@ -68,7 +66,7 @@ export class MachineRelay {
     this.timer = setInterval(() => {
       const buffered = Math.max(this.client?.getBufferedAmount() ?? 0, this.upstream.bufferedAmount);
       const code = this.stall.sample(buffered, Date.now());
-      if (code) this.close(code, code === OUTPUT_STALLED_CLOSE_CODE ? "output overflow" : "relay transport stalled");
+      if (code) this.close(code, "terminal transport stalled");
     }, 100);
     this.timer.unref();
   }

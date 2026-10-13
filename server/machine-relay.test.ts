@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { RELAY_STALL_CLOSE_CODE, RelayStallClock, upstreamCloseCode } from "./machine-relay.ts";
-import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_LOW_BYTES, OUTPUT_STALL_MS } from "./output-window.ts";
+import { RelayStallClock, upstreamCloseCode } from "./machine-relay.ts";
+import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 
 /** Samples every 100 ms like the relay's timer, returning the first close code. */
@@ -18,27 +18,20 @@ describe("RelayStallClock", () => {
     expect(run(new RelayStallClock(), () => OUTPUT_HIGH_BYTES - 1, 0, 3000)).toBe(0);
   });
 
-  test("a relay-own stall above the high-water mark closes with a reconnectable code", () => {
+  test("a stall at the high-water mark for 2 s closes with the explicit 4008, never a reconnect code", () => {
     const clock = new RelayStallClock();
     expect(clock.sample(OUTPUT_HIGH_BYTES, 0)).toBe(0);
     expect(clock.sample(OUTPUT_HIGH_BYTES + 1, OUTPUT_STALL_MS - 1)).toBe(0);
-    const code = clock.sample(OUTPUT_HIGH_BYTES + 1, OUTPUT_STALL_MS);
-    expect(code).toBe(RELAY_STALL_CLOSE_CODE);
-    expect(code).not.toBe(OUTPUT_STALLED_CLOSE_CODE);
-    expect([1012, 1013]).toContain(code);
+    expect(clock.sample(OUTPUT_HIGH_BYTES + 1, OUTPUT_STALL_MS)).toBe(OUTPUT_STALLED_CLOSE_CODE);
   });
 
-  test("the clock stays latched between the low and high marks and clears at the low mark", () => {
-    const latched = new RelayStallClock();
-    latched.sample(OUTPUT_HIGH_BYTES, 0);
-    expect(run(latched, () => OUTPUT_LOW_BYTES + 1, 100, OUTPUT_STALL_MS)).toBe(RELAY_STALL_CLOSE_CODE);
-
-    const drained = new RelayStallClock();
-    drained.sample(OUTPUT_HIGH_BYTES, 0);
-    drained.sample(OUTPUT_LOW_BYTES, 1000);
-    expect(drained.sample(OUTPUT_HIGH_BYTES, 1500)).toBe(0);
-    expect(drained.sample(OUTPUT_HIGH_BYTES, 1500 + OUTPUT_STALL_MS - 1)).toBe(0);
-    expect(drained.sample(OUTPUT_HIGH_BYTES, 1500 + OUTPUT_STALL_MS)).toBe(RELAY_STALL_CLOSE_CODE);
+  test("like this PC's rule, one sample below the high-water mark clears the clock", () => {
+    const clock = new RelayStallClock();
+    expect(clock.sample(OUTPUT_HIGH_BYTES, 0)).toBe(0);
+    expect(clock.sample(OUTPUT_HIGH_BYTES - 1, 100)).toBe(0);
+    expect(clock.sample(OUTPUT_HIGH_BYTES, 200)).toBe(0);
+    expect(clock.sample(OUTPUT_HIGH_BYTES, 200 + OUTPUT_STALL_MS - 1)).toBe(0);
+    expect(clock.sample(OUTPUT_HIGH_BYTES, 200 + OUTPUT_STALL_MS)).toBe(OUTPUT_STALLED_CLOSE_CODE);
   });
 
   test("buffering past the hard budget still closes at once as an overflow", () => {
