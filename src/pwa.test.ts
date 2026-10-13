@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { stampServiceWorker } from "../scripts/service-worker-build.ts";
+
 const publicDir = join(import.meta.dir, "..", "public");
 
 /** Runs public/sw.js against a stand-in `self` and returns its fetch listener. */
@@ -38,14 +40,21 @@ describe("installed app", () => {
 
 type WorkerRequest = { method: string; url: string; mode: string };
 
-/** public/sw.js over a stand-in CacheStorage and a network that can be cut. */
-function serviceWorker(stored: Record<string, Record<string, string>>) {
+type Kept = { body: string; type: string | null };
+const kept = (entry: Kept): Response => new Response(entry.body, entry.type ? { headers: { "content-type": entry.type } } : undefined);
+
+/** public/sw.js (or `source`, a build of it) over a stand-in CacheStorage and a network that can be cut. */
+function serviceWorker(stored: Record<string, Record<string, string | Kept>>, source = readFileSync(join(publicDir, "sw.js"), "utf8")) {
   const origin = "https://app.test";
   const keyOf = (request: string | WorkerRequest): string => (typeof request === "string" ? request : request.url.slice(origin.length));
-  const store = new Map(Object.entries(stored).map(([name, entries]) => [name, new Map(Object.entries(entries))]));
-  const cacheOf = (entries: Map<string, string>) => ({
-    match: async (request: string | WorkerRequest) => (entries.has(keyOf(request)) ? new Response(entries.get(keyOf(request))) : undefined),
-    put: async (request: string | WorkerRequest, response: Response) => { await disk.ready; entries.set(keyOf(request), await response.text()); },
+  const store = new Map(Object.entries(stored).map(([name, entries]) =>
+    [name, new Map(Object.entries(entries).map(([key, entry]) => [key, typeof entry === "string" ? { body: entry, type: null } : entry]))]));
+  const cacheOf = (entries: Map<string, Kept>) => ({
+    match: async (request: string | WorkerRequest) => (entries.has(keyOf(request)) ? kept(entries.get(keyOf(request))!) : undefined),
+    put: async (request: string | WorkerRequest, response: Response) => {
+      await disk.ready;
+      entries.set(keyOf(request), { body: await response.text(), type: response.headers.get("content-type") });
+    },
   });
   const caches = {
     keys: async () => [...store.keys()],
@@ -56,24 +65,28 @@ function serviceWorker(stored: Record<string, Record<string, string>>) {
     },
     // every cache, oldest first, as the browser's does
     match: async (request: string | WorkerRequest) => {
-      for (const entries of store.values()) if (entries.has(keyOf(request))) return new Response(entries.get(keyOf(request)));
+      for (const entries of store.values()) if (entries.has(keyOf(request))) return kept(entries.get(keyOf(request))!);
       return undefined;
     },
   };
   /** `ready` is awaited by every write: a test replaces it to hold the cache back. */
   const disk = { ready: Promise.resolve() as Promise<void> };
-  const network = { online: true, shell: "shell", status: 200, fetched: [] as string[] };
+  /** `gone`: files the server no longer has, answered as `goneAs` says (a 404, or the shell as servers before it did) */
+  const network = { online: true, shell: "shell", status: 200, fetched: [] as string[], gone: new Set<string>(), goneAs: "404" as "404" | "shell" };
   const fetch = async (request: WorkerRequest) => {
     if (!network.online) throw new TypeError("Failed to fetch");
     network.fetched.push(keyOf(request));
-    const response = request.mode === "navigate" ? new Response(network.shell, { status: network.status }) : new Response(`network ${keyOf(request)}`);
+    const page = () => new Response(network.shell, { status: network.status, headers: { "content-type": "text/html; charset=utf-8" } });
+    const response = request.mode === "navigate" ? page()
+      : !network.gone.has(keyOf(request)) ? new Response(`network ${keyOf(request)}`)
+      : network.goneAs === "shell" ? page() : new Response(null, { status: 404 });
     // a same-origin answer, which is all the worker keeps
     Object.defineProperty(response, "type", { value: "basic" });
     return response;
   };
   const listeners = new Map<string, (event: unknown) => void>();
   const self = { location: { origin }, clients: { claim: async () => undefined }, skipWaiting: () => undefined, addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener) };
-  new Function("self", "caches", "fetch", readFileSync(join(publicDir, "sw.js"), "utf8"))(self, caches, fetch);
+  new Function("self", "caches", "fetch", source)(self, caches, fetch);
   /** The answer as the page gets it, and `kept`: everything the worker asked to stay alive for. */
   const fire = (type: string, event: Record<string, unknown> = {}): { answer: Promise<Response> | undefined; kept: () => Promise<void> } => {
     let answer: Promise<Response> | undefined;
@@ -199,5 +212,70 @@ describe("a service worker under a new cache name", () => {
     await worker.update();
     worker.network.online = false;
     expect(await worker.navigate()).toBeNull();
+  });
+});
+
+describe("a file the server no longer has", () => {
+  const sw = readFileSync(join(publicDir, "sw.js"), "utf8");
+  const current = /const CACHE_NAME = "([^"]+)"/.exec(sw)![1]!;
+
+  for (const goneAs of ["404", "shell"] as const) {
+    it(`is not kept when the server answers it with ${goneAs === "404" ? "a 404" : "its shell"}`, async () => {
+      const worker = serviceWorker({});
+      await worker.update();
+      expect(await worker.navigate()).toBe("shell");
+      worker.network.gone.add("/assets/katex-old.js");
+      worker.network.goneAs = goneAs;
+      await worker.get("/assets/katex-old.js");
+      expect(worker.entries(current)).toEqual(["/"]);
+      // asked again, it goes to the network again: a server that has it by then is heard
+      worker.network.gone.clear();
+      expect(await worker.get("/assets/katex-old.js")).toBe("network /assets/katex-old.js");
+      expect(worker.entries(current)).toEqual(["/", "/assets/katex-old.js"]);
+    });
+  }
+
+  it("is not served from a shell an older worker kept under its URL", async () => {
+    const worker = serviceWorker({ [current]: { "/": "shell", "/assets/katex-old.js": { body: "shell", type: "text/html; charset=utf-8" } } },
+      stampServiceWorker(sw, "0123456789ab"));
+    await worker.update();
+    expect(await worker.get("/assets/katex-old.js")).toBe("network /assets/katex-old.js");
+  });
+});
+
+describe("a service worker of a new build", () => {
+  const sw = readFileSync(join(publicDir, "sw.js"), "utf8");
+  const current = /const CACHE_NAME = "([^"]+)"/.exec(sw)![1]!;
+
+  it("drops every file of the build before once its own cache holds a shell", async () => {
+    const first = serviceWorker({}, stampServiceWorker(sw, "aaaaaaaaaaaa"));
+    await first.update();
+    expect(await first.navigate()).toBe("shell");
+    await first.get("/assets/index-a.js");
+    await first.get("/assets/katex-a.js");
+    expect(first.names()).toEqual([`${current}-aaaaaaaaaaaa`]);
+
+    // the next build's worker over what the first one kept
+    const kept = Object.fromEntries(first.names().map((name) => [name, Object.fromEntries(first.entries(name).map((key) => [key, `kept ${key}`]))]));
+    const next = serviceWorker(kept, stampServiceWorker(sw, "bbbbbbbbbbbb"));
+    await next.update();
+    // offline before it reached the server, the build before still starts
+    next.network.online = false;
+    expect(await next.navigate()).toBe("kept /");
+    next.network.online = true;
+    next.network.shell = "new shell";
+    expect(await next.navigate()).toBe("new shell");
+    expect(next.names()).toEqual([`${current}-bbbbbbbbbbbb`]);
+    expect(next.entries(`${current}-bbbbbbbbbbbb`)).toEqual(["/"]);
+  });
+
+  it("retires the unstamped cache every release used to share", async () => {
+    const worker = serviceWorker({ [current]: { "/": "old shell", "/assets/index-1.js": "1", "/assets/index-2.js": "2", "/assets/index-3.js": "3" } },
+      stampServiceWorker(sw, "cccccccccccc"));
+    await worker.update();
+    worker.network.shell = "new shell";
+    expect(await worker.navigate()).toBe("new shell");
+    expect(worker.names()).toEqual([`${current}-cccccccccccc`]);
+    expect(worker.entries(`${current}-cccccccccccc`)).toEqual(["/"]);
   });
 });

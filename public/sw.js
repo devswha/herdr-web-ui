@@ -9,12 +9,17 @@
 // comes as 92 chunks split by unicode-range and the browser asks only for those whose characters
 // a page draws, so each is cached as it is first fetched and a phone that has shown Korean once
 // draws it offline. Never list them for install: that would download all 3 MB on every device.
-// A new CACHE_NAME starts empty for the same reason, so the cache of the name before it is kept
+// A new cache starts empty for the same reason, so the cache of the name before it is kept
 // until this one holds a shell: the page that brought this worker was loaded through the old
 // one, and its shell, bundles and font chunks are all there. Deleted at activation, the first
 // reload without a network would find no shell at all. Nothing is copied across, so no hashed
 // file of an old build outlives the first navigation that reaches the server.
+// Every build is a worker of its own: the build stamps BUILD into dist/sw.js
+// (scripts/service-worker-build.ts), so its cache is named after it and the last build's
+// bundles go with the last build's cache. CACHE_NAME is the part a person moves (icons, fonts).
 const CACHE_NAME = "herdr-web-ui-v4-ram";
+const BUILD = "";
+const CACHE = BUILD ? `${CACHE_NAME}-${BUILD}` : CACHE_NAME;
 
 const CACHE_FIRST_PATHS = new Set([
   "/favicon.png",
@@ -27,26 +32,31 @@ function isCacheFirst(pathname) {
   return CACHE_FIRST_PATHS.has(pathname);
 }
 
+/** A page where a file was asked for: a server that had no such file answered with its shell. */
+function isPage(response) {
+  return (response.headers.get("content-type") || "").startsWith("text/html");
+}
+
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  // no cache is deleted here: see CACHE_NAME
+  // no cache is deleted here: see CACHE_NAME and BUILD
   event.waitUntil(self.clients.claim());
 });
 
 /** The shell just fetched is this cache's "/", and only then do the caches of other names go. */
 async function keepShell(response) {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(CACHE);
   await cache.put("/", response);
   const names = await caches.keys();
-  await Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
+  await Promise.all(names.filter((name) => name !== CACHE).map((name) => caches.delete(name)));
 }
 
 /** The shell to start from offline: this cache's, else the one a cache not yet deleted holds. */
 async function cachedShell() {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(CACHE);
   return (await cache.match("/")) || (await caches.match("/"));
 }
 
@@ -84,11 +94,12 @@ self.addEventListener("fetch", (event) => {
   if (isCacheFirst(url.pathname)) {
     event.respondWith(
       (async () => {
-        const cache = await caches.open(CACHE_NAME);
+        const cache = await caches.open(CACHE);
         const own = await cache.match(request);
         if (own) return own;
         const older = await caches.match(request);
-        if (older) {
+        // a shell an older worker kept under a file's URL is no copy of that file
+        if (older && !isPage(older)) {
           // a file only the cache of the name before still holds, asked for while the new shell's
           // copy is being kept: it is kept here too, so keepShell's retirement of that cache does
           // not take the only copy of a file the new shell uses
@@ -96,8 +107,9 @@ self.addEventListener("fetch", (event) => {
           return older;
         }
         const response = await fetch(request);
-        if (response.ok && response.type === "basic") {
-          const cache = await caches.open(CACHE_NAME);
+        // a file the server no longer has is not kept: an old page asking for its own build's
+        // bundle after an update gets a 404, or the shell from a server older than that answer
+        if (response.ok && response.type === "basic" && !isPage(response)) {
           cache.put(request, response.clone());
         }
         return response;

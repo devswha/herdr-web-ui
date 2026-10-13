@@ -3,6 +3,7 @@ import type { InstalledNotes, UpdateCommand, UpdateNotes, UpdateStatus } from ".
 import { fetchInstalledNotes, fetchUpdateNotes, fetchUpdateStatus, requestUpdate } from "./api.ts";
 import { installedUpdate, notesOffer, notesRetryDelay, notesUnboundDelay, offeredNotes } from "./updateNotes.ts";
 import { usePageVisible } from "./visibility.ts";
+import { onLazyChunkFailure } from "./lazyChunk.ts";
 
 declare const __APP_REVISION__: string | null;
 
@@ -19,6 +20,17 @@ export function useUpdates(enabled: boolean) {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+  // a part of the app that failed to load may be one this tab's build has and the server's no
+  // longer does: ask now, so the reload line comes without waiting for the next poll
+  useEffect(() => {
+    if (!enabled) return;
+    let asked = 0;
+    return onLazyChunkFailure(() => {
+      if (Date.now() - asked < 5000) return;
+      asked = Date.now();
+      setRefresh(value => value + 1);
+    });
+  }, [enabled]);
   // a hidden page keeps the last status and polls again once it is back
   const visible = usePageVisible();
   useEffect(() => {
