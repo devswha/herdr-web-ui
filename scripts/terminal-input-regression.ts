@@ -18,7 +18,9 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   let refuse: (() => void) | undefined;
   let ready: (() => void) | undefined;
   let delayReady = false;
+  let toPage: ((frame: unknown) => void) | undefined;
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    toPage = (frame) => socket.send(JSON.stringify(frame));
     const server = socket.connectToServer();
     server.onMessage((raw) => {
       const frame = JSON.parse(String(raw));
@@ -92,6 +94,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
     await until(() => sent.length > submitsBefore && !!acknowledge);
     assert.equal(sent.at(-1).text, "first line\nsecond line\nthird line");
+    const sentPane = sent.at(-1).pane_id;
     acknowledge!();
     await until(async () => (await line.inputValue()) === "" && (await line.getAttribute("rows")) === "1");
     await frame();
@@ -139,6 +142,17 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     const lineTop = await page.locator(".terminal-input").evaluate((element) => element.getBoundingClientRect().top);
     assert(lineTop >= await surfaceTop() - 1, `the grown line stays under the grid's top (${lineTop} < ${await surfaceTop()})`);
     assert(await line.evaluate((element) => element.scrollHeight > element.clientHeight), "the capped line scrolls its text");
+    // the banners stay over the capped line, where it reaches the grid's top: their buttons take the tap
+    toPage!({ type: "error", code: "input_failed", pane_id: sentPane, message: "Not sent: test banner" });
+    const dismiss = page.locator(".terminal-banners").getByRole("button", { name: "Dismiss", exact: true });
+    await dismiss.waitFor();
+    const box = (await dismiss.boundingBox())!;
+    const lineBox = (await page.locator(".terminal-input").boundingBox())!;
+    assert(box.y + box.height / 2 > lineBox.y, "the banner lies within the grown line's box");
+    assert(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".terminal-banners"), [box.x + box.width / 2, box.y + box.height / 2]),
+      "a banner's button stays above the grown input line");
+    await dismiss.click();
+    await dismiss.waitFor({ state: "detached" });
     await line.fill("");
     await page.setViewportSize({ width: 1280, height: 800 });
     await until(async () => (await line.getAttribute("rows")) === "1");
