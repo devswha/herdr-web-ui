@@ -13,18 +13,32 @@
 // until this one holds a shell and the files it starts with: the page that brought this worker
 // was loaded through the old one, and its shell, bundles and font chunks are all there. Deleted
 // at activation, the first reload without a network would find no shell at all. Only the new
-// shell's own files, typefaces and icons are copied across, so no bundle of an old build
-// outlives the first navigation that reaches the server.
+// build's files (BUILD_FILES), the retired shell's entry files, typefaces and icons are copied
+// across, so no other bundle of an old build outlives the first navigation that reaches the server.
 // Every build is a worker of its own: the build stamps BUILD into dist/sw.js
 // (scripts/service-worker-build.ts), so its cache is named after it and the last build's
 // bundles go with the last build's cache. CACHE_NAME is the part a person moves.
 // The typefaces and icons are not a build's: a font chunk's name changes only with its contents,
 // and most are the same file release after release. They live in FILES, which no build retires,
 // so an update does not cost a phone the glyphs it had drawn offline.
+// BUILD_FILES, stamped beside BUILD, names the build's own /assets/ files (names only, no typefaces).
+// A file of this build that the worker before kept (the reload after an update is still answered
+// by it, KaTeX or Mermaid fetched early among them) is moved into this cache when that one is
+// retired, and a file of another build is not copied forward. A worker no build stamped has no
+// list: any file is copied forward, as before.
+// A retired cache's own shell keeps its entry script and stylesheet here too: a page that started
+// from that shell offline and has not asked for them yet still boots, then offers a reload.
 const CACHE_NAME = "herdr-web-ui-v4-ram";
 const BUILD = "";
+const BUILD_FILES = null;
 const CACHE = BUILD ? `${CACHE_NAME}-${BUILD}` : CACHE_NAME;
 const FILES = "herdr-web-ui-files-v1";
+const buildFiles = BUILD_FILES ? new Set(BUILD_FILES) : null;
+
+/** Whether `pathname` is a file this build uses; any file, for a worker no build stamped. */
+function ofThisBuild(pathname) {
+  return !buildFiles || buildFiles.has(pathname);
+}
 
 const CACHE_FIRST_PATHS = new Set([
   "/favicon.png",
@@ -97,10 +111,16 @@ async function keepShell(response) {
   const names = (await caches.keys()).filter((name) => name !== CACHE && name !== FILES);
   for (const name of names) {
     const old = await caches.open(name);
+    // the files the retired cache's shell starts with: a page given that shell may not have asked yet
+    const oldShell = await old.match("/");
+    const starts = new Set(oldShell ? shellFiles(await oldShell.text()) : []);
     for (const request of await old.keys()) {
-      if (!isLongLived(new URL(request.url).pathname) || (await files.match(request))) continue;
+      const path = new URL(request.url).pathname;
+      const into = isLongLived(path) ? files
+        : starts.has(path) || (buildFiles && buildFiles.has(path)) ? cache : null;
+      if (!into || (await into.match(request))) continue;
       const file = await old.match(request);
-      if (file && !isPage(file)) await files.put(request, file);
+      if (file && !isPage(file)) await into.put(request, file);
     }
   }
   await Promise.all(names.map((name) => caches.delete(name)));
@@ -154,8 +174,8 @@ self.addEventListener("fetch", (event) => {
         if (older && !isPage(older)) {
           // a file only the cache of the name before still holds, asked for while the new shell's
           // copy is being kept: it is kept here too, so keepShell's retirement of that cache does
-          // not take the only copy of a file the new shell uses
-          event.waitUntil(cache.put(request, older.clone()).catch(() => undefined));
+          // not take the only copy of a file the new shell uses. Another build's file is only answered.
+          if (ofThisBuild(url.pathname)) event.waitUntil(cache.put(request, older.clone()).catch(() => undefined));
           return older;
         }
         const response = await fetch(request);

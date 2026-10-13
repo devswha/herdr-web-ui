@@ -358,4 +358,50 @@ describe("a service worker of a new build", () => {
     worker.network.online = false;
     expect(await worker.get(font)).toBe("chunk");
   });
+
+  it("moves the files of its build the worker before kept, and only those", async () => {
+    // the reload after the update was answered by the worker before: build b's KaTeX chunk, fetched
+    // early, sits in build a's cache with a's own bundle
+    const worker = serviceWorker({ [`${current}-aaaaaaaaaaaa`]: { "/": "shell a", "/assets/katex-b.js": "b katex", "/assets/index-a.js": "a script" } },
+      stampServiceWorker(sw, "bbbbbbbbbbbb", ["/assets/index-b.js", "/assets/katex-b.js"]));
+    await worker.update();
+    worker.network.shell = "new shell";
+    let written = (): void => undefined;
+    worker.disk.ready = new Promise<void>((done) => { written = done; });
+    const { answer, kept } = worker.fire();
+    expect(await (await answer)!.text()).toBe("new shell");
+    // an old page asks for a's bundle before that cache is retired: answered, not copied forward
+    const asked = worker.ask("/assets/index-a.js");
+    expect(await (await asked.answer)!.text()).toBe("a script");
+    written();
+    await kept();
+    await asked.kept();
+    expect(worker.names().sort()).toEqual([`${current}-bbbbbbbbbbbb`, FILES].sort());
+    expect(worker.entries(`${current}-bbbbbbbbbbbb`).sort()).toEqual(["/", "/assets/katex-b.js"]);
+    // offline later, math still draws: the chunk was kept although it was not asked for again
+    worker.network.online = false;
+    expect(await worker.get("/assets/katex-b.js")).toBe("b katex");
+    expect(await worker.get("/assets/index-a.js")).toBeNull();
+  });
+
+  it("keeps the entry files of the shell it retires, for a page that started from it and has not asked yet", async () => {
+    const shellA = '<script type="module" crossorigin src="/assets/index-a.js"></script><link rel="stylesheet" crossorigin href="/assets/index-a.css">';
+    const worker = serviceWorker({ [`${current}-aaaaaaaaaaaa`]: { "/": shellA, "/assets/index-a.js": "a script", "/assets/index-a.css": "a style", "/assets/katex-a.js": "a katex" } },
+      stampServiceWorker(sw, "bbbbbbbbbbbb", ["/assets/index-b.js"]));
+    await worker.update();
+    // a window starts offline from build a's shell and is suspended before it asks for its script
+    worker.network.online = false;
+    expect(await worker.navigate()).toBe(shellA);
+    // another window reaches the server and retires build a's cache
+    worker.network.online = true;
+    worker.network.shell = "new shell";
+    worker.network.gone = new Set(["/assets/index-a.js", "/assets/index-a.css", "/assets/katex-a.js"]);
+    expect(await worker.navigate()).toBe("new shell");
+    expect(worker.names().sort()).toEqual([`${current}-bbbbbbbbbbbb`, FILES].sort());
+    // the first window resumes: it boots (a later part of build a is gone, and the app offers a reload)
+    expect(await worker.get("/assets/index-a.js")).toBe("a script");
+    expect(await worker.get("/assets/index-a.css")).toBe("a style");
+    // the rest of build a is gone: a 404, empty
+    expect(await worker.get("/assets/katex-a.js")).toBe("");
+  });
 });
