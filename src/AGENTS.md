@@ -1,6 +1,6 @@
 # src/
 
-React 18 + xterm.js browser client. The render-state machine, xterm lifecycle and mobile-keyboard handling live only here.
+React 19 + xterm.js browser client. The render-state machine, xterm lifecycle and mobile-keyboard handling live only here.
 
 ## ANTI-PATTERNS
 - Never persist the auth token client-side: the HttpOnly cookie is the only storage; no localStorage/sessionStorage anywhere.
@@ -39,7 +39,7 @@ React 18 + xterm.js browser client. The render-state machine, xterm lifecycle an
 - Snapshot reads in App go through `SnapshotRequests`: an event or a newer read supersedes an in-flight fetch, its error included.
 - Chat path links (lib/filePaths.ts, ASCII `[\w@.+-]` names) and terminal path links (lib/terminalFileLinks.ts, Unicode letters) are separate matchers; a change to path recognition checks both.
 - Helpers outside React call the module-level `t`; components take `useT()`, whose identity changes with the language, so a memo that formats text lists it.
-- Global shortcut hints resolve through `shortcutDisplayKeys` with the current `shortcutOverrides`, never the defaults alone. Global bindings remain Mod+Shift; focus-local list/tab keys are separate and never intercept terminal input. The touch key bar sends terminal keys, not app actions.
+- Global shortcut hints resolve through `shortcutDisplayKeys` with the current `shortcutOverrides`, never the defaults alone. Global bindings remain Mod+Shift; focus-local list/tab keys are separate and never intercept terminal input; chat Find's Mod+F (platform Mod only, so macOS Ctrl+F still moves the caret) is bound by ChatView only while its conversation shows in the active pane. The touch key bar sends terminal keys, not app actions.
 - Work-block counts skip todo tools (`isTodoTool`: `TodoWrite` would match the write category). The Agents list never includes a shell just because it reports working or blocked. Pane-status pushes never trigger a worktree inventory poll.
 
 ## WHERE TO LOOK
