@@ -16,7 +16,10 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   let acknowledge: (() => void) | undefined;
   let ready: (() => void) | undefined;
   let delayReady = false;
+  // the page's latest connection, to play output the pane did not write (a keyboard mode it asks for)
+  let toPage: ((frame: unknown) => void) | undefined;
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    toPage = (frame) => socket.send(JSON.stringify(frame));
     const server = socket.connectToServer();
     server.onMessage((raw) => {
       const frame = JSON.parse(String(raw));
@@ -151,9 +154,52 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await until(() => sent.length > before);
     assert.equal(sent.at(-1).text, "\x1b");
     assert.equal(await page.locator(".draft-text").textContent(), "ab");
+    const heldNote = "Not sent: send or discard the held input first.";
+    const banner = page.locator(".terminal-banner", { hasText: heldNote });
+    const dismissBanner = async () => { await banner.getByRole("button", { name: "Dismiss", exact: true }).click(); await banner.waitFor({ state: "hidden" }); };
+    const afterEscape = sent.length;
+    // Ctrl+Enter under modifyOtherKeys (Claude Code's "send now") carries no line break once encoded:
+    // it must still be refused, not run the pty's partial line
+    toPage!({ type: "pty-data", pane_id: pane, data: "\x1b[>4;1m" });
+    await page.waitForTimeout(100);
+    await page.locator(".xterm-helper-textarea").press("Control+Enter");
+    await banner.waitFor();
+    assert.equal(sent.length, afterEscape, "Ctrl+Enter beside a held draft reaches nothing");
+    await dismissBanner();
+    toPage!({ type: "pty-data", pane_id: pane, data: "\x1b[>4;0m" });
+    // a paste the draft cannot take is refused with the note, never sent ahead of the held start
+    const pasteIntoTerminal = (text: string) => page.locator(".xterm-helper-textarea").evaluate((element, value) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", value);
+      element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    }, text);
+    await pasteIntoTerminal("a\tb");
+    await banner.waitFor();
+    assert.equal(sent.length, afterEscape, "a paste with a tab beside a held draft reaches nothing");
+    assert.equal(await page.locator(".draft-text").textContent(), "ab");
+    await dismissBanner();
+    await pasteIntoTerminal("x\ny");
+    await page.waitForTimeout(100);
+    assert.equal(sent.length, afterEscape, "a multi-line paste beside a held draft reaches nothing");
+    if (await banner.isVisible()) await dismissBanner();
+    // the input line is refused beside a held draft too, with the held-input reason, not "disconnected"
+    await setMode("line");
+    const lineNote = page.locator(".terminal-input-note");
+    await line.fill("");
+    await line.press("Enter");
+    await until(async () => (await lineNote.textContent()) === heldNote);
+    await line.fill("ls");
+    await line.press("Enter");
+    await until(async () => (await lineNote.textContent()) === heldNote);
+    assert.equal(await line.inputValue(), "ls", "a refused line keeps its text");
+    assert.equal(sent.length, afterEscape, "the input line beside a held draft reaches nothing");
+    await line.fill("");
+    await setMode("direct");
+    // a draft that folds a pasted line break into text holds more than "ab" by now: Send types what it holds
+    const heldText = await page.locator(".draft-text").textContent();
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await until(() => sent.length > before + 1);
-    assert.equal(sent.at(-1).text, "ab");
+    assert.equal(sent.at(-1).text, heldText);
     assert.equal(sent.length, before + 2, "Send types the held text once, with no Enter");
     // Real xterm handling: an IME's provisional syllable stays local until commit.
     const imeBefore = sent.length;

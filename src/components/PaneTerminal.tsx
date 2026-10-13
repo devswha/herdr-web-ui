@@ -1190,7 +1190,10 @@ export function PaneTerminal({
       barKeyRef.current = null;
       const physicalChord = typedChord;
       typedChord = null;
-      if (enterAs !== null && data === "\r") data = enterAs;
+      // a modified Enter (Shift+Enter's newline, Ctrl+Enter's "send now") is decided on before its
+      // rewrite: its sequence may carry no line break at all
+      const modifiedEnter = enterAs !== null && data === "\r";
+      if (modifiedEnter) data = enterAs!;
       enterAs = null;
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
@@ -1203,8 +1206,12 @@ export function PaneTerminal({
           : physicalChord ?? (hasModifiers(modifiersRef.current) && key !== null ? terminalChord(key, modifiersRef.current) : null)
         : null;
       if (draftHeldForRef.current === current) {
-        // A chord is never held, and never sent beside held text either (Ctrl+J would run the line).
-        if (chord !== null) {
+        // A chord or a modified Enter is never held, and never sent beside held text either
+        // (Ctrl+J, or Ctrl+Enter under modifyOtherKeys, would run the line).
+        // A paste the draft cannot take (a tab, a control character) is refused too, never sent
+        // ahead of the held start.
+        const pasted = pasting || input.startsWith("\x1b[200~");
+        if (chord !== null || modifiedEnter || (pasted && applyToDraft(EMPTY_DRAFT, input) === EMPTY_DRAFT)) {
           const t = tRef.current;
           setInputError(t("Not sent: send or discard the held input first."));
           return;
@@ -1212,7 +1219,7 @@ export function PaneTerminal({
         // Text, a paste, Backspace and anything with a line break go to the draft, which leaves
         // Enter out, so a partial command never runs. Other control keys (Ctrl+C, Escape, Tab,
         // arrows) still reach the program below: an interrupt must not wait on the draft.
-        if (/[\r\n\x7f\b]/.test(input) || applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) {
+        if (pasted || /[\r\n\x7f\b]/.test(input) || applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) {
           setDraft((prev) => applyToDraft(prev, input));
           return;
         }
@@ -2024,6 +2031,8 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!term || !socket || pane === null || secretRef.current !== null) return false;
+    // its text and Enter would land beside the held draft: Send or Discard that first
+    if (draftHeldForRef.current === pane) return Promise.resolve(tRef.current("Not sent: send or discard the held input first."));
     const message = composerMessage(text);
     const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
     const sent = socket.submit(pane, message, payload, true);
@@ -2036,11 +2045,12 @@ export function PaneTerminal({
     });
   }, [submitRetention]);
 
-  const pressEnter = useCallback((): boolean => {
+  const pressEnter = useCallback((): boolean | string => {
     const socket = socketRef.current;
     const pane = paneRef.current;
+    if (!socket || pane === null || !socket.connected) return false;
     // Enter beside a held draft would run the pty's line without the held start
-    if (!socket || pane === null || !socket.connected || draftHeldForRef.current === pane) return false;
+    if (draftHeldForRef.current === pane) return tRef.current("Not sent: send or discard the held input first.");
     const sent = hasModifiers(modifiersRef.current)
       ? socket.sendKeys(pane, [terminalChord("Enter", modifiersRef.current)!]) : socket.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();

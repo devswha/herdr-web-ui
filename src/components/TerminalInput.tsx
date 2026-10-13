@@ -15,8 +15,9 @@ export interface TerminalInputProps {
   connected: boolean;
   /** true: sent, clear the line; a string: keep the text and say why; false: not sent (offline) */
   onSend: (text: string) => false | Promise<true | string>;
-  /** an empty line's send: Enter alone, for a menu's default or a prompt that asks to continue */
-  onEnter: () => boolean;
+  /** an empty line's send: Enter alone, for a menu's default or a prompt that asks to continue;
+   * true: sent, false: not sent (offline), a string: not sent, and why */
+  onEnter: () => boolean | string;
 }
 
 /** Lines the box grows to before it scrolls. */
@@ -74,7 +75,9 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
     if (!connected || terminalDraftSending(owner) || composing.current) return;
     setNote(null);
     if (text.length === 0) {
-      if (!onEnter()) setNote(t("Not sent: the terminal is disconnected."));
+      const entered = onEnter();
+      if (typeof entered === "string") setNote(entered);
+      else if (!entered) setNote(t("Not sent: the terminal is disconnected."));
       return;
     }
     const sent = onSend(text);

@@ -7,4 +7,6 @@
   of being lost, and a message sent during the check waits for the answer instead of failing.
 - Once terminal input is held, later typing joins the held input until you send or discard it,
   also after the terminal is ready again: a command is never split between the held text and the
-  terminal, and Enter never runs the part that already reached it.
+  terminal, and Enter never runs the part that already reached it. Ctrl+Enter, a paste the held
+  input cannot take (a tab, for one) and the input line's Send are refused with a note saying to
+  send or discard the held input first.
