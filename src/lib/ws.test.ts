@@ -1068,6 +1068,43 @@ it("refuses a submit, a pending action and a secret that waited on a probe the h
   }
 });
 
+it("refuses a submit, a pending action and a secret whose probe the hidden page cancelled while they waited for the snapshot", async () => {
+  jest.useFakeTimers();
+  const listeners = new Map<string, () => void>();
+  const page = { visibilityState: "visible", addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: () => {} };
+  const globalDocument = globalThis as unknown as { document?: unknown };
+  const previous = globalDocument.document;
+  globalDocument.document = page;
+  const { client, socket } = liveClient(["submit", "pending-input", "secret-input", "ping"]);
+  try {
+    socket.disconnect();
+    jest.advanceTimersByTime(250);
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    fresh.open();
+    // woken before the new snapshot: the remembered ping support probes the fresh socket
+    client.wake();
+    expect(pings(fresh)).toHaveLength(1);
+    const submit = client.submit("w1:p1", "later", "later");
+    const steer = client.pendingAction("w1:p1", "pending-1", "steer");
+    const secret = client.sendSecret("w1:p1", "Password:", "hunter2");
+    await settle();
+    // put away while they still wait for the snapshot: the probe is cancelled unanswered
+    page.visibilityState = "hidden";
+    listeners.get("visibilitychange")!();
+    fresh.receive(snapshot(["input-ready", "submit", "pending-input", "secret-input", "ping"]));
+    await settle();
+    expect(await submit).toMatchObject({ ok: false, code: "disconnected" });
+    expect(await steer).toMatchObject({ ok: false, code: "disconnected" });
+    expect(await secret).toMatchObject({ ok: false, code: "disconnected" });
+    expect(fresh.sent.filter((frame) => ["submit", "pending-action", "secret"].includes(frame.type))).toEqual([]);
+  } finally {
+    client.close();
+    globalDocument.document = previous;
+    jest.useRealTimers();
+  }
+});
+
 it("tells its handlers the probe's pong, so a view that read input as refused during the probe reads it again", () => {
   jest.useFakeTimers();
   const { client, socket } = liveClient(["ping"]);

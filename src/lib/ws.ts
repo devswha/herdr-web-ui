@@ -135,6 +135,8 @@ export class HerdrSocket {
    * answered probe lets the submits that waited on it go out.
    */
   private probeAnswered = true;
+  /** probes started on any connection: a request reads it before it waits for the snapshot, so a probe that ran and ended in that wait still counts (see probeSettled) */
+  private probeGeneration = 0;
   /** probes since the last pong that ended in a drop: each doubles the next deadline */
   private probeDrops = 0;
   /** whether the last snapshot listed "ping": kept across reconnects, so a socket whose snapshot never comes is probed too */
@@ -390,6 +392,7 @@ export class HerdrSocket {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.pingKnown || this.probeTimer !== null) return;
     this.connectionState = "probing";
+    this.probeGeneration += 1;
     this.probeDone = new Promise((resolve) => { this.markProbeDone = resolve; });
     this.ping(socket, 1);
   }
@@ -435,13 +438,20 @@ export class HerdrSocket {
    * the probe waited on was answered. A probe cancelled because the page was hidden proves nothing
    * about the path: a submit, a pending action or a secret that waited on it is not sent.
    */
-  private async probeSettled(socket: WebSocket): Promise<boolean> {
-    let waited = false;
+  private async probeSettled(socket: WebSocket, since: number): Promise<boolean> {
+    // a probe in flight when the request came, or one started during its snapshot wait, counts even
+    // if it already ended (a hidden page cancels it): only its pong lets the request go
+    let waited = this.probeGeneration !== since;
     while (this.probeTimer !== null && this.socket === socket) {
       waited = true;
       await this.probeDone;
     }
     return this.connected && this.socket === socket && (!waited || this.probeAnswered);
+  }
+
+  /** The probe generation a request starts from: one in flight already counts as waited on. */
+  private probeMark(): number {
+    return this.probeTimer !== null ? this.probeGeneration - 1 : this.probeGeneration;
   }
 
   /**
@@ -715,9 +725,10 @@ export class HerdrSocket {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
+      const since = this.probeMark();
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
       // a liveness probe in flight is waited out: nothing is sent on a socket that may be dead
-      if (!(await this.probeSettled(socket))) return DISCONNECTED;
+      if (!(await this.probeSettled(socket, since))) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot submit messages." };
       // hold is decided once the snapshot said what the bridge supports: one too old to hold queues it as before
       if (delivery === "hold" && !this.canHoldMessages()) delivery = "queue";
@@ -738,8 +749,9 @@ export class HerdrSocket {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
+      const since = this.probeMark();
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
-      if (!(await this.probeSettled(socket))) return DISCONNECTED;
+      if (!(await this.probeSettled(socket, since))) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot change pending messages." };
       if (!this.canQueueMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to manage pending messages." };
       return this.submitRequest({ type: "pending-action", id: this.nextSubmit++, pane_id: paneId, pending_id: pendingId, action });
@@ -774,8 +786,9 @@ export class HerdrSocket {
     return (async (): Promise<SubmitResult> => {
       // right after a reconnect the terminal's output can arrive before the snapshot that says
       // whether the server takes masked input: wait for it, as a submit does
+      const since = this.probeMark();
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
-      if (!(await this.probeSettled(socket))) { secret = ""; return DISCONNECTED; }
+      if (!(await this.probeSettled(socket, since))) { secret = ""; return DISCONNECTED; }
       if (!this.features.has("secret-input")) { secret = ""; return { ok: false, code: "unsupported", message: "Update this PC to use masked input." }; }
       const id = this.nextSubmit++;
       this.requests.set(id, { type: "secret", paneId });
