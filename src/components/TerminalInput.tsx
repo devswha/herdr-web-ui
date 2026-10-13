@@ -24,9 +24,10 @@ const MAX_ROWS = 4;
 
 /**
  * The terminal's input line on a touch screen. A phone's keyboard rewrites what it typed
- * (dictation revising a phrase, an IME finishing a syllable, autocorrect), and a terminal
- * cannot take back keys it already sent: every revision arrived as more text. Here the line
- * is written with the keyboard's own editing and goes to the pane whole, then Enter.
+ * (dictation revising a phrase, an IME finishing a syllable), and a terminal cannot take back
+ * keys it already sent: every revision arrived as more text. Here the line is written with the
+ * keyboard's own editing and goes to the pane whole, then Enter. Autocorrect and spell-check stay
+ * off, as in the composer: they would swap a flag, path or branch name for a dictionary word.
  */
 export function TerminalInput({ owner, active = true, connected, onSend, onEnter, onComposing }: TerminalInputProps) {
   const t = useT();
@@ -128,6 +129,8 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         aria-label={t("Terminal input line")}
         enterKeyHint="send"
         autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         onChange={(event) => { setText(event.target.value); setNote(null); }}
         onKeyDown={onKeyDown}
       />
