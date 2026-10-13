@@ -43,6 +43,7 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Text/primary | `--text` | `#d8d0c3` | `#2a251f` |
 | Text/dim | `--text-dim` | `#9b9183` | `#685e52` |
 | Text/strong | `--text-strong` | `#f2ebdf` | `#16120d` |
+| Contrast pole | `--contrast-far` | `#ffffff` | `#000000` |
 | Accent | `--accent` | `#f0a830` | `#8c5000` |
 | Accent/tint | `--accent-tint` | `rgba(240, 168, 48, 0.13)` | `rgba(140, 80, 0, 0.1)` |
 | Primary | `--primary` | `#f0a830` | `#c57d12` |
@@ -182,6 +183,35 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha
   overlay2 `#9399b2` (5.8:1), Latte `#64677d` (subtext0 darkened to 4.9:1 on `--bg`).
 
+### Contrast
+
+Settings → Appearance → Contrast moves text and hairlines away from or toward the surfaces in
+whole steps, `-2` to `+3` (`settings.contrast`, this device's; `src/lib/contrast.ts`). The step is
+written on `<html>` as `data-contrast`, and not at all at the default `0`, so the palette is drawn
+exactly as its block says until a step is chosen. The mix is made under `<html>`, on `body` and on
+a leaving sheet's copy of the page (`lib/sheets.ts`), from `*-base` copies of the palette's values
+that `:root` makes (`--text-base`, `--text-dim-base`, `--text-strong-base`, `--border-base`,
+`--border-strong-base`, `--line-number-base`, `--syntax-comment-base`): a token cannot be mixed
+from itself on the element whose block sets it.
+
+| Step | `--text`, `--text-strong` | `--text-dim`, `--line-number`, `--syntax-comment` | `--border`, `--border-strong` |
+|------|------|------|------|
+| `+3` | 60% toward `--contrast-far` | 60% toward `--contrast-far` | 30% toward `--text` |
+| `+2` | 40% toward `--contrast-far` | 40% toward `--contrast-far` | 20% toward `--text` |
+| `+1` | 20% toward `--contrast-far` | 20% toward `--contrast-far` | 10% toward `--text` |
+| `0` | the palette's | the palette's | the palette's |
+| `-1` | 25% toward `--text-dim` | the palette's | 25% transparent |
+| `-2` | 50% toward `--text-dim` | the palette's | 50% transparent |
+
+Text mixes in oklab, hairlines in sRGB. `--contrast-far` is the pole beyond `--text-strong`: white
+in dark, black in light. A step down never touches `--text-dim`: it is the dimmest text, the one
+every palette keeps at 4.5:1 on each surface it sits on, with no room under it (dark charcoal
+`4.54:1` and light amber `4.92:1` on `--bg-hover`, the tightest). `--text` and `--text-strong`
+only move toward it, so at `-2` the lowest of them on any surface is light Catppuccin's `5.3:1`,
+and every 4.5:1 rule of this document holds at `-2` as at `0`; a step up only raises ratios. The
+chat's user bubble edge (`--bubble-border`), the popover ring in `--shadow-pop`, the agent state
+colors and the terminal (xterm reads `terminalTheme()`) keep the palette's values at every step.
+
 ### Rules
 - Amber is the one chrome color. Accent (selected, focused, informational) and primary (the user's
   action: Send, primary buttons) are both amber; in light, accent is the darker text-safe ochre and
@@ -200,6 +230,11 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 
 ### Scale
 
+The sizes at the default interface size. Every token but `--fs-input` is `calc(<size> * var(--ui-scale))`:
+Settings → Appearance → Interface font size writes `--ui-scale` on `<html>` (the chosen body size over
+the density's, `1` until chosen), so the whole scale follows it, while `--fs-input` stays the floor under
+which iOS Safari zooms a focused field.
+
 | Level | Token | Comfortable | Compact | Typical use |
 |-------|-------|-------------|---------|-------------|
 | Micro | `--fs-2xs` | `11px` | `10px` | Badges, hints, kbd |
@@ -215,8 +250,9 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--font-ui` | `"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif` | Chrome and chat prose |
-| `--font-mono` | `"Symbols Nerd Font Mono", "JetBrains Mono Web", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace` | Code, paths, keys, terminal-adjacent metadata |
+| `--ui-scale` | `1`; Settings → Appearance → Interface font size over the density's body size, written on `<html>` | Multiplies every `--fs-*` token but `--fs-input` |
+| `--font-ui` | `"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif`; a chosen Interface font goes in front of it, written as the token on `<html>` (`src/lib/typography.ts` keeps the stack verbatim) | Chrome and chat prose |
+| `--font-mono` | `"Symbols Nerd Font Mono", "JetBrains Mono Web", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace`; a chosen Code font goes after the icon font, the same way | Code, paths, keys, terminal-adjacent metadata |
 | `--lh-tight` | `1.2` | Titles |
 | `--lh-base` | `1.5` comfortable / `1.45` compact | Body copy |
 | `--lh-code` | `1.6` | Code blocks; the message box with a mouse |
@@ -253,11 +289,14 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   h2 `--fs-lg`, h3 to h6 `--fs-chat`. Work heads, tool rows, settled narration, a compaction's summary and
   meta keep their sizes. The chat scales all of them by `--chat-scale` (`--chat-fs-body` is the scaled
   `--fs-chat`), so the Chat font size setting names the body size and the prose is one step above it.
+  `--chat-scale` is the chat's size over the interface's: unchosen, the chat follows the interface size;
+  chosen, it is drawn as itself whatever the interface size.
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
 - `palette`: `amber`, `report`, `charcoal`, `catppuccin`, `lilac` or `forest`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
+- `contrast`: a whole step from `-2` to `+3`; default `0`, the palette as drawn (Contrast, above).
 - `sidebarRows`: `one` or `two`; default `two`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
   During a two-finger pinch the font follows the fingers live and a badge above the grid shows the
@@ -269,10 +308,16 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   to 80 columns, and a pane this browser only watches or mirrors keep the user's size. The saved
   size never changes for this; in such a pane a pinch still saves the size it shows, and the pane
   draws it once it has the room.
-- Terminal and chat font families are comma-separated lists, default empty. They go in front of the
-  terminal's built-in fonts (after the bundled Symbols Nerd Font Mono, which only draws icons) and of
-  `--font-ui` in the chat's prose (as `--font-chat`), never in place of them; code in the chat keeps
-  `--font-mono`. A file viewer's Markdown preview takes the chat font size and family too.
+- Interface font size (`uiFontSize`): the body size (`--fs-md`) in px, `11–20px`, `null` follows the
+  density (`14px` comfortable, `13px` compact); it reaches CSS as `--ui-scale` (above). The chat follows
+  it until it has a size of its own; the terminal keeps its own size.
+- Terminal, chat, interface and code font families are comma-separated lists, default empty. They go in
+  front of the built-in fonts, never in place of them: the terminal's (after the bundled Symbols Nerd
+  Font Mono, which only draws icons), `--font-ui` in the chat's prose (as `--font-chat`), `--font-ui`
+  itself for the interface (`uiFontFamily`: the chrome, and the chat's prose until it has a font of its
+  own) and `--font-mono` after the icon font for code (`codeFontFamily`: code blocks, the file viewer,
+  diffs, paths and keycaps; the terminal keeps its own). Code in the chat keeps `--font-mono`. A file
+  viewer's Markdown preview takes the chat font size and family too.
   At most 200 characters, with `;`, `{`, `}`, `<`,
   `>`, `\` and control characters stripped and names with spaces quoted.
 - Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.
@@ -364,6 +409,7 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--content-w` | `820px` | — | Settings and dialog content |
 | `--pending-max-h` | `min(20dvh, 12rem)` | — | Pending-message stack ceiling |
 | `--chat-w` | `--content-w`, then the pane's lane as one length | — | Chat lane: transcript, composer column, held list. Settings → Chat width: Narrow `--content-w`; Default follows the pane (min 820px, max `60rem` = 960px, 71% of the pane between; the px floor wins where 60rem is under it); Wide `72rem` (1152px); Full `100%` |
+| `--chat-fold-lines` | `12` | — | Lines of prose a long user message shows before it folds behind Show full message (Chat turn); `lib/userMessageFold.ts` folds a message past the same count |
 | `--palette-w` | `640px` | — | Command palette |
 | `--palette-top` | `12vh` | — | Palette top offset |
 | `--context-line` | `calc(var(--fs-lg) * var(--lh-base))` = `24px` | `21.75px`, through the scale | The selected pane's crumb row, min and max height. Scoped to `.context`, not `:root`, so it follows `--fs-lg`/`--lh-base` in either density |
@@ -813,7 +859,15 @@ One set for both themes: the card is island black wherever it shows.
   index, the index against HEAD, or two commits named by hand (**From commit**, **To commit**,
   **Compare**); a Refresh button re-reads it, nothing polls. Under the controls, the branch
   (`Detached HEAD`, `No commits yet`) beside a `GitBranch` glyph and the repository's root, mono,
-  cut from its start. One `.repo-change` row per file, like the folder browser's rows: git's own
+  cut from its start. The files sit under the folders they are in (lib/changeTree.ts): a
+  `.repo-change-folder` button row (caret, `--accent` folder glyph, name, and the count of files
+  below it in `.repo-change-folder-count`) stands where its first file was listed, a folder holding
+  nothing but one folder joins it into one row (`src/components/diffs`), every folder starts open,
+  a tap folds it (kept across Refresh and scope changes), and an icon button beside Refresh folds
+  or opens them all. Each level moves its rows in by `--depth` steps of `--repo-change-indent`, in
+  nested lists. One `.repo-change` row per file, like the folder browser's rows (only file rows
+  carry that class, and the folder prefix of a path stays in `.repo-change-path` as visually hidden
+  text, so a screen reader reads the whole path in listing order): git's own
   letter in a `.repo-change-mark` chip (M, A, D, R, C, T, U, ?), the path in mono with a rename's
   old path dimmed before an arrow, and `+added −removed` in `--syntax-inserted` /
   `--syntax-deleted`, or **Binary**. The chip is tinted as the diff's rows are: added and
@@ -913,6 +967,16 @@ One set for both themes: the card is island black wherever it shows.
 - The register is Codex / gajae-code-app: a quiet document. User turns are right-aligned neutral
   cards (`--bg-elevated`, a `--bubble-border` edge, `--radius-lg` on all four corners, ≤80% wide,
   no avatar or name). Assistant turns have no header: the answer is plain prose.
+- A long user message (`lib/userMessageFold.ts`: more than `--chat-fold-lines` lines, or more
+  characters than about that many lines of the widest bubble hold, a link or image counted by its
+  label) is capped at `--chat-fold-lines` lines of its prose. Only such a message is measured, and
+  only where the cap cuts it does it fold: the last line fades into the card through an alpha mask
+  one prose line tall, over a **Show full message** text button on the card's right edge
+  (`--text-dim`, `--fs-xs`, `--bg-hover` and `--text-strong` under the pointer; a `--touch-target`
+  row where the primary pointer is coarse). Open, it reads **Show less**, and folding brings the
+  card's top back into view as a code block's fold does. The choice stays with the row while it
+  leaves and re-enters the list, and Find landing on the turn opens a cut message, so a match is
+  never behind the fold.
 - Space separates exchanges, not a rule: the transcript's gap is `--space-3`, so an answer sits
   close under its prompt, and a user turn that follows an assistant turn takes `--space-5` more.
   The one rule of an exchange is the hairline under its folded work block.
@@ -1090,17 +1154,36 @@ One set for both themes: the card is island black wherever it shows.
   and the composer column equals the transcript column (`--chat-w`, same `--space-4` gutter,
   `--space-3` at `480px` and below).
   On a phone (`<=768px`), while the card follows the transcript directly (no held message, pending
-  row or prompt card between them) and no greeting stands over it, the card floats over the
+  row, prompt card or notice between them) and no greeting stands over it, the card floats over the
   transcript's end as an iPhone's input bar does: the composer rises `--composer-over`
   (`--space-8`) into the transcript, whose last lines fade into `--bg` and blur behind the card on
   `--card-glass` and `--glass-blur`.
   The input box is a card: `--bg-elevated`, hairline border, `--radius-2xl`, `--shadow-card`
   (the only other card on this surface is the prompt card docked over it, while an agent asks);
-  focus turns its border `--accent` (no inner outline). Above it the completion popover and the
-  background-task list; inside, the image strip is its own row at the top, then the auto-growing
-  message box as a row of its own at the card's full width, then ONE row of controls under it:
-  on the left the add button (lucide `Plus`, named "Attach files"), the mic when voice input
-  shows it (see Voice input), and the background-task chip; on the right the status content and ONE round Send/Stop button.
+  focus turns its border `--accent` (no inner outline). Above it the notices (below), the
+  completion popover and the background-task list; inside, the image strip is its own row at the top, then the auto-growing
+  message box as a row of its own at the card's full width, then ONE row of controls under it,
+  ordered as t3code's composer orders its own: at the row's start the status content (the model
+  group, below); then the add button (lucide `Plus`, named "Attach files"), the stash, the mic
+  when voice input shows it (see Voice input), and the background-task chip; at the row's end
+  ONE round Send/Stop button. The message's text and the model group's mark both start
+  `--space-4` in (`--space-3` on a phone, `480px` and below), and the round button ends
+  `--space-4` from the card's edge (its transparent touch target reaches `--space-1` from it on
+  a phone). The three groups are parted by `--space-2` (nothing on a phone, where the row holds
+  the same controls at touch size).
+- The strip (`.composer-strip`) tucked under the card, as t3code's composer context strip: the
+  card's own `--bg-elevated` with a `--border` hairline, inset on each side by the card's radius
+  (`--radius-2xl`, never under `--space-5`) so it stays under the card's straight bottom edge,
+  its top `--space-4` under the card, where the card's hairline and `--shadow-card` part the two,
+  and only its bottom corners rounded (`--radius-xl`); `--space-5` top padding (so `--space-1`
+  shows under the card), `--space-3` at the sides, `--space-1` under. It names the pane's
+  working folder at its start (lucide `Folder`, the folder's last name, the whole path in its
+  `title`) and the branch at its end (lucide `GitBranch`), each a glyph the text's size and a
+  name in `--text-dim` at `--fs-xs`, `--chip-h` tall; a name that does not fit is cut short.
+  Nothing in it is pressed. `composerStrip` (`src/lib/composerStrip.ts`) decides what it draws from
+  the composer's optional `cwd` and `branch`: a blank one is absent, and with neither there is no
+  strip at all. The card stands over it (`z-index: 1`, so its popovers go with it and still rise
+  over the transcript).
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
   `What should <agent> do in <folder>?` in `--text-strong`, `--fs-display`, `--fw-semibold`, `--tracking-display`, centred,
   and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
@@ -1123,24 +1206,28 @@ One set for both themes: the card is island black wherever it shows.
   `--status-blocked` on hover and focus. Not connected, Stop is disabled and loses its fill
   (`--border-strong` outline, `--text-dim` glyph). A coarse pointer keeps that compact visible
   circle inside a transparent `--touch-target` / `40px` button, so tapping remains easy.
-- The status content (`.composer-status`, `role="status"`) sits between the two control groups,
-  pushed to the button's side. It draws, at `--fs-xs`: the model pill and the uploading
-  or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;
+- The status content (`.composer-status`, `role="status"`) sits at the row's start, before the
+  action icons. It draws, at `--fs-xs`: the model group and the uploading
+  or reconnecting sentence in `--text-dim`. The background-task chip is a button in the action group;
   its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
   `READY` / `RUN` / `INPUT` / `DONE` / `BG` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
   and the prompt card. No state word is drawn in the chat composer.
-- The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
-  context ring in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
-  `--space-3` inline padding, `--space-2` between its parts. The model is in `--text` at
-  `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own words with
+- The model group (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
+  context ring as quiet divider-separated text, the way t3code's composer parts its model, effort
+  and mode controls: no fill and no border, `--control-h` tall, `--fs-sm`, `--space-2` between
+  its parts, and a hairline (`.composer-sep`: `--hairline` of `--border-strong`, `--space-4` tall,
+  `--space-1` each side) between the model and the level, before the ring and before the usage
+  reference. The model is in `--text` at
+  `--fw-medium`; the level follows its hairline in `--text-dim`, as the agent's own words with
   only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
-  that records no level draws no dot and no dash, only the name. On the
-  fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`. It is display only: a `span` with no role, no
+  that records no level draws no hairline and no dash, only the name. In the group the ring's
+  track is `--border-strong`, the hairlines' colour; a ring left bare on the card keeps `--border`.
+  No part carries a chevron: herdr owns the agent, so none of them opens a menu. It is display only: a `span` with no role, no
   focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
   one thing to press on desktop; mobile keeps the ring inert. The `title` of the model is the id as received, and the level's is its
   sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
-  cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
+  cannot reach a title. A pane that names no model draws no group: the mark and the ring stand
   alone, with a dim `Model —` and the level between them if the pane records only a level.
 - The model is drawn by name only where its id is one `modelLabel` (`src/lib/modelName.ts`) can
   name for certain, from the vendor's own regular naming and matched whole:
@@ -1156,7 +1243,11 @@ One set for both themes: the card is island black wherever it shows.
   suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
   a `640px` card), then the reasoning level and model name according to the measured row. A long
-  identifier can shorten inside the pill; the context ring remains visible. The row is measured
+  identifier can shorten inside the group; the context ring remains visible: a name that would
+  be cut to its floor (the `3ch` the box keeps) steps out whole instead, with its mark and its
+  hairlines (`composerLabelDraw`, `src/lib/composerLabelFit.ts`, measured again with the level
+  stepped out), so the ring stands alone and whole on a `320px` phone rather than being cut by
+  the group's edge. The row is measured
   again after fonts arrive and the context label opens or closes. The input card keeps one row
   of controls on desktop and phones.
 - Every agent has one primary control: Stop while working with an empty draft, Send with text,
@@ -1189,7 +1280,12 @@ One set for both themes: the card is island black wherever it shows.
   of its own under it, without its leading dot, and wraps there; its `title` repeats it. Only
   the sentence takes a line: the mark, the model, the level and the ring stay one row over it
   (`.composer-status-meta`), where the label gives way exactly as it does with no sentence. The
-  status content is then left-aligned, beside the add button. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
+  status content keeps the row's start. In a narrow card (`data-compact`, below `640px`) the
+  action icons at touch size leave it too little of the row for a word, so while a sentence
+  shows the status content takes a row of its own over the icons, the card's width
+  (`.composer-surface[data-compact]:has(> .composer-status[data-hint])`): the sentence is read
+  whole beside the model group or under it, the icons keep their row starting at the card's
+  edge, and the card grows by that row while the sentence shows. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
   `Uploading file…`, never both: the attachment's own tile says it is uploading.
 - The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
   (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,
@@ -1197,7 +1293,24 @@ One set for both themes: the card is island black wherever it shows.
   pointer it is always drawn. Its hit area lies above the card (`--composer-grip-h`), and the
   composer keeps that strip free after the held-message list and after a prompt card.
 - The stack over the input card, on its column, is written once (PaneTerminal): held messages,
-  then the prompt card (see Prompt card), then the input card.
+  then the prompt card (see Prompt card), then the input card. The notices are the input card's
+  own: they stand inside the composer, over the card and its quick replies, so they move with it
+  (a lifted greeting, a phone's keyboard) and the prompt card keeps its place directly over them.
+- Notices (`.composer-notices`): under the chat lens, while the input card shows, the states the
+  terminal lens floats as top-right pills (another app holds the pane, a failed output stream, the
+  input held for the terminal, a copy note) stand over the card instead, in the held messages'
+  anatomy: one `--border` hairline above the group, then a row per notice (`role="status"`), no
+  tint and no box, every line of text `--space-3` in. A row is its lucide mark and its sentence in
+  `--text-dim` at `--fs-xs` (`--status-working` for the two warnings: another app holds the pane,
+  the stream failed), its own way on at its end (`Open here`, `Reconnect`, the held input's `Send`
+  and quiet `Discard`, in the held rows' buttons) and an X named `Dismiss notice`. Top to bottom
+  the rows are the plain notice, then the urgent ones, then the activity (the held input) nearest
+  the card, as t3code's composer banner stack orders them (`src/lib/composerNotices.ts`). A
+  dismissal lasts while the notice stands and says the same thing; it is forgotten once the
+  notice goes or changes its words, so the next one shows again, and another pane's dismissals
+  never carry over. The group keeps the grip's hit strip free under it. With no input card (view
+  only, ended, a secret prompt) the pills stay where the terminal lens draws them, and a notice
+  keeps a phone's card docked: it never floats over the transcript.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
   card's width and gutter at every window width, no tint and no box. One `--border` hairline
   above the group, then one caption line in `--text-dim` at `--fs-xs` (a clock and the sentence
@@ -1314,7 +1427,7 @@ One set for both themes: the card is island black wherever it shows.
   an edge swipe) takes one step out and never leaves the app from inside Settings; the Back
   control, the X, Escape and the scrim take the same entries off. Beside the list, turning pages
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
-- Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
+- Pages, in order: **Appearance** (theme, colors, contrast, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family, highlight code; then
   **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, files at once, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
   lines, Markdown width, Diff layout), **Terminal** (font size, 80 columns in a split, font family, wheel
@@ -1330,7 +1443,9 @@ One set for both themes: the card is island black wherever it shows.
   one dim sentence under it (`--fs-xs`, no wider than `54ch`) and one control at the end of the
   line. The controls are a switch, a segmented control for two to four short choices, a select
   for five or more, a stepper (minus, value in `--font-mono`, plus, in one bordered well) and a
-  text field; inside a card they sit on `--bg-input`. On a phone a control that needs the line
+  text field; inside a card they sit on `--bg-input`. Contrast's stepper has a reset arrow before
+  it, an icon button in `--text-dim` that keeps its place unseen at the default, so the line never
+  shifts. On a phone a control that needs the line
   (three or more segments, a text field, or a long sentence above it) goes under its label at
   the card's width, its segments sharing it equally; the rest stay on the label's line.
 - Terminal keeps Key bar as a compact description and Edit key bar button. That button opens
@@ -1401,6 +1516,9 @@ One set for both themes: the card is island black wherever it shows.
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount clips its own gutter and hides the unused xterm scrollbar.
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.
+  Under the chat lens, while the input card shows, the ones it shares with the composer (another
+  app holds the pane, a failed output stream, the held draft, a copy note) stand over the card
+  instead (Composer: Notices).
 - The mobile key bar starts with Esc, Tab and `^C`, then sticky Ctrl/Alt/Shift, Enter and arrows;
   it never steals typing focus. Modifiers remain highlighted until toggled off,
   leaving the pane/lens or disconnecting; each exposes `aria-pressed`.
@@ -1440,15 +1558,16 @@ One set for both themes: the card is island black wherever it shows.
 | Type | Token | Value | Usage |
 |------|-------|-------|-------|
 | Micro | `--dur-fast` | `120ms` | Hover, active, toggle and control state |
-| Standard | `--dur-base` | `180ms` | Drawer slide; reserved dialog timing token |
+| Scale | `--motion-scale` | `1` | Factor on `--dur-base`, `--dur-sheet` and `--dur-sheet-out`; Settings → Panel motion writes it on `<html>` (Off `0`, Fast `0.5`, Default `1`, Slow `1.75`) |
+| Standard | `--dur-base` | `180ms` | Drawer slide; reserved dialog timing token; `180ms * --motion-scale` |
 | Pulse | `--dur-pulse` | `1600ms` | Working and reconnecting dots (trough opacity 0.35; text never pulses) |
 | Spin | `--dur-spin` | `1600ms` | One turn of a stepped spinner (the command palette's busy arc); the step count sets the frame rate |
 | Breathe | `--dur-breathe` | `2000ms` | The sidebar's working dot: full for 40% of the cycle, six steps down to opacity 0.5, held, six steps back; every dot shares the document clock's phase, so several runs breathe together. It replaced a spinning arc that read as flicker beside the rows |
 | Easing | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Finite transitions |
 | Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Endless working and reconnecting dots; avoids drawing every display refresh |
 | Spring easing | `--ease-spring` | `cubic-bezier(0.32, 0.72, 0, 1)` | Voice recording pill enter (180ms, scale 0.96->1 + opacity, from the mic button) and exit (120ms); a phone's sheet rising and springing back |
-| Sheet in | `--dur-sheet` | `360ms` | A phone's sheet rising, and springing back after a short drag |
-| Sheet out | `--dur-sheet-out` | `240ms` | A phone's sheet dropping, however it closed |
+| Sheet in | `--dur-sheet` | `360ms` | A phone's sheet rising, and springing back after a short drag; `360ms * --motion-scale` |
+| Sheet out | `--dur-sheet-out` | `240ms` | A phone's sheet dropping, however it closed; `240ms * --motion-scale` |
 
 ### Rules
 - Only state changes move: hover/press, the drawer, a phone's sheets, settings switches, working and
@@ -1488,6 +1607,8 @@ One set for both themes: the card is island black wherever it shows.
 ### Constraints
 - WCAG 2.2 AA is the target; do not document numeric contrast without measuring both shipped themes
   and every actual backing surface.
+- The Contrast setting keeps that target at every step: a step down flattens text toward
+  `--text-dim`, never under it (Contrast, section 2).
 - Global `:focus-visible` uses `--ring`; interactive controls remain keyboard reachable except the
   touch key bar, which intentionally preserves terminal focus and has hardware-key equivalents.
 - Icon-only controls carry `aria-label`; toggles expose `aria-pressed` or `role="switch"`; selected

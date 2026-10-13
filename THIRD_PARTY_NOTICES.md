@@ -49,6 +49,72 @@ with this copyright notice:
 Copyright (c) Meta Platforms, Inc. and affiliates.
 ```
 
+## T3 Code
+
+These herdr web ui files adapt logic from [t3code](https://github.com/pingdotgg/t3code) at revision
+`e82a1ce3f369f113b0b33dff8249569c345e30e8`, under the MIT License printed above, with this
+copyright notice:
+
+```
+Copyright (c) 2026 T3 Tools Inc.
+```
+
+- `src/lib/chatTimestamp.ts` <- `apps/web/src/timestampFormat.ts`
+- `src/lib/followScroll.ts` <- `apps/web/src/components/chat/MessagesTimeline.tsx`
+- `src/lib/composerMenuHighlight.ts` <- `apps/web/src/components/chat/composerMenuHighlight.ts`
+- `src/lib/composerImageMime.ts` <- `apps/web/src/components/chat/composerAttachmentFiles.ts`
+- `src/lib/terminalQuote.ts` <- `apps/web/src/lib/terminalContext.ts`
+- `src/lib/imageBox.ts`, `src/components/Markdown.tsx` <- `apps/web/src/components/ChatMarkdown.tsx`
+- `src/lib/skillMentions.ts` <- `apps/web/src/components/chat/SkillInlineText.tsx`
+- `src/components/RepoDiffViewer.tsx`, `src/components/Skeleton.tsx` <-
+  `apps/web/src/components/DiffFilePathCopyButton.tsx`,
+  `apps/web/src/components/DiffPanelShell.tsx`
+- `src/lib/paletteSettings.ts` <- `apps/web/src/components/settings/settingsSearch.ts`,
+  `apps/web/src/components/CommandPalette.logic.ts`
+- `src/components/AnimatedHeight.tsx`, `src/lib/animatedHeight.ts` <-
+  `apps/web/src/components/AnimatedHeight.tsx`, `apps/web/src/lib/observeResize.ts`
+- `src/lib/workspacePath.ts` <- `apps/web/src/filePathDisplay.ts`
+- `src/lib/fileIcons.ts`, `src/components/FileGlyph.tsx` <- `apps/web/src/pierre-icons.ts`,
+  `apps/web/src/components/chat/PierreEntryIcon.tsx`
+- `src/lib/contrast.ts`, `src/styles.css` <- `apps/web/src/appearanceContrast.ts`, `apps/web/src/index.css`
+- `src/lib/composerNotices.ts` <- `apps/web/src/components/chat/ComposerBannerStack.tsx`
+- `src/lib/changeTree.ts`, `src/components/RepoChanges.tsx` <-
+  `apps/web/src/components/diffs/diffFileTree.logic.ts`,
+  `apps/web/src/components/diffs/DiffFileTree.tsx`
+- `src/lib/installedFonts.ts`, `src/components/SettingsDialog.tsx` <-
+  `apps/web/src/components/settings/FontFamilyPicker.tsx`, `apps/web/src/appearanceFonts.ts`
+- `src/lib/idleLease.ts`, `src/components/DiffWorkerPool.tsx` <-
+  `apps/web/src/components/DiffWorkerPoolProvider.tsx`
+- `src/lib/paletteFolders.ts`, `src/components/CommandPalette.tsx` <-
+  `apps/web/src/components/CommandPalette.logic.ts`,
+  `packages/client-runtime/src/state/filesystem.ts`
+- `src/components/ImageLightbox.tsx`, `src/lib/imageViewer.ts`, `src/lib/clipboard.ts` <-
+  `apps/web/src/components/chat/ZoomableImage.tsx`,
+  `apps/web/src/components/chat/ExpandedImageDialog.tsx`,
+  `apps/web/src/components/chat/ExpandedImagePreview.ts`,
+  `apps/web/src/components/media/mediaContent.ts`,
+  `apps/web/src/components/media/MediaActions.tsx`
+- `src/lib/markdownClipboard.ts`, `src/components/ChatTimeline.tsx` <-
+  `apps/web/src/markdown-clipboard.ts`, `apps/web/src/components/chat/MessagesTimeline.tsx`
+- `src/lib/promptStash.ts`, `src/components/ComposerStash.tsx` <-
+  `apps/web/src/promptStashStore.ts`, `apps/web/src/components/chat/ComposerStashMenu.tsx`
+- `src/lib/typography.ts`, `src/lib/settings.ts`, `src/components/SettingsDialog.tsx` <-
+  `apps/web/src/appearanceFonts.ts`,
+  `apps/web/src/components/settings/SettingsPanels.tsx`
+- `src/components/Composer.tsx`, `src/components/Composer.css`, `src/lib/composerStrip.ts` <-
+  `apps/web/src/components/chat/ComposerSurface.tsx`,
+  `apps/web/src/components/chat/ComposerControl.tsx`,
+  `apps/web/src/components/chat/ChatComposer.tsx`
+- `src/lib/chatScrollMemory.ts`, `src/components/ChatView.tsx` <-
+  `apps/web/src/components/chat/timelineScrollAnchoring.ts`,
+  `apps/web/src/components/chat/MessagesTimeline.tsx`
+- `src/lib/chatMinimap.ts`, `src/components/ChatMinimap.tsx` <-
+  `apps/web/src/components/chat/MessagesTimeline.logic.ts`,
+  `apps/web/src/components/chat/timelineMinimapItems.ts`
+- `src/lib/userMessageFold.ts`, `src/components/ChatView.tsx` <-
+  `apps/web/src/components/chat/MessagesTimeline.logic.ts`,
+  `apps/web/src/components/chat/MessagesTimeline.tsx`
+
 ## TanStack Highlight
 
 Code highlighting in the client and its worker uses
