@@ -52,7 +52,7 @@ import {
   type NotificationState,
 } from "./lib/notifications.ts";
 import { ensurePushSubscription, pushSupported, removePushSubscription } from "./lib/push.ts";
-import { notificationTargetFromSearch, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
+import { machineMissing, notificationLanding, notificationTargetFromSearch, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
 import { useUpdates } from "./lib/updates.ts";
 import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { LanExposureNotice } from "./components/LanExposureNotice.tsx";
@@ -789,8 +789,19 @@ export function App() {
     else console.warn(what, err);
   }, [t]);
 
-  // a tapped notification focuses this window and names the pane (public/sw.js)
-  useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id, target.view)), []);
+  // a tapped notification focuses this window and names the pane (public/sw.js). A PC removed
+  // since lands on this PC with a word, as a link to it does; a pane not known yet waits as a link
+  // does (this also keeps a cold start's link, which the worker names again once the page is up)
+  useEffect(() => onNotificationTarget((target) => {
+    const landing = notificationLanding(machinesRef.current, target);
+    if (landing.kind === "missing") {
+      setHeaderNote("machine-missing");
+      selectTargetRef.current("local", null);
+      return;
+    }
+    selectTargetRef.current(target.machine_id, target.pane_id, target.view);
+    if (landing.kind === "link") { pendingLink.current = landing.link; pendingFile.current = null; setLinkLanded(false); }
+  }), []);
 
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
@@ -1235,16 +1246,18 @@ export function App() {
   // pane's title, and the palette is the menu's first item.
   const paletteItem: RowMenuItem = { id: "palette", label: t("Command palette"), icon: Search, run: () => setPaletteOpen(true) };
   // a link to a PC this app does not have lands on this PC instead, and says so: the roster lists
-  // every configured PC, connected or not, so one missing from it is not set up here
+  // every configured PC, connected or not, so one missing from it is not set up here. So does a
+  // remembered selection (a reload, a new window) of a PC removed since, here or on another device
   useEffect(() => {
     const linked = pendingLink.current;
-    if (!linked || machines.length === 0 || machines.some((machine) => machine.id === linked.machine)) return;
+    if (!machineMissing(machines, linked ? linked.machine : selectedMachineRef.current)) return;
     pendingLink.current = null; pendingFile.current = null;
     setLinkLanded(true);
     setHeaderNote("machine-missing");
     // no pane: the link's pane id means nothing on another PC, so the pane herdr has in front opens
-    selectTarget("local", null);
-  }, [machines, selectTarget]);
+    selectTargetRef.current("local", null);
+    // the roster only: a PC picked just now (Open PC) is checked against the roster that comes next
+  }, [machines]);
 
   // a link to the New workspace dialog opens it once the PCs are in; one for a tab, once the
   // linked workspace's pane is selected (its folder is the workspace's, as the tab strip's + does)

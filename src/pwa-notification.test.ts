@@ -4,13 +4,19 @@ import { join } from "node:path";
 
 type Selection = { type: string; pane_id: string; machine_id: string; view?: "chat" | "terminal" };
 type SelectedPane = Omit<Selection, "view">;
-type WindowClient = { focused: boolean; postMessage: (data: Selection) => void; focus: () => Promise<void> };
+type WindowClient = { url: string; focused: boolean; postMessage: (data: Selection) => void; focus: () => Promise<void> };
 
 function deferred() {
   let resolve!: () => void;
   let reject!: (error: Error) => void;
   const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
+}
+
+const APP = "https://herdr.test/";
+
+function loadWorker(self: unknown): { isAppWindow: (url: string) => boolean } {
+  return new Function("self", `${readFileSync(join(import.meta.dir, "..", "public", "sw.js"), "utf8")}\nreturn { isAppWindow };`)(self);
 }
 
 /** Execute the shipped worker, including its asynchronous notificationclick listener. */
@@ -26,7 +32,7 @@ function notifications(
     addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener),
     clients: { matchAll, openWindow: async (url: string) => { opened.push(url); return openWindow(url); } },
   };
-  new Function("self", readFileSync(join(import.meta.dir, "..", "public", "sw.js"), "utf8"))(self);
+  loadWorker(self);
   const click = (paneId: string | null = "pane-a", machineId = "local"): Promise<void> => {
     let completion!: Promise<void>;
     listeners.get("notificationclick")!({
@@ -38,10 +44,11 @@ function notifications(
   return { click, opened, closed: () => closed };
 }
 
-function client(focus = async () => {}, focused = false) {
+function client(focus = async () => {}, focused = false, url = APP) {
   const selected: SelectedPane[] = [];
   const views: Array<Selection["view"]> = [];
   return {
+    url,
     focused,
     focus,
     selected,
@@ -55,6 +62,44 @@ function client(focus = async () => {}, focused = false) {
 }
 
 describe("notification clicks", () => {
+  it("tells app windows from the reader, raw file and static tabs the app also opens", () => {
+    const { isAppWindow } = loadWorker({ addEventListener: () => {} });
+    expect(isAppWindow(APP)).toBe(true);
+    expect(isAppWindow(`${APP}?machine=pc2&pane=w1%3Ap1&view=chat`)).toBe(true);
+    expect(isAppWindow(`${APP}?settings=general`)).toBe(true);
+    // the shell answers any other path too
+    expect(isAppWindow(`${APP}index.html`)).toBe(true);
+    expect(isAppWindow(`${APP}?read=docs%2Fguide.md&machine=local`)).toBe(false);
+    // an empty `read` is no reader (lib/fileReader.ts readerFromSearch): App runs there
+    expect(isAppWindow(`${APP}?read=%20`)).toBe(true);
+    expect(isAppWindow(`${APP}api/fs/file?path=notes.md&pane=w1%3Ap1`)).toBe(false);
+    expect(isAppWindow(`${APP}api/machines/pc2/fs/file?path=index.html&render=1`)).toBe(false);
+    expect(isAppWindow(`${APP}icons/icon-192.png`)).toBe(false);
+    expect(isAppWindow(`${APP}assets/index-abc.js`)).toBe(false);
+    expect(isAppWindow("not a url")).toBe(false);
+  });
+
+  it("never focuses a markdown reader tab: the app window takes the pane, else it opens", async () => {
+    const reader = client(undefined, false, `${APP}?read=notes.md&machine=local`);
+    const app = client();
+    // matchAll lists the most recently focused first: the reader was used last
+    const worker = notifications([reader, app]);
+    await worker.click("pane-a");
+    expect(reader.selected).toEqual([]);
+    expect(app.selected).toHaveLength(2);
+    expect(worker.opened).toEqual([]);
+
+    let focused = 0;
+    const lone = client(async () => { focused++; }, true, `${APP}?read=notes.md&machine=local`);
+    const raw = client(undefined, false, `${APP}api/fs/file?path=notes.md`);
+    const cold = notifications([lone, raw]);
+    await cold.click("pane-b", "pc2");
+    expect(focused).toBe(0);
+    expect(lone.selected).toEqual([]);
+    expect(raw.selected).toEqual([]);
+    expect(cold.opened).toEqual(["/?machine=pc2&pane=pane-b&view=chat"]);
+  });
+
   it("selects the pane before a delayed focus and repeats after the page resumes", async () => {
     const pending = deferred();
     const target = client(() => pending.promise);

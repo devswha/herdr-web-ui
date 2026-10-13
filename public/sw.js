@@ -135,6 +135,19 @@ self.addEventListener("push", (event) => {
   );
 });
 
+/**
+ * A window that runs the app and so takes a "select-pane": not a markdown reader tab (`?read=`,
+ * src/lib/fileReader.ts renders FileReader there instead of App), nor a raw file or HTML page the
+ * file viewer opened in a tab of its own (those are /api/ responses), nor a static file.
+ */
+function isAppWindow(url) {
+  let parsed;
+  try { parsed = new URL(url); } catch { return false; }
+  const path = parsed.pathname;
+  if (path.startsWith("/api/") || path === "/ws" || path === "/sw.js" || path === "/manifest.webmanifest" || isCacheFirst(path)) return false;
+  return (parsed.searchParams.get("read") ?? "").trim() === "";
+}
+
 // Tap: bring the app forward on that pane - an open window is told which pane
 // (App listens), a closed app opens on /?pane=<id>.
 let latestNotificationClick = 0;
@@ -149,7 +162,9 @@ self.addEventListener("notificationclick", (event) => {
   latestNotificationSelection = paneId ? { type: "select-pane", pane_id: paneId, machine_id: machineId, view: "chat" } : null;
   event.waitUntil(
     (async () => {
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // only an app window handles the selection: focusing a reader tab would swallow the tap
+      const windows = (await self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+        .filter((client) => isAppWindow(client.url));
       if (click !== latestNotificationClick) return;
       const url = paneId ? `/?machine=${encodeURIComponent(machineId)}&pane=${encodeURIComponent(paneId)}&view=chat` : "/";
       const selectLatest = (client) => { if (client && latestNotificationSelection) client.postMessage(latestNotificationSelection); };
