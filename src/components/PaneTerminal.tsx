@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, us
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { ChevronRight, Clock, TriangleAlert, X } from "lucide-react";
+import { ChevronRight, ClipboardCheck, Clock, Quote, TriangleAlert, Unplug, X } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
@@ -14,15 +14,18 @@ import { PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../li
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
-import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, eraseFromDraft, heldInputAction, restoreDraft, type InputDraft } from "../lib/draft.ts";
+import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
+import { arrangeNotices, dismissNotice, NO_DISMISSALS, settleDismissed, type DismissedNotices } from "../lib/composerNotices.ts";
 import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, submitNote, submitNotTyped, submitRefusal } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { ApiError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
+import { composerDrafts } from "../lib/composerDraft.ts";
+import { appendQuote, formatTerminalQuote } from "../lib/terminalQuote.ts";
 import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { PaneAwayContext } from "../lib/paneAwayContext.ts";
@@ -36,6 +39,7 @@ import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
+import { ComposerNotices, type ComposerNoticeRow } from "./ComposerNotices.tsx";
 import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, PlanSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneControls, PaneView } from "../lib/actions.ts";
@@ -53,6 +57,7 @@ import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { modalOpen } from "../lib/focus.ts";
 import { pinchFontSize } from "../lib/pinchFontSize.ts";
 import { narrowPaneFontSize } from "../lib/narrowPaneFont.ts";
+import { finalStep, HERDR_MOUSE_SCROLL_LINES, wheelSteps } from "../lib/wheelSteps.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -66,6 +71,7 @@ const RELEASE_AFTER_MS = 1000;
 const inUse = (): boolean => document.visibilityState === "visible" && document.hasFocus();
 
 export interface PaneTerminalProps {
+  onOpenDiff?: (target: import("../lib/repoDiff.ts").RepoDiffTarget) => void;
   /** The pane this terminal attaches to; null renders the placeholder. */
   paneId: string | null;
   /**
@@ -161,6 +167,7 @@ export function PaneTerminal({
   onRoleAck,
   onConnectionChange,
   onServerMessage,
+  onOpenDiff,
 }: PaneTerminalProps) {
   const t = useT();
   const activeRef = useRef(active);
@@ -248,6 +255,11 @@ export function PaneTerminal({
   const composingRef = useRef(false);
   const [composing, setComposingState] = useState(false);
   const setComposing = useCallback((active: boolean) => { composingRef.current = active; setComposingState(active); }, []);
+  // a composition in the input line keeps the key bar live but blocks the switch to direct typing:
+  // unmounting the line mid-composition could drop the word or replay it into the pane
+  const lineComposingRef = useRef(false);
+  const [lineComposing, setLineComposingState] = useState(false);
+  const setLineComposing = useCallback((active: boolean) => { lineComposingRef.current = active; setLineComposingState(active); }, []);
   const compositionCommitPendingRef = useRef(false);
   const barKeyRef = useRef<{ key: string; chord: string | null } | null>(null);
   const modifiersRef = useRef<StickyModifiers>(NO_STICKY_MODIFIERS);
@@ -264,6 +276,8 @@ export function PaneTerminal({
   const fixedGridRef = useRef(false);
   // the pty's grid as the server last said it for this pane (pane-geometry), whoever set it
   const sharedGridRef = useRef<{ cols: number; rows: number } | null>(null);
+  // takes the pty back to this grid when another device left it at its own (the effect below sets it)
+  const reassertIfStaleRef = useRef<() => void>(() => undefined);
   // out of use, the tab let go of its pane (no attach) so herdr's own TUI has it back; it attaches
   // again when the user is back. The ref is what the socket handlers and the pane switch read
   const releasedRef = useRef(false);
@@ -350,6 +364,10 @@ export function PaneTerminal({
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const clipboardTimerRef = useRef<number | null>(null);
+  // the notices the user put away over the input card (lib/composerNotices.ts)
+  const [dismissedNotices, setDismissedNotices] = useState<DismissedNotices>(NO_DISMISSALS);
+  // the text of the last drag, offered to the chat draft while its highlight stays (herdr's rows when it gave them)
+  const [selectionQuote, setSelectionQuote] = useState<{ pane: string; text: string; range: { start: number; end: number } | null } | null>(null);
   // Explicit sends refresh immediately; continuous transcript invalidations are rate-limited.
   const [chatRefresh, setChatRefresh] = useState(0);
   const [chatInvalidation, setChatInvalidation] = useState(0);
@@ -693,6 +711,7 @@ export function PaneTerminal({
       if (!term.hasSelection()) {
         copiedText = null;
         selectionGeneration++;
+        setSelectionQuote(null);
       }
     });
 
@@ -772,6 +791,9 @@ export function PaneTerminal({
         sendScroll(d);
       });
     };
+    /** one row's height on screen, in CSS pixels (a selecting drag's wheel and a finger's travel) */
+    const cellHeight = (): number =>
+      (term.element?.querySelector(".xterm-screen")?.getBoundingClientRect().height ?? term.rows) / term.rows;
     /** positive lines show older text */
     const scrollDrag = (d: Drag, lines: number): void => {
       if (d.top === null) return;
@@ -786,11 +808,11 @@ export function PaneTerminal({
     const dragWheel = (event: WheelEvent): void => {
       const d = drag;
       if (!d || d.top === null) return;
-      const lineHeight = (term.element?.querySelector(".xterm-screen")?.getBoundingClientRect().height ?? term.rows) / term.rows;
-      d.wheelPixels += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * lineHeight : event.deltaY;
-      const lines = Math.trunc(d.wheelPixels / lineHeight);
+      const lineHeight = cellHeight();
+      const { steps: lines, rest } = wheelSteps(
+        d.wheelPixels + (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * lineHeight : event.deltaY), lineHeight);
+      d.wheelPixels = rest;
       if (lines === 0) return;
-      d.wheelPixels -= lines * lineHeight;
       scrollDrag(d, -lines);
     };
     const stopEdge = (): void => {
@@ -813,6 +835,7 @@ export function PaneTerminal({
       if (reporting) Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
       copiedText = null;
       selectionGeneration++;
+      setSelectionQuote(null);
       const pane = paneRef.current;
       const { cell } = cellAt(event);
       const d: Drag = {
@@ -893,6 +916,8 @@ export function PaneTerminal({
       copySelection();
       const generation = selectionGeneration;
       const current = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration;
+      // offered to the chat draft at once with what is on screen; herdr's text and rows replace it below
+      if (d.pane !== "") setSelectionQuote({ pane: d.pane, text: visibleText, range: null });
       let range: [Cell, Cell] | null = null;
       if (d.scrolled) range = historyRange(d);
       else if (d.top !== null) {
@@ -906,14 +931,19 @@ export function PaneTerminal({
         }
       }
       if (!range) return;
+      // herdr's text covers the whole range; the visible text in its place does not, so the quote
+      // then names no line range rather than one its text does not hold
+      let fromHerdr = true;
       const text = fetchPaneSelection(d.pane, range[0], range[1], machineId).catch(() => {
         if (current() && d.scrolled) noteClipboard("could not read the selection from herdr");
+        fromHerdr = false;
         return visibleText;
       }).then((value) => {
         if (!current()) throw new Error("selection changed");
         // A redraw can remove the range before herdr reads it. Keep what the user
         // actually selected instead of replacing a successful copy with nothing.
         copiedText = value || visibleText;
+        setSelectionQuote({ pane: d.pane, text: copiedText, range: fromHerdr && value ? { start: range[0].row, end: range[1].row } : null });
         return copiedText;
       });
       // Reserve the write NOW, supplying the server text when it arrives. Never
@@ -1148,12 +1178,7 @@ export function PaneTerminal({
     });
     session.connect();
 
-    // input readiness too: a liveness probe refuses input without a frame to say so
-    const poll = window.setInterval(() => {
-      setConnected(socket.connected);
-      setConversationPushes(socket.conversationPushes());
-      if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
-    }, 1000);
+    const poll = window.setInterval(() => { setConnected(socket.connected); setConversationPushes(socket.conversationPushes()); }, 1000);
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
@@ -1204,9 +1229,10 @@ export function PaneTerminal({
       barKeyRef.current = null;
       const physicalChord = typedChord;
       typedChord = null;
-      // Enter itself, before a modifier turns it into a sequence with no line break (Ctrl+Enter)
-      const enterKey = data === "\r";
-      if (enterAs !== null && data === "\r") data = enterAs;
+      // a modified Enter (Shift+Enter's newline, Ctrl+Enter's "send now") is decided on before its
+      // rewrite: its sequence may carry no line break at all
+      const modifiedEnter = enterAs !== null && data === "\r";
+      if (modifiedEnter) data = enterAs!;
       enterAs = null;
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
@@ -1219,17 +1245,23 @@ export function PaneTerminal({
           : physicalChord ?? (hasModifiers(modifiersRef.current) && key !== null ? terminalChord(key, modifiersRef.current) : null)
         : null;
       if (draftHeldForRef.current === current) {
-        // Enter (in any encoding) and chords never reach the pty beside held text, so a partial
-        // command never runs; text and Backspace edit the draft; other control keys (Ctrl+C,
-        // Escape, arrows) still reach the program below (see heldInputAction)
-        const action = heldInputAction(input, { enter: enterKey, chord: chord !== null, paste: pasting });
-        if (action === "block") {
+        // A chord or a modified Enter is never held, and never sent beside held text either
+        // (Ctrl+J, or Ctrl+Enter under modifyOtherKeys, would run the line).
+        // A paste the draft cannot take (an unbracketed tab or control character) is refused too, never sent
+        // ahead of the held start.
+        const pasted = pasting || input.startsWith("\x1b[200~");
+        if (chord !== null || modifiedEnter || (pasted && applyToDraft(EMPTY_DRAFT, input) === EMPTY_DRAFT)) {
           const t = tRef.current;
           setInputError(t("Not sent: send or discard the held input first."));
           return;
         }
-        if (action === "erase") { setDraft(eraseFromDraft); return; }
-        if (action === "hold") { setDraft((prev) => applyToDraft(prev, input)); return; }
+        // Text, a paste, Backspace and anything with a line break go to the draft, which leaves
+        // Enter out, so a partial command never runs. Other control keys (Ctrl+C, Escape, Tab,
+        // arrows) still reach the program below: an interrupt must not wait on the draft.
+        if (pasted || /[\r\n\x7f\b]/.test(input) || applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) {
+          setDraft((prev) => applyToDraft(prev, input));
+          return;
+        }
       }
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.
@@ -1361,6 +1393,8 @@ export function PaneTerminal({
     // Two fingers pinch the font size: the font follows them locally, and the shared pty resizes once when one lifts.
     let touchX = 0;
     let touchY = 0;
+    /** finger travel of this gesture not yet sent as a wheel report */
+    let touchPixels = 0;
     let tracking = false;
     let pinch: { first: number; second: number; startSize: number; startDistance: number; size: number } | null = null;
     // from a second finger until every finger lifts: the stroke is a pinch, never a scroll
@@ -1429,6 +1463,7 @@ export function PaneTerminal({
         return;
       }
       tracking = event.touches.length === 1;
+      touchPixels = 0;
       const first = event.touches[0];
       if (tracking && first) {
         touchX = first.clientX;
@@ -1475,12 +1510,30 @@ export function PaneTerminal({
         host.scrollBy(across, delta);
         return;
       }
-      if (delta !== 0) {
-        const target = term.element ?? host;
-        target.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: delta, clientX: first.clientX, clientY: first.clientY }));
+      // xterm sends herdr one report per wheel event however far it went, and herdr scrolls a
+      // few lines per report: one line-mode wheel per that many rows of finger travel keeps a
+      // swipe as far as a slow drag, and the text under the finger
+      const { steps, rest } = wheelSteps(touchPixels + delta, cellHeight() * HERDR_MOUSE_SCROLL_LINES);
+      touchPixels = rest;
+      sendTouchWheels(steps);
+    };
+    /** `steps` line-mode wheel reports at the finger, each one herdr scroll step in the sign's direction */
+    const sendTouchWheels = (steps: number): void => {
+      const target = term.element ?? host;
+      for (let sent = 0; sent < Math.abs(steps); sent += 1) {
+        target.dispatchEvent(new WheelEvent("wheel", {
+          bubbles: true, cancelable: true, deltaY: Math.sign(steps), deltaMode: WheelEvent.DOM_DELTA_LINE,
+          clientX: touchX, clientY: touchY,
+        }));
       }
     };
     const onTouchEnd = (event: TouchEvent): void => {
+      // a lifted one-finger drag sends what is left once it reaches half a step: a flick shorter
+      // than one step still scrolls, and a long drag loses at most half a step at its end
+      if (tracking && event.type === "touchend" && !pinchStroke && !adopted()) {
+        sendTouchWheels(finalStep(touchPixels, cellHeight() * HERDR_MOUSE_SCROLL_LINES));
+      }
+      touchPixels = 0;
       tracking = false;
       if (!pinchStroke) return;
       claimPinch(event);
@@ -1656,13 +1709,21 @@ export function PaneTerminal({
     // Only input meant for the terminal itself: a press or key in the find bar, on the scrollbar
     // or the key bar, a right-click for the pane menu, a held key's repeats or an IME composition
     // must not resize the pty under the other device.
-    const reclaim = (event: Event): void => {
+    // A phone's own input paths sit outside the grid (the input line, its Send and Enter, a key the
+    // key bar sends, not a press on it), so they call this before they send: the reply is then
+    // drawn for the grid that shows it.
+    const reassertIfStale = (): void => {
       const shared = sharedGridRef.current;
-      if (!shared || releasedRef.current || !inUse() || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
+      if (!shared || releasedRef.current || !inUse()) return;
+      if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
+    };
+    reassertIfStaleRef.current = reassertIfStale;
+    const reclaim = (event: Event): void => {
+      if (!(event.target instanceof Node) || !term.element?.contains(event.target)) return;
       // an IME's first key comes before compositionstart, with isComposing still false (keyCode 229)
       if (event instanceof KeyboardEvent && (event.repeat || event.isComposing || event.keyCode === 229 || composingRef.current || compositionCommitPendingRef.current)) return;
       if (event instanceof PointerEvent && event.button !== 0) return;
-      if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
+      reassertIfStale();
     };
     // a click or a tap is the user here, whatever the window says about its focus
     const onPointer = (event: PointerEvent): void => {
@@ -1707,6 +1768,7 @@ export function PaneTerminal({
       window.removeEventListener("blur", leave);
       window.removeEventListener("pointerdown", onPointer, { capture: true });
       window.removeEventListener("keydown", reclaim, { capture: true });
+      reassertIfStaleRef.current = () => undefined;
       document.removeEventListener("visibilitychange", onVisibility);
       onModifiedEnter.dispose();
       onCommandBackspace.dispose();
@@ -1951,6 +2013,7 @@ export function PaneTerminal({
     const input = (modified ? navigationSequence(item.key, active) : null)
       ?? keyBarInputSequence(item.key, term.modes.applicationCursorKeysMode);
     if (input === null) return;
+    reassertIfStaleRef.current();
     barKeyRef.current = { key: item.key, chord };
     try { term.input(input); } finally { barKeyRef.current = null; }
     // with the input line, the keyboard belongs to it: a key tap must not move it to the grid
@@ -1999,8 +2062,6 @@ export function PaneTerminal({
     const session = sessionRef.current;
     const pane = paneRef.current;
     if (!term || !socket || !session || pane === null || secretRef.current !== null || heldRef.current) return null;
-    // its Enter would run the pty's line without the start a held draft keeps
-    if (draftHeldForRef.current === pane) return Promise.resolve({ ok: false, code: "held_input", message: "send or discard the held input first" });
     // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
     const epoch = session.epoch;
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft);
@@ -2057,10 +2118,11 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!term || !socket || pane === null || secretRef.current !== null) return false;
-    // its Enter would run the pty's line without the start a held draft keeps
+    // its text and Enter would land beside the held draft: Send or Discard that first
     if (draftHeldForRef.current === pane) return Promise.resolve(tRef.current("Not sent: send or discard the held input first."));
     const message = composerMessage(text);
     const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
+    reassertIfStaleRef.current();
     const sent = socket.submit(pane, message, payload, true);
     if (sent === null) return false;
     const releaseSubmit = submitRetention?.retain(pane);
@@ -2071,11 +2133,16 @@ export function PaneTerminal({
     });
   }, [submitRetention]);
 
-  const pressEnter = useCallback((): boolean => {
+  // a tap into the input line is the user here: the grid is theirs again before they type
+  const reassertGrid = useCallback(() => { reassertIfStaleRef.current(); }, []);
+
+  const pressEnter = useCallback((): boolean | string => {
     const socket = socketRef.current;
     const pane = paneRef.current;
+    if (!socket || pane === null || !socket.connected) return false;
     // Enter beside a held draft would run the pty's line without the held start
-    if (!socket || pane === null || !socket.connected || draftHeldForRef.current === pane) return false;
+    if (draftHeldForRef.current === pane) return tRef.current("Not sent: send or discard the held input first.");
+    reassertIfStaleRef.current();
     const sent = hasModifiers(modifiersRef.current)
       ? socket.sendKeys(pane, [terminalChord("Enter", modifiersRef.current)!]) : socket.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();
@@ -2083,7 +2150,7 @@ export function PaneTerminal({
   }, []);
 
   const toggleDirect = useCallback(() => {
-    if (composingRef.current) return;
+    if (composingRef.current || lineComposingRef.current) return;
     updateSettings({ terminalInputMode: directTyping ? "line" : "direct" });
   }, [directTyping, updateSettings]);
 
@@ -2195,6 +2262,47 @@ export function PaneTerminal({
     observer.observe(stack); observer.observe(composer); observer.observe(greeting);
     return () => { observer.disconnect(); stack.style.removeProperty("--composer-lift"); stack.style.removeProperty("--composer-room"); setGreetingRoom(true); };
   }, [greetingDue, paneId]);
+
+  // Under the chat lens, while the input card shows, the pills the terminal lens floats top-right
+  // (another app holds the pane, the output stream failed, input held for the terminal, a copy
+  // note) stand over the card instead, as rows of the composer's with a dismiss each. Without the
+  // card (view only, ended, a secret prompt) they stay pills. The ids carry the pane, so another
+  // pane's dismissals never carry over; a dismissal goes with its notice, or when the notice says
+  // something else (lib/composerNotices.ts)
+  const noticesDocked = presented && paneId !== null && chatView && !secretActive && !observing && !ended;
+  const noticeItems: ComposerNoticeRow[] = [];
+  if (paneId !== null) {
+    const owner = paneStorageId(machineId, paneId);
+    const takeOver = !observing && socketRef.current?.canTakeOver() === true;
+    if (held) noticeItems.push({
+      id: `${owner}:held`, priority: "urgent", revision: takeOver ? "open-here" : "", warning: true, mark: <Unplug />,
+      text: t("Another app has this pane open. It connects here as soon as that app lets go."),
+      actions: takeOver && <button type="button" className="composer-notice-action" title={t("Take this pane from another web app or terminal attach. That connection will close.")} onClick={() => { socketRef.current?.takeOver(paneId); }}>{t("Open here")}</button>,
+    });
+    if (outputError) noticeItems.push({
+      id: `${owner}:output`, priority: "urgent", revision: outputError, warning: true, mark: <TriangleAlert />, text: outputError,
+      actions: <a className="composer-notice-action" href={`?machine=${encodeURIComponent(machineId)}&pane=${encodeURIComponent(paneId)}`}>{t("Reconnect")}</a>,
+    });
+    if (!ended && connected && !draftIsEmpty(draft)) noticeItems.push({
+      id: `${owner}:draft`, priority: "activity", revision: `${draft.truncated ? "…" : ""}${draft.text}`, warning: false, mark: <Clock />,
+      text: <>
+        {t("Input held until the terminal is ready:")}
+        {draft.text.length > 0 && <> <code>{draft.text}</code></>}
+        {draft.truncated && <> {t("Some input was too long to hold and was left out.")}</>}
+      </>,
+      actions: <>
+        <button type="button" className="composer-notice-action" disabled={draft.text.length === 0 || observing || secretActive || held} onClick={sendDraft}>{t("Send")}</button>
+        <button type="button" className="composer-notice-action is-quiet" onClick={discardDraft}>{t("Discard")}</button>
+      </>,
+    });
+    if (clipboardNote) noticeItems.push({ id: `${owner}:clipboard`, priority: "notice", revision: clipboardNote, warning: false, mark: <ClipboardCheck />, text: clipboardNote });
+  }
+  const settledNotices = settleDismissed(dismissedNotices, noticeItems);
+  if (settledNotices !== dismissedNotices) setDismissedNotices(settledNotices);
+  const shownNotices = noticesDocked ? arrangeNotices(noticeItems, settledNotices) : [];
+  const composerNotices = shownNotices.length > 0
+    ? <ComposerNotices notices={shownNotices} onDismiss={(notice) => { setDismissedNotices((dismissed) => dismissNotice(dismissed, notice)); }} />
+    : null;
 
   const composerSend = useCallback(
     (text: string, clearDraft?: string): boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal> => {
@@ -2317,6 +2425,35 @@ export function PaneTerminal({
     return () => { if (controls.current === current) controls.current = null; };
   }, [controls, active, paneId]);
 
+  const secretInput = presented && paneId !== null && secretActive && !observing && !ended && connected && outputReady ? <SecretInput
+    key={`${paneId}:${secret.prompt}`} prompt={secret.prompt} active={active}
+    onSend={(value) => socketRef.current?.sendSecret(paneId, secret.prompt, value) ?? null}
+    onCancel={() => { if (socketRef.current?.connected) socketRef.current.sendInput(paneId, "\u0003"); }}
+  /> : null;
+  // the input line's row, kept while the masked input stands in for it
+  const lineSlot = presented && paneId !== null && !observing && !ended && inputLine;
+  // What floats from the slot may reach up to the grid's top and no further (TerminalInput.css):
+  // in a short pane (a split, a phone in landscape with its keyboard up) a grown line or the masked
+  // input would otherwise cover the find bar, or be clipped under the pane's frame
+  const [inputSlot, setInputSlot] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const surface = stackRef.current?.querySelector(".terminal-surface");
+    if (!stackRef.current || !surface || !inputSlot) return;
+    const measure = () => {
+      const slot = inputSlot.getBoundingClientRect();
+      // the chat lens's box-less slot has no rect, and nothing floats there to cap
+      if (slot.width === 0) return;
+      const room = slot.bottom - surface.getBoundingClientRect().top;
+      inputSlot.style.setProperty("--terminal-input-room", `${Math.max(0, Math.floor(room))}px`);
+    };
+    measure();
+    // the surface moves with the find bar and resizes with the stack and the key bar under it
+    const observer = new ResizeObserver(measure);
+    observer.observe(stackRef.current);
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, [inputSlot]);
+
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
     <div ref={stackRef} className={`terminal-stack${chatView ? " is-chat" : ""}${greeted ? " is-greeted" : ""}`} data-pane-owner={paneId === null ? undefined : paneStorageId(machineId, paneId)} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}>
@@ -2342,7 +2479,7 @@ export function PaneTerminal({
         </div>
       )}
       <div className="terminal-banners">
-        {paneId !== null && held && (
+        {paneId !== null && held && !noticesDocked && (
           <div className="terminal-banner terminal-banner-warning" role="status">
             <span>{t("Another app has this pane open. It connects here as soon as that app lets go.")}</span>
             {!observing && socketRef.current?.canTakeOver() && (
@@ -2355,7 +2492,7 @@ export function PaneTerminal({
             <span>{t("Live terminal is coming to Windows PCs: herdr cannot attach a terminal there yet. The chat lens works now.")}</span>
           </div>
         )}
-        {paneId !== null && outputError && (
+        {paneId !== null && outputError && !noticesDocked && (
           <div className="terminal-banner terminal-banner-warning terminal-banner-output-error" role="status">
             <span>{outputError}</span>
             <button type="button" className="btn" onClick={() => reattachRef.current()}>{t("Reconnect")}</button>
@@ -2376,12 +2513,14 @@ export function PaneTerminal({
             {draft.text.length > 0 && <span className="draft-held"> input held: “{draft.text}”</span>}
           </div>
         )}
-        {paneId !== null && !ended && connected && !draftIsEmpty(draft) && (
+        {paneId !== null && !ended && connected && !draftIsEmpty(draft) && !noticesDocked && (
           <div className="terminal-banner terminal-banner-draft" role="status">
             <span className="draft-label">{t("Input held until the terminal is ready:")}</span>
             {draft.text.length > 0 && <code className="draft-text">{draft.text}</code>}
             {/* the preview shows the start of the text: without this, a draft that lost its end looks whole */}
-            {draft.truncated && <span className="draft-truncated">{t("Some input was too long to hold and was left out.")}</span>}
+            {draft.truncated && <span className="draft-truncated">{t("Some input could not be held and was left out.")}</span>}
+            {/* Enter is never held: without this, two commands look like one line and a paste looks whole */}
+            {draft.leftOut && <span className="draft-truncated">{t("An Enter or line break was left out: Send never presses Enter.")}</span>}
             <span className="draft-actions">
               <button type="button" className="draft-send" disabled={draft.text.length === 0 || observing || secretActive || held} onClick={sendDraft}>
                 {t("Send")}
@@ -2397,7 +2536,23 @@ export function PaneTerminal({
             view only — the operator’s screen size is untouched
           </div>
         )}
-        {clipboardNote && (
+        {paneId !== null && !chatView && selectionQuote?.pane === paneId && (
+          <button type="button" className="terminal-banner terminal-banner-action terminal-quote"
+            onMouseDown={(event) => { event.preventDefault(); }}
+            onClick={() => {
+              const block = formatTerminalQuote({ label: title?.trim() || paneId, range: selectionQuote.range, text: selectionQuote.text });
+              if (block === null) return;
+              const key = `herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`;
+              const next = appendQuote(composerDrafts.read(key).text, block, MAX_COMPOSER_CHARS);
+              if (next === null) { noteClipboard(t("Too long for the message draft")); return; }
+              composerDrafts.set(key, next);
+              termRef.current?.clearSelection();
+              noteClipboard(t("Added to the message draft"));
+            }}>
+            <Quote aria-hidden="true" />{t("Quote in message")}
+          </button>
+        )}
+        {clipboardNote && !noticesDocked && (
           <div className="terminal-banner" role="status">
             {clipboardNote}
           </div>
@@ -2432,6 +2587,9 @@ export function PaneTerminal({
           <ChatView
             key={paneId}
             paneId={paneId}
+            cwd={cwd}
+            onOpenDiff={onOpenDiff}
+            active={active}
             pageScroll={pageScroll}
             refreshKey={chatRefresh}
             invalidationKey={chatInvalidation}
@@ -2546,15 +2704,11 @@ export function PaneTerminal({
       {presented && paneId !== null && chatView && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
-      {presented && paneId !== null && secretActive && !observing && !ended && connected && outputReady && <SecretInput
-        key={`${paneId}:${secret.prompt}`} prompt={secret.prompt} active={active}
-        onSend={(value) => socketRef.current?.sendSecret(paneId, secret.prompt, value) ?? null}
-        onCancel={() => { if (socketRef.current?.connected) socketRef.current.sendInput(paneId, "\u0003"); }}
-      />}
       {presented && paneId !== null && chatView && !secretActive && !observing && !ended && (
         <Composer
           key={paneId}
           paneId={paneId}
+          cwd={cwd}
           autoFocus={active && !autoSelected && !coarse}
           active={active}
           agent={agent}
@@ -2569,6 +2723,7 @@ export function PaneTerminal({
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt?.pane !== paneId && chatSuggestion?.pane === paneId ? chatSuggestion.value : null}
           restored={chatPrompt?.pane !== paneId && chatRestored?.pane === paneId ? chatRestored.value : null}
+          notices={composerNotices}
           greeting={greetingDue ? (
             <div className={`composer-greeting${greeted ? "" : " is-out"}`} ref={greetingRef} aria-hidden={greeted ? undefined : true}>
               <p className="composer-greeting-title">{t("What should {agent} do in {folder}?", { agent: agentDisplayLabel(agent), folder })}</p>
@@ -2581,11 +2736,19 @@ export function PaneTerminal({
           onUploadImage={uploadImage}
         />
       )}
-      {presented && paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
+      {/* In the terminal lens the input line and the masked input float over the grid's last rows
+          from a slot that keeps one row's height in flow: a line that grows while it is typed, a
+          note under it or the masked input taking its place would otherwise take rows from the
+          grid, and each change of its height resizes the shared pty. The masked input sits in this
+          slot in the chat lens too (a box-less slot there, TerminalInput.css), so switching lenses
+          keeps it mounted: a remount would drop what was typed and a send still on its way */}
+      {((!chatView && lineSlot) || secretInput) && <div ref={setInputSlot} className={`terminal-input-slot${!chatView && lineSlot ? "" : " is-empty"}`}>
+        {secretInput ?? (!chatView && lineSlot && !secretActive && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setLineComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} onFocus={reassertGrid} />)}
+      </div>}
       {presented && paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
         holdScope={`${paneStorageId(machineId, paneId)}:${view}`}
         modifiers={modifiers} onToggleModifier={toggleModifier} items={settings.keyBarItems}
-        {...(coarse ? { directTyping, onToggleDirect: toggleDirect } : {})} />}
+        {...(coarse ? { directTyping, onToggleDirect: toggleDirect, directDisabled: lineComposing } : {})} />}
     </div>
   );
 }
