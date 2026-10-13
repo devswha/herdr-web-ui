@@ -16,7 +16,9 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   let acknowledge: (() => void) | undefined;
   let ready: (() => void) | undefined;
   let delayReady = false;
+  let toPage: ((frame: unknown) => void) | undefined;
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    toPage = (frame) => socket.send(JSON.stringify(frame));
     const server = socket.connectToServer();
     server.onMessage((raw) => {
       const frame = JSON.parse(String(raw));
@@ -146,6 +148,18 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.locator(".xterm-helper-textarea").press("b");
     await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
     assert.equal(sent.length, before, "typing beside a held draft reaches nothing");
+    // Claude Code asks for modifyOtherKeys: Ctrl+Enter is then ESC[27;5;13~, with no line break,
+    // and would still commit the partial line; it is refused with a note. Backspace edits the draft.
+    toPage!({ type: "pty-data", pane_id: pane, data: "\x1b[>4;2m" });
+    await page.waitForTimeout(100);
+    await page.locator(".xterm-helper-textarea").press("Control+Enter");
+    await page.getByText("Not sent: send or discard the held input first.").waitFor();
+    await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await page.locator(".xterm-helper-textarea").press("Backspace");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "a");
+    await page.locator(".xterm-helper-textarea").press("b");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
+    assert.equal(sent.length, before, "Ctrl+Enter and Backspace beside a held draft reach nothing");
     // an interrupt is not typing: it still reaches the program while the draft waits
     await page.locator(".xterm-helper-textarea").press("Escape");
     await until(() => sent.length > before);
