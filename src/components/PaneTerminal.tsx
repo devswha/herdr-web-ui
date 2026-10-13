@@ -1236,7 +1236,7 @@ export function PaneTerminal({
       if (draftHeldForRef.current === current) {
         // A chord or a modified Enter is never held, and never sent beside held text either
         // (Ctrl+J, or Ctrl+Enter under modifyOtherKeys, would run the line).
-        // A paste the draft cannot take (a tab, a control character) is refused too, never sent
+        // A paste the draft cannot take (an unbracketed tab or control character) is refused too, never sent
         // ahead of the held start.
         const pasted = pasting || input.startsWith("\x1b[200~");
         if (chord !== null || modifiedEnter || (pasted && applyToDraft(EMPTY_DRAFT, input) === EMPTY_DRAFT)) {

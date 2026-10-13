@@ -291,23 +291,28 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     assert.equal(sent.length, afterEscape, "Ctrl+Enter beside a held draft reaches nothing");
     await dismissBanner();
     toPage!({ type: "pty-data", pane_id: pane, data: "\x1b[>4;0m" });
-    // a paste the draft cannot take is refused with the note, never sent ahead of the held start
+    // a paste beside a held draft is never sent ahead of the held start: one the draft cannot take is
+    // refused with the note, a bracketed one (the shell asks for it) holds its tab as a space
     const pasteIntoTerminal = (text: string) => page.locator(".xterm-helper-textarea").evaluate((element, value) => {
       const data = new DataTransfer();
       data.setData("text/plain", value);
       element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     }, text);
+    const draftText = () => page.locator(".draft-text").textContent();
     await pasteIntoTerminal("a\tb");
-    await banner.waitFor();
+    await until(async () => (await banner.isVisible()) || (await draftText()) === "a ba b");
     assert.equal(sent.length, afterEscape, "a paste with a tab beside a held draft reaches nothing");
-    assert.equal(await page.locator(".draft-text").textContent(), "a b");
-    await dismissBanner();
+    if (await banner.isVisible()) {
+      assert.equal(await draftText(), "a b");
+      await dismissBanner();
+    }
+    const beforeMultiLine = await draftText();
     await pasteIntoTerminal("x\ny");
     await page.waitForTimeout(100);
     assert.equal(sent.length, afterEscape, "a multi-line paste beside a held draft reaches nothing");
     // never a silent drop: refused with the note, or taken into the draft (a draft that folds line breaks)
     const multiLineNoted = await banner.isVisible();
-    assert(multiLineNoted || (await page.locator(".draft-text").textContent()) !== "a b", "a multi-line paste is told or held, never dropped in silence");
+    assert(multiLineNoted || (await draftText()) !== beforeMultiLine, "a multi-line paste is told or held, never dropped in silence");
     if (multiLineNoted) await dismissBanner();
     // the input line is refused beside a held draft too, with the held-input reason, not "disconnected"
     await setMode("line");
@@ -322,7 +327,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     assert.equal(sent.length, afterEscape, "the input line beside a held draft reaches nothing");
     await line.fill("");
     await setMode("direct");
-    // a draft that folds a pasted line break into text holds more than "a b" by now: Send types what it holds
+    // a draft that takes pastes holds more than "a b" by now: Send types what it holds
     const heldText = await page.locator(".draft-text").textContent();
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await until(() => sent.length > before + 1);
