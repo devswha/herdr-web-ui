@@ -168,7 +168,7 @@ describe("herdr socket", () => {
     const uses = serverCode().flatMap((file) => unixConnects(file, stripComments(read(file))));
     expect(uses.map((use) => use.file)).toContain("server/herdr/client.ts");
     fail(uses.filter((use) => !(use.file in (use.bun ? UNIX_CONNECT_ALLOWED : NET_CONNECT_ALLOWED))).map((use) => use.at),
-      "Call herdr through the helpers in server/herdr/client.ts (herdrRpc and the named wrappers): one connection per call, never a pooled or second client. A unix socket that is not herdr's gets an entry with its reason in UNIX_CONNECT_ALLOWED (Bun.connect) or NET_CONNECT_ALLOWED (node:net) in server/conventions.test.ts. A TCP connection (`{ host, port }`) is not flagged.");
+      "Call herdr through the typed wrappers in server/herdr/client.ts: one connection per call, never a pooled or second client. A unix socket that is not herdr's gets an entry with its reason in UNIX_CONNECT_ALLOWED (Bun.connect) or NET_CONNECT_ALLOWED (node:net) in server/conventions.test.ts. A TCP connection (`{ host, port }`) is not flagged.");
   });
 
   it("tells a unix socket from a TCP one", () => {
@@ -182,10 +182,31 @@ describe("herdr socket", () => {
     expect(found("import { connect as tcpConnect, createServer } from \"node:net\";\ntcpConnect({ host, port });\ntcpConnect(port, host);")).toBe(0);
   });
 
+  // Server code calls herdr through the typed wrappers in server/herdr/client.ts (paneProcessInfo,
+  // agentGet, paneSendText, paneSendKeys, …), never through herdrRpc itself: the wrapper is where a
+  // method's params are typed (server/herdr/methods.ts), so `{ target }` to pane.process_info no
+  // longer compiles. These files still call herdrRpc because open PRs change them; PR B moves them.
+  const HERDR_RPC_ALLOWED: Record<string, string> = {
+    "server/conversation.ts": "open PRs #869 #912 #923 change it",
+    "server/gjc-runtime.ts": "open PR #912 changes it",
+    "server/hermes.ts": "open PR #910 changes it",
+    "server/omo.ts": "open PR #923 changes it",
+    "server/shell-agent.ts": "open PRs #885 #923 change it",
+  };
+
+  it("calls herdrRpc only inside server/herdr/", () => {
+    const uses = matches(serverCode().filter((file) => !file.startsWith("server/herdr/")), /\bherdrRpc\b/);
+    fail(uses.filter((use) => !(use.file in HERDR_RPC_ALLOWED)).map((use) => use.at),
+      "Do not call herdrRpc outside server/herdr/: add a typed wrapper in server/herdr/client.ts (its method in HerdrMethods, server/herdr/methods.ts) and call that; for pane status use the server/collector.ts listeners. Files waiting on open PRs are listed in HERDR_RPC_ALLOWED in server/conventions.test.ts; do not add new ones.");
+    const users = new Set(uses.map((use) => use.file));
+    fail(Object.keys(HERDR_RPC_ALLOWED).filter((file) => !users.has(file)),
+      "These files no longer call herdrRpc: remove them from HERDR_RPC_ALLOWED in server/conventions.test.ts.");
+  });
+
   it("subscribes to status only in server/collector.ts", () => {
     const subscribers = matches(serverCode(), /\bsubscribeEvents\b/).filter((match) => match.file !== "server/herdr/client.ts" && match.file !== "server/collector.ts");
     const raw = matches(files("{server,src,shared,scripts}/**/*.{ts,tsx,mjs,js}").filter((file) => !file.endsWith(".test.ts")), /["']events\.subscribe["']/).filter((match) => match.file !== "server/herdr/client.ts");
     fail([...subscribers, ...raw].map((match) => match.at),
-      "server/collector.ts is the only status subscription (startStatusCollector): take pane status from its callbacks (onStatus, onPaneEnded, onBaseline) in server/index.ts instead of subscribing again.");
+      "server/collector.ts is the only status subscription (startStatusCollector), and `events.subscribe` is sent only by subscribeEvents in server/herdr/client.ts: take pane status from the collector's callbacks (onStatus, onPaneEnded, onBaseline) in server/index.ts instead of subscribing again.");
   });
 });
