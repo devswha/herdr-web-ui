@@ -159,6 +159,7 @@ if (import.meta.main) {
   } else {
     const publishing = args[0] === "--release";
     const base = args[0] === "--base" ? args[1] : undefined;
+    if (base && !git(root, "show", `${base}:package.json`).ok) console.log(`::warning::Cannot read package.json at --base ${base}; checking HEAD as a release.`);
     const verdict = check(root, publishing, base || undefined);
     if (publishing && verdict.version !== args[1]) verdict.problems.unshift(`package.json version ${verdict.version} is not the requested ${args[1] ?? "(none)"}.`);
     if (verdict.version === null) console.log("Not a release (package.json's version is tagged, or the base already has it): nothing to check.");
