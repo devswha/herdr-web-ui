@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright-core";
-import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { herdrRpc, paneClose, paneFocus, paneSplit, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 /** A tapped pane alert shows an agent pane's chat once: the lens the pane remembered stays its own, and a shell keeps its terminal. */
 export async function checkNotificationView(browser: Browser, origin: string): Promise<void> {
@@ -75,16 +75,37 @@ export async function checkNotificationView(browser: Browser, origin: string): P
     let release!: () => void;
     const released = new Promise<void>((resolve) => { release = resolve; });
     await page.route("**/api/session", async (route) => { asked(); await released; await route.continue(); });
-    const ended = `${agent}-ended`;
-    await tapAlert(ended, workspaces[0]);
-    await lookup;
-    await tapAlert(ended, workspaces[0]);
-    release();
-    await page.locator(".context-title-text", { hasText: "That agent has closed: its workspace is open" }).waitFor({ timeout: 4000 });
-    await page.unroute("**/api/session");
+    try {
+      const ended = `${agent}-ended`;
+      await tapAlert(ended, workspaces[0]);
+      // a tap that no longer reads the session fails here instead of holding the lane
+      let unasked: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([lookup, new Promise<never>((_, reject) => { unasked = setTimeout(() => reject(new Error("ended-pane tap never read /api/session")), 4000); })])
+        .finally(() => clearTimeout(unasked));
+      await tapAlert(ended, workspaces[0]);
+      release();
+      await page.locator(".context-title-text", { hasText: "That agent has closed: its workspace is open" }).waitFor({ timeout: 4000 });
+    } finally {
+      release();
+      await page.unroute("**/api/session");
+    }
     await page.waitForFunction((id) => document.querySelector(".pane-select[aria-current='true']")?.getAttribute("title")?.startsWith(`${id} —`) === true, agent);
+
+    // A phone resumed from the background still lists the pane its alert names, so the tap
+    // selects it at once; the pane is gone by the next roster. The alert's workspace still
+    // decides where the app goes then, not herdr's focus in another workspace.
+    const sibling = (await paneSplit(agent, "right", false)).pane_id;
+    await paneFocus(shell);
+    await row(shell).click();
+    await shows(shell, "Live terminal");
+    await tapAlert(agent, workspaces[0]);
+    await shows(agent, "Chat transcript");
+    await paneClose(agent);
+    // a shell beside an agent has no sidebar row of its own: its frame is the one shown as current
+    await page.locator(`.pane-frame.is-current[data-layout-pane="${sibling}"]`).waitFor({ timeout: 8000 });
+    await page.locator(".context-title-text", { hasText: "That agent has closed: its workspace is open" }).waitFor({ timeout: 4000 });
     assert.deepEqual(errors, []);
-    console.log("PASS a tapped pane alert opens an agent's chat once, and a shell's terminal; an ended pane's alert, delivered twice, opens its workspace");
+    console.log("PASS a tapped pane alert opens an agent's chat once, and a shell's terminal; an ended pane's alert, delivered twice or tapped while still listed, opens its workspace");
   } finally {
     await context.close();
     for (const workspace of workspaces) await workspaceClose(workspace).catch(() => undefined);

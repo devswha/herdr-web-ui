@@ -256,6 +256,10 @@ export function App() {
   }, []);
   // the file a link named, opened over its pane once that pane is shown
   const pendingFile = useRef<string | null>(initialLink ? fileFromLink(initialLink) : null);
+  // the workspace a tapped alert named for the pane it selected at once: a roster in hand may
+  // still list a pane that has ended (a phone resumed from the background), and when the next
+  // one drops it, that workspace opens with a word, as a link's does. Any other pick clears it.
+  const selectionHint = useRef<{ machine: string; pane: string; workspace: string } | null>(null);
   // a short word in the header: a link that could not open what it named, or a link copied
   const [headerNote, setHeaderNote] = useState<LinkNote | "copied" | null>(null);
   useEffect(() => {
@@ -580,7 +584,7 @@ export function App() {
           dropIn(machine, pane, kind);
           chime(machine, pane, kind);
         }
-        if (pane && shouldNotifyStatus(previous, status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, status, () => selectTargetRef.current(machine.id, message.pane_id, "chat"), machine.id);
+        if (pane && shouldNotifyStatus(previous, status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, status, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
         setMachines((list) => {
           let changed = false;
           const next = list.map((m) => {
@@ -603,7 +607,7 @@ export function App() {
       }
       if (message.type === "pane-exited" && alertsOnRef.current && !pushOnRef.current && alertsRef.current.done !== "off") {
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-        if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id, "chat"), machine.id);
+        if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
       }
       if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
     };
@@ -714,6 +718,7 @@ export function App() {
     storeSelection(machineId, paneId);
     // a pane picked (a tapped notification, the sidebar, Back) before a link landed supersedes the link
     pendingLink.current = null; pendingFile.current = null; setLinkLanded(true);
+    selectionHint.current = null;
     // a PC picked now (Open PC, before load() brings it) is checked against a roster sent after this
     selectionSince.current = rosterSeq.current;
   }, [inOtherHalf, setSplit]);
@@ -777,6 +782,17 @@ export function App() {
       // the pane is gone because this client is moving it and the roster outran the answer:
       // the answer names the id to follow (actions.paneMoved), and herdr's focus is not it
       if (paneMovePending(selectedMachineId, selectedPaneId)) return;
+      // a pane a tapped alert selected: the workspace the alert named opens, and says so
+      const hint = selectionHint.current;
+      selectionHint.current = null;
+      if (hint && hint.machine === selectedMachineId && hint.pane === selectedPaneId) {
+        const landed = resolveLink(current, { workspace: hint.workspace, workspaceSlug: null, pane: hint.pane });
+        if (landed.note) setHeaderNote(landed.note);
+        setNotificationViewTarget(null);
+        setSelectedPaneId(landed.pane ?? fallback(current));
+        setAutoSelected(true);
+        return;
+      }
       setSelectedPaneId(fallback(current));
       setAutoSelected(true);
     }).catch(() => { /* a failed read is not evidence that the pane disappeared */ });
@@ -788,6 +804,7 @@ export function App() {
 
   const selectPane = useCallback((paneId: string, focusInput = true) => {
     pendingLink.current = null; pendingFile.current = null; setLinkLanded(true);
+    selectionHint.current = null;
     const open = splitRef.current;
     const current = selectionRef.current;
     if (open && current.paneId !== null && inOtherHalf(current.machineId, paneId)) {
@@ -811,9 +828,13 @@ export function App() {
   // yet waits as a link does (this also keeps a cold start's link, which the worker names again
   // once the page is up), and so does one on a PC this roster lacks: a roster asked for now says
   // whether it was removed (the [machines] effect below) or set up since this one was read
-  useEffect(() => onNotificationTarget((target) => {
+  const takeNotificationTarget = useCallback((target: NotificationTarget): void => {
     const landing = notificationLanding(machinesRef.current, target);
-    if (landing.kind === "select") { selectTargetRef.current(target.machine_id, target.pane_id, target.view); return; }
+    if (landing.kind === "select") {
+      selectTargetRef.current(target.machine_id, target.pane_id, target.view);
+      if (target.workspace_id) selectionHint.current = { machine: target.machine_id, pane: target.pane_id, workspace: target.workspace_id };
+      return;
+    }
     // the worker names one tap twice, before and after focus: the second leaves the first's lookup be
     if (sameLink(pendingLink.current, landing.link)) return;
     selectTargetRef.current(target.machine_id, target.pane_id, target.view);
@@ -821,7 +842,10 @@ export function App() {
     linkSince.current = rosterSeq.current;
     setLinkTick((tick) => tick + 1);
     if (landing.stale) void load();
-  }), [load]);
+  }, [load]);
+  // the tab's own alerts shown without a worker (lib/notifications.ts) land the same way
+  const takeNotificationTargetRef = useRef(takeNotificationTarget); takeNotificationTargetRef.current = takeNotificationTarget;
+  useEffect(() => onNotificationTarget(takeNotificationTarget), [takeNotificationTarget]);
 
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
