@@ -148,6 +148,24 @@ try {
     await Bun.sleep(8000);
     const quietReads = metricsReads.filter((at) => at > quietFrom).length;
     assert.ok(quietReads <= 4, `a quiet pane backs its metrics poll off, read ${quietReads} times in 8 s`);
+    // A failed read on the backed-off poll hides the scrollbar; the retry must not wait out the idle backoff.
+    let failedAt = 0;
+    const failOnce = async (route: import("playwright-core").Route) => {
+      if (failedAt || route.request().method() !== "GET") return route.continue();
+      failedAt = Date.now();
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "busy" }) });
+    };
+    await page.route("**/api/pane/scroll?**", failOnce);
+    try {
+      const failDeadline = Date.now() + 20000;
+      while (!failedAt) { assert.ok(Date.now() < failDeadline, "the backed-off poll reads again within its 15 s cap"); await Bun.sleep(25); }
+      // the failed request's own read event may land just after failedAt, so the retry starts 50 ms later
+      const afterFailure = () => metricsReads.find((at) => at > failedAt + 50);
+      await until(async () => afterFailure() !== undefined || Date.now() - failedAt > 3000, "a read follows the failed one");
+      const retry = afterFailure();
+      assert.ok(retry !== undefined && retry - failedAt < 1500, `a failed metrics read retries within about 1 s, took ${retry === undefined ? "over 3000" : retry - failedAt} ms`);
+      await page.locator('[role="scrollbar"]').waitFor({ state: "visible", timeout: 2000 });
+    } finally { await page.unroute("**/api/pane/scroll?**", failOnce); }
     const beforeOutput = metricsReads.length;
     const outputAt = Date.now();
     await herdrRpc("pane.send_input", { pane_id: paneId, text: "poll_wake", keys: ["enter"] });

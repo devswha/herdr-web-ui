@@ -150,7 +150,8 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
           if (Date.now() - held.at < HELD_PAGE_MS) scrollPage(held.direction);
         }
       } catch {
-        if (alive && revision === version) { clearHits(); if (!query) setScroll(null); }
+        // a failed read retries on the first step, not the idle backoff: the scrollbar and page keys wait on it
+        if (alive && revision === version) { clearHits(); if (!query) setScroll(null); idle = 0; }
       } finally {
         pending = false;
         // an idle pane at the bottom backs off; output, a scroll, a resize, moved metrics or coming back into view resets it
@@ -202,6 +203,8 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
         return;
       }
       if (validScroll(metrics)) writeRef.current((previewRef.current ?? metrics.offset_from_bottom) - direction * pageScrollDistance(metrics.viewport_rows, 1, overlapRef.current));
+      // no metrics (a failed read): ask for a fresh read now rather than at the next poll
+      else { dirty = true; idle = 0; schedule(0); }
     };
     if (pageScroll) pageScroll.current = scrollPage;
     const unregisterCancellation = viewportIntent.registerScrollCancellation(() => {
