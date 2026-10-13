@@ -493,6 +493,7 @@ export const KO: Record<string, string> = {
   "This tab still runs {version} until it is reloaded.": "이 탭은 새로 고칠 때까지 계속 {version} 버전입니다.",
   "Reload app": "앱 새로 고침",
   "App updated. Save unsent drafts before reloading.": "앱이 업데이트되었습니다. 새로 고치기 전에 보내지 않은 초안을 저장하세요.",
+  "Part of the app could not load. Save unsent drafts, then reload.": "앱 일부를 불러오지 못했습니다. 보내지 않은 초안을 저장한 뒤 새로 고치세요.",
   "herdr web ui v{version} is available.": "herdr web ui v{version}이 나왔습니다.",
   "A herdr web ui update is available.": "herdr web ui 업데이트가 있습니다.",
   "Update": "업데이트",

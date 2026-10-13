@@ -476,6 +476,7 @@ export const TR: Record<string, string> = {
   "This tab still runs {version} until it is reloaded.": "Bu sekme, yeniden yüklenene dek {version} sürümünü çalıştırır.",
   "Reload app": "Uygulamayı yeniden yükle",
   "App updated. Save unsent drafts before reloading.": "Uygulama güncellendi. Yeniden yüklemeden önce gönderilmemiş taslakları kaydedin.",
+  "Part of the app could not load. Save unsent drafts, then reload.": "Uygulamanın bir kısmı yüklenemedi. Gönderilmemiş taslakları kaydedin, ardından yeniden yükleyin.",
   "herdr web ui v{version} is available.": "herdr web ui v{version} kullanılabilir.",
   "A herdr web ui update is available.": "Bir herdr web ui güncellemesi mevcut.",
   "Update": "Güncelle",

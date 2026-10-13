@@ -19,6 +19,8 @@ export interface TerminalInputProps {
   /** an empty line's send: Enter alone, for a menu's default or a prompt that asks to continue;
    * true: sent, false: not sent (offline), a string: not sent, and why */
   onEnter: () => boolean | string;
+  /** the line took the focus */
+  onFocus?: () => void;
 }
 
 /** Lines the box grows to before it scrolls. */
@@ -31,7 +33,7 @@ const MAX_ROWS = 4;
  * keyboard's own editing and goes to the pane whole, then Enter. Autocorrect and spell-check stay
  * off, as in the composer: they would swap a flag, path or branch name for a dictionary word.
  */
-export function TerminalInput({ owner, active = true, connected, onSend, onEnter, onComposing }: TerminalInputProps) {
+export function TerminalInput({ owner, active = true, connected, onSend, onEnter, onComposing, onFocus }: TerminalInputProps) {
   const t = useT();
   const text = useSyncExternalStore(subscribeTerminalDraft, () => readTerminalDraft(owner));
   const setText = useCallback((value: string | ((previous: string) => string)) => {
@@ -137,6 +139,7 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         spellCheck={false}
         onChange={(event) => { setText(event.target.value); setNote(null); }}
         onKeyDown={onKeyDown}
+        onFocus={onFocus}
       />
       {dictation.shown && <MicButton dictation={dictation} className="terminal-input-mic" />}
       <button

@@ -276,6 +276,8 @@ export function PaneTerminal({
   const fixedGridRef = useRef(false);
   // the pty's grid as the server last said it for this pane (pane-geometry), whoever set it
   const sharedGridRef = useRef<{ cols: number; rows: number } | null>(null);
+  // takes the pty back to this grid when another device left it at its own (the effect below sets it)
+  const reassertIfStaleRef = useRef<() => void>(() => undefined);
   // out of use, the tab let go of its pane (no attach) so herdr's own TUI has it back; it attaches
   // again when the user is back. The ref is what the socket handlers and the pane switch read
   const releasedRef = useRef(false);
@@ -1682,13 +1684,21 @@ export function PaneTerminal({
     // Only input meant for the terminal itself: a press or key in the find bar, on the scrollbar
     // or the key bar, a right-click for the pane menu, a held key's repeats or an IME composition
     // must not resize the pty under the other device.
-    const reclaim = (event: Event): void => {
+    // A phone's own input paths sit outside the grid (the input line, its Send and Enter, a key the
+    // key bar sends, not a press on it), so they call this before they send: the reply is then
+    // drawn for the grid that shows it.
+    const reassertIfStale = (): void => {
       const shared = sharedGridRef.current;
-      if (!shared || releasedRef.current || !inUse() || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
+      if (!shared || releasedRef.current || !inUse()) return;
+      if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
+    };
+    reassertIfStaleRef.current = reassertIfStale;
+    const reclaim = (event: Event): void => {
+      if (!(event.target instanceof Node) || !term.element?.contains(event.target)) return;
       // an IME's first key comes before compositionstart, with isComposing still false (keyCode 229)
       if (event instanceof KeyboardEvent && (event.repeat || event.isComposing || event.keyCode === 229 || composingRef.current || compositionCommitPendingRef.current)) return;
       if (event instanceof PointerEvent && event.button !== 0) return;
-      if (shared.cols !== term.cols || shared.rows !== term.rows) refit();
+      reassertIfStale();
     };
     // a click or a tap is the user here, whatever the window says about its focus
     const onPointer = (event: PointerEvent): void => {
@@ -1732,6 +1742,7 @@ export function PaneTerminal({
       window.removeEventListener("blur", leave);
       window.removeEventListener("pointerdown", onPointer, { capture: true });
       window.removeEventListener("keydown", reclaim, { capture: true });
+      reassertIfStaleRef.current = () => undefined;
       document.removeEventListener("visibilitychange", onVisibility);
       onModifiedEnter.dispose();
       onCommandBackspace.dispose();
@@ -1976,6 +1987,7 @@ export function PaneTerminal({
     const input = (modified ? navigationSequence(item.key, active) : null)
       ?? keyBarInputSequence(item.key, term.modes.applicationCursorKeysMode);
     if (input === null) return;
+    reassertIfStaleRef.current();
     barKeyRef.current = { key: item.key, chord };
     try { term.input(input); } finally { barKeyRef.current = null; }
     // with the input line, the keyboard belongs to it: a key tap must not move it to the grid
@@ -2084,6 +2096,7 @@ export function PaneTerminal({
     if (draftHeldForRef.current === pane) return Promise.resolve(tRef.current("Not sent: send or discard the held input first."));
     const message = composerMessage(text);
     const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
+    reassertIfStaleRef.current();
     const sent = socket.submit(pane, message, payload, true);
     if (sent === null) return false;
     const releaseSubmit = submitRetention?.retain(pane);
@@ -2094,12 +2107,16 @@ export function PaneTerminal({
     });
   }, [submitRetention]);
 
+  // a tap into the input line is the user here: the grid is theirs again before they type
+  const reassertGrid = useCallback(() => { reassertIfStaleRef.current(); }, []);
+
   const pressEnter = useCallback((): boolean | string => {
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!socket || pane === null || !socket.connected) return false;
     // Enter beside a held draft would run the pty's line without the held start
     if (draftHeldForRef.current === pane) return tRef.current("Not sent: send or discard the held input first.");
+    reassertIfStaleRef.current();
     const sent = hasModifiers(modifiersRef.current)
       ? socket.sendKeys(pane, [terminalChord("Enter", modifiersRef.current)!]) : socket.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();
@@ -2700,7 +2717,7 @@ export function PaneTerminal({
           slot in the chat lens too (a box-less slot there, TerminalInput.css), so switching lenses
           keeps it mounted: a remount would drop what was typed and a send still on its way */}
       {((!chatView && lineSlot) || secretInput) && <div ref={setInputSlot} className={`terminal-input-slot${!chatView && lineSlot ? "" : " is-empty"}`}>
-        {secretInput ?? (!chatView && lineSlot && !secretActive && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setLineComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />)}
+        {secretInput ?? (!chatView && lineSlot && !secretActive && <TerminalInput key={paneId} active={active} owner={paneStorageId(machineId, paneId)} onComposing={setLineComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} onFocus={reassertGrid} />)}
       </div>}
       {presented && paneId !== null && !secretActive && !observing && !chatView && <KeyBar disabled={composing || !connected || !inputReady || held || ended} onKey={pressKey}
         holdScope={`${paneStorageId(machineId, paneId)}:${view}`}
