@@ -28,9 +28,32 @@ const SUBMIT_TIMEOUT_MS = 90_000;
  */
 const CONNECT_TIMEOUT_MS = 8_000;
 const CONNECT_TIMEOUT_MAX_MS = 30_000;
+/**
+ * Liveness (feature "ping"): a socket can read OPEN while its TCP path is gone (a phone moved from
+ * Wi-Fi to cellular, a NAT entry expired while it slept) and no close event comes for minutes. The
+ * client pings when the page comes back, the network changes, or nothing arrived for
+ * IDLE_PROBE_MS while the page is visible (checked every IDLE_CHECK_MS), and drops a socket that
+ * sends no frame at all within PROBE_TIMEOUT_MS.
+ */
+const PROBE_TIMEOUT_MS = 3_000;
+const IDLE_PROBE_MS = 20_000;
+const IDLE_CHECK_MS = 5_000;
 const SOCKET_CLOSING = 2;
 const SOCKET_CLOSED = 3;
 const DISCONNECTED: SubmitResult = { ok: false, code: "disconnected", message: "the connection dropped before the pane confirmed this message" };
+
+/**
+ * Where the connection stands. `connected` and the input checks still read the socket itself:
+ * a frozen page's socket can turn CLOSED before any event updates this.
+ * - idle: connect() was never called
+ * - connecting: an attempt has not opened yet
+ * - open: open, and no liveness probe in flight
+ * - probing: open, a ping sent and no frame back yet; input and submits are refused meanwhile
+ * - waiting: no socket, a reconnect waits out its backoff
+ * - stopped: output stopped (4008); only an attach reconnects
+ * - closed: close() was called
+ */
+export type ConnectionState = "idle" | "connecting" | "open" | "probing" | "waiting" | "stopped" | "closed";
 
 interface AttachState {
   cols: number;
@@ -82,6 +105,14 @@ export class HerdrSocket {
   private endedEarly: WebSocket | null = null;
   private disposed = false;
   private wakeListening = false;
+  private connectionState: ConnectionState = "idle";
+  /** when the current socket last opened or delivered a frame (Date.now()) */
+  private lastFrameAt = 0;
+  /** the deadline of the ping in flight; null while no probe waits */
+  private probeTimer: number | null = null;
+  /** the periodic check that pings a connection silent for IDLE_PROBE_MS */
+  private idleTimer: number | null = null;
+  private nextPing = 1;
   /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
   private readonly onWake = (): void => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -110,6 +141,10 @@ export class HerdrSocket {
     return this.socket?.readyState === WebSocket.OPEN;
   }
 
+  get state(): ConnectionState {
+    return this.connectionState;
+  }
+
   connect(): void {
     if (this.disposed) return;
     this.listenForWake();
@@ -118,6 +153,7 @@ export class HerdrSocket {
     }
     const socket = new WebSocket(this.url);
     this.socket = socket;
+    this.connectionState = "connecting";
     this.features = new Set();
     this.inputReady.clear();
     this.outputSeen.clear();
@@ -137,6 +173,9 @@ export class HerdrSocket {
       if (this.socket === socket) {
         this.clearConnectTimer();
         this.connectTimeouts = 0;
+        this.connectionState = "open";
+        this.lastFrameAt = Date.now();
+        this.watchIdle(socket);
       }
       this.retries = 0;
       // always send the role, never only when non-default: a user can flip the role
@@ -153,6 +192,10 @@ export class HerdrSocket {
 
     socket.addEventListener("message", (event) => {
       if (this.socket !== socket) return;
+      // any frame, a pong or not, says the connection is alive: ended before the handlers run, so
+      // the input checks they make already read true
+      this.lastFrameAt = Date.now();
+      if (this.probeTimer !== null) this.endProbe();
       let message: ServerMessage;
       try {
         message = JSON.parse(String(event.data)) as ServerMessage;
@@ -253,6 +296,7 @@ export class HerdrSocket {
   private endConnection(): void {
     this.socket = null;
     this.clearConnectTimer();
+    this.clearLiveness();
     for (const handler of this.disconnectHandlers) handler();
     this.markSnapshot();
     this.settleSubmits(DISCONNECTED);
@@ -260,7 +304,69 @@ export class HerdrSocket {
 
   private stopOutput(): void {
     this.outputStopped = true;
+    this.connectionState = "stopped";
     this.emit({ type: "error", code: "output_stalled", message: "Terminal output stopped because this device could not keep up." });
+  }
+
+  /**
+   * Pings an open connection whose bridge lists "ping" (an older one is never asked, and its
+   * connection is trusted as before). Until any frame comes back, input and submits are refused,
+   * so typing goes to the held draft rather than into a socket that may be dead; with no frame by
+   * PROBE_TIMEOUT_MS the socket is dropped and a new one connects at once.
+   */
+  private probe(): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !this.features.has("ping") || this.probeTimer !== null) return;
+    this.connectionState = "probing";
+    this.probeTimer = window.setTimeout(() => {
+      this.probeTimer = null;
+      if (this.socket !== socket) return;
+      // the server is closing it: its close event decides, so a 4008 still stops output (see wake())
+      if (socket.readyState === SOCKET_CLOSING) {
+        this.endProbe();
+        return;
+      }
+      this.drop(socket);
+    }, PROBE_TIMEOUT_MS);
+    // a send that throws leaves the deadline to drop the socket
+    try { this.rawSend({ type: "ping", id: this.nextPing++ }); } catch { /* see above */ }
+  }
+
+  private endProbe(): void {
+    if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
+    this.probeTimer = null;
+    if (this.connectionState === "probing") this.connectionState = "open";
+  }
+
+  /**
+   * Ends a connection that did not answer its probe without waiting for a close event, which a
+   * half-open socket may not deliver for minutes: its submits settle, the disconnect handlers run,
+   * and a new socket connects now and replays the role and attaches. The old socket's late events
+   * are ignored (it is no longer this.socket).
+   */
+  private drop(socket: WebSocket): void {
+    this.endConnection();
+    socket.close();
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.retries = 0;
+    this.connect();
+  }
+
+  private watchIdle(socket: WebSocket): void {
+    if (this.idleTimer !== null) window.clearInterval(this.idleTimer);
+    this.idleTimer = window.setInterval(() => {
+      if (this.socket !== socket) return;
+      // a hidden page is probed when it comes back (wake)
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (Date.now() - this.lastFrameAt >= IDLE_PROBE_MS) this.probe();
+    }, IDLE_CHECK_MS);
+  }
+
+  private clearLiveness(): void {
+    this.endProbe();
+    if (this.idleTimer !== null) window.clearInterval(this.idleTimer);
+    this.idleTimer = null;
   }
 
   private clearConnectTimer(): void {
@@ -281,15 +387,20 @@ export class HerdrSocket {
    * A phone that slept or went to the background comes back with its socket closed and a
    * reconnect timer that may have backed off to its 5s cap, or with a socket already CLOSED whose
    * close event has not run yet (so no timer at all). Waking skips the wait and starts again from
-   * the shortest delay; a connection that is open or still connecting is left alone (connect()
-   * ignores it). A socket in CLOSING is left to its close event too: a submit-result can still
-   * arrive during that handshake, and the server's close code decides whether output stopped (the
+   * the shortest delay. An open connection may be half-open, so it is probed (see probe()); one
+   * still connecting is left to its deadline. A socket in CLOSING is left to its close event: a
+   * submit-result can still arrive during that handshake, and the server's close code decides whether output stopped (the
    * reconnect it schedules starts from the shortest delay). A stopped output stays stopped: only
    * an attach resumes it.
    */
   wake(): void {
     if (this.disposed || this.outputStopped) return;
     const socket = this.socket;
+    // an open socket may be half-open after a sleep or a network change: ask it (a bridge without "ping" is trusted)
+    if (socket?.readyState === WebSocket.OPEN) {
+      this.probe();
+      return;
+    }
     if (socket?.readyState === SOCKET_CLOSING) {
       this.retries = 0;
       return;
@@ -309,6 +420,7 @@ export class HerdrSocket {
     if (this.disposed || this.reconnectTimer !== null) return;
     const delay = Math.min(5000, 250 * 2 ** this.retries);
     this.retries += 1;
+    this.connectionState = "waiting";
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
@@ -452,8 +564,9 @@ export class HerdrSocket {
     if (this.connected) this.rawSend({ type: "role", mode });
   }
 
+  /** False while a liveness probe waits: typing goes to the held draft until the connection answers. */
   canInput(paneId: string): boolean {
-    return this.connected && this.mode === "interact" && this.inputReady.has(paneId);
+    return this.connected && this.probeTimer === null && this.mode === "interact" && this.inputReady.has(paneId);
   }
 
   /** Whether this connection can accept and manage pending messages on the bridge. */
@@ -484,7 +597,8 @@ export class HerdrSocket {
    * `clearDraft`: an immediate send over the draft an input_draft refusal named (ClientMessage `clear_draft`) */
   submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string): Promise<SubmitResult> | null {
     const socket = this.socket;
-    if (!this.connected || socket === null || this.mode === "observe") return null;
+    // while a liveness probe waits, as offline: the composer keeps the text
+    if (!this.connected || socket === null || this.mode === "observe" || this.probeTimer !== null) return null;
     return (async (): Promise<SubmitResult> => {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
       if (!this.connected || this.socket !== socket) return DISCONNECTED;
@@ -593,6 +707,8 @@ export class HerdrSocket {
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.clearConnectTimer();
+    this.clearLiveness();
+    this.connectionState = "closed";
     this.endedEarly = null;
     if (this.wakeListening) {
       window.removeEventListener("online", this.onWake);

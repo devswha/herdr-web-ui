@@ -214,7 +214,7 @@ const RESTORED_CLEAR_GAP_MS = 200;
 const RESTORED_CLEAR_SETTLE_MS = 300;
 /** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
 const RESTORED_CLEAR_RESERVE_MS = 2_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch", "ping"];
 
 /** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
 const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
@@ -2685,6 +2685,15 @@ export function createServer(
         }
         try {
           switch (message.type) {
+            // liveness only: any role, no herdr call, nothing to wait behind
+            case "ping": {
+              if (!Number.isSafeInteger(message.id)) {
+                send(client, { type: "error", code: "invalid_ping", message: "id must be an integer" });
+                break;
+              }
+              send(client, { type: "pong", id: message.id });
+              break;
+            }
             case "watch": {
               const geometry = validGeometry(message.cols, message.rows);
               if (!geometry) {

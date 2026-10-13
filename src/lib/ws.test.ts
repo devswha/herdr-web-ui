@@ -809,3 +809,144 @@ it("lets a slow handshake connect: each attempt given up doubles the next deadli
     jest.useRealTimers();
   }
 });
+
+/** An attached, input-ready connection to a bridge listing `features`. */
+function liveClient(features: string[]): { client: HerdrSocket; socket: FakeSocket } {
+  const client = new HerdrSocket("ws://test/ws");
+  client.attach("w1:p1", 100, 30);
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["input-ready", ...features]));
+  socket.receive({ type: "input-ready", pane_id: "w1:p1" });
+  return { client, socket };
+}
+const pings = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "ping");
+
+it("drops an open socket that answers no ping, reconnects at once and replays the attach", async () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    let disconnects = 0;
+    client.onDisconnect(() => { disconnects++; });
+    const result = client.submit("w1:p1", "sent before the wake", "sent before the wake");
+    for (let turn = 0; turn < 10 && submissions(socket).length === 0; turn++) await Promise.resolve();
+    expect(submissions(socket).map((frame) => frame.type)).toEqual(["submit"]);
+    // the page comes back: the socket still reads OPEN, but its network is gone
+    client.wake();
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }]);
+    expect(client.state).toBe("probing");
+    expect(client.connected).toBe(true);
+    jest.advanceTimersByTime(2_999);
+    expect(FakeSocket.last).toBe(socket);
+    jest.advanceTimersByTime(1);
+    // given up without waiting for a close event, and a new attempt started without a backoff
+    expect(socket.readyState).toBe(3);
+    expect(disconnects).toBe(1);
+    expect(await result).toMatchObject({ ok: false, code: "disconnected" });
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    expect(client.state).toBe("connecting");
+    fresh.open();
+    expect(fresh.sent).toEqual([{ type: "role", mode: "interact" }, { type: "attach", pane_id: "w1:p1", cols: 100, rows: 30, flow_control: "ack" }]);
+    expect(client.state).toBe("open");
+    // the dead socket's late close changes nothing
+    socket.disconnect();
+    expect(disconnects).toBe(1);
+    expect(client.connected).toBe(true);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("keeps typing out of the socket while a probe waits, and takes it again once any frame comes back", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    expect(client.sendInput("w1:p1", "a")).toBe(true);
+    client.wake();
+    // refused, so PaneTerminal keeps the keys as a held draft
+    expect(client.canInput("w1:p1")).toBe(false);
+    expect(client.sendInput("w1:p1", "b")).toBe(false);
+    expect(client.sendKeys("w1:p1", ["Enter"])).toBe(false);
+    expect(client.submit("w1:p1", "later", "later")).toBeNull();
+    expect(submissions(socket)).toEqual([{ type: "input", pane_id: "w1:p1", text: "a" }]);
+    // a second wake while one waits sends no second ping
+    client.wake();
+    expect(pings(socket)).toHaveLength(1);
+    socket.receive({ type: "pong", id: 1 });
+    expect(client.state).toBe("open");
+    expect(client.sendInput("w1:p1", "c")).toBe(true);
+    jest.advanceTimersByTime(10_000);
+    expect(FakeSocket.last).toBe(socket);
+    // any frame ends a probe, not only its pong
+    client.wake();
+    socket.receive({ type: "pane-status", pane_id: "w1:p1", agent_status: "idle" });
+    expect(client.canInput("w1:p1")).toBe(true);
+    jest.advanceTimersByTime(10_000);
+    expect(FakeSocket.last).toBe(socket);
+    expect(socket.readyState).toBe(FakeSocket.OPEN);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("pings a connection silent for 20s while visible, and not one that keeps receiving", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    for (let second = 0; second < 60; second += 5) {
+      jest.advanceTimersByTime(5_000);
+      socket.receive({ type: "pane-status", pane_id: "w1:p1", agent_status: "working" });
+    }
+    expect(pings(socket)).toEqual([]);
+    jest.advanceTimersByTime(19_999);
+    expect(pings(socket)).toEqual([]);
+    jest.advanceTimersByTime(5_000);
+    expect(pings(socket)).toHaveLength(1);
+    jest.advanceTimersByTime(3_000);
+    expect(FakeSocket.last).not.toBe(socket);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("never pings a bridge whose snapshot does not list ping, and trusts its connection as before", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit"]);
+  try {
+    client.wake();
+    jest.advanceTimersByTime(120_000);
+    expect(pings(socket)).toEqual([]);
+    expect(FakeSocket.last).toBe(socket);
+    expect(client.state).toBe("open");
+    expect(client.sendInput("w1:p1", "x")).toBe(true);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("leaves a socket the server is closing to its close event when a probe times out, so a 4008 still stops output", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    const errors: string[] = [];
+    client.on((message) => { if (message.type === "error") errors.push(message.code); });
+    client.wake();
+    socket.closing();
+    jest.advanceTimersByTime(3_000);
+    expect(FakeSocket.last).toBe(socket);
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(errors).toEqual(["output_stalled"]);
+    expect(client.state).toBe("stopped");
+    jest.advanceTimersByTime(10_000);
+    expect(FakeSocket.last).toBe(socket);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});

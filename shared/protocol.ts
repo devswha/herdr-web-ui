@@ -1078,10 +1078,15 @@ export type ClientMessage =
   | { type: "presence"; active: boolean }
   /** a read-only view of the pane at this grid, for a tab out of use (feature "watch"); never resizes the pane */
   | { type: "watch"; pane_id: string; cols: number; rows: number }
-  | { type: "unwatch"; pane_id: string };
+  | { type: "unwatch"; pane_id: string }
+  /** liveness only (feature "ping"): answered at once with a `pong` of the same id, for any role. The
+   * client sends it when the page comes back, the network changes or nothing arrived for a while,
+   * and drops a socket that stays silent: a half-open one still reads OPEN in the browser. A remote
+   * PC's socket relays it unchanged, so the remote server's snapshot decides whether it is sent. */
+  | { type: "ping"; id: number };
 
 /** What a server supports beyond the base protocol, listed in its first snapshot; older bridges list nothing. */
-export type ServerFeature = "submit" | "pending-input" | "pending-hold" | "secret-input" | "input-ready" | "take-over" | "watch" | "conversation-watch";
+export type ServerFeature = "submit" | "pending-input" | "pending-hold" | "secret-input" | "input-ready" | "take-over" | "watch" | "conversation-watch" | "ping";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }
@@ -1117,6 +1122,8 @@ export type ServerMessage =
   | { type: "watch-data"; pane_id: string; data: string }
   /** the watch ended (pane gone, herdr closed it, or this herdr has no read-only view); the client keeps its last screen */
   | { type: "watch-end"; pane_id: string }
+  /** the answer to a `ping`, with its id; like any frame it tells the client the connection is alive */
+  | { type: "pong"; id: number }
   /** `pane_id` names the pane an error is about, when it is about one (`attach_held`) */
   | { type: "error"; code: string; message: string; pane_id?: string };
 
