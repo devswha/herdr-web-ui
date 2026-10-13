@@ -3,13 +3,25 @@
 export const OUTPUT_HIGH_BYTES = 256 * 1024;
 export const OUTPUT_LOW_BYTES = 64 * 1024;
 export const OUTPUT_HARD_BYTES = 1024 * 1024;
+/** how long a blocked client may go without its ACKs moving before it is closed with 4008 */
 export const OUTPUT_STALL_MS = 2000;
+/** the slowest link a joiner's replay is given time for: 32 KiB/s, about 256 kbit/s */
+export const OUTPUT_JOIN_BYTES_PER_SECOND = 32 * 1024;
+/** the longest a joiner may take to acknowledge its replay */
+export const OUTPUT_JOIN_MAX_MS = 15_000;
+
+/** What the server does about one client: keep sending, pause the shared pty for it, or close it (4008). */
+export type OutputVerdict = "flow" | "pause" | "stop";
 
 export class OutputWindow {
   readonly id = crypto.randomUUID();
   sent = 0;
   acknowledged = 0;
   blocked = false;
+  /** when the client last became blocked without its ACKs moving since */
+  private stalledSince: number | undefined;
+  /** a joiner's replay is in flight and nothing is acknowledged yet: its budget ends here */
+  joinUntil: number | undefined;
 
   get pending(): number { return this.sent - this.acknowledged; }
 
@@ -19,12 +31,46 @@ export class OutputWindow {
     return this.sent;
   }
 
+  /**
+   * A late joiner is about to be sent `bytes` of replay. Its first ACK can only come once the
+   * whole frame has crossed the link and been parsed, which takes a phone on a weak link longer
+   * than the stall deadline (moshi-3): until that ACK, the client gets a budget sized to the
+   * frame instead, and is never a reason to pause the pty the other clients share.
+   */
+  join(bytes: number, now = Date.now()): void {
+    this.joinUntil = now + Math.min(OUTPUT_JOIN_MAX_MS, OUTPUT_STALL_MS + Math.ceil(bytes * 1000 / OUTPUT_JOIN_BYTES_PER_SECOND));
+  }
+
   acknowledge(id: string, offset: number): boolean {
     if (id !== this.id || !Number.isSafeInteger(offset) || offset < 0 || offset > this.sent) return false;
-    // Duplicate and out-of-order ACKs cannot release credit twice.
-    this.acknowledged = Math.max(this.acknowledged, offset);
+    // Duplicate and out-of-order ACKs cannot release credit twice, nor restart the stall clock.
+    if (offset > this.acknowledged) {
+      this.acknowledged = offset;
+      this.stalledSince = undefined;
+      this.joinUntil = undefined;
+    }
     if (this.pending <= OUTPUT_LOW_BYTES) this.blocked = false;
     return true;
+  }
+
+  /**
+   * Stalls are measured by ACK progress, not by the time since a frame was queued: a client
+   * that is still acknowledging is draining, however much it has in flight. `buffered` is the
+   * client's WebSocket send queue, which blocks it as well.
+   */
+  check(buffered: number, now = Date.now()): OutputVerdict {
+    if (buffered >= OUTPUT_HARD_BYTES) return "stop";
+    if (!this.blocked && buffered < OUTPUT_HIGH_BYTES) {
+      this.stalledSince = undefined;
+      return "flow";
+    }
+    if (this.joinUntil !== undefined) {
+      // within its budget a joiner holds only its own window up (bounded by OUTPUT_HARD_BYTES);
+      // past it, with nothing acknowledged, it has made no progress for longer than OUTPUT_STALL_MS
+      return now < this.joinUntil ? "flow" : "stop";
+    }
+    this.stalledSince ??= now;
+    return now - this.stalledSince >= OUTPUT_STALL_MS ? "stop" : "pause";
   }
 }
 
