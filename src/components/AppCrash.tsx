@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { copyText } from "../lib/clipboard.ts";
 import { crashProbe, type CrashRegion } from "../lib/crashProbe.ts";
 import { t, useT } from "../lib/i18n.ts";
@@ -41,13 +41,20 @@ export function AppCrash({ error }: { error: unknown }) {
   );
 }
 
-/** A part of the app (Sidebar, a pane slot, Settings) that could not be drawn; the rest goes on. */
-export function RegionCrash({ message, retry, retryLabel }: { message: string; retry: () => void; retryLabel?: string }) {
+/**
+ * A part of the app (Sidebar, a pane slot, Settings) that could not be drawn; the rest goes on.
+ * `onShown` runs once it is drawn and again whenever the caller hands a new one, for what the part
+ * that threw can no longer report itself (a pane slot's terminal its connection going).
+ */
+export function RegionCrash({ message, retry, retryLabel, buttonRef, onShown }: {
+  message: string; retry: () => void; retryLabel?: string; buttonRef?: Ref<HTMLButtonElement>; onShown?: () => void;
+}) {
   const t = useT();
+  useEffect(() => { onShown?.(); }, [onShown]);
   return (
     <div className="error-state" role="alert">
       <p className="error-message">{message}</p>
-      <button type="button" className="btn" onClick={retry}>{retryLabel ?? t("Try again")}</button>
+      <button type="button" ref={buttonRef} className="btn" onClick={retry}>{retryLabel ?? t("Try again")}</button>
     </div>
   );
 }

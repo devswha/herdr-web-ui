@@ -767,12 +767,25 @@ export function SettingsDialog(props: SettingsDialogProps) {
   </RenderBoundary> : null;
 }
 
+/** Still a modal: Escape, the swipe down on a phone and the kept focus close it as they close Settings. */
 function SettingsCrash({ onClose }: { onClose: () => void }) {
   const t = useT();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const surface = useFocusTrap<HTMLDivElement>(true, { initialFocus: closeRef });
+  useSheetSwipe(surface, onClose);
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
   return (
     <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={t("Settings")}>
-        <RegionCrash message={t("Settings can't be shown.")} retry={onClose} retryLabel={t("Close")} />
+      <div ref={surface} className="modal" role="dialog" aria-modal="true" aria-label={t("Settings")} tabIndex={-1}>
+        <RegionCrash message={t("Settings can't be shown.")} retry={onClose} retryLabel={t("Close")} buttonRef={closeRef} />
       </div>
     </div>
   );
