@@ -84,9 +84,9 @@ running terminals: see [development](docs/development.md#checks).
 - **The browser demo:** the [demo](https://herdrweb.dev/demo/) redeploys on every
   merge to `main`. A feature meant to show there needs an answer in `site/demo/transport.ts`; anything
   else gets its 404.
-- **Changelog:** a change users notice gets a line under `## [Unreleased]` in
-  [CHANGELOG.md](CHANGELOG.md) (`### Added`, `### Changed` or `### Fixed`). Do not bump versions.
-  The link to your PR and your name are added by a maintainer at release, so you can leave them out.
+- **Changelog:** a change users notice gets a small file in [changelog.d/](changelog.d/README.md)
+  with its `### Added`, `### Changed` or `### Fixed` lines; do not edit CHANGELOG.md, and do not
+  bump versions. The link to your PR and your name are added at release, so you can leave them out.
 
 ## Releases
 
