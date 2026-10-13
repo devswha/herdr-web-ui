@@ -1250,6 +1250,7 @@ export function App() {
       openFind: () => {
         if (selectedPaneId === null) return;
         setView("terminal");
+        setDrawerOpen(false);
         setFindRequest((request) => ({ paneId: selectedPaneId, serial: request.serial + 1 }));
       },
       openSettings: () => {
