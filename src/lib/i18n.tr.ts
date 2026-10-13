@@ -836,6 +836,8 @@ export const TR: Record<string, string> = {
   "Terminal input line": "Terminal girdi satırı",
   "Press Enter in the terminal": "Terminalde Enter'a basın",
   "Send to the terminal": "Terminale gönder",
+  "Finishing the word…": "Kelime tamamlanıyor…",
+  "Finish the word, then send.": "Kelimeyi bitirip sonra gönderin.",
   "Not sent: the terminal is disconnected.": "Gönderilmedi: terminalin bağlantısı kesik.",
   "Not sent: the terminal is not ready for keys.": "Gönderilmedi: terminal tuşlar için hazır değil.",
   "Type straight into the terminal": "Doğrudan terminale yazın",

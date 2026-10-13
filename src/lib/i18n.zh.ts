@@ -883,6 +883,8 @@ export const ZH: Record<string, string> = {
   "Terminal input line": "终端输入行",
   "Press Enter in the terminal": "在终端中按 Enter",
   "Send to the terminal": "发送到终端",
+  "Finishing the word…": "正在完成输入…",
+  "Finish the word, then send.": "请先完成输入，再发送。",
   "Not sent: the terminal is disconnected.": "未发送：终端已断开连接。",
   "Not sent: the terminal is not ready for keys.": "未发送：终端尚未准备好接收按键。",
   "Type straight into the terminal": "直接在终端中输入",

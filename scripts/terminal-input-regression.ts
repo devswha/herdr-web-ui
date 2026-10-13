@@ -63,10 +63,27 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await line.waitFor();
     assert.equal(await line.inputValue(), "draft 한글 😀");
 
+    const note = page.locator(".terminal-input-note");
+    // A Send during composition waits for the commit and then sends the committed line once.
+    await line.fill("commit 한글");
     await line.dispatchEvent("compositionstart", { data: "" });
     await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
-    await page.waitForTimeout(100);
+    await until(async () => (await note.textContent()) === "Finishing the word…");
     assert.equal(sent.length, 0, "unfinished composition must not submit via button");
+    await line.dispatchEvent("compositionend", { data: "글" });
+    await until(() => sent.length === 1);
+    assert.equal(sent[0].text, "commit 한글", "the Send tapped during composition sends after the commit");
+    acknowledge!();
+    await until(async () => (await line.inputValue()) === "");
+    acknowledge = undefined;
+    // No commit within the wait: the tap is withdrawn with a note, and a later commit sends nothing.
+    await line.fill("draft 한글 😀");
+    await line.dispatchEvent("compositionstart", { data: "" });
+    await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
+    await until(async () => (await note.textContent()) === "Finish the word, then send.");
+    await line.dispatchEvent("compositionend", { data: "😀" });
+    await line.dispatchEvent("compositionstart", { data: "" });
+    assert.equal(sent.length, 1, "a commit after the withdrawn tap does not send");
     // Leaving during composition must not leave the composition guard stuck.
     await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
@@ -81,7 +98,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     acknowledge!();
     await until(async () => !(await page.getByRole("button", { name: "Send to the terminal", exact: true }).isDisabled()));
     assert.equal(await line.inputValue(), "draft 한글 😀", "late ack cannot erase replacement text");
-    assert.equal(sent.length, 1);
+    assert.equal(sent.length, 2);
 
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await openSettingsPage(page, "Shortcuts");

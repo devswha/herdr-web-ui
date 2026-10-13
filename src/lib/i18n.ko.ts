@@ -879,6 +879,8 @@ export const KO: Record<string, string> = {
   "Terminal input line": "터미널 입력줄",
   "Press Enter in the terminal": "터미널에서 Enter 누르기",
   "Send to the terminal": "터미널로 보내기",
+  "Finishing the word…": "단어를 마무리하는 중…",
+  "Finish the word, then send.": "단어 입력을 마친 뒤 보내세요.",
   "Not sent: the terminal is disconnected.": "보내지 못했습니다: 터미널 연결이 끊겼습니다.",
   "Not sent: the terminal is not ready for keys.": "보내지 못했습니다: 터미널이 아직 키를 받을 준비가 되지 않았습니다.",
   "Type straight into the terminal": "터미널에 직접 입력",

@@ -48,7 +48,9 @@ answers to a program (cursor position, focus, mouse) arrive the same way. Send t
 text alone, without an Enter typed meanwhile. The draft holds 1,024 characters; text past that is
 left out whole and the notice says some input was left out, also when nothing else is held. No
 draft is replayed on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
-waits for composition to finish. Leaving the input clears its composition guard.
+waits for composition to finish. An input-line Send tapped during composition says "Finishing the word…" and
+sends once the word commits; if the keyboard does not commit it within 300 ms, the tap is withdrawn with
+"Finish the word, then send." and a later commit sends nothing. Leaving the input clears its composition guard.
 
 The key bar defaults to Esc, Tab, ^C, Ctrl, Alt, Shift, Enter and the arrows. Esc, Tab and ^C
 come first so they stay reachable without scrolling on narrow phones.

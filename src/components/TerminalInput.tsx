@@ -21,6 +21,8 @@ export interface TerminalInputProps {
 
 /** Lines the box grows to before it scrolls. */
 const MAX_ROWS = 4;
+/** How long a Send tapped mid-composition waits for the keyboard to commit the word. */
+const COMMIT_WAIT_MS = 300;
 
 /**
  * The terminal's input line on a touch screen. A phone's keyboard rewrites what it typed
@@ -70,8 +72,29 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
     onNote: setNote,
   });
 
+  // A Send tapped while the keyboard still composes the last word (Gboard composes every word,
+  // CJK IMEs an open syllable) sends once that word commits, within a short window. Past it the
+  // tap is withdrawn with a note, so a later commit never sends on its own.
+  const pendingSend = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPendingSend = useCallback(() => {
+    if (pendingSend.current !== null) clearTimeout(pendingSend.current);
+    pendingSend.current = null;
+  }, []);
+  useEffect(() => clearPendingSend, [clearPendingSend]);
+  const sendRef = useRef<() => void>(() => {});
+
   const send = useCallback(() => {
-    if (!connected || terminalDraftSending(owner) || composing.current) return;
+    if (!connected || terminalDraftSending(owner)) return;
+    if (composing.current) {
+      clearPendingSend();
+      setNote(t("Finishing the word…"));
+      pendingSend.current = setTimeout(() => {
+        pendingSend.current = null;
+        setNote(t("Finish the word, then send."));
+      }, COMMIT_WAIT_MS);
+      return;
+    }
+    clearPendingSend();
     setNote(null);
     if (text.length === 0) {
       if (!onEnter()) setNote(t("Not sent: the terminal is disconnected."));
@@ -89,7 +112,8 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         acknowledgeTerminalDraft(owner);
       } else setNote(result);
     }).catch(() => setNote(t("Not confirmed. Check the terminal before sending again."))).finally(() => { setTerminalDraftSending(owner, false); });
-  }, [connected, dictation.forget, onEnter, onSend, owner, setText, t, text]);
+  }, [clearPendingSend, connected, dictation.forget, onEnter, onSend, owner, setText, t, text]);
+  sendRef.current = send;
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter sends; Shift+Enter breaks the line; an IME keeps its Enter, including the committing
@@ -123,7 +147,14 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         value={text}
         maxLength={TERMINAL_LINE_LIMIT}
         onCompositionStart={() => { composing.current = true; onComposing?.(true); }}
-        onCompositionEnd={() => { composing.current = false; onComposing?.(false); }}
+        onCompositionEnd={() => {
+          composing.current = false;
+          onComposing?.(false);
+          if (pendingSend.current === null) return;
+          clearPendingSend();
+          // WebKit updates the value with an input event after compositionend: send the committed word
+          setTimeout(() => sendRef.current());
+        }}
         placeholder={t("Type for the terminal…")}
         aria-label={t("Terminal input line")}
         enterKeyHint="send"
