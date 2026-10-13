@@ -76,6 +76,7 @@ import { createAlertTurnPlayer } from "./lib/alertTurns.ts";
 import { dockPane, draggedPane, dropSide, otherSlot, PANE_DRAG_TYPE, sameTarget, slotSide, storedSplit, storeSplit, type SplitSide, type SplitSlot, type SplitState, type SplitTarget } from "./lib/split.ts";
 import { paneDrag } from "./lib/paneDrag.ts";
 import { SplitDropPreview } from "./components/SplitDropPreview.tsx";
+import { ViewedPaneSeen } from "./components/ViewedPaneSeen.tsx";
 import { CrashProbe, RegionCrash } from "./components/AppCrash.tsx";
 import { RenderBoundary } from "./components/RenderBoundary.tsx";
 
@@ -276,6 +277,9 @@ export function App() {
   // App picked the selected pane itself because the one selected closed: it must not raise a
   // phone's keyboard (over the drawer the close was tapped in) until the user picks a pane or lens
   const [autoSelected, setAutoSelected] = useState(false);
+  // the pane the user opened here (a pick, a tapped alert, Back), unlike one App picked itself at
+  // load or after a close: only that one tells herdr a finish was seen (components/ViewedPaneSeen.tsx)
+  const [opened, setOpened] = useState<SplitTarget | null>(null);
   // a phone opened by a link that says so starts with its drawer out (lib/deepLink.ts)
   const [drawerOpen, setDrawerOpen] = useState(() => initialLink?.sidebar === "shown" && window.matchMedia?.("(min-width: 769px)").matches !== true);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
@@ -724,9 +728,11 @@ export function App() {
       setSplit({ other: { machineId: current.machineId, paneId: current.paneId }, bSide: open.bSide, active: otherSlot(open.active) });
     }
     setSelectedMachineId(machineId); setSelectedPaneId(paneId); setAutoSelected(false); setDrawerOpen(false);
+    setOpened(paneId === null ? null : { machineId, paneId });
     setOutputStopped(false);
     setNotificationViewTarget(view && paneId !== null ? { machine_id: machineId, pane_id: paneId, view } : null);
-    // this browser's choice only: herdr's focus, its TUI and every other device stay where they are
+    // this browser's choice: herdr's focus, its TUI and every other device stay where they are,
+    // unless the pane opened reads done (components/ViewedPaneSeen.tsx)
     storeSelection(machineId, paneId);
     // a pane picked (a tapped notification, the sidebar, Back) before a link landed supersedes the link
     pendingLink.current = null; pendingFile.current = null; setLinkLanded(true);
@@ -823,6 +829,7 @@ export function App() {
       setSplit({ other: { machineId: current.machineId, paneId: current.paneId }, bSide: open.bSide, active: otherSlot(open.active) });
     }
     setSelectedPaneId(paneId);
+    setOpened({ machineId: current.machineId, paneId });
     setNotificationViewTarget(null);
     setAutoSelected(!focusInput);
     setDrawerOpen(false);
@@ -861,6 +868,9 @@ export function App() {
 
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
+  // only a pane the user opened, on a PC that answers, tells herdr a finish was seen
+  const seenCandidate = selectedPaneId !== null && selectedMachine?.state === "connected"
+    && sameTarget(opened, { machineId: selectedMachineId, paneId: selectedPaneId }) ? selectedPaneId : null;
   useScreenWakeLock(settings.keepScreenOn && locked === false && selectedPane !== null);
   const selectedWorkspace = selectedPane
     ? (snapshot?.workspaces.find((workspace) => workspace.workspace_id === selectedPane.workspace_id) ?? null)
@@ -970,6 +980,7 @@ export function App() {
     if (before === null || before.machineId !== select.machineId) setConnected(false);
     if (next === null) endSplit(after); else setSplit(next);
     setSelectedMachineId(select.machineId); setSelectedPaneId(select.paneId); setAutoSelected(keepFocus); setOutputStopped(false);
+    setOpened(select);
     storeSelection(select.machineId, select.paneId);
   };
   const activateSlot = (slot: SplitSlot, keepFocus = false): void => {
@@ -1700,6 +1711,7 @@ export function App() {
         <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} keyboardActive={!settingsOpen} />
       </MachineContext.Provider>}
       <CommandPalette key={selectedMachineId} machines={machines} onSelect={selectTarget} open={paletteOpen} initialQuery={paletteQuery} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId} view={view} actions={actions} />
+      <ViewedPaneSeen paneId={seenCandidate} status={selectedPane?.agent_status} covered={drawerOpen} />
     </div></MachineContext.Provider></MachineSessionsProvider>
   );
 }

@@ -16,8 +16,8 @@ import { herdrSocketPath } from "./herdr/client.ts";
  *
  * herdr's focus is also no sign that anyone saw a finish. It is the pane its terminal
  * last had in front, and it stays there while the user works from a browser or a phone,
- * which never move it: an agent finishing in that pane finished as plain `idle`, READY
- * and no alert, whoever was looking.
+ * which move it only onto a finish opened there (src/components/ViewedPaneSeen.tsx): an
+ * agent finishing in that pane finished as plain `idle`, READY and no alert, whoever was looking.
  *
  * So each pane's "worked since it was last idle" is kept here, and an idle that follows
  * work is reported as `done` until the pane works again or focus moves onto it (`seen`):

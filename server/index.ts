@@ -1555,6 +1555,14 @@ export function createServer(
     if (status !== undefined) broadcastAll(paneStatus(paneId, status, { plan }));
   }
 
+  /** herdr has this pane in front, or was told to put it there: a finish reported as done is seen, idle again */
+  function finishSeen(paneId: string): void {
+    if (!completions.seen(paneId)) return;
+    pending.status(paneId, "idle"); drainPending(paneId);
+    broadcastAll(paneStatus(paneId, "idle"));
+    push.onStatus(paneId, alertStatus("idle", waits.waiting(paneId))).catch(logPushError);
+  }
+
   // a bridge (no roster of its own) tells its connection server instead (#555)
   const bridgeAgents = machines ? null : bridgeAgentNews(() => broadcastAll({ type: "session-changed" }));
 
@@ -1596,14 +1604,10 @@ export function createServer(
       broadcastAll(paneStatus(paneId, status, claude ? { background_tasks: claudeAgents.countOf(paneId) } : {}));
       push.onStatus(paneId, alertStatus(status, waits.waiting(paneId))).catch(logPushError);
     },
-    // a finish reported as done, now in front at herdr's terminal: seen, idle again
     onFocus: (paneId) => {
       // The split canvas follows herdr's focused pane (also the sole visible pane while zoomed).
       broadcastAll({ type: "session-changed" });
-      if (!completions.seen(paneId)) return;
-      pending.status(paneId, "idle"); drainPending(paneId);
-      broadcastAll(paneStatus(paneId, "idle"));
-      push.onStatus(paneId, alertStatus("idle", waits.waiting(paneId))).catch(logPushError);
+      finishSeen(paneId);
     },
     onBaseline: (panes) => {
       // A resting baseline never reholds old work after a bridge restart.
@@ -2587,6 +2591,9 @@ export function createServer(
         try {
           if (pathname === "/api/pane/focus") {
             await paneFocus(paneId);
+            // herdr marks an explicitly focused pane seen, also the one it already had in front,
+            // and that one sends no pane.focused (measured on 0.9.3): its done is cleared here
+            finishSeen(paneId);
             return jsonResponse({ ok: true });
           }
           if (pathname === "/api/pane/split") {

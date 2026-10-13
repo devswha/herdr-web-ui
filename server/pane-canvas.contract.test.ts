@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
-import { paneSplit, sessionSnapshot, tabCreate, workspaceClose, workspaceCreate } from "./herdr/client.ts";
-import type { ApiError, PaneLayoutSnapshot, PaneSwapped } from "../shared/protocol.ts";
+import { herdrRpc, paneSplit, sessionSnapshot, tabCreate, workspaceClose, workspaceCreate } from "./herdr/client.ts";
+import type { ApiError, PaneLayoutSnapshot, PaneSwapped, SessionSnapshot } from "../shared/protocol.ts";
 
 describe("pane canvas: focus, explicit swap and dragged split ratio", () => {
   const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-canvas-contract-"));
@@ -99,5 +99,45 @@ describe("pane canvas: focus, explicit swap and dragged split ratio", () => {
     const unknown = await post("layout/ratio", { tab_id: "no-such-tab", path: [], ratio: 0.5 });
     expect(unknown.status).toBe(404);
     expect(((await unknown.json()) as ApiError).error.code).toBe("layout_not_found");
+  });
+
+  const statuses = async (): Promise<{ herdr?: string; app?: string }> => {
+    const response = await fetch(`http://localhost:${server.port}/api/session`);
+    const app: { snapshot: SessionSnapshot } = await response.json();
+    return {
+      herdr: (await sessionSnapshot()).panes.find((pane) => pane.pane_id === anotherTab)?.agent_status,
+      app: app.snapshot.panes.find((pane) => pane.pane_id === anotherTab)?.agent_status,
+    };
+  };
+  const settle = async (want: { herdr: string; app: string }): Promise<void> => {
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const got = await statuses();
+      if (got.herdr === want.herdr && got.app === want.app) return;
+      if (Date.now() >= deadline) throw new Error(`statuses did not settle on ${JSON.stringify(want)}: ${JSON.stringify(got)}`);
+      await Bun.sleep(50);
+    }
+  };
+  const finish = async (): Promise<void> => {
+    await herdrRpc("pane.report_agent", { pane_id: anotherTab, source: "manual", agent: "claude", state: "working" });
+    await settle({ herdr: "working", app: "working" });
+    await herdrRpc("pane.report_agent", { pane_id: anotherTab, source: "manual", agent: "claude", state: "idle" });
+  };
+
+  it("marks a finish in a tab not in front seen on an explicit focus, in herdr and here", async () => {
+    await post("pane/focus", { pane_id: root });
+    await finish();
+    await settle({ herdr: "done", app: "done" });
+    expect(await (await post("pane/focus", { pane_id: anotherTab })).json()).toEqual({ ok: true });
+    await settle({ herdr: "idle", app: "idle" });
+  });
+
+  it("marks a finish in the pane already in front seen here too, which no pane.focused tells", async () => {
+    // herdr reads idle at once; this server reads done (server/completion.ts)
+    await post("pane/focus", { pane_id: anotherTab });
+    await finish();
+    await settle({ herdr: "idle", app: "done" });
+    expect(await (await post("pane/focus", { pane_id: anotherTab })).json()).toEqual({ ok: true });
+    await settle({ herdr: "idle", app: "idle" });
   });
 });
