@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { folderName, placeLine, shortPathTitle, taskRowLines } from "./paneName.ts";
+import { codexThreadTitle, folderName, placeLine, shortPathTitle, taskRowLines } from "./paneName.ts";
 
 it("shows a path title as its last folder, and leaves any other title alone", () => {
   expect(shortPathTitle("/tmp/audit-oDjsU2/lms-backend")).toBe("lms-backend");
@@ -54,4 +54,11 @@ it("draws a two-line row as the pane's title over its place, without repeating a
   // a pane named as its worktree's workspace does not have that name said again under it
   expect(taskRowLines({ paneTitle: "Hotfix", labelled: true, folder: "fix-payment", workspace: "Hotfix", alias: "fix/payment" }))
     .toEqual({ title: "Hotfix", place: "fix/payment · fix-payment" });
+});
+
+it("keeps the thread of a Codex title and drops the project folder Codex adds after it", () => {
+  expect(codexThreadTitle("Respond to greeting | worktree-rapid-valley...")).toBe("Respond to greeting");
+  expect(codexThreadTitle("Compare a | b outputs | herdr-web-ui")).toBe("Compare a | b outputs");
+  expect(codexThreadTitle("Respond to greeting")).toBe("Respond to greeting");
+  expect(codexThreadTitle(" | herdr-web-ui")).toBe(" | herdr-web-ui");
 });

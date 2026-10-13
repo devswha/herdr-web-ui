@@ -14,7 +14,7 @@ import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
-import { folderName, shortPathTitle, taskRowLines } from "../lib/paneName.ts";
+import { codexThreadTitle, folderName, shortPathTitle, taskRowLines } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
@@ -44,7 +44,9 @@ const AGENT_CHROME = /^π\s*[^\p{L}\p{N}\s]?\s*/u;
 
 function stripPaneChrome(title: string, agent: string | null | undefined): string {
   const shellStripped = title.replace(SHELL_PREFIX, "");
-  return agent ? shellStripped.replace(AGENT_CHROME, "") : shellStripped;
+  if (!agent) return shellStripped;
+  const marked = shellStripped.replace(AGENT_CHROME, "");
+  return agent === "codex" ? codexThreadTitle(marked) : marked;
 }
 
 export { paneTitle };

@@ -6,6 +6,16 @@
  */
 const PATH_TITLE = /^(?:~(?=$|[\\/])|\/|[A-Za-z]:[\\/])/;
 
+/**
+ * Codex titles its terminal "<thread> | <project folder>" (0.162: "Respond to greeting |
+ * worktree-rapid-valley..."). The row already says where under the title, in full, so the title
+ * keeps the thread alone. A title that is only the place is left as it is.
+ */
+export function codexThreadTitle(title: string): string {
+  const at = title.lastIndexOf(" | ");
+  return at > 0 && title.slice(0, at).trim() !== "" ? title.slice(0, at) : title;
+}
+
 export function shortPathTitle(title: string): string {
   const trimmed = title.trim();
   return PATH_TITLE.test(trimmed) ? folderName(trimmed) : title;
