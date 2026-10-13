@@ -43,7 +43,7 @@ export function buildFiles(fileNames: Iterable<string>): string[] {
  */
 export function stampServiceWorker(source: string, build: string, files?: readonly string[]): string {
   if (!/^[0-9a-f]+$/.test(build)) throw new Error(`not a build id: ${build}`);
-  for (const file of files ?? []) if (!/^\/assets\/[\w.@~-]+$/.test(file)) throw new Error(`not a build file: ${file}`);
+  for (const file of files ?? []) if (!/^\/assets\/[\w.@~/-]+$/.test(file) || file.includes("..")) throw new Error(`not a build file: ${file}`);
   // both lines must be there, so a build never ships a worker with only one of them stamped
   stampLine(source, UNLISTED, UNLISTED);
   const named = stampLine(source, UNSTAMPED, `const BUILD = "${build}";`);
