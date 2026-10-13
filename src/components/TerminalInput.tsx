@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { CornerDownLeft, SendHorizontal } from "lucide-react";
 
 import "./TerminalInput.css";
@@ -11,7 +11,6 @@ import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 export interface TerminalInputProps {
   owner: string;
   active?: boolean;
-  onComposing?: (active: boolean) => void;
   connected: boolean;
   /** true: sent, clear the line; a string: keep the text and say why; false: not sent (offline) */
   onSend: (text: string) => false | Promise<true | string>;
@@ -28,7 +27,7 @@ const MAX_ROWS = 4;
  * cannot take back keys it already sent: every revision arrived as more text. Here the line
  * is written with the keyboard's own editing and goes to the pane whole, then Enter.
  */
-export function TerminalInput({ owner, active = true, connected, onSend, onEnter, onComposing }: TerminalInputProps) {
+export function TerminalInput({ owner, active = true, connected, onSend, onEnter }: TerminalInputProps) {
   const t = useT();
   const text = useSyncExternalStore(subscribeTerminalDraft, () => readTerminalDraft(owner));
   const setText = useCallback((value: string | ((previous: string) => string)) => {
@@ -39,9 +38,6 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
 
   }, [owner]);
   const composing = useRef(false);
-  const composingCallback = useRef(onComposing);
-  composingCallback.current = onComposing;
-  useEffect(() => () => { composingCallback.current?.(false); }, []);
 
   const [note, setNote] = useState<string | null>(null);
   const sending = useSyncExternalStore(subscribeTerminalDraft, () => terminalDraftSending(owner));
@@ -122,8 +118,8 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         rows={rows}
         value={text}
         maxLength={TERMINAL_LINE_LIMIT}
-        onCompositionStart={() => { composing.current = true; onComposing?.(true); }}
-        onCompositionEnd={() => { composing.current = false; onComposing?.(false); }}
+        onCompositionStart={() => { composing.current = true; }}
+        onCompositionEnd={() => { composing.current = false; }}
         placeholder={t("Type for the terminal…")}
         aria-label={t("Terminal input line")}
         enterKeyHint="send"

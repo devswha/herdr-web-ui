@@ -47,8 +47,10 @@ Control sequences are left out, never saved for later execution, and not counted
 answers to a program (cursor position, focus, mouse) arrive the same way. Send transmits the held
 text alone, without an Enter typed meanwhile. The draft holds 1,024 characters; text past that is
 left out whole and the notice says some input was left out, also when nothing else is held. No
-draft is replayed on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
-waits for composition to finish. Leaving the input clears its composition guard.
+draft is replayed on reconnect. The input-line and chat Send buttons preserve an active composition.
+The key bar waits only for a direct-typing (xterm) composition, so a key cannot overtake xterm's
+pending commit. A composition in the input line leaves the key bar live: Esc, ^C and the arrows
+go to the pane at once, Ctrl, Alt and Shift arm, and the line's unfinished text stays where it is.
 
 The key bar defaults to Esc, Tab, ^C, Ctrl, Alt, Shift, Enter and the arrows. Esc, Tab and ^C
 come first so they stay reachable without scrolling on narrow phones.
@@ -102,6 +104,7 @@ The new readiness frame is also implemented in the website demo transport.
   client rejection, attach refusal/resume, mirror ordering, disconnect and sidecar lifecycle.
 - `bun run build && bun scripts/terminal-input-regression.ts`: focused browser checks for desktop
   mode switching, pane and reload persistence, an unfinished composition, unmount during composition,
+  phone key-bar Esc and ^C while the input line composes,
   pending-send remounts, replacement text, shortcut customization, first held-input persistence,
   readiness delay, an xterm composition commit, batched commits before punctuation, and Korean
   final-consonant movement. Submit/input interception isolates UI assertions;

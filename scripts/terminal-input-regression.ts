@@ -235,6 +235,61 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     assert.deepEqual(errors, []);
     console.log("PASS terminal input: desktop mode, owner drafts, reload, IME button, late ack, shortcuts, readiness, explicit send");
   } finally { await context.close(); }
+  await checkKeyBarWhileLineComposes(browser, origin, pane);
+}
+
+/** A composition in the input line must not grey out the phone key bar: Esc and ^C go to the pane at once. */
+async function checkKeyBarWhileLineComposes(browser: Browser, origin: string, pane: string): Promise<void> {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.setDefaultTimeout(10_000);
+  await context.addInitScript((pane) => {
+    localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
+    localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+  }, pane);
+  const frames: any[] = [];
+  await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((raw) => socket.send(raw));
+    socket.onMessage((raw) => {
+      const frame = JSON.parse(String(raw));
+      // intercepted: the assertions are about what the browser sends, not the PTY
+      if (frame.type === "input" || frame.type === "keys" || frame.type === "submit") frames.push(frame);
+      else server.send(raw);
+    });
+  });
+  const until = async (check: () => boolean | Promise<boolean>, label: string) => {
+    const deadline = Date.now() + 10_000;
+    while (!(await check())) { assert(Date.now() < deadline, `timed out: ${label}`); await new Promise((r) => setTimeout(r, 25)); }
+  };
+  try {
+    await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
+    const line = page.locator(".terminal-input-text");
+    const esc = page.locator('.key-bar [data-key="Escape"]');
+    const interrupt = page.locator('.key-bar [data-key="ctrl-c"]');
+    await line.waitFor();
+    await until(async () => !(await esc.isDisabled()), "key bar ready");
+    await line.fill("fix the");
+    await line.dispatchEvent("compositionstart", { data: "" });
+    await line.dispatchEvent("compositionupdate", { data: "the" });
+    // let React commit any state the composition would set before reading the bar
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await esc.isDisabled(), false, "Esc stays live while the input line composes");
+    assert.equal(await interrupt.isDisabled(), false, "^C stays live while the input line composes");
+    assert.equal(await page.locator('.key-bar [data-key="Control"]').isDisabled(), false, "Ctrl stays live while the input line composes");
+    const before = frames.length;
+    await esc.tap();
+    await until(() => frames.length > before, "Esc frame");
+    await interrupt.tap();
+    await until(() => frames.length > before + 1, "^C frame");
+    assert.deepEqual(frames.slice(before).map((frame) => [frame.type, frame.text ?? frame.keys]), [["input", "\x1b"], ["input", "\x03"]]);
+    assert.equal(await line.inputValue(), "fix the", "the composing line keeps its text");
+    await line.dispatchEvent("compositionend", { data: "the" });
+    assert.deepEqual(errors, []);
+    console.log("PASS key bar while the input line composes: Esc and ^C sent, line text kept");
+  } finally { await context.close(); }
 }
 
 
