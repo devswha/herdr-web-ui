@@ -1203,15 +1203,19 @@ export function PaneTerminal({
           : physicalChord ?? (hasModifiers(modifiersRef.current) && key !== null ? terminalChord(key, modifiersRef.current) : null)
         : null;
       if (draftHeldForRef.current === current) {
-        // a chord is never held, and never sent beside held text either; Enter is left out of the
-        // draft (applyToDraft), so a partial command never runs
+        // A chord is never held, and never sent beside held text either (Ctrl+J would run the line).
         if (chord !== null) {
           const t = tRef.current;
           setInputError(t("Not sent: send or discard the held input first."));
           return;
         }
-        setDraft((prev) => applyToDraft(prev, input));
-        return;
+        // Text, a paste, Backspace and anything with a line break go to the draft, which leaves
+        // Enter out, so a partial command never runs. Other control keys (Ctrl+C, Escape, Tab,
+        // arrows) still reach the program below: an interrupt must not wait on the draft.
+        if (/[\r\n\x7f\b]/.test(input) || applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) {
+          setDraft((prev) => applyToDraft(prev, input));
+          return;
+        }
       }
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.

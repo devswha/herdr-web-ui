@@ -146,10 +146,15 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.locator(".xterm-helper-textarea").press("b");
     await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
     assert.equal(sent.length, before, "typing beside a held draft reaches nothing");
-    await page.getByRole("button", { name: "Send", exact: true }).click();
+    // an interrupt is not typing: it still reaches the program while the draft waits
+    await page.locator(".xterm-helper-textarea").press("Escape");
     await until(() => sent.length > before);
+    assert.equal(sent.at(-1).text, "\x1b");
+    assert.equal(await page.locator(".draft-text").textContent(), "ab");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await until(() => sent.length > before + 1);
     assert.equal(sent.at(-1).text, "ab");
-    assert.equal(sent.length, before + 1, "Send types the held text once, with no Enter");
+    assert.equal(sent.length, before + 2, "Send types the held text once, with no Enter");
     // Real xterm handling: an IME's provisional syllable stays local until commit.
     const imeBefore = sent.length;
     const input = page.locator(".xterm-helper-textarea");
