@@ -2357,6 +2357,13 @@ export function PaneTerminal({
     if (!message || message.state === "sending") return;
     if (action === "steer" && (message.state === "uncertain" || !socket?.connected || heldRef.current || secretRef.current !== null || observeRef.current || ended || heldByOpenQueue || answering !== null)) return;
     if (message.serverOwned && !pendingMessages.isOwned(owner, id, scope)) return;
+    // keys held back in the terminal draft would run in front of the message: the server pastes a
+    // server-owned row's text and sends Enter without looking for a partial line (only Claude's box
+    // is checked there). The row stays as it is, so Send now after the draft is settled, or Discard, still works.
+    if (action === "steer" && draftHeldForRef.current === pane) {
+      pendingMessages.fail(owner, id, { code: "held_input", message: "send or discard the held input first" }, false);
+      return;
+    }
     if (!pendingMessages.begin(owner, id)) return;
     try {
       if (message.serverOwned) {

@@ -20,9 +20,14 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   let delayReady = false;
   // the page's latest connection, to play output the pane did not write (a keyboard mode it asks for)
   let toPage: ((frame: unknown) => void) | undefined;
+  // liveness pings held back from the server, so a probe stays in flight until they are let through
+  let holdPings = false;
+  const heldPings: string[] = [];
+  let toServer: ((raw: string) => void) | undefined;
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
     toPage = (frame) => socket.send(JSON.stringify(frame));
     const server = socket.connectToServer();
+    toServer = (raw) => server.send(raw);
     server.onMessage((raw) => {
       const frame = JSON.parse(String(raw));
       if (delayReady && frame.type === "input-ready") ready = () => socket.send(raw);
@@ -35,6 +40,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
         acknowledge = () => socket.send(JSON.stringify({ type: "submit-result", id: frame.id, pane_id: frame.pane_id, ok: true }));
         refuse = () => socket.send(JSON.stringify({ type: "submit-result", id: frame.id, pane_id: frame.pane_id, ok: false, code: "agent_blocked", message: "" }));
       } else if (frame.type === "input") sent.push(frame);
+      else if (frame.type === "ping" && holdPings) heldPings.push(String(raw));
       else {
         if (frame.type === "resize") resizes.push(frame);
         server.send(raw);
@@ -61,6 +67,21 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     // a phone keyboard's autocorrect would swap a flag or path for a dictionary word before Send
     assert.deepEqual(await line.evaluate((box) => [box.getAttribute("autocorrect"), box.getAttribute("spellcheck"), box.getAttribute("autocapitalize")]), ["off", "false", "off"]);
     assert.equal(await page.getByRole("button", { name: "Type straight into the terminal", exact: true }).count(), 0);
+
+    // A liveness probe refuses input without a frame to say so: on a quiet pane the 1 s poll reads
+    // it, so the terminal shows it waits instead of looking ready while typing goes to the draft.
+    const waiting = page.locator(".terminal-banner", { hasText: "Waiting for terminal input…" });
+    await waiting.waitFor({ state: "hidden" });
+    holdPings = true;
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await until(() => heldPings.length > 0);
+    const probeAt = Date.now();
+    await waiting.waitFor({ timeout: 2_000 });
+    assert(Date.now() - probeAt < 1_800, "the poll reads the refused input within about a second");
+    // the pong ends the probe: input reads ready again
+    holdPings = false;
+    for (const raw of heldPings.splice(0)) toServer!(raw);
+    await waiting.waitFor({ state: "hidden", timeout: 2_000 });
 
     // The line grows over the grid's last rows: neither its growth nor its collapse after Send
     // changes the grid's height, which is the shared pty's size.
