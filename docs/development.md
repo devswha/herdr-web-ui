@@ -482,6 +482,12 @@ every minute a script is still running), and keeps running the other scripts aft
 Each script's full output goes to `${CHECK_DIR:-.ci}/browser-logs/<script>.log`, with
 `summary.json` beside it; a failure prints the last 400 lines of its log and the log's path, and
 the job then fails. CI uploads `browser-logs` with the evidence on success or failure.
+A script that fails is run a second time (`BROWSER_RETRY=0` turns that off). One that then passes
+does not fail the job, and is not counted as a plain pass either: its first log is kept as
+`<script>.attempt-1.log` and printed, the summary marks it `~` and `summary.json` lists it under
+`flaky`, and on GitHub it gets a warning annotation and a line in the job summary. A flaky script
+is a bug to fix in the script or the app, not noise: the second run only keeps one PR's merge
+from waiting on another change's race. A script that fails twice fails the job.
 Under `CI` or with `CHECK_DIR` set, both runners create `UI_EVIDENCE_DIR` at
 `${CHECK_DIR:-.ci}/browser-evidence`. Only the existing sticky-modifier and file-viewer captures
 are enabled automatically: the UI suite and key-bar demo have evidence branches that add
