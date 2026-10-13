@@ -97,7 +97,7 @@ import { mirrorInput } from "./mirror-input.ts";
 import { PendingInputs, PendingInputError, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
-import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
+import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer, wireBytes } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
@@ -1003,7 +1003,7 @@ export function createServer(
     }
     send(client, {
       type: "pty-data", pane_id: paneId, data,
-      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes) } } : {}),
+      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes, wireBytes(data)) } } : {}),
     });
   }
   const push = createPushService({
@@ -2777,7 +2777,7 @@ export function createServer(
               // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
               const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
               if (!alreadyAttached && replay) {
-                client.data.output.get(message.pane_id)?.join(replay);
+                client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
                 sendOutput(client, message.pane_id, replay);
               }
               // a pane waiting for another web bridge to let go says so to each newcomer, too

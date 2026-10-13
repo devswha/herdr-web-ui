@@ -38,11 +38,19 @@ export class OutputWindow {
   private pausingSince: number | undefined;
   /** a joiner's replay is in flight and nothing is acknowledged yet: its budget ends here */
   joinUntil: number | undefined;
+  /** frames sent and not yet acknowledged, oldest first from `head`: where each ends and its size on the wire */
+  private readonly inFlight: { end: number; wire: number }[] = [];
+  private head = 0;
 
   get pending(): number { return this.sent - this.acknowledged; }
 
-  write(bytes: number): number {
+  /**
+   * `wire` is the frame's serialized size (`wireBytes`): the oldest unacknowledged frame must
+   * cross the link before its ACK can come, so the stall deadline grows by its crossing time.
+   */
+  write(bytes: number, wire = 0): number {
     this.sent += bytes;
+    if (wire > 0) this.inFlight.push({ end: this.sent, wire });
     if (this.pending >= OUTPUT_HIGH_BYTES) this.blocked = true;
     return this.sent;
   }
@@ -52,10 +60,11 @@ export class OutputWindow {
    * whole frame has crossed the link and been parsed, which takes a phone on a weak link longer
    * than the stall deadline (moshi-3): until that ACK, the client gets a budget sized to the
    * frame as serialized (`wireBytes`) instead, and is never a reason to pause the pty the other
-   * clients share.
+   * clients share. `ahead` is what the socket already has queued in front of the frame (on a
+   * reconnect every attached pane's replay goes out back to back): it crosses the link first.
    */
-  join(replay: string, now = Date.now()): void {
-    this.joinUntil = now + Math.min(OUTPUT_JOIN_MAX_MS, OUTPUT_STALL_MS + Math.ceil(wireBytes(replay) * 1000 / OUTPUT_JOIN_BYTES_PER_SECOND));
+  join(replay: string, ahead = 0, now = Date.now()): void {
+    this.joinUntil = now + Math.min(OUTPUT_JOIN_MAX_MS, OUTPUT_STALL_MS + crossingMs(ahead + wireBytes(replay)));
   }
 
   acknowledge(id: string, offset: number): boolean {
@@ -65,6 +74,11 @@ export class OutputWindow {
       this.acknowledged = offset;
       this.stalledSince = undefined;
       this.joinUntil = undefined;
+      while (this.head < this.inFlight.length && this.inFlight[this.head]!.end <= offset) this.head++;
+      if (this.head > 64 && this.head * 2 > this.inFlight.length) {
+        this.inFlight.splice(0, this.head);
+        this.head = 0;
+      }
     }
     if (this.pending <= OUTPUT_LOW_BYTES) this.blocked = false;
     return true;
@@ -73,11 +87,16 @@ export class OutputWindow {
   /**
    * Stalls are measured by ACK progress, not by the time since a frame was queued: a client
    * that is still acknowledging is draining, however much it has in flight. `buffered` is the
-   * client's WebSocket send queue, which blocks it as well.
+   * client's WebSocket send queue, which blocks it as well, unless this window has next to
+   * nothing outstanding: the queue is shared by every pane on the socket, and a pane with
+   * nothing to acknowledge can make no ACK progress, so another pane's backlog must not pause
+   * or stop it (that pane's own window answers for it). The deadline is OUTPUT_STALL_MS plus
+   * the time the oldest unacknowledged frame needs to cross a slow link: its ACK cannot come
+   * before then.
    */
   check(buffered: number, now = Date.now()): OutputVerdict {
     if (buffered >= OUTPUT_HARD_BYTES) return "stop";
-    if (!this.blocked && buffered < OUTPUT_HIGH_BYTES) {
+    if (!this.blocked && (buffered < OUTPUT_HIGH_BYTES || this.pending <= OUTPUT_LOW_BYTES)) {
       this.stalledSince = undefined;
       this.pausingSince = undefined;
       return "flow";
@@ -91,8 +110,15 @@ export class OutputWindow {
       this.joinUntil = undefined;
     }
     this.pausingSince ??= now;
-    return now - this.stalledSince >= OUTPUT_STALL_MS || now - this.pausingSince >= OUTPUT_PAUSE_MAX_MS ? "stop" : "pause";
+    const oldest = this.inFlight[this.head];
+    const deadline = OUTPUT_STALL_MS + (oldest ? Math.min(OUTPUT_JOIN_MAX_MS - OUTPUT_STALL_MS, crossingMs(oldest.wire)) : 0);
+    return now - this.stalledSince >= deadline || now - this.pausingSince >= OUTPUT_PAUSE_MAX_MS ? "stop" : "pause";
   }
+}
+
+/** how long `wire` bytes take on the slowest link a budget allows for */
+function crossingMs(wire: number): number {
+  return Math.ceil(wire * 1000 / OUTPUT_JOIN_BYTES_PER_SECOND);
 }
 
 /** DEC private mode switches (CSI ? Pm h / CSI ? Pm l): alternate screen, mouse reporting, ... */
