@@ -7,8 +7,10 @@ import { agentGet, herdrRpc, paneProcessInfo } from "./client.ts";
 // The typed herdr seam (server/herdr/methods.ts). `bun run typecheck` checks the lines marked
 // with ts-expect-error below: each must stay a compile error. They hold for a call without an explicit
 // result type; `herdrRpc<Inline>(…)` still reaches the untyped fallback, which the files in
-// HERDR_RPC_ALLOWED (server/conventions.test.ts) use until PR B moves them, so outside
-// server/herdr/ that guard, not the compiler, keeps server code off herdrRpc.
+// HERDR_RPC_ALLOWED (server/conventions.test.ts) use until a follow-up PR moves them to the
+// wrappers once their open PRs land, so outside server/herdr/ that guard, not the compiler,
+// keeps server code off herdrRpc.
+declare const either: boolean;
 async function typeOnly(): Promise<void> {
   // @ts-expect-error pane.process_info takes pane_id: given target, herdr answers for the focused pane
   await herdrRpc("pane.process_info", { target: "pane-1" });
@@ -16,6 +18,14 @@ async function typeOnly(): Promise<void> {
   await herdrRpc("agent.get", { pane_id: "pane-1" });
   // @ts-expect-error pane.send_text needs its text
   await herdrRpc("pane.send_text", { pane_id: "pane-1" });
+  // @ts-expect-error a union of typed methods would take either method's params
+  await herdrRpc(either ? ("pane.process_info" as const) : ("agent.get" as const), { target: "pane-1" });
+  // Known holes: these still compile, because an explicit result type or a plain-string method
+  // leaves the fallback's `M` at `string`. Splitting the fallback out under its own name (the
+  // follow-up above) turns both into ts-expect-error lines.
+  await herdrRpc<unknown>("pane.process_info", { target: "pane-1" });
+  const widened: string = "pane.process_info";
+  await herdrRpc(widened, { target: "pane-1" });
   const info = await herdrRpc("pane.process_info", { pane_id: "pane-1" });
   const shell: number | null | undefined = info.process_info?.shell_pid;
   const agent = await agentGet("pane-1");

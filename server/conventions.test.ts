@@ -184,8 +184,10 @@ describe("herdr socket", () => {
 
   // Server code calls herdr through the typed wrappers in server/herdr/client.ts (paneProcessInfo,
   // agentGet, paneSendText, paneSendKeys, …), never through herdrRpc itself: the wrapper is where a
-  // method's params are typed (server/herdr/methods.ts), so `{ target }` to pane.process_info no
-  // longer compiles. These files still call herdrRpc because open PRs change them; PR B moves them.
+  // method's params are typed (server/herdr/methods.ts), so `{ target }` to pane.process_info does
+  // not compile there. herdrRpc's untyped fallback still takes any params given an explicit result
+  // type, so this guard is what keeps server code off it. These files still call herdrRpc because
+  // open PRs change them; a follow-up PR moves them to the wrappers once those PRs land.
   const HERDR_RPC_ALLOWED: Record<string, string> = {
     "server/conversation.ts": "open PRs #869 #912 #923 change it",
     "server/gjc-runtime.ts": "open PR #912 changes it",
@@ -193,10 +195,17 @@ describe("herdr socket", () => {
     "server/omo.ts": "open PR #923 changes it",
     "server/shell-agent.ts": "open PRs #885 #923 change it",
   };
+  // Files that do not call herdrRpc on main yet but whose open PR adds a `pane.process_info` call.
+  // They are exempt from the "no longer calls" check below. Remove an entry when its PR switches to
+  // paneProcessInfo(paneId) (the better outcome), merges, or closes.
+  const HERDR_RPC_PENDING: Record<string, string> = {
+    "server/gjc-status.ts": "open PR #928 adds a call",
+    "server/index.ts": "open PR #859 adds a call",
+  };
 
   it("calls herdrRpc only inside server/herdr/", () => {
     const uses = matches(serverCode().filter((file) => !file.startsWith("server/herdr/")), /\bherdrRpc\b/);
-    fail(uses.filter((use) => !(use.file in HERDR_RPC_ALLOWED)).map((use) => use.at),
+    fail(uses.filter((use) => !(use.file in HERDR_RPC_ALLOWED) && !(use.file in HERDR_RPC_PENDING)).map((use) => use.at),
       "Do not call herdrRpc outside server/herdr/: add a typed wrapper in server/herdr/client.ts (its method in HerdrMethods, server/herdr/methods.ts) and call that; for pane status use the server/collector.ts listeners. Files waiting on open PRs are listed in HERDR_RPC_ALLOWED in server/conventions.test.ts; do not add new ones.");
     const users = new Set(uses.map((use) => use.file));
     fail(Object.keys(HERDR_RPC_ALLOWED).filter((file) => !users.has(file)),

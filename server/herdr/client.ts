@@ -12,7 +12,7 @@ import type {
   PaneFindMatch,
 } from "../../shared/protocol.ts";
 import type { AgentInfo, AgentManifestInfo, AgentStartParams, PaneInfo, PaneLayoutSnapshot, PaneMoveParams, PaneMoveResult, PaneProcessInfo, PaneScrollInfo, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
-import type { HerdrMethod, HerdrMethods, UntypedHerdrMethod } from "./methods.ts";
+import type { HerdrMethod, HerdrMethods, SingleHerdrMethod, UntypedHerdrMethod } from "./methods.ts";
 import type { HerdrIdentity } from "../../shared/machines.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -83,7 +83,7 @@ function makeLineReader(onLine: (line: string) => void): (chunk: Uint8Array) => 
  * answers false sends nothing and rejects with `cancelled`.
  */
 export function herdrRpc<M extends HerdrMethod>(
-  method: M,
+  method: SingleHerdrMethod<M>,
   params: HerdrMethods[M]["params"],
   socketPath?: string,
   timeoutMs?: number,
@@ -92,7 +92,11 @@ export function herdrRpc<M extends HerdrMethod>(
 /**
  * Untyped fallback for a method `HerdrMethods` does not list yet. Outside server/herdr/ only
  * tests, scripts and the files in HERDR_RPC_ALLOWED (server/conventions.test.ts) may call it;
- * server code adds a typed wrapper here instead.
+ * server code adds a typed wrapper here instead. It rejects a typed method only when `M` is
+ * inferred from a literal: with an explicit result type (`herdrRpc<T>("pane.process_info", …)`)
+ * or a method typed as plain `string`, `M` is `string` and any params compile. Closing that
+ * needs this fallback under its own name, left to the follow-up PR that moves the
+ * HERDR_RPC_ALLOWED files to the wrappers once their open PRs land.
  */
 export function herdrRpc<T = unknown, M extends string = string>(
   method: UntypedHerdrMethod<M>,
