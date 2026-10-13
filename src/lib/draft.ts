@@ -62,14 +62,15 @@ const LINE_BREAKS = /[\r\n]+/g;
 /**
  * Folds one onData chunk into the draft: printable text accumulates, a paste by the text
  * inside its bracketed-paste frames, a tab in it held as a space so Send never completes.
- * Backspace deletes the last code point held, so the draft matches what was typed; once text was
- * left out for want of room, Backspace may be meant for that text, so it no longer edits the
+ * Backspace deletes the last code point held, so the draft matches what was typed, and erasing
+ * all of it clears the draft, left-out break included; once text was left out for want of room, Backspace may be meant for that text, so it no longer edits the
  * draft. An Enter or a line break is never held, because Send must never run a command: the text
  * on either side is kept, a space where the break was, and the draft says that a break was left
  * out. A break with no text to separate (Enter on an empty draft) changes nothing. A chunk with
  * other controls is left out and not told: arrows and the answers xterm gives a program by itself
- * (cursor position, focus, mouse) are not text the user typed; a paste or a multi-line chunk
- * with controls is told as left out. Text the draft has no room for is left out whole, never cut in the middle of what was
+ * (cursor position, focus, mouse) are not text the user typed, and neither is a typed chunk with
+ * ESC in it even when it ends in CR (Shift+Enter, Alt+Enter); a paste or a multi-line chunk with
+ * other controls is told as left out. Text the draft has no room for is left out whole, never cut in the middle of what was
  * typed, and the draft says so.
  */
 export function applyToDraft(draft: InputDraft, data: string): InputDraft {
@@ -81,10 +82,16 @@ export function applyToDraft(draft: InputDraft, data: string): InputDraft {
   if (erase > 0) {
     // after a loss the draft cannot tell which text a Backspace was meant for: it keeps what it holds
     // code points, not UTF-16 units: one Backspace never leaves half of an emoji behind
-    if (!draft.truncated) next = { ...draft, text: Array.from(draft.text).slice(0, -erase).join("") };
+    if (!draft.truncated) {
+      const kept = Array.from(draft.text).slice(0, -erase).join("");
+      // erased to nothing: a line break left out between text that is gone separates nothing either
+      next = kept.length === 0 ? EMPTY_DRAFT : { ...draft, text: kept };
+    }
     text = text.slice(erase);
-    if (text.length === 0) return next.text === draft.text ? draft : next;
+    if (text.length === 0) return next.text === draft.text && next.leftOut === draft.leftOut ? draft : next;
   }
+  // a typed chunk with ESC is a key sequence (Shift+Enter or Alt+Enter is ESC CR), not text: never held, never told
+  if (pasted === undefined && text.includes("\x1b")) return next;
   if (/[\r\n]/.test(text)) {
     let joined = text.replace(LINE_BREAKS, " ");
     if (next.text.length === 0 || next.text.endsWith(" ")) joined = joined.replace(/^ /, "");

@@ -38,6 +38,22 @@ describe("applyToDraft", () => {
     expect(draft).toEqual({ text: "ls pwd", truncated: false, leftOut: true });
   });
 
+  it("holds and tells nothing for a typed ESC CR: Shift+Enter or Alt+Enter is a key, not a line break", () => {
+    expect(applyToDraft(EMPTY_DRAFT, "\x1b\r")).toBe(EMPTY_DRAFT);
+    expect(applyToDraft(EMPTY_DRAFT, "\x1b\n")).toBe(EMPTY_DRAFT);
+    const held = { text: "ls", truncated: false, leftOut: false };
+    expect(applyToDraft(held, "\x1b\r")).toBe(held);
+    // nothing is flagged, so a Backspace after it still edits the draft
+    expect(["ls", "\x1b\r", "\x7f", "x"].reduce(applyToDraft, EMPTY_DRAFT)).toEqual({ text: "lx", truncated: false, leftOut: false });
+  });
+
+  it("clears the left-out break with the text when Backspace erases everything held", () => {
+    expect(["ls", "\r", "\x7f", "\x7f", "\x7f"].reduce(applyToDraft, EMPTY_DRAFT)).toEqual(EMPTY_DRAFT);
+    expect(applyToDraft({ text: "a ", truncated: false, leftOut: true }, "\x7f\x7fb")).toEqual({ text: "b", truncated: false, leftOut: false });
+    // text still held keeps the break told
+    expect(applyToDraft({ text: "a b", truncated: false, leftOut: true }, "\x7f")).toEqual({ text: "a ", truncated: false, leftOut: true });
+  });
+
   it("changes nothing for an Enter with nothing held: there is no text it separates", () => {
     // Enter pressed on a frozen terminal to see if it answers must not leave an empty notice behind
     expect(applyToDraft(EMPTY_DRAFT, "\r")).toBe(EMPTY_DRAFT);

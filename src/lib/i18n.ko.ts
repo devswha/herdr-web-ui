@@ -666,7 +666,7 @@ export const KO: Record<string, string> = {
   "Open here": "여기서 열기",
   "Take this pane from another web app or terminal attach. That connection will close.": "다른 웹 앱이나 terminal attach에서 이 패널을 가져옵니다. 그쪽 연결은 종료됩니다.",
   "Input held until the terminal is ready:": "터미널 입력 준비까지 보관한 내용:",
-  "Some input was too long to hold and was left out.": "입력이 너무 길어 일부는 보관하지 못했습니다.",
+  "Some input could not be held and was left out.": "일부 입력은 보관하지 못해 빠졌습니다.",
   "An Enter or line break was left out: Send never presses Enter.": "Enter나 줄바꿈은 보관하지 않았습니다. 보내기는 Enter를 누르지 않습니다.",
   "Send": "보내기",
   "Discard": "버리기",
