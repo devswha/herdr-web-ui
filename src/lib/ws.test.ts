@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from "bun:test";
+import { afterAll, beforeAll, expect, it, jest } from "bun:test";
 import { HerdrSocket } from "./ws.ts";
 import type { PendingMessage } from "../../shared/protocol.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
@@ -656,4 +656,62 @@ it("does not wake a connection whose output stopped, nor one that was closed", (
   client.close();
   client.wake();
   expect(FakeSocket.last).toBe(socket);
+});
+
+it("gives up a connect attempt stuck in CONNECTING after its deadline and starts a new one", () => {
+  jest.useFakeTimers();
+  const client = new HerdrSocket("ws://test/ws");
+  try {
+    let disconnects = 0;
+    client.onDisconnect(() => { disconnects++; });
+    client.connect();
+    const stuck = FakeSocket.last;
+    jest.advanceTimersByTime(7_999);
+    expect(FakeSocket.last).toBe(stuck);
+    jest.advanceTimersByTime(1);
+    // closed by the client itself, without waiting for a close event that may never come
+    expect(stuck.readyState).toBe(3);
+    expect(disconnects).toBe(1);
+    jest.advanceTimersByTime(250);
+    const retry = FakeSocket.last;
+    expect(retry).not.toBe(stuck);
+    // the late close event of the abandoned attempt changes nothing
+    stuck.disconnect();
+    expect(disconnects).toBe(1);
+    retry.open();
+    // an open connection has no deadline
+    jest.advanceTimersByTime(60_000);
+    expect(FakeSocket.last).toBe(retry);
+    expect(retry.readyState).toBe(FakeSocket.OPEN);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("connects at once when the page wakes with a closed socket and no reconnect waiting", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  let disconnects = 0;
+  client.onDisconnect(() => { disconnects++; });
+  client.connect();
+  const frozen = FakeSocket.last;
+  frozen.open();
+  // the page froze: the socket died and its close event has not run, so no reconnect is scheduled
+  frozen.close();
+  client.wake();
+  const woken = FakeSocket.last;
+  expect(woken).not.toBe(frozen);
+  expect(disconnects).toBe(1);
+  // its close event arriving afterwards is the old connection's and ends nothing
+  frozen.disconnect();
+  expect(disconnects).toBe(1);
+  // a socket still connecting is left to its own attempt
+  client.wake();
+  expect(FakeSocket.last).toBe(woken);
+  woken.open();
+  // and an open one is left alone
+  client.wake();
+  expect(FakeSocket.last).toBe(woken);
+  expect(woken.readyState).toBe(FakeSocket.OPEN);
+  client.close();
 });

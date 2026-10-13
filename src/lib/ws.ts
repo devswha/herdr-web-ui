@@ -18,6 +18,12 @@ const SNAPSHOT_WAIT_MS = 2000;
  * message the client gave up on is never submitted later.
  */
 const SUBMIT_TIMEOUT_MS = 90_000;
+/**
+ * A connect attempt that has neither opened nor failed by now is given up and retried: a phone
+ * that wakes on a dead network (or a tunnel that drops the handshake) can leave a socket in
+ * CONNECTING for minutes, and nothing else would ever start a new attempt.
+ */
+const CONNECT_TIMEOUT_MS = 8_000;
 const DISCONNECTED: SubmitResult = { ok: false, code: "disconnected", message: "the connection dropped before the pane confirmed this message" };
 
 interface AttachState {
@@ -62,6 +68,8 @@ export class HerdrSocket {
   private readonly conversationWanted = new Set<string>();
   private retries = 0;
   private reconnectTimer: number | null = null;
+  /** the deadline of the attempt still in CONNECTING */
+  private connectTimer: number | null = null;
   private disposed = false;
   private wakeListening = false;
   /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
@@ -105,8 +113,17 @@ export class HerdrSocket {
     this.outputSeen.clear();
     this.snapshotKnown = false;
     this.snapshotSeen = new Promise((resolve) => { this.markSnapshot = resolve; });
+    this.clearConnectTimer();
+    this.connectTimer = window.setTimeout(() => {
+      this.connectTimer = null;
+      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      socket.close();
+      // the close event of an attempt that never opened may come late or not at all: end it here
+      this.closed(socket, 1006);
+    }, CONNECT_TIMEOUT_MS);
 
     socket.addEventListener("open", () => {
+      if (this.socket === socket) this.clearConnectTimer();
       this.retries = 0;
       // always send the role, never only when non-default: a user can flip the role
       // while disconnected (setMode stores it without sending), so without this frame
@@ -183,23 +200,33 @@ export class HerdrSocket {
       for (const paneId of unwatched) this.emit({ type: "watch-end", pane_id: paneId });
     });
 
-    socket.addEventListener("close", (event) => {
-      if (this.socket !== socket) return;
-      this.socket = null;
-      for (const handler of this.disconnectHandlers) handler();
-      this.markSnapshot();
-      this.settleSubmits(DISCONNECTED);
-      if (event.code === OUTPUT_STALLED_CLOSE_CODE) {
-        this.outputStopped = true;
-        this.emit({ type: "error", code: "output_stalled", message: "Terminal output stopped because this device could not keep up." });
-        return;
-      }
-      this.scheduleReconnect();
-    });
+    socket.addEventListener("close", (event) => this.closed(socket, event.code));
 
     socket.addEventListener("error", () => {
       socket.close();
     });
+  }
+
+  /** The end of this connection, from its close event or a connect deadline; a stale socket's is ignored. */
+  private closed(socket: WebSocket, code: number): void {
+    if (this.socket !== socket) return;
+    this.socket = null;
+    this.clearConnectTimer();
+    for (const handler of this.disconnectHandlers) handler();
+    this.markSnapshot();
+    this.settleSubmits(DISCONNECTED);
+    if (code === OUTPUT_STALLED_CLOSE_CODE) {
+      this.outputStopped = true;
+      this.emit({ type: "error", code: "output_stalled", message: "Terminal output stopped because this device could not keep up." });
+      return;
+    }
+    this.scheduleReconnect();
+  }
+
+  private clearConnectTimer(): void {
+    if (this.connectTimer === null) return;
+    window.clearTimeout(this.connectTimer);
+    this.connectTimer = null;
   }
 
   private listenForWake(): void {
@@ -212,12 +239,18 @@ export class HerdrSocket {
 
   /**
    * A phone that slept or went to the background comes back with its socket closed and a
-   * reconnect timer that may have backed off to its 5s cap. Waking skips that wait and starts
-   * again from the shortest delay. A stopped output stays stopped: only an attach resumes it.
+   * reconnect timer that may have backed off to its 5s cap, or with a socket that closed while
+   * the page was frozen and whose close event has not run yet (so no timer at all). Waking skips
+   * the wait and starts again from the shortest delay; a connection that is open or still
+   * connecting is left alone (connect() ignores it). A stopped output stays stopped: only an
+   * attach resumes it.
    */
   wake(): void {
-    if (this.disposed || this.outputStopped || this.reconnectTimer === null) return;
-    window.clearTimeout(this.reconnectTimer);
+    if (this.disposed || this.outputStopped) return;
+    // a dead socket whose close event is still on its way ends now, so its submits and listeners settle
+    const socket = this.socket;
+    if (socket && socket.readyState !== WebSocket.OPEN && socket.readyState !== WebSocket.CONNECTING) this.closed(socket, 1006);
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.retries = 0;
     this.connect();
@@ -510,6 +543,7 @@ export class HerdrSocket {
     this.disposed = true;
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.clearConnectTimer();
     if (this.wakeListening) {
       window.removeEventListener("online", this.onWake);
       window.removeEventListener("pageshow", this.onWake);
