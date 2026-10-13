@@ -1440,6 +1440,13 @@ try {
   workspaces.push(repoWorkspace.workspace.workspace_id);
   const repoRow = workspaceHeader(repoWorkspace.workspace.workspace_id);
   await repoRow.waitFor();
+  // herdr has not marked this workspace as a repository's yet: its row is where the first worktree starts
+  await repoRow.hover();
+  await repoRow.locator(".row-menu-toggle").click();
+  const unmarkedRepoMenu = page.getByRole("menu");
+  await unmarkedRepoMenu.getByRole("menuitem", { name: "New worktree", exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await unmarkedRepoMenu.waitFor({ state: "detached" });
   const initialResponse = await fetch(`${origin}/api/worktree/create`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ workspace_id: repoWorkspace.workspace.workspace_id, branch: "browser/initial", label: "Existing checkout" }),

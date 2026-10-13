@@ -2085,6 +2085,11 @@ export function createServer(
             ...(agent ? await agentLaunch(opened.root_pane.pane_id, agent) : {}),
           });
         } catch (error) {
+          // git's own words for a branch that has no commit yet (a folder just `git init`ed): with no
+          // base named there is nothing to check out from, which the dialog says in its own words
+          if (creating && base === undefined && error instanceof HerdrError && error.code === "worktree_create_failed" && /invalid reference: HEAD\b/u.test(error.message)) {
+            return conflictResponse("repository_without_commits", "the repository has no commits yet");
+          }
           return errorResponse(error);
         }
       }

@@ -264,6 +264,7 @@ export const TR: Record<string, string> = {
   "A branch, tag or commit; HEAD when empty. Ignored when the branch exists.": "Dal, etiket veya commit; boş bırakılırsa HEAD kullanılır. Dal zaten varsa bu değer yok sayılır.",
   "Creating the checkout…": "Çalışma kopyası oluşturuluyor…",
   "Create worktree": "Worktree oluştur",
+  "This repository has no commits yet. Make its first commit, then a worktree.": "Bu depoda henüz commit yok. Önce ilk commit'i oluşturun, sonra çalışma ağacını.",
   "Reading worktrees…": "Worktree'ler okunuyor…",
   "No other worktrees of this repository.": "Bu deponun başka worktree'si yok.",
   "Already open": "Zaten açık",

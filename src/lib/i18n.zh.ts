@@ -281,6 +281,7 @@ export const ZH: Record<string, string> = {
   "A branch, tag or commit; HEAD when empty. Ignored when the branch exists.": "分支、标签或提交；留空为 HEAD。分支已存在时忽略。",
   "Creating the checkout…": "正在创建检出…",
   "Create worktree": "创建工作树",
+  "This repository has no commits yet. Make its first commit, then a worktree.": "此仓库还没有任何提交。请先创建首次提交，再创建工作树。",
   "Reading worktrees…": "正在读取工作树…",
   "No other worktrees of this repository.": "此仓库没有其他工作树。",
   "Already open": "已打开",

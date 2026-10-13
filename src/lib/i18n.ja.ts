@@ -279,6 +279,7 @@ export const JA: Record<string, string> = {
   "A branch, tag or commit; HEAD when empty. Ignored when the branch exists.": "ブランチ、タグ、またはコミット。空なら HEAD。ブランチが既にある場合は無視されます。",
   "Creating the checkout…": "チェックアウトを作成しています…",
   "Create worktree": "ワークツリーを作成",
+  "This repository has no commits yet. Make its first commit, then a worktree.": "このリポジトリにはまだコミットがありません。最初のコミットを作成してからワークツリーを作成してください。",
   "Reading worktrees…": "ワークツリーを読み込んでいます…",
   "No other worktrees of this repository.": "このリポジトリに他のワークツリーはありません。",
   "Already open": "開いています",

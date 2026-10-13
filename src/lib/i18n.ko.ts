@@ -277,6 +277,7 @@ export const KO: Record<string, string> = {
   "A branch, tag or commit; HEAD when empty. Ignored when the branch exists.": "브랜치, 태그 또는 커밋. 비우면 HEAD. 브랜치가 이미 있으면 무시됩니다.",
   "Creating the checkout…": "체크아웃 만드는 중…",
   "Create worktree": "워크트리 만들기",
+  "This repository has no commits yet. Make its first commit, then a worktree.": "이 저장소에는 아직 커밋이 없습니다. 첫 커밋을 만든 뒤 워크트리를 만드세요.",
   "Reading worktrees…": "워크트리 읽는 중…",
   "No other worktrees of this repository.": "이 저장소에 다른 워크트리가 없습니다.",
   "Already open": "이미 열림",

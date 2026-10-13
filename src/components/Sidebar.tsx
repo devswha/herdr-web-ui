@@ -176,7 +176,19 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   // a DONE looked at here reads as ready with Quiet opened finishes on (lib/sidebarActivity.tsx)
   const activity = useSidebarActivity();
   const { branches, rememberOpened } = useWorktreeBranches(snapshot, online, true);
-  const { closeWorkspace, moveWorkspace, removeWorktree, renameWorkspace } = useMachineApi();
+  const { closeWorkspace, listWorktrees, moveWorkspace, removeWorktree, renameWorkspace } = useMachineApi();
+  // herdr marks only a workspace it opened as a worktree. One made on a repository's folder has no
+  // `worktree`, and it is where the first worktree starts: each is asked once whether git answers
+  // for it, again only when the set of such workspaces changes.
+  const unmarked = (snapshot?.workspaces ?? []).filter((workspace) => !workspace.worktree).map((workspace) => workspace.workspace_id).join("\n");
+  const [repositoryWorkspaces, setRepositoryWorkspaces] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!online || unmarked === "") { setRepositoryWorkspaces(new Set()); return; }
+    let live = true;
+    void Promise.all(unmarked.split("\n").map((id) => listWorktrees(id).then(() => id, () => null)))
+      .then((found) => { if (live) setRepositoryWorkspaces(new Set(found.filter((id) => id !== null))); });
+    return () => { live = false; };
+  }, [listWorktrees, unmarked, online]);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [worktreeDialog, setWorktreeDialog] = useState<{ mode: WorktreeDialogMode; workspace: WorkspaceInfo } | null>(null);
@@ -331,7 +343,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     // worktree workspaces close with it, which herdr refuses without close_group
     const linked = workspace.worktree?.is_linked_worktree === true;
     const worktrees = linked ? [] : (snapshot?.workspaces.filter((candidate) => candidate.worktree?.is_linked_worktree && candidate.worktree.repo_key === workspace.worktree?.repo_key) ?? []);
-    const worktreeItems: RowMenuItem[] = workspace.worktree && !linked ? [
+    const worktreeItems: RowMenuItem[] = (workspace.worktree || repositoryWorkspaces.has(workspace.workspace_id)) && !linked ? [
       { id: "new-worktree", label: t("New worktree"), icon: GitBranch, run: () => setWorktreeDialog({ mode: "create", workspace }) },
       { id: "open-worktree", label: t("Open worktree…"), icon: FolderOpen, run: () => setWorktreeDialog({ mode: "open", workspace }) },
     ] : [];
