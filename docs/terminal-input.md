@@ -51,6 +51,7 @@ draft is replayed on reconnect. The input-line and chat Send buttons preserve an
 The key bar waits only for a direct-typing (xterm) composition, so a key cannot overtake xterm's
 pending commit. A composition in the input line leaves the key bar live: Esc, ^C and the arrows
 go to the pane at once, Ctrl, Alt and Shift arm, and the line's unfinished text stays where it is.
+Only the switch to direct typing waits for it, so the line is not removed mid-word.
 
 The key bar defaults to Esc, Tab, ^C, Ctrl, Alt, Shift, Enter and the arrows. Esc, Tab and ^C
 come first so they stay reachable without scrolling on narrow phones.
@@ -104,7 +105,7 @@ The new readiness frame is also implemented in the website demo transport.
   client rejection, attach refusal/resume, mirror ordering, disconnect and sidecar lifecycle.
 - `bun run build && bun scripts/terminal-input-regression.ts`: focused browser checks for desktop
   mode switching, pane and reload persistence, an unfinished composition, unmount during composition,
-  phone key-bar Esc and ^C while the input line composes,
+  phone key-bar Esc and ^C (and a held direct-typing toggle) while the input line composes,
   pending-send remounts, replacement text, shortcut customization, first held-input persistence,
   readiness delay, an xterm composition commit, batched commits before punctuation, and Korean
   final-consonant movement. Submit/input interception isolates UI assertions;
