@@ -8,8 +8,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
-- Choose automatic chat focus (Auto/On/Off), including on an iPad with an external keyboard, and focus the selected chat or terminal input with the customizable Mod+Shift+E shortcut.
-
 - **Settings → Phone & devices → Portal** gives this PC a public HTTPS address through
   [Portal](https://github.com/gosuda/portal-tunnel), with no account and no domain of your own.
   With Portal v2.6.1 or later installed, **Start** runs it on a relay you enter, dropping any
