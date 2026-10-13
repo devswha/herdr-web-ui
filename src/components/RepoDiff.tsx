@@ -1,11 +1,12 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_VIRTUAL_FILE_METRICS, parsePatchFiles, trimPatchContext, type FileDiffMetadata } from "@pierre/diffs";
-import { FileDiff, Virtualizer, WorkerPoolContextProvider, type FileDiffOptions } from "@pierre/diffs/react";
+import { FileDiff, Virtualizer, type FileDiffOptions } from "@pierre/diffs/react";
 
+import { DiffWorkerPool } from "./DiffWorkerPool.tsx";
 import { useT } from "../lib/i18n.ts";
 import type { DiffStyle } from "../lib/settings.ts";
 import { VIRTUAL_HIGHLIGHT_LINES } from "../lib/sourcePreview.ts";
-import { contentKey, HIGHLIGHTER_OPTIONS, keepEmptyRows, POOL_OPTIONS, SCROLL_CONFIG, SHADOW_CSS, SOURCE_THEME } from "../lib/sourceTheme.ts";
+import { contentKey, keepEmptyRows, SCROLL_CONFIG, SHADOW_CSS, SOURCE_THEME } from "../lib/sourceTheme.ts";
 import "./RepoDiff.css";
 
 export interface RepoDiffProps {
@@ -92,6 +93,6 @@ export default function RepoDiff({ patch, style, folded, wrap, theme, colored }:
     {metrics !== null && <FileDiff className="repo-diff-file" fileDiff={fileDiff} options={options} metrics={metrics} disableWorkerPool={!colored} />}
   </Virtualizer>;
   return <div ref={hostRef} className="repo-diff" data-style={style} data-colored={colored ? "" : undefined} data-folded={folded ? "" : undefined}>
-    {colored ? <WorkerPoolContextProvider poolOptions={POOL_OPTIONS} highlighterOptions={HIGHLIGHTER_OPTIONS}>{rows}</WorkerPoolContextProvider> : rows}
+    {colored ? <DiffWorkerPool>{rows}</DiffWorkerPool> : rows}
   </div>;
 }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FolderSearch, X } from "lucide-react";
 
 import "./FilesDialog.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -20,13 +20,15 @@ export interface FilesDialogProps {
   viewing: boolean;
   onOpenFile: (path: string) => void;
   onOpenDiff: (comparison: RepoComparison, file: RepoDiffFile) => void;
+  /** the command palette, already browsing this folder (it opens above this dialog) */
+  onBrowseFolders: (path: string) => void;
   onClose: () => void;
 }
 
 type Tab = "browse" | "changes";
 
 /** The files of the pane's folder (and any other), each opened in the file viewer, and the changes of its repository, each opened as a diff. */
-export function FilesDialog({ start, paneId, viewing, onOpenFile, onOpenDiff, onClose }: FilesDialogProps) {
+export function FilesDialog({ start, paneId, viewing, onOpenFile, onOpenDiff, onBrowseFolders, onClose }: FilesDialogProps) {
   const t = useT();
   const surface = useFocusTrap<HTMLElement>(true);
   const [tab, setTab] = useState<Tab>("browse");
@@ -46,6 +48,9 @@ export function FilesDialog({ start, paneId, viewing, onOpenFile, onOpenDiff, on
     setTab(next);
     if (next === "changes") setChangesVisited(true);
   };
+  // the folder the browser shows now (it tells each one it opens), else the one the dialog opened at
+  const folder = useRef<string | null>(null);
+  const browseFolders = (): void => onBrowseFolders(folder.current ?? (start || "~"));
   return (
     <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section ref={surface} className="modal files-dialog" role="dialog" aria-modal="true" aria-labelledby="files-dialog-title" tabIndex={-1}>
@@ -55,10 +60,11 @@ export function FilesDialog({ start, paneId, viewing, onOpenFile, onOpenDiff, on
             <button type="button" aria-pressed={tab === "browse"} onClick={() => show("browse")}>{t("Browse")}</button>
             <button type="button" aria-pressed={tab === "changes"} onClick={() => show("changes")}>{t("Changes")}</button>
           </div>
+          <button type="button" className="icon-button" aria-label={t("Browse folders in the palette")} title={t("Browse folders in the palette")} onClick={browseFolders}><FolderSearch aria-hidden="true" /></button>
           <button type="button" className="icon-button" aria-label={t("Close files")} onClick={onClose}><X aria-hidden="true" /></button>
         </header>
         <div className="modal-body">
-          <div hidden={tab !== "browse"}><DirectoryBrowser start={start} onOpenFile={onOpenFile} /></div>
+          <div hidden={tab !== "browse"}><DirectoryBrowser start={start} onOpenFile={onOpenFile} onFolder={(path) => { folder.current = path; }} /></div>
           {changesVisited && <div hidden={tab !== "changes"}><RepoChanges paneId={paneId} directory={start} onOpenDiff={onOpenDiff} /></div>}
         </div>
       </section>

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_VIRTUAL_FILE_METRICS, type FileContents, type VirtualizedFile, type Virtualizer as VirtualizerInstance } from "@pierre/diffs";
-import { File, useVirtualizer, Virtualizer, WorkerPoolContextProvider, type FileOptions } from "@pierre/diffs/react";
+import { File, useVirtualizer, Virtualizer, type FileOptions } from "@pierre/diffs/react";
 
+import { DiffWorkerPool } from "./DiffWorkerPool.tsx";
 import { VIRTUAL_HIGHLIGHT_LINES } from "../lib/sourcePreview.ts";
-import { contentKey, HIGHLIGHTER_OPTIONS, keepEmptyRows, POOL_OPTIONS, SCROLL_CONFIG, SHADOW_CSS, SOURCE_THEME } from "../lib/sourceTheme.ts";
+import { contentKey, keepEmptyRows, SCROLL_CONFIG, SHADOW_CSS, SOURCE_THEME } from "../lib/sourceTheme.ts";
 import "./VirtualSource.css";
 
 export interface VirtualSourceProps {
@@ -224,6 +225,6 @@ export default function VirtualSource({ name, text, colored, wrap, theme, marked
     {metrics !== null && <File className="virtual-source-file" file={file} options={options} metrics={metrics} selectedLines={selected} disableWorkerPool={!colored} />}
   </Virtualizer>;
   return <div ref={hostRef} className="virtual-source" data-colored={colored ? "" : undefined}>
-    {colored ? <WorkerPoolContextProvider poolOptions={POOL_OPTIONS} highlighterOptions={HIGHLIGHTER_OPTIONS}>{rows}</WorkerPoolContextProvider> : rows}
+    {colored ? <DiffWorkerPool>{rows}</DiffWorkerPool> : rows}
   </div>;
 }

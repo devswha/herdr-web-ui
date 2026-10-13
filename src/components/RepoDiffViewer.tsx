@@ -1,8 +1,9 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Columns2, Copy, FileText, FoldVertical, Rows3, TriangleAlert, X } from "lucide-react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Check, Columns2, Copy, CopySlash, FileText, FoldVertical, Rows3, TriangleAlert, X } from "lucide-react";
 
 import "./RepoDiffViewer.css";
 import { RenderBoundary } from "./RenderBoundary.tsx";
+import { Skeleton } from "./Skeleton.tsx";
 
 import type { RepoDiffFilePatch } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
@@ -14,6 +15,7 @@ import { useMachineApi } from "../lib/machineContext.tsx";
 import { comparisonWord, diffColorable, diffErrorMessage, diffStyleFor, repositoryFilePath, statusWord, unavailableMessage, type RepoDiffTarget } from "../lib/repoDiff.ts";
 import { useSettings } from "../lib/settings.ts";
 import { SHEET_QUERY, useSheetSwipe } from "../lib/sheets.ts";
+import { skeletonRows } from "../lib/skeleton.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 
@@ -31,30 +33,47 @@ export interface RepoDiffViewerProps {
 type Load = { status: "pending" } | { status: "failed"; error: unknown } | { status: "ready"; answer: RepoDiffFilePatch };
 const PENDING: Load = { status: "pending" };
 
-/** Copies the patch as git printed it; without a clipboard, shows it as a selected text box instead. */
-function CopyPatchButton({ text, onShowText }: { text: string; onShowText: () => void }) {
-  const t = useT();
+/** the text shown as one selected box when the clipboard is out of reach: the patch, or the file's path */
+type Shown = { kind: "patch" | "path"; text: string };
+
+/** Copies a text (disabled until there is one); without a clipboard, hands it over to be shown as a selected text box instead. */
+function CopyButton({ text, label, doneLabel, icon, onShowText }: { text: string | null; label: string; doneLabel: string; icon: ReactNode; onShowText: (text: string) => void }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
     const timer = window.setTimeout(() => setCopied(false), 1500);
     return () => window.clearTimeout(timer);
   }, [copied]);
-  const label = copied ? t("Patch copied") : t("Copy patch");
+  const name = copied ? doneLabel : label;
   const copy = async (): Promise<void> => {
+    if (text === null) return;
     if (await copyText(text)) setCopied(true);
-    else onShowText();
+    else onShowText(text);
   };
-  return <button type="button" className="icon-button repo-diff-action" aria-label={label} title={label} onClick={() => void copy()}>
-    {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+  return <button type="button" className="icon-button repo-diff-action" aria-label={name} title={name} disabled={text === null} onClick={() => void copy()}>
+    {copied ? <Check aria-hidden="true" /> : icon}
   </button>;
+}
+
+const DIFF_SKELETON_ROWS = 6;
+
+/** Rows the size of a diff's, a number and a line each, while the patch is read or its viewer loads: the dialog holds its shape. */
+function DiffSkeleton({ label }: { label: string }) {
+  return <div className="repo-diff-loading" role="status">
+    <span className="visually-hidden">{label}</span>
+    {skeletonRows(DIFF_SKELETON_ROWS).map((width, index) => <div key={index} className="repo-diff-loading-row" aria-hidden="true">
+      <Skeleton className="repo-diff-loading-number" />
+      <Skeleton width={width} />
+    </div>)}
+  </div>;
 }
 
 /**
  * One changed file of a repository, compared as the Changes list was: its patch as a window of
  * rows, unified or side by side (Settings → File viewer, one column on a phone), with the context
- * around each change folded to a line or shown whole, the file's status and counts in the header,
- * the file itself a tap away in the file viewer, and the patch copied as git printed it.
+ * around each change folded to a line or shown whole, the file's status and counts in the header
+ * (their places kept while the patch is on its way), the file itself a tap away in the file viewer,
+ * and the patch copied as git printed it, or the file's path on its own.
  */
 export function RepoDiffViewer({ target, onClose, onOpenFile, keyboardActive = true }: RepoDiffViewerProps) {
   const t = useT();
@@ -64,8 +83,7 @@ export function RepoDiffViewer({ target, onClose, onOpenFile, keyboardActive = t
   const narrow = useMediaQuery(SHEET_QUERY);
   const [load, setLoad] = useState<Load>(PENDING);
   const [folded, setFolded] = useState(false);
-  // the patch as one text box, selected, for Copy when the clipboard is out of reach
-  const [selectable, setSelectable] = useState(false);
+  const [shown, setShown] = useState<Shown | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   useSheetSwipe(surface, onClose);
 
@@ -73,7 +91,7 @@ export function RepoDiffViewer({ target, onClose, onOpenFile, keyboardActive = t
   useEffect(() => {
     let live = true;
     setLoad(PENDING);
-    setSelectable(false);
+    setShown(null);
     fetchRepoDiffFile({ paneId, directory, scope, base, head }, path, oldPath).then(
       (answer) => { if (live) setLoad({ status: "ready", answer }); },
       (error: unknown) => { if (live) setLoad({ status: "failed", error }); },
@@ -89,10 +107,10 @@ export function RepoDiffViewer({ target, onClose, onOpenFile, keyboardActive = t
   }, [onClose, keyboardActive, surface]);
 
   useLayoutEffect(() => {
-    if (!selectable) return;
+    if (shown === null) return;
     textRef.current?.focus();
     textRef.current?.select();
-  }, [selectable]);
+  }, [shown]);
 
   const answer = load.status === "ready" ? load.answer : null;
   const file = answer?.file ?? null;
@@ -109,16 +127,16 @@ export function RepoDiffViewer({ target, onClose, onOpenFile, keyboardActive = t
   const openable = answer !== null && file !== null && file.status !== "deleted";
 
   const body = (() => {
-    if (load.status === "pending") return <p className="repo-diff-note">{t("Opening…")}</p>;
+    if (shown !== null) return <textarea ref={textRef} className="repo-diff-select-source" readOnly value={shown.text} aria-label={shown.kind === "patch" ? t("Patch") : t("Path")} spellCheck={false} />;
+    if (load.status === "pending") return <DiffSkeleton label={t("Opening…")} />;
     if (load.status === "failed") {
       const stale = load.error instanceof ApiError && load.error.status === 404 && load.error.code === "not_found";
       return <p className="repo-diff-note" role="alert">{stale ? t("This file has no changes here any more; the list is out of date.") : diffErrorMessage(t, load.error)}</p>;
     }
     const unavailable = unavailableMessage(t, load.answer);
     if (unavailable !== null || patch === null) return <p className="repo-diff-note">{unavailable ?? t("No lines changed.")}</p>;
-    if (selectable) return <textarea ref={textRef} className="repo-diff-select-source" readOnly value={patch} aria-label={t("Patch")} spellCheck={false} />;
     return <RenderBoundary resetKey={patch} fallback={() => <p className="repo-diff-note" role="alert">{t("This change can't be shown.")}</p>}>
-      <Suspense fallback={<p className="repo-diff-note">{t("Opening…")}</p>}>
+      <Suspense fallback={<DiffSkeleton label={t("Opening…")} />}>
         <RepoDiff patch={patch} style={style} folded={folded} wrap={settings.wrapCode} theme={resolvedTheme} colored={colored} />
       </Suspense>
     </RenderBoundary>;
@@ -131,6 +149,10 @@ export function RepoDiffViewer({ target, onClose, onOpenFile, keyboardActive = t
           <div className="repo-diff-title">
             <h2 className="modal-title"><span className="repo-diff-stem">{stem}</span>{extension}</h2>
             <p className="repo-diff-meta" title={oldPath === null ? path : t("Renamed from {path}", { path: oldPath })}>
+              {load.status === "pending" && <>
+                <Skeleton className="repo-diff-skeleton-status" />
+                <Skeleton className="repo-diff-skeleton-counts" />
+              </>}
               {file !== null && <span className="repo-diff-status" data-status={file.status}>{statusWord(t, file.status)}</span>}
               {file !== null && file.additions !== null && file.deletions !== null && <span className="repo-diff-counts">
                 <span className="repo-diff-added">+{file.additions.toLocaleString()}</span>
@@ -148,13 +170,16 @@ export function RepoDiffViewer({ target, onClose, onOpenFile, keyboardActive = t
           </div>
           <div className="repo-diff-actions">
             <div className="segmented repo-diff-styles" role="group" aria-label={t("Diff layout")}>
-              <button type="button" aria-pressed={style === "unified"} onClick={() => update({ diffStyle: "unified" })}><Rows3 aria-hidden="true" />{t("Unified")}</button>
-              <button type="button" aria-pressed={style === "split"} disabled={narrow} title={narrow ? t("Split view needs a wider screen") : undefined} onClick={() => update({ diffStyle: "split" })}><Columns2 aria-hidden="true" />{t("Split")}</button>
+              <button type="button" aria-pressed={style === "unified"} onClick={() => update({ diffStyle: "unified" })}><Rows3 aria-hidden="true" /><span className="repo-diff-style-word">{t("Unified")}</span></button>
+              <button type="button" aria-pressed={style === "split"} disabled={narrow} title={narrow ? t("Split view needs a wider screen") : undefined} onClick={() => update({ diffStyle: "split" })}><Columns2 aria-hidden="true" /><span className="repo-diff-style-word">{t("Split")}</span></button>
             </div>
             <div className="repo-diff-group">
               <button type="button" className="icon-button repo-diff-action" aria-pressed={folded} aria-label={t("Fold context")} title={folded ? t("Showing one line around each change") : t("Fold context")} disabled={patch === null} onClick={() => setFolded((value) => !value)}><FoldVertical aria-hidden="true" /></button>
               <button type="button" className="icon-button repo-diff-action" aria-label={t("Open file")} title={t("Open file")} disabled={!openable} onClick={() => answer !== null && onOpenFile(repositoryFilePath(answer.repository.root, path))}><FileText aria-hidden="true" /></button>
-              {patch !== null && !selectable && <CopyPatchButton text={patch} onShowText={() => setSelectable(true)} />}
+              {shown === null && <>
+                <CopyButton text={path} label={t("Copy path")} doneLabel={t("Path copied")} icon={<CopySlash aria-hidden="true" />} onShowText={(text) => setShown({ kind: "path", text })} />
+                {(load.status === "pending" || patch !== null) && <CopyButton text={patch} label={t("Copy patch")} doneLabel={t("Patch copied")} icon={<Copy aria-hidden="true" />} onShowText={(text) => setShown({ kind: "patch", text })} />}
+              </>}
             </div>
           </div>
           <button type="button" className="icon-button repo-diff-action repo-diff-close" aria-label={t("Close diff")} title={t("Close diff")} onClick={onClose}><X aria-hidden="true" /></button>

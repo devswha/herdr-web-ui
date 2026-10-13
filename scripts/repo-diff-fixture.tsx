@@ -26,6 +26,7 @@ function Fixture() {
       <FilesDialog start={files.directory} paneId={files.paneId} viewing={file !== null || diff !== null}
         onOpenFile={(path) => openFile({ path, paneId: files.paneId, machineId: files.machine })}
         onOpenDiff={(comparison, entry) => openDiff({ machineId: files.machine, paneId: files.paneId, directory: files.directory, ...comparison, path: entry.path, oldPath: entry.old_path })}
+        onBrowseFolders={() => {}}
         onClose={() => setFiles(null)} />
     </MachineContext.Provider>}
     {diff && <MachineContext.Provider value={diff.machineId}>

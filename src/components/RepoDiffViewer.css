@@ -99,6 +99,15 @@
 .repo-diff-deleted { color: var(--syntax-deleted); }
 .repo-diff-binary, .repo-diff-compare { flex: none; }
 
+/* the status and counts come with the patch: their places are kept, so the line does not jump when they land */
+.repo-diff-skeleton-status {
+  width: 6em;
+  height: var(--chip-h);
+  border-radius: var(--radius-sm);
+}
+
+.repo-diff-skeleton-counts { width: 4em; }
+
 /* a partial view (left plain, one column on a phone): the warning color with an icon, so it is not told by color alone */
 .repo-diff-notice {
   flex: none;
@@ -185,6 +194,24 @@
   text-align: center;
 }
 
+/* the patch on its way: rows the size of the diff's, a number and a line each, so the dialog holds its shape */
+.repo-diff-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--content-w);
+  padding: var(--space-2) var(--space-3);
+}
+
+.repo-diff-loading-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: calc(var(--fs-xs) * var(--lh-code));
+}
+
+.repo-diff-loading-number { width: var(--space-6); }
+
 /* the patch as one text, selected for a copy by hand when the clipboard is out of reach */
 .repo-diff-select-source {
   flex: 1 1 auto;
@@ -226,6 +253,16 @@
   .repo-diff-header .repo-diff-actions {
     grid-area: actions;
     justify-content: space-between;
+  }
+  /* the row holds the layout switch and four 44px actions only with the switch's words gone from
+     view (a screen reader still has them); Split is declined on a phone anyway */
+  .repo-diff-style-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 }
 
