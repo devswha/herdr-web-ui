@@ -1094,10 +1094,11 @@ it("refuses a submit, a pending action and a secret whose probe the hidden page 
     listeners.get("visibilitychange")!();
     fresh.receive(snapshot(["input-ready", "submit", "pending-input", "secret-input", "ping"]));
     await settle();
+    // checked before the awaits: a frame sent by mistake would leave them waiting on a result
+    expect(fresh.sent.filter((frame) => ["submit", "pending-action", "secret"].includes(frame.type))).toEqual([]);
     expect(await submit).toMatchObject({ ok: false, code: "disconnected" });
     expect(await steer).toMatchObject({ ok: false, code: "disconnected" });
     expect(await secret).toMatchObject({ ok: false, code: "disconnected" });
-    expect(fresh.sent.filter((frame) => ["submit", "pending-action", "secret"].includes(frame.type))).toEqual([]);
   } finally {
     client.close();
     globalDocument.document = previous;
