@@ -3,8 +3,11 @@
  * The wheel or a pinch zooms at the pointer, a drag pans, a double-click toggles fit and the
  * picture's own pixels, and the bar and the keys (+ - 0, arrows) do the same; at fit, Left and
  * Right step through the gallery. Copy puts the picture on the clipboard as PNG and Download
- * saves it under its name. Escape, the close button, a phone's Back and a swipe down leave, and
- * the focus returns to the thumbnail that opened it. The zoom arithmetic is MermaidLightbox's.
+ * saves it under its name. Escape, the close button, a phone's Back and a swipe down that starts
+ * on the bar or the caption leave (the stage takes every stroke for panning), and the focus
+ * returns to the thumbnail that opened it while it is still drawn. ChatView holds the viewer, not
+ * the chat row, so a row scrolled out of the render window does not close it. The zoom arithmetic
+ * is MermaidLightbox's.
  */
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";

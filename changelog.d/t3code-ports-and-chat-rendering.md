@@ -118,3 +118,6 @@
 - A conversation of four or more turns shows a rail of short dashes left of the chat, one per
   message you sent with the one in view marked; click a dash, or focus it and press Enter, to jump
   to that turn. It is hidden on a phone and wherever the chat column leaves no margin.
+
+### Fixed
+- The diagram viewer's toolbar keeps clear of a notch or rounded corner on a phone held sideways.
