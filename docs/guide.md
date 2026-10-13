@@ -156,8 +156,8 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **Antigravity (agy)** | **Experimental; macOS untested.** Native ledger, selected by the running process’s held conversation lock. Linux native-tested; Windows uses terminal text. See [Agy behavior and limits](agy-chat.md). | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
 
-GJC chat requires a GJC build with the broker-bound SDK session CLI (verified with
-0.18.9), with `gjc` on the server PC's PATH and its SDK broker already running.
+GJC chat requires GJC 0.18.9 or later for its broker-bound SDK session CLI, with `gjc`
+on the server PC's PATH and its SDK broker already running. An older GJC opens in Terminal.
 Git must also be on PATH for the SDK's workspace-scope discovery.
 The bridge asks the broker which saved session belongs to the pane's GJC process;
 it does not start a broker or guess from the screen, session title or newest file.

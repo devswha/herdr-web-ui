@@ -194,7 +194,7 @@ GJC can retain a generation-zero direct-session GC fence after `/new`. Only the
 known non-endpoint shape at the canonical agent root is excluded from candidate
 selection; foreign-root or uncertain zero-generation rows still refuse a binding.
 
-This requires a GJC build with the public SDK session CLI (verified with 0.18.9)
+This requires GJC 0.18.9 or later, for its public SDK session CLI,
 on the server PC's PATH and an already running broker. The bridge does not start
 or restart that broker, attach to private SDK endpoints, or register a live
 session observer. Missing, stale or unavailable identity returns `no_session_path`
