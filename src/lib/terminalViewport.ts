@@ -28,6 +28,14 @@ export function idleScrollPollDelay(idleReads: number): number {
   const reads = Number.isFinite(idleReads) && idleReads > 0 ? Math.floor(idleReads) : 0;
   return Math.min(SCROLL_POLL_IDLE_MAX_MS, 1000 * 2 ** Math.min(reads, 4));
 }
+/** The poll's next delay: busy while something is moving, 1 s while scrolled up into history (herdr can
+ * hold that view still while output grows the history below it, which sends this client no bytes to wake
+ * the poll), else the idle backoff. */
+export function scrollPollDelay(busy: boolean, idleReads: number, metrics: PaneScrollInfo | null | undefined): number {
+  if (busy) return SCROLL_POLL_BUSY_MS;
+  if (validScroll(metrics) && metrics.offset_from_bottom > 0) return 1000;
+  return idleScrollPollDelay(idleReads);
+}
 export function sameFindMatch(a: PaneFindMatch | null | undefined, b: PaneFindMatch): boolean {
   return !!a && a.start.row === b.start.row && a.start.col === b.start.col && a.end.row === b.end.row && a.end.col === b.end.col;
 }

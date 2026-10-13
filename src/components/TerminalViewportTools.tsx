@@ -7,7 +7,7 @@ import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
 import { pageScrollDistance } from "../lib/pageScroll.ts";
-import { SCROLL_POLL_BUSY_MS, idleScrollPollDelay, offsetAtThumb, scrollThumb, validScroll, visibleFindRects, type FindCellRect } from "../lib/terminalViewport.ts";
+import { offsetAtThumb, scrollPollDelay, scrollThumb, validScroll, visibleFindRects, type FindCellRect } from "../lib/terminalViewport.ts";
 import "./TerminalViewportTools.css";
 
 export interface TerminalSearchState { query: string; result: PaneFindResponse }
@@ -134,7 +134,12 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
         const metrics = found?.scroll ?? await api.fetchPaneScroll(paneId);
         if (!alive || revision !== version || cols !== terminal.cols || rows !== terminal.rows) return;
         setScroll((old) => validScroll(metrics) ? old && old.offset_from_bottom === metrics.offset_from_bottom && old.max_offset_from_bottom === metrics.max_offset_from_bottom && old.viewport_rows === metrics.viewport_rows ? old : metrics : null);
-        if (validScroll(metrics)) { scrollRef.current = metrics; metricsOutput = output; }
+        if (validScroll(metrics)) {
+          // metrics that moved without output (another client, history growing under a held view) mean the pane is not idle
+          const last = scrollRef.current;
+          if (last && (last.offset_from_bottom !== metrics.offset_from_bottom || last.max_offset_from_bottom !== metrics.max_offset_from_bottom)) idle = 0;
+          scrollRef.current = metrics; metricsOutput = output;
+        }
         data = output === outputVersion ? found : null;
         // also the box: a pane shown again by its visibility style, not its size, gets no ResizeObserver call
         paint();
@@ -148,8 +153,8 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
         if (alive && revision === version) { clearHits(); if (!query) setScroll(null); }
       } finally {
         pending = false;
-        // an idle pane backs off; output, a scroll, a resize or coming back into view resets it
-        if (alive) schedule(dirty ? SCROLL_POLL_BUSY_MS : idleScrollPollDelay(idle++));
+        // an idle pane at the bottom backs off; output, a scroll, a resize, moved metrics or coming back into view resets it
+        if (alive) schedule(scrollPollDelay(dirty, idle++, scrollRef.current));
       }
     };
     const wake = () => { dirty = true; idle = 0; schedule(); };
