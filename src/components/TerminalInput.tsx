@@ -100,7 +100,8 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         setNote(t("Finish the word, then send."));
       }, COMMIT_WAIT_MS);
       const element = box.current;
-      if (element !== null && document.activeElement === element) {
+      // only the tap forces it: a deferred send that finds a new composition just waits
+      if (!deferred && element !== null && document.activeElement === element) {
         element.blur();
         element.focus({ preventScroll: true });
       }
