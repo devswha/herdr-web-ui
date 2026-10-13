@@ -187,7 +187,7 @@ export default function VirtualSource({ name, text, colored, wrap, theme, marked
       for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) root.removeEventListener(type, onInput);
       observer.disconnect();
     };
-  }, [colored, settle, readAnchor, anchoredReveal]);
+  }, [settle, readAnchor, anchoredReveal]);
 
   // the wrap toggle re-measures the rows: the anchor is taken before the new option renders
   const lastWrap = useRef(wrap);
@@ -220,11 +220,16 @@ export default function VirtualSource({ name, text, colored, wrap, theme, marked
   const selected = useMemo(() => markedLine === null ? null : { start: markedLine, end: markedLine }, [markedLine]);
   const metrics = useMemo(() => lineHeight === null ? null : { ...DEFAULT_VIRTUAL_FILE_METRICS, lineHeight }, [lineHeight]);
 
-  const rows = <Virtualizer className="virtual-source-scroll" contentClassName="virtual-source-column" config={SCROLL_CONFIG}>
-    <VirtualizerProbe onInstance={onVirtualizer} />
-    {metrics !== null && <File className="virtual-source-file" file={file} options={options} metrics={metrics} selectedLines={selected} disableWorkerPool={!colored} />}
-  </Virtualizer>;
+  // plain rows go through the pool too, though they never reach a worker: without one the package
+  // draws a plain file by building rows for every line on the page, again on each render (each
+  // scroll), where the pool's manager builds only the window's rows. 123 500 lines took 0.5-0.7 s
+  // per render at a 5x CPU slowdown that way, past a second on a CI runner.
   return <div ref={hostRef} className="virtual-source" data-colored={colored ? "" : undefined}>
-    {colored ? <DiffWorkerPool>{rows}</DiffWorkerPool> : rows}
+    <DiffWorkerPool>
+      <Virtualizer className="virtual-source-scroll" contentClassName="virtual-source-column" config={SCROLL_CONFIG}>
+        <VirtualizerProbe onInstance={onVirtualizer} />
+        {metrics !== null && <File className="virtual-source-file" file={file} options={options} metrics={metrics} selectedLines={selected} />}
+      </Virtualizer>
+    </DiffWorkerPool>
   </div>;
 }
