@@ -26,7 +26,10 @@ AI review is advisory; CI and maintainer review determine whether a PR can merge
   own: review them when they arrive and consider them for the next release. Approve
   their CI runs only after reading everything CI executes: workflows, scripts, tests,
   `package.json` scripts and dependency changes. Workflows must keep read-only PR
-  permissions and never add a `pull_request_target` trigger.
+  permissions and never add a `pull_request_target` trigger. Never approve the run of a fork PR
+  that changes `runs-on`, adds self-hosted labels, or edits `.github/actions/` or
+  `scripts/ci-runner-route.sh`: a self-hosted runner executes an approved fork workflow only if a
+  workflow routes it there.
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) is the process contributors follow. The
 [AGENTS.md](../AGENTS.md) files give these invariants with their reasons and the conventions

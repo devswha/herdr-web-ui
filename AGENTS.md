@@ -84,4 +84,4 @@ The app is only a bridge: herdr owns every pty, scrollback and agent state.
   - Write the full link (GitHub leaves a bare `#208` unlinked in CHANGELOG.md) and keep `@login` bare (it is what lists the contributor in the GitHub release).
   - Link the PR, not the issue. An entry built from several PRs links each one.
   - Credit every PR author except @devswha and bots, also when the maintainer pushed fixes to the PR or carried it into a new one; then link both, with `by @login` after the PR that person wrote.
-  - A PR has no number until it opens, so add the link in a commit after `gh pr create`. At release, fill in missing links and credits from `git log --format=%s <last tag>..main` and `gh pr view N --json author`.
+  - Entries are written as fragments in `changelog.d/`, never into CHANGELOG.md (format in `changelog.d/README.md`, checked by `scripts/changelog-fold.test.ts`; the "never" is not checked yet while older PRs drain). The release fold links each fragment's merging PR; add credits and any missing links from `git log --format=%s <last tag>..main` and `gh pr view N --json author`.
