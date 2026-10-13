@@ -496,6 +496,9 @@ The snapshot is the last one a browser reported to this server, not a list of de
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
 
+**New tab**, **Split pane right** and **Split pane down** have no default key: pick one in
+**Settings → Shortcuts**, and the command palette shows it beside the action.
+
 **Settings → Shortcuts** changes the final key of each app binding or turns it off. Settings
 are saved in this browser, not on the remote PC. The command palette shows the current bindings
 and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
