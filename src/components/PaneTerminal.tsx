@@ -335,6 +335,11 @@ export function PaneTerminal({
     setDraftState((previous) => ({ owner, value: typeof value === "function" ? value(previous.owner === owner ? previous.value : EMPTY_DRAFT) : value }));
   }, [machineId]);
   const draftPaneRef = useRef<string | null>(null);
+  // The pane whose held draft takes all later typing until Send or Discard: keys sent beside it would
+  // reach the pty without the start the draft holds (`echo ` held, `rm -rf build` and Enter typed).
+  // Set here on each render, and at once by onData when it holds a key, before that render comes.
+  const draftHeldForRef = useRef<string | null>(null);
+  draftHeldForRef.current = paneId !== null && draftState.owner === paneStorageId(machineId, paneId) && !draftIsEmpty(draft) ? paneId : null;
   useEffect(() => {
     if (!paneId || draftState.owner !== paneStorageId(machineId, paneId)) return;
     const key = `herdr-web-ui:terminal-draft:${draftState.owner}`;
@@ -1197,6 +1202,17 @@ export function PaneTerminal({
         ? barKey !== null ? barKey.chord
           : physicalChord ?? (hasModifiers(modifiersRef.current) && key !== null ? terminalChord(key, modifiersRef.current) : null)
         : null;
+      if (draftHeldForRef.current === current) {
+        // a chord is never held, and never sent beside held text either; Enter is left out of the
+        // draft (applyToDraft), so a partial command never runs
+        if (chord !== null) {
+          const t = tRef.current;
+          setInputError(t("Not sent: send or discard the held input first."));
+          return;
+        }
+        setDraft((prev) => applyToDraft(prev, input));
+        return;
+      }
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.
       // herdr's attach stream never tells xterm that the program asked for application cursor
@@ -1223,6 +1239,7 @@ export function PaneTerminal({
         setDraft(EMPTY_DRAFT);
       }
       setDraft((prev) => applyToDraft(prev, input));
+      if (!draftIsEmpty(applyToDraft(EMPTY_DRAFT, input))) draftHeldForRef.current = current;
     });
 
     // Browsers expose dropped files as bytes, not local paths. Save them beside
@@ -2018,7 +2035,8 @@ export function PaneTerminal({
   const pressEnter = useCallback((): boolean => {
     const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!socket || pane === null || !socket.connected) return false;
+    // Enter beside a held draft would run the pty's line without the held start
+    if (!socket || pane === null || !socket.connected || draftHeldForRef.current === pane) return false;
     const sent = hasModifiers(modifiersRef.current)
       ? socket.sendKeys(pane, [terminalChord("Enter", modifiersRef.current)!]) : socket.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();

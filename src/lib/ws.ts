@@ -32,10 +32,16 @@ const CONNECT_TIMEOUT_MAX_MS = 30_000;
  * Liveness (feature "ping"): a socket can read OPEN while its TCP path is gone (a phone moved from
  * Wi-Fi to cellular, a NAT entry expired while it slept) and no close event comes for minutes. The
  * client pings when the page comes back, the network changes, or nothing arrived for
- * IDLE_PROBE_MS while the page is visible (checked every IDLE_CHECK_MS), and drops a socket that
- * sends no frame at all within PROBE_TIMEOUT_MS.
+ * IDLE_PROBE_MS while the page is visible (checked every IDLE_CHECK_MS). Only the pong of a ping in
+ * flight answers it: a frame buffered before the sleep proves nothing. With no pong by
+ * PROBE_TIMEOUT_MS it pings once more, and drops the socket when that one is not answered either;
+ * each probe that ends in a drop doubles the next one's deadline up to PROBE_TIMEOUT_MAX_MS, so a
+ * slow link (a relayed tailnet, a remote PC) is not dropped over and over. A deadline that fires
+ * PROBE_OVERDUE_MS late was frozen with the page, not waiting: the probe starts over.
  */
 const PROBE_TIMEOUT_MS = 3_000;
+const PROBE_TIMEOUT_MAX_MS = 12_000;
+const PROBE_OVERDUE_MS = 2_000;
 const IDLE_PROBE_MS = 20_000;
 const IDLE_CHECK_MS = 5_000;
 const SOCKET_CLOSING = 2;
@@ -48,7 +54,8 @@ const DISCONNECTED: SubmitResult = { ok: false, code: "disconnected", message: "
  * - idle: connect() was never called
  * - connecting: an attempt has not opened yet
  * - open: open, and no liveness probe in flight
- * - probing: open, a ping sent and no frame back yet; input and submits are refused meanwhile
+ * - probing: open, a ping sent and its pong not back yet; terminal input is refused (it goes to the
+ *   held draft) and submits, pending actions and secrets wait for the answer before they are sent
  * - waiting: no socket, a reconnect waits out its backoff
  * - stopped: output stopped (4008); only an attach reconnects
  * - closed: close() was called
@@ -101,8 +108,8 @@ export class HerdrSocket {
   private connectTimer: number | null = null;
   /** attempts given up at their deadline since the last one that opened */
   private connectTimeouts = 0;
-  /** a socket wake() ended before its close event ran: that event can still say the output stopped */
-  private endedEarly: WebSocket | null = null;
+  /** sockets wake() or a probe ended before their close event ran: that event can still say the output stopped */
+  private endedEarly = new WeakSet<WebSocket>();
   private disposed = false;
   private wakeListening = false;
   private connectionState: ConnectionState = "idle";
@@ -110,12 +117,25 @@ export class HerdrSocket {
   private lastFrameAt = 0;
   /** the deadline of the ping in flight; null while no probe waits */
   private probeTimer: number | null = null;
+  /** the ids of the probe's pings: only their pong ends it */
+  private readonly probeIds = new Set<number>();
+  /** settles when the probe in flight ends (answered, given up, or the connection ended) */
+  private probeDone: Promise<void> = Promise.resolve();
+  private markProbeDone: () => void = () => {};
+  /** probes since the last pong that ended in a drop: each doubles the next deadline */
+  private probeDrops = 0;
+  /** whether the last snapshot listed "ping": kept across reconnects, so a socket whose snapshot never comes is probed too */
+  private pingKnown = false;
   /** the periodic check that pings a connection silent for IDLE_PROBE_MS */
   private idleTimer: number | null = null;
   private nextPing = 1;
   /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
   private readonly onWake = (): void => {
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      // a deadline must not run out while the page is frozen: the page coming back asks again
+      this.endProbe();
+      return;
+    }
     this.wake();
   };
   private mode: ClientRole = "interact";
@@ -192,15 +212,22 @@ export class HerdrSocket {
 
     socket.addEventListener("message", (event) => {
       if (this.socket !== socket) return;
-      // any frame, a pong or not, says the connection is alive: ended before the handlers run, so
-      // the input checks they make already read true
+      // any frame postpones the idle probe; only the pong of a ping in flight ends a probe (a frame
+      // the browser had buffered before a sleep does not prove the path is still there)
       this.lastFrameAt = Date.now();
-      if (this.probeTimer !== null) this.endProbe();
       let message: ServerMessage;
       try {
         message = JSON.parse(String(event.data)) as ServerMessage;
       } catch {
         /* ignore malformed frame */
+        return;
+      }
+      if (message.type === "pong") {
+        // ended before the handlers run, so the input checks they make already read true
+        if (this.probeIds.has(message.id)) {
+          this.probeDrops = 0;
+          this.endProbe();
+        }
         return;
       }
       // The server can force this connection to observe. Apply its authority before
@@ -211,6 +238,7 @@ export class HerdrSocket {
       if (message.type === "snapshot") {
         this.features = new Set(message.features ?? []);
         this.snapshotKnown = true;
+        this.pingKnown = this.features.has("ping");
         if (!this.features.has("input-ready")) for (const pane of this.outputSeen) if (this.attached.has(pane)) this.inputReady.add(pane);
         // Capabilities arrive after open's role/attach replay. Restore only current interest,
         // never send an unknown frame to an older bridge or replay a hidden/detached chat.
@@ -258,8 +286,8 @@ export class HerdrSocket {
     });
 
     socket.addEventListener("close", (event) => {
-      if (this.endedEarly === socket) {
-        this.endedEarly = null;
+      if (this.endedEarly.has(socket)) {
+        this.endedEarly.delete(socket);
         // the server's own close still decides whether output stopped, even after a replacement started
         if (event.code === OUTPUT_STALLED_CLOSE_CODE && !this.disposed) {
           if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
@@ -309,15 +337,24 @@ export class HerdrSocket {
   }
 
   /**
-   * Pings an open connection whose bridge lists "ping" (an older one is never asked, and its
-   * connection is trusted as before). Until any frame comes back, input and submits are refused,
-   * so typing goes to the held draft rather than into a socket that may be dead; with no frame by
-   * PROBE_TIMEOUT_MS the socket is dropped and a new one connects at once.
+   * Pings an open connection whose bridge listed "ping" in its last snapshot (an older one is
+   * never asked, and its connection is trusted as before). Until the pong comes back, terminal
+   * input is refused, so typing goes to the held draft rather than into a socket that may be
+   * dead, and submits wait (see probeSettled()); with no pong after two pings (see
+   * PROBE_TIMEOUT_MS) the socket is dropped and a new one connects at once.
    */
   private probe(): void {
     const socket = this.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN || !this.features.has("ping") || this.probeTimer !== null) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !this.pingKnown || this.probeTimer !== null) return;
     this.connectionState = "probing";
+    this.probeDone = new Promise((resolve) => { this.markProbeDone = resolve; });
+    this.ping(socket, 1);
+  }
+
+  /** Sends one of the probe's pings and arms its deadline; `attempt` 2 is the last before a drop. */
+  private ping(socket: WebSocket, attempt: 1 | 2): void {
+    const deadline = Math.min(PROBE_TIMEOUT_MAX_MS, PROBE_TIMEOUT_MS * 2 ** this.probeDrops);
+    const armedAt = Date.now();
     this.probeTimer = window.setTimeout(() => {
       this.probeTimer = null;
       if (this.socket !== socket) return;
@@ -326,16 +363,33 @@ export class HerdrSocket {
         this.endProbe();
         return;
       }
-      this.drop(socket);
-    }, PROBE_TIMEOUT_MS);
+      // the page was frozen past the deadline: no pong could have been read meanwhile, so ask again,
+      // and a pong to a ping sent before the freeze no longer counts
+      if (Date.now() - armedAt > deadline + PROBE_OVERDUE_MS) {
+        this.probeIds.clear();
+        this.ping(socket, 1);
+      }
+      else if (attempt === 1) this.ping(socket, 2);
+      else this.drop(socket);
+    }, deadline);
+    const id = this.nextPing++;
+    this.probeIds.add(id);
     // a send that throws leaves the deadline to drop the socket
-    try { this.rawSend({ type: "ping", id: this.nextPing++ }); } catch { /* see above */ }
+    try { this.rawSend({ type: "ping", id }); } catch { /* see above */ }
   }
 
   private endProbe(): void {
     if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
     this.probeTimer = null;
+    this.probeIds.clear();
+    this.markProbeDone();
     if (this.connectionState === "probing") this.connectionState = "open";
+  }
+
+  /** Waits out a probe in flight on `socket`; true when it is still this connection afterwards. */
+  private async probeSettled(socket: WebSocket): Promise<boolean> {
+    while (this.probeTimer !== null && this.socket === socket) await this.probeDone;
+    return this.connected && this.socket === socket;
   }
 
   /**
@@ -345,7 +399,10 @@ export class HerdrSocket {
    * are ignored (it is no longer this.socket).
    */
   private drop(socket: WebSocket): void {
+    this.probeDrops += 1;
     this.endConnection();
+    // a server close (4008) that comes after this still stops output
+    this.endedEarly.add(socket);
     socket.close();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -408,7 +465,7 @@ export class HerdrSocket {
     if (socket?.readyState === SOCKET_CLOSED) {
       // ended now so its submits and listeners settle; its close event, when it runs, can still stop output
       this.closed(socket, 1006);
-      this.endedEarly = socket;
+      this.endedEarly.add(socket);
     }
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -564,7 +621,7 @@ export class HerdrSocket {
     if (this.connected) this.rawSend({ type: "role", mode });
   }
 
-  /** False while a liveness probe waits: typing goes to the held draft until the connection answers. */
+  /** False while a liveness probe waits: typing goes to the held draft until the connection answers its ping. */
   canInput(paneId: string): boolean {
     return this.connected && this.probeTimer === null && this.mode === "interact" && this.inputReady.has(paneId);
   }
@@ -597,11 +654,11 @@ export class HerdrSocket {
    * `clearDraft`: an immediate send over the draft an input_draft refusal named (ClientMessage `clear_draft`) */
   submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string): Promise<SubmitResult> | null {
     const socket = this.socket;
-    // while a liveness probe waits, as offline: the composer keeps the text
-    if (!this.connected || socket === null || this.mode === "observe" || this.probeTimer !== null) return null;
+    if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
-      if (!this.connected || this.socket !== socket) return DISCONNECTED;
+      // a liveness probe in flight is waited out: nothing is sent on a socket that may be dead
+      if (!(await this.probeSettled(socket))) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot submit messages." };
       // hold is decided once the snapshot said what the bridge supports: one too old to hold queues it as before
       if (delivery === "hold" && !this.canHoldMessages()) delivery = "queue";
@@ -623,7 +680,7 @@ export class HerdrSocket {
     if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
-      if (!this.connected || this.socket !== socket) return DISCONNECTED;
+      if (!(await this.probeSettled(socket))) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot change pending messages." };
       if (!this.canQueueMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to manage pending messages." };
       return this.submitRequest({ type: "pending-action", id: this.nextSubmit++, pane_id: paneId, pending_id: pendingId, action });
@@ -659,7 +716,7 @@ export class HerdrSocket {
       // right after a reconnect the terminal's output can arrive before the snapshot that says
       // whether the server takes masked input: wait for it, as a submit does
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
-      if (!this.connected || this.socket !== socket) { secret = ""; return DISCONNECTED; }
+      if (!(await this.probeSettled(socket))) { secret = ""; return DISCONNECTED; }
       if (!this.features.has("secret-input")) { secret = ""; return { ok: false, code: "unsupported", message: "Update this PC to use masked input." }; }
       const id = this.nextSubmit++;
       this.requests.set(id, { type: "secret", paneId });
@@ -709,7 +766,7 @@ export class HerdrSocket {
     this.clearConnectTimer();
     this.clearLiveness();
     this.connectionState = "closed";
-    this.endedEarly = null;
+    this.endedEarly = new WeakSet();
     if (this.wakeListening) {
       window.removeEventListener("online", this.onWake);
       window.removeEventListener("pageshow", this.onWake);

@@ -885,6 +885,7 @@ export const ZH: Record<string, string> = {
   "Send to the terminal": "发送到终端",
   "Not sent: the terminal is disconnected.": "未发送：终端已断开连接。",
   "Not sent: the terminal is not ready for keys.": "未发送：终端尚未准备好接收按键。",
+  "Not sent: send or discard the held input first.": "未发送：请先发送或丢弃保留的输入。",
   "Type straight into the terminal": "直接在终端中输入",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "无法保存队列。请保持此标签页打开，或在重新加载前复制这些消息。",
   "Queued messages": "排队的消息",

@@ -139,9 +139,17 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     ready!();
     await page.waitForTimeout(150);
     assert.equal(sent.length, before, "ready does not replay the draft");
+    // Held input keeps later typing until Send or Discard, on a ready terminal too: a key sent beside
+    // it would reach the pty without the held start, and an Enter would run that partial line. The
+    // "b" landing after the Enter proves the Enter was handled first.
+    await page.locator(".xterm-helper-textarea").press("Enter");
+    await page.locator(".xterm-helper-textarea").press("b");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
+    assert.equal(sent.length, before, "typing beside a held draft reaches nothing");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await until(() => sent.length > before);
-    assert.equal(sent.at(-1).text, "a");
+    assert.equal(sent.at(-1).text, "ab");
+    assert.equal(sent.length, before + 1, "Send types the held text once, with no Enter");
     // Real xterm handling: an IME's provisional syllable stays local until commit.
     const imeBefore = sent.length;
     const input = page.locator(".xterm-helper-textarea");
