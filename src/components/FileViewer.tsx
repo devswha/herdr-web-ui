@@ -176,10 +176,15 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       // cap, so the rows handed to the viewer are counted (readBudget: a Markdown file keeps its
       // Preview's budget, a larger source reads up to the source budget)
       const budget = readBudget(languageForPath(next.path), next.size);
+      // the deadline covers the request; the read gets the rest of it, and on a slow link it keeps
+      // what arrived by then as a cut prefix rather than failing the whole file
+      const started = Date.now();
       deadline = setTimeout(() => abort.abort(), budget.timeoutMs);
       try {
         const response = await fetch(fileUrl(next.path, paneId), { signal: abort.signal, headers: { range: `bytes=0-${budget.bytes - 1}` } });
-        const body = await readFilePreviewText(response, budget.bytes, { signal: abort.signal, maxLines: budget.lines, timeoutMs: budget.timeoutMs });
+        clearTimeout(deadline);
+        const timeoutMs = Math.max(1, budget.timeoutMs - (Date.now() - started));
+        const body = await readFilePreviewText(response, budget.bytes, { signal: abort.signal, maxLines: budget.lines, timeoutMs, partialOnTimeout: true });
         if (!cancelled) setLoaded(body);
       } finally { clearTimeout(deadline); }
     }).catch(async (reason: unknown) => {

@@ -41,6 +41,16 @@ test("cancellation and a stalled body deadline release the reader even if cancel
   expect(cancelled).toBe(2);
 });
 
+test("partialOnTimeout keeps what arrived before the deadline as a cut prefix", async () => {
+  const encoder = new TextEncoder();
+  const stalled = () => new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode("one\ntwo\nthr")); } }), { status: 206, headers: { "content-range": "bytes 0-99/1000" } });
+  expect(await readFilePreviewText(stalled(), 100, { timeoutMs: 10, maxLines: 10, partialOnTimeout: true }))
+    .toEqual({ text: "one\ntwo\n", truncated: true, truncatedBy: "bytes", total: 1000, lines: 2 });
+  // nothing arrived: still an error, and without the opt-in the deadline still fails
+  await expect(readFilePreviewText(new Response(new ReadableStream()), 100, { timeoutMs: 10, partialOnTimeout: true })).rejects.toThrow("timed out");
+  await expect(readFilePreviewText(stalled(), 100, { timeoutMs: 10 })).rejects.toThrow("timed out");
+});
+
 test("a partial range exposes truncation and rejects malformed range metadata", async () => {
   const partial = new Response("abc", { status: 206, headers: { "content-range": "bytes 0-2/6" } });
   expect(await readFilePreviewText(partial, 10)).toEqual({ text: "abc", truncated: true, total: 6 });
