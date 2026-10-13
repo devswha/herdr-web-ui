@@ -2275,7 +2275,10 @@ export function PaneTerminal({
     const surface = stackRef.current?.querySelector(".terminal-surface");
     if (!stackRef.current || !surface || !inputSlot) return;
     const measure = () => {
-      const room = inputSlot.getBoundingClientRect().bottom - surface.getBoundingClientRect().top;
+      const slot = inputSlot.getBoundingClientRect();
+      // the chat lens's box-less slot has no rect, and nothing floats there to cap
+      if (slot.width === 0) return;
+      const room = slot.bottom - surface.getBoundingClientRect().top;
       inputSlot.style.setProperty("--terminal-input-room", `${Math.max(0, Math.floor(room))}px`);
     };
     measure();
