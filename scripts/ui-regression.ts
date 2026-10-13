@@ -512,13 +512,28 @@ try {
     { id: "3", label: "Write the panel", active: null, status: "pending", blocked_by: ["1"], owner: null, started_at: null, ended_at: null },
     { id: "4", label: "Ship it", active: null, status: "pending", blocked_by: ["2", "3"], owner: null, started_at: null, ended_at: null },
   ];
-  const planned = async (target: typeof page): Promise<() => Promise<void>> => {
+  type Roster = { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
+  const withPlan = (body: Roster): Roster => {
+    for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
+    return body;
+  };
+  // `events`: for a page not loaded yet. The roster also comes over /api/machines/events, whose
+  // first frame (and every roster change after it) is the PC's own snapshot, with no plan: one that
+  // lands after a poll takes the chip away again, and each one drops the poll in flight. That stream
+  // then carries the planned roster once and stays quiet (a reconnect waits an hour), so the only
+  // roster the page gets is the planned one. A page already loaded keeps the stream it has.
+  const planned = async (target: typeof page, { events = false } = {}): Promise<() => Promise<void>> => {
     const unrouteMachines = await routeDrained(target, "**/api/machines", async (route) => {
       const response = await route.fetch();
-      const body = await response.json() as { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
-      for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
-      await route.fulfill({ response, json: body });
+      await route.fulfill({ response, json: withPlan(await response.json() as Roster) });
     });
+    if (events) {
+      await target.route("**/api/machines/events", async (route) => {
+        const response = await route.fetch({ url: `${origin}/api/machines` });
+        const roster = withPlan(await response.json() as Roster);
+        await route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 3600000\ndata: ${JSON.stringify({ type: "machines", machines: roster.machines })}\n\n` });
+      });
+    }
     await target.route(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: { plan: { steps: planSteps }, server_time: new Date().toISOString() } }));
     return unrouteMachines;
   };
@@ -1956,9 +1971,29 @@ try {
   // (after the steps that take the newest socket for the page's own: the other half opens one)
   {
     await selectPane(paneA);
+    // The drag goes in steps, each waited on, as split-view-regression.ts drags. One dragTo jumps
+    // from the row to the drop point in a single move and drops at once: the drop then rests on the
+    // one dragover sent as the drag starts, and nothing checks that the page took it (on a busy
+    // runner it left no split). Here the row crosses the native drag threshold, App shows its guide
+    // (it saw the dragstart), the area is measured after that, and the drop waits for a dragover on
+    // the drop point to take the pane for the right half.
     const area = page.locator(".pane-split");
+    const source = page.locator(`.pane-select[title^="${paneB} —"]`);
+    await source.scrollIntoViewIfNeeded();
+    const from = (await source.boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2 + 4, { steps: 2 });
+    await page.waitForFunction(() => document.querySelector(".split-drop")?.classList.contains("is-visible") === true);
     const box = (await area.boundingBox())!;
-    await page.locator(`.pane-select[title^="${paneB} —"]`).dragTo(area, { targetPosition: { x: box.width * 0.8, y: box.height / 2 } });
+    await page.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2, { steps: 8 });
+    // crossing the transcript's children can end on a dragenter alone: a move on the same element sends the dragover
+    await page.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2);
+    await page.waitForFunction(() => {
+      const guide = document.querySelector(".split-drop");
+      return guide?.classList.contains("is-visible") === true && guide.getAttribute("data-side") === "right";
+    });
+    await page.mouse.up();
     await until(async () => await page.locator(".pane-slot").count() === 2, "two halves after the drop");
     const half = (side: string) => page.locator(`.pane-slot[data-side="${side}"]`);
     await half("left").getByRole("log", { name: `conversation of ${paneA}`, exact: true }).waitFor();
@@ -2013,7 +2048,7 @@ try {
   await planPhone.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "chat" })));
   const phone = await planPhone.newPage();
   phone.on("pageerror", (error) => errors.push(error.message));
-  const unroutePhonePlanned = await planned(phone);
+  const unroutePhonePlanned = await planned(phone, { events: true });
   await phone.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
   await phone.locator(".conn-live").waitFor();
   const phonePlan = phone.getByRole("button", { name: /^Plan: 1 of 4 done/ });
