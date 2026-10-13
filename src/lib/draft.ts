@@ -71,9 +71,13 @@ export function draftIsEmpty(draft: InputDraft): boolean {
   return draft.text.length === 0 && !draft.truncated;
 }
 
-/** Backspace on held input: the last character typed goes, as it would at a prompt. */
+/**
+ * Backspace on held input: the last character typed goes (a whole code point), as it would at a
+ * prompt. Once text was left out for want of room, Backspace may be meant for that text, so it no
+ * longer edits the draft.
+ */
 export function eraseFromDraft(draft: InputDraft): InputDraft {
-  if (draft.text.length === 0) return draft;
+  if (draft.text.length === 0 || draft.truncated) return draft;
   return { ...draft, text: Array.from(draft.text).slice(0, -1).join("") };
 }
 
@@ -92,7 +96,10 @@ const ENCODED_ENTER = /\x1b\[(?:27;\d+;13~|13(?:;\d+)?u)/;
 export function heldInputAction(input: string, typed: { enter: boolean; chord: boolean; paste: boolean }): "block" | "erase" | "hold" | "pass" {
   if (typed.chord || typed.enter) return "block";
   if (!typed.paste && (input === "\x7f" || input === "\b")) return "erase";
+  // decided before the draft is asked: what applyToDraft makes of a line break or a pasted tab is
+  // its own business, and none of them may join a held draft or reach the terminal beside it
+  if (/[\r\n]/.test(input) || ENCODED_ENTER.test(input) || (typed.paste && input.includes("\t"))) return "block";
   if (applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) return "hold";
-  if (typed.paste || /[\r\n]/.test(input) || ENCODED_ENTER.test(input)) return "block";
+  if (typed.paste) return "block";
   return "pass";
 }

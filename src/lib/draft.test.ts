@@ -127,6 +127,9 @@ describe("heldInputAction", () => {
     expect(heldInputAction("\b", key)).toBe("erase");
     expect(heldInputAction("line1\nline2", { ...key, paste: true })).toBe("block");
     expect(heldInputAction("\x1b[200~line1\rline2\x1b[201~", { ...key, paste: true })).toBe("block");
+    expect(heldInputAction("\x1b[200~a\tb\x1b[201~", { ...key, paste: true })).toBe("block");
+    // text typed with its Enter in one chunk (a keyboard that commits a word and Enter together)
+    expect(heldInputAction("ls\r", key)).toBe("block");
   });
 
   it("passes other control keys and xterm's own answers to the program", () => {
@@ -135,9 +138,14 @@ describe("heldInputAction", () => {
 });
 
 describe("eraseFromDraft", () => {
-  it("removes the last character, a whole code point, and keeps a loss told", () => {
+  it("removes the last character, a whole code point", () => {
     expect(eraseFromDraft({ text: "ls", truncated: false })).toEqual({ text: "l", truncated: false });
-    expect(eraseFromDraft({ text: "a\u{1F600}", truncated: true })).toEqual({ text: "a", truncated: true });
+    expect(eraseFromDraft({ text: "a\u{1F600}", truncated: false })).toEqual({ text: "a", truncated: false });
     expect(eraseFromDraft(EMPTY_DRAFT)).toBe(EMPTY_DRAFT);
+  });
+
+  it("leaves a draft that lost text as it is: the Backspace may be meant for the text left out", () => {
+    const truncated = { text: "a\u{1F600}", truncated: true };
+    expect(eraseFromDraft(truncated)).toBe(truncated);
   });
 });
