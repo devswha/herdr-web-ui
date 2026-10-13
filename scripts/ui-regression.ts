@@ -93,6 +93,21 @@ try {
     if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
     for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
   }, panes);
+  // A hook for a check that changes the roster on a page already loaded: a route cannot reach the
+  // /api/machines/events stream the page has open, so `window.__rewriteMachinesFrame`, while set,
+  // rewrites each frame's data before the app reads it (the plan check below).
+  await context.addInitScript(() => {
+    const Native = window.EventSource;
+    window.EventSource = class extends Native {
+      override get onmessage() { return super.onmessage; }
+      override set onmessage(handler) {
+        super.onmessage = typeof handler !== "function" ? handler : (event: MessageEvent) => {
+          const rewrite = (window as unknown as { __rewriteMachinesFrame?: (data: string) => string }).__rewriteMachinesFrame;
+          handler.call(this, rewrite ? new MessageEvent("message", { data: rewrite(event.data) }) : event);
+        };
+      }
+    };
+  });
 
   const page = await context.newPage();
   const pageEvidence = evidenceDirectory ? await watchBrowserEvidence(context, page, "main-app") : undefined;
@@ -538,6 +553,17 @@ try {
     return unrouteMachines;
   };
   const unroutePlanned = await planned(page);
+  // this page keeps the stream it has: any roster it pushes now (a session or layout change on the
+  // PC) carries the plan too, or that frame would take the chip away between waitFor and click
+  await page.evaluate(([pane, plan]) => {
+    (window as unknown as { __rewriteMachinesFrame?: (data: string) => string }).__rewriteMachinesFrame = (data) => {
+      let payload: { type?: string; machines?: { snapshot?: { panes: { pane_id: string }[] } }[] };
+      try { payload = JSON.parse(data); } catch { return data; }
+      if (payload.type !== "machines") return data;
+      for (const machine of payload.machines ?? []) for (const p of machine.snapshot?.panes ?? []) if (p.pane_id === pane) Object.assign(p, { plan });
+      return JSON.stringify(payload);
+    };
+  }, [paneA, { done: 1, total: 4, current: "Writing the parser" }] as const);
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   const planChip = page.getByRole("button", { name: /^Plan: 1 of 4 done/ });
   await planChip.waitFor();
@@ -558,6 +584,7 @@ try {
   await planChip.click();
   await until(async () => await planList.locator(".bg-step").count() === 4, "the plan's steps again");
   await unroutePlanned();
+  await page.evaluate(() => { delete (window as unknown as { __rewriteMachinesFrame?: unknown }).__rewriteMachinesFrame; });
   await page.unroute(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`);
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await planList.waitFor({ state: "detached" });
