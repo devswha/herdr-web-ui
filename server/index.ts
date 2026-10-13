@@ -2072,6 +2072,9 @@ export function createServer(
           if (pathname === "/api/workspace/rename") await workspaceRename(payload.workspace_id, payload.label as string);
           else if (pathname === "/api/workspace/move") await workspaceMove(payload.workspace_id, payload.insert_index as number);
           else await workspaceClose(payload.workspace_id, undefined, payload.close_group === true);
+          // a closed workspace's panes send no exit: without this, clients learn of it only after
+          // the collector's structure debounce, and the closed workspace stays on screen meanwhile
+          if (pathname === "/api/workspace/close") broadcastAll({ type: "session-changed" });
           return jsonResponse({ ok: true });
         } catch (error) {
           return errorResponse(error);

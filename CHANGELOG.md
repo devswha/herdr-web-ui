@@ -77,6 +77,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#860](https://github.com/devswha/herdr-web-ui/pull/860))
 
 ### Fixed
+- A closed workspace leaves the sidebar as soon as herdr closes it, about half a second sooner:
+  its panes send no exit, so browsers used to learn of it only after the next roster refresh.
 - First-device pairing waits for the browser to return its device cookie before restricting
   access. A proxy that drops the cookie no longer locks out an otherwise open installation;
   Settings reports the failed pairing instead. Already restricted installations stay restricted.

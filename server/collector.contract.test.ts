@@ -71,6 +71,21 @@ describe("socket lifecycle changes reach WebSocket clients", () => {
     });
   }
 
+  it("pushes session-changed when POST /api/workspace/close answers, not after the collector's debounce", async () => {
+    const closing = await workspaceCreate({ cwd: stateDir, label: "herdr-web-ui-test-collector-close" });
+    // the creation's own frame, debounced, is not the close's
+    await nextFrame("session-changed");
+    const changed = nextFrame("session-changed").then(() => performance.now());
+    const response = await fetch(`http://localhost:${app.port}/api/workspace/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspace_id: closing.workspace.workspace_id }),
+    });
+    const answered = performance.now();
+    expect(response.status).toBe(200);
+    expect(await changed - answered).toBeLessThan(250);
+  });
+
   it("tells browsers of a completion after a working pane moves before reconciliation", async () => {
     const working = nextFrame("pane-status", (frame) => frame.type === "pane-status" && frame.pane_id === workspace.root_pane.pane_id && frame.agent_status === "working");
     await herdrRpc("pane.report_agent", { pane_id: workspace.root_pane.pane_id, source: "manual", agent: "codex", state: "working" });
