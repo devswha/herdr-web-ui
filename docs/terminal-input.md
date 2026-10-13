@@ -30,6 +30,9 @@ visible prompt before input and Enter; each automatic next message also waits fo
 the preceding turn started and finished, and an explicit send refused in between does not end that wait. It never sends native Tab and then resends that text.
 Tab/workspace navigation on the same PC retains the original pane attachment while its automatic
 queue waits.
+A page left for another address ends its connection at `pagehide`, also when the browser keeps the
+page for Back (the back/forward cache): its queue is then lost like any closed connection's, and the
+page connects again when it is shown.
 Pending acceptance is distinct from a committing-key receipt. Connection loss, actual pane detachment
 and observe mode pause the pending list; reconnect or reload cannot rearm it. Losing a pane
 lease permanently cancels its in-flight send, even if that connection rejoins the same attachment
