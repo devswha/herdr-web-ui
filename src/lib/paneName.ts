@@ -16,6 +16,23 @@ export function codexThreadTitle(title: string): string {
   return at > 0 && title.slice(0, at).trim() !== "" ? title.slice(0, at) : title;
 }
 
+/** shell prompt titles: `user@host:` is chrome, the path after it is the information */
+const SHELL_PREFIX = /^[^:@\s]+@[^:@\s]+:/;
+/** Herdr's agent glyph and spinner are already represented by the row mark and badge. */
+const AGENT_CHROME = /^π\s*[^\p{L}\p{N}\s]?\s*/u;
+
+/**
+ * A pane's live title without what is drawn beside it: a shell's `user@host:`, an agent's glyph and
+ * spinner, and the folder Codex adds after its thread. `whole` keeps that folder: an alert is read
+ * away from the row that says where the pane is.
+ */
+export function stripPaneChrome(title: string, agent: string | null | undefined, whole = false): string {
+  const shellStripped = title.replace(SHELL_PREFIX, "");
+  if (!agent) return shellStripped;
+  const marked = shellStripped.replace(AGENT_CHROME, "");
+  return agent === "codex" && !whole ? codexThreadTitle(marked) : marked;
+}
+
 export function shortPathTitle(title: string): string {
   const trimmed = title.trim();
   return PATH_TITLE.test(trimmed) ? folderName(trimmed) : title;
