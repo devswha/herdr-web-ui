@@ -121,3 +121,4 @@
 
 ### Fixed
 - The diagram viewer's toolbar keeps clear of a notch or rounded corner on a phone held sideways.
+- A long Markdown file opens its Preview in parts, so the page no longer stalls for about a second on a slow machine while it draws.
