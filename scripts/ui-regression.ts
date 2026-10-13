@@ -403,6 +403,14 @@ try {
     const offlineAgent = offlinePage.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneB}"] .agent-select`);
     await offlineAgent.waitFor();
     assert.equal(await offlineAgent.isDisabled(), true, "a cached offline agent cannot select its pane");
+    const offlineWorkspace = offlinePage.locator('.machine-offline').first();
+    assert.equal(await offlineWorkspace.evaluate((element) => element.inert), true,
+      "offline workspace controls use native inert handling");
+    assert.equal(await offlineWorkspace.evaluate((element) => {
+      const button = element.querySelector<HTMLButtonElement>("button");
+      button?.focus();
+      return element.contains(document.activeElement);
+    }), false, "offline workspace controls cannot take keyboard focus");
     const selectionBefore = await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection"));
     await offlineAgent.dispatchEvent("click");
     assert.equal(await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection")), selectionBefore,
@@ -965,9 +973,11 @@ try {
     assert.ok(text && left && status && right, "the message box and the three cells of the controls row");
     // each row spans the card's inner width: inside its hairline border, a fraction of a px either way
     assert.ok(Math.abs(text.x - card.x) <= 2.5 && Math.abs(text.width - card.width) <= 4, `.composer-text spans the box: ${JSON.stringify({ text, card })}`);
-    // the status content is the middle cell of the last row: add on its left, the round button on its right, no gap between the cells
-    assert.ok(Math.abs(left.x - card.x) <= 2.5 && Math.abs(status.x - (left.x + left.width)) <= 1 && Math.abs(right.x - (status.x + status.width)) <= 1
-      && Math.abs(right.x + right.width - left.x - card.width) <= 4, `the controls row spans the box: ${JSON.stringify({ left, status, right, card })}`);
+    // the status content (the model group) starts the last row, the action icons follow it and the round button ends it,
+    // the cells parted only by the card's column gap
+    const gap = await page.locator(".composer-surface").evaluate((element) => parseFloat(getComputedStyle(element).columnGap) || 0);
+    assert.ok(Math.abs(status.x - card.x) <= 2.5 && Math.abs(left.x - (status.x + status.width + gap)) <= 1 && Math.abs(right.x - (left.x + left.width + gap)) <= 1
+      && Math.abs(right.x + right.width - status.x - card.width) <= 4, `the controls row spans the box: ${JSON.stringify({ status, left, right, gap, card })}`);
     for (const selector of [".composer-queue", ".chat-transcript"]) {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box, selector);
