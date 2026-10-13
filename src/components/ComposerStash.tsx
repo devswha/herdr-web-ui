@@ -7,7 +7,7 @@ import { MAX_STASHED_DRAFTS, promptStash, stashSnippet, type StashedDraft } from
 import { useT } from "../lib/i18n.ts";
 
 /**
- * Saved drafts, in the composer's left controls beside Attach, far from Send: it saves the box
+ * Saved drafts, in the composer's controls group beside Attach: it saves the box
  * and fills it again, and never sends anything. Restoring over a draft saves that draft first,
  * so no text is ever lost to a restore.
  */
