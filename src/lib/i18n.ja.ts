@@ -8,6 +8,8 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
+  "Show terminal scrollbar": "ターミナルのスクロールバーを表示",
+  "On this phone, show the terminal history bar. Off, the terminal uses its space; swipe still scrolls.": "このスマートフォンでターミナル履歴のスクロールバーを表示します。オフにするとターミナルがその領域を使い、スワイプでのスクロールは引き続きできます。",
   "PageUp / PageDown scroll chat": "PageUp / PageDownでチャットをスクロール",
   "Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.": "入力中も会話をスクロールします。ターミナルでは通常のページキーは実行中のプログラムに渡されます。",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravityのチャットを利用できません。ターミナルを開いて動作状況とツール呼び出しを確認してください。",

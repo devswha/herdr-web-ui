@@ -22,6 +22,21 @@ it("shrinks a narrow split pane's font until this device turns it off", () => {
   expect(sanitizeSettings({ narrowPaneFont: "false" }).narrowPaneFont).toBe(true);
 });
 
+it("keeps the phone terminal scrollbar on unless this device explicitly hides it", () => {
+  expect(DEFAULT_SETTINGS.showTerminalScrollbar).toBe(true);
+  expect(sanitizeSettings({}).showTerminalScrollbar).toBe(true);
+  expect(sanitizeSettings({ showTerminalScrollbar: false }).showTerminalScrollbar).toBe(false);
+  expect(sanitizeSettings({ showTerminalScrollbar: true }).showTerminalScrollbar).toBe(true);
+  for (const showTerminalScrollbar of [null, "false", 0]) {
+    expect(sanitizeSettings({ showTerminalScrollbar }).showTerminalScrollbar).toBe(true);
+  }
+  const saved = sanitizeSettings({ showTerminalScrollbar: false });
+  expect(sanitizeSettings({ ...JSON.parse(JSON.stringify(saved)), theme: "light" }).showTerminalScrollbar).toBe(false);
+  expect(SETTING_SCOPE.showTerminalScrollbar).toBe("device");
+  expect(SHARED_SETTING_KEYS).not.toContain("showTerminalScrollbar");
+  expect(telemetrySettingsSnapshot(saved)).not.toHaveProperty("showTerminalScrollbar");
+});
+
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
   expect(sanitizeSettings({}).keepScreenOn).toBe(false);

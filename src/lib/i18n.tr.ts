@@ -7,6 +7,8 @@
  * keep their English names.
  */
 export const TR: Record<string, string> = {
+  "Show terminal scrollbar": "Terminal kaydırma çubuğunu göster",
+  "On this phone, show the terminal history bar. Off, the terminal uses its space; swipe still scrolls.": "Bu telefonda terminal geçmişi çubuğunu gösterir. Kapalıyken terminal bu alanı kullanır; kaydırma hareketi çalışmaya devam eder.",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity sohbeti kullanılamıyor. Etkinliği ve araç çağrılarını görmek için Terminal'i açın.",
   "Chat read timed out.": "Sohbet okunurken zaman aşımına uğradı.",
   "Thinking…": "Düşünüyor…",

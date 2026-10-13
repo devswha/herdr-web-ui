@@ -6,6 +6,8 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Show terminal scrollbar": "터미널 스크롤바 표시",
+  "On this phone, show the terminal history bar. Off, the terminal uses its space; swipe still scrolls.": "이 휴대전화에서 터미널 기록 스크롤바를 표시합니다. 끄면 터미널이 그 공간을 사용하며, 스와이프로 계속 스크롤할 수 있습니다.",
   "PageUp / PageDown scroll chat": "PageUp / PageDown으로 채팅 스크롤",
   "Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.": "입력 중에도 대화를 스크롤합니다. 터미널에서는 일반 페이지 키가 실행 중인 프로그램에 전달됩니다.",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 채팅을 사용할 수 없습니다. 터미널을 열어 작업 상태와 도구 호출을 확인하세요.",

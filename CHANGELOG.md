@@ -8,6 +8,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **Settings → Appearance → Show terminal scrollbar** appears on phone touch layouts (up to
+  768px). It is on by default; off, the terminal regains the history bar's column while swipe,
+  paging and search keep working. The choice stays on this browser; desktop and wider tablet
+  layouts keep their scrollbar.
 - **Settings → Phone & devices → Portal** gives this PC a public HTTPS address through
   [Portal](https://github.com/gosuda/portal-tunnel), with no account and no domain of your own.
   With Portal v2.6.1 or later installed, **Start** runs it on a relay you enter, dropping any

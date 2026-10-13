@@ -10,6 +10,8 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Show terminal scrollbar": "显示终端滚动条",
+  "On this phone, show the terminal history bar. Off, the terminal uses its space; swipe still scrolls.": "在此手机上显示终端历史滚动条。关闭后，终端会使用该空间，仍可通过滑动滚动。",
   "PageUp / PageDown scroll chat": "PageUp / PageDown 滚动聊天",
   "Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.": "输入时也可滚动对话。在终端中，普通翻页键仍由正在运行的程序处理。",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 聊天暂不可用。请打开终端查看运行状态和工具调用。",

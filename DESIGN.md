@@ -1223,7 +1223,12 @@ One set for both themes: the card is island black wherever it shows.
   an edge swipe) takes one step out and never leaves the app from inside Settings; the Back
   control, the X, Escape and the scrim take the same entries off. Beside the list, turning pages
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
-- Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
+- Appearance's **Show terminal scrollbar** is on by default and shown only at up to 768px with
+  a coarse pointer (the phone touch layout, not a narrow desktop window). Off, the terminal's
+  shared-history bar is unmounted and its reserved column returns to the grid; swipe, paging
+  and search highlights remain active. The choice stays on this browser and does not affect
+  desktop or wider tablet layouts. Media-query changes update both the control and the bar.
+- Pages, in order: **Appearance** (theme, colors, density, phone terminal scrollbar, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family, highlight code; then
   **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, files at once, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
   lines, Markdown width), **Terminal** (font size, 80 columns in a split, font family, wheel

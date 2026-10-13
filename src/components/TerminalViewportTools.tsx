@@ -20,6 +20,8 @@ interface Props {
   onApplicationPage?: (direction: -1 | 1) => void;
   viewportId: string;
   enabled: boolean;
+  /** Only the visible bar; history metrics, paging and search remain enabled when hidden. */
+  showScrollbar: boolean;
   interactive: boolean;
   search: TerminalSearchState | null;
   onError(message: string): void;
@@ -29,7 +31,7 @@ interface Props {
 /** how long a page asked for on stale metrics waits for the read that tells history from a program's screen */
 const HELD_PAGE_MS = 1000;
 
-export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, onApplicationPage, viewportId, enabled, interactive, search, onError }: Props) {
+export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, onApplicationPage, viewportId, enabled, showScrollbar, interactive, search, onError }: Props) {
   const t = useT();
   const api = useMachineApi();
   const { settings } = useSettings();
@@ -227,7 +229,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
   return <div ref={layer} className="terminal-viewport-tools" aria-hidden={!enabled || undefined}>
     {enabled && search && box && hits.map((hit, index) => <span key={index} className={`terminal-find-hit${hit.current ? " is-current" : ""}`} aria-hidden="true"
       style={{ left: box.left + hit.col * box.width / box.cols, top: box.top + hit.row * box.height / box.rows, width: hit.width * box.width / box.cols, height: box.height / box.rows }} />)}
-    {enabled && box && box.trackHeight > 0 && metrics && metrics.max_offset_from_bottom > 0 && thumb && <div ref={track} className="terminal-history-scrollbar"
+    {enabled && showScrollbar && box && box.trackHeight > 0 && metrics && metrics.max_offset_from_bottom > 0 && thumb && <div ref={track} className="terminal-history-scrollbar"
       role="scrollbar" aria-label={t("Terminal scrollback")} aria-controls={viewportId} aria-orientation="vertical"
       aria-valuemin={0} aria-valuemax={metrics.max_offset_from_bottom} aria-valuenow={metrics.max_offset_from_bottom - metrics.offset_from_bottom}
       aria-disabled={!interactive || undefined} tabIndex={interactive ? 0 : -1} style={{ top: box.trackTop, height: box.trackHeight }}

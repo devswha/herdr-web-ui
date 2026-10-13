@@ -1,5 +1,8 @@
 import type { PaneFindMatch, PaneScrollInfo } from "../../shared/protocol.ts";
 
+/** The phone layout's breakpoint plus touch input; a narrow desktop keeps its scrollbar. */
+export const PHONE_TERMINAL_QUERY = "(max-width: 768px) and (pointer: coarse)";
+
 export interface ViewportCell { chars: string; width: number }
 export interface FindCellRect { row: number; col: number; width: number; current: boolean }
 export type CellReader = (row: number, col: number) => ViewportCell | undefined;

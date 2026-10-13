@@ -90,6 +90,8 @@ export interface Settings {
   terminalCursorStyle: TerminalCursorStyle;
   /** xterm cursorBlink */
   terminalCursorBlink: boolean;
+  /** Phone touch layouts only; hiding the history bar also returns its gutter to the grid. */
+  showTerminalScrollbar: boolean;
   /** mouse reports sent to herdr per wheel event in the terminal: 1 is what xterm sends by itself */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in terminal stack, as a CSS font-family list; "" keeps the built-in one */
@@ -173,7 +175,8 @@ export type MarkdownWidth = (typeof MARKDOWN_WIDTHS)[number];
  * Settings field in the projection makes a new field require an explicit collection decision. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
-  | "quickReplies" | "usageOrder" | "usageHidden">;
+  // The phone scrollbar preference stays local and is not collected by telemetry.
+  | "quickReplies" | "usageOrder" | "usageHidden" | "showTerminalScrollbar">;
 
 /** Compare structured custom settings by content against this app's built-in defaults. */
 function differsFromDefault(value: unknown, defaultValue: unknown): boolean {
@@ -251,7 +254,7 @@ export const SETTING_SCOPE = {
   showQuickReplies: "shared", showSuggestionChip: "shared", showUsage: "shared", usageCount: "shared", usagePace: "shared",
   usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", highlightCode: "shared", defaultView: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
-  quietOpenedDone: "device", terminalFontSize: "device", terminalCursorStyle: "device", terminalCursorBlink: "device",
+  quietOpenedDone: "device", terminalFontSize: "device", terminalCursorStyle: "device", terminalCursorBlink: "device", showTerminalScrollbar: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
   narrowPaneFont: "device", chatFontSize: "device", chatFontFamily: "device", chatWidth: "device", enterSends: "device", attachLimit: "device",
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
@@ -284,6 +287,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   terminalCursorStyle: "block",
   terminalCursorBlink: true,
+  showTerminalScrollbar: true,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
   paneClipboard: true,
@@ -453,6 +457,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       ? record["terminalCursorStyle"] as TerminalCursorStyle
       : DEFAULT_SETTINGS.terminalCursorStyle,
     terminalCursorBlink: typeof record["terminalCursorBlink"] === "boolean" ? record["terminalCursorBlink"] : DEFAULT_SETTINGS.terminalCursorBlink,
+    showTerminalScrollbar: typeof record["showTerminalScrollbar"] === "boolean" ? record["showTerminalScrollbar"] : DEFAULT_SETTINGS.showTerminalScrollbar,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))
       : DEFAULT_SETTINGS.terminalWheelSpeed,

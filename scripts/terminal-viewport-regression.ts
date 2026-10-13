@@ -276,7 +276,124 @@ try {
   assert.deepEqual(errors, []);
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-viewport.png") });
   await context.close();
-  console.log("PASS native history scrollbar, search highlights, wide cells, non-jumping refresh and old bridge compatibility");
+
+  // A phone's Appearance switch hides only the bar, never the history/search machinery.
+  await herdrRpc("pane.scroll", { pane_id: paneId, offset_from_bottom: 0 });
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: "en-US" });
+  await phone.addInitScript(() => {
+    if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "terminal", alertsOn: false }));
+  });
+  try {
+    const mobile = await phone.newPage();
+    mobile.setDefaultTimeout(10000);
+    mobile.on("pageerror", (error) => errors.push(error.message));
+    await mobile.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(paneId)}`);
+    const bar = mobile.getByRole("scrollbar", { name: "Terminal scrollback", exact: true });
+    const toggle = mobile.getByRole("switch", { name: "Show terminal scrollbar", exact: true });
+    const grid = mobile.locator(".pane-terminal");
+    const gridWidth = async () => (await grid.boundingBox())!.width;
+    await bar.waitFor();
+    const withBar = await gridWidth();
+    const screenWithBar = (await mobile.locator(".xterm-screen").boundingBox())!.width;
+    await mobile.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(mobile, "Appearance");
+    assert.equal(await toggle.getAttribute("aria-checked"), "true", "the phone bar defaults to on");
+    await toggle.click();
+    await bar.waitFor({ state: "detached" });
+    await mobile.keyboard.press("Escape");
+    await until(async () => Math.abs(await gridWidth() - withBar - 24) < 1, "hiding the phone bar returns its full 24px column");
+    assert.equal(await grid.getAttribute("class"), "pane-terminal", "no gutter remains when the bar is hidden");
+    await until(async () => (await paneScrollInfo(paneId))!.viewport_rows === await mobile.locator(".xterm-rows > div").count(), "the phone grid has refit");
+    await until(async () => (await mobile.locator(".xterm-screen").boundingBox())!.width > screenWithBar, "the rendered grid refits to its recovered width");
+    await mobile.reload();
+    await grid.waitFor();
+    await mobile.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(mobile, "Appearance");
+    assert.equal(await toggle.getAttribute("aria-checked"), "false", "the phone choice survives reload");
+    await mobile.keyboard.press("Escape");
+    assert.equal(await bar.count(), 0);
+
+    await until(async () => (await paneScrollInfo(paneId))!.viewport_rows === await mobile.locator(".xterm-rows > div").count(), "reload's native geometry is ready");
+    await mobile.keyboard.press("ControlOrMeta+Shift+PageDown");
+    await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === 0, "hidden-bar paging returns to the native bottom");
+    const touch = await phone.newCDPSession(mobile);
+    const screenBox = (await mobile.locator(".xterm-screen").boundingBox())!;
+    const x = screenBox.x + screenBox.width / 2, y = screenBox.y + screenBox.height / 3;
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (const delta of [30, 60, 90, 120]) await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y + delta }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await touch.detach();
+    await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom > 0, "a real touch swipe still scrolls with no bar");
+    const beforePage = (await paneScrollInfo(paneId))!.offset_from_bottom;
+    await mobile.keyboard.press("ControlOrMeta+Shift+PageUp");
+    await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom > beforePage, "hidden-bar paging still scrolls native history");
+    const phoneRowsBeforeFind = (await paneScrollInfo(paneId))!.viewport_rows;
+    await mobile.keyboard.press("ControlOrMeta+Shift+f");
+    const mobileFind = mobile.getByRole("search", { name: "Find in terminal", exact: true });
+    await until(async () => {
+      const native = await paneScrollInfo(paneId);
+      return !!native && native.viewport_rows < phoneRowsBeforeFind
+        && native.viewport_rows === await mobile.locator(".xterm-rows > div").count();
+    }, "Find's phone geometry is ready");
+    await mobileFind.getByRole("searchbox").fill("mark_needle");
+    const phoneFindResponse = mobile.waitForResponse((response) => response.url().endsWith("/api/pane/find") && response.request().postDataJSON()?.jump !== false);
+    await mobileFind.getByRole("searchbox").press("Enter");
+    const phoneFindResult = await (await phoneFindResponse).json();
+    try { await mobile.locator(".terminal-find-hit.is-current").first().waitFor(); }
+    catch (error) {
+      console.error("Phone search diagnostic", JSON.stringify({
+        result: phoneFindResult, native: await paneScrollInfo(paneId),
+        dom: await mobile.evaluate(() => ({
+          find: document.querySelector(".find-bar")?.textContent,
+          grid: document.querySelector(".xterm-rows")?.textContent,
+          hits: document.querySelectorAll(".terminal-find-hit").length,
+          forms: document.querySelectorAll(".find-bar").length,
+          height: document.querySelector(".pane-terminal")?.getBoundingClientRect().height,
+        })),
+      }));
+      if (process.env.UI_EVIDENCE_DIR) await mobile.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "phone-scrollbar-search-failure.png") });
+      throw error;
+    }
+    assert.equal(await mobileFind.count(), 1, "mobile search never duplicates the form when the input line also renders");
+    assert.equal(await bar.count(), 0, "Find remains decorated without reintroducing the bar");
+    await mobile.getByRole("button", { name: "Close search", exact: true }).click();
+
+    await mobile.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(mobile, "Appearance");
+    await mobile.setViewportSize({ width: 1024, height: 844 });
+    await toggle.waitFor({ state: "detached" });
+    await bar.waitFor();
+    assert.ok((await grid.getAttribute("class"))?.includes("has-history-scrollbar"), "wider touch layouts keep their bar regardless of the phone choice");
+    await mobile.setViewportSize({ width: 390, height: 844 });
+    await toggle.waitFor();
+    assert.equal(await toggle.getAttribute("aria-checked"), "false");
+    await bar.waitFor({ state: "detached" });
+    await toggle.click();
+    await bar.waitFor();
+    await mobile.keyboard.press("Escape");
+    assert.ok(Math.abs(await gridWidth() - withBar) < 1, "turning the bar back on restores its column");
+  } finally { await phone.close(); }
+
+  // The stored phone choice is ignored on desktop, even with a phone-width window.
+  const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+  await desktop.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "terminal", alertsOn: false, showTerminalScrollbar: false })));
+  try {
+    const wide = await desktop.newPage();
+    wide.setDefaultTimeout(10000);
+    wide.on("pageerror", (error) => errors.push(error.message));
+    await wide.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(paneId)}`);
+    await wide.getByRole("scrollbar", { name: "Terminal scrollback", exact: true }).waitFor();
+    await wide.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(wide, "Appearance");
+    assert.equal(await wide.getByRole("switch", { name: "Show terminal scrollbar", exact: true }).count(), 0);
+    await wide.setViewportSize({ width: 390, height: 844 });
+    await until(async () => await wide.evaluate(() => matchMedia("(max-width: 768px)").matches), "desktop window becomes narrow");
+    assert.equal(await wide.getByRole("switch", { name: "Show terminal scrollbar", exact: true }).count(), 0, "a narrow non-touch desktop never shows the phone control");
+    await wide.getByRole("scrollbar", { name: "Terminal scrollback", exact: true }).waitFor();
+    assert.ok((await wide.locator(".pane-terminal").getAttribute("class"))?.includes("has-history-scrollbar"));
+  } finally { await desktop.close(); }
+  assert.deepEqual(errors, []);
+  console.log("PASS native history scrollbar, search highlights, wide cells, non-jumping refresh, old bridge compatibility and phone-only scrollbar setting");
 } finally {
   await browser.close(); server.stop();
   if (workspace) await workspaceClose(workspace).catch(() => {});

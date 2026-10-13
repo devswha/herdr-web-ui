@@ -34,6 +34,8 @@ import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 import { TelemetryControls } from "./TelemetryControls.tsx";
 import { useSheetSwipe } from "../lib/sheets.ts";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
+import { PHONE_TERMINAL_QUERY } from "../lib/terminalViewport.ts";
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -146,6 +148,7 @@ function shownBy(entry: SettingsLevel | null): { page: SettingsPage | null; keyB
 function AppearancePage() {
   const { settings, update } = useSettings();
   const t = useT();
+  const phone = useMediaQuery(PHONE_TERMINAL_QUERY);
   return (
     <SettingsGroup>
       <SettingsRow label={t("Theme")} wide>
@@ -164,6 +167,9 @@ function AppearancePage() {
       <SettingsRow label={t("Density")}>
         <Segmented label={t("Density")} value={settings.density} onChange={(density) => update({ density })} options={[{ value: "comfortable", label: t("Comfortable") }, { value: "compact", label: t("Compact") }]} />
       </SettingsRow>
+      {phone && <SettingsRow label={t("Show terminal scrollbar")} description={t("On this phone, show the terminal history bar. Off, the terminal uses its space; swipe still scrolls.")}>
+        <Toggle label={t("Show terminal scrollbar")} checked={settings.showTerminalScrollbar} onChange={(showTerminalScrollbar) => update({ showTerminalScrollbar })} />
+      </SettingsRow>}
       <SettingsRow label={t("Language")} description={t("Follows the browser unless you choose one")} htmlFor="settings-language">
         <select id="settings-language" className="select settings-select" value={settings.language} onChange={(event) => update({ language: event.target.value as typeof settings.language })}>
           {LANGUAGE_SETTINGS.map((language) => <option key={language} value={language}>{language === "system" ? t("System") : LANGUAGE_NAMES[language]}</option>)}

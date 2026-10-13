@@ -330,5 +330,6 @@
   content-visibility: hidden;
 }
 
-.pane-terminal.has-viewport-tools { width: calc(100% - var(--terminal-history-gutter)); }
+/* Reserve the history bar's column only while it is shown; search and paging stay active. */
+.pane-terminal.has-history-scrollbar { width: calc(100% - var(--terminal-history-gutter)); }
 @media (pointer: coarse) { .terminal-surface { --terminal-history-gutter: var(--space-6); } }
