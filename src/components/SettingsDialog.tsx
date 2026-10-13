@@ -761,15 +761,21 @@ function AboutPage({ updates, herdrVersion, bridgesFollow }: { updates: UpdatesM
 export function SettingsDialog(props: SettingsDialogProps) {
   // mounted per opening: every opening starts on the list, with nothing left from the last one
   // a page that cannot be drawn closes to the app instead of blanking it; the next opening tries again
-  return props.open ? <RenderBoundary resetKey={null} fallback={() => <SettingsCrash onClose={props.onClose} />}>
+  return props.open ? <RenderBoundary resetKey={null} fallback={() => <SettingsCrash onClose={props.onClose} overPreview={props.overPreview ?? false} />}>
     <CrashProbe region="settings" />
     <OpenSettingsDialog {...props} />
   </RenderBoundary> : null;
 }
 
-/** Still a modal: Escape, the swipe down on a phone and the kept focus close it as they close Settings. */
-function SettingsCrash({ onClose }: { onClose: () => void }) {
+/**
+ * Still a modal: Escape, the swipe down on a phone, the system Back button and the kept focus
+ * close it as they close Settings, and it sits over a file preview as Settings does.
+ */
+function SettingsCrash({ onClose, overPreview }: { onClose: () => void; overPreview: boolean }) {
   const t = useT();
+  // one entry of the history, whatever the crashed dialog had recorded: Back takes it off and the
+  // app closes Settings (lib/settingsHistory.ts). Not settingsLevels: a wide dialog's list is none
+  useEffect(() => { recordSettings([{ page: null, keyBar: false }]); }, []);
   const closeRef = useRef<HTMLButtonElement>(null);
   const surface = useFocusTrap<HTMLDivElement>(true, { initialFocus: closeRef });
   useSheetSwipe(surface, onClose);
@@ -783,7 +789,7 @@ function SettingsCrash({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose]);
   return (
-    <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className={overPreview ? "modal-scrim settings-over-preview" : "modal-scrim"} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div ref={surface} className="modal" role="dialog" aria-modal="true" aria-label={t("Settings")} tabIndex={-1}>
         <RegionCrash message={t("Settings can't be shown.")} retry={onClose} retryLabel={t("Close")} buttonRef={closeRef} />
       </div>

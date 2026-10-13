@@ -10,7 +10,8 @@ import { buildDemoApp } from "./demo-build.ts";
 // `?crash=<region>` makes that region throw while it renders (src/lib/crashProbe.ts):
 // - root: the whole page is AppCrash, with Reload app (which reloads) and Copy details;
 // - sidebar, pane: that region shows its notice and the rest of the app keeps working;
-// - settings: the dialog shows its notice, holds the focus, and Escape or Close returns to the app.
+// - settings: the dialog shows its notice, holds the focus, sits over a file preview, and Escape,
+//   Close or the system Back button returns to the app.
 // The root and a pane slot are seen again on a phone, where copying can be refused: Copy details
 // then opens the details with the text selected.
 // On the unmodified app over the demo's fixture transport: no herdr session is opened.
@@ -173,6 +174,57 @@ try {
         await dialog.getByRole("alert").filter({ hasText: "Settings can't be shown." }).waitFor();
         await dialog.getByRole("button", { name: "Close", exact: true }).click();
         await dialog.waitFor({ state: "detached" });
+        assert.equal(await page.locator(".app-crash").count(), 0, "the page is not blanked");
+        await close();
+      }
+
+      // Settings opened by its shortcut over a file preview: its notice is drawn over the preview,
+      // as Settings is, so Close is the control under the pointer
+      {
+        const { page, close } = await open(browser, `${pane}&file=README.md&crash=settings`);
+        await page.locator(".modal.file-viewer").waitFor();
+        await page.keyboard.press("Control+Shift+Comma");
+        const dialog = page.getByRole("dialog", { name: "Settings" });
+        await dialog.getByRole("alert").filter({ hasText: "Settings can't be shown." }).waitFor();
+        const closeButton = dialog.getByRole("button", { name: "Close", exact: true });
+        const box = await closeButton.boundingBox();
+        assert.ok(box, "Close is laid out");
+        const onTop = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[role=dialog][aria-label=Settings]") != null, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+        assert.equal(onTop, true, "the notice is drawn over the file preview");
+        await closeButton.click();
+        await dialog.waitFor({ state: "detached" });
+        await page.locator(".modal.file-viewer").waitFor();
+        await close();
+      }
+
+      // the system Back button closes the notice and stays in the app, as it closes Settings: the
+      // dialog threw before it put an entry in the history, on a desktop and on a phone
+      for (const phone of [false, true]) {
+        const { page, close } = await open(browser, pane, { phone });
+        await page.locator(".pane-frame.is-current").waitFor();
+        await page.goto(`http://127.0.0.1:${port}/herdr-web-ui/demo/app/${pane}&settings=appearance&crash=settings`);
+        const dialog = page.getByRole("dialog", { name: "Settings" });
+        await dialog.getByRole("alert").filter({ hasText: "Settings can't be shown." }).waitFor();
+        await page.evaluate(() => { (window as unknown as { crashMarker: boolean }).crashMarker = true; });
+        await page.evaluate(() => window.history.back());
+        await dialog.waitFor({ state: "detached", timeout: 5000 });
+        assert.equal(await page.evaluate(() => (window as unknown as { crashMarker?: boolean }).crashMarker === true), true, `Back stays on this page (${phone ? "phone" : "desktop"})`);
+        assert.equal(await page.locator(".app-crash").count(), 0, "the page is not blanked");
+        await close();
+      }
+
+      // on a phone, Settings throws once a page was opened from its list: one Back closes the
+      // notice, not two
+      {
+        const { page, close } = await open(browser, `${pane}&settings=appearance`, { phone: true });
+        const dialog = page.getByRole("dialog", { name: "Settings" });
+        await dialog.getByText("Density", { exact: true }).waitFor();
+        await page.waitForFunction(() => (window.history.state as Record<string, { depth?: number } | undefined> | null)?.["herdr-web-ui:settings"]?.depth === 2, undefined, { timeout: 5000 });
+        await startCrashing(page, "settings");
+        await dialog.getByText("Compact", { exact: true }).tap();
+        await dialog.getByRole("alert").filter({ hasText: "Settings can't be shown." }).waitFor();
+        await page.evaluate(() => window.history.back());
+        await dialog.waitFor({ state: "detached", timeout: 5000 });
         assert.equal(await page.locator(".app-crash").count(), 0, "the page is not blanked");
         await close();
       }
