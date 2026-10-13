@@ -988,4 +988,10 @@ export const TR: Record<string, string> = {
   "Reading the plan…": "Plan okunuyor…",
   "Couldn't read the plan. Trying again…": "Plan okunamadı. Tekrar deneniyor…",
   "Only part of this file is shown. Download it to read the rest.": "Bu dosyanın yalnızca bir bölümü gösteriliyor. Gerisini okumak için indirin.",
+  "Something went wrong": "Bir şeyler ters gitti",
+  "The app hit an error and stopped drawing. Your terminals keep running in herdr.": "Uygulama bir hatayla karşılaştı ve çizimi durdurdu. Terminalleriniz herdr'de çalışmaya devam ediyor.",
+  "Copy details": "Ayrıntıları kopyala",
+  "This pane can't be shown.": "Bu bölme gösterilemiyor.",
+  "The sidebar can't be shown.": "Kenar çubuğu gösterilemiyor.",
+  "Settings can't be shown.": "Ayarlar gösterilemiyor.",
 };

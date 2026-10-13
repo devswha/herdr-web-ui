@@ -34,6 +34,8 @@ import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 import { TelemetryControls } from "./TelemetryControls.tsx";
 import { useSheetSwipe } from "../lib/sheets.ts";
+import { CrashProbe, RegionCrash } from "./AppCrash.tsx";
+import { RenderBoundary } from "./RenderBoundary.tsx";
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -758,7 +760,22 @@ function AboutPage({ updates, herdrVersion, bridgesFollow }: { updates: UpdatesM
 
 export function SettingsDialog(props: SettingsDialogProps) {
   // mounted per opening: every opening starts on the list, with nothing left from the last one
-  return props.open ? <OpenSettingsDialog {...props} /> : null;
+  // a page that cannot be drawn closes to the app instead of blanking it; the next opening tries again
+  return props.open ? <RenderBoundary resetKey={null} fallback={() => <SettingsCrash onClose={props.onClose} />}>
+    <CrashProbe region="settings" />
+    <OpenSettingsDialog {...props} />
+  </RenderBoundary> : null;
+}
+
+function SettingsCrash({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  return (
+    <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={t("Settings")}>
+        <RegionCrash message={t("Settings can't be shown.")} retry={onClose} retryLabel={t("Close")} />
+      </div>
+    </div>
+  );
 }
 
 function OpenSettingsDialog({ section = null, linkPage = null, linkSection = null, onPage, onClose, actions, updates, auth, herdrVersion, onEnableNotifications, overPreview = false }: SettingsDialogProps) {

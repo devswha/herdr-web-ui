@@ -1035,4 +1035,10 @@ export const JA: Record<string, string> = {
   "Reading the plan…": "計画を読み込み中…",
   "Couldn't read the plan. Trying again…": "計画を読み込めませんでした。再試行しています…",
   "Only part of this file is shown. Download it to read the rest.": "ファイルの一部のみ表示しています。残りはダウンロードしてお読みください。",
+  "Something went wrong": "問題が発生しました",
+  "The app hit an error and stopped drawing. Your terminals keep running in herdr.": "アプリでエラーが発生し、表示できなくなりました。ターミナルは herdr で動き続けています。",
+  "Copy details": "詳細をコピー",
+  "This pane can't be shown.": "このペインを表示できません。",
+  "The sidebar can't be shown.": "サイドバーを表示できません。",
+  "Settings can't be shown.": "設定を表示できません。",
 };
