@@ -127,32 +127,38 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.locator(".xterm-helper-textarea").waitFor();
     await until(() => !!ready);
     const before = sent.length;
+    const heldNotice = page.getByText("Input held until the terminal is ready:", { exact: true });
+    const leftOut = page.getByText("An Enter or line break was left out: Send never presses Enter.", { exact: true });
+    // Enter on a terminal that is not ready, with nothing held, separates nothing: no notice.
+    // The "a" landing after it proves the Enter was handled first.
+    await page.locator(".xterm-helper-textarea").press("Enter");
     await page.locator(".xterm-helper-textarea").press("a");
     await until(async () => (await page.locator(".draft-text").textContent()) === "a");
+    assert.equal(await leftOut.count(), 0);
     // Backspace edits what is held; an Enter is never held, but it is told
     await page.locator(".xterm-helper-textarea").press("b");
     await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
     await page.locator(".xterm-helper-textarea").press("Backspace");
     await until(async () => (await page.locator(".draft-text").textContent()) === "a");
-    const leftOut = page.getByText("An Enter or line break was left out: Send never presses Enter.", { exact: true });
     assert.equal(await leftOut.count(), 0);
     await page.locator(".xterm-helper-textarea").press("Enter");
     await leftOut.waitFor();
-    await page.locator(".xterm-helper-textarea").press("Backspace");
-    await until(async () => (await page.locator(".draft-text").textContent()) === "a");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "a ");
     assert.equal(sent.length, before);
-    // Exactly the first held character must survive reload, not merely later edits.
+    // Exactly the held text must survive reload, not merely later edits, and so must the left-out notice.
     ready = undefined;
     await page.reload();
     await page.locator(".draft-text").waitFor();
-    assert.equal(await page.locator(".draft-text").textContent(), "a");
+    assert.equal(await page.locator(".draft-text").textContent(), "a ");
+    await leftOut.waitFor();
+    assert.equal(await heldNotice.count(), 1);
     await until(() => !!ready);
     ready!();
     await page.waitForTimeout(150);
     assert.equal(sent.length, before, "ready does not replay the draft");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await until(() => sent.length > before);
-    assert.equal(sent.at(-1).text, "a");
+    assert.equal(sent.at(-1).text, "a ");
     // Real xterm handling: an IME's provisional syllable stays local until commit.
     const imeBefore = sent.length;
     const input = page.locator(".xterm-helper-textarea");

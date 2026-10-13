@@ -36,8 +36,15 @@ describe("applyToDraft", () => {
     let draft = EMPTY_DRAFT;
     for (const chunk of ["l", "s", "\r", "p", "w", "d"]) draft = applyToDraft(draft, chunk);
     expect(draft).toEqual({ text: "ls pwd", truncated: false, leftOut: true });
-    expect(draftIsEmpty(applyToDraft(EMPTY_DRAFT, "\r"))).toBe(false);
-    expect(applyToDraft(EMPTY_DRAFT, "\r")).toEqual({ text: "", truncated: false, leftOut: true });
+  });
+
+  it("changes nothing for an Enter with nothing held: there is no text it separates", () => {
+    // Enter pressed on a frozen terminal to see if it answers must not leave an empty notice behind
+    expect(applyToDraft(EMPTY_DRAFT, "\r")).toBe(EMPTY_DRAFT);
+    expect(draftIsEmpty(applyToDraft(EMPTY_DRAFT, "\r\r"))).toBe(true);
+    expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~\n\n\x1b[201~")).toBe(EMPTY_DRAFT);
+    // Backspace that empties the draft, then Enter: still nothing to tell
+    expect(applyToDraft(applyToDraft({ text: "a", truncated: false, leftOut: false }, "\x7f"), "\r")).toEqual(EMPTY_DRAFT);
   });
 
   it("keeps the lines of a paste, raw or bracketed, and says its breaks were left out", () => {
@@ -46,8 +53,17 @@ describe("applyToDraft", () => {
     expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~one\r\ntwo\r\n\x1b[201~")).toEqual({ text: "one two ", truncated: false, leftOut: true });
     // the text never carries a line break, so Send cannot press Enter
     expect(applyToDraft(EMPTY_DRAFT, "a\rb").text).not.toMatch(/[\r\n]/);
-    // a paste with other controls among its lines is told, and its text not held
-    expect(applyToDraft(EMPTY_DRAFT, "a\tb\nc")).toEqual({ text: "", truncated: false, leftOut: true });
+    // a raw chunk with other controls among its lines is told as left out, text and break both
+    expect(applyToDraft(EMPTY_DRAFT, "a\tb\nc")).toEqual({ text: "", truncated: true, leftOut: true });
+    // a pasted tab is held as a space: indented code keeps its text
+    expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~if x:\n\tfoo\x1b[201~")).toEqual({ text: "if x:  foo", truncated: false, leftOut: true });
+  });
+
+  it("holds a single-line paste with a tab, and tells one with other controls instead of losing it in silence", () => {
+    expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~a\tb\x1b[201~")).toEqual({ text: "a b", truncated: false, leftOut: false });
+    expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~a\x1bb\x1b[201~")).toEqual({ text: "", truncated: true, leftOut: false });
+    // an empty paste holds and tells nothing
+    expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~\x1b[201~")).toBe(EMPTY_DRAFT);
   });
 
   it("holds nothing for escape sequences, arrows and control codes: there is nothing to send or to tell", () => {
@@ -78,10 +94,16 @@ describe("applyToDraft", () => {
     expect(applyToDraft(after, "-la")).toEqual({ text: "ls -la", truncated: true, leftOut: false });
   });
 
-  it("keeps a loss told when a special key follows it", () => {
+  it("keeps a loss told when a special key follows it, and an Enter with no text to separate adds nothing", () => {
     const lost = applyToDraft(EMPTY_DRAFT, "x".repeat(1025));
     expect(applyToDraft(lost, "\u001b[A")).toBe(lost);
-    expect(applyToDraft(lost, "\r")).toEqual({ text: "", truncated: true, leftOut: true });
+    expect(applyToDraft(lost, "\r")).toBe(lost);
+  });
+
+  it("stops Backspace editing the draft once text was left out: it may be meant for that text", () => {
+    const after = applyToDraft(applyToDraft(EMPTY_DRAFT, "ls "), "x".repeat(1022));
+    expect(applyToDraft(after, "\x7f")).toBe(after);
+    expect(applyToDraft(after, "\x7f\x7f-la")).toEqual({ text: "ls -la", truncated: true, leftOut: false });
   });
 });
 

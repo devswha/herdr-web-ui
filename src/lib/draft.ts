@@ -61,34 +61,46 @@ const LINE_BREAKS = /[\r\n]+/g;
 
 /**
  * Folds one onData chunk into the draft: printable text accumulates, a paste by the text
- * inside its bracketed-paste frames. Backspace deletes the last code point held, so the draft
- * matches what was typed. An Enter or a line break is never held, because Send must never run a
- * command: the text on either side is kept, a space where the break was, and the draft says
- * that a break was left out. A chunk with other controls is left out and not told: arrows and
- * the answers xterm gives a program by itself (cursor position, focus, mouse) are not text the
- * user typed. Text the draft has no room for is left out whole, never cut in the middle of what
- * was typed, and the draft says so.
+ * inside its bracketed-paste frames, a tab in it held as a space so Send never completes.
+ * Backspace deletes the last code point held, so the draft matches what was typed; once text was
+ * left out for want of room, Backspace may be meant for that text, so it no longer edits the
+ * draft. An Enter or a line break is never held, because Send must never run a command: the text
+ * on either side is kept, a space where the break was, and the draft says that a break was left
+ * out. A break with no text to separate (Enter on an empty draft) changes nothing. A chunk with
+ * other controls is left out and not told: arrows and the answers xterm gives a program by itself
+ * (cursor position, focus, mouse) are not text the user typed; a paste or a multi-line chunk
+ * with controls is told as left out. Text the draft has no room for is left out whole, never cut in the middle of what was
+ * typed, and the draft says so.
  */
 export function applyToDraft(draft: InputDraft, data: string): InputDraft {
   const pasted = BRACKETED_PASTE.exec(data)?.[1];
-  let text = pasted ?? data;
+  // a typed Tab is completion, not text; one in pasted text is held as the space it shows as
+  let text = pasted?.replace(/\t/g, " ") ?? data;
   let next = draft;
   const erase = pasted === undefined ? ERASE.exec(text)?.[0].length ?? 0 : 0;
   if (erase > 0) {
+    // after a loss the draft cannot tell which text a Backspace was meant for: it keeps what it holds
     // code points, not UTF-16 units: one Backspace never leaves half of an emoji behind
-    next = { ...draft, text: Array.from(draft.text).slice(0, -erase).join("") };
+    if (!draft.truncated) next = { ...draft, text: Array.from(draft.text).slice(0, -erase).join("") };
     text = text.slice(erase);
     if (text.length === 0) return next.text === draft.text ? draft : next;
   }
   if (/[\r\n]/.test(text)) {
     let joined = text.replace(LINE_BREAKS, " ");
     if (next.text.length === 0 || next.text.endsWith(" ")) joined = joined.replace(/^ /, "");
+    // Enter with nothing held separates nothing: there is nothing to tell
+    if (joined.length === 0 && next.text.length === 0) return next;
     const flagged = next.leftOut ? next : { ...next, leftOut: true };
-    // a line break among other controls is still something the user typed: told, the rest not held
-    if (joined.length === 0 || !isPrintableChar(joined)) return flagged;
+    if (joined.length === 0) return flagged;
+    // a line break among other controls is still something the user typed: told, and its text too
+    if (!isPrintableChar(joined)) return flagged.truncated ? flagged : { ...flagged, truncated: true };
     return append(flagged, joined);
   }
-  if (!isPrintableChar(text)) return next;
+  if (!isPrintableChar(text)) {
+    // a paste is text the user gave: one with controls in it is told as left out, never lost in silence
+    if (pasted === undefined || text.length === 0 || next.truncated) return next;
+    return { ...next, truncated: true };
+  }
   return append(next, text);
 }
 
