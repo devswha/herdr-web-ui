@@ -6,6 +6,9 @@ import {
 } from "lucide-react";
 
 import "./ChatView.css";
+// the timeline's styles stay in the entry: its chunk loads apart (chatTimelineLoader.ts), but
+// .chat-frame and the loading state are drawn before it arrives
+import "./ChatTimeline.css";
 
 import { AgentMark } from "./AgentMark.tsx";
 import { AnimatedHeight } from "./AnimatedHeight.tsx";
@@ -15,7 +18,7 @@ import { Markdown, ReservedImage } from "./Markdown.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { PromptCard } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
-import { ChatTimeline } from "./ChatTimeline.tsx";
+import { loadChatTimeline, loadedChatTimeline, useChatTimeline } from "./chatTimelineLoader.ts";
 import { ChatFind } from "./ChatFind.tsx";
 import { ChatMinimap } from "./ChatMinimap.tsx";
 import { minimapTurns } from "../lib/chatMinimap.ts";
@@ -781,6 +784,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   const [promptPollKey, setPromptPollKey] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const timeline = useRef<LegendListRef>(null);
+  const ChatTimeline = useChatTimeline();
   const stickToBottom = useRef(true);
   // Explicit paging stays away even inside the ordinary near-bottom tolerance.
   const pagingAway = useRef(false);
@@ -925,6 +929,11 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
           conversation = await fetchPaneConversation(paneId);
         }
         if (cancelled || generation !== olderGeneration.current) return;
+        // the timeline's chunk is in hand before any turn is: the list mounts once, with the refs bound
+        if (conversation.source !== "scrollback" && loadedChatTimeline() === null) {
+          await loadChatTimeline();
+          if (cancelled || generation !== olderGeneration.current) return;
+        }
         if (history.current !== conversation.history_id) {
           dropOlder(); generation = olderGeneration.current;
           history.current = conversation.history_id; setHistoryId(conversation.history_id);
@@ -1171,7 +1180,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     observer.observe(node);
     if (node.firstElementChild !== null) observer.observe(node.firstElementChild);
     return () => observer.disconnect();
-  }, [state.source]);
+  }, [state.source, ChatTimeline]);
   // One of the app's faces arrived (font-display: swap; a unicode-range chunk on the first Korean
   // answer): the conversation rewraps with no width, size or family string changed, so the
   // observer above takes it for one that only grew taller. A reader at the end stays at the end.
@@ -1187,7 +1196,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   useEffect(() => {
     const node = scroller.current;
     return node === null ? undefined : dismissKeyboardOn(node);
-  }, [state.source]);
+  }, [state.source, ChatTimeline]);
 
   const onScroll = (): void => {
     const node = scroller.current;
@@ -1398,7 +1407,15 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     <div className="chat-frame">
     {state.source === "conversation" && findOpen && <ChatFind key={timelineScope} rows={searchRows} older={typeof olderCursor === "string"} olderState={olderState} onOlder={loadOlder} onMatch={showMatch} onClose={closeFind} />}
     <div className="chat-frame-body">
-    {state.source === "conversation" ? <ChatTimeline
+    {state.source === "conversation" ? ChatTimeline === null
+      // its chunk is still loading: no turn is read until it arrives, so this is the loading state
+      ? <div className="chat-view chat-view-virtual" role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
+        <div className="chat-transcript chat-transcript-virtual">
+          <div className={findOpen ? "chat-virtual-header chat-virtual-header-with-find" : "chat-virtual-header"}>{header}</div>
+          <div className="chat-virtual-footer">{footer}</div>
+        </div>
+      </div>
+      : <ChatTimeline
       rows={timelineRows}
       scope={timelineScope}
       source={state.conversationSource}
