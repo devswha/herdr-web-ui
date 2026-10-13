@@ -49,6 +49,8 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
     assert.equal(await page.locator(".key-bar").isVisible(), false, "a desktop shows no key bar under the terminal");
+    // a phone keyboard's autocorrect would swap a flag or path for a dictionary word before Send
+    assert.deepEqual(await line.evaluate((box) => [box.getAttribute("autocorrect"), box.getAttribute("spellcheck"), box.getAttribute("autocapitalize")]), ["off", "false", "off"]);
     assert.equal(await page.getByRole("button", { name: "Type straight into the terminal", exact: true }).count(), 0);
     await line.fill("draft 한글 😀");
     await remountLine();
