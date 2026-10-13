@@ -77,6 +77,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#860](https://github.com/devswha/herdr-web-ui/pull/860))
 
 ### Fixed
+- Terminal search no longer duplicates its form on a phone when the terminal input line is
+  also shown; the two controls now have distinct React keys.
 - First-device pairing waits for the browser to return its device cookie before restricting
   access. A proxy that drops the cookie no longer locks out an otherwise open installation;
   Settings reports the failed pairing instead. Already restricted installations stay restricted.

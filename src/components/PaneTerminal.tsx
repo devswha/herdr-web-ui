@@ -2347,7 +2347,7 @@ export function PaneTerminal({
         )}
       </div>
       {presented && findOpen && !chatView && paneId !== null && (
-        <FindBar key={paneId} paneId={paneId} viewportIntent={viewportIntent} onResult={setSearchState} activePane={active} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
+        <FindBar key={`find-${paneId}`} paneId={paneId} viewportIntent={viewportIntent} onResult={setSearchState} activePane={active} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
           onClose={() => { setFindOpen(false); if (activeRef.current && !coarse) termRef.current?.focus(); }} />
       )}
       <div className="terminal-surface">
