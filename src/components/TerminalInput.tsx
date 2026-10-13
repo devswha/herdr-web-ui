@@ -73,18 +73,25 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
   });
 
   // A Send tapped while the keyboard still composes the last word (Gboard composes every word,
-  // CJK IMEs an open syllable) sends once that word commits, within a short window. Past it the
-  // tap is withdrawn with a note, so a later commit never sends on its own.
+  // CJK IMEs an open syllable) finishes that word and sends once it commits. The button keeps
+  // focus and the selection, so nothing in the tap commits the word: a blur does (Chrome ends the
+  // composition on a focus change and fires compositionend at once), and the refocus inside the
+  // same gesture keeps the keyboard up. A keyboard that still does not commit within a short window
+  // gets the tap withdrawn with a note, so a later commit never sends on its own.
   const pendingSend = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearPendingSend = useCallback(() => {
     if (pendingSend.current !== null) clearTimeout(pendingSend.current);
     pendingSend.current = null;
   }, []);
   useEffect(() => clearPendingSend, [clearPendingSend]);
-  const sendRef = useRef<() => void>(() => {});
+  const sendRef = useRef<(deferred: boolean) => void>(() => {});
 
-  const send = useCallback(() => {
-    if (!connected || terminalDraftSending(owner)) return;
+  const send = useCallback((deferred = false) => {
+    if (!connected || terminalDraftSending(owner)) {
+      // a send waiting for the commit must not leave "Finishing the word…" standing
+      if (deferred) setNote(connected ? null : t("Not sent: the terminal is disconnected."));
+      return;
+    }
     if (composing.current) {
       clearPendingSend();
       setNote(t("Finishing the word…"));
@@ -92,15 +99,22 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         pendingSend.current = null;
         setNote(t("Finish the word, then send."));
       }, COMMIT_WAIT_MS);
+      const element = box.current;
+      if (element !== null && document.activeElement === element) {
+        element.blur();
+        element.focus({ preventScroll: true });
+      }
       return;
     }
     clearPendingSend();
     setNote(null);
-    if (text.length === 0) {
+    // the draft store, not the last render: a commit forced or delivered just now may not have rendered yet
+    const draft = readTerminalDraft(owner);
+    if (draft.length === 0) {
       if (!onEnter()) setNote(t("Not sent: the terminal is disconnected."));
       return;
     }
-    const sent = onSend(text);
+    const sent = onSend(draft);
     if (sent === false) { setNote(t("Not sent: the terminal is disconnected.")); return; }
     // a polish that lands before the acknowledgement would read as text typed meanwhile, and
     // leave the sent command in the line
@@ -112,7 +126,7 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         acknowledgeTerminalDraft(owner);
       } else setNote(result);
     }).catch(() => setNote(t("Not confirmed. Check the terminal before sending again."))).finally(() => { setTerminalDraftSending(owner, false); });
-  }, [clearPendingSend, connected, dictation.forget, onEnter, onSend, owner, setText, t, text]);
+  }, [clearPendingSend, connected, dictation.forget, onEnter, onSend, owner, t]);
   sendRef.current = send;
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -153,7 +167,7 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
           if (pendingSend.current === null) return;
           clearPendingSend();
           // WebKit updates the value with an input event after compositionend: send the committed word
-          setTimeout(() => sendRef.current());
+          setTimeout(() => sendRef.current(true));
         }}
         placeholder={t("Type for the terminal…")}
         aria-label={t("Terminal input line")}
@@ -171,7 +185,7 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         disabled={!connected || sending}
         // the soft keyboard stays up for the next line
         onPointerDown={(event) => event.preventDefault()}
-        onClick={send}
+        onClick={() => send()}
       >
         {text.length === 0 ? <CornerDownLeft aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
       </button>
