@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { OutputWindow, OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_JOIN_MAX_MS, OUTPUT_LOW_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
+import { OutputWindow, OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_JOIN_BYTES_PER_SECOND, OUTPUT_JOIN_MAX_MS, OUTPUT_LOW_BYTES, OUTPUT_PAUSE_MAX_MS, OUTPUT_STALL_MS, ReplayBuffer, wireBytes } from "./output-window.ts";
 
 describe("terminal output credit", () => {
   it("holds high-water backpressure until the low watermark, without duplicate credit", () => {
@@ -53,7 +53,7 @@ describe("terminal output credit", () => {
   it("lets a joiner on a slow link acknowledge a large replay after 3 s (moshi-3)", () => {
     const window = new OutputWindow();
     const replay = 200 * 1024;
-    window.join(replay, 0);
+    window.join("x".repeat(replay), 0);
     window.write(replay);
     window.write(OUTPUT_HIGH_BYTES - replay); // live output on top of it blocks the window
     expect(window.blocked).toBe(true);
@@ -70,7 +70,7 @@ describe("terminal output credit", () => {
 
   it("never pauses the shared pty for a joiner, and bounds the time it gets", () => {
     const window = new OutputWindow();
-    window.join(OUTPUT_HARD_BYTES, 0);
+    window.join("x".repeat(OUTPUT_HARD_BYTES), 0);
     window.write(OUTPUT_HIGH_BYTES + 1024);
     // the transport queue counts as blocked too
     expect(window.check(OUTPUT_HIGH_BYTES, 1000)).toBe("flow");
@@ -79,23 +79,77 @@ describe("terminal output credit", () => {
     expect(window.check(0, OUTPUT_JOIN_MAX_MS)).toBe("stop");
     // a full transport queue stops it at once
     const full = new OutputWindow();
-    full.join(1024, 0);
+    full.join("x".repeat(1024), 0);
     expect(full.check(OUTPUT_HARD_BYTES, 0)).toBe("stop");
   });
 
   it("gives a joiner whose small replay is acknowledged nothing beyond the usual deadline", () => {
     const window = new OutputWindow();
-    window.join(1024, 0);
+    window.join("x".repeat(1024), 0);
     window.write(1024);
     window.acknowledge(window.id, 1024);
     window.write(OUTPUT_HIGH_BYTES);
     expect(window.check(0, 10_000)).toBe("pause");
     expect(window.check(0, 10_000 + OUTPUT_STALL_MS)).toBe("stop");
     // and one that never acknowledged anything is out of budget soon after its replay
+    // (reconcileOutput checks right after the join, which starts its clock)
     const silent = new OutputWindow();
-    silent.join(1024, 0);
+    silent.join("x".repeat(1024), 0);
     silent.write(1024 + OUTPUT_HIGH_BYTES);
+    expect(silent.check(0, 0)).toBe("flow");
     expect(silent.check(0, OUTPUT_STALL_MS + 32)).toBe("stop");
+  });
+
+  it("stops a client that holds the pty paused by acknowledging a byte at a time", () => {
+    const window = new OutputWindow();
+    window.write(OUTPUT_HIGH_BYTES);
+    let at = 0;
+    let acknowledged = 0;
+    expect(window.check(0, at)).toBe("pause");
+    // each step lands inside the stall deadline, so only the pause cap can end it
+    while (at + OUTPUT_STALL_MS - 100 < OUTPUT_PAUSE_MAX_MS) {
+      at += OUTPUT_STALL_MS - 100;
+      window.acknowledge(window.id, ++acknowledged);
+      expect(window.check(0, at)).toBe("pause");
+    }
+    expect(window.check(0, OUTPUT_PAUSE_MAX_MS)).toBe("stop");
+    // a client that drains to the low watermark in time starts over on its next pause
+    const honest = new OutputWindow();
+    honest.write(OUTPUT_HIGH_BYTES);
+    expect(honest.check(0, 0)).toBe("pause");
+    honest.acknowledge(honest.id, OUTPUT_HIGH_BYTES - OUTPUT_LOW_BYTES);
+    expect(honest.check(0, OUTPUT_PAUSE_MAX_MS - 1)).toBe("flow");
+    honest.write(OUTPUT_HIGH_BYTES);
+    expect(honest.check(0, OUTPUT_PAUSE_MAX_MS)).toBe("pause");
+    expect(honest.check(0, OUTPUT_PAUSE_MAX_MS + 1)).toBe("pause");
+  });
+
+  it("sizes a joiner's budget by its serialized frame, where an ESC costs six bytes", () => {
+    // a colored-text replay: half of it escape sequences
+    const replay = "\x1b[31mred\x1b[0m ".repeat(Math.floor(128 * 1024 / 13));
+    expect(wireBytes(replay)).toBeGreaterThan(Buffer.byteLength(replay) * 1.5);
+    const window = new OutputWindow();
+    window.join(replay, 0);
+    window.write(Buffer.byteLength(replay));
+    window.write(OUTPUT_HIGH_BYTES); // live output blocks the window meanwhile
+    expect(window.check(0, 0)).toBe("flow");
+    // the frame needs this long on the slowest link the budget allows for, plus the deadline
+    const crossing = OUTPUT_STALL_MS + Math.ceil(wireBytes(replay) * 1000 / OUTPUT_JOIN_BYTES_PER_SECOND) - 1;
+    expect(crossing).toBeLessThan(OUTPUT_JOIN_MAX_MS);
+    expect(window.check(0, crossing)).toBe("flow");
+    expect(window.acknowledge(window.id, Buffer.byteLength(replay))).toBe(true);
+  });
+
+  it("gives a joiner that was never blocked during its budget the usual deadline later", () => {
+    const window = new OutputWindow();
+    window.join("x".repeat(1024), 0);
+    window.write(1024);
+    expect(window.check(0, 0)).toBe("flow");
+    // a phone tab suspended right after attaching: never acknowledges, the pane goes busy later
+    window.write(OUTPUT_HIGH_BYTES);
+    expect(window.check(0, 20_000)).toBe("pause");
+    expect(window.check(0, 20_000 + OUTPUT_STALL_MS - 1)).toBe("pause");
+    expect(window.check(0, 20_000 + OUTPUT_STALL_MS)).toBe("stop");
   });
 
   it("bounds replay in bytes without corrupting Korean or emoji at the cut", () => {

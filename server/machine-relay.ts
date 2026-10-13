@@ -4,6 +4,47 @@ import { OUTPUT_HARD_BYTES, OUTPUT_STALL_MS } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import type { MachineManager } from "./machines.ts";
 
+/**
+ * When a relayed connection counts as stalled: its transport queues have held bytes for longer
+ * than OUTPUT_STALL_MS with no progress. Progress is bytes leaving a queue since the last tick, or
+ * a browser `pty-ack` whose offset moved. A phone draining a large replay over a weak link keeps
+ * making it; the remote PC's own OutputWindow keeps the ACK window and the join budget, so the
+ * relay only watches ACKs and never acknowledges anything itself.
+ */
+export class RelayStall {
+  /** since when the queues have held bytes without progress; undefined while they are empty */
+  private since: number | undefined;
+  private last = 0;
+  private queued = 0;
+  /** each pane's latest ACK: a duplicate or stale one is no progress */
+  private readonly acked = new Map<string, { stream: string; offset: number }>();
+
+  /** bytes just handed to either transport queue */
+  queue(bytes: number): void {
+    this.queued += bytes;
+  }
+
+  ack(pane: string, stream: string, offset: number, now = Date.now()): void {
+    const previous = this.acked.get(pane);
+    if (previous && previous.stream === stream && offset <= previous.offset) return;
+    this.acked.set(pane, { stream, offset });
+    if (this.since !== undefined) this.since = now;
+  }
+
+  /** `buffered` is what both queues hold now; true once the connection has stalled */
+  tick(buffered: number, now = Date.now()): boolean {
+    const drained = this.last + this.queued > buffered;
+    this.last = buffered;
+    this.queued = 0;
+    if (!buffered) {
+      this.since = undefined;
+      return false;
+    }
+    if (this.since === undefined || drained) this.since = now;
+    return now - this.since > OUTPUT_STALL_MS;
+  }
+}
+
 /** Relay ACK frames unchanged: only xterm parsing releases remote output credit. */
 export class MachineRelay {
   private upstream: WebSocket;
@@ -13,7 +54,7 @@ export class MachineRelay {
   private closed = false;
   private untrack: () => void;
   private timer: ReturnType<typeof setInterval>;
-  private blockedAt = 0;
+  private readonly stall = new RelayStall();
   readonly ready: Promise<void>;
 
   constructor(manager: MachineManager, id: string, private readonly readOnly = false) {
@@ -41,10 +82,10 @@ export class MachineRelay {
     };
     this.upstream.onclose = (event) => this.close(event.code === OUTPUT_STALLED_CLOSE_CODE ? event.code : 1012, event.reason || "Remote connection ended");
     this.timer = setInterval(() => {
-      const buffered = Math.max(this.client?.getBufferedAmount() ?? 0, this.upstream.bufferedAmount);
-      if (!buffered) this.blockedAt = 0;
-      else if (!this.blockedAt) this.blockedAt = Date.now();
-      if (buffered > OUTPUT_HARD_BYTES || (this.blockedAt && Date.now() - this.blockedAt > OUTPUT_STALL_MS)) this.close(OUTPUT_STALLED_CLOSE_CODE, "terminal transport stalled");
+      const toClient = this.client?.getBufferedAmount() ?? 0;
+      const toUpstream = this.upstream.bufferedAmount;
+      const stalled = this.stall.tick(toClient + toUpstream);
+      if (Math.max(toClient, toUpstream) > OUTPUT_HARD_BYTES || stalled) this.close(OUTPUT_STALLED_CLOSE_CODE, "terminal transport stalled");
     }, 100);
     this.timer.unref();
   }
@@ -56,20 +97,28 @@ export class MachineRelay {
   }
   private send(raw: string): void {
     if (this.closed || !this.client) return;
-    if (this.client.getBufferedAmount() + Buffer.byteLength(raw) > OUTPUT_HARD_BYTES) { this.close(OUTPUT_STALLED_CLOSE_CODE, "output overflow"); return; }
+    const bytes = Buffer.byteLength(raw);
+    if (this.client.getBufferedAmount() + bytes > OUTPUT_HARD_BYTES) { this.close(OUTPUT_STALLED_CLOSE_CODE, "output overflow"); return; }
+    this.stall.queue(bytes);
     if (this.client.send(raw) === 0) this.close(OUTPUT_STALLED_CLOSE_CODE, "output delivery failed");
   }
   message(raw: string | Buffer): void {
     if (this.closed) return;
     if (this.upstream.readyState !== WebSocket.OPEN) { this.close(); return; }
     let text = String(raw);
-    if (this.readOnly) {
+    const ack = text.includes('"pty-ack"');
+    if (this.readOnly || ack) {
       try {
         const message = JSON.parse(text);
-        if (message?.type === "role") text = JSON.stringify({ type: "role", mode: "observe" });
+        if (this.readOnly && message?.type === "role") text = JSON.stringify({ type: "role", mode: "observe" });
+        if (message?.type === "pty-ack" && typeof message.pane_id === "string" && typeof message.stream_id === "string" && Number.isSafeInteger(message.offset)) {
+          this.stall.ack(message.pane_id, message.stream_id, message.offset);
+        }
       } catch { /* malformed frames are answered by the upstream server */ }
     }
-    if (this.upstream.bufferedAmount + Buffer.byteLength(text) > OUTPUT_HARD_BYTES) { this.close(OUTPUT_STALLED_CLOSE_CODE, "input overflow"); return; }
+    const bytes = Buffer.byteLength(text);
+    if (this.upstream.bufferedAmount + bytes > OUTPUT_HARD_BYTES) { this.close(OUTPUT_STALLED_CLOSE_CODE, "input overflow"); return; }
+    this.stall.queue(bytes);
     this.upstream.send(text);
   }
   close(code = 1000, reason = "Closed"): void {

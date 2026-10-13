@@ -2777,7 +2777,7 @@ export function createServer(
               // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
               const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
               if (!alreadyAttached && replay) {
-                client.data.output.get(message.pane_id)?.join(Buffer.byteLength(replay));
+                client.data.output.get(message.pane_id)?.join(replay);
                 sendOutput(client, message.pane_id, replay);
               }
               // a pane waiting for another web bridge to let go says so to each newcomer, too

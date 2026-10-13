@@ -9,6 +9,20 @@ export const OUTPUT_STALL_MS = 2000;
 export const OUTPUT_JOIN_BYTES_PER_SECOND = 32 * 1024;
 /** the longest a joiner may take to acknowledge its replay */
 export const OUTPUT_JOIN_MAX_MS = 15_000;
+/**
+ * The longest one client may hold the shared pty paused, however it acknowledges: a client
+ * that ACKs a byte at a time (or a slow phone) would otherwise cap every peer at its own rate.
+ * Draining 192 KiB from the high to the low watermark takes 6 s at the join rate above.
+ */
+export const OUTPUT_PAUSE_MAX_MS = 10_000;
+
+/**
+ * What a frame carrying `text` costs on the wire: JSON escapes every control byte, so an ESC
+ * becomes six. Flow credit still counts payload bytes; this only sizes time budgets.
+ */
+export function wireBytes(text: string): number {
+  return Buffer.byteLength(JSON.stringify(text));
+}
 
 /** What the server does about one client: keep sending, pause the shared pty for it, or close it (4008). */
 export type OutputVerdict = "flow" | "pause" | "stop";
@@ -20,6 +34,8 @@ export class OutputWindow {
   blocked = false;
   /** when the client last became blocked without its ACKs moving since */
   private stalledSince: number | undefined;
+  /** when the client last started holding the shared pty paused, ACKs or not */
+  private pausingSince: number | undefined;
   /** a joiner's replay is in flight and nothing is acknowledged yet: its budget ends here */
   joinUntil: number | undefined;
 
@@ -35,10 +51,11 @@ export class OutputWindow {
    * A late joiner is about to be sent `bytes` of replay. Its first ACK can only come once the
    * whole frame has crossed the link and been parsed, which takes a phone on a weak link longer
    * than the stall deadline (moshi-3): until that ACK, the client gets a budget sized to the
-   * frame instead, and is never a reason to pause the pty the other clients share.
+   * frame as serialized (`wireBytes`) instead, and is never a reason to pause the pty the other
+   * clients share.
    */
-  join(bytes: number, now = Date.now()): void {
-    this.joinUntil = now + Math.min(OUTPUT_JOIN_MAX_MS, OUTPUT_STALL_MS + Math.ceil(bytes * 1000 / OUTPUT_JOIN_BYTES_PER_SECOND));
+  join(replay: string, now = Date.now()): void {
+    this.joinUntil = now + Math.min(OUTPUT_JOIN_MAX_MS, OUTPUT_STALL_MS + Math.ceil(wireBytes(replay) * 1000 / OUTPUT_JOIN_BYTES_PER_SECOND));
   }
 
   acknowledge(id: string, offset: number): boolean {
@@ -62,15 +79,19 @@ export class OutputWindow {
     if (buffered >= OUTPUT_HARD_BYTES) return "stop";
     if (!this.blocked && buffered < OUTPUT_HIGH_BYTES) {
       this.stalledSince = undefined;
+      this.pausingSince = undefined;
       return "flow";
     }
-    if (this.joinUntil !== undefined) {
-      // within its budget a joiner holds only its own window up (bounded by OUTPUT_HARD_BYTES);
-      // past it, with nothing acknowledged, it has made no progress for longer than OUTPUT_STALL_MS
-      return now < this.joinUntil ? "flow" : "stop";
-    }
     this.stalledSince ??= now;
-    return now - this.stalledSince >= OUTPUT_STALL_MS ? "stop" : "pause";
+    if (this.joinUntil !== undefined) {
+      // within its budget a joiner holds only its own window up (bounded by OUTPUT_HARD_BYTES)
+      if (now < this.joinUntil) return "flow";
+      // past it the joiner is an ordinary client: one blocked through its budget with nothing
+      // acknowledged is out of time, one that only now became blocked gets the usual deadline
+      this.joinUntil = undefined;
+    }
+    this.pausingSince ??= now;
+    return now - this.stalledSince >= OUTPUT_STALL_MS || now - this.pausingSince >= OUTPUT_PAUSE_MAX_MS ? "stop" : "pause";
   }
 }
 
