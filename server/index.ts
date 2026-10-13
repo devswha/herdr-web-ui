@@ -37,6 +37,7 @@ import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, locateFile, crossSiteFileRead } from "./file-view.ts";
+import { repoDiffResponse } from "./repo-diff.ts";
 import {
   agentManifests,
   agentPrompt,
@@ -97,7 +98,7 @@ import { mirrorInput } from "./mirror-input.ts";
 import { PendingInputs, PendingInputError, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
-import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
+import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer, wireBytes } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
@@ -114,7 +115,7 @@ import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
 import { PLUGIN_LOG_LIMIT, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
-const MAX_REPLAY_BYTES = 256 * 1024;
+const MAX_REPLAY_BYTES = 128 * 1024;
 /** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
@@ -214,7 +215,7 @@ const RESTORED_CLEAR_GAP_MS = 200;
 const RESTORED_CLEAR_SETTLE_MS = 300;
 /** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
 const RESTORED_CLEAR_RESERVE_MS = 2_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch", "ping"];
 
 /** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
 const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
@@ -364,6 +365,7 @@ interface PaneAttachment {
   rows: number;
   /** bounded tail so a client joining late still sees the current screen */
   replay: ReplayBuffer;
+  /** when each client without ACKs (no OutputWindow) became blocked on its transport queue */
   stalled: Map<Client, number>;
   /** another web bridge holds herdr's one attach slot for this terminal: waiting for it to let go */
   held?: boolean;
@@ -967,7 +969,15 @@ export function createServer(
     for (const client of attachment.clients) {
       const window = client.data.output.get(paneId);
       const buffered = client.getBufferedAmount();
-      const blocked = window?.blocked || buffered >= OUTPUT_HIGH_BYTES;
+      if (window) {
+        // an ACK client: measured by its ACK progress, and a joiner draining its replay never pauses the pty
+        const verdict = window.check(buffered);
+        if (verdict === "stop") stopSlowClient(client);
+        else if (verdict === "pause") paused = true;
+        continue;
+      }
+      // a client without ACKs has only its transport queue to go by
+      const blocked = buffered >= OUTPUT_HIGH_BYTES;
       if (!blocked) {
         attachment.stalled.delete(client);
         continue;
@@ -994,7 +1004,7 @@ export function createServer(
     }
     send(client, {
       type: "pty-data", pane_id: paneId, data,
-      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes) } } : {}),
+      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes, wireBytes(data)) } } : {}),
     });
   }
   const push = createPushService({
@@ -1717,7 +1727,9 @@ export function createServer(
       // protection: a watch device's subscription is delivered every status change anyway.
       // /api/push/test stays with a session that can drive only because it is a mutation.
       const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe";
-      if (readOnly && (fileRead || directoryListing || mutating && !ownPreferences)) {
+      // a repository's changes are file contents too: the patch of a credential file is that file
+      const repositoryDiff = /^\/api\/(?:machines\/[^/]+\/)?workspace\/diff\//.test(pathname);
+      if (readOnly && (fileRead || directoryListing || repositoryDiff || mutating && !ownPreferences)) {
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
@@ -1893,6 +1905,30 @@ export function createServer(
         }
         const listing = listDirectories(url.searchParams.get("path") ?? "", url.searchParams.get("hidden") === "1", url.searchParams.get("files") === "1", base);
         return listing === null ? badRequest("invalid_cwd", "path must be a directory this user can read") : jsonResponse(listing);
+      }
+
+      if (pathname === "/api/workspace/diff/files" || pathname === "/api/workspace/diff/file") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        // file contents, like /api/fs/file: this app reads them, another site's page does not
+        if (request.headers.get("sec-fetch-site") === "cross-site") return jsonResponse({ error: { code: "cross_site", message: "A repository's changes are read from this app" } }, 403);
+        const paneId = url.searchParams.get("pane_id");
+        const directory = (url.searchParams.get("directory") ?? "").trim();
+        if (!paneId && directory === "") return badRequest("missing_directory", "pane_id or directory query parameter is required");
+        let base: string | undefined;
+        if (paneId) {
+          try { base = (await paneContext(paneId)).cwd; } catch (error) {
+            // a named folder is still read; the pane's own folder is gone with the pane
+            if (directory === "") return errorResponse(error);
+          }
+        }
+        let cwd = base;
+        if (directory !== "") {
+          const relative = directory !== "~" && !directory.startsWith("~/") && !isAbsolute(directory);
+          if (relative && base === undefined) return badRequest("invalid_cwd", "a relative directory needs the pane it belongs to");
+          cwd = expandedDirectory(relative ? resolve(base!, directory) : directory) ?? undefined;
+        }
+        if (cwd === undefined) return badRequest("invalid_cwd", "directory must be a directory this user can read");
+        return repoDiffResponse(pathname.endsWith("/files") ? "files" : "file", cwd, url.searchParams);
       }
 
       // A tab is made the way a workspace is: herdr opens it with a shell in its root pane, and
@@ -2685,6 +2721,15 @@ export function createServer(
         }
         try {
           switch (message.type) {
+            // liveness only: any role, no herdr call, nothing to wait behind
+            case "ping": {
+              if (!Number.isSafeInteger(message.id)) {
+                send(client, { type: "error", code: "invalid_ping", message: "id must be an integer" });
+                break;
+              }
+              send(client, { type: "pong", id: message.id });
+              break;
+            }
             case "watch": {
               const geometry = validGeometry(message.cols, message.rows);
               if (!geometry) {
@@ -2767,7 +2812,10 @@ export function createServer(
               // hand the newcomer the current screen it would otherwise have missed
               // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
               const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
-              if (!alreadyAttached && replay) sendOutput(client, message.pane_id, replay);
+              if (!alreadyAttached && replay) {
+                client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
+                sendOutput(client, message.pane_id, replay);
+              }
               // a pane waiting for another web bridge to let go says so to each newcomer, too
               if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
               reconcileOutput(message.pane_id);

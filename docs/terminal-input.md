@@ -47,12 +47,16 @@ Control sequences are left out, never saved for later execution, and not counted
 answers to a program (cursor position, focus, mouse) arrive the same way. Send transmits the held
 text alone, without an Enter typed meanwhile. The draft holds 1,024 characters; text past that is
 left out whole and the notice says some input was left out, also when nothing else is held. No
-draft is replayed on reconnect. The input-line and chat Send buttons preserve an active composition, and the key bar
-waits for composition to finish. An input-line Send tapped during composition finishes the word itself
-(a blur and refocus inside the tap, which ends the composition in Chrome and keeps the keyboard up) and
-sends the committed line, read from the draft. A keyboard that still does not commit within 300 ms gets the
-tap withdrawn with "Finish the word, then send.", and a later commit sends nothing; a terminal that drops
-meanwhile leaves "Not sent: the terminal is disconnected.". Leaving the input clears its composition guard.
+draft is replayed on reconnect. The input-line and chat Send buttons preserve an active composition.
+An input-line Send tapped during composition finishes the word itself (a blur and refocus inside the
+tap, which ends the composition in Chrome and keeps the keyboard up) and sends the committed line,
+read from the draft. A keyboard that still does not commit within 300 ms gets the tap withdrawn with
+"Finish the word, then send.", and a later commit sends nothing; a terminal that drops meanwhile
+leaves "Not sent: the terminal is disconnected.".
+The key bar waits only for a direct-typing (xterm) composition, so a key cannot overtake xterm's
+pending commit. A composition in the input line leaves the key bar live: Esc, ^C and the arrows
+go to the pane at once, Ctrl, Alt and Shift arm, and the line's unfinished text stays where it is.
+Only the switch to direct typing waits for it, so the line is not removed mid-word.
 
 The key bar defaults to Esc, Tab, ^C, Ctrl, Alt, Shift, Enter and the arrows. Esc, Tab and ^C
 come first so they stay reachable without scrolling on narrow phones.
@@ -66,11 +70,11 @@ menus, not this terminal-input row.
 Ctrl, Alt and Shift stay held until tapped again and can be combined. Removing a modifier button
 clears its held state immediately. Ordinary key buttons use the held modifiers, while saved
 combinations send exactly their configured modifiers without changing the held state.
-Holding one of the four arrows (↑ ↓ ← →) starts repeating after about 400 ms, then sends a
-key about every 50 ms until release. A tap still sends exactly one key. Every repeat uses the
-same held modifiers or saved combination as a tap. Only arrows repeat, including saved arrow
-combinations; other key-bar buttons do not. A sideways swipe scrolls the row without sending
-a key. Long presses on key buttons do not open a callout or context menu.
+Holding an arrow (↑ ↓ ← →), ⌫, Del, Home, End, PgUp or PgDn starts repeating after about
+400 ms, then sends a key about every 50 ms until release. A tap still sends exactly one key.
+Every repeat uses the same held modifiers or saved combination as a tap, and saved
+combinations of these keys repeat too. Esc, Tab, Enter, ^C, F-keys and modifier buttons send
+once. A sideways swipe scrolls the row without sending a key. Long presses on key buttons do not open a callout or context menu.
 Direct typing and arrow buttons send logical key chords; Herdr encodes them for the
 PTY's keyboard protocol. Home/End, Page and Delete/Insert keys use CSI navigation through the attach
 stream because Herdr's RPC key parser lacks those names. Paste, IME commits and terminal reports pass through unchanged.
@@ -106,6 +110,7 @@ The new readiness frame is also implemented in the website demo transport.
   client rejection, attach refusal/resume, mirror ordering, disconnect and sidecar lifecycle.
 - `bun run build && bun scripts/terminal-input-regression.ts`: focused browser checks for desktop
   mode switching, pane and reload persistence, an unfinished composition, unmount during composition,
+  phone key-bar Esc and ^C (and a held direct-typing toggle) while the input line composes,
   pending-send remounts, replacement text, shortcut customization, first held-input persistence,
   readiness delay, an xterm composition commit, batched commits before punctuation, and Korean
   final-consonant movement. Submit/input interception isolates UI assertions;
