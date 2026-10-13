@@ -187,11 +187,23 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Input.imeSetComposition", { text: "글", selectionStart: 1, selectionEnd: 1 });
     await until(async () => (await line.inputValue()) === "real 한글");
+    // a word committed inside the tap sends with no "Finishing the word…" alert ever mounted
+    await page.evaluate(() => {
+      (window as any).noteAdded = 0;
+      (window as any).noteObserver = new MutationObserver((records) => {
+        for (const record of records) for (const node of record.addedNodes) {
+          if (node instanceof Element && (node.matches(".terminal-input-note") || node.querySelector(".terminal-input-note"))) (window as any).noteAdded += 1;
+        }
+      });
+      (window as any).noteObserver.observe(document.body, { childList: true, subtree: true });
+    });
     await sendButton.click();
     await until(async () => sent.length === 1 || (await noteText()) === "Finish the word, then send.");
     assert.equal(sent.length, 1, "a Send during a real composition finishes the word and sends");
     assert.equal(sent[0].text, "real 한글");
     assert.equal(await line.evaluate((element) => element === document.activeElement), true, "the line keeps focus, so the keyboard stays up");
+    await page.waitForTimeout(50);
+    assert.equal(await page.evaluate(() => { (window as any).noteObserver.disconnect(); return (window as any).noteAdded; }), 0, "a word committed inside the tap mounts no note");
     await cdp.detach();
     acknowledge!();
     await until(async () => (await line.inputValue()) === "");
@@ -214,6 +226,56 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     acknowledge!();
     await until(async () => (await line.inputValue()) === "");
     acknowledge = undefined;
+    // The preedit is deleted (or the keyboard cancels it) before it commits: the text Send sends
+    // nothing, and above all no bare Enter that could accept a prompt's default.
+    await line.fill("한");
+    await line.dispatchEvent("compositionstart", { data: "" });
+    await sendButton.click();
+    await until(async () => (await noteText()) === "Finishing the word…");
+    await line.evaluate((element: HTMLTextAreaElement) => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "" }));
+      setValue.call(element, "");
+      element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteCompositionText" }));
+    });
+    await page.waitForTimeout(400);
+    assert.equal(sent.length, 2, "an empty commit after a text Send sends no Enter");
+    assert.equal(await line.inputValue(), "");
+    // Compositions that keep chaining after the tap cannot stretch its wait past the deadline.
+    await line.fill("chain 한");
+    await line.dispatchEvent("compositionstart", { data: "" });
+    await sendButton.click();
+    await until(async () => (await noteText()) === "Finishing the word…");
+    const chainStart = Date.now();
+    while (Date.now() - chainStart < 450) {
+      await line.evaluate((element: HTMLTextAreaElement) => {
+        element.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "한" }));
+        element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
+      });
+      await page.waitForTimeout(40);
+    }
+    await until(async () => (await noteText()) === "Finish the word, then send.");
+    await line.dispatchEvent("compositionend", { data: "한" });
+    await page.waitForTimeout(100);
+    assert.equal(sent.length, 2, "a chain of compositions past the deadline sends nothing");
+    assert.equal(await noteText(), "Finish the word, then send.");
+    // A drop and a quick reconnect while the word is still open withdraw the tap: the later
+    // commit sends nothing and the note says why.
+    await line.fill("drop 한");
+    await line.dispatchEvent("compositionstart", { data: "" });
+    await sendButton.click();
+    await until(async () => (await noteText()) === "Finishing the word…");
+    refuseConnections = true;
+    await currentSocket!.close();
+    await until(() => sendButton.isDisabled());
+    // the withdrawal runs in an effect after the disabled button paints
+    await until(async () => (await noteText()) === "Not sent: the terminal is disconnected.");
+    refuseConnections = false;
+    await until(async () => !(await sendButton.isDisabled()));
+    await line.dispatchEvent("compositionend", { data: "한" });
+    await page.waitForTimeout(100);
+    assert.equal(sent.length, 2, "a commit after a drop and reconnect does not send the withdrawn tap");
+    assert.equal(await noteText(), "Not sent: the terminal is disconnected.");
     // The terminal drops while the word is still being finished: the commit says so instead of
     // leaving "Finishing the word…" up for good.
     await line.fill("offline 한");

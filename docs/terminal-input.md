@@ -47,12 +47,15 @@ Control sequences are left out, never saved for later execution, and not counted
 answers to a program (cursor position, focus, mouse) arrive the same way. Send transmits the held
 text alone, without an Enter typed meanwhile. The draft holds 1,024 characters; text past that is
 left out whole and the notice says some input was left out, also when nothing else is held. No
-draft is replayed on reconnect. The input-line and chat Send buttons preserve an active composition.
-An input-line Send tapped during composition finishes the word itself (a blur and refocus inside the
-tap, which ends the composition in Chrome and keeps the keyboard up) and sends the committed line,
-read from the draft. A keyboard that still does not commit within 300 ms gets the tap withdrawn with
-"Finish the word, then send.", and a later commit sends nothing; a terminal that drops meanwhile
-leaves "Not sent: the terminal is disconnected.".
+draft is replayed on reconnect. The chat Send button preserves an active composition. The input-line
+Send tapped during composition finishes the word itself (a blur and refocus inside the tap, which
+ends the composition in Chrome and keeps the keyboard up) and sends the committed line, read from
+the draft; "Finishing the word…" shows only while the word is still open after the tap. A keyboard
+that still does not commit within 300 ms of the tap (a fixed deadline, which a chain of new
+compositions does not extend) gets the tap withdrawn with "Finish the word, then send.", and a later
+commit sends nothing. A terminal that drops meanwhile withdraws the tap at once with "Not sent: the
+terminal is disconnected.", even if it reconnects within the wait. A word that commits empty (the
+preedit deleted or cancelled) sends nothing, not a bare Enter.
 The key bar waits only for a direct-typing (xterm) composition, so a key cannot overtake xterm's
 pending commit. A composition in the input line leaves the key bar live: Esc, ^C and the arrows
 go to the pane at once, Ctrl, Alt and Shift arm, and the line's unfinished text stays where it is.
