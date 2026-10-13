@@ -116,6 +116,9 @@ export class HerdrSocket {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    // a backoff retry still waiting would only open a second attempt later, past whatever ends this one
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     const socket = new WebSocket(this.url);
     this.socket = socket;
     this.features = new Set();
@@ -260,6 +263,9 @@ export class HerdrSocket {
 
   private stopOutput(): void {
     this.outputStopped = true;
+    // stopped output stays stopped until an attach: no retry left armed may reconnect behind it
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.emit({ type: "error", code: "output_stalled", message: "Terminal output stopped because this device could not keep up." });
   }
 
@@ -281,11 +287,13 @@ export class HerdrSocket {
    * A phone that slept or went to the background comes back with its socket closed and a
    * reconnect timer that may have backed off to its 5s cap, or with a socket already CLOSED whose
    * close event has not run yet (so no timer at all). Waking skips the wait and starts again from
-   * the shortest delay; a connection that is open or still connecting is left alone (connect()
-   * ignores it). A socket in CLOSING is left to its close event too: a submit-result can still
-   * arrive during that handshake, and the server's close code decides whether output stopped (the
-   * reconnect it schedules starts from the shortest delay). A stopped output stays stopped: only
-   * an attach resumes it.
+   * the shortest delay; a connection that is open, or a first attempt still connecting, is left
+   * alone (connect() ignores it). An attempt still connecting after earlier ones hit their deadline
+   * has a deadline grown up to 30s, likely started on the network that just came back or changed:
+   * it is given up now and a fresh attempt starts with the shortest deadline. A socket in CLOSING
+   * is left to its close event too: a submit-result can still arrive during that handshake, and
+   * the server's close code decides whether output stopped (the reconnect it schedules starts from
+   * the shortest delay). A stopped output stays stopped: only an attach resumes it.
    */
   wake(): void {
     if (this.disposed || this.outputStopped) return;
@@ -294,7 +302,11 @@ export class HerdrSocket {
       this.retries = 0;
       return;
     }
-    if (socket?.readyState === SOCKET_CLOSED) {
+    if (socket?.readyState === WebSocket.CONNECTING && this.connectTimeouts > 0) {
+      // never opened, so its close event can carry no output-stalled code: end it like its deadline would
+      socket.close();
+      this.closed(socket, 1006);
+    } else if (socket?.readyState === SOCKET_CLOSED) {
       // ended now so its submits and listeners settle; its close event, when it runs, can still stop output
       this.closed(socket, 1006);
       this.endedEarly = socket;
@@ -302,6 +314,7 @@ export class HerdrSocket {
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.retries = 0;
+    this.connectTimeouts = 0;
     this.connect();
   }
 
@@ -311,6 +324,7 @@ export class HerdrSocket {
     this.retries += 1;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
+      if (this.outputStopped || this.disposed) return;
       this.connect();
     }, delay);
   }

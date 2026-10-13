@@ -809,3 +809,60 @@ it("lets a slow handshake connect: each attempt given up doubles the next deadli
     jest.useRealTimers();
   }
 });
+
+it("gives up an attempt with a grown deadline on wake and starts a fresh one with the shortest", () => {
+  jest.useFakeTimers();
+  const client = new HerdrSocket("ws://test/ws");
+  try {
+    client.connect();
+    const first = FakeSocket.last;
+    jest.advanceTimersByTime(8_000 + 250);
+    const second = FakeSocket.last;
+    expect(second).not.toBe(first);
+    jest.advanceTimersByTime(16_000 + 500);
+    const third = FakeSocket.last;
+    expect(third).not.toBe(second);
+    // the network comes back 2s into an attempt whose deadline has grown to 30s
+    jest.advanceTimersByTime(2_000);
+    expect(third.readyState).toBe(FakeSocket.CONNECTING);
+    client.wake();
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(third);
+    expect(third.readyState).toBe(3);
+    // the fresh attempt's deadline is 8s again
+    jest.advanceTimersByTime(8_000);
+    expect(fresh.readyState).toBe(3);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("never reconnects from a backoff retry left pending once the server stopped output", () => {
+  jest.useFakeTimers();
+  const client = new HerdrSocket("ws://test/ws");
+  const errors: string[] = [];
+  client.on((message) => { if (message.type === "error") errors.push(message.code); });
+  try {
+    client.connect();
+    // failed attempts back the retry off to 4s
+    for (const delay of [250, 500, 1_000, 2_000]) {
+      FakeSocket.last.disconnect();
+      jest.advanceTimersByTime(delay);
+    }
+    const failing = FakeSocket.last;
+    failing.disconnect();
+    // a pane mounts and connects before that retry runs
+    client.connect();
+    const replacement = FakeSocket.last;
+    expect(replacement).not.toBe(failing);
+    replacement.open();
+    replacement.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(errors).toEqual(["output_stalled"]);
+    jest.advanceTimersByTime(10_000);
+    expect(FakeSocket.last).toBe(replacement);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
