@@ -86,7 +86,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         404 from a server that sends no telemetry.
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
- *         for the new-session dialog)
+ *         each with `installed`: whether its command is on this server's PATH; for the
+ *         new-session dialog)
  *  GET    /api/integrations              -> IntegrationsResponse (herdr's `integration.list`, in
  *         herdr's order; read only: nothing here installs or removes one, Settings shows the
  *         `herdr integration install` command instead)
@@ -767,6 +768,8 @@ export interface RepoDiffFilePatch {
 export interface AgentKind {
   kind: string;
   label: string;
+  /** whether the server finds the agent's command (its kind) on its PATH; absent from an older bridge */
+  installed?: boolean;
 }
 
 /**
