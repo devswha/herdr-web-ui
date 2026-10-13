@@ -17,6 +17,8 @@ export interface TerminalInputProps {
   onSend: (text: string) => false | Promise<true | string>;
   /** an empty line's send: Enter alone, for a menu's default or a prompt that asks to continue */
   onEnter: () => boolean;
+  /** the line took the focus */
+  onFocus?: () => void;
 }
 
 /** Lines the box grows to before it scrolls. */
@@ -28,7 +30,7 @@ const MAX_ROWS = 4;
  * cannot take back keys it already sent: every revision arrived as more text. Here the line
  * is written with the keyboard's own editing and goes to the pane whole, then Enter.
  */
-export function TerminalInput({ owner, active = true, connected, onSend, onEnter, onComposing }: TerminalInputProps) {
+export function TerminalInput({ owner, active = true, connected, onSend, onEnter, onComposing, onFocus }: TerminalInputProps) {
   const t = useT();
   const text = useSyncExternalStore(subscribeTerminalDraft, () => readTerminalDraft(owner));
   const setText = useCallback((value: string | ((previous: string) => string)) => {
@@ -130,6 +132,7 @@ export function TerminalInput({ owner, active = true, connected, onSend, onEnter
         autoCapitalize="off"
         onChange={(event) => { setText(event.target.value); setNote(null); }}
         onKeyDown={onKeyDown}
+        onFocus={onFocus}
       />
       {dictation.shown && <MicButton dictation={dictation} className="terminal-input-mic" />}
       <button
