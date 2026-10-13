@@ -282,6 +282,7 @@ it("warns for terminal letter chords and browser commands while allowing Cmd+Pag
     expect(isInputShortcutBinding(chord(key, { ctrlKey: true }))).toBe(true);
     expect(isInputShortcutBinding(chord(key, { altKey: true }))).toBe(true);
   }
+  expect(isInputShortcutBinding(recordShortcutBinding({ key: "®", code: "KeyR", ctrlKey: false, metaKey: false, altKey: true, shiftKey: false })!)).toBe(true);
   for (const key of ["w", "t", "n", "q"]) expect(isReservedShortcutBinding(chord(key, { metaKey: true }), true)).toBe(true);
   expect(isInputShortcutBinding(chord("PageUp", { metaKey: true }))).toBe(false);
   expect(isReservedShortcutBinding(chord("PageUp", { metaKey: true }), true)).toBe(false);

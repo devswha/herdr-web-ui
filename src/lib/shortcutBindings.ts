@@ -75,7 +75,8 @@ export function sameShortcutBinding(a: ShortcutBinding, b: ShortcutBinding): boo
 export function isInputShortcutBinding(binding: ShortcutBinding): boolean {
   return binding.ctrlKey || (!binding.metaKey && !binding.altKey)
     || binding.key.startsWith("Arrow")
-    || (binding.altKey && !binding.metaKey && /^\p{L}\p{M}*$/u.test(binding.key));
+    // Az Option+betű macOS-en szimbólumot is adhat (például Option+R → ®).
+    || (binding.altKey && !binding.metaKey && /^[\p{L}\p{N}\p{P}\p{S}]\p{M}*$/u.test(binding.key));
 }
 
 export function isReservedShortcutBinding(binding: ShortcutBinding, platformIsMac: boolean): boolean {

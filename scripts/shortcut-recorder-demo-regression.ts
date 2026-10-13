@@ -185,6 +185,11 @@ try {
             assert.deepEqual(await overridesOf(page), {}, "unsafe candidate is only a preview until Save");
             await paletteRow.getByRole("button", { name: "Cancel", exact: true }).click();
           }
+          await recordButton.click();
+          await recordButton.dispatchEvent("keydown", { key: "®", code: "KeyR", altKey: true });
+          await paletteRow.getByText("This binding can override text editing or terminal keys.", { exact: true }).waitFor();
+          assert.deepEqual(await overridesOf(page), {}, "Option-generated symbol only previews the terminal chord");
+          await paletteRow.getByRole("button", { name: "Cancel", exact: true }).click();
           for (const key of ["w", "t", "n", "q"]) {
             await recordButton.click();
             await recordButton.dispatchEvent("keydown", { key, code: `Key${key.toUpperCase()}`, metaKey: true });
