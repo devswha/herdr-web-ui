@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { lazyChunk, lazyChunkFailed, onLazyChunkFailure } from "./lazyChunk.ts";
+import { lazyChunk, lazyChunkFailed, onLazyChunkFailure, watchPreloadErrors } from "./lazyChunk.ts";
 
 describe("lazyChunk", () => {
   it("loads once while pending and once loaded", async () => {
@@ -42,5 +42,43 @@ describe("lazyChunk", () => {
     onLazyChunkFailure(() => { told++; })();
     await expect(lazyChunk(() => Promise.reject(new Error("gone")))()).rejects.toThrow("gone");
     expect(told).toBe(0);
+  });
+
+  it("tells of a chunk a lazy part loads on its own once Vite's loader reports it", () => {
+    // Mermaid's entry loaded; the chunk of a diagram type it asks for later is gone. Mermaid turns
+    // that into a failed render, which reaches no lazyChunk: Vite's loader is what tells of it
+    const window = new EventTarget();
+    const unwatch = watchPreloadErrors(window);
+    let told = 0;
+    const stop = onLazyChunkFailure(() => { told++; });
+    try {
+      window.dispatchEvent(new Event("vite:preloadError", { cancelable: true }));
+      expect(told).toBe(1);
+      expect(lazyChunkFailed()).toBe(true);
+      // the import still rejects as it would: the event is heard, not cancelled
+      const event = new Event("vite:preloadError", { cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+      unwatch();
+      window.dispatchEvent(new Event("vite:preloadError", { cancelable: true }));
+      expect(told).toBe(2);
+    } finally {
+      stop();
+      unwatch();
+    }
+  });
+
+  it("is not told of a diagram that fails only to parse", async () => {
+    let told = 0;
+    const stop = onLazyChunkFailure(() => { told++; });
+    try {
+      // the module loads; the render it gives rejects on a syntax error, not on a missing chunk
+      const load = lazyChunk(async () => async () => { throw new Error("Parse error on line 1"); });
+      const render = await load();
+      await expect(render()).rejects.toThrow("Parse error");
+      expect(told).toBe(0);
+    } finally {
+      stop();
+    }
   });
 });

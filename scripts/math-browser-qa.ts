@@ -79,6 +79,7 @@ try {
   assert.equal(scripts.length, loaded, "KaTeX is fetched once");
   assert.equal(mathAssets.length, 2, "later expressions reuse both assets");
   assert.equal(await page.getByText("\\(a^2+b^2=c^2\\)").count(), 0, "a later expression is typeset at once");
+  assert.equal(await page.locator(".update-notice").count(), 0, "math that loads asks for no reload");
   assert.deepEqual(errors, []);
 
   // offline when the first expression comes: it and every later one keep their source form, quietly
@@ -89,6 +90,8 @@ try {
   await offline.goto(`http://127.0.0.1:${server.port}/`);
   await offline.getByText("Prose only, nothing to typeset.").waitFor();
   let aborted = 0;
+  let reloads = 0;
+  offline.on("framenavigated", (frame) => { if (frame === offline.mainFrame()) reloads++; });
   const failedChunk = offline.waitForEvent("requestfailed", { predicate: (request) => request.resourceType() === "script", timeout: 5_000 });
   await offline.route("**/*.js", (route) => { aborted++; return route.abort(); });
   write("First: \\(x^2\\)\n\nSecond: \\(y^2\\)");
@@ -104,6 +107,38 @@ try {
   // fetch, so the recovery is the reload line (lib/lazyChunk.ts), not a retry
   assert.equal(aborted, 1, "later expressions reuse the failed load without retrying");
   assert.equal(await offline.locator(".katex").count(), 0);
+  // the recovery: the app's update line (useUpdates) offers the reload, and only a tap reloads
+  const notice = offline.locator(".update-notice.is-warning");
+  await notice.getByText("Part of the app could not load.").waitFor({ timeout: 5_000 });
+  assert.equal(reloads, 0, "the page is not reloaded until it is asked to be");
+  await offline.unroute("**/*.js");
+  await Promise.all([offline.waitForEvent("load"), notice.getByRole("button", { name: "Reload app" }).click()]);
+  assert.equal(reloads, 1, "Reload app reloads the page");
+  assert.deepEqual(errors, []);
+
+  // a diagram chunk Mermaid loads on its own: its entry and the flowchart chunk load, then the
+  // sequence diagram's is gone (a tab older than the server's build). Mermaid makes that a failed
+  // render, as a diagram that does not parse is; Vite's loader still tells of it (lib/lazyChunk.ts)
+  const diagrams = await browser.newPage();
+  diagrams.on("pageerror", (error) => errors.push(error.message));
+  await diagrams.route("**/api/pane/conversation?*", (route) => route.fulfill({ json: conversation }));
+  write("```mermaid\ngraph LR\n  A[Start] --> B[End]\n```");
+  await diagrams.goto(`http://127.0.0.1:${server.port}/`);
+  await diagrams.locator(".markdown-mermaid svg").waitFor({ timeout: 15_000 });
+  assert.equal(await diagrams.locator(".update-notice").count(), 0, "a diagram that loads asks for no reload");
+  // a diagram that fails only to parse is a code block, and no reason to reload
+  write("```mermaid\ngraph LR\n  A[Start --> \n```");
+  await diagrams.evaluate(() => window.qa.refresh());
+  await diagrams.locator(".markdown-code").first().waitFor();
+  await diagrams.waitForTimeout(800);
+  assert.equal(await diagrams.locator(".update-notice").count(), 0, "a syntax error asks for no reload");
+  const goneChunk = diagrams.waitForEvent("requestfailed", { predicate: (request) => /\/sequenceDiagram-[^/]+\.js$/.test(request.url()), timeout: 5_000 });
+  await diagrams.route(/\/sequenceDiagram-[^/]+\.js$/, (route) => route.abort());
+  write("```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n```");
+  await diagrams.evaluate(() => window.qa.refresh());
+  await goneChunk;
+  await diagrams.locator(".update-notice.is-warning").getByText("Part of the app could not load.").waitFor({ timeout: 5_000 });
+  assert.equal(await diagrams.locator(".markdown-mermaid svg").count(), 0, "the diagram whose chunk is gone stays a code block");
   assert.deepEqual(errors, []);
 
   // only the stylesheet fails: Vite's loader never asks for a stylesheet twice, so a second try
@@ -134,7 +169,7 @@ try {
   assert.equal(await unstyled.locator(".katex").count(), 0, "math is not drawn without its stylesheet");
   assert.equal(await unstyled.getByText("\\(v^2\\)").count(), 1, "a later expression keeps its source");
   assert.deepEqual(errors, []);
-  console.log("math: browser OK (KaTeX fetched with the first expression, once; inline and display typeset; offline keeps the source; a failed stylesheet is not retried into unstyled math)");
+  console.log("math: browser OK (KaTeX fetched with the first expression, once; inline and display typeset; offline keeps the source and offers a reload; a missing diagram chunk offers it too; a failed stylesheet is not retried into unstyled math)");
 } finally {
   await browser?.close();
   server?.stop();

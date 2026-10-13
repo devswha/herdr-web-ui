@@ -22,15 +22,35 @@ export function lazyChunkFailed(): boolean {
   return failed;
 }
 
+/** Marks this page as missing a part and tells every listener. */
+export function reportLazyChunkFailure(): void {
+  failed = true;
+  for (const listener of [...listeners]) {
+    try { listener(); } catch { /* one listener does not cost the others */ }
+  }
+}
+
+/**
+ * Hears Vite's loader on `target` (the window): every dynamic import of the bundle goes through it,
+ * and it tells `vite:preloadError` of each one that fails, its stylesheets too. That reaches the
+ * chunks a lazy part loads on its own, Mermaid's one per diagram type among them, which no
+ * `lazyChunk` wraps: Mermaid turns their failure into a failed render, as a diagram that does not
+ * parse is. The event is not cancelled, so the import still rejects as it would. Returns its removal.
+ */
+export function watchPreloadErrors(target: EventTarget): () => void {
+  const heard = (): void => reportLazyChunkFailure();
+  target.addEventListener("vite:preloadError", heard);
+  return () => target.removeEventListener("vite:preloadError", heard);
+}
+if (typeof window !== "undefined") watchPreloadErrors(window);
+
 /** `load` run once: what it gave, or the failure it ended in, for the page's life. */
 export function lazyChunk<T>(load: () => Promise<T>): () => Promise<T> {
   let pending: Promise<T> | null = null;
   return () => {
     pending ??= load().catch((error: unknown) => {
-      failed = true;
-      for (const listener of [...listeners]) {
-        try { listener(); } catch { /* one listener does not cost the others */ }
-      }
+      // Vite's loader may have told this one already: a listener hears a failure once or twice
+      reportLazyChunkFailure();
       throw error;
     });
     return pending;
