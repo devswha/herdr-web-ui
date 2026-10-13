@@ -1216,3 +1216,17 @@ it("keeps a 4008 while the page is in use final: no reconnect on its own, on wak
     jest.useRealTimers();
   }
 });
+
+it("counts a page that connected while hidden as put away until it is first shown", () => {
+  const page = fakePage();
+  page.hide();
+  const { client, socket } = liveClient([]);
+  try {
+    page.show();
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(client.stoppedWhileHidden).toBe(true);
+  } finally {
+    client.close();
+    page.restore();
+  }
+});

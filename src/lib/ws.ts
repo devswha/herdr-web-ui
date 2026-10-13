@@ -471,7 +471,11 @@ export class HerdrSocket {
     this.wakeListening = true;
     window.addEventListener("online", this.onWake);
     window.addEventListener("pageshow", this.onWake);
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onWake);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.onWake);
+      // a page loaded behind another app counts as put away until it is first shown
+      if (document.visibilityState === "hidden") this.pageHidden = true;
+    }
   }
 
   /**
