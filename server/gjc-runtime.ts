@@ -258,7 +258,7 @@ export function validateGjcSdkTranscript(binding: GjcSdkBinding, cwd: string, ag
 }
 
 type GjcPaneProcessInfo = { process_info?: { shell_pid?: unknown; foreground_processes?: { pid?: unknown; argv?: unknown }[] } };
-type GjcProcessIdentity = { pid: number; birth: string };
+type GjcProcessIdentity = { pid: number; birth: number };
 
 /**
  * Resolves only while the SDK-selected GJC process is still foreground in this pane with the
@@ -285,6 +285,9 @@ export async function gjcTranscriptForPane(
   const sdkTranscript = options.sdkTranscript ?? gjcSdkTranscript;
   const readProcessTable = options.readProcessTable ?? windowsProcessTable;
   const processBirth = options.processBirth ?? processStartedAt;
+  // macOS reads a start as now minus whole elapsed seconds, so two reads of one process
+  // differ by up to a second.
+  const sameBirth = (a: number, b: number) => platform === "darwin" ? Math.abs(a - b) <= 1000 : a === b;
 
   const processes = async (info: GjcPaneProcessInfo | null, fresh: boolean): Promise<GjcProcessIdentity[] | null> => {
     if (!info?.process_info) return null;
@@ -294,26 +297,24 @@ export async function gjcTranscriptForPane(
       if (process === undefined) return null;
       if (process === null) return [];
       if (!Number.isSafeInteger(process.started) || process.started === null) return null;
-      return [{ pid: process.pid, birth: String(process.started) }];
+      return [{ pid: process.pid, birth: process.started }];
     }
 
     const foreground = info.process_info.foreground_processes;
     if (!Array.isArray(foreground)) return null;
     const found: GjcProcessIdentity[] = [];
-    const seen = new Map<number, string>();
+    const seen = new Map<number, number>();
     for (const process of foreground) {
       const argv = Array.isArray(process.argv) ? process.argv.map(String) : [];
       if (!isGjcProcess(argv)) continue;
       if (typeof process.pid !== "number" || !Number.isSafeInteger(process.pid) || process.pid <= 0) return null;
       const started = processBirth(process.pid);
       if (started === null || !Number.isFinite(started)) return null;
-      // macOS processStartedAt is second-granular; its second is the stable birth identity.
-      const birth = String(platform === "darwin" ? Math.floor(started / 1000) : started);
       const previous = seen.get(process.pid);
-      if (previous !== undefined && previous !== birth) return null;
+      if (previous !== undefined && !sameBirth(previous, started)) return null;
       if (previous === undefined) {
-        seen.set(process.pid, birth);
-        found.push({ pid: process.pid, birth });
+        seen.set(process.pid, started);
+        found.push({ pid: process.pid, birth: started });
       }
     }
     return found;
@@ -334,6 +335,6 @@ export async function gjcTranscriptForPane(
     const finalInfo = await readProcessInfo(paneId);
     if (!finalInfo) return null;
     const final = await processes(finalInfo, true);
-    return final?.some((process) => process.pid === owner.pid && process.birth === owner.birth) ? path : null;
+    return final?.some((process) => process.pid === owner.pid && sameBirth(process.birth, owner.birth)) ? path : null;
   } catch { return null; }
 }

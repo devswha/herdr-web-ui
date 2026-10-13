@@ -192,6 +192,19 @@ it("re-reads pane process info and birth identity before accepting the SDK bindi
       processInfo: async () => { reads += 1; return info(200); },
       processBirth: () => { births += 1; return births === 1 ? 1000 : 2000; },
     })).toBeNull();
+    // macOS: one process read either side of a second boundary is still that process
+    births = 0;
+    expect(await gjcTranscriptForPane("pane", cwd, home, {
+      ...options,
+      platform: "darwin",
+      processBirth: () => { births += 1; return births === 1 ? 1900 : 2100; },
+    })).toBe(realpathSync(path));
+    births = 0;
+    expect(await gjcTranscriptForPane("pane", cwd, home, {
+      ...options,
+      platform: "darwin",
+      processBirth: () => { births += 1; return births === 1 ? 1000 : 2500; },
+    })).toBeNull();
     reads = 0;
     expect(await gjcTranscriptForPane("pane", cwd, home, {
       ...options,
