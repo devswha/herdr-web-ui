@@ -78,7 +78,9 @@ export function draftIsEmpty(draft: InputDraft): boolean {
  */
 export function eraseFromDraft(draft: InputDraft): InputDraft {
   if (draft.text.length === 0 || draft.truncated) return draft;
-  return { ...draft, text: Array.from(draft.text).slice(0, -1).join("") };
+  const kept = Array.from(draft.text).slice(0, -1).join("");
+  // erased to nothing: the empty draft itself, so nothing about the erased text is left to tell
+  return kept.length === 0 ? EMPTY_DRAFT : { ...draft, text: kept };
 }
 
 /** Enter with modifiers as a program's keyboard protocol has it (modifyOtherKeys, CSI u): it commits the line too. */

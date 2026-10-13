@@ -142,6 +142,7 @@ describe("eraseFromDraft", () => {
     expect(eraseFromDraft({ text: "ls", truncated: false })).toEqual({ text: "l", truncated: false });
     expect(eraseFromDraft({ text: "a\u{1F600}", truncated: false })).toEqual({ text: "a", truncated: false });
     expect(eraseFromDraft(EMPTY_DRAFT)).toBe(EMPTY_DRAFT);
+    expect(eraseFromDraft({ text: "a", truncated: false })).toBe(EMPTY_DRAFT);
   });
 
   it("leaves a draft that lost text as it is: the Backspace may be meant for the text left out", () => {
