@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, herdrSocketPath, sessionSnapshot, workspaceClose, workspaceCreate, paneRead } from "./herdr/client.ts";
@@ -7,7 +7,7 @@ import { ConversationUnavailable, gjcTranscriptPath, paneConversation } from "./
 import { isGjcProcess } from "./gjc-runtime.ts";
 import { startShellAgent } from "./shell-agent.ts";
 
-const home = mkdtempSync(join(tmpdir(), "herdr-gjc-binding-"));
+const home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-gjc-binding-")));
 const agentDir = join(home, ".gjc", "agent");
 const dir = join(agentDir, "sessions", "v2-shared");
 mkdirSync(dir, { recursive: true });

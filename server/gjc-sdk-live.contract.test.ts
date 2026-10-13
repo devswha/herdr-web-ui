@@ -208,6 +208,7 @@ it.skipIf(!TEST_BIN || !SUPPORTED_PLATFORM)(
     let workspaceIds: string[] = [];
     let environmentWasReplaced = false;
     let isolatedChildrenGone = true;
+    let failed = false;
 
     try {
       expect(isAbsolute(suppliedBin)).toBe(true);
@@ -420,6 +421,9 @@ it.skipIf(!TEST_BIN || !SUPPORTED_PLATFORM)(
         expect(nextPath).not.toBe(fixturePath);
       }
 
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       const cleanupErrors: string[] = [];
       for (const workspaceId of [...workspaceIds].reverse()) {
@@ -441,7 +445,12 @@ it.skipIf(!TEST_BIN || !SUPPORTED_PLATFORM)(
       }
       forgetTranscriptState();
       if (root !== null && isolatedChildrenGone) rmSync(root, { recursive: true, force: true });
-      if (cleanupErrors.length > 0) throw new Error(`GJC SDK live-test cleanup failed: ${cleanupErrors.join("; ")}`);
+      if (cleanupErrors.length > 0) {
+        const message = `GJC SDK live-test cleanup failed: ${cleanupErrors.join("; ")}`;
+        // the test's own failure is the one to report; a cleanup failure beside it is only logged
+        if (failed) console.error(message);
+        else throw new Error(message);
+      }
     }
   },
   TEST_TIMEOUT_MS,
