@@ -15,6 +15,7 @@ import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { WorktreeDialog, type WorktreeDialogMode } from "./WorktreeDialog.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, shortPathTitle, stripPaneChrome, taskRowLines } from "../lib/paneName.ts";
+import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useSidebarActivity } from "../lib/sidebarActivity.tsx";
@@ -179,14 +180,23 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const { closeWorkspace, listWorktrees, moveWorkspace, removeWorktree, renameWorkspace } = useMachineApi();
   // herdr marks only a workspace it opened as a worktree. One made on a repository's folder has no
   // `worktree`, and it is where the first worktree starts: each is asked once whether git answers
-  // for it, again only when the set of such workspaces changes.
+  // for it. A refusal (4xx) is an answer and is kept; a failure to ask is not, so that workspace
+  // keeps what was known of it and is asked again when the set changes or the PC comes back.
   const unmarked = (snapshot?.workspaces ?? []).filter((workspace) => !workspace.worktree).map((workspace) => workspace.workspace_id).join("\n");
   const [repositoryWorkspaces, setRepositoryWorkspaces] = useState<ReadonlySet<string>>(() => new Set());
+  const repositoryAnswers = useRef(new Map<string, boolean>());
   useEffect(() => {
-    if (!online || unmarked === "") { setRepositoryWorkspaces(new Set()); return; }
+    const known = repositoryAnswers.current;
+    if (!online || unmarked === "") { known.clear(); setRepositoryWorkspaces(new Set()); return; }
+    const ids = unmarked.split("\n");
+    for (const id of [...known.keys()]) if (!ids.includes(id)) known.delete(id);
     let live = true;
-    void Promise.all(unmarked.split("\n").map((id) => listWorktrees(id).then(() => id, () => null)))
-      .then((found) => { if (live) setRepositoryWorkspaces(new Set(found.filter((id) => id !== null))); });
+    const publish = () => { if (live) setRepositoryWorkspaces(new Set(ids.filter((id) => known.get(id) === true))); };
+    publish();
+    void Promise.all(ids.filter((id) => !known.has(id)).map((id) => listWorktrees(id).then(
+      () => { if (live) known.set(id, true); },
+      (error: unknown) => { if (live && error instanceof ApiError && error.status < 500) known.set(id, false); },
+    ))).then(publish);
     return () => { live = false; };
   }, [listWorktrees, unmarked, online]);
   const [menu, setMenu] = useState<MenuState | null>(null);
