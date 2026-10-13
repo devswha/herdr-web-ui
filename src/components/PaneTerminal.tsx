@@ -282,6 +282,8 @@ export function PaneTerminal({
   // another app) or moving on to the next pane there lets go of it too
   const leaveRef = useRef<() => void>(() => {});
   const cancelLeaveRef = useRef<() => void>(() => {});
+  // the mount effect's in-place re-attach after the output stopped, for the banner's Reconnect
+  const reattachRef = useRef<() => void>(() => {});
   const pendingSubmissionsRef = useRef(new Set<{ pane: string; socket: HerdrSocket; epoch: number }>());
   const endedRef = useRef(false);
   // the modifyOtherKeys level the pane's program asked for, as this pane's stream last said it
@@ -1115,6 +1117,13 @@ export function PaneTerminal({
           setEnded(true);
           setConnected(false);
           term.options.disableStdin = true;
+          // a frozen page reads the close after it is shown again, often after back() ran: the
+          // stop belongs to the time it was put away, so attach again now (see back())
+          if (message.code === "output_stalled" && socket.stoppedWhileHidden && inUse()) {
+            queueMicrotask(() => {
+              if (!disposed && stalledRef.current && socket.stoppedWhileHidden && inUse()) reattachRef.current();
+            });
+          }
           return;
         }
         term.writeln(`\r\n\u001b[31m[herdr-web-ui] ${message.code}: ${message.message}\u001b[0m`);
@@ -1603,11 +1612,27 @@ export function PaneTerminal({
       if (hiddenOnTouch()) release();
     };
     leaveRef.current = leave;
+    // The PC's connection stopped on an overload close (4008), or an attach conflicted: attach again
+    // in place, as a pane pick does. The attach reconnects, and the connection's open replays every
+    // pane this PC has attached; their snapshot clears what is left of the notice.
+    const reattach = (): void => {
+      if (!presentedRef.current || !paneRef.current) return;
+      stalledRef.current = false;
+      setOutputError(null);
+      setEnded(false);
+      resume();
+      term.options.disableStdin = observeRef.current || secretRef.current !== null || heldRef.current;
+    };
+    reattachRef.current = reattach;
     const back = (): void => {
       if (!presentedRef.current) return;
       if (inUse() && awayReleased) awayReleased.current = false;
       cancelLeave();
-      if (releasedRef.current) resume();
+      // A pane that kept its attach while put away (a queued message, a mirror) stopped because its
+      // frozen page sent no ACKs, not because this device is too slow: coming back attaches again,
+      // once. A stop while the page stays in use is final (no reconnect loop).
+      if (stalledRef.current && socket.stoppedWhileHidden && inUse()) reattach();
+      else if (releasedRef.current) resume();
       else refit();
     };
     // A phone or tablet put away lets go of the pane at once, whatever the setting: its page can
@@ -1670,6 +1695,7 @@ export function PaneTerminal({
       releaseRef.current = () => {};
       leaveRef.current = () => {};
       cancelLeaveRef.current = () => {};
+      reattachRef.current = () => {};
       watchRef.current = () => {};
       onWatchedResize.dispose();
       window.removeEventListener("focus", back);
@@ -2323,7 +2349,7 @@ export function PaneTerminal({
         {paneId !== null && outputError && (
           <div className="terminal-banner terminal-banner-warning terminal-banner-output-error" role="status">
             <span>{outputError}</span>
-            <a className="btn" href={`?machine=${encodeURIComponent(machineId)}&pane=${encodeURIComponent(paneId)}`}>{t("Reconnect")}</a>
+            <button type="button" className="btn" onClick={() => reattachRef.current()}>{t("Reconnect")}</button>
           </div>
         )}
         {!chatView && inputError && <div className="terminal-banner" role="status">{inputError}<button type="button" className="btn terminal-banner-action" onClick={() => setInputError(null)}>{t("Dismiss")}</button></div>}
