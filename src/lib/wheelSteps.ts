@@ -14,3 +14,13 @@ export function wheelSteps(pixels: number, stepPixels: number): { steps: number;
   const steps = Math.trunc(pixels / stepPixels);
   return { steps, rest: pixels - steps * stepPixels };
 }
+
+/**
+ * The last step a gesture sends when the finger lifts: one more in the travel's direction when
+ * what is left reaches half a step, so a short flick still scrolls and a long drag loses no more
+ * than half a step at its end. No step size makes no step.
+ */
+export function finalStep(rest: number, stepPixels: number): -1 | 0 | 1 {
+  if (!(stepPixels > 0) || !Number.isFinite(rest)) return 0;
+  return Math.abs(rest) >= stepPixels / 2 ? (Math.sign(rest) as -1 | 1) : 0;
+}

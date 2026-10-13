@@ -121,6 +121,10 @@ export async function checkTerminalPinch(browser: Browser, origin: string, paneI
     const expected = 300 / (3 * baseline.cell);
     assert(fast >= Math.floor(expected) - 1 && fast <= Math.ceil(expected), `a 300 px swipe sends about ${expected.toFixed(1)} wheels (sent ${fast})`);
     assert.equal(fast, slow, "a 2-move swipe and a 30-move drag over 300 px send the same wheel count");
+    // a flick shorter than one step still scrolls once it reaches half a step when the finger lifts
+    const step = 3 * baseline.cell;
+    assert.equal(await swipe(Math.round(step * 0.7), 4), 1, `a flick of 0.7 step (${Math.round(step * 0.7)} px) sends one wheel`);
+    assert.equal(await swipe(Math.round(step * 0.3), 4), 0, `a flick of 0.3 step (${Math.round(step * 0.3)} px) sends none`);
     const r0 = resizes;
     const w0 = (await probe()).wheels;
     await spreadTo(100, 154);

@@ -53,7 +53,7 @@ import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { modalOpen } from "../lib/focus.ts";
 import { pinchFontSize } from "../lib/pinchFontSize.ts";
 import { narrowPaneFontSize } from "../lib/narrowPaneFont.ts";
-import { HERDR_MOUSE_SCROLL_LINES, wheelSteps } from "../lib/wheelSteps.ts";
+import { finalStep, HERDR_MOUSE_SCROLL_LINES, wheelSteps } from "../lib/wheelSteps.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -1452,15 +1452,25 @@ export function PaneTerminal({
       // swipe as far as a slow drag, and the text under the finger
       const { steps, rest } = wheelSteps(touchPixels + delta, cellHeight() * HERDR_MOUSE_SCROLL_LINES);
       touchPixels = rest;
+      sendTouchWheels(steps);
+    };
+    /** `steps` line-mode wheel reports at the finger, each one herdr scroll step in the sign's direction */
+    const sendTouchWheels = (steps: number): void => {
       const target = term.element ?? host;
       for (let sent = 0; sent < Math.abs(steps); sent += 1) {
         target.dispatchEvent(new WheelEvent("wheel", {
           bubbles: true, cancelable: true, deltaY: Math.sign(steps), deltaMode: WheelEvent.DOM_DELTA_LINE,
-          clientX: first.clientX, clientY: first.clientY,
+          clientX: touchX, clientY: touchY,
         }));
       }
     };
     const onTouchEnd = (event: TouchEvent): void => {
+      // a lifted one-finger drag sends what is left once it reaches half a step: a flick shorter
+      // than one step still scrolls, and a long drag loses at most half a step at its end
+      if (tracking && event.type === "touchend" && !pinchStroke && !adopted()) {
+        sendTouchWheels(finalStep(touchPixels, cellHeight() * HERDR_MOUSE_SCROLL_LINES));
+      }
+      touchPixels = 0;
       tracking = false;
       if (!pinchStroke) return;
       claimPinch(event);
