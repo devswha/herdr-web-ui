@@ -21,7 +21,11 @@ const leaving = new Map<string, ReturnType<typeof setTimeout>>();
 /** the address each sheet's entry was made on */
 const addresses = new Map<string, string>();
 let pushing = false;
-/** while a closed sheet's step back is on its way: the sheets that made their entry meanwhile, which its popstate leaves open */
+/**
+ * while a closed sheet's step back is on its way: the sheets that made their entry meanwhile, which
+ * its popstate leaves open. The step always lands somewhere (a sheet's entry is made over another),
+ * so its popstate comes and clears this; the next step starts a set of its own.
+ */
 let stepping: Set<string> | null = null;
 
 function sheetOf(state: unknown): string | null {
