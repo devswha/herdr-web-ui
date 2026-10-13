@@ -35,9 +35,9 @@ export async function checkNotificationView(browser: Browser, origin: string): P
       document.querySelector(".pane-select[aria-current='true']")?.getAttribute("title")?.startsWith(`${id} —`) === true
       && document.querySelector(".view-switch button[aria-pressed='true']")?.getAttribute("title")?.startsWith(title!) === true, [pane, lens]);
     /** what public/sw.js posts to an open window when a pane's alert is tapped */
-    const tapAlert = (pane: string) => page.evaluate((id) => {
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "select-pane", machine_id: "local", pane_id: id, view: "chat" } }));
-    }, pane);
+    const tapAlert = (pane: string, workspace?: string) => page.evaluate(([id, ws]) => {
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { type: "select-pane", machine_id: "local", pane_id: id, view: "chat", ...(ws ? { workspace_id: ws } : {}) } }));
+    }, [pane, workspace] as const);
     const row = (pane: string) => page.locator(`.pane-select[title^="${pane} —"]`);
 
     // a closed app opens on the alert's address
@@ -64,8 +64,27 @@ export async function checkNotificationView(browser: Browser, origin: string): P
     await row(shell).click();
     await row(agent).click();
     await shows(agent, "Live terminal");
+
+    // An ended pane's alert, which the worker names twice (before and after focus), while the
+    // app still asks herdr whether the pane is gone: the second delivery must not strand the
+    // first's lookup. The alert names the workspace the pane was in, so that workspace opens.
+    await row(shell).click();
+    await shows(shell, "Live terminal");
+    let asked!: () => void;
+    const lookup = new Promise<void>((resolve) => { asked = resolve; });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/session", async (route) => { asked(); await released; await route.continue(); });
+    const ended = `${agent}-ended`;
+    await tapAlert(ended, workspaces[0]);
+    await lookup;
+    await tapAlert(ended, workspaces[0]);
+    release();
+    await page.locator(".context-title-text", { hasText: "That agent has closed: its workspace is open" }).waitFor({ timeout: 4000 });
+    await page.unroute("**/api/session");
+    await page.waitForFunction((id) => document.querySelector(".pane-select[aria-current='true']")?.getAttribute("title")?.startsWith(`${id} —`) === true, agent);
     assert.deepEqual(errors, []);
-    console.log("PASS a tapped pane alert opens an agent's chat once, and a shell's terminal");
+    console.log("PASS a tapped pane alert opens an agent's chat once, and a shell's terminal; an ended pane's alert, delivered twice, opens its workspace");
   } finally {
     await context.close();
     for (const workspace of workspaces) await workspaceClose(workspace).catch(() => undefined);

@@ -52,7 +52,7 @@ import {
   type NotificationState,
 } from "./lib/notifications.ts";
 import { ensurePushSubscription, pushSupported, removePushSubscription } from "./lib/push.ts";
-import { machineMissing, notificationLanding, notificationTargetFromSearch, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
+import { machineGone, notificationLanding, notificationTargetFromSearch, sameLink, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
 import { useUpdates } from "./lib/updates.ts";
 import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { LanExposureNotice } from "./components/LanExposureNotice.tsx";
@@ -240,6 +240,20 @@ export function App() {
   const pendingLink = useRef<AppLink | null>(initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink)) ? initialLink : null);
   // state, not only the ref: what waits on the link landing (the address, its file) runs again when it does
   const [linkLanded, setLinkLanded] = useState(() => pendingLink.current === null);
+  // A PC is gone only by a roster the server sent after it was named (lib/notificationTarget.ts
+  // machineGone): the count of rosters in, and the count when the pending link and the selection
+  // were made. The selection's is checked once (null after): a remembered one against the first roster
+  const rosterSeq = useRef(0);
+  const linkSince = useRef(0);
+  const selectionSince = useRef<number | null>(0);
+  // the checks run again on a roster that came in while one waits (the same list, kept as it was,
+  // changes nothing they watch), and on a link a tap set (its pane may be the one selected already)
+  const [rosterTick, setRosterTick] = useState(0);
+  const [linkTick, setLinkTick] = useState(0);
+  const rosterIn = useCallback((): void => {
+    rosterSeq.current += 1;
+    if (pendingLink.current !== null || selectionSince.current !== null) setRosterTick(rosterSeq.current);
+  }, []);
   // the file a link named, opened over its pane once that pane is shown
   const pendingFile = useRef<string | null>(initialLink ? fileFromLink(initialLink) : null);
   // a short word in the header: a link that could not open what it named, or a link copied
@@ -411,6 +425,7 @@ export function App() {
     try {
       await snapshotRequests.current.read(fetchMachines, (next) => {
         setMachines((previous) => sameData(previous, next) ? previous : next);
+        rosterIn();
         setMachineRosterLoaded(true);
         setError(null); setLocked(false);
       });
@@ -419,7 +434,7 @@ export function App() {
       if (err instanceof ApiError && err.status === 401) { setLocked(true); return; }
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [rosterIn]);
 
   useEffect(() => {
     const tick = (): void => {
@@ -545,6 +560,7 @@ export function App() {
       if (payload.type === "machines") {
         seedStatuses(statusRef.current, alerting(payload.machines), { started: turnStartRef.current, lasted: lastTurnRef.current });
         setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
+        rosterIn();
         setMachineRosterLoaded(true);
         return;
       }
@@ -698,6 +714,8 @@ export function App() {
     storeSelection(machineId, paneId);
     // a pane picked (a tapped notification, the sidebar, Back) before a link landed supersedes the link
     pendingLink.current = null; pendingFile.current = null; setLinkLanded(true);
+    // a PC picked now (Open PC, before load() brings it) is checked against a roster sent after this
+    selectionSince.current = rosterSeq.current;
   }, [inOtherHalf, setSplit]);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   // the moves this client asked for and has no answer to yet (MovePaneMenu): the effect below
@@ -763,7 +781,7 @@ export function App() {
       setAutoSelected(true);
     }).catch(() => { /* a failed read is not evidence that the pane disappeared */ });
     return () => { cancelled = true; };
-  }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state, movesVersion]);
+  }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state, movesVersion, linkTick]);
   useEffect(() => {
     storeSelection(selectedMachineId, selectedPaneId);
   }, [selectedMachineId, selectedPaneId]);
@@ -789,19 +807,21 @@ export function App() {
     else console.warn(what, err);
   }, [t]);
 
-  // a tapped notification focuses this window and names the pane (public/sw.js). A PC removed
-  // since lands on this PC with a word, as a link to it does; a pane not known yet waits as a link
-  // does (this also keeps a cold start's link, which the worker names again once the page is up)
+  // a tapped notification focuses this window and names the pane (public/sw.js). A pane not known
+  // yet waits as a link does (this also keeps a cold start's link, which the worker names again
+  // once the page is up), and so does one on a PC this roster lacks: a roster asked for now says
+  // whether it was removed (the [machines] effect below) or set up since this one was read
   useEffect(() => onNotificationTarget((target) => {
     const landing = notificationLanding(machinesRef.current, target);
-    if (landing.kind === "missing") {
-      setHeaderNote("machine-missing");
-      selectTargetRef.current("local", null);
-      return;
-    }
+    if (landing.kind === "select") { selectTargetRef.current(target.machine_id, target.pane_id, target.view); return; }
+    // the worker names one tap twice, before and after focus: the second leaves the first's lookup be
+    if (sameLink(pendingLink.current, landing.link)) return;
     selectTargetRef.current(target.machine_id, target.pane_id, target.view);
-    if (landing.kind === "link") { pendingLink.current = landing.link; pendingFile.current = null; setLinkLanded(false); }
-  }), []);
+    pendingLink.current = landing.link; pendingFile.current = null; setLinkLanded(false);
+    linkSince.current = rosterSeq.current;
+    setLinkTick((tick) => tick + 1);
+    if (landing.stale) void load();
+  }), [load]);
 
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
@@ -1072,6 +1092,7 @@ export function App() {
         if (!link.pane && !link.workspace) return;
         selectTargetRef.current(link.machine, link.pane, link.view ?? undefined);
         pendingLink.current = link; pendingFile.current = null; setLinkLanded(false);
+        linkSince.current = rosterSeq.current;
         poppedTo.current = true;
         return;
       }
@@ -1247,17 +1268,21 @@ export function App() {
   const paletteItem: RowMenuItem = { id: "palette", label: t("Command palette"), icon: Search, run: () => setPaletteOpen(true) };
   // a link to a PC this app does not have lands on this PC instead, and says so: the roster lists
   // every configured PC, connected or not, so one missing from it is not set up here. So does a
-  // remembered selection (a reload, a new window) of a PC removed since, here or on another device
+  // selection of a PC removed since (a reload, a new window), here or on another device. Only a
+  // roster the server sent after the PC was named decides (lib/notificationTarget.ts machineGone)
   useEffect(() => {
     const linked = pendingLink.current;
-    if (!machineMissing(machines, linked ? linked.machine : selectedMachineRef.current)) return;
+    const machineId = linked ? linked.machine : selectedMachineRef.current;
+    const since = linked ? linkSince.current : selectionSince.current;
+    // a selection is checked once, against the first roster sent after it was made
+    if (!linked && since !== null && rosterSeq.current > since) selectionSince.current = null;
+    if (!machineGone(machines, rosterSeq.current, since, machineId)) return;
     pendingLink.current = null; pendingFile.current = null;
     setLinkLanded(true);
     setHeaderNote("machine-missing");
     // no pane: the link's pane id means nothing on another PC, so the pane herdr has in front opens
     selectTargetRef.current("local", null);
-    // the roster only: a PC picked just now (Open PC) is checked against the roster that comes next
-  }, [machines]);
+  }, [machines, rosterTick, linkTick]);
 
   // a link to the New workspace dialog opens it once the PCs are in; one for a tab, once the
   // linked workspace's pane is selected (its folder is the workspace's, as the tab strip's + does)

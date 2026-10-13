@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-type Selection = { type: string; pane_id: string; machine_id: string; view?: "chat" | "terminal" };
+type Selection = { type: string; pane_id: string; machine_id: string; view?: "chat" | "terminal"; workspace_id?: string };
 type SelectedPane = Omit<Selection, "view">;
 type WindowClient = { url: string; focused: boolean; postMessage: (data: Selection) => void; focus: () => Promise<void> };
 
@@ -27,21 +27,28 @@ function notifications(
 ) {
   const listeners = new Map<string, (event: unknown) => void>();
   const opened: string[] = [];
+  const shown: Array<{ title: string; options: { data: unknown } }> = [];
   let closed = 0;
   const self = {
     addEventListener: (type: string, listener: (event: unknown) => void) => listeners.set(type, listener),
     clients: { matchAll, openWindow: async (url: string) => { opened.push(url); return openWindow(url); } },
+    registration: { showNotification: async (title: string, options: { data: unknown }) => { shown.push({ title, options }); } },
   };
   loadWorker(self);
-  const click = (paneId: string | null = "pane-a", machineId = "local"): Promise<void> => {
+  const push = (payload: unknown): Promise<void> => {
+    let completion!: Promise<void>;
+    listeners.get("push")!({ data: { json: () => payload, text: () => JSON.stringify(payload) }, waitUntil: (promise: Promise<void>) => { completion = promise; } });
+    return completion;
+  };
+  const click = (paneId: string | null = "pane-a", machineId = "local", workspaceId?: string): Promise<void> => {
     let completion!: Promise<void>;
     listeners.get("notificationclick")!({
-      notification: { data: { pane_id: paneId, machine_id: machineId }, close: () => { closed++; } },
+      notification: { data: { pane_id: paneId, machine_id: machineId, ...(workspaceId ? { workspace_id: workspaceId } : {}) }, close: () => { closed++; } },
       waitUntil: (promise: Promise<void>) => { completion = promise; },
     });
     return completion;
   };
-  return { click, opened, closed: () => closed };
+  return { click, push, shown, opened, closed: () => closed };
 }
 
 function client(focus = async () => {}, focused = false, url = APP) {
@@ -76,6 +83,12 @@ describe("notification clicks", () => {
     expect(isAppWindow(`${APP}api/machines/pc2/fs/file?path=index.html&render=1`)).toBe(false);
     expect(isAppWindow(`${APP}icons/icon-192.png`)).toBe(false);
     expect(isAppWindow(`${APP}assets/index-abc.js`)).toBe(false);
+    // any shipped file is no app window, listed in the worker's cache rules or not
+    expect(isAppWindow(`${APP}social-preview.png`)).toBe(false);
+    expect(isAppWindow(`${APP}THIRD_PARTY_NOTICES.md`)).toBe(false);
+    expect(isAppWindow(`${APP}manifest.webmanifest`)).toBe(false);
+    expect(isAppWindow(`${APP}sw.js`)).toBe(false);
+    expect(isAppWindow(`${APP}favicon.ico`)).toBe(false);
     expect(isAppWindow("not a url")).toBe(false);
   });
 
@@ -98,6 +111,27 @@ describe("notification clicks", () => {
     expect(lone.selected).toEqual([]);
     expect(raw.selected).toEqual([]);
     expect(cold.opened).toEqual(["/?machine=pc2&pane=pane-b&view=chat"]);
+  });
+
+  it("names the workspace an alert's pane was last seen in, to an open window and a cold start", async () => {
+    const quiet = notifications([]);
+    await quiet.push({ pane_id: "w1:p9", workspace_id: "w1", title: "t", body: "terminal ended", tag: "x" });
+    await quiet.push({ pane_id: "w1:p9", title: "t", body: "b", tag: "y" });
+    expect(quiet.shown.map((shown) => shown.options.data)).toEqual([
+      { pane_id: "w1:p9", machine_id: "local", workspace_id: "w1" },
+      { pane_id: "w1:p9", machine_id: "local", workspace_id: null },
+    ]);
+
+    const app = client();
+    const worker = notifications([app]);
+    await worker.click("w1:p9", "pc2", "w1");
+    expect(app.selected).toEqual([
+      { type: "select-pane", pane_id: "w1:p9", machine_id: "pc2", workspace_id: "w1" },
+      { type: "select-pane", pane_id: "w1:p9", machine_id: "pc2", workspace_id: "w1" },
+    ]);
+    const cold = notifications([]);
+    await cold.click("w1:p9", "pc2", "w1");
+    expect(cold.opened).toEqual(["/?machine=pc2&ws=w1&pane=w1%3Ap9&view=chat"]);
   });
 
   it("selects the pane before a delayed focus and repeats after the page resumes", async () => {
