@@ -24,6 +24,8 @@ export default defineConfig({
   define: {
     __APP_REVISION__: JSON.stringify(revision),
     __APP_VERSION__: JSON.stringify((JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version),
+    // test hooks (src/lib/crashProbe.ts): on only in the browser lane's demo build (scripts/demo-build.ts)
+    __HERDR_TEST_HOOKS__: JSON.stringify(process.env["HERDR_TEST_HOOKS"] === "1"),
   },
   server: {
     port: 5173,
@@ -32,7 +34,8 @@ export default defineConfig({
       "/ws": { target: "ws://localhost:7317", ws: true },
     },
   },
-  build: { outDir: "dist" },
+  // Keep Vite 6's syntax targets when changing the bundler, including installed mobile clients.
+  build: { outDir: "dist", target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"] },
   // The Bun patch targets xterm's readable source, not its minified distribution. Build that
   // source so dev, production and the website use the same reviewed IME backport.
   resolve: { alias: [

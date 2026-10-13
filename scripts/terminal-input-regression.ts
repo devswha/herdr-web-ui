@@ -13,7 +13,9 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
   });
   const sent: any[] = [];
+  const resizes: any[] = [];
   let acknowledge: (() => void) | undefined;
+  let refuse: (() => void) | undefined;
   let ready: (() => void) | undefined;
   let delayReady = false;
   // the page's latest connection, to play output the pane did not write (a keyboard mode it asks for)
@@ -31,8 +33,12 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
       if (frame.type === "submit") {
         sent.push(frame);
         acknowledge = () => socket.send(JSON.stringify({ type: "submit-result", id: frame.id, pane_id: frame.pane_id, ok: true }));
+        refuse = () => socket.send(JSON.stringify({ type: "submit-result", id: frame.id, pane_id: frame.pane_id, ok: false, code: "agent_blocked", message: "" }));
       } else if (frame.type === "input") sent.push(frame);
-      else server.send(raw);
+      else {
+        if (frame.type === "resize") resizes.push(frame);
+        server.send(raw);
+      }
     });
   });
   const line = page.getByRole("textbox", { name: "Terminal input line", exact: true });
@@ -52,7 +58,108 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
     assert.equal(await page.locator(".key-bar").isVisible(), false, "a desktop shows no key bar under the terminal");
+    // a phone keyboard's autocorrect would swap a flag or path for a dictionary word before Send
+    assert.deepEqual(await line.evaluate((box) => [box.getAttribute("autocorrect"), box.getAttribute("spellcheck"), box.getAttribute("autocapitalize")]), ["off", "false", "off"]);
     assert.equal(await page.getByRole("button", { name: "Type straight into the terminal", exact: true }).count(), 0);
+
+    // The line grows over the grid's last rows: neither its growth nor its collapse after Send
+    // changes the grid's height, which is the shared pty's size.
+    await line.waitFor();
+    const gridHeight = () => page.locator(".pane-terminal").evaluate((element) => element.getBoundingClientRect().height);
+    const height = (selector: string) => page.locator(selector).evaluate((element) => element.getBoundingClientRect().height);
+    const frame = () => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await page.evaluate(() => {
+      const grid = document.querySelector(".pane-terminal")!;
+      (window as any).gridResized = 0;
+      let first = true;
+      new ResizeObserver(() => { if (first) first = false; else (window as any).gridResized += 1; }).observe(grid);
+    });
+    await frame();
+    const restingGrid = await gridHeight();
+    const resizesBefore = resizes.length;
+    const restingLine = await height(".terminal-input");
+    await line.click();
+    await page.keyboard.type("first line");
+    await page.keyboard.press("Shift+Enter");
+    await page.keyboard.type("second line");
+    await page.keyboard.press("Shift+Enter");
+    await page.keyboard.type("third line");
+    await until(async () => (await line.getAttribute("rows")) === "3");
+    await frame();
+    assert(await height(".terminal-input") > restingLine + 20, "three lines grow the line");
+    if (process.env.UI_EVIDENCE_DIR) {
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: `${process.env.UI_EVIDENCE_DIR}/terminal-input-grown.png` });
+    }
+    assert.equal(await gridHeight(), restingGrid, "a growing input line keeps the grid's height");
+    const submitsBefore = sent.length;
+    await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
+    await until(() => sent.length > submitsBefore && !!acknowledge);
+    assert.equal(sent.at(-1).text, "first line\nsecond line\nthird line");
+    const sentPane = sent.at(-1).pane_id;
+    acknowledge!();
+    await until(async () => (await line.inputValue()) === "" && (await line.getAttribute("rows")) === "1");
+    await frame();
+    assert.equal(await gridHeight(), restingGrid, "the line's collapse after Send keeps the grid's height");
+    assert.equal(await page.evaluate(() => (window as any).gridResized), 0, "the grid's observer never fired");
+    assert(Math.abs(await height(".terminal-input") - await height(".terminal-input-slot")) < 1, "a one-row line covers no grid row");
+    // what PaneTerminal's observer would have sent comes 120 ms after a change, and none happened
+    assert.equal(resizes.length, resizesBefore, "typing three lines and Send send no resize");
+    sent.length = 0;
+    acknowledge = undefined;
+
+    // a note under the one-row line (a refused send) floats too, and so does its going
+    await line.fill("refused");
+    await page.getByRole("button", { name: "Send to the terminal", exact: true }).click();
+    await until(() => !!refuse);
+    refuse!();
+    const note = page.locator(".terminal-input-note");
+    await note.waitFor();
+    await frame();
+    assert.equal(await gridHeight(), restingGrid, "a note under the line keeps the grid's height");
+    await line.fill("");
+    await note.waitFor({ state: "detached" });
+    await frame();
+    assert.equal(await gridHeight(), restingGrid, "the note's going keeps the grid's height");
+    assert.equal(await page.evaluate(() => (window as any).gridResized), 0, "the grid's observer never fired for the note");
+    sent.length = 0;
+    acknowledge = refuse = undefined;
+
+    // the slot's row is a hand-made calc of the line's metrics: it must match at either density
+    const density = await page.evaluate(() => document.documentElement.getAttribute("data-density"));
+    await page.evaluate(() => document.documentElement.setAttribute("data-density", "compact"));
+    await frame();
+    assert(Math.abs(await height(".terminal-input") - await height(".terminal-input-slot")) < 1, "a one-row line covers no grid row at the compact density");
+    await page.evaluate((density) => { if (density === null) document.documentElement.removeAttribute("data-density"); else document.documentElement.setAttribute("data-density", density); }, density);
+
+    // a short pane: the grown line reaches the grid's top at most, and its text scrolls past that
+    await page.setViewportSize({ width: 1280, height: 160 });
+    await frame();
+    const surfaceTop = () => page.locator(".terminal-surface").evaluate((element) => element.getBoundingClientRect().top);
+    const shortSurface = await height(".terminal-surface");
+    assert(shortSurface < 100, `the pane is shorter than a grown line (${shortSurface}px)`);
+    await line.fill("one\ntwo\nthree\nfour");
+    await until(async () => (await line.getAttribute("rows")) === "4");
+    await frame();
+    const lineTop = await page.locator(".terminal-input").evaluate((element) => element.getBoundingClientRect().top);
+    assert(lineTop >= await surfaceTop() - 1, `the grown line stays under the grid's top (${lineTop} < ${await surfaceTop()})`);
+    assert(await line.evaluate((element) => element.scrollHeight > element.clientHeight), "the capped line scrolls its text");
+    // the banners stay over the capped line, where it reaches the grid's top: their buttons take the tap
+    toPage!({ type: "error", code: "input_failed", pane_id: sentPane, message: "Not sent: test banner" });
+    const dismiss = page.locator(".terminal-banners").getByRole("button", { name: "Dismiss", exact: true });
+    await dismiss.waitFor();
+    const box = (await dismiss.boundingBox())!;
+    const lineBox = (await page.locator(".terminal-input").boundingBox())!;
+    assert(box.y + box.height / 2 > lineBox.y, "the banner lies within the grown line's box");
+    assert(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".terminal-banners"), [box.x + box.width / 2, box.y + box.height / 2]),
+      "a banner's button stays above the grown input line");
+    await dismiss.click();
+    await dismiss.waitFor({ state: "detached" });
+    await line.fill("");
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await until(async () => (await line.getAttribute("rows")) === "1");
+
     await line.fill("draft 한글 😀");
     await remountLine();
     assert.equal(await line.inputValue(), "draft 한글 😀");
@@ -130,30 +237,47 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await page.locator(".xterm-helper-textarea").waitFor();
     await until(() => !!ready);
     const before = sent.length;
+    const heldNotice = page.getByText("Input held until the terminal is ready:", { exact: true });
+    const leftOut = page.getByText("An Enter or line break was left out: Send never presses Enter.", { exact: true });
+    // Enter on a terminal that is not ready, with nothing held, separates nothing: no notice.
+    // The "a" landing after it proves the Enter was handled first.
+    await page.locator(".xterm-helper-textarea").press("Enter");
     await page.locator(".xterm-helper-textarea").press("a");
     await until(async () => (await page.locator(".draft-text").textContent()) === "a");
+    assert.equal(await leftOut.count(), 0);
+    // Backspace edits what is held; an Enter is never held, but it is told
+    await page.locator(".xterm-helper-textarea").press("b");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
+    await page.locator(".xterm-helper-textarea").press("Backspace");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "a");
+    assert.equal(await leftOut.count(), 0);
+    await page.locator(".xterm-helper-textarea").press("Enter");
+    await leftOut.waitFor();
+    await until(async () => (await page.locator(".draft-text").textContent()) === "a ");
     assert.equal(sent.length, before);
-    // Exactly the first held character must survive reload, not merely later edits.
+    // Exactly the held text must survive reload, not merely later edits, and so must the left-out notice.
     ready = undefined;
     await page.reload();
     await page.locator(".draft-text").waitFor();
-    assert.equal(await page.locator(".draft-text").textContent(), "a");
+    assert.equal(await page.locator(".draft-text").textContent(), "a ");
+    await leftOut.waitFor();
+    assert.equal(await heldNotice.count(), 1);
     await until(() => !!ready);
     ready!();
     await page.waitForTimeout(150);
     assert.equal(sent.length, before, "ready does not replay the draft");
     // Held input keeps later typing until Send or Discard, on a ready terminal too: a key sent beside
     // it would reach the pty without the held start, and an Enter would run that partial line. The
-    // "b" landing after the Enter proves the Enter was handled first.
+    // "b" landing after the Enter proves the Enter was handled first (the Enter folds into the held space).
     await page.locator(".xterm-helper-textarea").press("Enter");
     await page.locator(".xterm-helper-textarea").press("b");
-    await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "a b");
     assert.equal(sent.length, before, "typing beside a held draft reaches nothing");
     // an interrupt is not typing: it still reaches the program while the draft waits
     await page.locator(".xterm-helper-textarea").press("Escape");
     await until(() => sent.length > before);
     assert.equal(sent.at(-1).text, "\x1b");
-    assert.equal(await page.locator(".draft-text").textContent(), "ab");
+    assert.equal(await page.locator(".draft-text").textContent(), "a b");
     const heldNote = "Not sent: send or discard the held input first.";
     const banner = page.locator(".terminal-banner", { hasText: heldNote });
     const dismissBanner = async () => { await banner.getByRole("button", { name: "Dismiss", exact: true }).click(); await banner.waitFor({ state: "hidden" }); };
@@ -176,14 +300,14 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     await pasteIntoTerminal("a\tb");
     await banner.waitFor();
     assert.equal(sent.length, afterEscape, "a paste with a tab beside a held draft reaches nothing");
-    assert.equal(await page.locator(".draft-text").textContent(), "ab");
+    assert.equal(await page.locator(".draft-text").textContent(), "a b");
     await dismissBanner();
     await pasteIntoTerminal("x\ny");
     await page.waitForTimeout(100);
     assert.equal(sent.length, afterEscape, "a multi-line paste beside a held draft reaches nothing");
     // never a silent drop: refused with the note, or taken into the draft (a draft that folds line breaks)
     const multiLineNoted = await banner.isVisible();
-    assert(multiLineNoted || (await page.locator(".draft-text").textContent()) !== "ab", "a multi-line paste is told or held, never dropped in silence");
+    assert(multiLineNoted || (await page.locator(".draft-text").textContent()) !== "a b", "a multi-line paste is told or held, never dropped in silence");
     if (multiLineNoted) await dismissBanner();
     // the input line is refused beside a held draft too, with the held-input reason, not "disconnected"
     await setMode("line");
@@ -198,7 +322,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     assert.equal(sent.length, afterEscape, "the input line beside a held draft reaches nothing");
     await line.fill("");
     await setMode("direct");
-    // a draft that folds a pasted line break into text holds more than "ab" by now: Send types what it holds
+    // a draft that folds a pasted line break into text holds more than "a b" by now: Send types what it holds
     const heldText = await page.locator(".draft-text").textContent();
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await until(() => sent.length > before + 1);
@@ -296,6 +420,71 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     console.log("PASS xterm composition: local preedit, delayed multi-commit burst, punctuation order, Korean final-consonant movement, pane-reset cancellation");
     assert.deepEqual(errors, []);
     console.log("PASS terminal input: desktop mode, owner drafts, reload, IME button, late ack, shortcuts, readiness, explicit send");
+  } finally { await context.close(); }
+  await checkKeyBarWhileLineComposes(browser, origin, pane);
+}
+
+/** A composition in the input line must not grey out the phone key bar: Esc and ^C go to the pane at once. */
+async function checkKeyBarWhileLineComposes(browser: Browser, origin: string, pane: string): Promise<void> {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.setDefaultTimeout(10_000);
+  await context.addInitScript((pane) => {
+    localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
+    localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+  }, pane);
+  const frames: any[] = [];
+  await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((raw) => socket.send(raw));
+    socket.onMessage((raw) => {
+      const frame = JSON.parse(String(raw));
+      // intercepted: the assertions are about what the browser sends, not the PTY
+      if (frame.type === "input" || frame.type === "keys" || frame.type === "submit") frames.push(frame);
+      else server.send(raw);
+    });
+  });
+  const until = async (check: () => boolean | Promise<boolean>, label: string) => {
+    const deadline = Date.now() + 10_000;
+    while (!(await check())) { assert(Date.now() < deadline, `timed out: ${label}`); await new Promise((r) => setTimeout(r, 25)); }
+  };
+  try {
+    await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
+    const line = page.locator(".terminal-input-text");
+    const esc = page.locator('.key-bar [data-key="Escape"]');
+    const interrupt = page.locator('.key-bar [data-key="ctrl-c"]');
+    await line.waitFor();
+    await until(async () => !(await esc.isDisabled()), "key bar ready");
+    await line.fill("fix the");
+    await line.dispatchEvent("compositionstart", { data: "" });
+    await line.dispatchEvent("compositionupdate", { data: "the" });
+    // let React commit any state the composition would set before reading the bar
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await esc.isDisabled(), false, "Esc stays live while the input line composes");
+    assert.equal(await interrupt.isDisabled(), false, "^C stays live while the input line composes");
+    assert.equal(await page.locator('.key-bar [data-key="Control"]').isDisabled(), false, "Ctrl stays live while the input line composes");
+    const before = frames.length;
+    await esc.tap();
+    await until(() => frames.length > before, "Esc frame");
+    await interrupt.tap();
+    await until(() => frames.length > before + 1, "^C frame");
+    assert.deepEqual(frames.slice(before).map((frame) => [frame.type, frame.text ?? frame.keys]), [["input", "\x1b"], ["input", "\x03"]]);
+    assert.equal(await line.inputValue(), "fix the", "the composing line keeps its text");
+    // the switch to direct typing would unmount the line mid-composition: it waits
+    const direct = page.locator('.key-bar [data-key="direct"]');
+    assert.equal(await direct.isDisabled(), true, "the direct-typing toggle waits for the line's composition");
+    const sent = frames.length;
+    await direct.tap({ force: true });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await line.isVisible(), true, "the input line stays while it composes");
+    assert.equal(await line.inputValue(), "fix the", "the composing line keeps its text after the direct tap");
+    assert.equal(frames.length, sent, "nothing reaches the pane from the direct tap");
+    await line.dispatchEvent("compositionend", { data: "the" });
+    await until(async () => !(await direct.isDisabled()), "direct toggle live after the composition");
+    assert.deepEqual(errors, []);
+    console.log("PASS key bar while the input line composes: Esc and ^C sent, direct toggle waits, line text kept");
   } finally { await context.close(); }
 }
 
