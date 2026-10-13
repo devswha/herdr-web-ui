@@ -8,9 +8,11 @@ export interface InputDraft {
   readonly text: string;
   /** text was typed or pasted that the draft had no room for: what is held is not all of it */
   readonly truncated: boolean;
+  /** an Enter or a line break was typed or pasted: it is never held, so it is not replayed by Send */
+  readonly leftOut: boolean;
 }
 
-export const EMPTY_DRAFT: InputDraft = { text: "", truncated: false };
+export const EMPTY_DRAFT: InputDraft = { text: "", truncated: false, leftOut: false };
 
 const MAX_DRAFT_CHARS = 1024;
 
@@ -37,10 +39,10 @@ export function restoreDraft(raw: string | null, now: number): InputDraft {
   let value: unknown;
   try { value = JSON.parse(raw); } catch { return EMPTY_DRAFT; }
   if (typeof value !== "object" || value === null) return EMPTY_DRAFT;
-  const { text, truncated, at } = value as Partial<StoredDraft>;
+  const { text, truncated, leftOut, at } = value as Partial<StoredDraft>;
   if (typeof text !== "string") return EMPTY_DRAFT;
   if (at !== undefined && (typeof at !== "number" || !Number.isFinite(at) || now - at > DRAFT_TTL_MS)) return EMPTY_DRAFT;
-  return { text, truncated: truncated === true };
+  return { text, truncated: truncated === true, leftOut: leftOut === true };
 }
 
 /** An IME commit can contain several code points. Never preserve terminal control sequences. */
@@ -51,22 +53,51 @@ function isPrintableChar(data: string): boolean {
 /** xterm's bracketed paste: the pasted text between the frames, which is what the user gave. */
 const BRACKETED_PASTE = /^\x1b\[200~([\s\S]*)\x1b\[201~$/;
 
+/** Backspace as the terminal sends it: DEL, or BS for Ctrl+H. */
+const ERASE = /^[\x7f\b]+/;
+
+/** A typed Enter, or the line breaks of a paste: CRLF, CR or LF, a run of them read as one. */
+const LINE_BREAKS = /[\r\n]+/g;
+
 /**
  * Folds one onData chunk into the draft: printable text accumulates, a paste by the text
- * inside its bracketed-paste frames. A chunk with controls is left out and not told: Enter,
- * arrows and a paste of several lines contain them, and so do the answers xterm gives a
- * program by itself (cursor position, focus, mouse), which no one typed. Text the draft has
- * no room for is left out whole, never cut in the middle of what was typed, and the draft
- * says so.
+ * inside its bracketed-paste frames. Backspace deletes the last code point held, so the draft
+ * matches what was typed. An Enter or a line break is never held, because Send must never run a
+ * command: the text on either side is kept, a space where the break was, and the draft says
+ * that a break was left out. A chunk with other controls is left out and not told: arrows and
+ * the answers xterm gives a program by itself (cursor position, focus, mouse) are not text the
+ * user typed. Text the draft has no room for is left out whole, never cut in the middle of what
+ * was typed, and the draft says so.
  */
 export function applyToDraft(draft: InputDraft, data: string): InputDraft {
-  const text = BRACKETED_PASTE.exec(data)?.[1] ?? data;
-  if (!isPrintableChar(text)) return draft;
+  const pasted = BRACKETED_PASTE.exec(data)?.[1];
+  let text = pasted ?? data;
+  let next = draft;
+  const erase = pasted === undefined ? ERASE.exec(text)?.[0].length ?? 0 : 0;
+  if (erase > 0) {
+    // code points, not UTF-16 units: one Backspace never leaves half of an emoji behind
+    next = { ...draft, text: Array.from(draft.text).slice(0, -erase).join("") };
+    text = text.slice(erase);
+    if (text.length === 0) return next.text === draft.text ? draft : next;
+  }
+  if (/[\r\n]/.test(text)) {
+    let joined = text.replace(LINE_BREAKS, " ");
+    if (next.text.length === 0 || next.text.endsWith(" ")) joined = joined.replace(/^ /, "");
+    const flagged = next.leftOut ? next : { ...next, leftOut: true };
+    // a line break among other controls is still something the user typed: told, the rest not held
+    if (joined.length === 0 || !isPrintableChar(joined)) return flagged;
+    return append(flagged, joined);
+  }
+  if (!isPrintableChar(text)) return next;
+  return append(next, text);
+}
+
+function append(draft: InputDraft, text: string): InputDraft {
   if (draft.text.length + text.length > MAX_DRAFT_CHARS) return draft.truncated ? draft : { ...draft, truncated: true };
   return { ...draft, text: draft.text + text };
 }
 
 /** Nothing held and nothing to tell. A draft that only lost text is not empty: its loss is still to be told. */
 export function draftIsEmpty(draft: InputDraft): boolean {
-  return draft.text.length === 0 && !draft.truncated;
+  return draft.text.length === 0 && !draft.truncated && !draft.leftOut;
 }

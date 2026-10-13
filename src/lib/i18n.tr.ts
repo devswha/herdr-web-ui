@@ -633,6 +633,7 @@ export const TR: Record<string, string> = {
   "Take this pane from another web app or terminal attach. That connection will close.": "Bu paneli başka bir web uygulamasından veya terminal bağlantısından al. O bağlantı kapanacak.",
   "Input held until the terminal is ready:": "Terminal hazır olana dek tutulan girdi:",
   "Some input was too long to hold and was left out.": "Bazı girdiler tutulamayacak kadar uzundu ve dışarıda bırakıldı.",
+  "An Enter or line break was left out: Send never presses Enter.": "Enter veya satır sonu tutulmadı: Gönder asla Enter'a basmaz.",
   "Send": "Gönder",
   "Discard": "At",
   "Held message — review and send": "Tutulan mesaj — incele ve gönder",

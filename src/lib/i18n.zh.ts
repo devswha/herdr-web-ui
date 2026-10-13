@@ -671,6 +671,7 @@ export const ZH: Record<string, string> = {
   "Take this pane from another web app or terminal attach. That connection will close.": "从另一个网页应用或 terminal attach 接管此窗格。那边的连接将关闭。",
   "Input held until the terminal is ready:": "终端就绪前保留的输入：",
   "Some input was too long to hold and was left out.": "输入过长，部分内容未能保留。",
+  "An Enter or line break was left out: Send never presses Enter.": "回车和换行未保留：发送不会按下回车。",
   "Send": "发送",
   "Discard": "丢弃",
   "Held message — review and send": "保留的消息。请检查后发送",

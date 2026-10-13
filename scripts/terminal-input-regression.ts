@@ -129,6 +129,17 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     const before = sent.length;
     await page.locator(".xterm-helper-textarea").press("a");
     await until(async () => (await page.locator(".draft-text").textContent()) === "a");
+    // Backspace edits what is held; an Enter is never held, but it is told
+    await page.locator(".xterm-helper-textarea").press("b");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "ab");
+    await page.locator(".xterm-helper-textarea").press("Backspace");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "a");
+    const leftOut = page.getByText("An Enter or line break was left out: Send never presses Enter.", { exact: true });
+    assert.equal(await leftOut.count(), 0);
+    await page.locator(".xterm-helper-textarea").press("Enter");
+    await leftOut.waitFor();
+    await page.locator(".xterm-helper-textarea").press("Backspace");
+    await until(async () => (await page.locator(".draft-text").textContent()) === "a");
     assert.equal(sent.length, before);
     // Exactly the first held character must survive reload, not merely later edits.
     ready = undefined;

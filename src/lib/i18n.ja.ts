@@ -669,6 +669,7 @@ export const JA: Record<string, string> = {
   "Take this pane from another web app or terminal attach. That connection will close.": "ほかのウェブアプリや terminal attach からこのペインを引き継ぎます。その接続は終了します。",
   "Input held until the terminal is ready:": "端末の準備ができるまで保持した入力:",
   "Some input was too long to hold and was left out.": "入力が長すぎたため、一部は保持されませんでした。",
+  "An Enter or line break was left out: Send never presses Enter.": "Enter と改行は保持していません。送信しても Enter は押されません。",
   "Send": "送信",
   "Discard": "破棄",
   "Held message — review and send": "保持中のメッセージ。確認して送信してください",
