@@ -53,6 +53,7 @@ import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { modalOpen } from "../lib/focus.ts";
 import { pinchFontSize } from "../lib/pinchFontSize.ts";
 import { narrowPaneFontSize } from "../lib/narrowPaneFont.ts";
+import { HERDR_MOUSE_SCROLL_LINES, wheelSteps } from "../lib/wheelSteps.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -765,6 +766,9 @@ export function PaneTerminal({
         sendScroll(d);
       });
     };
+    /** one row's height on screen, in CSS pixels (a selecting drag's wheel and a finger's travel) */
+    const cellHeight = (): number =>
+      (term.element?.querySelector(".xterm-screen")?.getBoundingClientRect().height ?? term.rows) / term.rows;
     /** positive lines show older text */
     const scrollDrag = (d: Drag, lines: number): void => {
       if (d.top === null) return;
@@ -779,11 +783,11 @@ export function PaneTerminal({
     const dragWheel = (event: WheelEvent): void => {
       const d = drag;
       if (!d || d.top === null) return;
-      const lineHeight = (term.element?.querySelector(".xterm-screen")?.getBoundingClientRect().height ?? term.rows) / term.rows;
-      d.wheelPixels += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * lineHeight : event.deltaY;
-      const lines = Math.trunc(d.wheelPixels / lineHeight);
+      const lineHeight = cellHeight();
+      const { steps: lines, rest } = wheelSteps(
+        d.wheelPixels + (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * lineHeight : event.deltaY), lineHeight);
+      d.wheelPixels = rest;
       if (lines === 0) return;
-      d.wheelPixels -= lines * lineHeight;
       scrollDrag(d, -lines);
     };
     const stopEdge = (): void => {
@@ -1326,6 +1330,8 @@ export function PaneTerminal({
     // Two fingers pinch the font size: the font follows them locally, and the shared pty resizes once when one lifts.
     let touchX = 0;
     let touchY = 0;
+    /** finger travel of this gesture not yet sent as a wheel report */
+    let touchPixels = 0;
     let tracking = false;
     let pinch: { first: number; second: number; startSize: number; startDistance: number; size: number } | null = null;
     // from a second finger until every finger lifts: the stroke is a pinch, never a scroll
@@ -1394,6 +1400,7 @@ export function PaneTerminal({
         return;
       }
       tracking = event.touches.length === 1;
+      touchPixels = 0;
       const first = event.touches[0];
       if (tracking && first) {
         touchX = first.clientX;
@@ -1440,9 +1447,17 @@ export function PaneTerminal({
         host.scrollBy(across, delta);
         return;
       }
-      if (delta !== 0) {
-        const target = term.element ?? host;
-        target.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: delta, clientX: first.clientX, clientY: first.clientY }));
+      // xterm sends herdr one report per wheel event however far it went, and herdr scrolls a
+      // few lines per report: one line-mode wheel per that many rows of finger travel keeps a
+      // swipe as far as a slow drag, and the text under the finger
+      const { steps, rest } = wheelSteps(touchPixels + delta, cellHeight() * HERDR_MOUSE_SCROLL_LINES);
+      touchPixels = rest;
+      const target = term.element ?? host;
+      for (let sent = 0; sent < Math.abs(steps); sent += 1) {
+        target.dispatchEvent(new WheelEvent("wheel", {
+          bubbles: true, cancelable: true, deltaY: Math.sign(steps), deltaMode: WheelEvent.DOM_DELTA_LINE,
+          clientX: first.clientX, clientY: first.clientY,
+        }));
       }
     };
     const onTouchEnd = (event: TouchEvent): void => {

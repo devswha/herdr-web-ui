@@ -83,10 +83,11 @@ export async function checkTerminalPinch(browser: Browser, origin: string, paneI
       }
     };
     const release = () => cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    // a wheel report per three rows of travel: 150 px is more than that even at the 22 px maximum
     const dragOne = async (): Promise<void> => {
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: cx, y: cy - 60, id: 1 }] });
       for (let step = 1; step <= 5; step++) {
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx, y: cy - 60 + 60 * step / 5, id: 1 }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx, y: cy - 60 + 150 * step / 5, id: 1 }] });
       }
     };
 
