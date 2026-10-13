@@ -126,7 +126,7 @@ self.addEventListener("push", (event) => {
         tag: payload.tag || "herdr",
         renotify: !watching,
         silent: watching,
-        data: { pane_id: payload.pane_id || null, machine_id: payload.machine_id || "local" },
+        data: { pane_id: payload.pane_id || null, machine_id: payload.machine_id || "local", workspace_id: payload.workspace_id || null },
         icon: "/icons/icon-192.png?v=ram1",
         // Android's status bar and small icon: white on transparent, or Chrome's bell
         badge: "/icons/badge-96.png?v=ram1",
@@ -134,6 +134,23 @@ self.addEventListener("push", (event) => {
     })(),
   );
 });
+
+/**
+ * A window that runs the app and so takes a "select-pane": the shell's own paths only. Not a
+ * markdown reader tab (`?read=`, src/lib/fileReader.ts renders FileReader there instead of App),
+ * nor a raw file or HTML page the file viewer opened in a tab of its own (those are /api/
+ * responses), nor any shipped file (an icon, /social-preview.png, a notice): a path whose last
+ * part has an extension is a file, except the shell's own index.html.
+ */
+function isAppWindow(url) {
+  let parsed;
+  try { parsed = new URL(url); } catch { return false; }
+  const path = parsed.pathname;
+  if (path.startsWith("/api/") || path === "/ws") return false;
+  const last = path.slice(path.lastIndexOf("/") + 1);
+  if (last.includes(".") && last !== "index.html") return false;
+  return (parsed.searchParams.get("read") ?? "").trim() === "";
+}
 
 // Tap: bring the app forward on that pane - an open window is told which pane
 // (App listens), a closed app opens on /?pane=<id>.
@@ -144,14 +161,19 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const paneId = event.notification.data ? event.notification.data.pane_id : null;
   const machineId = event.notification.data?.machine_id || "local";
+  // the workspace the pane was last seen in: an ended pane's tap opens it (src/lib/deepLink.ts)
+  const workspaceId = event.notification.data?.workspace_id || null;
+  const selection = paneId ? { type: "select-pane", pane_id: paneId, machine_id: machineId, view: "chat", ...(workspaceId ? { workspace_id: workspaceId } : {}) } : null;
   // Remember the intent before any lookup: an older focus can finish while this one
   // is still finding its window.
-  latestNotificationSelection = paneId ? { type: "select-pane", pane_id: paneId, machine_id: machineId, view: "chat" } : null;
+  latestNotificationSelection = selection;
   event.waitUntil(
     (async () => {
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      // only an app window handles the selection: focusing a reader tab would swallow the tap
+      const windows = (await self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+        .filter((client) => isAppWindow(client.url));
       if (click !== latestNotificationClick) return;
-      const url = paneId ? `/?machine=${encodeURIComponent(machineId)}&pane=${encodeURIComponent(paneId)}&view=chat` : "/";
+      const url = paneId ? `/?machine=${encodeURIComponent(machineId)}${workspaceId ? `&ws=${encodeURIComponent(workspaceId)}` : ""}&pane=${encodeURIComponent(paneId)}&view=chat` : "/";
       const selectLatest = (client) => { if (client && latestNotificationSelection) client.postMessage(latestNotificationSelection); };
       const open = async () => {
         // An opening can also finish after a newer tap. Repair that returned
@@ -160,7 +182,7 @@ self.addEventListener("notificationclick", (event) => {
       };
       const target = windows.find((client) => client.focused) || windows[0];
       if (target) {
-        const select = () => { if (paneId) target.postMessage({ type: "select-pane", pane_id: paneId, machine_id: machineId, view: "chat" }); };
+        const select = () => { if (selection) target.postMessage(selection); };
         // Name the pane before focus(): a focus() that iOS refuses or resolves late must not
         // swallow it. A page frozen in the background may need the selection again
         // once its focus completes.
