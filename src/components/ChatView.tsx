@@ -63,10 +63,17 @@ import { shouldFoldUserMessage } from "../lib/userMessageFold.ts";
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
+/**
+ * Opens the image viewer for a message's pictures. The viewer is held by ChatView, not by the row:
+ * a virtualized row unmounts once it scrolls out of the render window (the transcript follows new
+ * output while the viewer is open), and it must not take the open viewer with it.
+ */
+const ImageViewerContext = createContext<(images: GalleryImage[], index: number) => void>(() => {});
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { formatChatTimestamp } from "../lib/chatTimestamp.ts";
+import { isMacPlatform } from "../lib/shortcuts.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
 const TRANSCRIPT_LINES = 400;
@@ -327,12 +334,11 @@ function ImageThumb({ image, onOpen }: { image: GalleryImage; onOpen: () => void
   </button>;
 }
 
-/** The thumbnails of a message's pictures, and the viewer over the page while one is open. */
+/** The thumbnails of a message's pictures; a press opens ChatView's viewer on them. */
 function ImageGallery({ images, className }: { images: GalleryImage[]; className: string }) {
-  const [shown, setShown] = useState<number | null>(null);
+  const openViewer = useContext(ImageViewerContext);
   return <div className={className}>
-    {images.map((image, index) => <ImageThumb key={image.src} image={image} onOpen={() => setShown(index)} />)}
-    {shown !== null && <ImageLightbox images={images} index={shown} onClose={() => setShown(null)} />}
+    {images.map((image, index) => <ImageThumb key={image.src} image={image} onOpen={() => openViewer(images, index)} />)}
   </div>;
 }
 
@@ -741,6 +747,9 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  const [viewer, setViewer] = useState<{ images: GalleryImage[]; index: number } | null>(null);
+  const openViewer = useCallback((images: GalleryImage[], index: number) => setViewer({ images, index }), []);
+  const closeViewer = useCallback(() => setViewer(null), []);
   const [matchKey, setMatchKey] = useState<string | null>(null);
   const findButton = useRef<HTMLButtonElement>(null);
   const wasFinding = useRef(false);
@@ -846,7 +855,9 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       if (event.key === "Escape" && findOpen) {
         event.preventDefault(); closeFind(); return;
       }
-      if (event.shiftKey || event.altKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+      // Mod is Cmd on a Mac (Ctrl+F there moves the caret in a text field) and Ctrl elsewhere
+      const mod = isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (event.shiftKey || event.altKey || !mod || event.key.toLowerCase() !== "f") return;
       event.preventDefault();
       setFindOpen(true);
     };
@@ -1277,6 +1288,8 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
 
   const rowSlots = slots.current.rows;
   const timelineScope = JSON.stringify(slots.current.scope);
+  // another pane or PC: its pictures are not this one's
+  useEffect(() => setViewer(null), [timelineScope]);
   const rowMemories = useMemo(() => new Map<string, ChatRowMemory>(), [timelineScope]);
   const timelineRows = useMemo(() => shownTurns.map((turn, index) => {
     const slot = rowSlots[index];
@@ -1381,7 +1394,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   </>;
   const jump = newMessages ? <button type="button" className="btn chat-new-messages chat-virtual-jump" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
     : away && <button type="button" className="btn chat-new-messages chat-virtual-jump is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>;
-  return <ChatDiffContext.Provider value={diffContext}><ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}>
+  return <ChatDiffContext.Provider value={diffContext}><ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><ImageViewerContext.Provider value={openViewer}>
     <div className="chat-frame">
     {state.source === "conversation" && findOpen && <ChatFind key={timelineScope} rows={searchRows} older={typeof olderCursor === "string"} olderState={olderState} onOlder={loadOlder} onMatch={showMatch} onClose={closeFind} />}
     <div className="chat-frame-body">
@@ -1426,5 +1439,6 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       if (prompt.steps) setPromptPollKey((key) => key + 1);
       onPendingAnswerDone?.(paneId, prompt.id);
     }} />, promptDock)}
-  </ChatHistoryContext.Provider></ChatPaneContext.Provider></ChatDiffContext.Provider>;
+  {viewer !== null && <ImageLightbox images={viewer.images} index={viewer.index} onClose={closeViewer} />}
+  </ImageViewerContext.Provider></ChatHistoryContext.Provider></ChatPaneContext.Provider></ChatDiffContext.Provider>;
 });
