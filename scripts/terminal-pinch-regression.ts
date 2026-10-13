@@ -90,11 +90,12 @@ export async function checkTerminalPinch(browser: Browser, origin: string, paneI
       }
     };
     const release = () => cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    // a wheel report per three rows of travel: 150 px is more than that even at the largest cell the 22 px font makes
+    // a wheel report per three rows of travel: 150 px is more than that even at the largest cell the 22 px font makes;
+    // the drag ends at cy, where a following pinch puts this finger, so that jump is no vertical travel
     const dragOne = async (): Promise<void> => {
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: cx, y: cy - 60, id: 1 }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: cx, y: cy - 150, id: 1 }] });
       for (let step = 1; step <= 5; step++) {
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx, y: cy - 60 + 150 * step / 5, id: 1 }] });
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx, y: cy - 150 + 150 * step / 5, id: 1 }] });
       }
     };
 
