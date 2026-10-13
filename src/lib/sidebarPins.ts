@@ -29,6 +29,32 @@ export function saveSidebarPins(keys: readonly string[]): void {
   catch { /* storage denied: pins last for the session */ }
 }
 
+/**
+ * The pins this page holds, for the sidebar and for the sync with the other browsers
+ * (lib/preferencesSync.ts): set here, they are saved and every reader hears it.
+ */
+let pins: string[] | null = null;
+const pinListeners = new Set<() => void>();
+
+export function currentSidebarPins(): string[] {
+  pins ??= loadSidebarPins();
+  return pins;
+}
+
+export function setSidebarPins(keys: readonly string[]): void {
+  const next = [...new Set(keys)];
+  const current = currentSidebarPins();
+  if (next.length === current.length && next.every((key, index) => key === current[index])) return;
+  pins = next;
+  saveSidebarPins(next);
+  for (const listener of [...pinListeners]) listener();
+}
+
+export function subscribeSidebarPins(listener: () => void): () => void {
+  pinListeners.add(listener);
+  return () => { pinListeners.delete(listener); };
+}
+
 export function toggleSidebarPin(keys: readonly string[], key: string): string[] {
   return keys.includes(key) ? keys.filter((current) => current !== key) : [...keys, key];
 }
@@ -45,8 +71,9 @@ export function pruneSidebarPins(keys: readonly string[], liveKeys: ReadonlySet<
 }
 
 /**
- * Pinned rows in their saved order, and the other rows in the source roster order. herdr order draws
- * `pinned` above the workspace cards and groups only `rest`, so a pin never lifts its unpinned siblings.
+ * Pinned rows in their saved order, and the other rows in the source roster order. With workspace
+ * cards, grouping `pinned` then `rest` keeps each pinned row in its own card, first there, and puts
+ * the cards that hold pins first, in the order of their first pin.
  */
 export function splitPinnedRows<T>(rows: readonly T[], keys: readonly string[], keyOf: (row: T) => string): { pinned: T[]; rest: T[] } {
   const byKey = new Map(rows.map((row) => [keyOf(row), row]));

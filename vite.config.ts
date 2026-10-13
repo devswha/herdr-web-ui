@@ -1,4 +1,5 @@
 import { buildXtermSource } from "./scripts/build-xterm.ts";
+import { compressedAssets } from "./scripts/compressed-assets.ts";
 import { defineConfig, normalizePath, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
@@ -19,7 +20,7 @@ const thirdPartyNotices: Plugin = {
 };
 
 export default defineConfig({
-  plugins: [react(), thirdPartyNotices],
+  plugins: [react(), thirdPartyNotices, compressedAssets()],
   define: {
     __APP_REVISION__: JSON.stringify(revision),
     __APP_VERSION__: JSON.stringify((JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version),
@@ -31,7 +32,8 @@ export default defineConfig({
       "/ws": { target: "ws://localhost:7317", ws: true },
     },
   },
-  build: { outDir: "dist" },
+  // Keep Vite 6's syntax targets when changing the bundler, including installed mobile clients.
+  build: { outDir: "dist", target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"] },
   // The Bun patch targets xterm's readable source, not its minified distribution. Build that
   // source so dev, production and the website use the same reviewed IME backport.
   resolve: { alias: [

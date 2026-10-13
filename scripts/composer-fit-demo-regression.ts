@@ -238,6 +238,18 @@ try {
       });
       console.log("PASS agents at 350, 390, 800 and 1440px use one Stop/Send control with no Queue or dropdown");
 
+      // The saved-drafts trigger sits just before Send at the card's right end: its popover opens
+      // toward the inside of the card and stays inside the window at every width.
+      for (const width of [390, 800, 1280]) await withCard(browser, width, { agent: "claude", model: "gpt-5.6" }, async (page) => {
+        await draft(page);
+        await page.locator(".composer-stash-trigger").click();
+        const menu = page.locator(".composer-stash-menu");
+        await menu.waitFor();
+        const edges = await menu.evaluate((node) => { const box = node.getBoundingClientRect(); return { left: box.left, right: box.right, window: innerWidth }; });
+        assert.ok(edges.left >= 0 && edges.right <= edges.window, `${width}px: the saved-drafts popover stays inside the window: ${JSON.stringify(edges)}`);
+      });
+      console.log("PASS the saved-drafts popover stays inside the window at 390, 800 and 1280px");
+
       for (const width of [350, 390]) await withCard(browser, width, { agent: "codex", model: LONG_MODEL, mic: true }, async (page) => {
         await draft(page);
         await upload(page);
@@ -327,6 +339,10 @@ try {
         assert.equal(await page.getByRole("textbox", { name: "Message", exact: true }).inputValue(), "hold this");
         assert.equal(await page.locator(".pending-message-bubble").count(), 0);
         assert.match(await page.locator(".composer-note").textContent() ?? "", /Update this PC/);
+        // the reason sits on the box's top edge, the box's width, not under it
+        const [noteBox, surfaceBox] = await Promise.all([page.locator(".composer-note").boundingBox(), page.locator(".composer-surface").boundingBox()]);
+        assert.ok(noteBox && surfaceBox && noteBox.y + noteBox.height <= surfaceBox.y + 1, "the note is above the message box");
+        assert.ok(noteBox && surfaceBox && Math.abs(noteBox.width - surfaceBox.width) <= 1 && Math.abs(noteBox.x - surfaceBox.x) <= 1, "and as wide as it");
       });
       console.log("PASS connection loss suspends pending items, confirmed holds need Send now, and old bridges keep the draft");
 

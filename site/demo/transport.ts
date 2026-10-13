@@ -12,7 +12,8 @@
  * one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PaneMoved, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PaneMoved, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, PortalStatus, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
@@ -92,6 +93,11 @@ function addAgent(pane: Pane): void {
 /** The OmO pane's background tasks (the composer's "2 background tasks"), timed from now. */
 const OMO_TASKS_PANE = "docs";
 const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+const planSteps: PlanStep[] = [
+  { id: "1", label: "Trace replayed requests", active: null, status: "completed", blocked_by: [], owner: null, started_at: ago(8), ended_at: ago(6) },
+  { id: "2", label: "Count idempotent replays", active: "Adding the replay metric", status: "in_progress", blocked_by: ["1"], owner: null, started_at: ago(5), ended_at: null },
+  { id: "3", label: "Cover the metric with tests", active: null, status: "pending", blocked_by: ["2"], owner: null, started_at: null, ended_at: null },
+];
 const omoTasks = () => [
   { id: "st_demo1", title: "Check every link in the guide", category: "quick", model: "Claude Haiku 4.5", status: "running", started_at: ago(3), ended_at: null, turns: 6, tool_calls: 41, tokens: 52_300 },
   { id: "st_demo2", title: "Rewrite the install section for Windows", category: "writing", model: "Claude Opus 5.5", status: "running", started_at: ago(1), ended_at: null, turns: 2, tool_calls: 7, tokens: 18_900 },
@@ -146,6 +152,7 @@ function backfillPanes(): void {
 }
 backfillPanes();
 for (const pane of snapshot().panes) if (keyOfPane.get(pane.pane_id) === OMO_TASKS_PANE) Object.assign(pane, { background_tasks: 2 });
+for (const pane of snapshot().panes) if (keyOfPane.get(pane.pane_id) === "api") Object.assign(pane, { plan: { done: 1, total: planSteps.length, current: "Adding the replay metric" } });
 
 // Fictional repositories keep their checkout catalog after a workspace closes. The list joins
 // each checkout to the current snapshot, so closed checkouts can be opened again without git.
@@ -519,6 +526,54 @@ async function layoutBodyOf(method: string, init: RequestInit | undefined, input
 
 const DEMO_FILES = ["src/routes/payments.ts", "src/lib/idempotency.ts", "src/metrics.ts", "src/pages/Reports.tsx", "src/money.ts", "src/money.test.ts", "package.json", "README.md"];
 
+/**
+ * The demo repository's uncommitted work, as GET /api/workspace/diff/* answers it: one file of
+ * each kind a diff view has to draw. The patches are what git would print, hunk counts included.
+ */
+const DEMO_DIFF_LIMITS = { max_files: 2000, max_list_bytes: 2 * 1024 * 1024, max_patch_bytes: 1024 * 1024, context_lines: 3 };
+const DEMO_DIFF: { file: RepoDiffFile; patch: string | null }[] = [
+  { file: { path: "docs/checkout-flow.png", old_path: null, status: "modified", additions: null, deletions: null, binary: true }, patch: null },
+  { file: { path: "src/lib/idempotency.ts", old_path: "src/idempotency.ts", status: "renamed", additions: 0, deletions: 0, binary: false }, patch: [
+    "diff --git a/src/idempotency.ts b/src/lib/idempotency.ts",
+    "similarity index 100%",
+    "rename from src/idempotency.ts",
+    "rename to src/lib/idempotency.ts",
+    "",
+  ].join("\n") },
+  { file: { path: "src/money.test.ts", old_path: null, status: "untracked", additions: null, deletions: null, binary: false }, patch: [
+    "diff --git a/src/money.test.ts b/src/money.test.ts",
+    "new file mode 100644",
+    "index 0000000..5d2e8c1",
+    "--- /dev/null",
+    "+++ b/src/money.test.ts",
+    "@@ -0,0 +1,6 @@",
+    "+import { expect, it } from \"bun:test\";",
+    "+import { toCents } from \"./money.ts\";",
+    "+",
+    "+it(\"rounds half a cent away from zero\", () => {",
+    "+  expect(toCents(10.075)).toBe(1008);",
+    "+});",
+    "",
+  ].join("\n") },
+  { file: { path: "src/money.ts", old_path: null, status: "modified", additions: 4, deletions: 1, binary: false }, patch: [
+    "diff --git a/src/money.ts b/src/money.ts",
+    "index 3f1c2aa..9b7d410 100644",
+    "--- a/src/money.ts",
+    "+++ b/src/money.ts",
+    "@@ -1,5 +1,8 @@",
+    " export type Cents = number;",
+    " ",
+    "+/** Rounds half away from zero, so 10.075 is 1008 cents and not 1007. */",
+    " export function toCents(amount: number): Cents {",
+    "-  return amount * 100;",
+    "+  const scaled = Math.abs(amount) * 100;",
+    "+  const rounded = Math.round(scaled + Number.EPSILON * scaled);",
+    "+  return Math.sign(amount) * rounded;",
+    " }",
+    "",
+  ].join("\n") },
+];
+
 /** Settings → Subscription usage on the demo: plans as the workstation's CLIs might report them, resets counted from now. */
 function usageReport(): UsageReport {
   const now = Date.now();
@@ -583,6 +638,9 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   // the demo sends no counts: a server without telemetry answers 404, and the app shows neither its notice nor its switch
   if (path === "/api/telemetry") return json({ error: { code: "not_found", message: "This server sends no telemetry" } }, 404, { "cache-control": "no-store" });
   if (path === "/api/herdr/update") return json({ supported: false, phase: "idle", server_version: null, binary_version: null, stale: false, output: null, finished_at: null }, 200, { "cache-control": "no-store" });
+  // the demo opens no public address: the Portal section stays hidden
+  if (path === "/api/portal") return json({ supported: false, version: null, min_version: "v2.6.1", usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null } satisfies PortalStatus, 200, { "cache-control": "no-store" });
+  if (path === "/api/portal/start" || path === "/api/portal/stop") return error("portal_unsupported", "The demo opens no public address.", 409);
   if (path === "/api/access") return json({ port: 7317, tailscale: { state: "running", dns_name: "workstation.example.ts.net", serving_url: "https://workstation.example.ts.net", serve_command: null, serve_url: null } });
   if (path === "/api/usage") return json(usageReport(), 200, { "cache-control": "no-store" });
   if (path === "/api/push" || path.startsWith("/api/push/")) return error("push_unavailable", "the demo sends no alerts", 404);
@@ -657,7 +715,13 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const agent = agentOf(paneId);
     if (!chat) return json({ source: "scrollback", turns: [] });
     const source = agent === "claude" ? "claude-transcript" : agent === "codex" ? "codex-transcript" : agent === "gjc" ? "gjc-transcript" : agent === "omo" ? "omo-transcript" : agent === "pi" ? "pi-transcript" : agent === "devin" ? "devin-transcript" : agent === "hermes" ? "hermes-transcript" : "omp-transcript";
+    // These demo fixtures have no native Grok/Agy lifecycle: omit optional activity.
     return json({ source, turns: chat.turns, metadata: chat.metadata, cursor: null });
+  }
+  if (path === "/api/pane/plan") {
+    if (method !== "GET") return error("method_not_allowed", "use GET", 400);
+    if (!paneId) return error("missing_pane_id", "pane_id query parameter is required", 400);
+    return json({ plan: keyOfPane.get(paneId) === "api" ? { steps: planSteps } : null, server_time: new Date().toISOString() } satisfies PanePlan);
   }
   if (path === "/api/pane/prompt") return json({ prompt: keyOfPane.get(paneId) === "web" && promptOpen ? { ...PROMPT, id: promptId } : null });
   if (path === "/api/pane/prompt/answer") {
@@ -1055,6 +1119,24 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/voice") return json({ configured: false, source: null, ...VOICE_DEFAULTS } satisfies VoiceStatus, 200, { "cache-control": "no-store" });
   if (path === "/api/voice/config") return error("demo", "the demo saves no OpenAI key", 409);
   if (path === "/api/voice/transcribe") return error("voice_not_configured", "transcription is unavailable in the demo", 409);
+  if (path === "/api/workspace/diff/files" || path === "/api/workspace/diff/file") {
+    const scope = query.get("scope") || "workspace";
+    if (scope !== "workspace" && scope !== "staged" && scope !== "commit") return error("invalid_scope", "scope must be workspace, staged or commit", 400);
+    // the demo keeps no history to name commits in
+    if (scope === "commit") return error("revision_not_found", "the demo repository has no commits to compare", 404);
+    const root = snapshot().panes.find((pane) => pane.pane_id === paneId)?.cwd ?? query.get("directory") ?? "/home/demo/checkout-api";
+    const repository: RepoDiffRepository = { root, branch: "main", head: "4f2a9c1d7e3b5a8c6d0e1f2a3b4c5d6e7f8a9b0c", detached: false, unborn: false };
+    // everything in the demo is unstaged work
+    const changed = scope === "workspace" ? DEMO_DIFF : [];
+    const compared: RepoDiffScope = scope;
+    const shared = { repository, scope: compared, base: null, head: null };
+    if (path === "/api/workspace/diff/files") {
+      return json({ ...shared, files: changed.map((entry) => entry.file), total: changed.length, truncated: false, limits: { max_files: DEMO_DIFF_LIMITS.max_files, max_list_bytes: DEMO_DIFF_LIMITS.max_list_bytes } } satisfies RepoDiffFileList);
+    }
+    const entry = changed.find((candidate) => candidate.file.path === query.get("path"));
+    if (!entry) return error("not_found", "nothing changed at that path in this comparison", 404);
+    return json({ ...shared, file: entry.file, patch: entry.patch, unavailable: entry.patch === null ? "binary" : null, truncated: false, limits: { max_patch_bytes: DEMO_DIFF_LIMITS.max_patch_bytes, context_lines: DEMO_DIFF_LIMITS.context_lines } } satisfies RepoDiffFilePatch);
+  }
   if (path.startsWith("/api/fs/")) return error("not_found", "the demo has no files to open", 404);
   return error("demo", `${method} ${path} is not part of the demo`, 404);
 }
@@ -1169,7 +1251,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "secret-input", "input-ready", "conversation-watch"] });
+      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch"] });
     }, 20);
     this.timers.add(opening);
   }
@@ -1285,7 +1367,7 @@ class DemoSocket extends EventTarget {
           break;
         }
         if (message.pane_id && message.text !== undefined && message.id !== undefined) {
-          const queued = message.delivery === "queue";
+          const queued = message.delivery === "queue" || message.delivery === "hold";
           const text = queued ? message.text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n") : message.text;
           let code: string | null = null;
           if ((message.delivery !== undefined && message.delivery !== "immediate" && !queued) || (queued && message.typed !== undefined && message.typed !== false)) code = "invalid_delivery";
@@ -1299,8 +1381,8 @@ class DemoSocket extends EventTarget {
             this.completeRequest({ type: "submit-result", id: message.id, pane_id: message.pane_id, ok: false, code, message: "The demo agent cannot take this submission." });
             break;
           }
-          if (queued && paneOf(message.pane_id)?.agent_status === "working") {
-            const pending: PendingMessage = { id: `demo-pending-${nextPending++}`, request_id: message.id, text, state: "queued", created_at: now() };
+          if (queued && (message.delivery === "hold" || paneOf(message.pane_id)?.agent_status === "working")) {
+            const pending: PendingMessage = { id: `demo-pending-${nextPending++}`, request_id: message.id, text, state: message.delivery === "hold" ? "held" : "queued", created_at: now() };
             this.pending.set(message.pane_id, [...(this.pending.get(message.pane_id) ?? []), pending]);
             const reply: ServerMessage = { type: "submit-result", id: message.id, pane_id: message.pane_id, ok: true, pending: structuredClone(pending) };
             this.rememberRequest(reply);

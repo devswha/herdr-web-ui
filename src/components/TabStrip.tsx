@@ -1,10 +1,12 @@
 /**
  * Herdr's tab row, visible for a single tab too. Left-click selects; right-click opens
  * New tab / Rename / Close at the pointer. Pane actions belong to PaneCanvas.
- * A phone keeps an ellipsis on the selected tab as a touch entry to the same menu.
+ * A phone keeps an ellipsis on the selected tab as a touch entry to the same menu. Where the
+ * canvas shows a split tab's panes one at a time (SOLO_PANE_QUERY), that menu lists them first.
+ * That menu also carries the open pane's actions, so a lone pane shows no ellipsis of its own.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { ArrowLeft, ArrowRight, Ellipsis, Pencil, Plus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Ellipsis, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./TabStrip.css";
 
@@ -16,14 +18,17 @@ import { useT } from "../lib/i18n.ts";
 import { customTabLabel, tabLabel } from "../lib/tabName.ts";
 import { STRIP_AT_REST, stripPlaced, stripScrolled, stripSelected, type StripScroll } from "../lib/tabStripScroll.ts";
 import { PANE_TABPANEL_ID, paneTabPanelLabel } from "../lib/paneRegion.ts";
+import { SOLO_PANE_QUERY } from "../lib/paneCanvas.ts";
 import { rosterPanes } from "../lib/dagPane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { useTabReorder } from "../lib/useTabReorder.ts";
 import { paneStatus, rollupStatus } from "../lib/status.ts";
+import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { displayPaneTitle } from "./Sidebar.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
+import { paneDrag } from "../lib/paneDrag.ts";
 
 const said = (reason: unknown): string => reason instanceof ApiError ? reason.detail : reason instanceof Error ? reason.message : String(reason);
 
@@ -36,13 +41,20 @@ export interface TabStripProps {
   selectedPane: PaneInfo;
   onSelectPane: (paneId: string) => void;
   onNewTab: () => void;
+  /** the open pane's actions (PaneCanvas), offered in the touch menu */
+  paneActions?: (paneId: string) => RowMenuItem[];
+  /** the panel the tabs control: each half of a split view has its own (lib/split.ts) */
+  panelId?: string;
+  /** a tab dragged out of the strip may open its pane in half of the pane area (lib/paneDrag.ts) */
+  splitDrag?: boolean;
 }
 
-export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab }: TabStripProps) {
+export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab, paneActions, panelId = PANE_TABPANEL_ID, splitDrag = false }: TabStripProps) {
   const t = useT();
   const machineId = useMachineId();
   const { closeTab, renameTab, moveTab } = useMachineApi();
   const touchMenu = useMediaQuery("(pointer: coarse), (max-width: 768px)");
+  const soloPanes = useMediaQuery(SOLO_PANE_QUERY);
   // a short phone screen (landscape, a small phone) has no height to spare: a lone tab is not
   // drawn there, so an approval card keeps its options in reach; its actions stay in the header
   const cramped = useMediaQuery("(max-width: 768px) and (max-height: 600px)");
@@ -79,6 +91,15 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   const reorder = useTabReorder({ owner: `${machineId}:${workspace.workspace_id}`, tabs, strip, moveTab,
     failed: (reason) => setError(t("Move failed: {reason}", { reason: said(reason) })),
     stale: () => setError(t("Tab order did not refresh. Try again.")),
+    // dragged down out of the strip, a tab opens its pane in half of the pane area (lib/split.ts)
+    outside: splitDrag ? {
+      start: (tabId) => {
+        const tab = tabs.find((entry) => entry.tab_id === tabId);
+        const pane = tab ? paneFor(tab) : undefined;
+        if (pane) paneDrag.start({ machineId, paneId: pane.pane_id });
+      },
+      move: paneDrag.move, back: paneDrag.back, drop: paneDrag.drop, cancel: paneDrag.cancel,
+    } : undefined,
   });
   const nameOf = (tab: HerdrTab): string => sent?.tabId === tab.tab_id ? sent.label : tabLabel(tab, t, tabs.findIndex((candidate) => candidate.tab_id === tab.tab_id) + 1);
 
@@ -291,8 +312,24 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
       previousFocus: touch ? tabButton : document.activeElement instanceof HTMLElement ? document.activeElement : null, touch });
   };
 
-  // Native tab menu: pane actions live on the pane itself.
-  const pickerItems = (tab: HerdrTab): RowMenuItem[] => [
+  // Native tab menu: pane actions live on the pane itself. A split tab drawn one pane at a time
+  // has no other way to its panes, so they lead its menu, the open one marked.
+  // The touch menu also holds the open pane's actions, between its panes and the tab's own.
+  const pickerItems = (tab: HerdrTab, touch: boolean): RowMenuItem[] => {
+    const own = soloPanes ? panesOf(tab) : [];
+    const paneItems = touch && tab.tab_id === selectedPane.tab_id ? paneActions?.(selectedPane.pane_id) ?? [] : [];
+    const groups: RowMenuItem[][] = [
+      own.length < 2 ? [] : own.map((pane): RowMenuItem => ({
+        id: `pane:${pane.pane_id}`, label: displayPaneTitle(pane), icon: Terminal,
+        glyph: pane.agent ? <AgentMark agent={pane.agent} size={16} /> : undefined,
+        current: pane.pane_id === selectedPane.pane_id, run: () => onSelectPane(pane.pane_id),
+      })),
+      paneItems,
+      tabActions(tab),
+    ].filter((group) => group.length > 0);
+    return groups.flatMap((group, at) => at === 0 ? group : group.map((item, index) => index === 0 ? { ...item, divider: true } : item));
+  };
+  const tabActions = (tab: HerdrTab): RowMenuItem[] => [
     ...(!reorder.moving && tabs.findIndex((entry) => entry.tab_id === tab.tab_id) > 0
       ? [{ id: "move-left", label: t("Move tab left"), icon: ArrowLeft, run: () => reorder.moveAdjacent(tab.tab_id, -1) }] : []),
     ...(!reorder.moving && tabs.findIndex((entry) => entry.tab_id === tab.tab_id) < tabs.length - 1
@@ -305,7 +342,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // the pane region every tab governs, as App names it. App gives that region the tabpanel role
   // only while the pane's own tab is in this snapshot (paneTabPanelLabel); the same call answers
   // here, so a tab never claims to control a panel that is not standing there as one.
-  const panePanel = paneTabPanelLabel(snapshot, selectedPane, t) !== null ? PANE_TABPANEL_ID : undefined;
+  const panePanel = paneTabPanelLabel(snapshot, selectedPane, t) !== null ? panelId : undefined;
   return (
     <>
       <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} aria-busy={reorder.moving} onKeyDown={onKeyDown} onScroll={onScroll}
@@ -386,7 +423,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         {error && <span className="tab-strip-error" role="alert">{error}</span>}
       </div>
       {picker && <RowMenu anchor={picker.anchor} point={picker.point} restoreFocusTo={picker.previousFocus}
-        title={nameOf(picker.tab)} items={pickerItems(picker.tab)} align="start" onClose={() => setPicker(null)} />}
+        title={nameOf(picker.tab)} items={pickerItems(picker.tab, picker.touch)} align="start" onClose={() => setPicker(null)} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close tab")} onConfirm={async () => { await close(confirm.tab); setConfirm(null); }} onClose={() => setConfirm(null)} />}
     </>
   );

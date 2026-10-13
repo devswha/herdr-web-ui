@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { isAppShortcut, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
-import { isReservedShortcutKey, sanitizeShortcutOverrides, legacyShortcutKey, recordShortcutBinding } from "./shortcutBindings.ts";
+import { isInputShortcutBinding, isReservedShortcutBinding, isReservedShortcutKey, sanitizeShortcutOverrides, legacyShortcutKey, recordShortcutBinding } from "./shortcutBindings.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return { key, ctrlKey: false, metaKey: false, shiftKey: true, altKey: false, ...patch };
@@ -14,13 +14,13 @@ describe("matchShortcut", () => {
     const overrides = sanitizeShortcutOverrides(JSON.parse(JSON.stringify({ "toggle-view": commandPage, "find": "é" })));
     expect(overrides).toEqual({ "toggle-view": commandPage, "find": "é" });
     expect(matchShortcut(keyEvent("PageUp", { metaKey: true, shiftKey: false }), true, overrides)).toBe("toggle-view");
-    expect(matchShortcut(keyEvent("PageUp", { metaKey: true }), true, overrides)).toBeNull();
+    expect(matchShortcut(keyEvent("PageUp", { metaKey: true }), true, overrides)).toBe("scroll-up");
     expect(matchShortcut(keyEvent("PageUp", { metaKey: true, altKey: true, shiftKey: false }), true, overrides)).toBeNull();
     expect(matchShortcut(keyEvent("é", { metaKey: true }), true, overrides)).toBe("find");
     expect(matchShortcut(keyEvent("é", { ctrlKey: true }), false, overrides)).toBe("find");
     expect(shortcutDisplayKeys("toggle-view", overrides)).toEqual(["Meta", "PageUp"]);
     expect(shortcutConflict("palette", [commandPage], overrides, true)).toBe(true);
-    expect(shortcutConflict("palette", ["PageUp"], overrides, true)).toBe(false);
+    expect(shortcutConflict("palette", ["PageUp"], overrides, true)).toBe(true);
     for (const patch of [{ metaKey: true, shiftKey: false }, { altKey: true, shiftKey: false }, { shiftKey: true }, { shiftKey: false }, { ctrlKey: true, shiftKey: false }, { ctrlKey: true, metaKey: true, altKey: true }]) {
       const event = keyEvent("F8", patch);
       const binding = recordShortcutBinding(event)!;
@@ -111,14 +111,16 @@ describe("matchShortcut", () => {
 describe("keepsArrowsForText", () => {
   const classes = (...names: string[]) => ({ contains: (name: string) => names.includes(name) });
   it("leaves Mod+Shift+arrows to the message box and other text fields, where they select text", () => {
-    expect(keepsArrowsForText({ tagName: "TEXTAREA", classList: classes("composer-text") })).toBe(true);
-    expect(keepsArrowsForText({ tagName: "INPUT", type: "text", classList: classes() })).toBe(true);
-    expect(keepsArrowsForText({ tagName: "INPUT", type: "search", classList: classes() })).toBe(true);
+    expect(keepsArrowsForText({ tagName: "TEXTAREA", value: "draft", classList: classes("composer-text") })).toBe(true);
+    expect(keepsArrowsForText({ tagName: "INPUT", type: "text", value: "a", classList: classes() })).toBe(true);
+    expect(keepsArrowsForText({ tagName: "INPUT", type: "search", value: "a", classList: classes() })).toBe(true);
     expect(keepsArrowsForText({ tagName: "DIV", isContentEditable: true, classList: classes() })).toBe(true);
   });
 
   it("switches panes from the terminal and anywhere that is no text field", () => {
     expect(keepsArrowsForText({ tagName: "TEXTAREA", classList: classes("xterm-helper-textarea") })).toBe(false);
+    expect(keepsArrowsForText({ tagName: "TEXTAREA", value: "", classList: classes("composer-text") })).toBe(false);
+    expect(keepsArrowsForText({ tagName: "INPUT", type: "text", value: "", classList: classes() })).toBe(false);
     expect(keepsArrowsForText({ tagName: "INPUT", type: "checkbox", classList: classes() })).toBe(false);
     expect(keepsArrowsForText({ tagName: "BUTTON", classList: classes() })).toBe(false);
     expect(keepsArrowsForText(null)).toBe(false);
@@ -207,6 +209,8 @@ describe("isReservedShortcutKey", () => {
     expect(isReservedShortcutKey("q", true)).toBe(true);
     expect(isReservedShortcutKey("j", false)).toBe(true);
     expect(isReservedShortcutKey("o", false)).toBe(true);
+    expect(isReservedShortcutKey("PageUp", false)).toBe(true);
+    expect(isReservedShortcutKey("PageDown", false)).toBe(true);
     expect(isReservedShortcutKey("3", true)).toBe(true);
     expect(isReservedShortcutKey("4", true)).toBe(true);
     expect(isReservedShortcutKey("5", true)).toBe(true);
@@ -216,6 +220,7 @@ describe("isReservedShortcutKey", () => {
     expect(isReservedShortcutKey("k", false)).toBe(false);
     expect(isReservedShortcutKey("ArrowUp", true)).toBe(false);
     expect(isReservedShortcutKey("j", true)).toBe(false);
+    expect(isReservedShortcutKey("PageUp", true)).toBe(false);
     expect(isReservedShortcutKey("3", false)).toBe(false);
   });
 
@@ -247,4 +252,38 @@ it("matches all sixteen exact modifier combinations", () => {
       }
     }
   }
+});
+
+
+it("pages the selected pane with fixed Mod+Shift bindings, remapping and disabling", () => {
+  for (const apple of [true, false]) {
+    const press = (key: string, overrides = {}) => matchShortcut(keyEvent(key, { metaKey: apple, ctrlKey: !apple }), apple, overrides);
+    expect(press("PageUp")).toBe("scroll-up");
+    expect(press("PageDown")).toBe("scroll-down");
+    expect(press("u", sanitizeShortcutOverrides({ "scroll-up": "u" }))).toBe("scroll-up");
+    expect(press("PageUp", { "scroll-up": "u" })).toBeNull();
+    expect(press("PageDown", sanitizeShortcutOverrides({ "scroll-down": null }))).toBeNull();
+    expect(press("PageUp", sanitizeShortcutOverrides({ palette: "PageUp", "scroll-up": null }))).toBe("palette");
+    for (const patch of [{ shiftKey: false }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      expect(matchShortcut(keyEvent("PageUp", { metaKey: apple, ctrlKey: !apple, ...patch }), apple)).toBeNull();
+    }
+    expect(matchShortcut(keyEvent("PageUp"), apple)).toBeNull();
+  }
+  expect(shortcutDisplayKeys("scroll-up", {})).toEqual(["Mod", "Shift", "PageUp"]);
+  expect(shortcutDisplayKeys("scroll-down", {})).toEqual(["Mod", "Shift", "PageDown"]);
+  expect(shortcutConflict("palette", ["PageUp"], {})).toBe(true);
+  expect(sanitizeShortcutOverrides({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp", settings: "Home" })).toEqual({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp", settings: "Home" });
+});
+
+// A mentés előtt jelzendő terminál- és böngészőütközések.
+it("warns for terminal letter chords and browser commands while allowing Cmd+PageUp", () => {
+  const chord = (key: string, modifiers: Partial<ReturnType<typeof recordShortcutBinding>> = {}) => recordShortcutBinding({ key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...modifiers })!;
+  for (const key of ["c", "d", "r", "a", "e", "ű"]) {
+    expect(isInputShortcutBinding(chord(key, { ctrlKey: true }))).toBe(true);
+    expect(isInputShortcutBinding(chord(key, { altKey: true }))).toBe(true);
+  }
+  for (const key of ["w", "t", "n", "q"]) expect(isReservedShortcutBinding(chord(key, { metaKey: true }), true)).toBe(true);
+  expect(isInputShortcutBinding(chord("PageUp", { metaKey: true }))).toBe(false);
+  expect(isReservedShortcutBinding(chord("PageUp", { metaKey: true }), true)).toBe(false);
+  expect(isInputShortcutBinding(chord("k", { metaKey: true, shiftKey: true }))).toBe(false);
 });

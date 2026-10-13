@@ -6,11 +6,23 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../shared/voice.ts";
 import type {} from "./chat-history-fixture.tsx";
+import { parseAgyTranscript } from "../server/agy.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-history-browser-"));
 let server: ReturnType<typeof Bun.serve> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const releases: Array<() => void> = [];
+const routeEvents = new EventTarget();
+function nextRoute(name: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const arrived = () => { clearTimeout(timer); resolve(); };
+    const timer = setTimeout(() => {
+      routeEvents.removeEventListener(name, arrived);
+      reject(new Error(`No fixture request for ${name}`));
+    }, 10_000);
+    routeEvents.addEventListener(name, arrived, { once: true });
+  });
+}
 try {
   const build = await Bun.build({ entrypoints: ["scripts/chat-history-fixture.tsx"], outdir: root, target: "browser", define: { "process.env.NODE_ENV": '"development"' } });
   assert.ok(build.success, String(build.logs));
@@ -30,19 +42,34 @@ try {
   const errors: string[] = [];
   page.on("pageerror", (error) => { errors.push(error.message); console.error(error.stack); });
   let epoch = "one", newest = "old newest", before: string | null = "one:100";
-  let holdOlder = false, olderRequested = false;
+  let holdOlder = false;
   let product = false;
+  let unavailable = false, terminalFails = false;
+  let holdTerminal = false;
+  let terminalText = "Fictional terminal fallback";
   /** product panes ("machine/pane") whose conversation requests wait for the script, and those that fail */
   const held = new Set<string>(), failing = new Set<string>();
   const pending: Array<{ key: string; answer: (status: number) => Promise<void> }> = [];
   const user = (text: string) => ({ role: "user", ts: text, parts: [{ kind: "text", text }] });
+  await page.route("**/api/**/read?*", async (route) => {
+    routeEvents.dispatchEvent(new Event("terminal"));
+    if (holdTerminal) await new Promise<void>((resolve) => releases.push(resolve));
+    await (terminalFails
+      ? route.fulfill({ status: 503, json: { error: { code: "timeout", message: "fictional terminal read failed" } } })
+      : route.fulfill({ json: { read: { text: terminalText, truncated: false } } }));
+  });
   await page.route("**/api/**/conversation?*", async (route) => {
     const url = new URL(route.request().url());
     if (product) {
       const pane = url.searchParams.get("pane_id") ?? url.searchParams.get("pane") ?? "";
       const key = `${/\/api\/machines\/([^/]+)\//.exec(url.pathname)?.[1] ?? "local"}/${pane}`;
       const answer = (status: number) => status === 200
-        ? route.fulfill({ json: key === "local/devin" ? { source: "devin-transcript", history_id: "synthetic-devin-session", cursor: null, turns: [
+        ? route.fulfill({ json: key === "local/agy" ? { source: "agy-transcript", history_id: "synthetic-agy-session", cursor: null, turns: parseAgyTranscript([
+          { step_index: 0, type: "USER_INPUT", status: "DONE", content: "Summarize the last three fictional commits." },
+          { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", tool_calls: [{ name: "run_command", args: { CommandLine: "git log -3 --oneline" } }] },
+          { step_index: 2, type: "GENERIC", status: "DONE", content: "Fictional commit log" },
+          { step_index: 3, type: "PLANNER_RESPONSE", status: "DONE", content: "Synthetic Agy answer" },
+        ].map((row) => JSON.stringify(row)).join("\n")) } : key === "local/devin" ? { source: "devin-transcript", history_id: "synthetic-devin-session", cursor: null, turns: [
           user("Synthetic Devin prompt"),
           { role: "assistant", ts: null, parts: [
             { kind: "tool", name: "synthetic_tool", summary: "synthetic_tool", input: "{}", output: "synthetic result" },
@@ -52,8 +79,15 @@ try {
         : route.fulfill({ status, json: { error: { code: "unavailable", message: "conversation unavailable" } } });
       // answered as it arrives unless its pane is held: a poll an abandoned mount left
       // behind can then never stand in for the request an assertion waits on
-      if (held.has(key)) await new Promise<void>((resolve) => pending.push({ key, answer: (status) => answer(status).finally(resolve) }));
+      if (held.has(key)) await new Promise<void>((resolve) => {
+        pending.push({ key, answer: (status) => answer(status).finally(resolve) });
+        routeEvents.dispatchEvent(new Event(key));
+      });
       else await answer(failing.has(key) ? 503 : 200);
+      return;
+    }
+    if (unavailable) {
+      await route.fulfill({ json: { source: "scrollback", turns: [] } });
       return;
     }
     const captured = epoch;
@@ -63,7 +97,7 @@ try {
       return;
     }
     if (url.searchParams.has("before")) {
-      olderRequested = true;
+      routeEvents.dispatchEvent(new Event("older"));
       if (holdOlder) await new Promise<void>((resolve) => releases.push(resolve));
       await route.fulfill({ json: { source: "omp-transcript", history_id: captured, cursor: null, turns: [user("old earlier")] } });
     } else {
@@ -95,13 +129,16 @@ try {
 
   // Start an older-page request, then observe clear before it completes.
   holdOlder = true;
+  const olderStarted = nextRoute("older");
   await page.locator(".chat-older").click();
-  while (!olderRequested) await Bun.sleep(20);
+  await olderStarted;
   epoch = "two"; newest = ""; before = null;
   await refresh();
   await page.getByText("No conversation yet — say something below", { exact: true }).waitFor();
+  const olderAnswered = page.waitForResponse((response) => new URL(response.url()).searchParams.has("before"));
   releases.splice(0).forEach((release) => release());
-  await page.waitForTimeout(100);
+  await (await olderAnswered).finished();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   assert.equal(await page.locator(".chat-turn").count(), 0, "late older page cannot revive cleared history");
   assert.equal(await page.locator(".chat-older").count(), 0);
   console.log("PASS clear while earlier page is in flight and empty history before a new prompt");
@@ -157,6 +194,55 @@ try {
   assert.deepEqual(errors, []);
   console.log("PASS reused tool ids after clear, machine switch and unmount cancellation; no browser errors");
 
+  // An authoritative refusal must hide stale history even if the second, terminal read fails.
+  // This is the DB/export mismatch path: the reader returns scrollback, not a transport error.
+  for (const terminalFailure of [false, true]) {
+    epoch = `refusal-${terminalFailure}`; newest = `discarded newest ${terminalFailure}`; before = `${epoch}:100`;
+    await refresh();
+    await page.getByText(newest, { exact: true }).waitFor();
+    await page.locator(".chat-older").click();
+    await page.getByText("old earlier", { exact: true }).waitFor();
+    await page.locator(".work-block-head").click();
+    await page.locator(".work-row-head").click();
+    await page.locator(".chat-tool-more").click();
+    const lateOutput = await page.evaluate(() => window.qa.requests.length - 1);
+    terminalFails = terminalFailure; unavailable = true; holdTerminal = true;
+    const terminalStarted = nextRoute("terminal");
+    await refresh();
+    await terminalStarted;
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    assert.equal(await page.getByText(newest, { exact: true }).count(), 0, "refused history must disappear while terminal fallback is still pending");
+    holdTerminal = false;
+    releases.splice(0).forEach((release) => release());
+    if (terminalFailure) await page.locator(".chat-inline-error").filter({ hasText: "fictional terminal read failed" }).waitFor();
+    else await page.getByText("Fictional terminal fallback", { exact: true }).waitFor();
+    assert.equal(await page.getByText(newest, { exact: true }).count(), 0, "refused latest history must disappear even when terminal fallback fails");
+    assert.equal(await page.getByText("old earlier", { exact: true }).count(), 0, "refused older pages must disappear");
+    await page.waitForFunction((i) => window.qa.requests[i].signal.aborted, lateOutput);
+    await page.evaluate((i) => window.qa.requests[i].resolve("REFUSED TOOL OUTPUT"), lateOutput);
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    assert.equal(await page.getByText("REFUSED TOOL OUTPUT", { exact: true }).count(), 0);
+    unavailable = false; terminalFails = false; before = null;
+    await refresh();
+    await page.getByText(newest, { exact: true }).waitFor();
+    assert.equal(await page.getByText("old earlier", { exact: true }).count(), 0);
+  }
+  console.log("PASS refusal clears latest/older history and late whole output, including failed terminal fallback; recovery reloads");
+
+  // Keep the existing scrollback change detector: clearing the signature on every fallback
+  // poll would suppress the New messages chip while the reader is scrolled up.
+  unavailable = true;
+  terminalText = Array.from({ length: 100 }, (_, i) => `Fictional terminal line ${i}`).join("\n");
+  await refresh();
+  await page.getByText(/Fictional terminal line 99/).waitFor();
+  await page.getByRole("log").evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event("scroll")); });
+  terminalText += "\nFictional terminal appended line";
+  await refresh();
+  await page.getByText(/Fictional terminal appended line/).waitFor();
+  await page.locator(".chat-new-messages").waitFor();
+  unavailable = false;
+  console.log("PASS changing terminal fallback retains the New messages indicator while scrolled up");
+
   // Exercise the actual product owner. A profiler observes every committed DOM, not just the final frame.
   const select = async (pane: string, machine: string, agent?: string) => {
     product = true;
@@ -182,12 +268,9 @@ try {
   for (const status of [200, 503]) {
     held.add("remote-pc/b");
     const ended = await page.evaluate(() => window.qa.answered.filter((key) => key === "remote-pc/b").length);
+    const remoteStarted = nextRoute("remote-pc/b");
     await select("b", "remote-pc");
-    const deadline = Date.now() + 10_000;
-    while (!pending.some((request) => request.key === "remote-pc/b")) {
-      assert.ok(Date.now() < deadline, "missing delayed B request");
-      await Bun.sleep(20);
-    }
+    await remoteStarted;
     await select("a", "remote-pc");
     await page.getByText("history remote-pc/a", { exact: true }).waitFor();
     held.delete("remote-pc/b");
@@ -223,6 +306,15 @@ try {
   assert.deepEqual(await activity.json(), { tasks: [], runs: [] });
   assert.equal(await page.getByText("Synthetic Devin answer", { exact: true }).count(), 0);
   assert.ok((await page.evaluate(() => window.qa.commits)).every((turns) => !turns.some((turn) => turn.includes("Synthetic Devin"))), "switch to Claude cannot commit Devin history");
+  await select("agy", "local", "agy");
+  await page.getByText("Summarize the last three fictional commits.", { exact: true }).waitFor();
+  await page.getByText("Synthetic Agy answer", { exact: true }).waitFor();
+  await page.locator(".work-block-head").click();
+  assert.equal(await page.locator(".work-row-head").count(), 2, "Agy planner call and independent result remain separate");
+  await page.locator(".work-row-head").last().click();
+  await page.getByText("Fictional commit log", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Synthetic Claude prompt", { exact: true }).count(), 0);
+  console.log("PASS Agy native parser output renders user/assistant text and independent expandable tool results");
   assert.deepEqual(errors, []);
   console.log("PASS synthetic Devin bubbles and tools render; switching to Claude clears Devin history");
   console.log("PASS product pane commits across A→B→A, another PC, and late or failed answers");

@@ -3,7 +3,7 @@ import { Ban, RotateCcw } from "lucide-react";
 import { useT } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
 import { formatKeys, isMacPlatform, shortcutConflict, shortcutEventConflict, shortcutDisplayKeys, shortcutKeys, type ShortcutEventLike, type ShortcutId } from "../lib/shortcuts.ts";
-import { isReservedShortcutBinding, manualShortcutBinding, recordShortcutBinding, resolveShortcutBinding, sameShortcutBinding, type ShortcutBinding, type ShortcutSpec } from "../lib/shortcutBindings.ts";
+import { isInputShortcutBinding, isReservedShortcutBinding, manualShortcutBinding, recordShortcutBinding, resolveShortcutBinding, sameShortcutBinding, type ShortcutBinding, type ShortcutSpec } from "../lib/shortcutBindings.ts";
 import "./ShortcutRecorder.css";
 
 const MANUAL_KEYS = [..."abcdefghijklmnopqrstuvwxyz0123456789,", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "Enter", "Tab", "Escape", "Space", "Backspace", "Delete", "Insert", ...Array.from({ length: 24 }, (_, index) => `F${index + 1}`)];
@@ -34,7 +34,7 @@ export function ShortcutRecorder({ id, label }: { id: ShortcutId; label: string 
   const shownKeys = editing ? previewKeys : currentKeys;
   const reserved = shownBinding !== null && isReservedShortcutBinding(shownBinding, isMacPlatform());
   const exactOverride = (editing && !unchangedManual) || (typeof settings.shortcutOverrides[id] === "object" && settings.shortcutOverrides[id] !== null);
-  const overridesInput = exactOverride && shownBinding !== null && (shownBinding.ctrlKey || (!shownBinding.metaKey && !shownBinding.altKey) || shownBinding.key.startsWith("Arrow"));
+  const overridesInput = exactOverride && shownBinding !== null && isInputShortcutBinding(shownBinding);
   const finish = () => {
     setEditing(false); setRecording(false); setNotice(false);
     setCapturedEvent(null);

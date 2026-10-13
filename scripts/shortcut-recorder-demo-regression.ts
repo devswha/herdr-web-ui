@@ -178,6 +178,24 @@ try {
           assert.equal(await recordButton.evaluate((node) => document.activeElement === node), true);
           await recordButton.click(); await page.keyboard.press("Escape");
           assert.equal(await paletteRow.getByRole("button", { name: "Save", exact: true }).count(), 0);
+          // A mentés előtt a terminál betűkombinációi és a böngésző parancsai is figyelmeztetnek.
+          for (const chord of ["Control+c", "Alt+r"]) {
+            await record(page, "Command palette", chord);
+            await paletteRow.getByText("This binding can override text editing or terminal keys.", { exact: true }).waitFor();
+            assert.deepEqual(await overridesOf(page), {}, "unsafe candidate is only a preview until Save");
+            await paletteRow.getByRole("button", { name: "Cancel", exact: true }).click();
+          }
+          for (const key of ["w", "t", "n", "q"]) {
+            await recordButton.click();
+            await recordButton.dispatchEvent("keydown", { key, code: `Key${key.toUpperCase()}`, metaKey: true });
+            await paletteRow.getByText(/Your browser or operating system may intercept/).waitFor();
+            assert.deepEqual(await overridesOf(page), {}, "browser-reserved preview does not persist automatically");
+            await paletteRow.getByRole("button", { name: "Cancel", exact: true }).click();
+          }
+          const search = page.getByRole("searchbox", { name: "Search shortcuts", exact: true });
+          await search.fill("Command palette");
+          assert.equal(await page.locator(".shortcut-recorder").count(), 1, "upstream shortcut search remains available");
+          await search.fill("");
           await record(page, "Command palette", "Meta+PageUp");
           await page.keyboard.press("Escape");
           assert.equal(await paletteRow.getByRole("button", { name: "Save", exact: true }).count(), 0, "Escape cancels the candidate while the record button retains focus");

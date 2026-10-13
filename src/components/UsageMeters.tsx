@@ -36,10 +36,10 @@ function runsOutText(usage: ProviderUsage, window: UsageWindow | null, now: numb
   return window && formatRunsOut(window, usage.checked_at, now);
 }
 
-function Chip({ usage, count, glance, now }: { usage: ProviderUsage; count: UsageCount; glance: UsageGlance; now: number }) {
+function Chip({ usage, count, glance, now, paced }: { usage: ProviderUsage; count: UsageCount; glance: UsageGlance; now: number; paced: boolean }) {
   const window = glanceWindow(usage, glance);
   // the hairline warns of a limit that runs out before it resets while its share is still low
-  const fast = runsOutText(usage, window, now) !== null;
+  const fast = paced && runsOutText(usage, window, now) !== null;
   return (
     <span className={`usage-chip${level(window)}${fast ? " is-fast" : ""}${usage.problem ? " has-problem" : ""}`}>
       <AgentMark agent={PROVIDER_MARK[usage.id]} size={14} />
@@ -49,7 +49,7 @@ function Chip({ usage, count, glance, now }: { usage: ProviderUsage; count: Usag
   );
 }
 
-function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; count: UsageCount }) {
+function Provider({ usage, now, count, paced }: { usage: ProviderUsage; now: number; count: UsageCount; paced: boolean }) {
   const t = useT();
   const name = PROVIDER_NAME[usage.id];
   const problem = problemText(t, usage);
@@ -65,8 +65,9 @@ function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; co
       {usage.windows.map((window, index) => {
         const reset = formatResetIn(window.resets_at, now);
         const value = meterPercent(window, count);
-        const pace = windowPace(window, usage.checked_at, now);
-        const runsOut = runsOutText(usage, window, now);
+        // Settings → Subscription usage → Show pace, off by default
+        const pace = paced ? windowPace(window, usage.checked_at, now) : null;
+        const runsOut = paced ? runsOutText(usage, window, now) : null;
         return (
           <div key={index} className={`usage-row${level(window)}`}>
             <span className="usage-row-label">{windowLabel(window)}</span>
@@ -143,7 +144,7 @@ export function UsageMeters() {
   const chips = folded > 0 ? shown.slice(0, MAX_CHIPS - 1) : shown;
   const summary = shown.map((usage) => {
     const window = glanceWindow(usage, settings.usageGlance);
-    const runsOut = runsOutText(usage, window, now);
+    const runsOut = settings.usagePace ? runsOutText(usage, window, now) : null;
     return `${usageName(usage)} ${window ? meterText(window, count) : "—"}${runsOut ? ` (${runsOut})` : ""}`;
   }).join(", ");
 
@@ -158,7 +159,7 @@ export function UsageMeters() {
         title={summary}
         onClick={() => setOpen(!open)}
       >
-        {chips.map((usage) => <Chip key={usage.key} usage={usage} count={count} glance={settings.usageGlance} now={now} />)}
+        {chips.map((usage) => <Chip key={usage.key} usage={usage} count={count} glance={settings.usageGlance} now={now} paced={settings.usagePace} />)}
         {folded > 0 && <span className="usage-more">+{folded}</span>}
       </button>
       {open && (
@@ -170,7 +171,7 @@ export function UsageMeters() {
               <RefreshCw aria-hidden="true" className={loading ? "is-spinning" : undefined} />
             </button>
           </header>
-          {shown.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} />)}
+          {shown.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} paced={settings.usagePace} />)}
         </div>
       )}
     </div>
