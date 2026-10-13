@@ -230,23 +230,23 @@ colors and the terminal (xterm reads `terminalTheme()`) keep the palette's value
 
 ### Scale
 
-The sizes at the default interface size. Every token but `--fs-input` is `calc(<size> * var(--ui-scale))`:
-Settings → Appearance → Interface font size writes `--ui-scale` on `<html>` (the chosen body size over
-the density's, `1` until chosen), so the whole scale follows it, while `--fs-input` stays the floor under
-which iOS Safari zooms a focused field.
+The values are the ones in `src/styles.css`. Every token but `--fs-input` is `calc(<size> * var(--ui-scale))`:
+`--ui-scale` is the interface size factor, which Settings → Appearance → Interface font size writes on
+`<html>` (the chosen body size over the density's, `1` until chosen), so the whole scale follows it, while
+`--fs-input` stays the floor under which iOS Safari zooms a focused field.
 
 | Level | Token | Comfortable | Compact | Typical use |
 |-------|-------|-------------|---------|-------------|
-| Micro | `--fs-2xs` | `11px` | `10px` | Badges, hints, kbd |
-| Meta | `--fs-xs` | `12px` | `11px` | Subtitles, field labels |
-| Small | `--fs-sm` | `13px` | `12px` | Controls, row titles |
-| Body | `--fs-md` | `14px` | `13px` | Body and dialog copy |
-| Reading | `--fs-chat` | `15px` | `14px` | Chat prose, the user's bubble, live narration; the message box with a mouse |
-| Large | `--fs-lg` | `16px` | `15px` | Header title, modal title |
-| Title | `--fs-xl` | `18px` | `17px` | Markdown h1 |
-| Display | `--fs-display` | `22px` | `21px` | The empty chat's greeting |
+| Micro | `--fs-2xs` | `calc(11px * var(--ui-scale))` | `calc(10px * var(--ui-scale))` | Badges, hints, kbd |
+| Meta | `--fs-xs` | `calc(12px * var(--ui-scale))` | `calc(11px * var(--ui-scale))` | Subtitles, field labels |
+| Small | `--fs-sm` | `calc(13px * var(--ui-scale))` | `calc(12px * var(--ui-scale))` | Controls, row titles |
+| Body | `--fs-md` | `calc(14px * var(--ui-scale))` | `calc(13px * var(--ui-scale))` | Body and dialog copy |
+| Reading | `--fs-chat` | `calc(15px * var(--ui-scale))` | `calc(14px * var(--ui-scale))` | Chat prose, the user's bubble, live narration; the message box with a mouse |
+| Large | `--fs-lg` | `calc(16px * var(--ui-scale))` | `calc(15px * var(--ui-scale))` | Header title, modal title |
+| Title | `--fs-xl` | `calc(18px * var(--ui-scale))` | `calc(17px * var(--ui-scale))` | Markdown h1 |
+| Display | `--fs-display` | `calc(22px * var(--ui-scale))` | `calc(21px * var(--ui-scale))` | The empty chat's greeting |
 | Input | `--fs-input` | `16px` | `16px` | Mobile-safe text input |
-| Pairing | `--fs-pairing` | `32px` | `26px` | The pairing code in Settings → Devices |
+| Pairing | `--fs-pairing` | `calc(32px * var(--ui-scale))` | `calc(26px * var(--ui-scale))` | The pairing code in Settings → Devices |
 
 | Token | Value | Usage |
 |-------|-------|-------|
@@ -1555,19 +1555,21 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Timing
 
+The values are the ones in `src/styles.css`: `--motion-scale` is the panel motion factor, which Settings → Appearance → Panel motion writes on `<html>`, and it multiplies `--dur-base`, `--dur-sheet` and `--dur-sheet-out`.
+
 | Type | Token | Value | Usage |
 |------|-------|-------|-------|
 | Micro | `--dur-fast` | `120ms` | Hover, active, toggle and control state |
 | Scale | `--motion-scale` | `1` | Factor on `--dur-base`, `--dur-sheet` and `--dur-sheet-out`; Settings → Panel motion writes it on `<html>` (Off `0`, Fast `0.5`, Default `1`, Slow `1.75`) |
-| Standard | `--dur-base` | `180ms` | Drawer slide; reserved dialog timing token; `180ms * --motion-scale` |
+| Standard | `--dur-base` | `calc(180ms * var(--motion-scale))` | Drawer slide; reserved dialog timing token |
 | Pulse | `--dur-pulse` | `1600ms` | Working and reconnecting dots (trough opacity 0.35; text never pulses) |
 | Spin | `--dur-spin` | `1600ms` | One turn of a stepped spinner (the command palette's busy arc); the step count sets the frame rate |
 | Breathe | `--dur-breathe` | `2000ms` | The sidebar's working dot: full for 40% of the cycle, six steps down to opacity 0.5, held, six steps back; every dot shares the document clock's phase, so several runs breathe together. It replaced a spinning arc that read as flicker beside the rows |
 | Easing | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Finite transitions |
 | Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Endless working and reconnecting dots; avoids drawing every display refresh |
 | Spring easing | `--ease-spring` | `cubic-bezier(0.32, 0.72, 0, 1)` | Voice recording pill enter (180ms, scale 0.96->1 + opacity, from the mic button) and exit (120ms); a phone's sheet rising and springing back |
-| Sheet in | `--dur-sheet` | `360ms` | A phone's sheet rising, and springing back after a short drag; `360ms * --motion-scale` |
-| Sheet out | `--dur-sheet-out` | `240ms` | A phone's sheet dropping, however it closed; `240ms * --motion-scale` |
+| Sheet in | `--dur-sheet` | `calc(360ms * var(--motion-scale))` | A phone's sheet rising, and springing back after a short drag |
+| Sheet out | `--dur-sheet-out` | `calc(240ms * var(--motion-scale))` | A phone's sheet dropping, however it closed |
 
 ### Rules
 - Only state changes move: hover/press, the drawer, a phone's sheets, settings switches, working and
