@@ -40,6 +40,9 @@ describe("installed app", () => {
 
 type WorkerRequest = { method: string; url: string; mode: string };
 
+/** The cache no build retires: typefaces and icons (FILES in sw.js). */
+const FILES = /const FILES = "([^"]+)"/.exec(readFileSync(join(publicDir, "sw.js"), "utf8"))![1]!;
+
 type Kept = { body: string; type: string | null };
 const kept = (entry: Kept): Response => new Response(entry.body, entry.type ? { headers: { "content-type": entry.type } } : undefined);
 
@@ -50,6 +53,7 @@ function serviceWorker(stored: Record<string, Record<string, string | Kept>>, so
   const store = new Map(Object.entries(stored).map(([name, entries]) =>
     [name, new Map(Object.entries(entries).map(([key, entry]) => [key, typeof entry === "string" ? { body: entry, type: null } : entry]))]));
   const cacheOf = (entries: Map<string, Kept>) => ({
+    keys: async () => [...entries.keys()].map((key) => ({ url: `${origin}${key}` })),
     match: async (request: string | WorkerRequest) => (entries.has(keyOf(request)) ? kept(entries.get(keyOf(request))!) : undefined),
     put: async (request: string | WorkerRequest, response: Response) => {
       await disk.ready;
@@ -142,13 +146,14 @@ describe("a service worker under a new cache name", () => {
     expect(worker.names()).toContain(before);
   });
 
-  it("drops that cache once its own holds a shell, and carries nothing of the old build over", async () => {
+  it("drops that cache once its own holds a shell, and carries over only its typefaces", async () => {
     const worker = serviceWorker(old());
     await worker.update();
     worker.network.shell = "new shell";
     expect(await worker.navigate("/?pane=p_1")).toBe("new shell");
-    expect(worker.names()).toEqual([current]);
+    expect(worker.names()).toEqual([current, FILES]);
     expect(worker.entries(current)).toEqual(["/"]);
+    expect(worker.entries(FILES)).toEqual(["/assets/PretendardVariable.subset.91-old.woff2"]);
     // what the new shell asks for is fetched and kept as before, one file at a time
     expect(await worker.get("/assets/index-new.js")).toBe("network /assets/index-new.js");
     expect(worker.entries(current)).toEqual(["/", "/assets/index-new.js"]);
@@ -156,6 +161,7 @@ describe("a service worker under a new cache name", () => {
     expect(await worker.navigate()).toBe("new shell");
     expect(await worker.get("/assets/index-new.js")).toBe("network /assets/index-new.js");
     expect(await worker.get("/assets/index-old.js")).toBeNull();
+    expect(await worker.get("/assets/PretendardVariable.subset.91-old.woff2")).toBe("old chunk");
   });
 
   it("gives the page its shell without waiting for the copy to be kept", async () => {
@@ -172,7 +178,7 @@ describe("a service worker under a new cache name", () => {
     written();
     await kept();
     expect(worker.entries(current)).toEqual(["/"]);
-    expect(worker.names()).toEqual([current]);
+    expect(worker.names()).toEqual([current, FILES]);
   });
 
   it("keeps a file the old cache answered while the new shell's copy was still being kept", async () => {
@@ -189,7 +195,7 @@ describe("a service worker under a new cache name", () => {
     written();
     await kept();
     await asked.kept();
-    expect(worker.names()).toEqual([current]);
+    expect(worker.names()).toEqual([current, FILES]);
     expect(worker.entries(current)).toEqual(["/", "/assets/index-old.js"]);
     worker.network.online = false;
     expect(await worker.get("/assets/index-old.js")).toBe("old bundle");
@@ -253,7 +259,7 @@ describe("a service worker of a new build", () => {
     expect(await first.navigate()).toBe("shell");
     await first.get("/assets/index-a.js");
     await first.get("/assets/katex-a.js");
-    expect(first.names()).toEqual([`${current}-aaaaaaaaaaaa`]);
+    expect(first.names()).toEqual([`${current}-aaaaaaaaaaaa`, FILES]);
 
     // the next build's worker over what the first one kept
     const kept = Object.fromEntries(first.names().map((name) => [name, Object.fromEntries(first.entries(name).map((key) => [key, `kept ${key}`]))]));
@@ -265,7 +271,7 @@ describe("a service worker of a new build", () => {
     next.network.online = true;
     next.network.shell = "new shell";
     expect(await next.navigate()).toBe("new shell");
-    expect(next.names()).toEqual([`${current}-bbbbbbbbbbbb`]);
+    expect(next.names().sort()).toEqual([`${current}-bbbbbbbbbbbb`, FILES].sort());
     expect(next.entries(`${current}-bbbbbbbbbbbb`)).toEqual(["/"]);
   });
 
@@ -275,7 +281,79 @@ describe("a service worker of a new build", () => {
     await worker.update();
     worker.network.shell = "new shell";
     expect(await worker.navigate()).toBe("new shell");
-    expect(worker.names()).toEqual([`${current}-cccccccccccc`]);
+    expect(worker.names()).toEqual([`${current}-cccccccccccc`, FILES]);
     expect(worker.entries(`${current}-cccccccccccc`)).toEqual(["/"]);
+  });
+
+  // the worker before answered the new shell's files before this one was installed, so only its cache has them
+  const shellB = '<script type="module" crossorigin src="/assets/index-b.js"></script><link rel="stylesheet" crossorigin href="/assets/index-b.css">';
+  const before = () => ({ [`${current}-aaaaaaaaaaaa`]: { "/": "shell a", "/assets/index-b.js": "b script", "/assets/index-b.css": "b style", "/assets/index-a.js": "a script" } });
+
+  it("carries the files its shell starts with over from the cache it retires", async () => {
+    const worker = serviceWorker(before(), stampServiceWorker(sw, "bbbbbbbbbbbb"));
+    await worker.update();
+    worker.network.shell = shellB;
+    // the network is gone for everything after the page itself
+    const { answer, kept } = worker.fire();
+    expect(await (await answer)!.text()).toBe(shellB);
+    worker.network.online = false;
+    await kept();
+    expect(worker.names().sort()).toEqual([`${current}-bbbbbbbbbbbb`, FILES].sort());
+    expect(worker.entries(`${current}-bbbbbbbbbbbb`).sort()).toEqual(["/", "/assets/index-b.css", "/assets/index-b.js"]);
+    expect(await worker.navigate()).toBe(shellB);
+    expect(await worker.get("/assets/index-b.js")).toBe("b script");
+    expect(await worker.get("/assets/index-b.css")).toBe("b style");
+    expect(await worker.get("/assets/index-a.js")).toBeNull();
+  });
+
+  it("keeps the cache before while a file its shell starts with can be had from nowhere", async () => {
+    const stored = before();
+    delete (stored[`${current}-aaaaaaaaaaaa`] as Record<string, string>)["/assets/index-b.css"];
+    const worker = serviceWorker(stored, stampServiceWorker(sw, "bbbbbbbbbbbb"));
+    await worker.update();
+    worker.network.shell = shellB;
+    const { answer, kept } = worker.fire();
+    expect(await (await answer)!.text()).toBe(shellB);
+    worker.network.online = false;
+    await kept();
+    expect(worker.names()).toContain(`${current}-aaaaaaaaaaaa`);
+    // offline, what the worker before kept still answers
+    expect(await worker.navigate()).toBe(shellB);
+    expect(await worker.get("/assets/index-b.js")).toBe("b script");
+    // the next navigation that reaches the server finishes the copy and retires it
+    worker.network.online = true;
+    expect(await worker.navigate()).toBe(shellB);
+    expect(worker.names().sort()).toEqual([`${current}-bbbbbbbbbbbb`, FILES].sort());
+    expect(worker.entries(`${current}-bbbbbbbbbbbb`).sort()).toEqual(["/", "/assets/index-b.css", "/assets/index-b.js"]);
+  });
+
+  it("keeps the typefaces and icons a phone already has across an update", async () => {
+    const font = "/assets/PretendardVariable.subset.40-abc.woff2";
+    const first = serviceWorker({}, stampServiceWorker(sw, "aaaaaaaaaaaa"));
+    await first.update();
+    expect(await first.navigate()).toBe("shell");
+    await first.get(font);
+    await first.get("/icons/icon-192.png?v=ram1");
+    await first.get("/assets/index-a.js");
+    const kept = Object.fromEntries(first.names().map((name) => [name, Object.fromEntries(first.entries(name).map((key) => [key, `kept ${key}`]))]));
+    const next = serviceWorker(kept, stampServiceWorker(sw, "bbbbbbbbbbbb"));
+    await next.update();
+    next.network.shell = "new shell";
+    expect(await next.navigate()).toBe("new shell");
+    next.network.online = false;
+    expect(await next.get(font)).toBe(`kept ${font}`);
+    expect(await next.get("/icons/icon-192.png?v=ram1")).toBe("kept /icons/icon-192.png?v=ram1");
+    expect(await next.get("/assets/index-a.js")).toBeNull();
+  });
+
+  it("moves the typefaces of the unstamped cache into the one no build retires", async () => {
+    const font = "/assets/PretendardVariable.subset.40-abc.woff2";
+    const worker = serviceWorker({ [current]: { "/": "old shell", "/assets/index-1.js": "1", [font]: "chunk" } }, stampServiceWorker(sw, "cccccccccccc"));
+    await worker.update();
+    worker.network.shell = "new shell";
+    expect(await worker.navigate()).toBe("new shell");
+    expect(worker.entries(FILES)).toEqual([font]);
+    worker.network.online = false;
+    expect(await worker.get(font)).toBe("chunk");
   });
 });

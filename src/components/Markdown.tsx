@@ -20,8 +20,8 @@ let katexModule: Katex | null = null;
 
 /**
  * KaTeX, fetched once; a static render (the unit test) waits on it to draw math as the chat does.
- * Offline before it was ever fetched, or in a tab older than the server's build, an expression
- * stays in its source form: the next one asks again (lib/lazyChunk.ts).
+ * Offline before it was ever fetched, or in a tab older than the server's build, every expression
+ * stays in its source form and the app offers a reload (lib/lazyChunk.ts).
  */
 export const loadKatex: () => Promise<Katex> = lazyChunk(() => import("../lib/katex.ts").then((module) => (katexModule = module.default)));
 
@@ -55,7 +55,7 @@ function MathExpression({ value, displayMode = false }: { value: string; display
 
 type MermaidRender = typeof import("../lib/mermaid.ts").renderMermaid;
 
-/** Mermaid, fetched once with the first diagram (lib/mermaid.ts); until it loads, a diagram stays a code block. */
+/** Mermaid, fetched once with the first diagram (lib/mermaid.ts); one that cannot load leaves diagrams as code blocks until a reload. */
 const loadMermaid: () => Promise<MermaidRender> = lazyChunk(() => import("../lib/mermaid.ts").then((module) => module.renderMermaid));
 
 /** Whether the page is drawn dark (`data-theme` on <html>, which Settings keeps current). */

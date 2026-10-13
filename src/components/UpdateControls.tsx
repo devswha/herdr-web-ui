@@ -77,7 +77,7 @@ function UpdateProgress({ status, fallback }: { status: UpdateStatus | null; fal
 
 export function UpdateControls({ updates, bridgesFollow = false }: { updates: UpdatesModel; bridgesFollow?: boolean }) {
   const t = useT();
-  const { status, error, busy, needsReload, notes, installed, request } = updates;
+  const { status, error, busy, needsReload, reload, notes, installed, request } = updates;
   const locale = useLocale();
   const installing = busy && (status?.phase === "building" || status?.phase === "restarting");
   const tabVersion = staleClientVersion(status, __APP_VERSION__);
@@ -103,7 +103,7 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
       </div>
     </>}
     {status?.checked_at && <p className="settings-hint">{t("Last checked {when}", { when: new Date(status.checked_at).toLocaleString(locale) })}</p>}
-    {needsReload && <p className="settings-hint">{t("The server was updated. Save any unsent drafts, then")} <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button></p>}
+    {needsReload && <p className="settings-hint">{reload === "updated" ? t("The server was updated. Save any unsent drafts, then") : t("Part of the app could not load. Save unsent drafts, then reload.")} <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button></p>}
     </div></div>
   </section>;
 }
@@ -148,7 +148,7 @@ export function HerdrUpdateControls({ enabled, herdrVersion }: { enabled: boolea
  */
 export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpen: () => void }) {
   const t = useT();
-  const { status, error, busy, needsReload, notes, installed, request } = updates;
+  const { status, error, busy, needsReload, reload, notes, installed, request } = updates;
   // the version whose line this device closed: opening its notes closes it too, in every tab
   const [announced, setAnnounced] = useState(readAnnounced);
   // subscribed first, then read: a dismissal in another tab between this tab's first read and its subscription is not lost
@@ -183,7 +183,7 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
   }
   if (needsReload) {
     // a warning before a step that loses unsent drafts: read in full, so this line alone may wrap
-    const text = t("App updated. Save unsent drafts before reloading.");
+    const text = reload === "updated" ? t("App updated. Save unsent drafts before reloading.") : t("Part of the app could not load. Save unsent drafts, then reload.");
     return <div className="update-notice is-line is-warning" role="status">
       <span>{text}</span>
       <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button>

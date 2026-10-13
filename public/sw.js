@@ -10,16 +10,21 @@
 // a page draws, so each is cached as it is first fetched and a phone that has shown Korean once
 // draws it offline. Never list them for install: that would download all 3 MB on every device.
 // A new cache starts empty for the same reason, so the cache of the name before it is kept
-// until this one holds a shell: the page that brought this worker was loaded through the old
-// one, and its shell, bundles and font chunks are all there. Deleted at activation, the first
-// reload without a network would find no shell at all. Nothing is copied across, so no hashed
-// file of an old build outlives the first navigation that reaches the server.
+// until this one holds a shell and the files it starts with: the page that brought this worker
+// was loaded through the old one, and its shell, bundles and font chunks are all there. Deleted
+// at activation, the first reload without a network would find no shell at all. Only the new
+// shell's own files, typefaces and icons are copied across, so no bundle of an old build
+// outlives the first navigation that reaches the server.
 // Every build is a worker of its own: the build stamps BUILD into dist/sw.js
 // (scripts/service-worker-build.ts), so its cache is named after it and the last build's
-// bundles go with the last build's cache. CACHE_NAME is the part a person moves (icons, fonts).
+// bundles go with the last build's cache. CACHE_NAME is the part a person moves.
+// The typefaces and icons are not a build's: a font chunk's name changes only with its contents,
+// and most are the same file release after release. They live in FILES, which no build retires,
+// so an update does not cost a phone the glyphs it had drawn offline.
 const CACHE_NAME = "herdr-web-ui-v4-ram";
 const BUILD = "";
 const CACHE = BUILD ? `${CACHE_NAME}-${BUILD}` : CACHE_NAME;
+const FILES = "herdr-web-ui-files-v1";
 
 const CACHE_FIRST_PATHS = new Set([
   "/favicon.png",
@@ -32,6 +37,12 @@ function isCacheFirst(pathname) {
   return CACHE_FIRST_PATHS.has(pathname);
 }
 
+/** A typeface or an icon: kept in FILES across builds. */
+function isLongLived(pathname) {
+  if (pathname.startsWith("/icons/") || CACHE_FIRST_PATHS.has(pathname)) return true;
+  return pathname.startsWith("/assets/") && /\.(woff2?|ttf)$/.test(pathname);
+}
+
 /** A page where a file was asked for: a server that had no such file answered with its shell. */
 function isPage(response) {
   return (response.headers.get("content-type") || "").startsWith("text/html");
@@ -42,16 +53,57 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  // no cache is deleted here: see CACHE_NAME and BUILD
+  // no cache is deleted here: see CACHE_NAME, BUILD and keepShell
   event.waitUntil(self.clients.claim());
 });
 
-/** The shell just fetched is this cache's "/", and only then do the caches of other names go. */
+/** The files a shell cannot start without: its entry script and its stylesheet. */
+function shellFiles(html) {
+  const files = new Set();
+  for (const [, path] of html.matchAll(/<(?:script|link)\b[^>]*?\s(?:src|href)="(\/assets\/[^"?#]+\.(?:js|css))"/g)) files.add(path);
+  return [...files];
+}
+
+/** A file from a cache of another name, else from the network; null when neither has it. */
+async function fileFor(path) {
+  const older = await caches.match(path);
+  if (older && !isPage(older)) return older;
+  try {
+    const response = await fetch(path);
+    return response.ok && response.type === "basic" && !isPage(response) ? response : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * The shell just fetched is this cache's "/", and the caches of other names go only once this
+ * one also holds every file that shell starts with: the worker before may have answered them,
+ * and a network that drops before the page asks again must not leave a shell without them.
+ * Until then the old caches stay, the complete start they hold with them. Their typefaces and
+ * icons move to FILES first.
+ */
 async function keepShell(response) {
+  const html = await response.clone().text();
   const cache = await caches.open(CACHE);
   await cache.put("/", response);
-  const names = await caches.keys();
-  await Promise.all(names.filter((name) => name !== CACHE).map((name) => caches.delete(name)));
+  for (const path of shellFiles(html)) {
+    if (await cache.match(path)) continue;
+    const file = await fileFor(path);
+    if (!file) return;
+    await cache.put(path, file);
+  }
+  const files = await caches.open(FILES);
+  const names = (await caches.keys()).filter((name) => name !== CACHE && name !== FILES);
+  for (const name of names) {
+    const old = await caches.open(name);
+    for (const request of await old.keys()) {
+      if (!isLongLived(new URL(request.url).pathname) || (await files.match(request))) continue;
+      const file = await old.match(request);
+      if (file && !isPage(file)) await files.put(request, file);
+    }
+  }
+  await Promise.all(names.map((name) => caches.delete(name)));
 }
 
 /** The shell to start from offline: this cache's, else the one a cache not yet deleted holds. */
@@ -94,7 +146,7 @@ self.addEventListener("fetch", (event) => {
   if (isCacheFirst(url.pathname)) {
     event.respondWith(
       (async () => {
-        const cache = await caches.open(CACHE);
+        const cache = await caches.open(isLongLived(url.pathname) ? FILES : CACHE);
         const own = await cache.match(request);
         if (own) return own;
         const older = await caches.match(request);

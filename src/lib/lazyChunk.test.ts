@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { lazyChunk, onLazyChunkFailure } from "./lazyChunk.ts";
+import { lazyChunk, lazyChunkFailed, onLazyChunkFailure } from "./lazyChunk.ts";
 
 describe("lazyChunk", () => {
   it("loads once while pending and once loaded", async () => {
@@ -12,7 +12,7 @@ describe("lazyChunk", () => {
     expect(calls).toBe(1);
   });
 
-  it("asks again after a failure and tells every listener of it", async () => {
+  it("keeps a failure for the page's life and tells every listener of it once", async () => {
     let calls = 0;
     let told = 0;
     const stop = onLazyChunkFailure(() => { told++; });
@@ -21,13 +21,15 @@ describe("lazyChunk", () => {
       const load = lazyChunk(async () => {
         calls++;
         if (calls === 1) throw new TypeError("Failed to fetch dynamically imported module");
-        return "katex";
+        // a second try in a browser: Vite skipped the stylesheet that failed, the script loads alone
+        return "katex without its styles";
       });
       await expect(load()).rejects.toThrow("Failed to fetch dynamically imported module");
       expect(told).toBe(1);
-      // a tab that kept the failure would draw source text until a reload
-      expect(await load()).toBe("katex");
-      expect(calls).toBe(2);
+      expect(lazyChunkFailed()).toBe(true);
+      // only a reload fetches it again: a second try would draw math unstyled
+      await expect(load()).rejects.toThrow("Failed to fetch dynamically imported module");
+      expect(calls).toBe(1);
       expect(told).toBe(1);
     } finally {
       stop();

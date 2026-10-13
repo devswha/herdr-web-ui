@@ -100,10 +100,41 @@ try {
   write("Later: \\(z^2\\)");
   await offline.evaluate(() => window.qa.refresh());
   await offline.getByText("\\(z^2\\)").waitFor();
+  // a later expression does not ask again: Chrome would answer from the failed import without a
+  // fetch, so the recovery is the reload line (lib/lazyChunk.ts), not a retry
   assert.equal(aborted, 1, "later expressions reuse the failed load without retrying");
   assert.equal(await offline.locator(".katex").count(), 0);
   assert.deepEqual(errors, []);
-  console.log("math: browser OK (KaTeX fetched with the first expression, once; inline and display typeset; offline keeps the source)");
+
+  // only the stylesheet fails: Vite's loader never asks for a stylesheet twice, so a second try
+  // would import the script alone and draw math unstyled. Every expression keeps its source.
+  const unstyled = await browser.newPage();
+  unstyled.on("pageerror", (error) => errors.push(error.message));
+  await unstyled.route("**/api/pane/conversation?*", (route) => route.fulfill({ json: conversation }));
+  write("Prose only, nothing to typeset.");
+  await unstyled.goto(`http://127.0.0.1:${server.port}/`);
+  await unstyled.getByText("Prose only, nothing to typeset.").waitFor();
+  const failedStyle = unstyled.waitForEvent("requestfailed", { predicate: (request) => /\/katex-[^/]+\.css$/.test(request.url()), timeout: 5_000 });
+  await unstyled.route(/\/katex-[^/]+\.css$/, (route) => route.abort());
+  write("First: \\(x^2\\)");
+  await unstyled.evaluate(() => window.qa.refresh());
+  await failedStyle;
+  await unstyled.getByText("\\(x^2\\)").waitFor();
+  await unstyled.unroute(/\/katex-[^/]+\.css$/);
+  const katexAfter: string[] = [];
+  unstyled.on("request", (request) => { if (/\/katex-[^/]+\.(?:js|css)$/.test(new URL(request.url()).pathname)) katexAfter.push(new URL(request.url()).pathname); });
+  // more expressions than before: the ones past the first are drawn by new components, which ask for KaTeX again
+  write("Later: \\(z^2\\)\n\nAnd: \\(w^2\\)\n\nAgain: \\(v^2\\)");
+  await unstyled.evaluate(() => window.qa.refresh());
+  await unstyled.getByText("Again:").waitFor();
+  // a retry asks for the script as the new expressions mount, before a request the page sends
+  // after them: once that one is answered, every request of the retry has been seen
+  await unstyled.evaluate(() => fetch("/index.html").then((response) => response.text()));
+  assert.deepEqual(katexAfter, [], "a later expression does not load KaTeX without its stylesheet");
+  assert.equal(await unstyled.locator(".katex").count(), 0, "math is not drawn without its stylesheet");
+  assert.equal(await unstyled.getByText("\\(v^2\\)").count(), 1, "a later expression keeps its source");
+  assert.deepEqual(errors, []);
+  console.log("math: browser OK (KaTeX fetched with the first expression, once; inline and display typeset; offline keeps the source; a failed stylesheet is not retried into unstyled math)");
 } finally {
   await browser?.close();
   server?.stop();
