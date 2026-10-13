@@ -62,9 +62,11 @@ export function ChatFind({ rows, older, olderState, onOlder, onMatch, onClose }:
   return <form className="find-bar chat-find" role="search" aria-label={t("Find in messages")}
     onSubmit={(event) => { event.preventDefault(); next(1); }}
     onKeyDown={(event) => {
-      if (event.nativeEvent.isComposing) return;
+      // Safari sends the Enter that commits IME text with isComposing false and keyCode 229
+      if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
-      if (event.key === "Enter") { event.preventDefault(); next(event.shiftKey ? -1 : 1); }
+      // only the field's Enter steps through matches: Enter on a button presses that button
+      if (event.key === "Enter" && event.target === input.current) { event.preventDefault(); next(event.shiftKey ? -1 : 1); }
     }}>
     <div className="find-bar-controls">
       <label className="find-bar-query">

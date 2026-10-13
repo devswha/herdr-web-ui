@@ -262,6 +262,11 @@ try {
     await search.fill("NEEDLE");
     await page.getByRole("button", { name: "Next match", exact: true }).click();
     assert.equal(await page.locator(".find-bar-count").textContent(), "2 of 2");
+    // Enter on a button presses that button; only the field's Enter steps to the next match
+    await page.getByRole("button", { name: "Previous match", exact: true }).press("Enter");
+    assert.equal(await page.locator(".find-bar-count").textContent(), "1 of 2", "Enter on Previous match goes back");
+    await search.press("Enter");
+    assert.equal(await page.locator(".find-bar-count").textContent(), "2 of 2", "Enter in the field goes forward");
     searchPrefix = "PREFIX-CHANGE\n\n";
     await update(page);
     await page.getByText("PREFIX-CHANGE", { exact: true }).waitFor();
@@ -277,7 +282,7 @@ try {
     assert.ok(await findButton.evaluate((button) => document.activeElement === button), "closing search restores focus");
     await page.keyboard.press(process.platform === "darwin" ? "Meta+f" : "Control+f");
     await search.waitFor();
-    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Close search", exact: true }).press("Enter");
     await findButton.waitFor();
     await visibleMessage(page, "local E1 ROW--40");
     console.log(`PASS ${width} ${theme}: source Find reaches an offscreen row and an unloaded older page; shortcut and close focus work`);
