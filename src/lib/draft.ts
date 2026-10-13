@@ -70,3 +70,29 @@ export function applyToDraft(draft: InputDraft, data: string): InputDraft {
 export function draftIsEmpty(draft: InputDraft): boolean {
   return draft.text.length === 0 && !draft.truncated;
 }
+
+/** Backspace on held input: the last character typed goes, as it would at a prompt. */
+export function eraseFromDraft(draft: InputDraft): InputDraft {
+  if (draft.text.length === 0) return draft;
+  return { ...draft, text: Array.from(draft.text).slice(0, -1).join("") };
+}
+
+/** Enter with modifiers as a program's keyboard protocol has it (modifyOtherKeys, CSI u): it commits the line too. */
+const ENCODED_ENTER = /\x1b\[(?:27;\d+;13~|13(?:;\d+)?u)/;
+
+/**
+ * What a chunk typed while a draft is held does. Nothing that commits the line reaches the
+ * terminal beside the held text, whatever its encoding (`enter` is the key itself, before it was
+ * turned into a modifier sequence), and a chord never does either: those are `block`ed and told.
+ * Text joins the draft (`hold`), Backspace edits it (`erase`), and a paste the draft cannot keep
+ * whole (line breaks, tabs) is told too, never dropped in silence. Other control keys (Ctrl+C,
+ * Escape, arrows) and xterm's own answers to the program `pass` to the terminal: an interrupt
+ * must not wait on the draft.
+ */
+export function heldInputAction(input: string, typed: { enter: boolean; chord: boolean; paste: boolean }): "block" | "erase" | "hold" | "pass" {
+  if (typed.chord || typed.enter) return "block";
+  if (!typed.paste && (input === "\x7f" || input === "\b")) return "erase";
+  if (applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) return "hold";
+  if (typed.paste || /[\r\n]/.test(input) || ENCODED_ENTER.test(input)) return "block";
+  return "pass";
+}

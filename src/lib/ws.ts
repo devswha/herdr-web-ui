@@ -129,6 +129,12 @@ export class HerdrSocket {
   /** settles when the probe in flight ends (answered, given up, or the connection ended) */
   private probeDone: Promise<void> = Promise.resolve();
   private markProbeDone: () => void = () => {};
+  /**
+   * How the last probe ended: true for its pong (or a snapshot from a bridge without "ping", trusted
+   * as before), false when it was cancelled (the page hidden) or its connection ended. Only an
+   * answered probe lets the submits that waited on it go out.
+   */
+  private probeAnswered = true;
   /** probes since the last pong that ended in a drop: each doubles the next deadline */
   private probeDrops = 0;
   /** whether the last snapshot listed "ping": kept across reconnects, so a socket whose snapshot never comes is probed too */
@@ -140,8 +146,9 @@ export class HerdrSocket {
   private readonly onWake = (): void => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
       this.pageHidden = true;
-      // a deadline must not run out while the page is frozen: the page coming back asks again
-      this.endProbe();
+      // a deadline must not run out while the page is frozen: the page coming back asks again. The
+      // probe was not answered, so what waited on it is refused rather than sent (see probeSettled)
+      this.endProbe(false);
       return;
     }
     if (this.pageHidden) {
@@ -254,13 +261,11 @@ export class HerdrSocket {
         /* ignore malformed frame */
         return;
       }
-      if (message.type === "pong") {
-        // ended before the handlers run, so the input checks they make already read true
-        if (this.probeIds.has(message.id)) {
-          this.probeDrops = 0;
-          this.endProbe();
-        }
-        return;
+      // ended before the handlers run, so the input checks they make already read true; the pong
+      // goes on to them, so a view that read input as refused during the probe reads it again
+      if (message.type === "pong" && this.probeIds.has(message.id)) {
+        this.probeDrops = 0;
+        this.endProbe(true);
       }
       // The server can force this connection to observe. Apply its authority before
       // waking pending submits or notifying UI handlers about the acknowledged role.
@@ -271,6 +276,10 @@ export class HerdrSocket {
         this.features = new Set(message.features ?? []);
         this.snapshotKnown = true;
         this.pingKnown = this.features.has("ping");
+        // a probe sent before this snapshot, on ping support remembered from an earlier connection:
+        // this bridge does not answer pings (an older one after a reconnect), so its connection is
+        // trusted as before rather than dropped at the probe's deadline
+        if (!this.pingKnown && this.probeTimer !== null) this.endProbe(true);
         if (!this.features.has("input-ready")) for (const pane of this.outputSeen) if (this.attached.has(pane)) this.inputReady.add(pane);
         // Capabilities arrive after open's role/attach replay. Restore only current interest,
         // never send an unknown frame to an older bridge or replay a hidden/detached chat.
@@ -394,7 +403,7 @@ export class HerdrSocket {
       if (this.socket !== socket) return;
       // the server is closing it: its close event decides, so a 4008 still stops output (see wake())
       if (socket.readyState === SOCKET_CLOSING) {
-        this.endProbe();
+        this.endProbe(false);
         return;
       }
       // the page was frozen past the deadline: no pong could have been read meanwhile, so ask again,
@@ -412,18 +421,27 @@ export class HerdrSocket {
     try { this.rawSend({ type: "ping", id }); } catch { /* see above */ }
   }
 
-  private endProbe(): void {
+  private endProbe(answered: boolean): void {
     if (this.probeTimer !== null) window.clearTimeout(this.probeTimer);
     this.probeTimer = null;
     this.probeIds.clear();
+    this.probeAnswered = answered;
     this.markProbeDone();
     if (this.connectionState === "probing") this.connectionState = "open";
   }
 
-  /** Waits out a probe in flight on `socket`; true when it is still this connection afterwards. */
+  /**
+   * Waits out a probe in flight on `socket`; true when it is still this connection afterwards and
+   * the probe waited on was answered. A probe cancelled because the page was hidden proves nothing
+   * about the path: a submit, a pending action or a secret that waited on it is not sent.
+   */
   private async probeSettled(socket: WebSocket): Promise<boolean> {
-    while (this.probeTimer !== null && this.socket === socket) await this.probeDone;
-    return this.connected && this.socket === socket;
+    let waited = false;
+    while (this.probeTimer !== null && this.socket === socket) {
+      waited = true;
+      await this.probeDone;
+    }
+    return this.connected && this.socket === socket && (!waited || this.probeAnswered);
   }
 
   /**
@@ -455,7 +473,7 @@ export class HerdrSocket {
   }
 
   private clearLiveness(): void {
-    this.endProbe();
+    this.endProbe(false);
     if (this.idleTimer !== null) window.clearInterval(this.idleTimer);
     this.idleTimer = null;
   }

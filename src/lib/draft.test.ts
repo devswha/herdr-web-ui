@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { applyToDraft, draftIsEmpty, DRAFT_TTL_MS, EMPTY_DRAFT, restoreDraft } from "./draft.ts";
+import { applyToDraft, draftIsEmpty, DRAFT_TTL_MS, EMPTY_DRAFT, eraseFromDraft, heldInputAction, restoreDraft } from "./draft.ts";
 
 describe("applyToDraft", () => {
   it("appends a printable character to the draft", () => {
@@ -105,5 +105,39 @@ describe("restoreDraft", () => {
     const legacy = JSON.stringify({ text: "ls", droppedSpecial: 3, at: now });
     expect(restoreDraft(legacy, now)).toEqual({ text: "ls", truncated: false });
     expect(restoreDraft(JSON.stringify({ text: "", droppedSpecial: 3, at: now }), now)).toEqual(EMPTY_DRAFT);
+  });
+});
+
+describe("heldInputAction", () => {
+  const key = { enter: false, chord: false, paste: false };
+
+  it("blocks every Enter beside a held draft, also the one a keyboard protocol encodes without a line break", () => {
+    // Ctrl+Enter as modifyOtherKeys has it (Claude Code's "send now"): no CR, no chord, still a commit
+    expect(heldInputAction("\x1b[27;5;13~", { ...key, enter: true })).toBe("block");
+    expect(heldInputAction("\x1b[27;5;13~", key)).toBe("block");
+    expect(heldInputAction("\x1b[13;5u", key)).toBe("block");
+    for (const enter of ["\r", "\n", "\x1b\r"]) expect(heldInputAction(enter, key)).toBe("block");
+    expect(heldInputAction("\x0a", { ...key, chord: true })).toBe("block");
+  });
+
+  it("holds text, lets Backspace edit the draft, and tells a paste the draft cannot keep whole", () => {
+    expect(heldInputAction("ls", key)).toBe("hold");
+    expect(heldInputAction("\x1b[200~one line\x1b[201~", { ...key, paste: true })).toBe("hold");
+    expect(heldInputAction("\x7f", key)).toBe("erase");
+    expect(heldInputAction("\b", key)).toBe("erase");
+    expect(heldInputAction("line1\nline2", { ...key, paste: true })).toBe("block");
+    expect(heldInputAction("\x1b[200~line1\rline2\x1b[201~", { ...key, paste: true })).toBe("block");
+  });
+
+  it("passes other control keys and xterm's own answers to the program", () => {
+    for (const control of ["\x03", "\x1b", "\t", "\x1b[A", "\x1b[12;40R", "\x1b[I"]) expect(heldInputAction(control, key)).toBe("pass");
+  });
+});
+
+describe("eraseFromDraft", () => {
+  it("removes the last character, a whole code point, and keeps a loss told", () => {
+    expect(eraseFromDraft({ text: "ls", truncated: false })).toEqual({ text: "l", truncated: false });
+    expect(eraseFromDraft({ text: "a\u{1F600}", truncated: true })).toEqual({ text: "a", truncated: true });
+    expect(eraseFromDraft(EMPTY_DRAFT)).toBe(EMPTY_DRAFT);
   });
 });

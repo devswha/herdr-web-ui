@@ -14,7 +14,7 @@ import { PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../li
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
-import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
+import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, eraseFromDraft, heldInputAction, restoreDraft, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
@@ -1148,7 +1148,12 @@ export function PaneTerminal({
     });
     session.connect();
 
-    const poll = window.setInterval(() => { setConnected(socket.connected); setConversationPushes(socket.conversationPushes()); }, 1000);
+    // input readiness too: a liveness probe refuses input without a frame to say so
+    const poll = window.setInterval(() => {
+      setConnected(socket.connected);
+      setConversationPushes(socket.conversationPushes());
+      if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
+    }, 1000);
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
@@ -1199,6 +1204,8 @@ export function PaneTerminal({
       barKeyRef.current = null;
       const physicalChord = typedChord;
       typedChord = null;
+      // Enter itself, before a modifier turns it into a sequence with no line break (Ctrl+Enter)
+      const enterKey = data === "\r";
       if (enterAs !== null && data === "\r") data = enterAs;
       enterAs = null;
       if (commandBackspace && data === "\x7f") data = "\x15";
@@ -1212,19 +1219,17 @@ export function PaneTerminal({
           : physicalChord ?? (hasModifiers(modifiersRef.current) && key !== null ? terminalChord(key, modifiersRef.current) : null)
         : null;
       if (draftHeldForRef.current === current) {
-        // A chord is never held, and never sent beside held text either (Ctrl+J would run the line).
-        if (chord !== null) {
+        // Enter (in any encoding) and chords never reach the pty beside held text, so a partial
+        // command never runs; text and Backspace edit the draft; other control keys (Ctrl+C,
+        // Escape, arrows) still reach the program below (see heldInputAction)
+        const action = heldInputAction(input, { enter: enterKey, chord: chord !== null, paste: pasting });
+        if (action === "block") {
           const t = tRef.current;
           setInputError(t("Not sent: send or discard the held input first."));
           return;
         }
-        // Text, a paste, Backspace and anything with a line break go to the draft, which leaves
-        // Enter out, so a partial command never runs. Other control keys (Ctrl+C, Escape, Tab,
-        // arrows) still reach the program below: an interrupt must not wait on the draft.
-        if (/[\r\n\x7f\b]/.test(input) || applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) {
-          setDraft((prev) => applyToDraft(prev, input));
-          return;
-        }
+        if (action === "erase") { setDraft(eraseFromDraft); return; }
+        if (action === "hold") { setDraft((prev) => applyToDraft(prev, input)); return; }
       }
       // Herdr, rather than xterm's legacy encoder, preserves all modifier bits
       // in the keyboard protocol requested by the program in this pane.
@@ -1994,6 +1999,8 @@ export function PaneTerminal({
     const session = sessionRef.current;
     const pane = paneRef.current;
     if (!term || !socket || !session || pane === null || secretRef.current !== null || heldRef.current) return null;
+    // its Enter would run the pty's line without the start a held draft keeps
+    if (draftHeldForRef.current === pane) return Promise.resolve({ ok: false, code: "held_input", message: "send or discard the held input first" });
     // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
     const epoch = session.epoch;
     const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft);
@@ -2050,6 +2057,8 @@ export function PaneTerminal({
     const socket = socketRef.current;
     const pane = paneRef.current;
     if (!term || !socket || pane === null || secretRef.current !== null) return false;
+    // its Enter would run the pty's line without the start a held draft keeps
+    if (draftHeldForRef.current === pane) return Promise.resolve(tRef.current("Not sent: send or discard the held input first."));
     const message = composerMessage(text);
     const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
     const sent = socket.submit(pane, message, payload, true);
