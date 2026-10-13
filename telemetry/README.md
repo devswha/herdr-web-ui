@@ -50,6 +50,9 @@ app version that sends snapshots:
 bunx wrangler deploy
 ```
 
+Then record the deploy with `bun scripts/release-guards.ts --worker-deployed` and commit
+`telemetry/deployed.json`: a release whose Worker sources differ from the recorded ones fails.
+
 The Worker answers at `https://herdr-web-ui-telemetry.<account>.workers.dev/v1/events`, and
 `TELEMETRY_URL` in `server/telemetry.ts` must name that address. `HERDR_WEB_TELEMETRY_URL` does not
 exist on purpose: an install cannot be pointed elsewhere by its environment.

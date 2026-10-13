@@ -140,6 +140,13 @@ jobs:
           node: 'true'
       - run: bun install --frozen-lockfile
       - run: bun run check fast
+      # A release (package.json's version not tagged yet) must raise REMOTE_BUNDLE_VERSION when the
+      # bundle's inputs changed, record the telemetry Worker deploy and carry its patch notes; any
+      # other tree passes at once. The checkout is shallow, so the tags it compares with come first.
+      - name: Release guards
+        run: |
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*' '+refs/tags/remote-v*:refs/tags/remote-v*'
+          bun scripts/release-guards.ts
       - name: Preserve check report and verification logs
         if: always()
         uses: actions/upload-artifact@v7
