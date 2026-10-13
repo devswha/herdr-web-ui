@@ -23,7 +23,7 @@ describe("PTY sidecar boundary", () => {
   // node-pty panics Bun (oven-sh/bun#18546): only the Node sidecar loads it. `Bun.resolveSync`
   // in server/pty/sidecar.ts only finds the package for Node and is not a load.
   const NODE_SIDE = new Set(["server/pty/pty-host.mjs", "server/pty/smoke.mjs"]);
-  const LOAD = /\bfrom\s*["'](?:@lydell\/)?node-pty[^"']*["']|\bimport\s*\(?\s*["'](?:@lydell\/)?node-pty[^"']*["']|\brequire\s*\(\s*["'](?:@lydell\/)?node-pty[^"']*["']/;
+  const LOAD = /\bfrom\s*["'](?:@lydell\/)?node-pty[^"']*["']|\bimport\s*\(?\s*["'](?:@lydell\/)?node-pty[^"']*["']|\b(?:require|createRequire\s*\([^()]*(?:\([^()]*\))?[^()]*\))\s*\(\s*["'](?:@lydell\/)?node-pty[^"']*["']/;
 
   it("loads node-pty only in the Node sidecar", () => {
     // this file names the package in its own examples
@@ -37,6 +37,7 @@ describe("PTY sidecar boundary", () => {
   it("knows an import from a mention", () => {
     expect(LOAD.test("import * as pty from \"@lydell/node-pty\";")).toBe(true);
     expect(LOAD.test("const pty = await import('node-pty')")).toBe(true);
+    expect(LOAD.test("const pty = createRequire(import.meta.url)(\"@lydell/node-pty\");")).toBe(true);
     expect(LOAD.test("Bun.resolveSync(\"@lydell/node-pty\", import.meta.dir);")).toBe(false);
   });
 });
@@ -74,17 +75,33 @@ describe("error bodies", () => {
       "Answer JSON with jsonResponse, errorResponse, badRequest or conflictResponse from server/http.ts, not Response.json or new Response(JSON.stringify(…)).");
   });
 
-  /** An answer whose body opens with `error`: the first argument of jsonResponse or of a local wrapper around it (`reply`, `fail`). */
-  const ERROR_BODY = /\b(?:jsonResponse|reply|fail)\s*\(\s*\{\s*error\s*:\s*/;
+  /** An answer built from an object literal: jsonResponse or a local wrapper around it (`reply`, `fail`). */
+  const ANSWER = /\b(?:jsonResponse|reply|fail)\s*\(\s*\{/;
+  /** The value of the object's own top-level `error` key (strings blanked), or null when it has none. */
+  const errorValue = (object: string): string | null => {
+    for (let i = 1, depth = 0; i < object.length; i++) {
+      const ch = object[i]!;
+      if ("{[(".includes(ch)) depth += 1;
+      else if ("}])".includes(ch)) depth -= 1;
+      else if (depth === 0 && /^(?<![\w$.])error\s*:/.test(object.slice(i)) && !/[\w$.]/.test(object[i - 1]!)) {
+        return object.slice(i).replace(/^error\s*:\s*/, "");
+      }
+    }
+    return null;
+  };
+  /** Whether the answer at `at` has an error body other than `{ error: { code, message } }`. */
   const malformed = (code: string, at: number): boolean => {
-    const value = code.slice(at).replace(ERROR_BODY, "");
+    const blank = stripComments(code.slice(at), { strings: true });
+    const object = braces(blank, blank.indexOf("{"));
+    const value = errorValue(object);
+    if (value === null) return false;
     if (!value.startsWith("{")) return true;
     const body = braces(value, 0);
-    return !/\bcode\b/.test(body) || !/\bmessage\b/.test(body);
+    return !/\bcode\s*[:,}]/.test(body) || !/\bmessage\s*[:,}]/.test(body);
   };
 
   it("gives every error body both a code and a message", () => {
-    const bodies = matches(serverCode(), ERROR_BODY);
+    const bodies = matches(serverCode(), ANSWER).filter((match) => errorValue(braces(stripComments(match.code.slice(match.index), { strings: true }), match.code.indexOf("{", match.index) - match.index)) !== null);
     expect(bodies.length).toBeGreaterThan(30);
     fail(bodies.filter((match) => malformed(match.code, match.index)).map((match) => match.at),
       "An error body is { error: { code, message } } with a snake_case code: use badRequest(code, message) or conflictResponse(code, message) from server/http.ts, errorResponse(error) for a thrown error, or jsonResponse({ error: { code, message } }, status) for another status.");
@@ -94,9 +111,46 @@ describe("error bodies", () => {
     expect(malformed("return jsonResponse({ error: \"nope\" }, 400);", 7)).toBe(true);
     expect(malformed("return reply({ error: { code: \"x\" } }, 400);", 7)).toBe(true);
     expect(malformed("return jsonResponse({ error: { code, message: a ? b : \"c\" } }, 503);", 7)).toBe(false);
-    expect(ERROR_BODY.test("this.patch({ phase: \"error\", error: \"failed\" });")).toBe(false);
+    expect(malformed("return jsonResponse({ error: { message: \"invalid pairing code\" } }, 400);", 7)).toBe(true);
+    expect(malformed("return jsonResponse({ ok: false, error: \"nope\" }, 400);", 7)).toBe(true);
+    expect(malformed("return jsonResponse({ ok: true, data: { error: \"kept\" } });", 7)).toBe(false);
+    expect(ANSWER.test("this.patch({ phase: \"error\", error: \"failed\" });")).toBe(false);
   });
 });
+
+/**
+ * Unix-socket connections opened in `code` (comments removed): Bun.connect with `unix:` or with
+ * options it cannot read, and node:net's connect or createConnection (named, default or namespace
+ * import, or require) called with `path:` or with a single path-like argument.
+ */
+function unixConnects(file: string, code: string): { file: string; at: string; bun: boolean }[] {
+  const at = (index: number) => `${file}:${lineOf(code, index)}: ${code.split("\n")[lineOf(code, index) - 1]!.trim().slice(0, 160)}`;
+  /** The first argument of the call whose `(` ends at `open`. */
+  const argument = (open: number): string => {
+    const rest = code.slice(open).trimStart();
+    return rest.startsWith("{") ? braces(rest, 0) : /^[^,)]*/.exec(rest)![0].trim();
+  };
+  const found: { file: string; at: string; bun: boolean }[] = [];
+  for (const match of code.matchAll(/\bBun\.connect\s*(?:<[^>]*>)?\s*\(/g)) {
+    const arg = argument(match.index + match[0].length);
+    if (!arg.startsWith("{") || /\bunix\s*:/.test(arg)) found.push({ file, at: at(match.index), bun: true });
+  }
+  const names: string[] = [];
+  for (const match of code.matchAll(/\bimport\s*\{([^}]*)\}\s*from\s*["'](?:node:)?net["']/g)) {
+    for (const item of match[1]!.matchAll(/\b(connect|createConnection)\b(?:\s+as\s+(\w+))?/g)) names.push(item[2] ?? item[1]!);
+  }
+  for (const match of code.matchAll(/\bimport\s+(?:\*\s*as\s+)?(\w+)\s*(?:,\s*\{[^}]*\}\s*)?from\s*["'](?:node:)?net["']|\b(?:const|let|var)\s+(\w+)\s*=\s*(?:require|await\s+import)\s*\(\s*["'](?:node:)?net["']\s*\)/g)) {
+    const space = match[1] ?? match[2]!;
+    names.push(`${space}.connect`, `${space}.createConnection`);
+  }
+  if (!names.length) return found;
+  for (const match of code.matchAll(new RegExp(`(?<![\\w.])(?:${names.map((name) => name.replace(".", "\\.")).join("|")})\\s*\\(`, "g"))) {
+    const arg = argument(match.index + match[0].length);
+    // TCP is `{ host, port }` or `(port, host)`; a path, an options object with `path:` or anything unreadable is a unix socket
+    if (arg.startsWith("{") ? /\bpath\s*:/.test(arg) : !/^\d|port/i.test(arg)) found.push({ file, at: at(match.index), bun: false });
+  }
+  return found;
+}
 
 describe("herdr socket", () => {
   // herdr closes the socket after each answer, so every RPC opens its own connection in
@@ -111,13 +165,21 @@ describe("herdr socket", () => {
   };
 
   it("opens herdr's socket only in server/herdr/client.ts", () => {
-    const unix = matches(serverCode(), /\bBun\.connect\s*(?:<[^>]*>)?\s*\(/).filter((match) => /\bunix\s*:/.test(braces(match.code, match.code.indexOf("{", match.index))));
-    const net = matches(serverCode(), /\bimport\s*\{[^}]*\b(?:connect|createConnection)\b[^}]*\}\s*from\s*["'](?:node:)?net["']/);
-    expect(unix.map((match) => match.file)).toContain("server/herdr/client.ts");
-    fail([
-      ...unix.filter((match) => !(match.file in UNIX_CONNECT_ALLOWED)).map((match) => match.at),
-      ...net.filter((match) => !(match.file in NET_CONNECT_ALLOWED)).map((match) => match.at),
-    ], "Call herdr through the helpers in server/herdr/client.ts (herdrRpc and the named wrappers): one connection per call, never a pooled or second client. A socket that is not herdr's needs an entry with its reason in server/conventions.test.ts.");
+    const uses = serverCode().flatMap((file) => unixConnects(file, stripComments(read(file))));
+    expect(uses.map((use) => use.file)).toContain("server/herdr/client.ts");
+    fail(uses.filter((use) => !(use.file in (use.bun ? UNIX_CONNECT_ALLOWED : NET_CONNECT_ALLOWED))).map((use) => use.at),
+      "Call herdr through the helpers in server/herdr/client.ts (herdrRpc and the named wrappers): one connection per call, never a pooled or second client. A unix socket that is not herdr's gets an entry with its reason in UNIX_CONNECT_ALLOWED (Bun.connect) or NET_CONNECT_ALLOWED (node:net) in server/conventions.test.ts. A TCP connection (`{ host, port }`) is not flagged.");
+  });
+
+  it("tells a unix socket from a TCP one", () => {
+    const found = (code: string) => unixConnects("example.ts", code).length;
+    expect(found("Bun.connect({ unix: path, socket })")).toBe(1);
+    expect(found("Bun.connect(options)")).toBe(1);
+    expect(found("Bun.connect({ hostname: \"127.0.0.1\", port, socket })")).toBe(0);
+    expect(found("import { connect as dial } from \"node:net\";\ndial({ path: \"/tmp/herdr.sock\" });")).toBe(1);
+    expect(found("import net from \"node:net\";\nnet.createConnection({ path: socketPath });")).toBe(1);
+    expect(found("import * as net from \"node:net\";\nnet.connect(process.env.HERDR_SOCKET_PATH);")).toBe(1);
+    expect(found("import { connect as tcpConnect, createServer } from \"node:net\";\ntcpConnect({ host, port });\ntcpConnect(port, host);")).toBe(0);
   });
 
   it("subscribes to status only in server/collector.ts", () => {

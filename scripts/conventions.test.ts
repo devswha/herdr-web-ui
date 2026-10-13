@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fixedSleepCounts, fixedSleeps, sleepFiles } from "./fixed-sleeps.ts";
@@ -38,11 +39,34 @@ describe("fixed sleeps", () => {
   // and a file that is not listed has none.
   const baseline = JSON.parse(read("scripts/fixed-sleeps.json")) as Record<string, number>;
 
+  /**
+   * scripts/fixed-sleeps.json where this branch left origin/main, or null when git or that ref is
+   * not there (CI's shallow checkout); a stale branch is compared with its own base, not a main
+   * that has moved on.
+   */
+  const committed = (): Record<string, number> | null => {
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+    const base = git("merge-base", "HEAD", "origin/main");
+    if (base.status !== 0) return null;
+    const json = git("show", `${base.stdout.trim()}:scripts/fixed-sleeps.json`);
+    return json.status === 0 ? JSON.parse(json.stdout) as Record<string, number> : null;
+  };
+
+  it("never raises scripts/fixed-sleeps.json above the one on origin/main", () => {
+    const before = committed();
+    if (before === null) return;
+    const total = (counts: Record<string, number>) => Object.values(counts).reduce((sum, count) => sum + count, 0);
+    fail([
+      ...Object.entries(baseline).filter(([file, count]) => count > (before[file] ?? 0)).map(([file, count]) => `${file}: ${count}, origin/main has ${before[file] ?? 0}`),
+      ...total(baseline) > total(before) ? [`total: ${total(baseline)}, origin/main has ${total(before)}`] : [],
+    ], "scripts/fixed-sleeps.json may only shrink: take the new fixed sleep out of the code instead (see the message of the test above for how). A renamed file takes its entry along with the same count, which keeps the total.");
+  });
+
   it("adds no fixed sleep and lowers the baseline when one goes", () => {
     const counts = fixedSleepCounts();
     const grown = Object.entries(counts).filter(([file, count]) => count > (baseline[file] ?? 0));
     fail(grown.flatMap(([file, count]) => [`${file}: ${count} fixed sleeps, baseline ${baseline[file] ?? 0}`, ...fixedSleeps(file).map((line) => `  ${line}`)]),
-      "Wait for the condition, not for a set time (AGENTS.md: bounded polls and deadlines, never fixed sleeps): poll in a loop bounded by a deadline (`const deadline = Date.now() + 10_000; while (!done()) { if (Date.now() > deadline) throw new Error(\"…\"); await Bun.sleep(25); }`), or race a timeout against the event (`Promise.race`). A wait that must be fixed (proving that nothing arrives, a settle gap herdr needs) says so with `// fixed wait: <why>` on its line or the line above. Never raise scripts/fixed-sleeps.json.");
+      "Wait for the condition, not for a set time (AGENTS.md: bounded polls and deadlines, never fixed sleeps): poll in a loop bounded by a deadline (`const deadline = Date.now() + 10_000; while (!done()) { if (Date.now() > deadline) throw new Error(\"…\"); await Bun.sleep(25); }`), or race a timeout against the event (`Promise.race`). A wait that must be fixed (proving that nothing arrives, a settle gap herdr needs) says so with `// fixed wait: <why>` on its line or the line above. Never raise scripts/fixed-sleeps.json; when a file was renamed, move its entry to the new path with the same count.");
     const shrunk = Object.entries(baseline).filter(([file, count]) => (counts[file] ?? 0) < count);
     fail(shrunk.map(([file, count]) => `${file}: ${counts[file] ?? 0} now, baseline ${count}`),
       "Fixed sleeps went away: lower these entries in scripts/fixed-sleeps.json to the counts shown (remove an entry at 0; `bun scripts/fixed-sleeps.ts` prints them all), so they cannot come back.");
@@ -50,7 +74,7 @@ describe("fixed sleeps", () => {
 
   it("lists only files that exist", () => {
     fail(Object.keys(baseline).filter((file) => !existsSync(join(repo, file)) || !sleepFiles().includes(file)),
-      "Remove these entries from scripts/fixed-sleeps.json: the files are gone or no longer covered.");
+      "Remove these entries from scripts/fixed-sleeps.json: the files are gone or no longer covered. A renamed file keeps its entry under the new path, with the same count.");
   });
 
   it("tells a fixed sleep from a bounded poll", () => {
@@ -66,6 +90,23 @@ describe("fixed sleeps", () => {
     expect(found("await Promise.race([event, Bun.sleep(1000)]);")).toBe(0);
     expect(found("// fixed wait: nothing may arrive in this time\nawait Bun.sleep(NO_SEND_WAIT_MS);")).toBe(0);
     expect(found("async function f() {\n  while (Date.now() < deadline) {\n    const g = async () => { await Bun.sleep(5); };\n  }\n}")).toBe(1);
+    expect(found("await Bun.sleep(1000); // fixed wait:")).toBe(1);
+    expect(found("for (let i = 0; i < panes.length; i++) { await Bun.sleep(1000); }")).toBe(1);
+    expect(found("for (let attempt = 0; attempt < MAX_TRIES && !seen(); attempt++) await Bun.sleep(50);")).toBe(0);
+    expect(found("await new Promise((r) => setTimeout(() => r(), 500));")).toBe(1);
+    expect(found("await new Promise(function (r) { setTimeout(r, 500); });")).toBe(1);
+  });
+
+  it("counts each call of a sleep helper, not its definition", () => {
+    const found = (code: string) => fixedSleeps("example.ts", code).length;
+    expect(found("const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));\nawait sleep(10);\nawait sleep(20);")).toBe(2);
+    expect(found("function delay(ms) { return Bun.sleep(ms); }\nawait delay(300);")).toBe(1);
+    expect(found("import { setTimeout as sleep } from \"node:timers/promises\";\nawait sleep(500);")).toBe(1);
+    expect(found("const wait = io.wait ?? Bun.sleep;\nawait wait(5);")).toBe(1);
+    expect(found("const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));\nawait tick();\nawait tick(20);")).toBe(1);
+    expect(found("const wait = io.wait ?? Bun.sleep;\nwhile (Date.now() < deadline) await wait(25);")).toBe(0);
+    // a function that starts with a sleep is not a sleep helper: it counts once, where it sleeps
+    expect(found("async function flood() {\n  await Bun.sleep(150);\n  send();\n}\nawait flood();\nawait flood();")).toBe(1);
   });
 });
 
@@ -78,7 +119,11 @@ describe("demo transport", () => {
   const prefixes = [...demo.matchAll(/\.startsWith\(\s*["'](\/api\/[^"']+)["']\s*\)/g)].map((match) => match[1]!).filter((prefix) => prefix !== "/api/");
   const answered = (route: string) => exact.has(route) || prefixes.some((prefix) => route.startsWith(prefix));
 
-  /** Routes the demo leaves to its catch-all 404. Only remove entries; a new route gets an answer in site/demo/transport.ts. */
+  /**
+   * Routes the demo leaves to its catch-all 404, each with its reason. A new route gets an answer in
+   * site/demo/transport.ts; add an entry here only for a route the browser never asks the demo for
+   * (server to server, or behind a state the demo never reaches).
+   */
   const DEMO_404: Record<string, string> = {
     "/api/auth": "the demo is never locked (/api/health says authenticated), so neither the token form nor sign-out runs",
     "/api/bridge": "a remote PC's bridge endpoint, asked by another server, never by the browser",
@@ -94,7 +139,7 @@ describe("demo transport", () => {
     "/api/updates/check": "the demo's /api/updates says managed: false, so Settings offers no check",
     "/api/updates/install": "the demo's /api/updates says managed: false, so Settings offers no install",
   };
-  /** Client frames the demo needs no case for. */
+  /** Client frames the demo needs no case for, each with its reason; any other frame gets a case in site/demo/transport.ts. */
   const DEMO_IGNORES: Record<string, string> = {
     "pty-ack": "the demo has no output flow control to release; its switch's default branch drops it",
   };
@@ -104,7 +149,7 @@ describe("demo transport", () => {
       .flatMap((file) => [...stripComments(read(file)).matchAll(/["'`](\/api\/[\w./-]*[\w.-])["'`]/g)].map((match) => match[1]!)));
     expect(routes.size).toBeGreaterThan(60);
     fail([...routes].filter((route) => !answered(route) && !(route in DEMO_404)).sort(),
-      "Answer these routes in route() in site/demo/transport.ts (with fixtures from site/demo/fixtures.ts), so the demo does not 404. A route the browser never asks for goes into DEMO_404 in scripts/conventions.test.ts with its reason.");
+      "Answer these routes in route() in site/demo/transport.ts (with fixtures from site/demo/fixtures.ts), so the demo does not 404. Only a route the browser never asks the demo for (server to server, or behind a state the demo never reaches) goes into DEMO_404 in scripts/conventions.test.ts instead, with its reason.");
     fail(Object.keys(DEMO_404).filter((route) => answered(route) || !routes.has(route)),
       "Remove these entries from DEMO_404 in scripts/conventions.test.ts: the demo answers them now, or the server no longer has them.");
   });
