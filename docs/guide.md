@@ -188,9 +188,9 @@ A pane's plan is the task list a Claude Code agent keeps (`TaskCreate` / `TaskUp
 | | |
 | --- | --- |
 | **Read the conversation** | Prompts and Markdown answers (links, code blocks, tables). Each turn's commands, edits and progress are folded into one "Worked for …" block. Copy an answer as Markdown or plain text. In a pi pane, a picture the agent's own tool opened shows inside that tool's row. A picture opens in a full-screen viewer: zoom at the pointer, pan, step through the message's other pictures, **Copy image** and **Download**. Skill names an answer writes (`/name`, or `$name` for Codex) show as chips when the pane's own command list names that skill. A conversation of four or more turns has a rail of dashes at its left, one per message you sent, to jump between them (not on a phone). |
-| **Find in chat** | The search button over the chat, or Mod+F while the chat shows in the active pane, finds literal text in the loaded conversation, folded work and tool output included, with **Match case**, a match count and previous/next. Enter in the field steps forward, Shift+Enter back, Escape closes; **Search earlier messages** loads older pages until one matches (**Cancel search** stops it). |
+| **Find in chat** | In an agent's native chat, the **Find in messages** button, or Mod+F while that chat shows in the active pane, finds literal text in the loaded conversation, folded work and tool output included, with **Match case**, a match count and previous/next. Enter in the field steps forward, Shift+Enter back, Escape closes; **Search earlier messages** loads older pages until one matches (**Cancel search** stops it). |
 | **Follow the plan** | A supported todo-tool call folds into the turn's work block like any tool: it reads as the done count or the step it took, and opened, as the whole list by phase. |
-| **Drop into the real terminal** | xterm.js on the live pane: full-screen TUIs, raw keys and herdr's scrollback, shared with your own herdr TUI. Drag to select and it is copied on release; the wheel or the screen's edge scrolls further back while you drag. Ctrl+C copies a selection instead of interrupting. **Quote in message**, shown while text is selected, adds the selection to that pane's chat draft in a code block headed by the pane name and its line range; nothing is sent. |
+| **Drop into the real terminal** | xterm.js on the live pane: full-screen TUIs, raw keys and herdr's scrollback, shared with your own herdr TUI. Drag to select and it is copied on release; the wheel or the screen's edge scrolls further back while you drag. Ctrl+C copies a selection instead of interrupting. **Quote in message**, shown while text is selected, adds the selection to that pane's chat draft in a code block headed by the pane name, and its line numbers when herdr reports them; nothing is sent. |
 | **Find in terminal** | **More → Find in terminal** or Mod+Shift+F searches literal text in herdr's history, with a match count, previous/next navigation and visible match highlights. Drag the terminal scrollbar or focus it and use arrows, Page Up/Down, Home or End. Search jumps and scrolling move the same viewport in every attached client, including the TUI. Older bridges retain search navigation without automatic highlights; read-only views cannot move the scrollbar. |
 | **Jump across PCs** | The command palette (Mod+Shift+K) searches all connected PCs at once by PC, workspace, branch, tab, pane title or agent kind. PC names distinguish results, and Recent remembers each pane's PC. Picking a result opens that PC and pane directly. Disconnected PCs are omitted; app and plugin actions remain on the currently selected PC. It also finds Settings pages and actions by related words (try `theme` or `font`), and browses folders: type a path such as `~/`, or pick **Browse folders**, and the folder you reach opens in Files. |
 | **Answer prompts** | Approval, question and plan menus become cards. Tap an option, or type its number in the composer. The server checks that the menu is still current before answering. |
@@ -497,14 +497,15 @@ The snapshot is the last one a browser reported to this server, not a list of de
 | `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
-| `Mod+F` | Find in chat, while the chat shows in the active pane (`Ctrl+F` keeps moving the caret on macOS; not changed in Settings) |
 
 **Settings → Shortcuts** changes the final key of each app binding or turns it off: press
 **Record** on a row, then the new Mod+Shift chord (Escape cancels); a reserved, unbindable or
 already-assigned chord is refused on the row. A search field filters the list. Settings
 are saved in this browser, not on the remote PC. The command palette shows the current bindings
 and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
-(`Mod+Shift+Space`) remains fixed.
+(`Mod+Shift+Space`) remains fixed, and so does the chat's `Mod+F`: while an agent's native chat
+shows in the active pane, it opens [Find in chat](#features) instead of the browser's own find
+(`Ctrl+F` keeps moving the caret on macOS).
 
 Known browser/OS reservations are marked, but other combinations can also be intercepted by
 your browser, OS or extensions. Installed-app mode may behave differently. While an IME is
