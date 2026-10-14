@@ -1853,8 +1853,8 @@ export function PaneTerminal({
     // Another device can size the pty while this window keeps its focus (a phone used beside a
     // PC left in front): no focus event comes back here, so a click or key in this terminal
     // takes the pane back to this window's grid.
-    // Only input meant for the terminal itself: a press or key in the find bar, on the scrollbar
-    // or the key bar, a right-click for the pane menu, a held key's repeats or an IME composition
+    // Only input meant for the terminal itself: a press or key in the find bar or the key bar,
+    // a right-click for the pane menu, a held key's repeats or an IME composition
     // must not resize the pty under the other device.
     // A phone's own input paths sit outside the grid (the input line, its Send and Enter, a key the
     // key bar sends, not a press on it), so they call this before they send: the reply is then
@@ -2740,9 +2740,9 @@ export function PaneTerminal({
             visible grid carries the pane's name: a screen reader announces which pane
             this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
             stop on the wrapper would only be an empty one ahead of it. */}
-        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}${!chatView && paneId !== null ? " has-viewport-tools" : ""}`} ref={hostRef} id={viewportId} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
+        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} id={viewportId} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
         <span className="terminal-font-size" ref={pinchBadgeRef} hidden aria-hidden="true" />
-        {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
+        {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId}
           pageScroll={chatView ? undefined : pageScroll}
           onApplicationPage={sendApplicationPage}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
