@@ -1642,7 +1642,7 @@ export function PaneTerminal({
       if (!current) return;
       if (cachedRef.current && releasedRef.current) {
         if (watchingRef.current) { socket.unwatch(current); setWatching(false); }
-        cachedReleaseRef.current = true;
+        // Caching stops the watch, but does not turn an away release into a cache-only release.
         return;
       }
       if (releasedRef.current || (!cachedRef.current
@@ -1753,7 +1753,10 @@ export function PaneTerminal({
     };
     presentationRef.current = () => {
       if (cachedRef.current) release();
-      else if (presentedRef.current && releasedRef.current && (cachedReleaseRef.current || inUse())) back();
+      else if (presentedRef.current && releasedRef.current) {
+        if (cachedReleaseRef.current || inUse()) back();
+        else if (paneRef.current && !watchingRef.current) watch(paneRef.current);
+      }
     };
     // A phone or tablet put away lets go of the pane at once, whatever the setting: its page can
     // freeze before a timer runs, and its attach would keep herdr's own window at the phone's size.

@@ -7,7 +7,7 @@ import type { Machine } from "../shared/machines.ts";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { PtySession } from "../server/pty/session.ts";
-import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { herdrRpc, herdrSocketPath, type WorkspaceCreateResult, paneRead, paneSendKeys, paneSendText, tabCreate, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { chromePath } from "./chrome-path.ts";
 
 /** how long a resize that should not happen gets to show up */
@@ -443,12 +443,14 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
   const failures: string[] = [];
   try {
     const panes: string[] = [];
+    const tabs = new Map<string, string>();
     let heldTerminal: string | null = null;
     for (const name of ["first", "next", "held"]) {
       const cwd = join(root, name);
       mkdirSync(cwd);
       const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-inactive-${name}` });
       panes.push(created.root_pane.pane_id);
+      tabs.set(created.root_pane.pane_id, created.root_pane.tab_id);
       if (name === "held") heldTerminal = created.root_pane.terminal_id;
       workspaces.push(created.workspace.workspace_id);
     }
@@ -469,7 +471,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
     };
     const sent = async (page: Page, start = 0) => (await framesOf(page)).slice(start)
       .filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
-    const scenarios = ["mount", "switch", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
+    const scenarios = ["mount", "switch", "background-cache", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
     assert.ok(!process.env.CHAT_SIZE_CASE || scenarios.some((scenario) => scenario === process.env.CHAT_SIZE_CASE), "unknown CHAT_SIZE_CASE");
     for (const scenario of scenarios) {
       if (process.env.CHAT_SIZE_CASE && process.env.CHAT_SIZE_CASE !== scenario) continue;
@@ -502,7 +504,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           };
           listeners.add(check); check();
         });
-        const routed = queueScenario || scenario === "writes";
+        const routed = queueScenario || scenario === "writes" || scenario === "background-cache";
         const recorded = async (): Promise<Frame[]> => {
           if (routed) return [...wire];
           assert.ok(page);
@@ -550,7 +552,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
         }
         page = await openRecording(browser, contexts, origin, scenario === "held" ? heldPane : first,
           { viewport: { width: 1000, height: 700 } }, { language: "en", defaultView: queueScenario ? "chat" : "terminal", releasePaneAway: true },
-          scenario === "mount", queueScenario || scenario === "writes" ? setup : undefined);
+          scenario === "mount", routed ? setup : undefined);
         if (scenario === "held") {
           await page.getByText("Another app has this pane open.", { exact: false }).waitFor();
           await pauseClock(page);
@@ -644,6 +646,44 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
               }
               await waitWire("out", "detach");
             }
+          } else if (scenario === "background-cache") {
+            // Given an away-released pane, navigation must not change its release reason.
+            await page.clock.runFor(1000);
+            await waitWire("out", "watch");
+            const viewOnly = page.locator(".pane-frame.is-current .terminal-banner", { hasText: "View only while you use another window" });
+            await viewOnly.waitFor();
+            const extra = await tabCreate({ workspaceId: workspaces[0]!, label: "Background cache" });
+            tabs.set(extra.root_pane.pane_id, extra.tab.tab_id);
+            const pick = async (pane: string): Promise<void> => {
+              assert.ok(page);
+              const tab = tabs.get(pane);
+              assert.ok(tab);
+              await page.locator(`[role="tab"][data-tab-id="${tab}"]`).evaluate((button: HTMLElement) => button.click());
+              await page.locator(`.pane-frame.is-current[data-layout-pane="${pane}"]`).waitFor();
+              await page.clock.runFor(0);
+            };
+            const before = (await recorded()).length;
+            // When A -> B -> A happens without window focus, both panes remain observers.
+            await pick(extra.root_pane.pane_id);
+            await waitWire("out", "unwatch");
+            await waitWire("out", "watch", 2);
+            await pick(first);
+            await waitWire("out", "unwatch", 2);
+            assert.equal(await page.evaluate(() => document.hasFocus()), false);
+            assert.deepEqual((await recorded()).slice(before).filter((frame) => frame.dir === "out" && (frame.type === "attach" || frame.type === "resize")), [],
+              "an away-released pane returned from cache in the background stays watch-only");
+            await waitWire("out", "watch", 3);
+            await viewOnly.waitFor();
+            // Then real focus resumes the presented pane, not its cached sibling.
+            const returning = (await recorded()).length;
+            await page.evaluate(() => {
+              Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+              window.dispatchEvent(new Event("focus"));
+            });
+            await waitWire("in", "input-ready", 2);
+            assert.equal((await recorded()).slice(returning).filter((frame) => frame.dir === "out" && frame.type === "attach").length, 1,
+              "focus attaches only the presented pane");
+            await viewOnly.waitFor({ state: "hidden" });
           } else if (scenario === "writes") {
             await page.clock.runFor(999);
             await page.evaluate(() => {
