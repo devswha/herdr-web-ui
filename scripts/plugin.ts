@@ -32,7 +32,7 @@ import type { RemoteAccess } from "../shared/protocol.ts";
 import { canBind, FALLBACK_PORTS, freePort, savedPort } from "./plugin-port.ts";
 import { activePluginScript } from "./plugin-runtime.ts";
 import { parseTailscale, parseTailscaleIp, parseTailscaleOwner, readTailscale, tailscaleBinary } from "../server/tailscale.ts";
-import { windowsArgv, windowsProcessTable } from "../server/windows-processes.ts";
+import { descendantProcesses, windowsArgv, windowsProcessTable } from "../server/windows-processes.ts";
 
 /**
  * Read in this order, so `.env` wins: `env` is what this plugin read first, `.env` is what herdr's
@@ -363,7 +363,8 @@ async function stop(): Promise<number> {
   if (platform() === "win32") {
     // A stale PID can belong to another app, or a newer instance of this plugin.
     const recordedAt = statSync(PID_FILE).mtimeMs;
-    const owner = (await windowsProcessTable()).find(row => row.pid === pid);
+    const processes = await windowsProcessTable();
+    const owner = processes.find(row => row.pid === pid);
     const argv = windowsArgv(owner?.commandLine ?? "");
     if (owner?.path?.toLowerCase() !== process.execPath.toLowerCase()
       || argv[1]?.toLowerCase() !== join(ROOT, "server", "managed.ts").toLowerCase()
@@ -373,20 +374,30 @@ async function stop(): Promise<number> {
       process.stderr.write("could not verify the recorded herdr web ui process; it was left running and its pid file was kept\n");
       return 1;
     }
+    const tree = [owner, ...descendantProcesses(processes, pid).flatMap(({ pid: memberPid }) => {
+      const member = processes.find(row => row.pid === memberPid);
+      return member ? [member] : [];
+    })];
     // Windows has no Unix process groups or graceful SIGTERM: include the supervisor and bridge.
     const killed = spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], { windowsHide: true, encoding: "utf8" });
     if (killed.status !== 0 && recordedPid() !== null) {
       process.stderr.write(`could not stop herdr web ui: ${killed.error?.message ?? killed.stderr.trim()}\n`);
       return 1;
     }
-    const deadline = Date.now() + STOP_TIMEOUT_MS;
+    const deadline = Date.now() + 10_000;
     let exited = false;
     while (Date.now() < deadline) {
-      try { process.kill(pid, 0); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") { exited = true; break; } }
-      const current = (await windowsProcessTable(Math.max(1, deadline - Date.now()))).find(row => row.pid === pid);
-      if (current?.started !== undefined && current.started !== owner.started) { exited = true; break; }
-      await Bun.sleep(100);
+      const currentProcesses = await windowsProcessTable(Math.max(1, deadline - Date.now()));
+      const running = tree.some(member => {
+        try { process.kill(member.pid, 0); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+        }
+        const current = currentProcesses.find(row => row.pid === member.pid);
+        return !(member.started !== undefined && current?.started !== undefined && current.started !== member.started);
+      });
+      if (!running) { exited = true; break; }
+      await Bun.sleep(50);
     }
     if (!exited) {
       process.stderr.write("could not confirm herdr web ui stopped; its pid file was kept\n");

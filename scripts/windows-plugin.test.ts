@@ -7,6 +7,79 @@ import { socketAddress } from "../server/herdr/client.ts";
 import { windowsProcessTable } from "../server/windows-processes.ts";
 import { updateStateDir } from "../server/update-state.ts";
 
+it("waits for every original Windows tree member after taskkill", async () => {
+  const root = join(import.meta.dir, "..");
+  const scratch = mkdtempSync(join(tmpdir(), "herdr windows stop tree "));
+  const state = join(scratch, "plugin-state");
+  mkdirSync(state);
+  const pidFile = join(state, "server.pid");
+  const rootPid = 41001;
+  const childPid = 41002;
+  const resultFile = join(scratch, "stop-result.json");
+  const preload = join(scratch, "stop-tree.ts");
+  writeFileSync(pidFile, `${rootPid}\n`);
+  writeFileSync(preload, `
+    const os = require("node:os");
+    os.platform = () => "win32";
+    const childProcess = require("node:child_process");
+    childProcess.spawnSync = (command) => {
+      if (command !== "taskkill") throw new Error("unexpected process command");
+      globalThis.treeKilled = true;
+      return { status: 0, stderr: "" };
+    };
+    require("node:module").syncBuiltinESMExports();
+
+    globalThis.tablePolls = 0;
+    globalThis.childAlive = true;
+    const originalKill = process.kill.bind(process);
+    process.kill = (pid, signal) => {
+      if (pid === ${rootPid}) {
+        if (!globalThis.treeKilled) return true;
+        const error = new Error("root exited");
+        error.code = "ESRCH";
+        throw error;
+      }
+      if (pid === ${childPid}) {
+        if (globalThis.treeKilled && globalThis.childAlive) return true;
+        const error = new Error("child exited");
+        error.code = "ESRCH";
+        throw error;
+      }
+      return originalKill(pid, signal);
+    };
+    Bun.spawn = (command) => {
+      if (command[0] !== "powershell") throw new Error("unexpected process-table command");
+      const rootRow = { ProcessId: ${rootPid}, ParentProcessId: 0, ExecutablePath: process.execPath,
+        CommandLine: '"' + process.execPath + '" "' + ${JSON.stringify(join(root, "server", "managed.ts"))} + '"', Started: 1 };
+      const childRow = { ProcessId: ${childPid}, ParentProcessId: ${rootPid}, ExecutablePath: process.execPath,
+        CommandLine: '"' + process.execPath + '" -e child', Started: 2 };
+      const rows = !globalThis.treeKilled ? [rootRow, childRow] : ++globalThis.tablePolls < 3 ? [childRow] : [];
+      if (globalThis.treeKilled && globalThis.tablePolls >= 3) globalThis.childAlive = false;
+      return { exited: Promise.resolve(0), stdout: new Blob([JSON.stringify(rows)]) };
+    };
+    process.on("exit", () => require("node:fs").writeFileSync(${JSON.stringify(resultFile)},
+      JSON.stringify({ childAlive: globalThis.childAlive, tablePolls: globalThis.tablePolls, taskkillCalled: globalThis.treeKilled === true })));
+  `);
+  const env = {
+    ...process.env,
+    HERDR_PLUGIN_ROOT: root,
+    HERDR_PLUGIN_STATE_DIR: state,
+    HERDR_PLUGIN_CONFIG_DIR: join(scratch, "config"),
+  };
+  try {
+    const stop = Bun.spawn([process.execPath, "--preload", preload, join(root, "scripts", "plugin.ts"), "stop"],
+      { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(stop.stdout).text(), new Response(stop.stderr).text(), stop.exited]);
+    expect(code, `control: stop succeeds once the original tree is gone\n${out}${err}`).toBe(0);
+    const result = JSON.parse(readFileSync(resultFile, "utf8")) as { childAlive: boolean; tablePolls: number; taskkillCalled: boolean };
+    expect(result.taskkillCalled, `control: stop ran the Windows tree termination path\n${out}${err}`).toBe(true);
+    expect(result.childAlive, `regression (fails on main): stop returned before its snapshotted child exited (${JSON.stringify(result)})`).toBe(false);
+    expect(result.tablePolls, "control: the process table was read until the delayed child exited").toBeGreaterThanOrEqual(3);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}, 15_000);
+
 it.skipIf(process.platform !== "win32")("starts after its launcher exits, stops its owned tree and restarts on Windows", async () => {
   const root = join(import.meta.dir, "..");
   const scratch = mkdtempSync(join(tmpdir(), "herdr windows plugin "));
@@ -89,7 +162,17 @@ it.skipIf(process.platform !== "win32")("starts after its launcher exits, stops 
       expect((await fetch(`http://127.0.0.1:${port}/api/health`)).ok).toBe(true);
     } finally { utimesSync(join(state, "server.pid"), record.atime, record.mtime); }
     await run("stop");
-    for (const member of owned) expect(() => process.kill(member, 0)).toThrow();
+    const deadline = Date.now() + 10_000;
+    const stillOwned = () => [...owned].filter(member => {
+      try { process.kill(member, 0); return true; }
+      catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+    });
+    let remaining = stillOwned();
+    while (remaining.length > 0 && Date.now() < deadline) {
+      await Bun.sleep(50);
+      remaining = stillOwned();
+    }
+    expect(remaining, "control: wait up to ten seconds for the Windows-owned process tree to disappear").toEqual([]);
     expect(existsSync(join(state, "server.pid"))).toBe(false);
     await run("start"); // forced Windows shutdown leaves a stale lock; restart must recover it
     expect((await fetch(`http://127.0.0.1:${port}/api/health`)).ok).toBe(true);
