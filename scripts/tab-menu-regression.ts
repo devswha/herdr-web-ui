@@ -137,9 +137,9 @@ async function checkDesktop(browser: Browser, origin: string, first: string, sec
     await tabMenu.waitFor();
     const narrowItems = await tabMenu.getByRole("menuitem").allTextContents();
     assert.deepEqual(narrowItems.slice(0, 2).sort(), ["canvas-first", "canvas-second"], "a narrow window's tab menu lists the tab's panes first");
-    assert.deepEqual(narrowItems.slice(-3), ["New tab", "Rename tab", "Close tab"]);
-    assert.deepEqual(narrowItems.slice(2, -3).filter((item) => item !== "Clear pane name"),
-      ["Rename pane", "Split right", "Split down", "Zoom pane", "Close pane"], "the touch menu carries the open pane's actions, in order, between its panes and the tab's");
+    assert.deepEqual(narrowItems.slice(-2), ["Rename tab", "Close tab"], "the strip's + is New tab: the menu does not repeat it");
+    assert.deepEqual(narrowItems.slice(2, -2).filter((item) => item !== "Clear pane name"),
+      ["Rename pane", "Close pane"], "the touch menu carries the open pane's actions but no split or zoom, between its panes and the tab's");
     await page.setViewportSize({ width: 1280, height: 800 });
     await tabMenu.waitFor({ state: "detached" });
     await narrowMenu.waitFor({ state: "hidden" });
@@ -489,9 +489,9 @@ async function checkPhone(browser: Browser, origin: string, first: string, secon
     // herdr's own pane order stands (the desktop check above swapped the two)
     const phoneItems = await tabSheet.locator(".row-sheet-item").allTextContents();
     assert.deepEqual(phoneItems.slice(0, 2).sort(), ["canvas-first", "canvas-second"], "the split tab's panes lead its menu on a phone");
-    assert.deepEqual(phoneItems.slice(-3), ["New tab", "Rename tab", "Close tab"]);
-    assert.deepEqual(phoneItems.slice(2, -3).filter((item) => item !== "Clear pane name"),
-      ["Rename pane", "Split right", "Split down", "Zoom pane", "Close pane"], "the open pane's actions sit between its panes and the tab's");
+    assert.deepEqual(phoneItems.slice(-2), ["Rename tab", "Close tab"]);
+    assert.deepEqual(phoneItems.slice(2, -2).filter((item) => item !== "Clear pane name"),
+      ["Rename pane", "Close pane"], "the open pane's actions, less split and zoom, sit between its panes and the tab's");
     assert.equal(await tabSheet.getByRole("button", { name: "canvas-first", exact: true }).getAttribute("aria-current"), "true", "the open pane is marked");
     // The menu is a phone's way to the other pane, and picking one leaves herdr's layout alone.
     await sheetsSettled(page);
@@ -563,7 +563,7 @@ async function checkTouchTablet(browser: Browser, origin: string, first: string)
     const tabletItems = await menu.getByRole("menuitem").allTextContents();
     // a wide touch screen shows both panes, so the menu has no pane list: the open pane's actions lead it
     assert.deepEqual(tabletItems.filter((item) => item !== "Clear pane name"),
-      ["Rename pane", "Split right", "Split down", "Zoom pane", "Close pane", "New tab", "Rename tab", "Close tab"], "the touch menu carries the open pane's actions, in order, before the tab's");
+      ["Rename pane", "Close pane", "Rename tab", "Close tab"], "the touch menu carries the open pane's actions, in order, before the tab's");
     await page.keyboard.press("Escape");
     await menu.waitFor({ state: "detached" });
   } finally { await context.close(); }

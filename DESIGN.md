@@ -531,7 +531,9 @@ One set for both themes: the card is island black wherever it shows.
   confirmed close, focus lands on the header's workspace-list toggle.
 - Tab and pane menus follow herdr's target scopes. A tab's menu contains New tab, Rename tab
   and Close tab, plus Move tab left/right when a neighbouring position exists and no move is pending.
-  The pane's own context menu carries pane actions; it opens at the pointer
+  The `⋯` that touch and narrow layouts draw beside the selected tab leaves New tab out (the
+  strip's `+` sits beside it) and also carries the open pane's actions, less Split and Zoom: a
+  phone shows one pane at a time. The pane's own context menu carries pane actions; it opens at the pointer
   without changing which pane is focused. The pane header's ellipsis opens the same menu on touch.
 - **Move pane to…** (header More) opens a menu under the header button
   (`MovePaneMenu`): a dim uppercase MOVE TO micro label with the pane's name under it

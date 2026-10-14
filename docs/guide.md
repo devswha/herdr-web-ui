@@ -98,8 +98,9 @@ selected pane and saves the order in herdr.
 
 Right-click a pane to rename it, split right or down, zoom it, or close it. Right-clicking another
 pane keeps the current focus, so **Swap with focused pane** exchanges the two. Drag a boundary
-to resize it. On a touch screen, the pane header's **⋯** opens the same menu; **Zoom pane** makes a
-small pane fill the screen, and **Unzoom pane** restores the split. A split opens the new pane.
+to resize it. On a touch screen, the pane header's **⋯** opens the same menu; on a phone the tab's **⋯** carries
+the open pane's Rename and Close, while split and zoom stay with a screen that shows panes side by
+side. **Zoom pane** makes a small pane fill the screen, and **Unzoom pane** restores the split. A split opens the new pane.
 Each pane keeps its own Chat/Terminal view and unsent draft.
 
 
