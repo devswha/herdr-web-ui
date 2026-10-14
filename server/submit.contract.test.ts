@@ -477,6 +477,112 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("shows the box of a refusal that names no draft, then sends anyway once asked, through agent.prompt", async () => {
+    const socket = await Socket.connect();
+    const screen = mockClaudeInput(agent.pane, claudeInputScreen("! ls"));
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    const sendKeys = spyOn(herdr, "paneSendKeys").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 90, pane_id: agent.pane, text: "chat message", payload: "chat message" });
+      const refused = await socket.result(90);
+      expect(refused).toMatchObject({ ok: false, code: "input_draft", box: "! ls" });
+      expect(refused.draft).toBeUndefined();
+      expect(prompt).not.toHaveBeenCalled();
+      socket.send({ type: "submit", id: 91, pane_id: agent.pane, text: "chat message", payload: "chat message", send_anyway: true });
+      expect(await socket.result(91)).toMatchObject({ ok: true, pane_id: agent.pane });
+      expect(prompt).toHaveBeenCalledWith(agent.pane, "chat message");
+      expect(sendText).not.toHaveBeenCalled();
+      expect(sendKeys).not.toHaveBeenCalled();
+      // the refusal is used up: a second send anyway is refused, typing nothing
+      socket.send({ type: "submit", id: 92, pane_id: agent.pane, text: "chat message", payload: "chat message", send_anyway: true });
+      expect(await socket.result(92)).toMatchObject({ ok: false, code: "pending_target_changed" });
+      expect(prompt).toHaveBeenCalledTimes(1);
+    } finally {
+      sendKeys.mockRestore(); sendText.mockRestore(); prompt.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
+  it("refuses send anyway without a refusal that showed the box, or after one that named a draft", async () => {
+    const socket = await Socket.connect();
+    const screen = mockClaudeInput(agent.pane, claudeInputScreen("❯ named draft"));
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    const sendText = spyOn(herdr, "paneSendText").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 93, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(93)).toMatchObject({ ok: false, code: "pending_target_changed" });
+      socket.send({ type: "submit", id: 94, pane_id: agent.pane, text: "chat", payload: "chat" });
+      const named = await socket.result(94);
+      expect(named).toMatchObject({ ok: false, code: "input_draft", draft: "named draft" });
+      expect(named.box).toBeUndefined();
+      socket.send({ type: "submit", id: 95, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(95)).toMatchObject({ ok: false, code: "pending_target_changed" });
+      expect(prompt).not.toHaveBeenCalled();
+      expect(sendText).not.toHaveBeenCalled();
+    } finally {
+      sendText.mockRestore(); prompt.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
+  it("refuses send anyway once Claude's session changed after the refusal", async () => {
+    const socket = await Socket.connect();
+    const screen = mockClaudeInput(agent.pane, claudeInputScreen("! ls"));
+    const original = herdr.paneGet;
+    let replaced = false;
+    const get = spyOn(herdr, "paneGet").mockImplementation(async (paneId, socketPath) => {
+      const pane = await original(paneId, socketPath);
+      return paneId === agent.pane && replaced ? { ...pane, agent_session: { kind: "session_id", source: "cli", value: "replacement-session", agent: "claude" } } : pane;
+    });
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 96, pane_id: agent.pane, text: "chat", payload: "chat" });
+      expect(await socket.result(96)).toMatchObject({ ok: false, code: "input_draft", box: "! ls" });
+      replaced = true;
+      socket.send({ type: "submit", id: 97, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(97)).toMatchObject({ ok: false, code: "pending_target_changed" });
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      prompt.mockRestore(); get.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
+  it("refuses send anyway over a box that changed since the refusal, and shows the new one", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("! ls");
+    const screen = mockClaudeInput(agent.pane, () => shown);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 102, pane_id: agent.pane, text: "chat", payload: "chat" });
+      expect(await socket.result(102)).toMatchObject({ ok: false, code: "input_draft", box: "! ls" });
+      shown = claudeInputScreen("! rm -rf build");
+      socket.send({ type: "submit", id: 103, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(103)).toMatchObject({ ok: false, code: "input_draft", box: "! rm -rf build" });
+      expect(prompt).not.toHaveBeenCalled();
+      // the box the user now saw may be sent over
+      socket.send({ type: "submit", id: 104, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(104)).toMatchObject({ ok: true });
+      expect(prompt).toHaveBeenCalledTimes(1);
+    } finally {
+      prompt.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
+  it("sends anyway only a chat message sent at once, without clearing a draft", async () => {
+    const socket = await Socket.connect();
+    try {
+      for (const [id, extra] of [[98, { delivery: "queue" }], [99, { typed: true }], [100, { clear_draft: "x" }], [101, { send_anyway: false }]] as const) {
+        socket.send({ type: "submit", id, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true, ...extra });
+        expect(await socket.result(id)).toMatchObject({ ok: false, code: "invalid_delivery" });
+      }
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
+
   it("clears the draft a refusal named, once asked to, and sends when the box reads empty", async () => {
     const socket = await Socket.connect();
     let shown = claudeInputScreen("❯ ㅔ");

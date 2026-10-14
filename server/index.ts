@@ -87,7 +87,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputDraft, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
+import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxText, claudeInputDraft, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -204,10 +204,14 @@ const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draf
 const DRAFT_CLEAR_WAIT_MS = 1_500;
 const DRAFT_CLEAR_POLL_MS = 50;
 
-/** input_draft, naming the one-row draft the chat may offer to clear (claudeClearableDraft), or none. */
+/**
+ * input_draft, naming the one-row draft the chat may offer to clear (claudeClearableDraft), or none.
+ * `box`: the input box as read (claudeInputBoxText), which a refusal naming no draft shows so the
+ * user may send anyway; null where the refusal offers nothing (after a clear began).
+ */
 class InputDraftError extends HerdrError {
   readonly draft: string | null;
-  constructor(draft: string | null, readonly identity?: PendingIdentity) {
+  constructor(draft: string | null, readonly identity?: PendingIdentity, readonly box: string | null = null) {
     super("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
     this.draft = draft;
   }
@@ -507,7 +511,8 @@ export function createServer(
   const pendingDrains = new Set<string>();
   type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; message?: string };
   const pendingRequests = new WeakMap<Client, PendingRequestBook<SubmitReply>>();
-  const draftConfirmations = new WeakMap<Client, Map<string, { draft: string; identity: PendingIdentity }>>();
+  // the last input_draft refusal per pane: its named draft (Clear it and send), or none (Send anyway)
+  const draftConfirmations = new WeakMap<Client, Map<string, { draft: string | null; identity: PendingIdentity; box?: string | null }>>();
   let stopped = false;
   const conversations = new ConversationMonitor((paneId, signature) => {
     for (const client of clients) {
@@ -592,9 +597,12 @@ export function createServer(
    * `clearDraft`: the draft an input_draft refusal named, which the user asked to clear and send
    * over. It goes only while the box still holds exactly that, and the message only once the box
    * reads empty.
+   * `sendAnyway`: the user saw the box a refusal naming no draft showed and chose to send: only into
+   * the Claude terminal and session that refusal was for (`confirmation` with no draft), and only while
+   * the box still shows what they saw or reads empty. Never typed instead of agent.prompt.
    */
   async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {},
-    clearDraft?: string, confirmation?: { draft: string; identity: PendingIdentity }): Promise<void> {
+    clearDraft?: string, confirmation?: { draft: string | null; identity: PendingIdentity; box?: string | null }, sendAnyway = false): Promise<void> {
     let clearedDraft = false;
     const inTime = (reserve = 0): void => {
       authorize();
@@ -622,12 +630,23 @@ export function createServer(
         if (clearDraft !== undefined && !sameClaude(identity)) {
           throw new HerdrError("pending_target_changed", "The named draft's Claude terminal or session changed; nothing was cleared or sent");
         }
-        if ((pane?.agent ?? pane?.agent_session?.agent) === "claude") {
+        if (sendAnyway && !(identity?.agent === "claude" && confirmation !== undefined && confirmation.draft === null
+          && identity.terminalId === confirmation.identity.terminalId && identity.session === confirmation.identity.session)) {
+          throw new HerdrError("pending_target_changed", "The refused message's Claude terminal or session changed, or nothing was refused; nothing was sent");
+        }
+        if (sendAnyway) {
+          // only over the box the user was shown: anything typed there since is refused again, and shown
+          const reads = await claudeBoxReads(paneId);
+          inTime();
+          const box = claudeInputBoxText(reads[0]);
+          if (claudeInputDraft(...reads) && box !== confirmation!.box) throw new InputDraftError(claudeClearableDraft(...reads), identity ?? undefined, box);
+        }
+        if ((pane?.agent ?? pane?.agent_session?.agent) === "claude" && !sendAnyway) {
           if (clearDraft === undefined) {
             try {
               await freeClaudeBox(paneId, pane?.agent_status === "working", authorize, arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
             } catch (error) {
-              if (error instanceof InputDraftError) throw new InputDraftError(error.draft, identity ?? undefined);
+              if (error instanceof InputDraftError) throw new InputDraftError(error.draft, identity ?? undefined, error.box);
               throw error;
             }
           }
@@ -654,7 +673,7 @@ export function createServer(
           if (claudeInputDraft(...reads)) {
             // only the draft the user was shown goes, never what has since replaced it
             const draft = claudeClearableDraft(...reads);
-            if (clearDraft === undefined || draft !== clearDraft) throw new InputDraftError(draft, identity ?? undefined);
+            if (clearDraft === undefined || draft !== clearDraft) throw new InputDraftError(draft, identity ?? undefined, clearDraft === undefined ? claudeInputBoxText(reads[0]) : null);
             const reserve = DRAFT_CLEAR_WAIT_MS + 500;
             inTime(reserve);
             // A confirmation names the earlier draft, not text typed while it was inspected.
@@ -692,7 +711,7 @@ export function createServer(
           return;
         } catch (error) {
           if (!(error instanceof HerdrError)) throw error;
-          if (clearDraft !== undefined) throw error;
+          if (clearDraft !== undefined || sendAnyway) throw error;
           const queuedOnly = error.code === "agent_blocked" && await blockedOnlyByCodexQueue(paneId);
           if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
         }
@@ -846,7 +865,7 @@ export function createServer(
     const [live, colors] = await claudeBoxReads(paneId);
     if (!claudeInputDraft(live, colors)) return;
     if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
-      throw new InputDraftError(claudeClearableDraft(live, colors));
+      throw new InputDraftError(claudeClearableDraft(live, colors), undefined, claudeInputBoxText(live));
     }
     if (deadline - Date.now() < RESTORED_CLEAR_RESERVE_MS) throw new HerdrError("submit_timeout", "Too little time was left to clear Claude Code's input box and send; nothing was typed");
     // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
@@ -3182,9 +3201,9 @@ export function createServer(
             }
             case "submit": {
               // every submit is answered: the composer keeps its text until it hears back
-              const result = (ok: boolean, code?: string, text?: string, accepted?: PendingMessage, draft?: string | null) => send(client, {
+              const result = (ok: boolean, code?: string, text?: string, accepted?: PendingMessage, draft?: string | null, box?: string | null) => send(client, {
                 type: "submit-result", id: message.id, pane_id: message.pane_id, ok, ...(accepted ? { pending: accepted } : {}), ...(code ? { code, message: text } : {}),
-                ...(draft ? { draft } : {}),
+                ...(draft ? { draft } : {}), ...(!draft && typeof box === "string" ? { box } : {}),
               });
               if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string" || !message.pane_id
                 || typeof message.text !== "string" || typeof message.payload !== "string") {
@@ -3200,6 +3219,11 @@ export function createServer(
               if (message.clear_draft !== undefined && (typeof message.clear_draft !== "string" || !message.clear_draft
                 || waits || (message.typed !== undefined && message.typed !== false))) {
                 result(false, "invalid_delivery", "Clear a terminal draft only for a chat message sent at once");
+                break;
+              }
+              if (message.send_anyway !== undefined && (message.send_anyway !== true || waits || message.clear_draft !== undefined
+                || (message.typed !== undefined && message.typed !== false))) {
+                result(false, "invalid_delivery", "Send anyway only a chat message sent at once, without clearing a draft");
                 break;
               }
               if (client.data.mode === "observe") {
@@ -3250,18 +3274,21 @@ export function createServer(
                   // held while this waited its turn (the attach was refused after the check above)
                   if (attachments.get(message.pane_id)?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
                   return submitText(message.pane_id, message.text, message.payload, arrivedAt, message.typed === true, () => authorizeSocket(client), message.clear_draft,
-                    draftConfirmations.get(client)?.get(message.pane_id));
+                    draftConfirmations.get(client)?.get(message.pane_id), message.send_anyway === true);
                 });
-                if (message.clear_draft !== undefined) draftConfirmations.get(client)?.delete(message.pane_id);
+                if (message.clear_draft !== undefined || message.send_anyway) draftConfirmations.get(client)?.delete(message.pane_id);
                 result(true);
               } catch (error) {
-                if (message.clear_draft !== undefined) draftConfirmations.get(client)?.delete(message.pane_id);
-                if (error instanceof InputDraftError && error.draft && error.identity) {
+                if (message.clear_draft !== undefined || message.send_anyway) draftConfirmations.get(client)?.delete(message.pane_id);
+                // a refusal naming a draft confirms it for Clear it and send; one naming none, for Send anyway
+                if (error instanceof InputDraftError && error.identity && (error.draft || error.box !== null)) {
                   let confirmations = draftConfirmations.get(client);
                   if (!confirmations) { confirmations = new Map(); draftConfirmations.set(client, confirmations); }
-                  confirmations.set(message.pane_id, { draft: error.draft, identity: error.identity });
+                  confirmations.set(message.pane_id, { draft: error.draft, identity: error.identity, box: error.box });
                 }
-                const fault = pendingFault(error); result(false, fault.code, fault.message, undefined, error instanceof InputDraftError ? error.draft : null);
+                const fault = pendingFault(error);
+                result(false, fault.code, fault.message, undefined, error instanceof InputDraftError ? error.draft : null,
+                  error instanceof InputDraftError && error.identity ? error.box : null);
               }
               break;
             }
