@@ -114,8 +114,9 @@ Each pane keeps its own Chat/Terminal view and unsent draft.
 **A pairing code, on a PC with no browser of its own:**
 
 ```bash
-bun "$(ls -d ~/.config/herdr/plugins/github/devswha.herdr-web-ui-* | head -1)/scripts/plugin.ts" pair   # plugin install
-bun scripts/plugin.ts pair                                                                             # from a checkout
+root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "devswha.herdr-web-ui")?.plugin_root ?? "")')
+bun "$root/scripts/plugin.ts" pair   # plugin install
+bun scripts/plugin.ts pair           # from a checkout
 ```
 
 `pair` prints the code, the address the phone opens when Tailscale serves one, and that address as a QR code. Neither is a herdr action: herdr keeps an action's output in its log, and a pairing code belongs on the screen. The actions start, stop and report on the server:
