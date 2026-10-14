@@ -530,6 +530,33 @@ it("releases the shared grid once when the chat lens covers a terminal this tab 
   client.close();
 });
 
+it("keeps a visible unfocused grid while changing only its reconnect policy", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  const releases = () => socket.sent.filter((m) => m.type === "release-size");
+  try {
+    client.attach("w1:p1", 120, 40);
+    // A plain blur does not hide the terminal or discard its fallback grid.
+    client.keepSize("w1:p1", false);
+    // Regression (fails on #1085): no release until the terminal really stops showing.
+    expect(releases()).toEqual([]);
+    client.releaseSize("w1:p1");
+    client.releaseSize("w1:p1");
+    expect(releases()).toEqual([{ type: "release-size", pane_id: "w1:p1" }]);
+    client.resize("w1:p1", 120, 40);
+    client.keepSize("w1:p1", false);
+    socket.open();
+    // Control: blur still changes the reconnect policy, without replaying a release.
+    expect(socket.sent.filter((m) => m.type === "attach").at(-1))
+      .toEqual({ type: "attach", pane_id: "w1:p1", cols: 120, rows: 40, flow_control: "ack", keep_size: true });
+    expect(releases()).toHaveLength(1);
+  } finally {
+    client.close();
+  }
+});
+
 it("releases the shared grid once when a hidden terminal returns directly to Chat", () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();

@@ -1800,7 +1800,9 @@ export function PaneTerminal({
     const leave = (): void => {
       if (cachedRef.current) { release(); return; }
       const current = paneRef.current;
-      if (current && !observeRef.current && !fixedGridRef.current) socket.keepSize(current);
+      // A visible but unfocused window still shows the terminal and can receive its grid back.
+      // Blur changes only reconnect policy; hiding the document also releases its server grid.
+      if (current && !observeRef.current && !fixedGridRef.current) socket.keepSize(current, document.visibilityState === "hidden");
       if (releaseAwayRef.current && releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(() => {
         if (paneRef.current === current) release();
       }, RELEASE_AFTER_MS);

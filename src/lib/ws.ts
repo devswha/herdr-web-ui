@@ -727,9 +727,13 @@ export class HerdrSocket {
     return true;
   }
 
-  /** A hidden pane or a tab out of use releases its grid, just as the chat lens does. */
-  keepSize(paneId: string): void {
-    this.releaseSize(paneId);
+  /** Keep the pane's size on reconnect; release its grid only when the terminal stops showing. */
+  keepSize(paneId: string, releaseGrid = true): void {
+    if (releaseGrid) this.releaseSize(paneId);
+    else {
+      const state = this.attached.get(paneId);
+      if (state) state.keepSize = true;
+    }
   }
 
   /**
