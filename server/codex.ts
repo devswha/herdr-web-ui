@@ -967,6 +967,7 @@ function displayedFirstExchange(screen: string): CodexExchange | null {
   let promptAt = -1;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index] ?? "";
+    if (/^• (?:Model changed|Unrecognized command|Working directory changed)(?:[ \t]|$)/.test(line)) continue;
     if (/^•(?:[ \t]|$)/.test(line)) return null;
     if (/^›[ \t]+/.test(line)) { promptAt = index; break; }
   }
@@ -985,12 +986,12 @@ function displayedFirstExchange(screen: string): CodexExchange | null {
   return { user, assistant: response };
 }
 
-function matchingCodexExchanges(screen: string, candidates: readonly CodexFirstExchangeCandidate[]): { candidate: CodexFirstExchangeCandidate; index: number }[] {
+function matchingCodexExchanges(screen: string, candidates: readonly CodexFirstExchangeCandidate[], answerFloor = 16): { candidate: CodexFirstExchangeCandidate; index: number }[] {
   const shown = displayedFirstExchange(screen);
   if (shown === null) return [];
   const prompt = normalizePrompt(shown.user);
   const answer = normalizePrompt(shown.assistant);
-  if (normalizeDisplay(prompt).length < 8 || normalizeDisplay(answer).length < 16) return [];
+  if (normalizeDisplay(prompt).length < 8 || normalizeDisplay(answer).length < answerFloor) return [];
   const matches: { candidate: CodexFirstExchangeCandidate; index: number }[] = [];
   for (const candidate of candidates) {
     for (const [index, exchange] of codexExchanges(candidate.text).entries()) {
@@ -1014,7 +1015,7 @@ export function matchCodexFirstExchange(
   if (!Number.isFinite(startedAtMs)) return null;
   if (candidates.filter((candidate) => typeof candidate.createdAtMs === "number"
     && candidate.createdAtMs >= startedAtMs).length !== 1) return null;
-  const matches = matchingCodexExchanges(screen, candidates);
+  const matches = matchingCodexExchanges(screen, candidates, 1);
   if (matches.length !== 1) return null;
   const match = matches[0]!;
   const first = codexExchanges(match.candidate.text)[0];
@@ -1365,6 +1366,10 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   const { codexProcesses, processes, open } = await openRollouts(paneId, home);
   if (open.size === 1) return [...open][0]!;
   const resumed = resumedThread(codexProcesses.map((process) => process.argv ?? []));
+  const picker = resumed === null && codexProcesses.some(({ argv = [] }) => {
+    const at = argv.indexOf("resume");
+    return at >= 0 && (argv[at + 1] === undefined || argv[at + 1]?.startsWith("-"));
+  });
 
   let db: Database | undefined;
   let paths: string[] = [...open];
@@ -1372,6 +1377,7 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   let resumedNewer: string[] = [];
   /** the first message of each newer thread, when the store keeps it */
   const firsts = new Map<string, string>();
+  const pickerClaimed = new Set<string>();
   const bound = boundRollouts.get(paneId);
   const boundHere = bound !== undefined && bound.processes === processes && processes !== "" ? bound : undefined;
   let boundNewer: string[] = [];
@@ -1413,6 +1419,31 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // a thread whose rollout is gone or outside the store is still a conversation of this cwd
     listed = rows.length <= 32 && !rollouts.includes(null);
     paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rollouts.filter((path): path is string => path !== null)])];
+    if (picker) {
+      const starts = codexProcesses.map(({ pid }) => processStartedAt(pid));
+      if (starts.every((start) => start !== null && Number.isFinite(start))) {
+        const since = Math.ceil(Math.min(...starts.filter((start): start is number => start !== null)) / 1000);
+        const rows = db.query<{ rollout_path: string; cwd: string; first_user_message?: string | null }, [number]>(
+          `SELECT rollout_path, cwd${db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : ""}
+           FROM threads WHERE archived = 0 AND agent_role IS NULL${interactive(db)}
+           AND updated_at >= ? ORDER BY updated_at DESC LIMIT 33`,
+        ).all(since);
+        // A picker can resume outside its launch directory. Recency only supplies
+        // candidates: the unique visible answer still decides, and peer claims win.
+        if (rows.length <= 32) {
+          const pickerPaths = rows.flatMap((row) => {
+            const path = codexRolloutPath(row.rollout_path, home);
+            if (path === null) return [];
+            if (typeof row.first_user_message === "string") firsts.set(path, row.first_user_message);
+            return [path];
+          });
+          for (const directory of new Set(rows.map((row) => row.cwd))) {
+            for (const path of await claimedByOtherPanes(paneId, directory, pickerPaths, [], firsts, home, panes)) pickerClaimed.add(path);
+          }
+          paths = [...new Set([...paths, ...pickerPaths])];
+        }
+      }
+    }
   } catch { /* Older installations can still resolve their open descriptors. */ }
   finally { db?.close(); }
   const screen = paths.length ? await paneRead({ paneId, source: "recent", lines: 400, stripAnsi: true }) : null;
@@ -1420,6 +1451,7 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     try { return [{ path, text: codexHistoryTail(path, 1024 * 1024, home) }]; } catch { return []; }
   });
   const matched = screen ? matchCodexTranscript(screen.text, candidates) : null;
+  if (picker && matched !== null && theirs([matched], paneId, pickerClaimed).length === 0) return null;
   if (matched !== null) {
     boundRollouts.delete(paneId);
     boundRollouts.set(paneId, { processes, path: matched, at: Date.now() });
@@ -1465,6 +1497,6 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
   } catch { return null; }
   const short = matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
-  if (short !== null) return short;
+  if (short !== null) return picker ? theirs([short], paneId, pickerClaimed)[0] ?? null : short;
   return shortThreadFromProcess(paneId, cwd, home, screen.text, codexProcesses, panes);
 }

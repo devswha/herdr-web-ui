@@ -31,10 +31,10 @@ const answers = {
 const workspaces: string[] = [];
 let server: ReturnType<typeof createServer>;
 
-const rollout = (name: keyof typeof answers) => {
+const rollout = (name: keyof typeof answers, cwd = root) => {
   const path = join(codexHome, "sessions", `rollout-2026-09-24T00-00-00-${threads[name]}.jsonl`);
   writeFileSync(path, [
-    { type: "session_meta", payload: { id: threads[name], cwd: root } },
+    { type: "session_meta", payload: { id: threads[name], cwd } },
     { type: "response_item", timestamp: "2026-09-24T00:00:00Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: `question for ${name}` }] } },
     { type: "response_item", timestamp: "2026-09-24T00:00:05Z", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: answers[name] }] } },
   ].map((entry) => JSON.stringify(entry)).join("\n"));
@@ -58,8 +58,8 @@ const codexRunning = async (paneId: string, not?: string): Promise<string> => {
   throw new Error(`no codex process in ${paneId}`);
 };
 
-const pane = async (label: string, command: string): Promise<string> => {
-  const created = await workspaceCreate({ cwd: root, label: `herdr-web-ui-test-codex-binding-${label}` });
+const pane = async (label: string, command: string, cwd = root): Promise<string> => {
+  const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-codex-binding-${label}` });
   workspaces.push(created.workspace.workspace_id);
   const paneId = created.root_pane.pane_id;
   await herdrRpc("pane.send_text", { pane_id: paneId, text: `${command}\n` });
@@ -128,7 +128,7 @@ beforeAll(() => {
   // `--say NAME` shows the question typed and its answer; `--quote NAME` only the answer, as
   // pasted; `--both NAME` the question and answer of NAME and the matched thread's answer too;
   // THEN=NAME shows NAME's answers after the flood
-  writeFileSync(script, `#!/bin/sh\nname="\${2:-matched}"\n[ "$1" = --say ] || [ "$1" = --both ] && echo "› question for $name"\n[ "$1" = --say ] || [ "$1" = --quote ] || [ "$1" = --both ] && cat "$(dirname "$0")/$name.txt"\n[ "$1" = --both ] && cat "$(dirname "$0")/matched.txt"\nsleep "\${FLOOD_AFTER:-600}"\nseq 1 600\n[ -n "$THEN" ] && cat "$(dirname "$0")/$THEN.txt"\nsleep 600\n`);
+  writeFileSync(script, `#!/bin/sh\n[ -n "$SCREEN_FILE" ] && cat "$SCREEN_FILE"\n[ -n "$HELD_ROLLOUT" ] && exec 3<"$HELD_ROLLOUT"\nname="\${2:-matched}"\n[ "$1" = --say ] || [ "$1" = --both ] && echo "› question for $name"\n[ "$1" = --say ] || [ "$1" = --quote ] || [ "$1" = --both ] && cat "$(dirname "$0")/$name.txt"\n[ "$1" = --both ] && cat "$(dirname "$0")/matched.txt"\nsleep "\${FLOOD_AFTER:-600}"\nseq 1 600\n[ -n "$THEN" ] && cat "$(dirname "$0")/$THEN.txt"\nsleep 600\n`);
   chmodSync(script, 0o755);
   server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), codexHome });
 });
@@ -137,6 +137,104 @@ afterAll(async () => {
   server?.stop();
   for (const id of workspaces) await workspaceClose(id);
   rmSync(root, { recursive: true, force: true });
+});
+
+it("reads a visible picker resume from another cwd (regression)", async () => {
+  const cwd = join(root, "picker-visible");
+  mkdirSync(cwd);
+  const screen = join(cwd, "screen.txt");
+  writeFileSync(screen, `› question for fresh\n${answers.fresh}\n`);
+  const opened = workspaces.length;
+  const paneId = await pane("picker-visible", `SCREEN_FILE=${screen} ${join(root, "bin", "codex")} resume --all`, cwd);
+  const db = new Database(join(codexHome, "state_5.sqlite"));
+  db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, ?, 'cli', ?)").run(
+    threads.fresh, rollout("fresh"), root, Math.ceil(Date.now() / 1000), "question for fresh",
+  );
+  db.close();
+  try {
+    await onScreen(paneId, answers.fresh);
+    const conversation = await read(paneId);
+    expect(conversation.source).toBe("codex-transcript"); // regression
+    expect(lastAnswer(conversation)).toBe(answers.fresh); // regression: exact thread, not just any transcript
+  } finally {
+    const db = new Database(join(codexHome, "state_5.sqlite"));
+    db.query("DELETE FROM threads WHERE id = ?").run(threads.fresh);
+    db.close();
+    for (const id of workspaces.splice(opened)) await workspaceClose(id);
+  }
+});
+
+it("reads a unique open rollout from another cwd (control)", async () => {
+  const cwd = join(root, "held-rollout");
+  mkdirSync(cwd);
+  const path = rollout("fresh");
+  const screen = join(cwd, "screen.txt");
+  writeFileSync(screen, "Open rollout ready\n");
+  const opened = workspaces.length;
+  try {
+    const paneId = await pane("held", `SCREEN_FILE=${screen} HELD_ROLLOUT=${path} ${join(root, "bin", "codex")} resume --all`, cwd);
+    await onScreen(paneId, "Open rollout ready");
+    expect(lastAnswer(await read(paneId))).toBe(answers.fresh); // control
+  } finally {
+    for (const id of workspaces.splice(opened)) await workspaceClose(id);
+  }
+});
+
+it("refuses a flooded picker and a picker copying a peer's bound answer (control)", async () => {
+  const cwd = join(root, "picker-controls");
+  mkdirSync(cwd);
+  const screen = join(cwd, "screen.txt");
+  writeFileSync(screen, `› question for fresh\n${answers.fresh}\n`);
+  const silent = join(cwd, "silent.txt");
+  writeFileSync(silent, "Tool output with no submitted answer\n");
+  const opened = workspaces.length;
+  const remove = newerThread("cli", threads.fresh, rollout("fresh"), "question for fresh");
+  try {
+    const owner = await pane("picker-owner", `SCREEN_FILE=${screen} ${join(root, "bin", "codex")}`);
+    await onScreen(owner, answers.fresh);
+    expect(lastAnswer(await read(owner))).toBe(answers.fresh); // control: establish peer claim
+    const copied = await pane("picker-copy", `SCREEN_FILE=${screen} ${join(root, "bin", "codex")} resume --all`, cwd);
+    await onScreen(copied, answers.fresh);
+    expect((await read(copied)).source).toBe("scrollback"); // control: never another pane's thread
+    const flooded = await pane("picker-flooded", `SCREEN_FILE=${silent} ${join(root, "bin", "codex")} resume --all`, cwd);
+    await onScreen(flooded, "Tool output with no submitted answer");
+    expect((await read(flooded)).source).toBe("scrollback"); // expected residual
+  } finally {
+    remove();
+    for (const id of workspaces.splice(opened)) await workspaceClose(id);
+  }
+});
+
+it("reads a literal short first answer through the conversation endpoint (regression)", async () => {
+  const cwd = join(root, "short-first");
+  mkdirSync(cwd);
+  const id = "01a0c7a1-56d9-7e20-9f08-f7a2d973bd42";
+  const path = join(codexHome, "sessions", `rollout-2026-10-14T00-00-00-${id}.jsonl`);
+  const prompt = "Reply with only the number 42.";
+  writeFileSync(path, [
+    { type: "session_meta", payload: { id, cwd } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: prompt }] } },
+    { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "42" }] } },
+  ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+  const screen = join(cwd, "screen.txt");
+  writeFileSync(screen, `OpenAI Codex (v0.162.1)\n\n• Model changed to gpt-5\n\n› ${prompt}\n\n• 42\n\n› \nSHORT_SCREEN_READY\n`);
+  const opened = workspaces.length;
+  const paneId = await pane("short-first", `SCREEN_FILE=${screen} ${join(root, "bin", "codex")}`, cwd);
+  const db = new Database(join(codexHome, "state_5.sqlite"));
+  const created = Math.ceil(Date.now() / 1000) + 2;
+  db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, ?, ?, 'cli', ?)").run(id, path, cwd, created, created, prompt);
+  db.close();
+  try {
+    await onScreen(paneId, "SHORT_SCREEN_READY");
+    const conversation = await read(paneId);
+    expect(conversation.source).toBe("codex-transcript"); // regression
+    expect(lastAnswer(conversation)).toBe("42"); // regression
+  } finally {
+    const db = new Database(join(codexHome, "state_5.sqlite"));
+    db.query("DELETE FROM threads WHERE id = ?").run(id);
+    db.close();
+    for (const workspace of workspaces.splice(opened)) await workspaceClose(workspace);
+  }
 });
 
 it("reads the thread a Codex TUI was resumed on while none of its answers is on screen, until a newer thread begins", async () => {
