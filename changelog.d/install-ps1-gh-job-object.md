@@ -1,3 +1,4 @@
 ### Fixed
-- The Windows installer no longer leaves a process behind when a `gh` shim starts a child that keeps
-  its output open: `gh` now runs in a job that ends with the call, and its output pipes are closed.
+- The Windows installer assigns `gh` to a job before allowing a shim to start a child that keeps
+  its output open: the job ends with the call, and its output pipes are closed. If Windows refuses
+  job assignment, the existing launcher-based cleanup remains, without guaranteeing orphan cleanup.

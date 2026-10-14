@@ -227,13 +227,104 @@ exit /b 1
     $childPid = [int](Get-Content -LiteralPath $childFile -ErrorAction SilentlyContinue | Select-Object -First 1)
     Assert ($childPid -gt 0) 'control: the lingering stand-in must have started its child and named its PID'
     Assert ($null -eq $answer -and $elapsed -lt 15) "control: a gh whose output stays open must be left after its deadline, with no answer: $elapsed s"
-    # the job ends the child as the call returns; give Windows a bounded moment to take it off the process list
-    $gone = [Diagnostics.Stopwatch]::StartNew()
-    while ((Get-Process -Id $childPid -ErrorAction SilentlyContinue | Where-Object ProcessName -eq 'PING') -and $gone.Elapsed.TotalSeconds -lt 5) { Start-Sleep -Milliseconds 100 }
-    $left = Get-Process -Id $childPid -ErrorAction SilentlyContinue | Where-Object ProcessName -eq 'PING'
+    $child = Get-Process -Id $childPid -ErrorAction SilentlyContinue | Where-Object ProcessName -eq 'PING'
+    $left = $child -and -not $child.WaitForExit(5000)
     if ($left) { Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue }
     Assert (-not $left) "regression (fails on main): the child gh left holding its output (PID $childPid) must not outlive the call"
     Write-Host "PASS gh deadline: a child of gh that holds its output ends with the call (PID $childPid, $([math]::Round($elapsed, 1)) s)"
+
+    # A native shim starts its output-holding child as its first action, without a PowerShell startup delay.
+    # At the assignment boundary, force the old runnable launcher to reach child-ready before proceeding.
+    # The fixed launcher must still be suspended there. The same assertion is run against both launches.
+    $immediate = Join-Path $ghStandIn 'immediate shim'
+    New-Item -ItemType Directory -Path $immediate | Out-Null
+    Add-Type -OutputAssembly (Join-Path $immediate 'gh.exe') -OutputType ConsoleApplication -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
+public static class ImmediateGh {
+    public static void Main() {
+        Process child = Process.Start(new ProcessStartInfo("ping.exe", "-n 47 127.0.0.1") { UseShellExecute = false });
+        File.WriteAllText(Environment.GetEnvironmentVariable("HERDR_TEST_GH_CHILD"), child.Id.ToString());
+        using (EventWaitHandle ready = EventWaitHandle.OpenExisting(Environment.GetEnvironmentVariable("HERDR_TEST_GH_READY"))) ready.Set();
+        Console.WriteLine("HTTP/2.0 404 Not Found");
+        Console.Error.WriteLine("gh: Not Found (HTTP 404)");
+        Environment.ExitCode = 1;
+    }
+}
+'@
+    $assignment = '[HerdrWebUi.GhJob]::Assign($job, $process.Handle)'
+    $orderedSource = $ghApi.Extent.Text.Replace("`r`n", "`n").Replace($assignment, '(Assign-TestGhJob $job $process)')
+    Assert ($orderedSource -ne $ghApi.Extent.Text) 'control: interpose at the real job assignment boundary'
+    function Assign-TestGhJob($Job, $Process) {
+        if ($Process -is [Diagnostics.Process]) {
+            Assert ($ready.WaitOne(5000)) 'control: the runnable shim must reach child-ready before assignment'
+        }
+        Assert (-not $ready.WaitOne(0)) 'regression: shim ran before job assignment'
+        [HerdrWebUi.GhJob]::Assign($Job, $Process.Handle)
+    }
+    $suspendedLaunch = @'
+        if ($job -ne [IntPtr]::Zero) {
+            $process = [HerdrWebUi.GhJob]::StartSuspended($start.FileName, $start.Arguments)
+            if (-not (Assign-TestGhJob $job $process)) {
+                $null = [HerdrWebUi.GhJob]::CloseHandle($job); $job = [IntPtr]::Zero
+            }
+            $process.Resume()
+        } else {
+            $process = [Diagnostics.Process]::Start($start)
+        }
+'@
+    $runnableLaunch = @'
+        $process = [Diagnostics.Process]::Start($start)
+        if ($job -ne [IntPtr]::Zero -and -not (Assign-TestGhJob $job $process)) {
+            $null = [HerdrWebUi.GhJob]::CloseHandle($job); $job = [IntPtr]::Zero
+        }
+'@
+    # Scratch-source reversion of exactly the pre-fix runnable Start/Assign ordering; no repository file changes.
+    $runnableSource = $orderedSource.Replace($suspendedLaunch.Replace("`r`n", "`n"), $runnableLaunch)
+    $path = $env:PATH
+    $oldReady = $env:HERDR_TEST_GH_READY; $oldChild = $env:HERDR_TEST_GH_CHILD
+    try {
+        $env:PATH = "$immediate;$path"
+        foreach ($case in @(
+            @{ name = 'reverted'; source = $runnableSource },
+            @{ name = 'fixed'; source = $orderedSource }
+        )) {
+            $env:HERDR_TEST_GH_READY = "Local\herdr-gh-ready-$([Guid]::NewGuid())"
+            $env:HERDR_TEST_GH_CHILD = Join-Path $immediate 'child.txt'
+            Remove-Item -LiteralPath $env:HERDR_TEST_GH_CHILD -Force -ErrorAction SilentlyContinue
+            $ready = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, $env:HERDR_TEST_GH_READY)
+            $failure = ''
+            try {
+                Invoke-Expression $case.source
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                $answer = Invoke-GhApi 'user/starred/devswha/herdr-web-ui'
+                Assert ($null -eq $answer -and $clock.Elapsed.TotalSeconds -lt 15) 'regression: immediate child must not keep the call waiting past its deadline'
+                Assert ($ready.WaitOne(0)) 'control: the resumed shim must have started its child'
+                $childPid = [int](Get-Content -LiteralPath $env:HERDR_TEST_GH_CHILD)
+                $child = Get-Process -Id $childPid -ErrorAction SilentlyContinue
+                Assert (-not $child -or $child.WaitForExit(5000)) 'regression: immediate child must end with the assigned job'
+            } catch { $failure = $_.Exception.Message } finally {
+                $childPid = [int](Get-Content -LiteralPath $env:HERDR_TEST_GH_CHILD -ErrorAction SilentlyContinue | Select-Object -First 1)
+                if ($childPid -gt 0) {
+                    Get-Process -Id $childPid -ErrorAction SilentlyContinue | Where-Object ProcessName -eq 'PING' |
+                        Stop-Process -Force -ErrorAction SilentlyContinue
+                }
+                $ready.Dispose()
+            }
+            if ($case.name -eq 'reverted') {
+                Assert ($failure -eq 'regression: shim ran before job assignment') "The reverted launch must fail the ordering assertion, not another error: $failure"
+                Write-Host "PASS gh ordering negative control: reverted launch 0 pass, 1 fail ($failure)"
+            } else {
+                Assert (-not $failure) "The suspended launch must pass the same ordering and child cleanup test: $failure"
+                Write-Host 'PASS gh ordering: suspended launch 1 pass, 0 fail; immediate child ends with its job'
+            }
+        }
+    } finally {
+        $env:PATH = $path
+        $env:HERDR_TEST_GH_READY = $oldReady; $env:HERDR_TEST_GH_CHILD = $oldChild
+    }
 
     # A PC without herdr: its installer is a stand-in .cmd, and nothing of this PC's own herdr is in reach.
     $scratch = Join-Path ([IO.Path]::GetTempPath()) "herdr-installer-test-$PID"
