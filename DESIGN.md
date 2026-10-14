@@ -1167,6 +1167,7 @@ One set for both themes: the card is island black wherever it shows.
   message box as a row of its own at the card's full width, then ONE row of controls under it:
   on the left the add button (lucide `Plus`, named "Attach files"), the mic when voice input
   shows it (see Voice input), and the background-task chip; on the right the status content and ONE round Send/Stop button.
+  The message's text starts `--space-4` in (`--space-3` on a phone, `480px` and below).
 - The strip (`.composer-strip`) tucked under the card, as t3code's composer context strip: the
   card's own `--bg-elevated` with a `--border` hairline, inset on each side by the card's radius
   (`--radius-2xl`, never under `--space-5`) so it stays under the card's straight bottom edge,
