@@ -2209,7 +2209,7 @@ export function PaneTerminal({
   // must not turn a one-letter message into a control key. Offline it sends nothing and
   // keeps its text (never-queue); a message the server could not deliver keeps it too,
   // with the reason. Bracketed-paste wrapping follows the pane program's mode.
-  const submitComposerMessage = useCallback((text: string, delivery: SubmitDelivery = "immediate", clearDraft?: string, sendAnyway = false): Promise<SubmitResult> | null => {
+  const submitComposerMessage = useCallback((text: string, delivery: SubmitDelivery = "immediate", clearDraft?: string, sendAnyway = false, resendId?: string, generation?: number): Promise<SubmitResult> | null => {
     const term = termRef.current;
     const socket = socketRef.current;
     const session = sessionRef.current;
@@ -2219,7 +2219,7 @@ export function PaneTerminal({
     if (draftHeldForRef.current === pane) return Promise.resolve({ ok: false, code: "held_input", message: "send or discard the held input first" });
     // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
     const epoch = session.epoch;
-    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft, sendAnyway);
+    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft, sendAnyway, resendId, generation);
     if (sent === null) return null;
     const releaseSubmit = submitRetention?.retain(pane);
     const submission = delivery !== "immediate" ? { pane, socket, epoch } : null;
@@ -2499,54 +2499,60 @@ export function PaneTerminal({
   );
 
   const actOnPending = useCallback(async (id: string, action: "steer" | "discard"): Promise<void> => {
-    const owner = queueOwner, pane = paneId;
-    const socket = socketRef.current, scope = pendingScopeRef.current;
-    if (owner === null || pane === null || paneRef.current !== pane) return;
-    // what another tab saved since: a copy it is sending again is not confirmed here either
-    pendingMessages.refresh(owner);
-    const message = pendingMessages.read(owner).find((item) => item.id === id);
-    if (!message || message.state === "sending") return;
-    if (action === "steer" && (message.state === "uncertain" || !socket?.connected || heldRef.current || secretRef.current !== null || observeRef.current || ended || heldByOpenQueue || answering !== null)) return;
-    if (message.serverOwned && !pendingMessages.isOwned(owner, id, scope)) return;
-    // keys held back in the terminal draft would run in front of the message: the server pastes a
-    // server-owned row's text and sends Enter without looking for a partial line (only Claude's box
-    // is checked there). The row stays as it is, so Send now after the draft is settled, or Discard, still works.
-    if (action === "steer" && draftHeldForRef.current === pane) {
-      pendingMessages.fail(owner, id, { code: "held_input", message: "send or discard the held input first" }, false);
-      return;
-    }
-    if (!pendingMessages.begin(owner, id)) return;
-    try {
-      if (message.serverOwned) {
-        const result = socket?.pendingAction(pane, id, action);
-        if (!result) {
-          pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
-          return;
-        }
-        // as a composer send: the pane keeps its connection and lease until the receipt settles
-        const releaseSubmit = submitRetention?.retain(pane);
-        const answer = await result.finally(() => releaseSubmit?.());
-        if (!answer.ok) pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, answer.code === "pending_not_found" || !submitNotTyped(answer.code));
-        // Only the matching server removal receipt removes an authoritative item.
-      } else if (action === "discard") {
-        pendingMessages.removeCopy(owner, id);
-      } else if (message.state === "held") {
-        if (!pendingMessages.unconfirm(owner, id)) {
-          pendingMessages.fail(owner, id, { code: "unsaved", message: t("Queue could not be saved. Keep this tab open or copy the messages before reloading.") }, false);
-          return;
-        }
-        const result = submitComposerMessage(message.text, "immediate");
-        if (!result) {
-          pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not sent. Reconnect and try again.") }, false);
-          return;
-        }
-        const answer = await result;
-        if (answer.ok) pendingMessages.removeCopy(owner, id);
-        else pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, !submitNotTyped(answer.code));
+    const perform = async (): Promise<void> => {
+      const owner = queueOwner, pane = paneId;
+      const socket = socketRef.current, scope = pendingScopeRef.current;
+      if (owner === null || pane === null || paneRef.current !== pane) return;
+      // what another tab saved since: a copy it is sending again is not confirmed here either
+      pendingMessages.refresh(owner);
+      const message = pendingMessages.read(owner).find((item) => item.id === id);
+      if (!message || message.state === "sending") return;
+      if (action === "steer" && (message.state === "uncertain" || !socket?.connected || heldRef.current || secretRef.current !== null || observeRef.current || ended || heldByOpenQueue || answering !== null)) return;
+      if (message.serverOwned && !pendingMessages.isOwned(owner, id, scope)) return;
+      // keys held back in the terminal draft would run in front of the message: the server pastes a
+      // server-owned row's text and sends Enter without looking for a partial line (only Claude's box
+      // is checked there). The row stays as it is, so Send now after the draft is settled, or Discard, still works.
+      if (action === "steer" && draftHeldForRef.current === pane) {
+        pendingMessages.fail(owner, id, { code: "held_input", message: "send or discard the held input first" }, false);
+        return;
       }
-    } catch {
-      pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
-    } finally { pendingMessages.end(owner, id); }
+      if (!pendingMessages.begin(owner, id)) return;
+      try {
+        if (message.serverOwned) {
+          const result = socket?.pendingAction(pane, id, action, message.resendGeneration ?? 0);
+          if (!result) {
+            pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
+            return;
+          }
+          // as a composer send: the pane keeps its connection and lease until the receipt settles
+          const releaseSubmit = submitRetention?.retain(pane);
+          const answer = await result.finally(() => releaseSubmit?.());
+          if (!answer.ok) pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, answer.code === "pending_not_found" || !submitNotTyped(answer.code),
+            action === "steer" ? message.resendGeneration ?? 0 : undefined);
+          // Only the matching server removal receipt removes an authoritative item.
+        } else if (action === "discard") {
+          pendingMessages.removeCopy(owner, id);
+        } else if (message.state === "held") {
+          if (!pendingMessages.unconfirm(owner, id)) {
+            return;
+          }
+          const result = submitComposerMessage(message.text, "immediate", undefined, false, id, message.resendGeneration ?? 0);
+          if (!result) {
+            pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not sent. Reconnect and try again.") }, false);
+            return;
+          }
+          const answer = await result;
+          if (answer.ok) pendingMessages.removeCopy(owner, id);
+          else pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, !submitNotTyped(answer.code), message.resendGeneration ?? 0);
+        }
+      } catch {
+        pendingMessages.fail(owner, id, { code: "disconnected", message: t("Not confirmed. Check the terminal before sending again.") }, true);
+      } finally { pendingMessages.end(owner, id); }
+    };
+    // Web Locks reduce contention where supported; the bridge's stable resend ID is the
+    // authority on LAN HTTP and when two tabs have already read the same held copy.
+    if (navigator.locks) await navigator.locks.request(`pending:${queueOwner}:${id}`, perform);
+    else await perform();
   }, [answering, ended, heldByOpenQueue, paneId, queueOwner, submitComposerMessage, submitRetention]);
 
 

@@ -1129,9 +1129,14 @@ export type ClientMessage =
    * named no draft and showed the box (`box`): the server sends once over that box, only into the same
    * Claude terminal and session that refusal was for (else pending_target_changed), and only while the
    * box still shows that `box` or reads empty (else input_draft again, with the new box). Not with
-   * `clear_draft`. */
-  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" | "hold"; clear_draft?: string; send_anyway?: true }
-  | { type: "pending-action"; id: number; pane_id: string; pending_id: string; action: "steer" | "discard" }
+   * `clear_draft`.
+   * `resend_id`: stable held-copy ID for immediate chat resends across connections; the bridge
+   * shares the first outcome for 60 seconds after settlement. `resend_generation` defaults to 0;
+   * only a definitive no-input refusal permits the next attempt generation. Not with `send_anyway`:
+   * that combination returns invalid_delivery before reserving or replaying an ID. No `clear_draft`.
+   * Older peers ignore it. */
+  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" | "hold"; clear_draft?: string; send_anyway?: true; resend_id?: string; resend_generation?: number }
+  | { type: "pending-action"; id: number; pane_id: string; pending_id: string; action: "steer" | "discard"; resend_generation?: number }
   /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
   | { type: "secret"; id: number; pane_id: string; prompt: string; secret: string }

@@ -791,9 +791,10 @@ export class HerdrSocket {
   /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage).
    * `clearDraft`: an immediate send over the draft an input_draft refusal named (ClientMessage `clear_draft`)
    * `sendAnyway`: an immediate send after a refusal that showed the box (ClientMessage `send_anyway`) */
-  submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string, sendAnyway = false): Promise<SubmitResult> | null {
+  submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string, sendAnyway = false, resendId?: string, generation?: number): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
+    if (resendId !== undefined && sendAnyway) return Promise.resolve({ ok: false, code: "invalid_delivery", message: "Use a held-copy resend id only for an immediate chat message" });
     return (async (): Promise<SubmitResult> => {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
       // a liveness probe in flight is waited out: nothing is sent on a socket that may be dead
@@ -809,12 +810,12 @@ export class HerdrSocket {
       }
       const id = this.nextSubmit++;
       return this.submitRequest({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}), ...(delivery !== "immediate" ? { delivery } : {}),
-        ...(clearDraft !== undefined ? { clear_draft: clearDraft } : {}), ...(sendAnyway ? { send_anyway: true as const } : {}) });
+        ...(clearDraft !== undefined ? { clear_draft: clearDraft } : {}), ...(sendAnyway ? { send_anyway: true as const } : {}), ...(resendId !== undefined ? { resend_id: resendId, resend_generation: generation ?? 0 } : {}) });
     })();
   }
 
   /** Explicitly steer or discard one server-owned pending item. Never queued or replayed. */
-  pendingAction(paneId: string, pendingId: string, action: "steer" | "discard"): Promise<SubmitResult> | null {
+  pendingAction(paneId: string, pendingId: string, action: "steer" | "discard", generation?: number): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
@@ -822,7 +823,8 @@ export class HerdrSocket {
       if (!(await this.probeSettled(socket))) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot change pending messages." };
       if (!this.canQueueMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to manage pending messages." };
-      return this.submitRequest({ type: "pending-action", id: this.nextSubmit++, pane_id: paneId, pending_id: pendingId, action });
+      return this.submitRequest({ type: "pending-action", id: this.nextSubmit++, pane_id: paneId, pending_id: pendingId, action,
+        ...(generation !== undefined ? { resend_generation: generation } : {}) });
     })();
   }
 

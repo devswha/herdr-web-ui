@@ -3304,6 +3304,15 @@ export function createServer(
                 result(false, "invalid_delivery", "Send anyway only a chat message sent at once, without clearing a draft");
                 break;
               }
+              if (message.resend_id !== undefined && (typeof message.resend_id !== "string" || !message.resend_id || message.resend_id.length > 128
+                || waits || message.typed === true || message.clear_draft !== undefined || message.send_anyway !== undefined)) {
+                result(false, "invalid_delivery", "Use a held-copy resend id only for an immediate chat message");
+                break;
+              }
+              if (message.resend_generation !== undefined && (!Number.isSafeInteger(message.resend_generation) || message.resend_generation < 0 || message.resend_id === undefined)) {
+                result(false, "invalid_delivery", "A resend generation must be a nonnegative integer with a held-copy id");
+                break;
+              }
               if (client.data.mode === "observe") {
                 result(false, "read_only", "this connection is in observe mode");
                 break;
@@ -3348,12 +3357,23 @@ export function createServer(
                   drainPending(message.pane_id);
                   break;
                 }
-                await serialize(message.pane_id, () => {
+                const dispatch = () => {
                   // held while this waited its turn (the attach was refused after the check above)
                   if (attachments.get(message.pane_id)?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
                   return submitText(message.pane_id, message.text, message.payload, arrivedAt, message.typed === true, () => authorizeSocket(client), message.clear_draft,
                     draftConfirmations.get(client)?.get(message.pane_id), message.send_anyway === true);
-                });
+                };
+                if (message.resend_id !== undefined) {
+                  authorizeSocket(client);
+                  const answer = await serialize(message.pane_id, () => pending.resend(message.pane_id, message.resend_id!,
+                    new Bun.CryptoHasher("sha256").update(message.text).digest("hex"), async () => {
+                      try { await dispatch(); return { ok: true }; }
+                      catch (error) { return { ok: false, ...pendingFault(error) }; }
+                    }, message.resend_generation));
+                  result(answer.ok, answer.code, answer.message);
+                  break;
+                }
+                await serialize(message.pane_id, dispatch);
                 if (message.clear_draft !== undefined || message.send_anyway) draftConfirmations.get(client)?.delete(message.pane_id);
                 result(true);
               } catch (error) {
@@ -3376,6 +3396,9 @@ export function createServer(
                 || typeof message.pending_id !== "string" || !message.pending_id || !["steer", "discard"].includes(message.action)) {
                 result({ ok: false, code: "invalid_pending_action", message: "Use steer or discard with a pending-message id" }); break;
               }
+              if (message.resend_generation !== undefined && (!Number.isSafeInteger(message.resend_generation) || message.resend_generation < 0)) {
+                result({ ok: false, code: "invalid_pending_action", message: "A resend generation must be a nonnegative integer" }); break;
+              }
               const arrivedAt = Date.now();
               try {
                 authorizeSocket(client);
@@ -3388,10 +3411,21 @@ export function createServer(
                     ? { ok: true } : { ok: false, code: "pending_not_found", message: "This pending message does not belong to this connection" };
                   if (message.action === "discard") return pending.discard(item) ? { ok: true } : { ok: false, code: "pending_busy", message: "This message is already being sent" };
                   if (item.message.state === "uncertain") return { ok: false, code: "pending_uncertain", message: "Check the terminal before sending this message again" };
-                  await pendingContext(client, item.paneId, lease!, item.identity);
-                  if (!pending.claim(item, false)) return { ok: false, code: "pending_busy", message: "This message is already being sent" };
-                  item.lease = lease!;
-                  return dispatchPending(item, false, arrivedAt, true);
+                  let dispatched = false;
+                  const reply = await pending.resend(item.paneId, item.message.id,
+                    new Bun.CryptoHasher("sha256").update(item.message.text).digest("hex"), async (): Promise<SubmitReply> => {
+                      try {
+                        await pendingContext(client, item.paneId, lease!, item.identity);
+                        if (!pending.claim(item, false)) return { ok: false, code: "pending_busy", message: "This message is already being sent" };
+                        item.lease = lease!;
+                        dispatched = true;
+                        return await dispatchPending(item, false, arrivedAt, true);
+                      } catch (error) { return { ok: false, ...pendingFault(error) }; }
+                    }, message.resend_generation);
+                  // A saved copy may already have completed this ID on another connection.
+                  if (!dispatched && pending.get(client, item.paneId, item.message.id) === item && pending.claim(item, false))
+                    pending.settle(item, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed");
+                  return reply;
                 });
                 result(answer);
                 drainPending(message.pane_id);

@@ -70,6 +70,53 @@ it("keeps ordinary immediate sends working on a legacy bridge", async () => {
   }
 });
 
+it("control: a held-copy id on a legacy bridge keeps its existing immediate input behavior", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot([]));
+  try {
+    expect(await client.submit("w1:p1", "held copy", "held copy", false, "immediate", undefined, false, "stable-copy-id")).toEqual({ ok: true });
+    expect(submissions(socket)).toEqual([{ type: "input", pane_id: "w1:p1", text: "held copy\r" }]);
+  } finally { client.close(); }
+});
+
+it("regression: sends the held-copy id independently of the connection request id", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["submit"]));
+  try {
+    const sent = socket.nextSubmission();
+    const result = client.submit("w1:p1", "held copy", "held copy", false, "immediate", undefined, false, "stable-copy-id", 3);
+    const frame = await sent;
+    expect(submissions(socket)[0]?.resend_id).toBe("stable-copy-id");
+    expect(submissions(socket)[0]?.resend_generation).toBe(3);
+    socket.receive({ type: "submit-result", id: frame.id, pane_id: "w1:p1", ok: true });
+    expect(await result).toEqual({ ok: true });
+  } finally { client.close(); }
+});
+
+it("refuses a held-copy resend combined with Send anyway without sending a frame", async () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["submit"]));
+  try {
+    const sent = socket.nextSubmission();
+    const result = client.submit("w1:p1", "held copy", "held copy", false, "immediate", undefined, true, "combined-copy", 0);
+    const answer = await Promise.race([result, sent.then((frame) => {
+      socket.receive({ type: "submit-result", id: frame.id, pane_id: "w1:p1", ok: true });
+      return result;
+    })]);
+    expect(answer).toMatchObject({ ok: false, code: "invalid_delivery" });
+    expect(submissions(socket)).toEqual([]);
+  } finally { client.close(); }
+});
+
 it("delivers partial clear outcomes unchanged and never retries the submission", async () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();
