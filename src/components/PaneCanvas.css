@@ -40,9 +40,10 @@
 .pane-frame-body { flex: 1; min-width: 0; min-height: 0; position: relative; }
 .pane-frame.is-single > .pane-frame-head { position: absolute; right: 0; top: 0; z-index: var(--z-banner); background: transparent; }
 .pane-frame.is-single .pane-frame-title { display: none; }
-.pane-frame.is-single .pane-frame-menu { opacity: 0; }
-.pane-frame.is-single:hover .pane-frame-menu,
-.pane-frame.is-single:focus-within .pane-frame-menu { opacity: 1; }
+/* a mouse opens the pane's menu by right-click (or Shift+F10): only a touch screen draws the ellipsis */
+@media (pointer: fine) {
+  .pane-frame-menu { display: none; }
+}
 /* Single-pane chrome must not cover the search controls or the history scrollbar. */
 .pane-frame.is-single:has(.pane-terminal.has-viewport-tools) > .pane-frame-head { right: var(--space-3); }
 .pane-frame.is-single:has(.find-bar) > .pane-frame-head { display: none; }
@@ -63,7 +64,6 @@
 .pane-rename-form { display: flex; flex-direction: column; gap: var(--space-3); }
 @media (pointer: coarse) {
   .pane-frame.is-single:has(.pane-terminal.has-viewport-tools) > .pane-frame-head { right: var(--space-6); }
-  .pane-frame.is-single .pane-frame-menu { opacity: 1; }
   .pane-frame-head { height: var(--touch-target); }
   .pane-frame-menu { min-width: var(--touch-target); height: var(--touch-target); }
 }

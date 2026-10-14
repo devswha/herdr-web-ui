@@ -760,9 +760,9 @@ One set for both themes: the card is island black wherever it shows.
   the same adjacent moves only while a tab has keyboard focus.
 - `PaneCanvas` draws every pane in the active tab at `layouts[].panes[].rect`, normalized to
   the layout's own area. Panes share thin, square boundaries: `--border-strong` when inactive,
-  `--accent` around the selected pane. The compact header names its pane and provides the
-  ellipsis for touch and keyboard access. A lone or zoomed pane is borderless; its menu button
-  stays at the top-right (visible on hover/focus, always on touch).
+  `--accent` around the selected pane. The compact header names its pane and, on a touch screen
+  (`pointer: coarse`), the ellipsis; a mouse opens the same menu by right-click or Shift+F10. A lone
+  or zoomed pane is borderless; on touch its menu button stays at the top-right.
 - A left click or keyboard focus selects the actual pane. Right-click opens the clicked pane's
   menu without changing the selected pane: Rename pane, Clear pane name when named, Swap with
   focused pane when another is selected, Split right, Split down, Zoom/Unzoom pane, Close

@@ -319,6 +319,7 @@ async function checkDesktop(browser: Browser, origin: string, first: string, sec
     await frame(page, first).locator(".xterm-helper-textarea").focus();
     await currentPane(page, first);
     const beforeMenuInput = input.length;
+    assert.equal(await frame(page, second).locator(".pane-frame-menu").isVisible(), false, "a mouse gets no pane ellipsis: right-click opens the menu");
     let menu = await paneMenu(page, second);
     assert.equal(await frame(page, first).evaluate((node) => node.classList.contains("is-current")), true);
     assert.equal((await sessionSnapshot()).focused_pane_id, first, "right-click leaves native focus on the first pane");
