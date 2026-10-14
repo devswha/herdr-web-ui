@@ -12,7 +12,7 @@ import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import { ViewportIntentGate } from "../lib/viewportIntent.ts";
 import { PaneCachedContext, PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
-import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
+import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, mirroredCtrlEnterKey, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
@@ -1047,7 +1047,7 @@ export function PaneTerminal({
         stalledRef.current = false;
         setOutputError(null);
         setEnded(false);
-        term.options.disableStdin = observeRef.current || secretRef.current !== null || heldRef.current;
+        term.options.disableStdin = observeRef.current || heldRef.current;
       }
       if (message.type === "pending-messages" && sent) {
         redrawGreeting();
@@ -1090,9 +1090,12 @@ export function PaneTerminal({
             if (line?.isWrapped && lines.length) lines[lines.length - 1] += text;
             else lines.push(text);
           }
+          // A masked prompt does not close the grid: a desktop answers it there, as in any terminal,
+          // and the masked input stands by for a phone (#1031). onData keeps what is typed then out
+          // of every draft.
           const prompt = secretPrompt(lines.join("\n"), term.cols);
           secretRef.current = prompt;
-          term.options.disableStdin = observeRef.current || prompt !== null || heldRef.current;
+          term.options.disableStdin = observeRef.current || heldRef.current;
           setSecret((previous) => previous?.pane === owner && previous.prompt === prompt ? previous : prompt ? { pane: owner, prompt } : null);
         });
       } else if (message.type === "watch-data") {
@@ -1105,7 +1108,7 @@ export function PaneTerminal({
       } else if (message.type === "attach-resumed") {
         if (message.pane_id === paneRef.current) {
           setHeld(false);
-          term.options.disableStdin = observeRef.current || secretRef.current !== null;
+          term.options.disableStdin = observeRef.current;
         }
       } else if (message.type === "pty-exit") {
         // an ended pane takes no input: a file dropped on it must not upload and paste either
@@ -1119,7 +1122,7 @@ export function PaneTerminal({
         // no fit runs while observing: a font shrunk for this client's own grid would stay
         if (nowObserving) term.options.fontSize = baseFontRef.current;
         setObserving(nowObserving);
-        term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
+        term.options.disableStdin = nowObserving || heldRef.current;
         onRoleAckRef.current?.(message.mode);
         if (!nowObserving && !fixedGridRef.current && !chatViewRef.current && inUse()) {
           try {
@@ -1227,14 +1230,20 @@ export function PaneTerminal({
     // key's onData. Remap only that CR, preserving composition text and its order.
     // xterm.js types Shift+Enter and Ctrl+Enter as plain Enter: Shift+Enter becomes the Alt+Enter
     // newline chord, Ctrl+Enter what modifyOtherKeys makes it (Claude Code's "send now") while
-    // the program has asked for that, and stays Enter otherwise.
+    // the program has asked for that, and stays Enter otherwise. A mirrored pane never hears that
+    // request, so its Ctrl+Enter goes as herdr's key, which herdr encodes as the program asked.
     let enterAs: string | null = null;
+    let enterKey: string | null = null;
     const onModifiedEnter = term.onKey(({ key, domEvent: event }) => {
       enterAs = null;
+      enterKey = null;
       if (term.options.disableStdin || key !== "\r" || event.key !== "Enter" || event.altKey || event.metaKey
         || event.isComposing || event.keyCode === 229) return;
       if (event.shiftKey && !event.ctrlKey) enterAs = "\x1b\r";
-      else if (event.ctrlKey && !event.shiftKey) enterAs = ctrlEnterSequence(modifyOtherKeysRef.current);
+      else if (event.ctrlKey && !event.shiftKey) {
+        enterKey = mirroredCtrlEnterKey(fixedGridRef.current, modifyOtherKeysRef.current);
+        enterAs = enterKey !== null ? "\r" : ctrlEnterSequence(modifyOtherKeysRef.current);
+      }
     });
     // Let xterm finish pending IME text before remapping the key's following data.
     // Cmd+Backspace uses the terminal's Ctrl+U line-deletion shortcut on macOS.
@@ -1275,20 +1284,25 @@ export function PaneTerminal({
       // a modified Enter (Shift+Enter's newline, Ctrl+Enter's "send now") is decided on before its
       // rewrite: its sequence may carry no line break at all
       const modifiedEnter = enterAs !== null && data === "\r";
+      const enterChord = modifiedEnter ? enterKey : null;
       if (modifiedEnter) data = enterAs!;
       enterAs = null;
+      enterKey = null;
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
       const current = paneRef.current;
       // Hiding a cached pane blurs xterm, which may commit its pending IME text.
       // That abandoned input must reach neither the old PTY nor its held draft.
-      if (!current || !presentedRef.current || !shownRef.current || observeRef.current || secretRef.current !== null || heldRef.current) return;
+      if (!current || !presentedRef.current || !shownRef.current || observeRef.current || heldRef.current) return;
+      // while a masked prompt is on screen, what is typed goes to the program or nowhere: never
+      // into a draft, which is kept in the clear and offered back for review
+      const secret = secretRef.current !== null;
       const input = data;
       const key = keyFromData(data);
-      const chord = !pasting && !composingRef.current && !compositionCommitPendingRef.current
+      const chord = enterChord ?? (!pasting && !composingRef.current && !compositionCommitPendingRef.current
         ? barKey !== null ? barKey.chord
           : physicalChord ?? (hasModifiers(modifiersRef.current) && key !== null ? terminalChord(key, modifiersRef.current) : null)
-        : null;
+        : null);
       if (draftHeldForRef.current === current) {
         // A chord or a modified Enter is never held, and never sent beside held text either
         // (Ctrl+J, or Ctrl+Enter under modifyOtherKeys, would run the line).
@@ -1304,6 +1318,11 @@ export function PaneTerminal({
         // Enter out, so a partial command never runs. Other control keys (Ctrl+C, Escape, Tab,
         // arrows) still reach the program below: an interrupt must not wait on the draft.
         if (pasted || /[\r\n\x7f\b]/.test(input) || applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) {
+          if (secret) {
+            const t = tRef.current;
+            setInputError(t("Not sent: send or discard the held input first."));
+            return;
+          }
           setDraft((prev) => applyToDraft(prev, input));
           return;
         }
@@ -1327,6 +1346,11 @@ export function PaneTerminal({
         return;
       }
       if (socket.sendInput(current, input)) return;
+      if (secret) {
+        const t = tRef.current;
+        setInputError(t("Not sent: the terminal is not ready, and a password is never held for later."));
+        return;
+      }
       // A closed socket, an attachment still opening, or a failed synchronous send:
       // keep printable input for explicit review, never replay it automatically.
       if (draftPaneRef.current !== current) {
@@ -1737,7 +1761,7 @@ export function PaneTerminal({
       setOutputError(null);
       setEnded(false);
       resume();
-      term.options.disableStdin = observeRef.current || secretRef.current !== null || heldRef.current;
+      term.options.disableStdin = observeRef.current || heldRef.current;
     };
     reattachRef.current = reattach;
     const back = (): void => {

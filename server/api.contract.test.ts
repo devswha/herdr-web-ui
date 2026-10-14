@@ -14,7 +14,7 @@ import { VoiceService } from "./voice.ts";
 import { Telemetry } from "./telemetry.ts";
 import { NOTICE_VERSION, type TelemetryEvent, type TelemetryStatus } from "../shared/telemetry.ts";
 import { DEFAULT_SETTINGS, telemetrySettingsSnapshot } from "../src/lib/settings.ts";
-import { herdrRpc, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
+import { herdrRpc, paneRead, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
@@ -1980,12 +1980,15 @@ describe("WebSocket roles and status push", () => {
       // the terminal lens's grid is the pty's, not the pane's own one the covered attach left it at
       expect(await phone.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 91, "the resize applied after creation", 15_000)).toMatchObject({ cols: 91, rows: 27 });
       await phone.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
-      // one word, "27x91": herdr may draw a space as a cursor move, and "size=27 91" then never arrives as such
-      const from = phone.seen.length;
+      // regression (fails on main): inspect the rendered screen, not diff-rendered PTY bytes
       phone.send({ type: "input", pane_id: paneId, text: "clear; echo size=$(stty size | tr ' ' x)\r" });
-      // over every frame since the command: a read may end in the middle of the word
-      const output = () => phone.seen.slice(from).filter((m) => m.type === "pty-data" && m.pane_id === paneId).map((m) => String(m.data)).join("");
-      await phone.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId && output().includes("size=27x91"), "the shell sees the terminal lens's grid", 15_000);
+      const deadline = Date.now() + 15_000;
+      let screen = "";
+      while (Date.now() <= deadline) {
+        screen = (await paneRead({ paneId, source: "visible", format: "text", timeoutMs: 1_000 })).text;
+        if (screen.includes("size=27x91")) break;
+      }
+      expect(screen, "the shell sees the terminal lens's grid").toContain("size=27x91");
     } finally {
       phone.close();
       await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
@@ -2596,6 +2599,18 @@ describe("pairing and identity", () => {
     expect(((await refused.json()) as ApiError).error.code).toBe("other_user");
   });
 
+  it("regression: refuses identity headers without a single tailnet forwarded address", async () => {
+    for (const forwardedFor of [null, "127.0.0.1", "203.0.113.50", "100.64.0.9, 100.64.0.10"]) {
+      const headers = { "tailscale-user-login": OWNER, ...(forwardedFor === null ? {} : { "x-forwarded-for": forwardedFor }) };
+      const response = await fetch(`${base()}/api/devices`, { headers });
+      expect(response.status).toBe(401);
+      expect(((await response.json()) as ApiError).error.code).toBe("unauthorized");
+      expect(await auth(headers)).toMatchObject({ authenticated: false, reason: "pairing_required" });
+    }
+    // control: Serve may forward either tailnet address family.
+    expect((await fetch(`${base()}/api/devices`, { headers: proxied(OWNER, { "x-forwarded-for": "fd7a:115c:a1e0::1" }) })).status).toBe(200);
+  });
+
   it("lets the owner's own device in with no login header, where serve is the only ingress and one login owns the tailnet", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-sole-user-"));
     const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
@@ -2627,6 +2642,8 @@ describe("pairing and identity", () => {
       expect(await at(sole.port, { ...phone, "tailscale-user-login": "someone@example.com" })).toMatchObject({ authenticated: false, reason: "other_user" });
       expect(await at(sole.port, { ...phone, "tailscale-funnel-request": "?1" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
       expect(await at(sole.port, { ...phone, "tailscale-user-login": OWNER })).toMatchObject({ authenticated: true, via: "tailscale" });
+      // regression: a rejected identity is not an absent identity, even at this PC's Host.
+      expect(await at(sole.port, { ...phone, "tailscale-user-login": OWNER, "x-forwarded-for": "127.0.0.1" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
       // where the operator did not declare serve the only ingress, the same request pairs, with or without the tailnet's name as Host
       expect(await at(off.port, proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
       expect(await at(off.port, phone)).toMatchObject({ authenticated: false, reason: "pairing_required" });

@@ -52,6 +52,7 @@ import {
   paneClose,
   paneFocus,
   paneGet,
+  paneProcessInfo,
   paneMove,
   paneRead,
   paneResize,
@@ -96,7 +97,8 @@ import { AttachOutputTail, isTakeoverExit } from "./attach-output.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { mirrorInput } from "./mirror-input.ts";
-import { PendingInputs, PendingInputError, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
+import { PendingInputs, PendingInputError, samePendingIdentity, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
+import { processStartedAt } from "./process-start.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer, wireBytes } from "./output-window.ts";
@@ -784,9 +786,21 @@ export function createServer(
     // herdr reports as unknown. Nothing is inferred from a bare unknown state.
     const pane = (await clientSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
     if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
-    const current = pendingIdentity(pane);
-    if (identity && (identity.agent !== current.agent || identity.terminalId !== current.terminalId || identity.session !== current.session)) {
+    const info = await paneProcessInfo(paneId);
+    const pid = info?.foreground_processes?.[0]?.pid ?? null;
+    const current: PendingIdentity = {
+      ...pendingIdentity(pane), processPid: pid, processBirth: pid === null ? null : processStartedAt(pid),
+      omoSession: omo.sessionOf(paneId)?.sessionId ?? null,
+    };
+    if (identity && !samePendingIdentity(identity, current)) {
       throw new HerdrError("pending_target_changed", "The pane's terminal or agent session changed; review the message before sending it again");
+    }
+    if (identity) {
+      // Keep newly learned parts so a replacement before Enter is checked against them too.
+      identity.session ??= current.session;
+      identity.processPid ??= current.processPid;
+      identity.processBirth ??= current.processBirth;
+      identity.omoSession ??= current.omoSession;
     }
     // the live screen, not the viewport: a pane scrolled into its history still draws its next
     // menu or password prompt at the bottom (server/prompt.ts liveScreen)
@@ -1685,6 +1699,7 @@ export function createServer(
       const forwarded = cameThroughProxy(request.headers);
       const funnel = request.headers.has("tailscale-funnel-request");
       const tailscaleLogin = request.headers.get("tailscale-user-login");
+      const forwardedFor = request.headers.get("x-forwarded-for");
       const requestHost = request.headers.get("host");
       // the guessing budget of the address that asks (auth.ts): a token presented while it waits is not compared
       const client = authClient(ip?.address ?? null, request.headers);
@@ -1701,7 +1716,7 @@ export function createServer(
         // First-cookie confirmation is an authorization write, not best-effort telemetry.
         return errorResponse(error);
       }
-      const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
+      const requestShape = { loopback, forwarded, funnel, tailscaleLogin, forwardedFor, serveOnly };
       const identity = await identityOf(token === "" && pairedDevice === null && isServeOwnerRequest(requestShape) && (pathname === "/ws" || pathname.startsWith("/api/")), requestHost);
       const access = decideAccess({
         ...requestShape,

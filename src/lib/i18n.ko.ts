@@ -909,6 +909,7 @@ export const KO: Record<string, string> = {
   "Finish the word, then send.": "단어 입력을 마친 뒤 보내세요.",
   "Not sent: the terminal is disconnected.": "보내지 못했습니다: 터미널 연결이 끊겼습니다.",
   "Not sent: the terminal is not ready for keys.": "보내지 못했습니다: 터미널이 아직 키를 받을 준비가 되지 않았습니다.",
+  "Not sent: the terminal is not ready, and a password is never held for later.": "보내지 못했습니다: 터미널이 아직 준비되지 않았고, 비밀번호는 나중을 위해 보관하지 않습니다.",
   "Not sent: send or discard the held input first.": "보내지 못했습니다: 보관한 입력을 먼저 보내거나 버리세요.",
   "Type straight into the terminal": "터미널에 직접 입력",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "대기 메시지를 저장하지 못했습니다. 이 탭을 유지하거나 새로고침 전에 메시지를 복사하세요.",
