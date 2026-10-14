@@ -161,9 +161,7 @@ export type DiffStyle = (typeof DIFF_STYLES)[number];
  * Settings field in the projection makes a new field require an explicit collection decision. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
-  | "quickReplies" | "usageOrder" | "usageHidden"
-  // not collected: the report's schema (shared/telemetry.ts) has no field for it yet
-  | "statusIndicators">;
+  | "quickReplies" | "usageOrder" | "usageHidden">;
 
 /** Compare structured custom settings by content against this app's built-in defaults. */
 function differsFromDefault(value: unknown, defaultValue: unknown): boolean {
@@ -179,6 +177,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     sidebarRows: settings.sidebarRows,
     agentOrder: settings.agentOrder,
     agentMarks: settings.agentMarks,
+    statusIndicators: settings.statusIndicators,
     palette: settings.palette,
     paletteLight: settings.paletteLight,
     paletteDark: settings.paletteDark,
