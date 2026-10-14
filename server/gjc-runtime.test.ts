@@ -259,6 +259,56 @@ it("shares one SDK lookup between overlapping reads of a pane", async () => {
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+it.each(["cwd", "home", "SDK callback"])("keeps overlapping pane reads separate when %s differs", async (context) => {
+  forgetTranscriptState();
+  const home = tempDir("gjc-sdk-flight-context-");
+  const entered = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>();
+  try {
+    // Given two valid sessions for the same live pane/process.
+    const cwdA = join(home, "a"), cwdB = context === "cwd" ? join(home, "b") : cwdA;
+    const homeB = context === "home" ? join(home, "other-home") : home;
+    const projectA = join(home, ".gjc/agent/sessions/project");
+    const projectB = join(homeB, ".gjc/agent/sessions/project");
+    mkdirSync(cwdA); mkdirSync(cwdB, { recursive: true });
+    mkdirSync(projectA, { recursive: true }); mkdirSync(projectB, { recursive: true });
+    const pathA = join(projectA, "a.jsonl"), pathB = join(projectB, "b.jsonl");
+    writeFileSync(pathA, JSON.stringify({ type: "session", id: "A", cwd: cwdA }) + "\n");
+    writeFileSync(pathB, JSON.stringify({ type: "session", id: "B", cwd: cwdB }) + "\n");
+    const bindingA = { sessionId: "A", pid: 200, path: pathA, hostIncarnation: "host", endpointGeneration: 1 };
+    const bindingB = { ...bindingA, sessionId: "B", path: pathB };
+    let lookups = 0;
+    const options = {
+      platform: "linux",
+      processInfo: async () => ({ process_info: { foreground_processes: [{ pid: 200, argv: ["gjc"] }] } }),
+      processBirth: () => 1000,
+      sdkTranscript: async (_pids: readonly number[], cwd: string, agentDir: string) => {
+        lookups += 1;
+        if (cwd !== cwdA || agentDir !== join(home, ".gjc/agent")) return bindingB;
+        entered.resolve();
+        await gate.promise;
+        return bindingA;
+      },
+    };
+    // When a later snapshot arrives after the first SDK lookup has actually started.
+    const first = gjcTranscriptForPane("pane", cwdA, home, options);
+    await entered.promise;
+    const equivalent = gjcTranscriptForPane("pane", cwdA, home, { ...options });
+    const laterOptions = context === "SDK callback"
+      ? { ...options, sdkTranscript: async () => { lookups += 1; return bindingB; } }
+      : options;
+    const later = gjcTranscriptForPane("pane", cwdB, homeB, laterOptions);
+    gate.resolve();
+    // Then only equivalent contexts join, and each directory/store receives its own session.
+    expect(equivalent).toBe(first);
+    expect(await Promise.all([first, equivalent, later])).toEqual([pathA, pathA, pathB]);
+    expect(lookups).toBe(2);
+  } finally {
+    gate.resolve();
+    forgetTranscriptState();
+    rmSync(home, { recursive: true, force: true });
+  }
+}, 5000);
+
 it("fails closed when the pane has no GJC process or its process info cannot be read", async () => {
   const home = tempDir("gjc-sdk-no-process-");
   try {

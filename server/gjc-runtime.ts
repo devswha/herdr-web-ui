@@ -268,13 +268,13 @@ type GjcTranscriptOptions = {
   readProcessTable?: () => Promise<ProcessRow[]>;
 };
 
-/** Lookups in flight by pane: each SDK lookup spawns the gjc CLI (about 0.7 s), so reads that overlap share one. */
-const transcriptFlights = new Map<string, Promise<string | null>>();
+/** Each SDK lookup spawns the gjc CLI, so equivalent pane/directory/I/O contexts share one flight. */
+const transcriptFlights = new Map<string, Set<{ options: GjcTranscriptOptions; flight: Promise<string | null> }>>();
 
 /**
  * Resolves only while the SDK-selected GJC process is still foreground in this pane with the
- * same birth identity. Optional I/O callbacks keep this race check fixture-testable. Reads of
- * one pane that overlap share a lookup; nothing outlives it, so the next read verifies the
+ * same birth identity. Optional I/O callbacks keep this race check fixture-testable. Overlapping
+ * reads with the same lookup context share a lookup; nothing outlives it, so the next read verifies the
  * exact session again (a /new keeps the pid and can keep the old file).
  */
 export function gjcTranscriptForPane(
@@ -283,12 +283,21 @@ export function gjcTranscriptForPane(
   home = process.env["HOME"] ?? "",
   options: GjcTranscriptOptions = {},
 ): Promise<string | null> {
-  const shared = transcriptFlights.get(paneId);
-  if (shared) return shared;
+  const key = JSON.stringify([paneId, cwd, home, options.platform ?? process.platform]);
+  const flights = transcriptFlights.get(key) ?? new Set<{ options: GjcTranscriptOptions; flight: Promise<string | null> }>();
+  for (const shared of flights) {
+    if (shared.options.processInfo === options.processInfo
+      && shared.options.processBirth === options.processBirth
+      && shared.options.sdkTranscript === options.sdkTranscript
+      && shared.options.readProcessTable === options.readProcessTable) return shared.flight;
+  }
   const flight: Promise<string | null> = lookupGjcTranscript(paneId, cwd, home, options).finally(() => {
-    if (transcriptFlights.get(paneId) === flight) transcriptFlights.delete(paneId);
+    flights.delete(entry);
+    if (transcriptFlights.get(key) === flights && flights.size === 0) transcriptFlights.delete(key);
   });
-  transcriptFlights.set(paneId, flight);
+  const entry = { options, flight };
+  flights.add(entry);
+  transcriptFlights.set(key, flights);
   return flight;
 }
 
