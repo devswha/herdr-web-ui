@@ -236,8 +236,18 @@ async function continuedInSession(path: string): Promise<string | null> {
 async function backgroundJobTranscript(path: string, configDir: string): Promise<string | null> {
   const text = await transcriptTail(path);
   if (text === null) return null;
-  const ids = [...text.matchAll(/running in the background \(([0-9a-f]{8})\)/g)];
-  const id = ids.at(-1)?.[1];
+  // each continued-in record claims only the output printed since the previous record, so an
+  // earlier /resume's job id never names a later continuation
+  let pending: string | undefined;
+  let id: string | undefined;
+  for (const line of text.split("\n")) {
+    if (line.includes('"type":"continued-in"')) {
+      id = pending;
+      pending = undefined;
+    } else {
+      pending = [...line.matchAll(/running in the background \(([0-9a-f]{8})\)/g)].at(-1)?.[1] ?? pending;
+    }
+  }
   if (id === undefined) return null;
   let matches: string[];
   try {

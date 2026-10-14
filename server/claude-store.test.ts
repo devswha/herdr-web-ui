@@ -244,6 +244,20 @@ describe("claudeTranscriptFile", () => {
       expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBe(original);
     });
 
+    it("ignores an earlier /resume's job id when the active continuation has no job output (regression)", async () => {
+      const { home: dir, projects } = home();
+      const folder = join(projects, claudeProjectDir("/w/project"));
+      mkdirSync(folder, { recursive: true });
+      const original = join(folder, `${SESSION}.jsonl`);
+      writeFileSync(original, [
+        { type: "user", message: { content: "<local-command-stdout>Opening, running in the background (8b80137e)</local-command-stdout>" } },
+        { type: "continued-in", sessionId: SESSION, continuedInSessionId: PARKED },
+        { type: "continued-in", sessionId: SESSION, continuedInSessionId: PARKED },
+      ].map((entry) => JSON.stringify(entry)).join("\n"));
+      writeFileSync(join(folder, `${BG}.jsonl`), JSON.stringify({ type: "user", message: { content: "earlier job" } }));
+      expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBe(original);
+    });
+
     it("checks the job's state.json when it names a transcript (regression: fails on main; mismatch is a control)", async () => {
       const { home: dir, projects } = home();
       const folder = join(projects, claudeProjectDir("/w/project"));
