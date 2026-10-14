@@ -29,6 +29,7 @@ import { dictationLocale, VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PortalPanel } from "./PortalPanel.tsx";
 import { copyText } from "../lib/clipboard.ts";
@@ -776,7 +777,7 @@ function ShortcutsPage() {
   );
 }
 
-function DevicesPage({ auth }: { auth: HealthAuth | null }) {
+function DevicesPage({ auth, onSignOut }: { auth: HealthAuth | null; onSignOut: (() => void) | null }) {
   const { settings, update } = useSettings();
   const t = useT();
   const installPrompt = useInstallPrompt();
@@ -790,6 +791,7 @@ function DevicesPage({ auth }: { auth: HealthAuth | null }) {
   const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext }, access ?? null);
   // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
   const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   return (
     <>
       <SettingsGroup title={t("Phone")} section="phone">
@@ -806,6 +808,16 @@ function DevicesPage({ auth }: { auth: HealthAuth | null }) {
 
       <SettingsGroup title={t("Devices")} section="devices">
         <div className="settings-item"><DevicesPanel pairUrl={pairUrl} auth={auth} /></div>
+        {onSignOut && (
+          <SettingsRow label={t("Sign out")} description={t("Forget this browser's sign-in. Getting back in takes the access token or a pairing code.")}>
+            <button type="button" className="btn" onClick={() => setConfirmSignOut(true)}>{t("Sign out")}</button>
+          </SettingsRow>
+        )}
+        {onSignOut && confirmSignOut && (
+          <ConfirmDialog title={t("Sign out of this browser?")}
+            body={t("Getting back in takes the access token, or a pairing code from the PC: Settings → Phone & devices there, or the pair command in its terminal.")}
+            confirmLabel={t("Sign out")} onClose={() => setConfirmSignOut(false)} onConfirm={async () => { onSignOut(); }} />
+        )}
       </SettingsGroup>
     </>
   );
@@ -1025,7 +1037,7 @@ function OpenSettingsDialog({ section = null, linkPage = null, linkSection = nul
       case "voice": return <VoicePage />;
       case "usage": return <UsagePage />;
       case "shortcuts": return <ShortcutsPage />;
-      case "devices": return <DevicesPage auth={auth} />;
+      case "devices": return <DevicesPage auth={auth} onSignOut={actions.lock} />;
       case "remote": return <RemotePcsPage actions={actions} pcSettings={pcSettings} pcSettingsError={pcSettingsError} onPcSettings={(patch) => void updatePcSettings(patch)} />;
       case "integrations": return <IntegrationsPage />;
       case "about": return <AboutPage updates={updates} herdrVersion={herdrVersion} bridgesFollow={pcSettings?.auto_update_bridges === true} />;

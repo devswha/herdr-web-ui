@@ -1551,9 +1551,8 @@ button {
     display: inline-flex;
   }
 
-  /* drawer mode: the collapse toggle has nothing to collapse, and sign out is in the palette */
-  .sidebar-toggle,
-  .lock-button {
+  /* drawer mode: the collapse toggle has nothing to collapse */
+  .sidebar-toggle {
     display: none;
   }
 
