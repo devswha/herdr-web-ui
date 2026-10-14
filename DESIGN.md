@@ -1078,7 +1078,8 @@ One set for both themes: the card is island black wherever it shows.
   a `--border` hairline box with `--radius-sm` corners.
   Nothing in it is pressed. `composerStrip` (`src/lib/composerStrip.ts`) decides what it draws from
   the composer's optional `cwd` and `branch`: a blank one is absent, and with neither there is no
-  strip at all. The card stands over it (`z-index: 1`, so its popovers go with it and still rise
+  strip at all. A phone (`640px` and below, or a coarse pointer) draws no strip: the screen is the
+  conversation's. The card stands over it (`z-index: 1`, so its popovers go with it and still rise
   over the transcript).
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
   `What should <agent> do in <folder>?` in `--text-strong`, `--fs-display`, `--fw-semibold`, `--tracking-display`, centred,
