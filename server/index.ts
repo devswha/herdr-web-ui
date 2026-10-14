@@ -578,6 +578,17 @@ export function createServer(
   }
 
   /**
+   * Waits until input sent through herdr's RPC can no longer overtake the pane's last pty keystroke
+   * still on its way through the sidecar and the attach: KEY_SETTLE_MS after it, or TYPED_SETTLE_MS
+   * when it ended in an ESC herdr may still be holding.
+   */
+  async function settleAfterTyping(paneId: string): Promise<void> {
+    const settle = typedEscape.has(paneId) ? TYPED_SETTLE_MS : KEY_SETTLE_MS;
+    const typed = Date.now() - (lastTyped.get(paneId) ?? 0);
+    if (typed < settle) await Bun.sleep(settle - typed);
+  }
+
+  /**
    * Types a composer message and submits it, with its own Enter after the text: arriving
    * in the same chunk as the paste, a TUI still busy with it (turning an image path into
    * an attachment, redrawing after the phone keyboard closed) could take it for a newline
@@ -3025,7 +3036,11 @@ export function createServer(
                   for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
                 }
               };
-              if (paneQueues.has(message.pane_id)) {
+              // the composer's Stop: a message sent right after it must not reach the agent first, and a
+              // pty write only queues the ESC in the sidecar, so it goes the message's own way (send_text)
+              // in the pane's turn. Plain typing, a terminal ESC included, keeps the pty's FIFO order.
+              const stop = message.stop === true && message.text === "\u001b";
+              if (paneQueues.has(message.pane_id) || stop) {
                 const text = message.text;
                 // a click or a wheel (a click replayed behind a held arrow) is the attach's own mouse:
                 // herdr encodes it for the program's mouse mode, send_text would type its bytes (#667)
@@ -3036,7 +3051,9 @@ export function createServer(
                 const roles = client.data.roles;
                 const allowed = () => mayType(client) && client.data.roles === roles && attachments.get(message.pane_id) === attachment && attachment.pty === pty
                   && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client) && attachment.ready && !attachment.held;
-                void serialize(message.pane_id, () => {
+                void serialize(message.pane_id, async () => {
+                  // behind typing still in the sidecar, as a terminal key waits for it
+                  if (stop) await settleAfterTyping(message.pane_id);
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
                   if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty
                     || client.data.attached.get(message.pane_id) !== claim
@@ -3049,7 +3066,10 @@ export function createServer(
                     typedIntoPty(text);
                     return;
                   }
-                  return paneSendText(message.pane_id, text, undefined, allowed);
+                  await paneSendText(message.pane_id, text, undefined, allowed);
+                  // herdr still holds a lone ESC a moment: a message after the Stop waits out the same
+                  // settling gap as after a typed one, and checks again for a question before pasting
+                  if (stop) typedIntoPty(text);
                 }).catch(inputFailed);
               } else {
                 if (!attachment.pty.write(message.text)) { inputFailed(); break; }
@@ -3145,11 +3165,7 @@ export function createServer(
                 // A key goes through herdr's RPC, around the attach pty that typing just went into: it
                 // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
                 // held there ~150ms). The checks below run after the wait.
-                if (origin && !origin.mirror) {
-                  const settle = typedEscape.has(message.pane_id) ? TYPED_SETTLE_MS : KEY_SETTLE_MS;
-                  const typed = Date.now() - (lastTyped.get(message.pane_id) ?? 0);
-                  if (typed < settle) await Bun.sleep(settle - typed);
-                }
+                if (origin && !origin.mirror) await settleAfterTyping(message.pane_id);
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
                 // pane's readiness, and the attach it holds by now has already been told it is ready

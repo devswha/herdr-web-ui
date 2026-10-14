@@ -700,9 +700,9 @@ describe("connection-owned pending input", () => {
     expect(f.bytes()).toBe(""); expect(f.socket.seen.some((frame) => frame.type === "pending-messages")).toBe(false);
   }, 30_000);
 
-  it("checks a new blocked state after the Stop key's settling gap, before pasting", async () => {
-    const f = await setup("stop-gap"); const message = await f.queue(1, "must not paste");
-    f.socket.send({ type: "input", pane_id: f.pane, text: "\u001b" });
+  for (const stop of [false, true]) it(`checks a new blocked state after the ${stop ? "composer's Stop" : "typed ESC"}'s settling gap, before pasting`, async () => {
+    const f = await setup(stop ? "stop-gap-intent" : "stop-gap"); const message = await f.queue(1, "must not paste");
+    f.socket.send(stop ? { type: "input", pane_id: f.pane, text: "\u001b", stop: true } : { type: "input", pane_id: f.pane, text: "\u001b" });
     f.socket.send({ type: "pending-action", id: 10, pane_id: f.pane, pending_id: message.id, action: "steer" });
     await f.socket.wait((frame) => frame.type === "pending-messages" && frame.messages.some((item: PendingMessage) => item.id === message.id && item.state === "sending"));
     await f.state("blocked");

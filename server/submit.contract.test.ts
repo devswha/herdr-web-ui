@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createServer, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS } from "./index.ts";
 import { herdrRpc } from "./herdr/client.ts";
 import * as herdr from "./herdr/client.ts";
+import { PtySession } from "./pty/session.ts";
 
 /**
  * Contract test for the composer's "submit" frame, against the real herdr server.
@@ -1168,17 +1169,67 @@ describe("WebSocket submit", () => {
 
   it("sends a message typed right after a Stop only once the Stop reached the pane", async () => {
     const socket = await Socket.connect();
+    const originalWrite = PtySession.prototype.write;
+    const originalSendText = herdr.paneSendText;
+    let releaseStop: (() => void) | undefined;
+    // A busy sidecar can still hold a pty ESC when the later RPC paste reaches herdr.
+    // Force that interleaving without a clock: a pty ESC goes out only after the paste.
+    const write = spyOn(PtySession.prototype, "write").mockImplementation(function (this: PtySession, text) {
+      if (text === "\u001b") {
+        releaseStop = () => { originalWrite.call(this, text); };
+        return true;
+      }
+      return originalWrite.call(this, text);
+    });
+    const sendText = spyOn(herdr, "paneSendText").mockImplementation(async (...args) => {
+      const result = await originalSendText(...args);
+      if (args[0] === shell.pane && args[1] === "after") releaseStop?.();
+      return result;
+    });
     try {
-      socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
-      await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === shell.pane);
-      await Bun.sleep(300);
+      await attached(socket, shell.pane);
       const from = chunks(shell).length;
-      socket.send({ type: "input", pane_id: shell.pane, text: "\u001b" });
+      socket.send({ type: "input", pane_id: shell.pane, text: "\u001b", stop: true });
       socket.send({ type: "submit", id: 8, pane_id: shell.pane, text: "after", payload: "after" });
-      await socket.result(8);
+      expect(await socket.result(8)).toMatchObject({ ok: true });
       await received(shell, from, 1);
       expect(typed(shell, from)).toBe("\u001bafter\r");
     } finally {
+      write.mockRestore();
+      sendText.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("keeps a terminal ESC in order with the typing around it", async () => {
+    const socket = await Socket.connect();
+    await attached(socket, shell.pane);
+    const originalWrite = PtySession.prototype.write;
+    const originalSendText = herdr.paneSendText;
+    const held: Array<() => void> = [];
+    const flush = () => { for (const write of held.splice(0)) write(); };
+    // Hold the pty's writes as a busy sidecar would: they go out once all three frames were
+    // written, or once something sent through herdr meanwhile reached the pane ahead of them.
+    const write = spyOn(PtySession.prototype, "write").mockImplementation(function (this: PtySession, text) {
+      held.push(() => { originalWrite.call(this, text); });
+      if (held.length === 3) flush();
+      return true;
+    });
+    const sendText = spyOn(herdr, "paneSendText").mockImplementation(async (...args) => {
+      const result = await originalSendText(...args);
+      if (args[0] === shell.pane) flush();
+      return result;
+    });
+    try {
+      const from = chunks(shell).length;
+      socket.send({ type: "input", pane_id: shell.pane, text: "x" });
+      socket.send({ type: "input", pane_id: shell.pane, text: "\u001b" });
+      socket.send({ type: "input", pane_id: shell.pane, text: "y\r" });
+      await received(shell, from, 1);
+      expect(typed(shell, from)).toBe("x\u001by\r");
+    } finally {
+      write.mockRestore();
+      sendText.mockRestore();
       socket.close();
     }
   }, 30_000);

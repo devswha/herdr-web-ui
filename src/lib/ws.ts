@@ -773,9 +773,10 @@ export class HerdrSocket {
     return this.canQueueMessages() && this.features.has("pending-hold");
   }
 
-  sendInput(paneId: string, text: string): boolean {
+  /** `stop`: the composer's Stop, a lone ESC the bridge keeps ahead of the next message. */
+  sendInput(paneId: string, text: string, stop = false): boolean {
     if (!this.canInput(paneId)) return false;
-    try { this.rawSend({ type: "input", pane_id: paneId, text }); return true; } catch { return false; }
+    try { this.rawSend(stop ? { type: "input", pane_id: paneId, text, stop: true } : { type: "input", pane_id: paneId, text }); return true; } catch { return false; }
   }
 
   /**

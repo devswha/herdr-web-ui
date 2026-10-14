@@ -1106,7 +1106,9 @@ export type ClientMessage =
   | { type: "conversation-watch"; pane_id: string; enabled: boolean }
   /** a pane another web bridge holds (`attach_held`): take herdr's attach slot from it, here, now */
   | { type: "take-over"; pane_id: string }
-  | { type: "input"; pane_id: string; text: string }
+  /** `stop`: the composer's Stop (text a lone ESC). The bridge sends it in the pane's turn, after typing
+   * still on its way, and a message sent next waits for it; an older bridge types it like any key. */
+  | { type: "input"; pane_id: string; text: string; stop?: true }
   | { type: "keys"; pane_id: string; keys: string[] }
   /** a composer message, sent to servers whose snapshot lists "submit": the server types it and
    * its own Enter after a short gap, and answers with a submit-result of the same id. `text` is

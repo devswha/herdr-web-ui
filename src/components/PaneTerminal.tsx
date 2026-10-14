@@ -266,6 +266,8 @@ export function PaneTerminal({
   const setLineComposing = useCallback((active: boolean) => { lineComposingRef.current = active; setLineComposingState(active); }, []);
   const compositionCommitPendingRef = useRef(false);
   const barKeyRef = useRef<{ key: string; chord: string | null } | null>(null);
+  /** set while the composer's Stop types its ESC, so it goes out as a Stop (ClientMessage `input.stop`) */
+  const stopKeyRef = useRef(false);
   const modifiersRef = useRef<StickyModifiers>(NO_STICKY_MODIFIERS);
   const [modifiers, setModifiers] = useState<StickyModifiers>(NO_STICKY_MODIFIERS);
   const clearModifiers = useCallback(() => {
@@ -1321,6 +1323,8 @@ export function PaneTerminal({
     const onData = term.onData((data) => {
       const barKey = barKeyRef.current;
       barKeyRef.current = null;
+      const stopKey = stopKeyRef.current;
+      stopKeyRef.current = false;
       const physicalChord = typedChord;
       typedChord = null;
       // a modified Enter (Shift+Enter's newline, Ctrl+Enter's "send now") is decided on before its
@@ -1387,7 +1391,7 @@ export function PaneTerminal({
         }
         return;
       }
-      if (socket.sendInput(current, input)) return;
+      if (socket.sendInput(current, input, stopKey && input === "\u001b")) return;
       if (secret) {
         const t = tRef.current;
         setInputError(t("Not sent: the terminal is not ready, and a password is never held for later."));
@@ -2329,7 +2333,8 @@ export function PaneTerminal({
     const term = termRef.current;
     const socket = socketRef.current;
     if (!term || !socket || !socket.connected) return;
-    term.input("\u001b");
+    stopKeyRef.current = true;
+    try { term.input("\u001b"); } finally { stopKeyRef.current = false; }
   }, []);
 
   // While the agent runs, append to its held messages. Each requires an explicit send.

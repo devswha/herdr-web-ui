@@ -1120,7 +1120,7 @@ class DemoSocket extends EventTarget {
 
   send(raw: string): void {
     if (this.readyState !== 1) return;
-    let message: { type: string; pane_id?: string; cols?: number; rows?: number; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; clear_draft?: unknown; send_anyway?: unknown; pending_id?: string; action?: unknown; enabled?: boolean };
+    let message: { type: string; pane_id?: string; cols?: number; rows?: number; text?: string; payload?: string; keys?: string[]; id?: number; mode?: string; typed?: unknown; delivery?: unknown; clear_draft?: unknown; send_anyway?: unknown; pending_id?: string; action?: unknown; enabled?: boolean; stop?: unknown };
     try { message = JSON.parse(raw); } catch { return; }
     if ((message.type === "submit" || message.type === "pending-action") && Number.isSafeInteger(message.id)) {
       const signature = JSON.stringify({ type: message.type, pane_id: message.pane_id, text: message.text, payload: message.payload, typed: message.typed, delivery: message.delivery, clear_draft: message.clear_draft, send_anyway: message.send_anyway, pending_id: message.pending_id, action: message.action });
@@ -1199,6 +1199,7 @@ class DemoSocket extends EventTarget {
           this.conversationInterests.delete(message.pane_id);
         }
         break;
+      // a Stop (`stop`) is typed like any key: the demo has no pty for a following message to overtake
       case "input": if (message.pane_id && message.text !== undefined) this.typed(message.pane_id, message.text); break;
       case "keys": if (message.pane_id) for (const key of message.keys ?? []) this.typed(message.pane_id, chordText(key)); break;
       case "secret":
