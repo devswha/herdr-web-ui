@@ -89,7 +89,7 @@ import {
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputDraft, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
-import { PasteImageError, savePaneImage } from "./paste.ts";
+import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
 import { PaneWatch } from "./watch.ts";
 import { AttachOutputTail, isTakeoverExit } from "./attach-output.ts";
@@ -350,6 +350,14 @@ function presenceOf(raw: string | Buffer): boolean | null {
 }
 
 type Client = ServerWebSocket<SocketData>;
+
+/**
+ * What Bun.serve admits before a route runs (64 MiB). The ~55.9 MB body of a 40 MiB file is under it,
+ * so the attachment route answers it with its JSON reason. The browser refuses a file over
+ * MAX_ATTACHMENT_BYTES before it uploads (src/lib/api.ts), so only a non-browser client that sends
+ * more than this can still see Bun's own empty 413.
+ */
+const BUN_BODY_CEILING = 64 * 1024 * 1024;
 
 /**
  * One live PTY per pane, shared by every client watching that pane.
@@ -1670,6 +1678,7 @@ export function createServer(
   const server = Bun.serve<SocketData>({
     port: options.port ?? (envPort ? Number(envPort) : DEFAULT_PORT),
     hostname,
+    maxRequestBodySize: BUN_BODY_CEILING,
 
     async fetch(request, bunServer) {
       const startup = portalStartupResult ?? await portalStartup;
@@ -2662,8 +2671,9 @@ export function createServer(
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
         let payload: { pane_id?: string; content_type?: string; data_base64?: string; name?: string };
         try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
+          payload = JSON.parse(await readImageBody(request)) as typeof payload;
+        } catch (error) {
+          if (error instanceof PasteImageError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.status);
           return badRequest("invalid_json", "request body must be JSON");
         }
         if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");

@@ -1688,12 +1688,57 @@ describe("POST /api/pane/image", () => {
     expect(basename(bare.path)).toMatch(/^file-.*\.bin$/);
   });
 
-  it("rejects an image above the size ceiling with 413", async () => {
-    const oversized = Buffer.alloc(9 * 1024 * 1024, 1).toString("base64");
+  it("stores a 20 MiB file whole (regression: 413 while the ceiling was 8 MiB)", async () => {
+    const bytes = Buffer.alloc(20 * 1024 * 1024, 7);
+    const res = await post({ pane_id: qaPaneId, content_type: "application/zip", data_base64: bytes.toString("base64"), name: "big.zip" });
+    expect(res.status).toBe(200);
+    const { path } = (await res.json()) as { path: string };
+    expect(statSync(path).size).toBe(bytes.byteLength);
+  });
+
+  it("rejects a 40 MiB file (a 55.9 MB body, under Bun's 64 MiB cap) with 413 and the JSON reason (control)", async () => {
+    const oversized = Buffer.alloc(40 * 1024 * 1024, 1).toString("base64");
     const res = await post({ pane_id: qaPaneId, content_type: "image/png", data_base64: oversized });
     expect(res.status).toBe(413);
-    const body = (await res.json()) as { error: { code: string } };
+    const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("image_too_large");
+    expect(body.error.message.length).toBeGreaterThan(0);
+  });
+
+  it("counts a streamed body that announces no length and refuses it past the bound (regression: invalid_json on main)", async () => {
+    const chunk = new TextEncoder().encode("A".repeat(1024 * 1024));
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent === 0) controller.enqueue(new TextEncoder().encode(`{"pane_id":"${qaPaneId}","content_type":"application/zip","data_base64":"`));
+        if (sent++ < 60) controller.enqueue(chunk);
+        else controller.close();
+      },
+    });
+    const res = await fetch(`${base()}/api/pane/image`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+    expect(res.status).toBe(413);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("image_too_large");
+  });
+
+  it("passes a 20 MiB upload through a PC proxy route (regression: the remote refused it above 8 MiB)", async () => {
+    const manager = {
+      endpoint: () => ({ url: base(), token: "" }),
+      trackTerminal: () => () => undefined,
+    } as unknown as MachineManager;
+    const bytes = Buffer.alloc(20 * 1024 * 1024, 9);
+    const res = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/pc1/pane/image", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+      body: JSON.stringify({ pane_id: qaPaneId, content_type: "application/zip", data_base64: bytes.toString("base64"), name: "remote.zip" }),
+    }), manager);
+    expect(res.status).toBe(200);
+    const { path } = (await res.json()) as { path: string };
+    expect(statSync(path).size).toBe(bytes.byteLength);
   });
 
   it("rejects empty image data with 400", async () => {
