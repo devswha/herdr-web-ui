@@ -16,7 +16,7 @@ it("keeps a tab's pane while out of use until this device turns the pause on", (
 });
 
 it("drops the settings that were removed from a stored record", () => {
-  const removed = ["contrast", "fontSmoothing", "panelMotion", "uiFontFamily", "codeFontFamily", "usagePace", "showSuggestionChip", "showComposerStrip", "narrowPaneFont", "terminalCursorStyle", "terminalCursorBlink"];
+  const removed = ["contrast", "fontSmoothing", "panelMotion", "uiFontFamily", "codeFontFamily", "usagePace", "showSuggestionChip", "showComposerStrip", "narrowPaneFont", "terminalCursorStyle", "terminalCursorBlink", "pageOverlapRows", "chatPageKeys", "attachLimit", "highlightCode"];
   const settings = sanitizeSettings(Object.fromEntries(removed.map((key) => [key, false])));
   for (const key of removed) expect(key in settings).toBe(false);
 });
@@ -33,16 +33,6 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: 99 }).terminalWheelSpeed).toBe(10);
   expect(sanitizeSettings({ terminalWheelSpeed: 0 }).terminalWheelSpeed).toBe(1);
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
-});
-
-it("takes twenty files from one paste, pick or drop unless this device chose another whole number from 1 to 50", () => {
-  expect(sanitizeSettings({}).attachLimit).toBe(20);
-  expect(sanitizeSettings({ attachLimit: 4 }).attachLimit).toBe(4);
-  expect(sanitizeSettings({ attachLimit: 7.4 }).attachLimit).toBe(7);
-  expect(sanitizeSettings({ attachLimit: 500 }).attachLimit).toBe(50);
-  expect(sanitizeSettings({ attachLimit: 0 }).attachLimit).toBe(1);
-  expect(sanitizeSettings({ attachLimit: "8" }).attachLimit).toBe(20);
-  expect(SETTING_SCOPE.attachLimit).toBe("device");
 });
 
 it("keeps sidebar rows on two lines unless one line was chosen", () => {
@@ -691,13 +681,6 @@ describe("default lens", () => {
   });
 });
 
-it("highlights code unless turned off, and keeps a stored choice only when it is a boolean", () => {
-  expect(DEFAULT_SETTINGS.highlightCode).toBe(true);
-  expect(sanitizeSettings({ highlightCode: false }).highlightCode).toBe(false);
-  expect(sanitizeSettings({ highlightCode: "no" }).highlightCode).toBe(true);
-  expect(sanitizeSettings({}).highlightCode).toBe(true);
-});
-
 it("keeps the file viewer's wrap setting only when it is a boolean", () => {
   expect(DEFAULT_SETTINGS.wrapCode).toBe(false);
   expect(sanitizeSettings({ wrapCode: true }).wrapCode).toBe(true);
@@ -710,18 +693,6 @@ it("keeps the Markdown preview's width to readable or full, readable by default"
   for (const bad of ["narrow", "medium", "wide", "", null, 80]) expect(sanitizeSettings({ markdownWidth: bad }).markdownWidth).toBe("readable");
 });
 
-it("keeps page overlap whole, bounded and persistent, including full-viewport paging", () => {
-  expect(DEFAULT_SETTINGS.pageOverlapRows).toBe(1);
-  expect(sanitizeSettings({}).pageOverlapRows).toBe(1);
-  expect(sanitizeSettings({ pageOverlapRows: 0 }).pageOverlapRows).toBe(0);
-  expect(sanitizeSettings({ pageOverlapRows: 3.6 }).pageOverlapRows).toBe(4);
-  expect(sanitizeSettings({ pageOverlapRows: -8 }).pageOverlapRows).toBe(0);
-  expect(sanitizeSettings({ pageOverlapRows: 101 }).pageOverlapRows).toBe(100);
-  for (const value of ["3", null, true, NaN, Infinity]) expect(sanitizeSettings({ pageOverlapRows: value }).pageOverlapRows).toBe(1);
-  const saved = sanitizeSettings({ ...DEFAULT_SETTINGS, pageOverlapRows: 3 });
-  expect(sanitizeSettings(JSON.parse(JSON.stringify(saved))).pageOverlapRows).toBe(3);
-});
-
 describe("shared settings", () => {
   it("shares exactly the settings SETTING_SCOPE marks shared", () => {
     const shared = Object.entries(SETTING_SCOPE).filter(([, scope]) => scope === "shared").map(([key]) => key).sort();
@@ -730,12 +701,3 @@ describe("shared settings", () => {
   });
 });
 
-it("keeps plain chat paging opt-in and saves the keyboard choice on this device", () => {
-  expect(DEFAULT_SETTINGS.chatPageKeys).toBe(false);
-  expect(SETTING_SCOPE.chatPageKeys).toBe("device");
-  expect(SETTING_SCOPE.pageOverlapRows).toBe("device");
-  for (const chatPageKeys of [true, false]) {
-    expect(sanitizeSettings(JSON.parse(JSON.stringify(sanitizeSettings({ chatPageKeys })))).chatPageKeys).toBe(chatPageKeys);
-  }
-  for (const chatPageKeys of [null, "true", 1]) expect(sanitizeSettings({ chatPageKeys }).chatPageKeys).toBe(false);
-});

@@ -91,21 +91,17 @@ try {
   await page.keyboard.press("End");
   await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === 0, "reset native history after repeat paging");
 
-  for (const rows of [3, 0, 1]) {
+  {
     await page.keyboard.press("ControlOrMeta+Shift+Comma");
     await openSettingsPage(page, "Shortcuts");
-    const overlap = page.getByRole("group", { name: "Page overlap", exact: true }).locator("output");
-    for (let clicks = 0; Number(await overlap.textContent()) !== rows; clicks++) {
-      assert.ok(clicks <= 100, `page overlap reaches ${rows}, showing ${await overlap.textContent()}`);
-      await page.getByRole("button", { name: Number(await overlap.textContent()) < rows ? "Increase page overlap" : "Decrease page overlap", exact: true }).click();
-    }
     await page.keyboard.press("ControlOrMeta+Shift+PageUp");
     assert.equal((await paneScrollInfo(paneId))!.offset_from_bottom, 0, "Settings blocks the pane's paging control");
     await page.keyboard.press("Escape");
     await page.locator(".xterm-helper-textarea").evaluate((node: HTMLTextAreaElement) => node.focus());
-    const expected = Math.max(1, (await paneScrollInfo(paneId))!.viewport_rows - rows);
+    // one line stays between pages
+    const expected = Math.max(1, (await paneScrollInfo(paneId))!.viewport_rows - 1);
     await page.keyboard.press("ControlOrMeta+Shift+PageUp");
-    await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === expected, `native paging respects ${rows} overlap rows`);
+    await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === expected, "native paging keeps one overlap row");
     await page.keyboard.press("ControlOrMeta+Shift+PageDown");
     await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === 0, "native paging down reaches the bottom");
     await scrollbar.focus();

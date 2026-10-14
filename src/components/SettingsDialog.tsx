@@ -8,7 +8,7 @@ import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, isMacPlatform, modKeyLabel, setShortcutRecording, shortcutDisplayKeys, shortcutKeys, shortcutConflict, type ShortcutId } from "../lib/shortcuts.ts";
 import { SHORTCUT_KEYS, recordShortcut, shortcutMatchesQuery } from "../lib/shortcutRecorder.ts";
 import { isReservedShortcutKey } from "../lib/shortcutBindings.ts";
-import { ATTACH_LIMIT_MAX, ATTACH_LIMIT_MIN, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, DIFF_STYLES, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type Palette as PaletteName, type VoiceButton } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_WIDTHS, chatFontSize, DEFAULT_SETTINGS, DIFF_STYLES, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, DICTATION_LANGUAGES, VOICE_BUTTONS, useSettings, forgetPaneViews, uiFontSize, type DictationLanguage, type Palette as PaletteName, type VoiceButton } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useLocale, useT } from "../lib/i18n.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
 import { KeyBarSettings } from "./KeyBarSettings.tsx";
@@ -327,20 +327,11 @@ function ChatPage() {
         <SettingsRow label={t("Chat font")} description={t("Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.")} wide>
           <FontFamilyInput value={settings.chatFontFamily} label={t("Chat font")} onCommit={(chatFontFamily) => update({ chatFontFamily })} />
         </SettingsRow>
-        <SettingsRow label={t("Highlight code")} description={t("Colors code by its language. Off, code is plain text.")}>
-          <Toggle label={t("Highlight code")} checked={settings.highlightCode} onChange={(highlightCode) => update({ highlightCode })} />
-        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title={t("Composer")} section="composer">
-        <SettingsRow label={t("PageUp / PageDown scroll chat")} description={t("Scroll the conversation even while typing. In the terminal, plain page keys stay with the running program.")}>
-          <Toggle label={t("PageUp / PageDown scroll chat")} checked={settings.chatPageKeys} onChange={(chatPageKeys) => update({ chatPageKeys })} />
-        </SettingsRow>
         <SettingsRow label={t("Enter sends")} description={t("When off, Mod+Enter sends")}>
           <Toggle label={t("Enter sends")} checked={settings.enterSends} onChange={(enterSends) => update({ enterSends })} />
-        </SettingsRow>
-        <SettingsRow label={t("Files at once")} description={t("How many files one paste, pick or drop attaches. The rest are left out, and the message box says how many.")}>
-          <Stepper label={t("Files at once")} value={settings.attachLimit} text={String(settings.attachLimit)} min={ATTACH_LIMIT_MIN} max={ATTACH_LIMIT_MAX} decreaseLabel={t("Attach fewer files at once")} increaseLabel={t("Attach more files at once")} onChange={(attachLimit) => update({ attachLimit })} />
         </SettingsRow>
         <SettingsRow label={t("Send queued messages automatically")} description={t("A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.")}>
           <Toggle label={t("Send queued messages automatically")} checked={settings.autoSendQueued} onChange={(autoSendQueued) => update({ autoSendQueued })} />
@@ -788,11 +779,6 @@ function ShortcutsPage() {
       <div className="settings-actions">
         <button type="button" className="btn" onClick={() => update({ shortcutOverrides: {} })}>{t("Reset shortcuts")}</button>
       </div>
-      <SettingsGroup title={t("Paging")} section="paging">
-        <SettingsRow label={t("Page overlap")} description={t("Lines kept visible between pages in chat and terminal history. Zero scrolls a full page.")}>
-          <Stepper label={t("Page overlap")} value={settings.pageOverlapRows} text={String(settings.pageOverlapRows)} min={0} max={100} decreaseLabel={t("Decrease page overlap")} increaseLabel={t("Increase page overlap")} onChange={(pageOverlapRows) => update({ pageOverlapRows })} />
-        </SettingsRow>
-      </SettingsGroup>
     </>
   );
 }

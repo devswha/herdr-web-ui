@@ -5,8 +5,7 @@ import { useMachineApi } from "../lib/machineContext.tsx";
 import type { ViewportIntentGate } from "../lib/viewportIntent.ts";
 import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
-import { useSettings } from "../lib/settings.ts";
-import { pageScrollDistance } from "../lib/pageScroll.ts";
+import { PAGE_OVERLAP_ROWS, pageScrollDistance } from "../lib/pageScroll.ts";
 import { offsetAtThumb, scrollPollDelay, scrollThumb, validScroll, visibleFindRects, type FindCellRect } from "../lib/terminalViewport.ts";
 import "./TerminalViewportTools.css";
 
@@ -32,8 +31,6 @@ const HELD_PAGE_MS = 1000;
 export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageScroll, onApplicationPage, viewportId, enabled, interactive, search, onError }: Props) {
   const t = useT();
   const api = useMachineApi();
-  const { settings } = useSettings();
-  const overlapRef = useRef(settings.pageOverlapRows); overlapRef.current = settings.pageOverlapRows;
   const layer = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState<PaneScrollInfo | null>(null);
@@ -202,7 +199,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
         onApplicationPage?.(direction);
         return;
       }
-      if (validScroll(metrics)) writeRef.current((previewRef.current ?? metrics.offset_from_bottom) - direction * pageScrollDistance(metrics.viewport_rows, 1, overlapRef.current));
+      if (validScroll(metrics)) writeRef.current((previewRef.current ?? metrics.offset_from_bottom) - direction * pageScrollDistance(metrics.viewport_rows, 1, PAGE_OVERLAP_ROWS));
       // no metrics (a failed read): ask for a fresh read now rather than at the next poll
       else { dirty = true; idle = 0; schedule(0); }
     };
@@ -275,7 +272,7 @@ export function TerminalViewportTools({ viewportIntent, terminal, paneId, pageSc
         const offset = metrics.offset_from_bottom;
         const target = event.key === "Home" ? metrics.max_offset_from_bottom : event.key === "End" ? 0
           : event.key === "ArrowUp" ? offset + 1 : event.key === "ArrowDown" ? offset - 1
-          : event.key === "PageUp" ? offset + pageScrollDistance(metrics.viewport_rows, 1, settings.pageOverlapRows) : event.key === "PageDown" ? offset - pageScrollDistance(metrics.viewport_rows, 1, settings.pageOverlapRows) : null;
+          : event.key === "PageUp" ? offset + pageScrollDistance(metrics.viewport_rows, 1, PAGE_OVERLAP_ROWS) : event.key === "PageDown" ? offset - pageScrollDistance(metrics.viewport_rows, 1, PAGE_OVERLAP_ROWS) : null;
         if (target === null) return;
         event.preventDefault(); event.stopPropagation(); writeRef.current(target);
       }}>

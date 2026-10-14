@@ -527,9 +527,8 @@ On a phone, use the header and More menu for app actions; Command palette is ava
 without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
 An external keyboard uses the same app bindings as a desktop.
 
-**Settings → Chat → Composer → PageUp / PageDown scroll chat** opts into plain page keys
-for the transcript, even while its message box is focused. It is off by default and saved on
-this device; the draft, caret, selection and focus stay intact. Modified page keys, composition,
+Plain PageUp/PageDown scroll the chat transcript, even while its message box is focused;
+the draft, caret, selection and focus stay intact. Modified page keys, composition,
 other editable controls and modal input retain their own behavior. Plain terminal page keys
 continue to belong to the running program.
 
@@ -537,13 +536,12 @@ Paging shortcuts work while the message box is focused, preserving the draft, ca
 Chat scrolls its transcript immediately; Terminal scrolls herdr's shared history, so other
 clients see the same terminal position. When herdr explicitly reports zero native history,
 the shortcut instead sends plain PageUp/PageDown to the running application through its live
-input lease. That application owns its page length; the overlap setting cannot change it.
+input lease. That application owns its page length.
 Unavailable or invalid history data never causes application input, and no key is queued
 while disconnected.
-**Settings → Shortcuts → Paging → Page overlap** sets the lines retained between pages:
-one by default, from 0 to 100; 0 scrolls a full viewport. Chat uses the displayed text's line
-height, and Terminal uses native rows. A large overlap still advances by at least one pixel
-in chat or one terminal row. Focused scrollbar PageUp/PageDown uses the same setting.
+One line stays visible between pages. Chat uses the displayed text's line height, and Terminal
+uses native rows. A page still advances by at least one pixel in chat or one terminal row.
+Focused scrollbar PageUp/PageDown pages the same way.
 For an iPad with an external keyboard that lacks PageUp/PageDown, assign letters such as
 U and D to **Scroll pane up** and **Scroll pane down** in Settings → Shortcuts. Mod+Shift
 stays fixed. This lets you read history without leaving the message box or reaching for

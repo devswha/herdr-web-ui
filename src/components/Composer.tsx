@@ -98,6 +98,8 @@ export interface ComposerProps {
 }
 
 const UPLOADS_AT_ONCE = 3;
+/** files one paste, pick or drop takes; the rest are left out with a note */
+const ATTACH_LIMIT = 100;
 /**
  * Any file can be attached (an icon, a PDF, a log): the server stores it beside the pane
  * and the message mentions its path. These image types also get a thumbnail.
@@ -779,12 +781,12 @@ export function Composer({
 
   const uploadImages = useCallback(
     (incoming: readonly File[]) => {
-      const images = incoming.slice(0, settings.attachLimit);
+      const images = incoming.slice(0, ATTACH_LIMIT);
       if (images.length === 0) return;
 
       // the files left out of this pick: told now, and again beside an upload error of this batch
       const leftOut = images.length < incoming.length
-        ? t("Only the first {count} of {total} files were taken. Settings → Chat → Files at once sets how many one paste, pick or drop takes.", { count: images.length, total: incoming.length })
+        ? t("Only the first {count} of {total} files were taken.", { count: images.length, total: incoming.length })
         : null;
       const added = images.map<Attachment>((file) => {
         const uploadFile = normalizeComposerImageFile(file);
@@ -804,7 +806,7 @@ export function Composer({
       uploadQueue.current.push(...added);
       pumpUploads();
     },
-    [pumpUploads, settings.attachLimit, t],
+    [pumpUploads, t],
   );
 
   const removeAttachment = useCallback((attachment: Attachment) => {

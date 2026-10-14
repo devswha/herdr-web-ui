@@ -63,9 +63,6 @@ export interface Settings {
   /** This device's terminal keys, sticky modifiers and exact chords, in display order. */
   keyBarItems: KeyBarItem[];
   shortcutOverrides: ShortcutOverrides;
-  pageOverlapRows: number;
-  /** Plain page keys scroll chat, including while its composer is focused. */
-  chatPageKeys: boolean;
   theme: ThemeSetting;
   density: Density;
   /** How much a workspace row says: its name, or its pane's title over its place. */
@@ -111,8 +108,6 @@ export interface Settings {
   chatWidth: ChatWidth;
   /** true: Enter sends in the composer, Shift+Enter breaks the line; false: Ctrl/Cmd+Enter sends */
   enterSends: boolean;
-  /** how many files one paste, pick or drop attaches; the rest are left out with a note */
-  attachLimit: number;
   /** true: a message sent while the agent works goes by itself when the turn ends; false: it waits for Send now */
   autoSendQueued: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
@@ -154,8 +149,6 @@ export interface Settings {
   voicePolishTerminal: boolean;
   /** the file viewer wraps long lines instead of scrolling sideways */
   wrapCode: boolean;
-  /** code is colored by its language; off, it is plain text */
-  highlightCode: boolean;
   /** the width of a Markdown preview: the chat's lane (--chat-w), centered, or the viewer's width */
   markdownWidth: MarkdownWidth;
   /** a repository diff as one column of old and new lines, or the two side by side (a phone shows one column either way) */
@@ -227,7 +220,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     voicePolishChat: settings.voicePolishChat,
     voicePolishTerminal: settings.voicePolishTerminal,
     wrapCode: settings.wrapCode,
-    highlightCode: settings.highlightCode,
+    highlightCode: true,
     markdownWidth: settings.markdownWidth,
     terminalFontCustom: settings.terminalFontFamily !== DEFAULT_SETTINGS.terminalFontFamily,
     chatFontCustom: settings.chatFontFamily !== DEFAULT_SETTINGS.chatFontFamily,
@@ -237,9 +230,10 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     quickRepliesCustom: differsFromDefault(settings.quickReplies, DEFAULT_SETTINGS.quickReplies),
     quickReplyCount: settings.quickReplies.length,
     usageHiddenCount: settings.usageHidden.length,
-    pageOverlapRows: settings.pageOverlapRows,
-    chatPageKeys: settings.chatPageKeys,
-    attachLimit: settings.attachLimit,
+    pageOverlapRows: 1,
+    chatPageKeys: true,
+    // the app takes 100 files at once; the schema stops at 50
+    attachLimit: 50,
   };
 }
 
@@ -252,11 +246,11 @@ export const SETTING_SCOPE = {
   theme: "shared", palette: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared", agentCards: "shared",
   agentPins: "shared", agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
   showQuickReplies: "shared", showUsage: "shared", usageCount: "shared",
-  usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", highlightCode: "shared", defaultView: "device",
-  terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", pageOverlapRows: "device", chatPageKeys: "device", density: "device",
+  usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", defaultView: "device",
+  terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", density: "device",
   quietOpenedDone: "device", terminalFontSize: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
-  chatFontSize: "device", chatFontFamily: "device", uiFontSize: "device", chatWidth: "device", enterSends: "device", attachLimit: "device",
+  chatFontSize: "device", chatFontFamily: "device", uiFontSize: "device", chatWidth: "device", enterSends: "device",
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
   paletteLight: "device", paletteDark: "device",
   voiceInput: "device", voiceLanguage: "device", voicePolishChat: "device", voicePolishTerminal: "device",
@@ -274,8 +268,6 @@ export const DEFAULT_SETTINGS: Settings = {
   keyBarExtras: ["alt"],
   keyBarItems: DEFAULT_KEY_BAR_ITEMS,
   shortcutOverrides: {},
-  pageOverlapRows: 1,
-  chatPageKeys: false,
   theme: "dark",
   density: "comfortable",
   sidebarRows: "two",
@@ -297,7 +289,6 @@ export const DEFAULT_SETTINGS: Settings = {
   uiFontSize: null,
   chatWidth: "default",
   enterSends: true,
-  attachLimit: 20,
   autoSendQueued: true,
   showThinking: false,
   keepScreenOn: false,
@@ -320,7 +311,6 @@ export const DEFAULT_SETTINGS: Settings = {
   voicePolishChat: true,
   voicePolishTerminal: false,
   wrapCode: false,
-  highlightCode: true,
   markdownWidth: "readable",
   diffStyle: "unified",
 };
@@ -367,8 +357,6 @@ export const TERMINAL_FONT_MIN = 10;
 export const TERMINAL_FONT_MAX = 22;
 export const TERMINAL_WHEEL_SPEED_MIN = 1;
 export const TERMINAL_WHEEL_SPEED_MAX = 10;
-export const ATTACH_LIMIT_MIN = 1;
-export const ATTACH_LIMIT_MAX = 50;
 
 export const CHAT_FONT_MIN = 11;
 export const CHAT_FONT_MAX = 24;
@@ -447,9 +435,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     keyBarExtras,
     keyBarItems: sanitizeKeyBarItems(record["keyBarItems"], keyBarFallback),
     shortcutOverrides: sanitizeShortcutOverrides(record["shortcutOverrides"]),
-    chatPageKeys: typeof record["chatPageKeys"] === "boolean" ? record["chatPageKeys"] : DEFAULT_SETTINGS.chatPageKeys,
-    pageOverlapRows: typeof record["pageOverlapRows"] === "number" && Number.isFinite(record["pageOverlapRows"])
-      ? Math.min(100, Math.max(0, Math.round(record["pageOverlapRows"]))) : DEFAULT_SETTINGS.pageOverlapRows,
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarRows: record["sidebarRows"] === "one" || record["sidebarRows"] === "two" ? record["sidebarRows"] : DEFAULT_SETTINGS.sidebarRows,
@@ -476,9 +461,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     chatFontFamily: sanitizeFontFamily(record["chatFontFamily"]),
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
-    attachLimit: typeof record["attachLimit"] === "number" && Number.isFinite(record["attachLimit"])
-      ? Math.min(ATTACH_LIMIT_MAX, Math.max(ATTACH_LIMIT_MIN, Math.round(record["attachLimit"])))
-      : DEFAULT_SETTINGS.attachLimit,
     autoSendQueued: typeof record["autoSendQueued"] === "boolean" ? record["autoSendQueued"] : DEFAULT_SETTINGS.autoSendQueued,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,
@@ -504,7 +486,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     voicePolishChat: typeof record["voicePolishChat"] === "boolean" ? record["voicePolishChat"] : DEFAULT_SETTINGS.voicePolishChat,
     voicePolishTerminal: typeof record["voicePolishTerminal"] === "boolean" ? record["voicePolishTerminal"] : DEFAULT_SETTINGS.voicePolishTerminal,
     wrapCode: typeof record["wrapCode"] === "boolean" ? record["wrapCode"] : DEFAULT_SETTINGS.wrapCode,
-    highlightCode: typeof record["highlightCode"] === "boolean" ? record["highlightCode"] : DEFAULT_SETTINGS.highlightCode,
     markdownWidth: MARKDOWN_WIDTHS.find((width) => width === record["markdownWidth"]) ?? DEFAULT_SETTINGS.markdownWidth,
     diffStyle: DIFF_STYLES.find((style) => style === record["diffStyle"]) ?? DEFAULT_SETTINGS.diffStyle,
   };

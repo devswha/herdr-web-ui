@@ -2552,7 +2552,7 @@ export function PaneTerminal({
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
 
   useEffect(() => {
-    if (!active || !paneId || !settings.chatPageKeys) return;
+    if (!active || !paneId) return;
     const onPage = (event: KeyboardEvent) => {
       const direction = plainPageDirection(event);
       if (direction === null || event.defaultPrevented || !activeRef.current || !presentedRef.current || !chatViewRef.current || modalOpen()
@@ -2565,7 +2565,7 @@ export function PaneTerminal({
     };
     window.addEventListener("keydown", onPage, true);
     return () => window.removeEventListener("keydown", onPage, true);
-  }, [active, paneId, settings.chatPageKeys]);
+  }, [active, paneId]);
 
   const sendApplicationPage = useCallback((direction: -1 | 1) => {
     const pane = paneRef.current, socket = socketRef.current;

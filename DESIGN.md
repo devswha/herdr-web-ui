@@ -250,8 +250,6 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
   At most 200 characters, with `;`, `{`, `}`, `<`,
   `>`, `\` and control characters stripped and names with spaces quoted.
 - Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.
-- `highlightCode` colors code in the chat and the file viewer by its language (default on; off
-  shows plain text).
 - File viewer: `wrapCode` (wrap long lines instead of scrolling sideways; default off),
   `markdownWidth`: `readable` (the chat lane, `--chat-w`, centered; default) or `full`, and
   `diffStyle`: `unified` (default) or `split` for a repository diff (a phone draws one column
@@ -1257,9 +1255,8 @@ One set for both themes: the card is island black wherever it shows.
   still `Discard`.
 - `/` completions come from `GET /api/pane/commands` and group built-in, user and project commands;
   `@` completions query `GET /api/pane/files`. Arrow keys navigate, Enter/Tab accepts, Escape closes.
-- Paste, picker or drag/drop attaches up to **Files at once** files per action (Settings → Chat, 20 unless the
-  device chose 1 to 50); the message box names how many it left out. An image is stored as a paste, any other
-  file under its own sanitised name. Each uploads through `POST /api/pane/image`, three at a time
+- Paste, picker or drag/drop attaches up to 100 files per action; the message box names how many it left out.
+  An image is stored as a paste, any other file under its own sanitised name. Each uploads through `POST /api/pane/image`, three at a time
   across all picks, and puts a removable editable `@path` mention at the start of the message (after
   a leading `/command`), in the order the files were picked. A path waits while the box holds only a
   `/command` still being typed or an IME composition, and a path that does not fit whole under the
