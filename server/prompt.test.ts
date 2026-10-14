@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, claudeClearableDraft, claudeInputDraft, claudeInputEmpty, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
+import { answerKeys, claudeClearableDraft, claudeInputBoxText, claudeInputDraft, claudeInputEmpty, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 const CLAUDE_BACKGROUND_APPROVAL_FOOTER = "Esc to cancel · ctrl+x ctrl+k twice to stop background agents";
@@ -1658,6 +1658,28 @@ describe("Claude's suggested next prompt", () => {
     expect(claudeInputDraft(strip(screen('\u276f Try "x"')), screen('\u276f Try "x"'))).toBe(true);
     // colors not verified to show the live screen prove nothing
     expect(claudeInputDraft(strip(tip), null)).toBe(true);
+  });
+
+  test("OmO's box while it works, under a rule its status labels, is read like Claude's", () => {
+    // OmO (reported by herdr as Claude) as it draws its box mid-turn: two dashes lead the label
+    const rule = "\u2500".repeat(60);
+    const working = (row: string) => ["● earlier output", "\u2500\u2500 • Running eval (7s • esc to interrupt) " + "\u2500".repeat(40), row, rule,
+      "~/workspace/app • main • 27.1% (auto)   claude-opus-5-5:medium"].join("\r\n");
+    expect(claudeInputDraft(working("❯"), null)).toBe(false);
+    expect(claudeInputEmpty(working("❯"), null)).toBe(true);
+    expect(claudeInputDraft(working("❯ still typing"), null)).toBe(true);
+    expect(claudeInputBoxText(working("❯ still typing"))).toBe("❯ still typing");
+    // a row with one dash before its words is no rule
+    expect(claudeInputDraft(["─ not a rule ─", "❯", rule].join("\r\n"), null)).toBe(true);
+  });
+
+  test("the box a refusal shows: its rows as plain text, nothing when it cannot be read whole", () => {
+    const rule = "\u2500".repeat(60);
+    expect(claudeInputBoxText([rule, "\u001b[2m! ls\u001b[0m", rule].join("\r\n"))).toBe("! ls");
+    expect(claudeInputBoxText([rule, "❯ first line", "  second line", rule].join("\r\n"))).toBe("❯ first line\n  second line");
+    expect(claudeInputBoxText(["  more of a tall draft", rule, "  footer"].join("\r\n"))).toBe("");
+    expect(claudeInputBoxText("no box here")).toBe("");
+    expect(claudeInputBoxText([rule, `❯ ${"x".repeat(300)}`, rule].join("\r\n"))).toBe(`❯ ${"x".repeat(198)}…`);
   });
 
   test("a viewport's colors count only when it is verified to show the live screen", () => {

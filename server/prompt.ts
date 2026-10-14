@@ -2874,6 +2874,13 @@ function claudeGreyInput(ansi: string): string | null {
 }
 
 /**
+ * A labeled rule over an input box: Claude's named session (`──── my-session ─`), and OmO's own
+ * box while it works (`── • Running eval (7s • esc to interrupt) ───`), which herdr reports as
+ * Claude. Only the box reader takes the shorter lead; the task panel keeps LABELED_RULE_RE.
+ */
+const BOX_LABELED_RULE_RE = /^─{2,}\s.*─$/;
+
+/**
  * Claude Code's input box: the rows between the screen's last two rules (a named session labels
  * its rule). "clipped" when only the bottom rule is on screen, as under a draft taller than the
  * pane; null when the screen has no rule at all.
@@ -2881,7 +2888,7 @@ function claudeGreyInput(ansi: string): string | null {
 function claudeInputBox(screen: string): { plain: string[]; raw: string[] } | "clipped" | null {
   const raw = screen.split("\n").map((line) => line.replace(/\r$/, ""));
   const plain = raw.map((line) => line.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "").trimEnd());
-  const rule = (line: string): boolean => SOLID_RULE_RE.test(line.trim()) || LABELED_RULE_RE.test(line.trim());
+  const rule = (line: string): boolean => SOLID_RULE_RE.test(line.trim()) || BOX_LABELED_RULE_RE.test(line.trim());
   let end = plain.length - 1;
   while (end >= 0 && !rule(plain[end]!)) end--;
   if (end < 0) return null;
@@ -2978,6 +2985,21 @@ export function claudeClearableDraft(live: string, colors: string | null): strin
   if (shown === null || shown === "clipped" || shown.raw.length !== 1 || rowText(shown.raw[0]!) !== row) return null;
   const draft = row.slice(1).replace(/^[ \u00a0]/, "");
   return draft.trim() === "" ? null : draft;
+}
+
+/** How much of the box an input_draft refusal shows: enough to tell a draft from Claude's own text. */
+export const INPUT_BOX_SHOWN_CHARS = 200;
+
+/**
+ * What a refusal that names no clearable draft shows the user of the live input box (claudeInputBox),
+ * its rows as plain text, so they can tell a real draft from a box misread and choose to send anyway.
+ * Empty when no box could be read whole (none on screen, or clipped by the pane).
+ */
+export function claudeInputBoxText(live: string): string {
+  const box = claudeInputBox(live);
+  if (box === null || box === "clipped") return "";
+  const text = box.plain.map((row) => row.replace(/\u00a0/g, " ").trimEnd()).join("\n").trim();
+  return text.length > INPUT_BOX_SHOWN_CHARS ? `${text.slice(0, INPUT_BOX_SHOWN_CHARS)}…` : text;
 }
 
 /**
