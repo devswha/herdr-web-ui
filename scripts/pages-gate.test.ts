@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { selectBrowserScripts, serialBrowserScripts } from "./ci-browser-parallel.ts";
+import { scriptOutcome, selectBrowserScripts, serialBrowserScripts } from "./ci-browser-parallel.ts";
 
 const pages = readFileSync(new URL("../.github/workflows/pages.yml", import.meta.url), "utf8");
 const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
@@ -120,6 +120,13 @@ describe("Browser lane script lists", () => {
     const all = shards.flat();
     expect(all.length).toBe(serial.length);
     expect([...all].sort()).toEqual([...serial].sort());
+  });
+
+  it("calls a script that passed only on its second run flaky, and one that failed again a failure", () => {
+    expect(scriptOutcome(0, false)).toBe("pass");
+    expect(scriptOutcome(0, true)).toBe("flaky");
+    expect(scriptOutcome(1, true)).toBe("fail");
+    expect(scriptOutcome(1, false)).toBe("fail");
   });
 
   it("refuses a script name the serial lane does not run", () => {

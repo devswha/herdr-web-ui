@@ -75,6 +75,9 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     // A liveness probe refuses input without a frame to say so: on a quiet pane the 1 s poll reads
     // it, so the terminal shows it waits instead of looking ready while typing goes to the draft.
     const waiting = page.locator(".terminal-banner", { hasText: "Waiting for terminal input…" });
+    // the banner is drawn only on a connected pane: before the socket opens it is absent too, and
+    // a wake then finds nothing to probe
+    await page.locator(".conn-live").waitFor();
     await waiting.waitFor({ state: "hidden" });
     holdPings = true;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
