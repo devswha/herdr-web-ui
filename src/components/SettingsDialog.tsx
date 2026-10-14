@@ -75,7 +75,7 @@ const FONT_FAMILY_PLACEHOLDER = 'D2Coding, "Cascadia Mono"';
  * every keystroke would sanitize away the comma or space being typed, and each change of the
  * terminal's font refits the grid and resizes the pane.
  */
-function FontFamilyInput({ value, label, onCommit, fixedWidthFor = null, placeholder = FONT_FAMILY_PLACEHOLDER }: { value: string; label: string; onCommit: (family: string) => void; /** the surface that needs every glyph on one advance: a proportional pick from the list is refused in its name */ fixedWidthFor?: "terminal" | null; placeholder?: string }) {
+function FontFamilyInput({ value, label, onCommit, fixedWidthFor = null }: { value: string; label: string; onCommit: (family: string) => void; /** the surface that needs every glyph on one advance: a proportional pick from the list is refused in its name */ fixedWidthFor?: "terminal" | null }) {
   const t = useT();
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -129,7 +129,7 @@ function FontFamilyInput({ value, label, onCommit, fixedWidthFor = null, placeho
         <input
           className="input settings-font-input"
           value={draft}
-          placeholder={placeholder}
+          placeholder={FONT_FAMILY_PLACEHOLDER}
           maxLength={FONT_FAMILY_MAX_CHARS}
           aria-label={label}
           spellCheck={false}
