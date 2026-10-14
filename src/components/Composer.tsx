@@ -1158,9 +1158,11 @@ export function Composer({
           aria-controls={menuOpen ? menuId : undefined}
           aria-expanded={menuOpen}
           aria-activedescendant={menuOpen ? `${menuId}-${selectedIndex}` : undefined}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
+          // most of what is typed to an agent is prose: a phone keyboard's corrections, suggestions
+          // and sentence capitals stay on here (the terminal input line keeps them off)
+          spellCheck
+          autoCapitalize="sentences"
+          autoCorrect="on"
           // stays editable while the socket reconnects (sending waits for it): a phone's
           // dictation keyboard opens its own app and comes back, the socket may drop meanwhile,
           // and a disabled box would lose its focus and the dictated text with it
