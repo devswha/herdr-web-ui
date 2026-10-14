@@ -841,6 +841,7 @@ export const JA: Record<string, string> = {
   "Allow notifications in your browser settings, then try again.": "ブラウザーの設定で通知を許可してから、もう一度お試しください。",
   "Test notification sent. Check this device for the alert.": "テスト通知を送信しました。このデバイスに通知が届いたか確認してください。",
   "This device's push subscription is missing. Turn alerts on again.": "このデバイスのプッシュ通知の登録がありません。通知をもう一度オンにしてください。",
+  "The push service retired this device's subscription. Turn alerts on again to make a new one.": "プッシュサービスがこのデバイスの登録を無効にしました。通知をもう一度オンにすると新しく登録します。",
   "Allow notifications to test alerts on this device.": "このデバイスで通知をテストするには、通知を許可してください。",
   "Could not send the test notification. Try again.": "テスト通知を送信できませんでした。もう一度お試しください。",
   "Turn alerts on again": "通知をもう一度オンにする",

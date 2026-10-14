@@ -796,6 +796,7 @@ export const TR: Record<string, string> = {
   "Allow notifications in your browser settings, then try again.": "Tarayıcı ayarlarından bildirimlere izin verin, sonra yeniden deneyin.",
   "Test notification sent. Check this device for the alert.": "Test bildirimi gönderildi. Uyarı için bu cihazı kontrol edin.",
   "This device's push subscription is missing. Turn alerts on again.": "Bu cihazın anlık bildirim aboneliği eksik. Uyarıları yeniden açın.",
+  "The push service retired this device's subscription. Turn alerts on again to make a new one.": "Anlık bildirim servisi bu cihazın aboneliğini sonlandırdı. Yeni bir abonelik için uyarıları yeniden açın.",
   "Allow notifications to test alerts on this device.": "Bu cihazda uyarıları test etmek için bildirimlere izin verin.",
   "Could not send the test notification. Try again.": "Test bildirimi gönderilemedi. Yeniden deneyin.",
   "Turn alerts on again": "Uyarıları yeniden aç",

@@ -2309,6 +2309,28 @@ describe("web push", () => {
     expect(((await gone.json()) as ApiError).error.code).toBe("subscription_not_found");
   });
 
+  // regression (fails on main): an endpoint the push service retired is refused, never-known stays not found (#1038)
+  it("answers subscription_gone for an endpoint its push service retired", async () => {
+    const retiring = await startFakePushService();
+    try {
+      expect((await postJson("/api/push/subscribe", { subscription: retiring.subscription })).status).toBe(204);
+      retiring.answerWith(410);
+      expect((await postJson("/api/push/test", { endpoint: retiring.subscription.endpoint })).status).toBe(502);
+      const again = await postJson("/api/push/subscribe", { subscription: retiring.subscription });
+      expect(again.status).toBe(410);
+      expect(((await again.json()) as ApiError).error.code).toBe("subscription_gone");
+      const tested = await postJson("/api/push/test", { endpoint: retiring.subscription.endpoint });
+      expect(tested.status).toBe(410);
+      expect(((await tested.json()) as ApiError).error.code).toBe("subscription_gone");
+      // control
+      const unknown = await postJson("/api/push/test", { endpoint: "https://push.example/never-known" });
+      expect(unknown.status).toBe(404);
+      expect(((await unknown.json()) as ApiError).error.code).toBe("subscription_not_found");
+    } finally {
+      retiring.stop();
+    }
+  });
+
   it("pushes a live pane's status change to a subscribed device", async () => {
     const paneId = pushPaneId!;
     expect((await postJson("/api/push/subscribe", { subscription: fake.subscription })).status).toBe(204);

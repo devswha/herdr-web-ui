@@ -252,6 +252,32 @@ describe("push delivery", () => {
     expect(await push.sendTest(fake.subscription.endpoint)).toBeNull();
   });
 
+  // regression (fails on main): the browser can keep handing over the endpoint its push service retired (#1038)
+  it("refuses a re-registration of an endpoint its push service retired, so the device subscribes anew", async () => {
+    const push = subscribed();
+    fake.answerWith(410);
+    expect(await push.sendTest(fake.subscription.endpoint)).toEqual({ ok: false, status: 410, gone: true });
+    const post = (path: string, body: unknown) => handlePushRequest(new Request(`http://localhost${path}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }), path, push, null);
+    const again = (await post("/api/push/subscribe", { subscription: fake.subscription }))!;
+    expect(again.status).toBe(410);
+    expect(((await again.json()) as { error: { code: string } }).error.code).toBe("subscription_gone");
+    expect(JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8"))).toEqual([]);
+    const tested = (await post("/api/push/test", { endpoint: fake.subscription.endpoint }))!;
+    expect(tested.status).toBe(410);
+    expect(((await tested.json()) as { error: { code: string } }).error.code).toBe("subscription_gone");
+    // control: an endpoint this server never knew is still just not found
+    const unknown = (await post("/api/push/test", { endpoint: "https://push.example/never-known" }))!;
+    expect(unknown.status).toBe(404);
+    expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe("subscription_not_found");
+    // control: the memory is this process's only; a restarted server accepts the endpoint as before
+    const restarted = createPushService({ loopbackHttp: true, stateDir });
+    expect((await handlePushRequest(new Request("http://localhost/api/push/subscribe", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: fake.subscription }),
+    }), "/api/push/subscribe", restarted, null))?.status).toBe(204);
+  });
+
   it("keeps a device through a failure that is not a goodbye", async () => {
     const push = subscribed();
     fake.answerWith(500);

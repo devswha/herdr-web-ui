@@ -843,6 +843,7 @@ export const ZH: Record<string, string> = {
   "Allow notifications in your browser settings, then try again.": "请在浏览器设置中允许通知，然后重试。",
   "Test notification sent. Check this device for the alert.": "测试通知已发送。请检查此设备是否收到通知。",
   "This device's push subscription is missing. Turn alerts on again.": "此设备的推送订阅不存在。请重新开启提醒。",
+  "The push service retired this device's subscription. Turn alerts on again to make a new one.": "推送服务已停用此设备的订阅。重新开启提醒即可创建新的订阅。",
   "Allow notifications to test alerts on this device.": "请允许通知，以便在此设备上测试提醒。",
   "Could not send the test notification. Try again.": "无法发送测试通知。请重试。",
   "Turn alerts on again": "重新开启提醒",

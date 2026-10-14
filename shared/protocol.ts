@@ -236,8 +236,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  PATCH  /api/devices/:id  { label }    -> PairedDevice;  DELETE /api/devices/:id -> 204 (revoked at its next request)
  *  GET    /api/push                      -> PushKey (the VAPID application server key)
  *  POST   /api/push/subscribe { subscription }  -> 204 (a browser PushSubscription JSON; upsert by endpoint)
+ *         | 410 subscription_gone (its push service answered 404/410 for that endpoint since the server
+ *         started: the browser must unsubscribe and subscribe anew; an older server never says it)
  *  DELETE /api/push/subscribe { endpoint }      -> 204
- *  POST   /api/push/test      { endpoint }      -> 204 | 404 subscription_not_found | 502 push_failed
+ *  POST   /api/push/test      { endpoint }      -> 204 | 404 subscription_not_found | 410 subscription_gone | 502 push_failed
  *  GET    /api/usage[?refresh=1]         -> UsageReport (plan limits of the AI subscriptions signed in on this PC)
  *  Errors: non-2xx with { error: { code, message } }
  *
