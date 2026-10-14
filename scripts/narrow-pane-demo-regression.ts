@@ -92,7 +92,10 @@ try {
       await find.waitFor();
       for (const density of ["comfortable", "compact"]) {
         await page.evaluate((density) => document.documentElement.dataset.density = density, density);
-        await frame.hover();
+        // a mouse reaches the pane menu by right-click: only keyboard focus reveals the ellipsis
+        await page.keyboard.press("Tab");
+        await paneMenu.focus();
+        assert.equal(await paneMenu.evaluate((node) => getComputedStyle(node).opacity), "1", `${density}: the focused pane menu is shown`);
         const searchBox = await find.boundingBox();
         const menuBox = await paneMenu.boundingBox();
         assert.ok(searchBox && menuBox, "both pane controls are visible");
@@ -100,7 +103,9 @@ try {
         await find.click();
         await frame.getByRole("search", { name: "Find in messages", exact: true }).waitFor();
         await frame.getByRole("button", { name: "Close search", exact: true }).click();
-        await paneMenu.click();
+        await page.keyboard.press("Tab");
+        await paneMenu.focus();
+        await paneMenu.press("Enter");
         const actions = page.getByRole("menu", { name: /^Pane actions for / });
         await actions.waitFor();
         await page.keyboard.press("Escape");
