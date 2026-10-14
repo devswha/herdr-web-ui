@@ -77,9 +77,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#860](https://github.com/devswha/herdr-web-ui/pull/860))
 
 ### Fixed
-- Gajae Code question cards no longer refuse an answer as stale when the transcript or status
-  above the question dialog redraws. The dialog's question, details and choices still have to match
-  before the answer is confirmed.
 - First-device pairing waits for the browser to return its device cookie before restricting
   access. A proxy that drops the cookie no longer locks out an otherwise open installation;
   Settings reports the failed pairing instead. Already restricted installations stay restricted.
