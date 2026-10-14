@@ -1366,10 +1366,6 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   const { codexProcesses, processes, open } = await openRollouts(paneId, home);
   if (open.size === 1) return [...open][0]!;
   const resumed = resumedThread(codexProcesses.map((process) => process.argv ?? []));
-  const picker = resumed === null && codexProcesses.some(({ argv = [] }) => {
-    const at = argv.indexOf("resume");
-    return at >= 0 && (argv[at + 1] === undefined || argv[at + 1]?.startsWith("-"));
-  });
 
   let db: Database | undefined;
   let paths: string[] = [...open];
@@ -1377,7 +1373,6 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
   let resumedNewer: string[] = [];
   /** the first message of each newer thread, when the store keeps it */
   const firsts = new Map<string, string>();
-  const pickerClaimed = new Set<string>();
   const bound = boundRollouts.get(paneId);
   const boundHere = bound !== undefined && bound.processes === processes && processes !== "" ? bound : undefined;
   let boundNewer: string[] = [];
@@ -1419,26 +1414,6 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // a thread whose rollout is gone or outside the store is still a conversation of this cwd
     listed = rows.length <= 32 && !rollouts.includes(null);
     paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rollouts.filter((path): path is string => path !== null)])];
-    if (picker) {
-      const rows = db.query<{ rollout_path: string; cwd: string; first_user_message?: string | null }, []>(
-        `SELECT rollout_path, cwd${db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : ""}
-         FROM threads WHERE archived = 0 AND agent_role IS NULL${interactive(db)}
-         ORDER BY updated_at DESC LIMIT 33`,
-      ).all();
-      // Resuming history does not update the store until Codex writes a new record.
-      // Read old threads too; never manufacture uniqueness by truncating candidates.
-      if (rows.length > 32) return null;
-      const pickerPaths = rows.flatMap((row) => {
-        const path = codexRolloutPath(row.rollout_path, home);
-        if (path === null) return [];
-        if (typeof row.first_user_message === "string") firsts.set(path, row.first_user_message);
-        return [path];
-      });
-      for (const directory of new Set(rows.map((row) => row.cwd))) {
-        for (const path of await claimedByOtherPanes(paneId, directory, pickerPaths, [], firsts, home, panes)) pickerClaimed.add(path);
-      }
-      paths = [...new Set([...paths, ...pickerPaths])];
-    }
   } catch { /* Older installations can still resolve their open descriptors. */ }
   finally { db?.close(); }
   const screen = paths.length ? await paneRead({ paneId, source: "recent", lines: 400, stripAnsi: true }) : null;
@@ -1446,7 +1421,6 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     try { return [{ path, text: codexHistoryTail(path, 1024 * 1024, home) }]; } catch { return []; }
   });
   const matched = screen ? matchCodexTranscript(screen.text, candidates) : null;
-  if (picker && matched !== null && theirs([matched], paneId, pickerClaimed).length === 0) return null;
   if (matched !== null) {
     boundRollouts.delete(paneId);
     boundRollouts.set(paneId, { processes, path: matched, at: Date.now() });
@@ -1492,6 +1466,6 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     cut = candidates.map((candidate) => Object.keys(record(rolloutHeader(candidate.path)?.history_base)).length > 0 || statSync(candidate.path).size > 1024 * 1024);
   } catch { return null; }
   const short = matchShortCodexAnswers(screen.text, candidates.map((candidate, index) => ({ ...candidate, cut: cut[index] })));
-  if (short !== null) return picker ? theirs([short], paneId, pickerClaimed)[0] ?? null : short;
+  if (short !== null) return short;
   return shortThreadFromProcess(paneId, cwd, home, screen.text, codexProcesses, panes);
 }
