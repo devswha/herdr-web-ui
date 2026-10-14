@@ -24,6 +24,7 @@ import { useSettings } from "../lib/settings.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { useWorktreeBranches } from "../lib/useWorktreeBranches.ts";
 import { watchTouchReorder } from "../lib/touchReorder.ts";
+import { placeBlock, workspaceMoves } from "../lib/workspaceOrder.ts";
 import { worktreeLabel } from "../lib/worktreeName.ts";
 import { paneMark, sidebarAgents, workspaceAgentLabels } from "../lib/sidebarAgents.ts";
 import { PANE_DRAG_TYPE, paneDragData } from "../lib/split.ts";
@@ -430,17 +431,14 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     });
   };
 
-  const reorderWorkspace = (workspaceId: string, insertIndex: number): void => {
-    const sourceIndex = workspaceOrder.indexOf(workspaceId);
-    if (sourceIndex < 0) return;
-    const boundedIndex = Math.max(0, Math.min(workspaceOrder.length - 1, insertIndex));
-    if (sourceIndex === boundedIndex) return;
+  const reorderWorkspaces = (next: string[]): void => {
     const previous = workspaceOrder;
-    const next = [...workspaceOrder];
-    next.splice(sourceIndex, 1);
-    next.splice(boundedIndex, 0, workspaceId);
+    const moves = workspaceMoves(previous, next);
+    if (moves.length === 0) return;
     setWorkspaceOrder(next);
-    void moveWorkspace(workspaceId, boundedIndex).catch((reason: unknown) => {
+    void (async () => {
+      for (const move of moves) await moveWorkspace(move.workspaceId, move.insertIndex);
+    })().catch((reason: unknown) => {
       // only this move's own optimistic order is rolled back: if a later reorder has landed in
       // the meantime, its order is the newer one and reverting to `previous` would undo it
       setWorkspaceOrder((current) => (current.length === next.length && current.every((id, index) => id === next[index]) ? previous : current));
@@ -463,43 +461,44 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     if (payload.machine_id !== machineId || typeof payload.workspace_id !== "string") return;
     const sourceId = dragWorkspaceId ?? payload.workspace_id;
     setDragWorkspaceId(null);
-    const index = dropIndex(sourceId, targetWorkspaceId);
-    if (index !== null) reorderWorkspace(sourceId, index);
+    const next = dropOrder(sourceId, targetWorkspaceId);
+    if (next !== null) reorderWorkspaces(next);
   };
 
   // The roster shows groups: a repository's workspace moves past the next or previous group as
-  // one (herdr keeps its worktrees packed behind it), and a worktree moves among its siblings.
-  // The index herdr gets is the edge of the group the move lands on.
-  const moveIndex = (workspaceId: string, direction: -1 | 1): number | null => {
+  // one, and a worktree moves among its siblings. herdr moves only the workspace it is told to,
+  // so a group's worktrees are moved with it (lib/workspaceOrder.ts).
+  const groupIds = (group: (typeof worktreeGroups)[number]): string[] => [group.workspace, ...group.children].map((workspace) => workspace.workspace_id);
+  const moveOrder = (workspaceId: string, direction: -1 | 1): string[] | null => {
+    const side = direction === 1 ? "after" : "before";
     const groupIndex = worktreeGroups.findIndex((group) => group.workspace.workspace_id === workspaceId);
     if (groupIndex >= 0) {
       const target = worktreeGroups[groupIndex + direction];
-      if (!target) return null;
-      const edge = direction === 1 ? (target.children[target.children.length - 1] ?? target.workspace) : target.workspace;
-      return workspaceOrder.indexOf(edge.workspace_id);
+      return target ? placeBlock(workspaceOrder, groupIds(worktreeGroups[groupIndex]!), groupIds(target), side) : null;
     }
     const parent = worktreeGroups.find((group) => group.children.some((child) => child.workspace_id === workspaceId));
     if (!parent) return null;
     const sibling = parent.children[parent.children.findIndex((child) => child.workspace_id === workspaceId) + direction];
-    return sibling ? workspaceOrder.indexOf(sibling.workspace_id) : null;
+    return sibling ? placeBlock(workspaceOrder, [workspaceId], [sibling.workspace_id], side) : null;
   };
   const moveVisible = (workspaceId: string, direction: -1 | 1): void => {
-    const index = moveIndex(workspaceId, direction);
-    if (index !== null) reorderWorkspace(workspaceId, index);
+    const next = moveOrder(workspaceId, direction);
+    if (next !== null) reorderWorkspaces(next);
   };
 
-  /** where a dropped workspace lands, in the flat order, or nowhere when the drop crosses a group's edge */
-  const dropIndex = (sourceId: string, targetId: string): number | null => {
+  /** the order a dropped workspace makes, or none when the drop crosses a group's edge */
+  const dropOrder = (sourceId: string, targetId: string): string[] | null => {
     const sourceGroup = worktreeGroups.find((group) => group.workspace.workspace_id === sourceId);
     if (sourceGroup) {
       const targetGroup = worktreeGroups.find((group) => group.workspace.workspace_id === targetId || group.children.some((child) => child.workspace_id === targetId));
       if (!targetGroup || targetGroup === sourceGroup) return null;
       const movingDown = workspaceOrder.indexOf(sourceId) < workspaceOrder.indexOf(targetGroup.workspace.workspace_id);
-      const edge = movingDown ? (targetGroup.children[targetGroup.children.length - 1] ?? targetGroup.workspace) : targetGroup.workspace;
-      return workspaceOrder.indexOf(edge.workspace_id);
+      return placeBlock(workspaceOrder, groupIds(sourceGroup), groupIds(targetGroup), movingDown ? "after" : "before");
     }
     const parent = worktreeGroups.find((group) => group.children.some((child) => child.workspace_id === sourceId));
-    return parent && parent.children.some((child) => child.workspace_id === targetId) ? workspaceOrder.indexOf(targetId) : null;
+    if (!parent || sourceId === targetId || !parent.children.some((child) => child.workspace_id === targetId)) return null;
+    const movingDown = workspaceOrder.indexOf(sourceId) < workspaceOrder.indexOf(targetId);
+    return placeBlock(workspaceOrder, [sourceId], [targetId], movingDown ? "after" : "before");
   };
 
   // a finger's drag lands where the mouse's does: the same groups, the same index for herdr
@@ -510,8 +509,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     onOver: (id) => setTouchDrag((current) => current && { ...current, over: id }),
     onDrop: (id, target) => {
       setTouchDrag(null);
-      const index = target === null || target === id ? null : dropIndex(id, target);
-      if (index !== null) reorderWorkspace(id, index);
+      const next = target === null || target === id ? null : dropOrder(id, target);
+      if (next !== null) reorderWorkspaces(next);
     },
     onCancel: () => setTouchDrag(null),
   };
@@ -529,7 +528,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
 
   /** where a held row would land, drawn as a line: before or after a row, or after a group's worktrees */
   const dropMark = ((): { id: string; side: "before" | "after"; children: boolean } | null => {
-    if (!touchDrag?.over || touchDrag.over === touchDrag.source || dropIndex(touchDrag.source, touchDrag.over) === null) return null;
+    if (!touchDrag?.over || touchDrag.over === touchDrag.source || dropOrder(touchDrag.source, touchDrag.over) === null) return null;
     const down = workspaceOrder.indexOf(touchDrag.source) < workspaceOrder.indexOf(touchDrag.over);
     const sourceGroup = worktreeGroups.some((group) => group.workspace.workspace_id === touchDrag.source);
     const targetGroup = sourceGroup ? worktreeGroups.find((group) => group.workspace.workspace_id === touchDrag.over || group.children.some((child) => child.workspace_id === touchDrag.over)) : undefined;

@@ -1634,19 +1634,26 @@ try {
   await childHeader.locator('.workspace-select[aria-current="true"]').waitFor();
   assert.equal(await repoToggle.getAttribute("aria-expanded"), "false", "an explicitly selected child remains visible within a folded group");
   await repoToggle.click();
-  // reorder is group-aware: the repository's row moves up past the group before it, as one, and
-  // its lone worktree has no sibling to move among, so nothing is sent for it
+  // reorder is group-aware: the repository's row moves up past the workspace above it with its
+  // worktree (herdr moves only the workspace named), and its lone worktree has no sibling to move
+  // among, so nothing is sent for it
   const moves: number[] = [];
   await page.route("**/api/workspace/move", async (route) => { moves.push(route.request().postDataJSON().insert_index as number); await route.continue(); });
-  const orderBefore = (await herdrRpc<{ snapshot: { workspaces: { workspace_id: string }[] } }>("session.snapshot", {})).snapshot.workspaces.map((workspace) => workspace.workspace_id);
+  const herdrOrder = async () => (await herdrRpc<{ snapshot: { workspaces: { workspace_id: string }[] } }>("session.snapshot", {})).snapshot.workspaces.map((workspace) => workspace.workspace_id);
+  const orderBefore = await herdrOrder();
+  const repoId = repoWorkspace.workspace.workspace_id;
+  const above = orderBefore[orderBefore.indexOf(repoId) - 1]!;
   await repoHeader.locator(".workspace-select").focus();
   await page.keyboard.press("Alt+ArrowUp");
-  await until(() => moves.length === 1, "the repository's row moved up as a group");
-  assert.equal(moves[0], orderBefore.indexOf(repoWorkspace.workspace.workspace_id) - 1, "it lands before the group above it");
+  await until(async () => {
+    const order = await herdrOrder();
+    return order[order.indexOf(repoId) + 1] === worktree.workspace_id && order.indexOf(above) > order.indexOf(worktree.workspace_id);
+  }, "the repository's row and its worktree moved up past the workspace above them");
+  const sent = moves.length;
   await childHeader.locator(".workspace-select").focus();
   await page.keyboard.press("Alt+ArrowDown");
   await page.waitForTimeout(400);
-  assert.equal(moves.length, 1, "a lone worktree has nowhere to move");
+  assert.equal(moves.length, sent, "a lone worktree has nowhere to move");
   await page.unroute("**/api/workspace/move");
   writeFileSync(join(worktree.path, "unsaved.txt"), "dirty\n");
   await childHeader.hover();
