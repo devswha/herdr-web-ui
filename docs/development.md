@@ -367,7 +367,7 @@ after changing the staged session. Files, images, push and remote PCs are not pa
    fragments; then add the `by @login` credits; a fragment merged later must be moved into the
    version by hand, since the release workflow refuses while one is left), and tells the release
    in [release-summaries.json](../release-summaries.json) the way a game's patch notes do: under
-   the version, for each of `en`, `ko`, `ja`, `zh` and `tr`, the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
+   the version, for each language in `SUMMARY_LANGUAGES` (`shared/update.ts`: `en`, `ko`, `ja` and `zh`), the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
    plain text, 90 characters at most, the same number of lines in every language. It is what
    an install shows before and after the update, with the changelog section folded under it,
    so a line names what changes for the people who use the app and leaves out PR numbers and
@@ -582,8 +582,9 @@ continues after `main` pushes.
 
 Repository protection should require PRs and all three checks on `main`—**Fast checks**,
 **Integration and browser**, and **Native Windows install** (GitHub App ID `15368`)—including for
-administrators, with branches up to date before merging and every review thread resolved. Force
-pushes and branch deletion are disabled. Human approvals are optional for this maintainer-led
+administrators. Branch protection does not require branches to be up to date before merging and
+does not enforce resolved review threads; resolve every review thread before merging anyway, as a
+practice. Force pushes and branch deletion are disabled. Human approvals are optional for this maintainer-led
 project; external contributions still need maintainer review. CodeRabbit is advisory, not a required
 check.
 Release tags must not be moved or deleted. These GitHub settings are separate from files

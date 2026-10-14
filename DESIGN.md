@@ -416,7 +416,7 @@ One set for both themes: the card is island black wherever it shows.
 - The terminal stack contains a positioned terminal surface, then composer or key bar. The xterm
   mount stays alive under the chat lens; changing views never creates a second connection.
 - At `<=480px` the brand name, the offline pill and desktop-only control labels go, and the
-  palette's button gives its room to the title: the palette is the More menu's first item there.
+  palette's button gives its room to the title (a hardware keyboard still opens it).
   Icons and selected context remain.
 
 ## 5. Components
@@ -474,8 +474,7 @@ One set for both themes: the card is island black wherever it shows.
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
   Both the button and right-click offer the same native workspace actions: Rename workspace,
   Close workspace/group, New/Open worktree for repository roots, Delete worktree checkout for
-  linked worktrees, and Expand/Collapse for a group. Pane renaming stays in the pane menu;
-  Move pane to… is in header More. The
+  linked worktrees, and Expand/Collapse for a group. Pane renaming stays in the pane menu. The
   danger item takes `--status-blocked`. The popover is as tall as its items, up to the room on
   its side of the button (it scrolls only on a screen too short for it). At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
@@ -495,17 +494,10 @@ One set for both themes: the card is island black wherever it shows.
   confirmed close, focus lands on the header's workspace-list toggle.
 - Tab and pane menus follow herdr's target scopes. A tab's menu contains New tab, Rename tab
   and Close tab, plus Move tab left/right when a neighbouring position exists and no move is pending.
-  The pane's own context menu carries pane actions; it opens at the pointer
+  The `⋯` that touch and narrow layouts draw beside the selected tab leaves New tab out (the
+  strip's `+` sits beside it) and also carries the open pane's actions, less Split and Zoom: a
+  phone shows one pane at a time. The pane's own context menu carries pane actions; it opens at the pointer
   without changing which pane is focused. The pane header's ellipsis opens the same menu on touch.
-- **Move pane to…** (header More) opens a menu under the header button
-  (`MovePaneMenu`): a dim uppercase MOVE TO micro label with the pane's name under it
-  (`.move-pane-head`), then New tab and the workspace's other tabs, every other workspace under
-  a hairline, and New workspace under another. A pick moves the pane at once (`POST
-  /api/pane/move`); the app stays on a moved pane that was open, also under the new id herdr
-  gives a pane that changes workspace, and waits for the move's answer before it would read a
-  roster without the pane as the pane gone. A refusal reads as the row's or the strip's inline
-  error, herdr's own too ("Move failed: the tab is zoomed; unzoom it in herdr, then move the
-  pane"): a `changed: false` answer never closes the menu as if the pane had moved.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
@@ -696,7 +688,7 @@ One set for both themes: the card is island black wherever it shows.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
-- As **New tab** (from a row's `⋯` menu, the header's More menu, the strip's `+` or the palette),
+- As **New tab** (from a row's `⋯` menu, the strip's `+` or the palette),
   the same dialog is titled `New tab · <workspace>`, shows the workspace's folder as a fact in a
   dashed box (`.new-session-folder`: a worktree's checkout, else the folder of the pane in front)
   instead of asking for one, and its name is the tab's (optional; the placeholder is the number
@@ -707,9 +699,11 @@ One set for both themes: the card is island black wherever it shows.
   Tabs retain their names, status dots, active underline, keyboard navigation, rename field and
   close confirmation. A right-click opens tab actions at the pointer, including Move tab left/right
   when a neighbouring position exists. Desktop tabs have no close or dropdown buttons. Touch and narrow layouts show a `⋯` beside
-  the selected tab for the same menu; Shift+F10 or the menu key opens it from a focused tab.
+  the selected tab for a trimmed menu; Shift+F10 or the menu key opens the full tab menu from a focused tab.
   Pane actions are not tab actions. Up to 768px, where a split tab shows one pane at a time, the
   tab's menu lists the tab's panes first, the open one marked current, over a hairline.
+  Its touch menu omits New tab (the strip's `+` opens it). Only at these narrow widths does it
+  omit Split and Zoom pane; Unzoom pane stays available whenever the tab is zoomed.
 - Mouse dragging previews an accent insertion line, with edge scrolling for an overflowing strip.
   The snapshot's tab order is authoritative: a tab's stable `number` is not its place. A drop calls
   `tab.move` with an insertion boundary before removal, within that workspace and PC. The visible
@@ -720,13 +714,15 @@ One set for both themes: the card is island black wherever it shows.
   the same adjacent moves only while a tab has keyboard focus.
 - `PaneCanvas` draws every pane in the active tab at `layouts[].panes[].rect`, normalized to
   the layout's own area. Panes share thin, square boundaries: `--border-strong` when inactive,
-  `--accent` around the selected pane. The compact header names its pane and provides the
-  ellipsis for touch and keyboard access. A lone or zoomed pane is borderless; its menu button
-  stays at the top-right (visible on hover/focus, always on touch).
+  `--accent` around the selected pane. The compact header names its pane and, on a touch screen
+  (`pointer: coarse`), the ellipsis; a mouse opens the same menu by right-click. Keyboard users
+  tab to the pane's ellipsis, which becomes visible on keyboard focus, and press Enter.
+  Shift+F10 in the terminal goes to the terminal program, not the app menu. A lone or zoomed
+  pane is borderless; on touch its actions live in the tab menu rather than a second ellipsis.
 - A left click or keyboard focus selects the actual pane. Right-click opens the clicked pane's
   menu without changing the selected pane: Rename pane, Clear pane name when named, Swap with
-  focused pane when another is selected, Split right, Split down, Zoom/Unzoom pane, the
-  right-click policy, Close pane. It appears at the pointer, clamped to the window. Up/Down
+  focused pane when another is selected, Split right, Split down, Zoom/Unzoom pane, Close
+  pane. It appears at the pointer, clamped to the window. Up/Down
   stop at the ends, hover selects, Enter acts, Escape and an outside click dismiss.
 - Split selects the new pane (`focus:true`), like the TUI. Swap exchanges the right-clicked
   pane with the previously selected pane and retains the latter's focus. A close confirms when
@@ -758,8 +754,7 @@ One set for both themes: the card is island black wherever it shows.
   connection proof; reconnect/reload never resumes pending delivery.
   A newly split pane awaiting its first snapshot does not unmount its siblings. Geometry is
   fitted inside each rendered pane; layout rectangles are never used as PTY dimensions.
-- Plain right-click can be passed to a mouse-reporting terminal when enabled for that pane.
-  Modified clicks, pane frames and non-reporting/read-only terminals still open the menu.
+  A right-click on a pane always opens its menu.
   Native app shortcuts stay Mod+Shift in the browser, so Ctrl+key continues to reach the PTY.
 
 ### Worktree dialog (`.worktree-modal`)
@@ -840,9 +835,9 @@ One set for both themes: the card is island black wherever it shows.
   whole title it is not drawn, and the title has the row. The full path is in the context's
   tooltip and at the top of the More menu. With no selection, the brand fills the context slot.
 - The More menu (`.header-more-button`, the `RowMenu` popover, a bottom sheet at `<=640px`) opens
-  with the location on two lines, "PC › workspace" then the full path in mono, and holds **New
-  tab** (the selected pane's workspace), **Browse files** and **Alerts**, each under the condition
-  its own button had; at `<=480px` **Command palette** is its first item. The Alerts item says
+  with the location on two lines, "PC › workspace" then the full path in mono, and holds
+  **Browse files** and **Alerts**, each under the condition its own button had. New tab stays
+  on the tab strip's `+`; Command palette is not in More. The Alerts item says
   this device's state in words after its label ("On in the app", "On in this tab", "On, pushed to
   this device", "Off on this device") and switches it: it is a `menuitemcheckbox` with
   `aria-checked` in the popover and a button with `aria-pressed` in the sheet. While alerts are off on this device the
@@ -1287,6 +1282,9 @@ One set for both themes: the card is island black wherever it shows.
   Amber only; `--danger` stays for errors.
 
 ### Command palette
+- The command palette and its plugin actions are not available in the phone touch UI
+  (`<=480px`): neither the header nor Files offers a palette button. Use a wider screen;
+  a connected keyboard can still open it with `Mod+Shift+K` (or the configured binding).
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes across all connected PCs
   and the selected PC's actions. PC names participate in search. Recent panes
   lead an empty query; arrows in the search field cycle through visible results, Enter activates
@@ -1560,7 +1558,8 @@ The values are the ones in `src/styles.css`.
   Application-owned paging has its own page length; no page input is queued across disconnects.
   The opt-in plain chat page keys preserve composer draft, selection and focus, excluding modified
   keys, composition, other editable controls and modal input. They do not capture terminal keys.
-- On touch screens app actions stay in buttons and menus, including the palette in More on phones.
+- On touch screens app actions stay in buttons and menus. The command palette and its plugin
+  actions are not available in the phone touch UI; a wider screen or keyboard is required.
   The key bar sends terminal input only; it is not an app-action toolbar. Hardware keyboards use
   the same global bindings on phones and desktops.
 - `document.title` is `<pane title> · herdr` while selected, otherwise `herdr web ui`.
