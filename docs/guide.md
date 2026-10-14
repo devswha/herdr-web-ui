@@ -90,7 +90,7 @@ bun run start
 
 </details>
 
-**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own, led by its project's favicon when its folder keeps one (`favicon.svg`, `.ico` or `.png`, directly in the folder or in its `public/`; the folder is the worktree checkout, or else the pane's working folder, so a pane that has `cd`'d into `src/` looks there) and a folder glyph otherwise (a repository row with worktrees under it keeps its fold button, and the worktree rows nested under it have no mark); its tabs are always shown in a strip, and the active tab shows all its split panes together. Pick one, start a new agent with **New workspace**, or add a tab to a workspace with **New tab** (the tab's menu, the header button, or the strip's `+`). Right-click a tab to rename or close it; on a phone, tap the selected tab’s **⋯** for the same menu. A focused tab also opens its menu with Shift+F10, and double-click still renames it.
+**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own, led by its project's favicon when its folder keeps one (`favicon.svg`, `.ico` or `.png`, directly in the folder or in its `public/`; the folder is the worktree checkout, or else the pane's working folder, so a pane that has `cd`'d into `src/` looks there) and a folder glyph otherwise (a repository row with worktrees under it keeps its fold button, and the worktree rows nested under it have no mark); its tabs are always shown in a strip, and the active tab shows all its split panes together. Pick one, start a new agent with **New workspace**, or add a tab to a workspace with **New tab** (the strip's `+`, a tab's right-click menu, or the command palette on a wider screen or with a keyboard). Right-click a tab to rename or close it; on a phone, tap the selected tab’s **⋯** for a trimmed menu with pane actions, Rename tab and Close tab. A focused tab also opens its menu with Shift+F10, and double-click still renames it.
 
 Drag a tab to change its order within the workspace, or choose **Move tab left / right** from
 its menu (also on a phone). Alt+Shift+Left/Right moves a focused tab. Reordering keeps the
@@ -98,8 +98,10 @@ selected pane and saves the order in herdr.
 
 Right-click a pane to rename it, split right or down, zoom it, or close it. Right-clicking another
 pane keeps the current focus, so **Swap with focused pane** exchanges the two. Drag a boundary
-to resize it. On a phone, the pane header's **⋯** opens the same menu; **Zoom pane** makes a
-small pane fill the screen, and **Unzoom pane** restores the split. A split opens the new pane.
+to resize it. On a touch screen, the pane header's **⋯** opens the same menu; on a phone the tab's **⋯** carries
+the open pane's Rename and Close, while split and zoom stay with a screen that shows panes side by
+side. **Unzoom pane** stays in the phone's tab menu when the tab is zoomed, so its other panes
+remain reachable. **Zoom pane** makes a small pane fill the screen, and **Unzoom pane** restores the split. A split opens the new pane.
 Each pane keeps its own Chat/Terminal view and unsent draft.
 
 
@@ -206,7 +208,7 @@ A pane's plan is the task list a Claude Code agent keeps (`TaskCreate` / `TaskUp
 | **Follow every agent** | Live RUN / INPUT / DONE / READY status for all panes, and alerts when an agent needs input, finishes or its terminal ends. |
 | **Open what agents make** | A file path in an answer opens in a viewer (images, video, audio, PDF, text), or find it with **Browse files**, and download it to your phone. A source file opens whole up to 8 MB and 200,000 lines; past 2,000 lines it scrolls as a window of rows, colored up to 256 KB and 5,000 lines and plain beyond. A link with `:line` or `#L12` opens at that line. |
 | **See what changed** | **Browse files → Changes** lists what changed in the git repository the pane sits in: the **Working tree**, what is **Staged**, or two **Commits** you name, as a folder tree with git's status letter and the added and removed lines. A row opens its diff, **Unified** or **Split** (Settings → Chat → File viewer → Diff layout; a phone shows one column), with **Copy path**, **Copy patch** and **Open file**. The files a turn's edit tools changed, listed in its work block, open the same diff. It only reads; a remote PC's repository is read on that PC. |
-| **Manage sessions** | Start an agent in a folder you type or pick with **Browse**. In New workspace, Browse filters the currently loaded folders as you type (case-insensitive); open a result, then choose **Use this folder**. It does not search subfolders or folders beyond the displayed 500. Add a tab to a workspace (as herdr's prefix+c), switch tabs from the strip over the pane, rename workspaces from their ⋯/right-click menu and panes from their own menu, move a pane through header More → Move pane to…, reorder workspaces (drag a row, or on a phone long-press it and drag; Alt+Up/Down moves a focused row one step), and jump anywhere from the command palette. |
+| **Manage sessions** | Start an agent in a folder you type or pick with **Browse**. In New workspace, Browse filters the currently loaded folders as you type (case-insensitive); open a result, then choose **Use this folder**. It does not search subfolders or folders beyond the displayed 500. Add a tab to a workspace (as herdr's prefix+c), switch tabs from the strip over the pane, rename workspaces from their ⋯/right-click menu and panes from their own menu, reorder workspaces (drag a row, or on a phone long-press it and drag; Alt+Up/Down moves a focused row one step), and jump anywhere from the command palette. |
 | **Speak instead of typing** | A mic beside Attach in the composer and beside Send in the terminal input line. Hold to talk or tap twice; the words land at the caret and are never sent by themselves. See [Voice input](#voice-input). |
 | **Watch your plan limits** | Beside Settings, how much of each AI subscription signed in on the PC is used, or what is left: the week's or the session's limit per account, and every limit with its reset time on a tap. See [Subscription usage](#subscription-usage). |
 | **Make it yours** | English, Korean, Japanese or Simplified Chinese, following the browser or chosen in Settings. Dark, light or system theme (with separate Light and Dark palettes under System), compact density, interface size, terminal and chat fonts and sizes (Chromium lists the installed fonts to pick from), a resizable composer, Enter behavior and thinking visibility. |
@@ -520,11 +522,15 @@ your browser, OS or extensions. Installed-app mode may behave differently. While
 composing, keys stay with it. In a text field with text, Mod+Shift+arrows keep their text-selection
 behavior; from an empty one, such as the chat's empty message box, they switch panes.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
-On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
+On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. For the pane menu
+on desktop, tab to the pane header's **⋯** (it appears on keyboard focus) and press Enter.
+Shift+F10 inside the terminal stays with the terminal program. On the terminal
 scrollbar, arrows move a line, Page Up/Down a viewport minus one line, and Home/End the start/end of history.
 
-On a phone, use the header and More menu for app actions; Command palette is available there
-without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
+On a phone, use the header, the tab's ⋯ and the More menu for app actions. The command palette
+and its plugin actions are not available in the phone touch UI. Use a wider screen or an external
+keyboard's `Mod+Shift+K` shortcut (or your configured binding).
+The terminal key bar is configured separately under **Settings → Terminal**.
 An external keyboard uses the same app bindings as a desktop.
 
 Plain PageUp/PageDown scroll the chat transcript, even while its message box is focused;

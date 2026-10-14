@@ -79,6 +79,18 @@ import { TurnTime } from "./TurnTime.tsx";
 import { isMacPlatform } from "../lib/shortcuts.ts";
 import { useT } from "../lib/i18n.ts";
 
+// No row is this object, so the list finds nothing to scroll to.
+const NO_ROW = Object.freeze({});
+/**
+ * The list's scrollToEnd does not scroll at once: it waits for the list's next commit, and then
+ * for the layout to settle after a data change (up to 800 ms). A follow asked for while the reader
+ * was at the end can so land after the reader paged or scrolled away, and pull them back. Any newer
+ * scroll request supersedes a waiting one; a request for no row supersedes it without moving.
+ */
+function dropPendingListScroll(list: LegendListRef | null): void {
+  void list?.scrollToItem({ item: NO_ROW, animated: false });
+}
+
 const TRANSCRIPT_LINES = 400;
 const PROMPT_POLL_MS = 2000;
 /** Scrolling this close to the top asks for the page before it. */
@@ -1287,7 +1299,12 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       // At the loaded top, PageUp still asks for the earlier page the scroll position cannot reach.
       if (node.scrollTop === before) { if (direction < 0) onScroll(); return; }
       lastScrollTop.current = before;
-      if (direction < 0) pagingAway.current = true;
+      if (direction < 0) {
+        pagingAway.current = true;
+        // Find, a minimap tick and a restored place scroll through the list, which drops a follow
+        // still waiting there; this native page scroll does not, so drop it here, or it lands after.
+        dropPendingListScroll(timeline.current);
+      }
       // Apply the intent before output or a deferred scroll event can restore following.
       onScroll();
     };

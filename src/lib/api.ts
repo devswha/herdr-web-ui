@@ -14,15 +14,12 @@ import type {
   IntegrationsResponse,
   LanExposure,
   InteractivePrompt,
-  MovePaneDestination,
-  MovePaneRequest,
   MoveTabRequest,
   TabMoved,
   OmoActivity,
   OpenWorktreeRequest,
   PairedDevice,
   PairingCode,
-  PaneMoved,
   PaneDirection,
   PaneInfo,
   PanePlan,
@@ -499,16 +496,6 @@ export async function renamePane(paneId: string, label: string, machineId = "loc
 /** POST /api/agent/rename: the live name of the agent in the pane, what `herdr agent prompt <name>` addresses; null clears it. */
 export async function renameAgent(paneId: string, name: string | null, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "agent/rename"), "POST", { pane_id: paneId, name } satisfies AgentRenameRequest);
-}
-
-/**
- * POST /api/pane/move: the pane into another tab, a new tab (of its workspace or another) or a
- * new workspace, herdr's `pane move`. A pane that leaves its workspace answers to a new id:
- * `pane.pane_id`, beside `previous_pane_id`, which is the one sent. herdr's own focus stays.
- */
-export async function movePane(paneId: string, destination: MovePaneDestination, machineId = "local"): Promise<PaneMoved> {
-  const response = await sendJson(machinePath(machineId, "pane/move"), "POST", { pane_id: paneId, destination } satisfies MovePaneRequest);
-  return (await response.json()) as PaneMoved;
 }
 
 /**
