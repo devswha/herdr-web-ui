@@ -2015,6 +2015,8 @@ export function createServer(
         bunServer.timeout(request, 75);
         try {
           const removed = await worktreeRemove(payload.workspace_id, payload.force === true);
+          // herdr closed the worktree's workspace: tell clients now, as the workspace close route does
+          broadcastAll({ type: "session-changed" });
           return jsonResponse({ ok: true, path: removed.path, forced: removed.forced });
         } catch (error) {
           return errorResponse(error);
