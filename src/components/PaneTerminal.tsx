@@ -10,7 +10,7 @@ import { HerdrSocket, type SubmitDelivery, type SubmitResult } from "../lib/ws.t
 import { MachineSession } from "../lib/machineSession.ts";
 import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import { ViewportIntentGate } from "../lib/viewportIntent.ts";
-import { PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
+import { PaneCachedContext, PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
@@ -189,6 +189,8 @@ export function PaneTerminal({
   const submitRetention = useContext(PaneSubmitContext);
   const presented = useContext(PanePresentedContext);
   const presentedRef = useRef(presented); presentedRef.current = presented;
+  const cached = useContext(PaneCachedContext);
+  const cachedRef = useRef(cached); cachedRef.current = cached;
   // a split tab's pane a phone keeps behind the one it shows sizes nothing: the pty is shared with
   // every device, and a PC drawing the split would see it at the phone's size (#819)
   const shown = useContext(PaneShownContext);
@@ -300,6 +302,9 @@ export function PaneTerminal({
   const watchRef = useRef<(pane: string) => void>(() => {});
   // the mount effect's release, for the queue below: a tab that kept its pane for a message lets go once it went
   const releaseRef = useRef<() => void>(() => {});
+  const presentationRef = useRef<() => void>(() => {});
+  // A cache release resumes from the existing screen, not the observer's replacement screen.
+  const cachedReleaseRef = useRef(false);
   // the mount effect's leave, for the pane switch: a tab out of use from the start (a reload behind
   // another app) or moving on to the next pane there lets go of it too
   const leaveRef = useRef<() => void>(() => {});
@@ -1275,7 +1280,9 @@ export function PaneTerminal({
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
       const current = paneRef.current;
-      if (!current || observeRef.current || secretRef.current !== null || heldRef.current) return;
+      // Hiding a cached pane blurs xterm, which may commit its pending IME text.
+      // That abandoned input must reach neither the old PTY nor its held draft.
+      if (!current || !presentedRef.current || !shownRef.current || observeRef.current || secretRef.current !== null || heldRef.current) return;
       const input = data;
       const key = keyFromData(data);
       const chord = !pasting && !composingRef.current && !compositionCommitPendingRef.current
@@ -1632,7 +1639,14 @@ export function PaneTerminal({
     const release = (): void => {
       cancelLeave();
       const current = paneRef.current;
-      if (!current || !(releaseAwayRef.current || hiddenOnTouch()) || releasedRef.current || inUse() || embedded || fixedGridRef.current || endedRef.current) return;
+      if (!current) return;
+      if (cachedRef.current && releasedRef.current) {
+        if (watchingRef.current) { socket.unwatch(current); setWatching(false); }
+        cachedReleaseRef.current = true;
+        return;
+      }
+      if (releasedRef.current || (!cachedRef.current
+        && (!(releaseAwayRef.current || hiddenOnTouch()) || inUse() || embedded || fixedGridRef.current || endedRef.current))) return;
       if (queueWaits(current)) {
         queueHeld = true;
         return;
@@ -1641,9 +1655,10 @@ export function PaneTerminal({
       // The server's detach receipt holds pending input on this still-live PC connection.
       // Only an actual release marks the canvas. A queue-held pane never transfers that
       // ownership or skips the next pane's normal initial attach/release delay.
-      if (awayReleased) awayReleased.current = true;
+      if (!cachedRef.current && awayReleased) awayReleased.current = true;
       setReleased(true);
-      watch(current);
+      cachedReleaseRef.current = cachedRef.current;
+      if (!cachedRef.current) watch(current);
     };
     // the pane's screen starts again from the view, as on a pane switch; the view's first frame is whole
     const watch = (pane: string): void => {
@@ -1679,13 +1694,17 @@ export function PaneTerminal({
       // the pane's screen starts again from the new attach, as on a pane switch
       const generation = ++outputGeneration;
       // Reset in stream order: synchronous reset would let old queued writes draw afterward.
-      term.write("\x1bc", () => {
-        if (disposed || paneRef.current !== current || generation !== outputGeneration) return;
+      if (!cachedReleaseRef.current) {
+        term.write("\x1bc", () => {
+          if (disposed || paneRef.current !== current || generation !== outputGeneration) return;
+          modifyOtherKeysRef.current = 0;
+        });
         modifyOtherKeysRef.current = 0;
-      });
-      modifyOtherKeysRef.current = 0;
+      }
+      cachedReleaseRef.current = false;
+      setInputReady(false);
       setOutputReady(false);
-      if (!observeRef.current && !chatViewRef.current) {
+      if (!observeRef.current && !chatViewRef.current && shownRef.current) {
         try {
           fit.fit();
         } catch {
@@ -1699,6 +1718,7 @@ export function PaneTerminal({
     // out of use, a reconnect attaches at the size the pane has instead of taking it
     // (keepSize, as under the chat lens), until the tab lets go of the pane
     const leave = (): void => {
+      if (cachedRef.current) { release(); return; }
       const current = paneRef.current;
       if (current && !observeRef.current && !fixedGridRef.current) socket.keepSize(current);
       if (releaseAwayRef.current && releaseTimer === null && !releasedRef.current) releaseTimer = window.setTimeout(() => {
@@ -1730,6 +1750,10 @@ export function PaneTerminal({
       if (stalledRef.current && socket.stoppedWhileHidden && inUse()) reattach();
       else if (releasedRef.current) resume();
       else refit();
+    };
+    presentationRef.current = () => {
+      if (cachedRef.current) release();
+      else if (presentedRef.current && releasedRef.current && (cachedReleaseRef.current || inUse())) back();
     };
     // A phone or tablet put away lets go of the pane at once, whatever the setting: its page can
     // freeze before a timer runs, and its attach would keep herdr's own window at the phone's size.
@@ -1797,6 +1821,7 @@ export function PaneTerminal({
       selectionChange.dispose();
       if (releaseTimer !== null) window.clearTimeout(releaseTimer);
       releaseRef.current = () => {};
+      presentationRef.current = () => {};
       leaveRef.current = () => {};
       cancelLeaveRef.current = () => {};
       reattachRef.current = () => {};
@@ -2021,6 +2046,7 @@ export function PaneTerminal({
 
   // the message the tab kept its pane for has gone (or was held): out of use, it lets go now
   useEffect(() => { releaseRef.current(); }, [pending]);
+  useEffect(() => { presentationRef.current(); }, [cached, presented]);
 
 
   // A sibling already mounted in the split canvas becomes the keyboard target only on an
@@ -2621,7 +2647,7 @@ export function PaneTerminal({
           onApplicationPage={sendApplicationPage}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
           interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}
-        {presented && paneId !== null && chatView && (
+        {paneId !== null && chatView && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">
               <p>{t("The chat can't be shown. The terminal still works.")}</p>
@@ -2637,6 +2663,7 @@ export function PaneTerminal({
             cwd={cwd}
             onOpenDiff={onOpenDiff}
             active={active}
+            visible={presented}
             pageScroll={pageScroll}
             refreshKey={chatRefresh}
             invalidationKey={chatInvalidation}

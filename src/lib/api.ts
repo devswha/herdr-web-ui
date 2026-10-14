@@ -275,13 +275,25 @@ function trimConversationAnswers(keep: string): void {
   }
 }
 
-/** GET /api/pane/conversation: structured turns, or scrollback fallback; `page` as ConversationResponse.cursor describes. */
-export async function fetchPaneConversation(paneId: string, machineId = "local", page: ConversationPageQuery = {}): Promise<ConversationResponse> {
+function conversationUrl(paneId: string, machineId: string, page: ConversationPageQuery): string {
   const query = new URLSearchParams({ pane_id: paneId });
   if (page.before !== undefined) query.set("before", page.before);
   if (page.since !== undefined) query.set("since", page.since);
   if (page.from !== undefined) query.set("from", page.from);
-  const url = machinePath(machineId, `pane/conversation?${query.toString()}`);
+  return machinePath(machineId, `pane/conversation?${query.toString()}`);
+}
+
+/**
+ * The newest page last answered for this pane (no page query), without asking the server: a chat
+ * that mounts draws it at once while its read revalidates it. It leaves the cache order alone.
+ */
+export function peekPaneConversation(paneId: string, machineId = "local"): ConversationResponse | undefined {
+  return conversationAnswers.get(conversationUrl(paneId, machineId, {}))?.body;
+}
+
+/** GET /api/pane/conversation: structured turns, or scrollback fallback; `page` as ConversationResponse.cursor describes. */
+export async function fetchPaneConversation(paneId: string, machineId = "local", page: ConversationPageQuery = {}): Promise<ConversationResponse> {
+  const url = conversationUrl(paneId, machineId, page);
   const polled = page.before === undefined;
   const known = polled ? conversationAnswers.get(url) : undefined;
   const { response, body } = await withChatReadDeadline(async (signal) => {

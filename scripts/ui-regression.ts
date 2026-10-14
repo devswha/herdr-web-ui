@@ -600,7 +600,7 @@ try {
   const fileInputSocket = inputStates.get(paneA)?.socket;
   assert.ok(fileInputSocket, "the current pane has an input-ready attachment");
   await checkTerminalFileInput(page, fileInputSocket);
-  const terminalInput = page.locator(".xterm-helper-textarea");
+  const terminalInput = page.locator(".pane-frame.is-current .xterm-helper-textarea");
   // Chrome on macOS pastes with ⌘V alone: its Ctrl+V pastes nothing, and must send nothing either
   const mac = process.platform === "darwin";
   if (mac) {
