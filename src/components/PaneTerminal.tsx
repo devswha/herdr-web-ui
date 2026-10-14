@@ -73,7 +73,6 @@ const RELEASE_AFTER_MS = 1000;
 const inUse = (): boolean => document.visibilityState === "visible" && document.hasFocus();
 
 export interface PaneTerminalProps {
-  onOpenDiff?: (target: import("../lib/repoDiff.ts").RepoDiffTarget) => void;
   /** The pane this terminal attaches to; null renders the placeholder. */
   paneId: string | null;
   /**
@@ -169,7 +168,6 @@ export function PaneTerminal({
   onRoleAck,
   onConnectionChange,
   onServerMessage,
-  onOpenDiff,
 }: PaneTerminalProps) {
   const t = useT();
   const activeRef = useRef(active);
@@ -2759,8 +2757,6 @@ export function PaneTerminal({
           <ChatView
             key={paneId}
             paneId={paneId}
-            cwd={cwd}
-            onOpenDiff={onOpenDiff}
             active={active}
             visible={presented && shown}
             pageScroll={pageScroll}

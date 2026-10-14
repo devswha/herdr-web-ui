@@ -102,8 +102,6 @@
   fonts.
 - **Settings → Appearance → Typography** sets the interface font size on this device, apart from the
   terminal's and the chat's own.
-- Chat work blocks list the files their edit tools changed in the turn, and a click opens the file's
-  current working-tree diff.
 - Coming back to a pane's chat puts you on the same turn and offset you left, or at the end if you
   were following it; the place is remembered per pane and PC for the life of the tab.
 - A conversation of four or more turns shows a rail of short dashes left of the chat, one per
