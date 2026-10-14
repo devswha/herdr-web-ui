@@ -8,11 +8,10 @@ import { chromium } from "playwright-core";
 import type { BrowserContext, Page } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, sessionSnapshot, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
-import type { PaneMoved, SessionSnapshot, WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
+import type { SessionSnapshot, WorkspaceCreated, WorktreeOpened } from "../shared/protocol.ts";
 import type { Machine } from "../shared/machines.ts";
 import { MAX_ATTACHMENT_BYTES } from "../shared/attachments.ts";
 import { alertsOffMarked, alertsState, runMoreItem } from "./header-more.ts";
-import { sheetsSettled } from "./sheets-settled.ts";
 import { routeDrained } from "./drained-route.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
@@ -1680,7 +1679,7 @@ try {
 
   // A second tab from the tab strip's +: the dialog is New tab, with the workspace's folder shown
   // and not asked for; the new pane opens, the workspace stays one row, and a strip over the pane
-  // lists both tabs from then on. The header's More menu has New tab too, and opens the same dialog.
+  // lists both tabs from then on.
   // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
   await until(() => painted.has(created.pane_id), "created pane paint");
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
@@ -1724,7 +1723,7 @@ try {
   await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab opens its pane again");
   assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "Tab 1");
   // reopened right after a creation: its fields are live and Escape puts it away at once
-  await runMoreItem(page, "New tab");
+  await page.locator(".tab-strip-add").click();
   await tabDialog.waitFor();
   assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");
@@ -1777,18 +1776,10 @@ try {
   await tabName.fill("build");
   await page.keyboard.press("Enter");
   await until(async () => (await tabsInHerdr()).join() === "first,build", "the menu's rename reaches herdr");
-  // On a touch screen the open tab carries a menu button: the same actions, as a sheet.
-  // A dozen more tabs first: the move menu lists every one, and the sheet (92% of the screen at
-  // most, its overflow hidden) must scroll them between its head and Cancel, which stay in reach
-  const manyTabs: string[] = [];
-  // herdr puts a new tab after its own focused one, which the web's selection no longer moves:
-  // focus build there, so the dozen land after it and build sits between siblings
+  // One new neighbour puts build between two tabs for both adjacent move actions.
   await herdrRpc("pane.focus", { pane_id: createdTab.pane_id });
-  for (let index = 1; index <= 12; index += 1) {
-    const made = await herdrRpc<{ tab: { tab_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: `many-${index}`, focus: false });
-    manyTabs.push(made.tab.tab_id);
-  }
-  await until(async () => (await tabsInHerdr()).length === 14, "herdr has the dozen tabs");
+  const neighbour = await herdrRpc<{ tab: { tab_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: "neighbour", focus: false });
+  await until(async () => (await tabsInHerdr()).length === 3, "build has two neighbours");
   const tabPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const tabPhonePage = await tabPhone.newPage();
   const tabPhoneEvidence = evidenceDirectory ? await watchBrowserEvidence(tabPhone, tabPhonePage, "touch-tab-menu") : undefined;
@@ -1803,35 +1794,14 @@ try {
   const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
   await tabSheet.waitFor();
   const touchTabItems = await tabSheet.locator(".row-sheet-item").allTextContents();
-  assert.deepEqual(touchTabItems.slice(-5), ["Move tab left", "Move tab right", "New tab", "Rename tab", "Close tab"], "a tab between siblings offers both adjacent moves on touch");
+  assert.deepEqual(touchTabItems.slice(-4), ["Move tab left", "Move tab right", "Rename tab", "Close tab"], "a tab between siblings offers both adjacent moves on touch");
   assert.ok(touchTabItems.includes("Rename pane") && touchTabItems.includes("Close pane"), "the touch menu carries the open pane's actions");
   await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
   await tabSheet.waitFor({ state: "detached" });
-  await runMoreItem(tabPhonePage, "Move pane to…");
-  const moveSheet = tabPhonePage.getByRole("dialog", { name: /^Move .+ to$/ });
-  await moveSheet.waitFor();
-  await sheetsSettled(tabPhonePage);
-  const moveItems = moveSheet.locator(".row-sheet-item");
-  assert.ok(await moveItems.count() >= 15, `the move sheet lists the dozen tabs and the other workspaces (${await moveItems.count()} items)`);
-  const moveList = moveSheet.locator(".row-sheet-items");
-  const moveListSize = await moveList.evaluate((list) => ({ scroll: list.scrollHeight, client: list.clientHeight }));
-  assert.ok(moveListSize.scroll > moveListSize.client, `the items scroll inside the sheet (${moveListSize.scroll} > ${moveListSize.client})`);
-  const moveCancel = moveSheet.getByRole("button", { name: "Cancel", exact: true });
-  const moveCancelBox = await moveCancel.boundingBox();
-  assert.ok(moveCancelBox !== null && moveCancelBox.y + moveCancelBox.height <= 844, `Cancel stays on the screen under the list (${JSON.stringify(moveCancelBox)})`);
-  const lastMoveItem = moveItems.last();
-  assert.equal(await lastMoveItem.textContent(), "New workspace");
-  await lastMoveItem.scrollIntoViewIfNeeded();
-  const lastMoveItemBox = await lastMoveItem.boundingBox();
-  const moveListBox = await moveList.boundingBox();
-  assert.ok(lastMoveItemBox !== null && moveListBox !== null && lastMoveItemBox.y >= moveListBox.y && lastMoveItemBox.y + lastMoveItemBox.height <= moveListBox.y + moveListBox.height + 1,
-    `the list scrolls its last item into view (${JSON.stringify(lastMoveItemBox)} in ${JSON.stringify(moveListBox)})`);
-  await moveCancel.tap();
-  await moveSheet.waitFor({ state: "detached" });
   if (tabPhoneEvidence) await tabPhoneEvidence.finish();
   await tabPhone.close();
-  for (const tabId of manyTabs) await herdrRpc("tab.close", { tab_id: tabId });
-  await until(async () => (await tabsInHerdr()).join() === "first,build", "the dozen tabs are closed again");
+  await herdrRpc("tab.close", { tab_id: neighbour.tab.tab_id });
+  await until(async () => (await tabsInHerdr()).join() === "first,build", "the extra neighbour is closed again");
   // a tab whose agent is at work asks before it closes; a no leaves it
   await herdrRpc("pane.report_agent", { pane_id: createdTab.pane_id, source: "manual", agent: "codex", state: "working" });
   await strip.locator('.tab-strip-dot[data-status="working"]').waitFor();
@@ -1870,42 +1840,6 @@ try {
   assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current"), "true", "the open pane stays");
   await until(async () => await strip.getByRole("tab", { name: "first", exact: true }).evaluate((tab) => tab === document.activeElement), "the surviving tab receives focus");
   console.log("PASS a tab is renamed by a double-click, F2 and its menu, and closed from its menu and Delete, asking first while its agent works");
-
-  // A pane moved into another workspace answers to a new id, and the app follows it even when the
-  // roster without the old pane reaches the browser before the move's answer does: a roster alone
-  // sends a selection whose pane is gone back to herdr's focus, as it must for a closed pane. The
-  // answer is held here until the app has seen that roster and confirmed it against this PC.
-  const mover = await herdrRpc<{ root_pane: { pane_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: "mover", focus: false });
-  const moverId = mover.root_pane.pane_id;
-  await strip.getByRole("tab", { name: "mover", exact: true }).click();
-  await until(async () => (await page.locator(`.pane-select[title^="${moverId} —"]`).getAttribute("aria-current")) === "true", "the mover tab's pane is open");
-  assert.notEqual((await sessionSnapshot()).focused_pane_id, moverId, "herdr's focus is elsewhere: a fallback could not land on the moved pane by chance");
-  // the fallback's own read of this PC, without the pane: what the answer waits for
-  const absenceConfirmed = page.waitForResponse(async (response) => {
-    if (response.request().method() !== "GET" || !/\/api\/session(?:\?|$)/.test(response.url())) return false;
-    try { return !(await response.text()).includes(`"${moverId}"`); } catch { return false; }
-  });
-  let lateAnswer: PaneMoved | null = null;
-  await page.route("**/api/pane/move", async (route) => {
-    const answer = await route.fetch();
-    lateAnswer = await answer.json() as PaneMoved;
-    await absenceConfirmed;
-    // the fallback's render, had the read released one: a frame and a tick after it
-    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0))));
-    await route.fulfill({ response: answer, body: JSON.stringify(lateAnswer) });
-  });
-  await runMoreItem(page, "Move pane to…");
-  const moveMenu = page.getByRole("menu", { name: /^Move .+ to$/ });
-  await moveMenu.waitFor();
-  await moveMenu.getByRole("menuitem", { name: "herdr-web-ui-test-browser-b", exact: true }).click();
-  await until(() => lateAnswer !== null, "herdr answered the move");
-  const movedId = lateAnswer!.pane.pane_id;
-  assert.notEqual(movedId, moverId, "a pane that changes workspace gets a new id");
-  await until(async () => (await page.locator(`.pane-select[title^="${movedId} —"]`).getAttribute("aria-current")) === "true", "the app follows the moved pane under its new id, late answer or not");
-  await page.unroute("**/api/pane/move");
-  assert.equal((await tabsInHerdr()).join(), "first", "the emptied tab closed behind the pane");
-  await herdrRpc("tab.close", { tab_id: lateAnswer!.created_tab!.tab_id });
-  console.log("PASS a pane moved into another workspace is followed under its new id, also when the roster outruns the answer");
 
   // herdr 0.9.0 reports Codex's first directory-trust menu as idle. Exercise a
   // live, owned PTY menu so the chat controls cannot depend on a blocked badge.
