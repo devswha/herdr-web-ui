@@ -1688,7 +1688,7 @@ try {
   const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
   await tabDialog.waitFor();
   assert.equal(await tabDialog.locator(".new-session-folder").textContent(), root, "the folder is the workspace's, shown");
-  assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 0, "the folder is not asked for");
+  assert.equal(await tabDialog.locator("#new-session-cwd").count(), 0, "the folder is not asked for");
   const tabNameField = tabDialog.getByLabel(/^Name/);
   await tabNameField.fill("second");
   // The command palette takes the keyboard above a dialog. Escape closes only the palette,

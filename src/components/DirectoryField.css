@@ -1,0 +1,72 @@
+/* New workspace's directory field: the path, and under it the folders its last part filters */
+.dir-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.dir-field .input {
+  width: 100%;
+}
+
+/* laid over what follows the field: opening and closing it moves nothing, so a press on Start
+   lands on Start */
+.dir-field-list {
+  position: absolute;
+  z-index: var(--z-popover);
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  box-shadow: var(--shadow-pop);
+  max-height: calc(var(--control-h) * 5);
+  margin: 0;
+  padding: var(--space-1) 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.dir-field-item {
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.dir-field-item:hover,
+.dir-field-item[aria-selected="true"] {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.dir-field-item svg {
+  flex: none;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  color: var(--accent);
+}
+
+.dir-field-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-field-note {
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.dir-field-note.is-error {
+  color: var(--status-blocked);
+}

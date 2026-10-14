@@ -20,6 +20,19 @@ export function passingFolder(path: string, worktrees: readonly string[] = []): 
   return worktrees.some((raw) => { const root = directoryPath(raw) ?? raw; return lexical === root || lexical.startsWith(`${root}/`); });
 }
 
+/**
+ * The folder New workspace starts with: the selected pane's, unless that is a worktree checkout.
+ * A checkout is where one branch is worked on, not where the next workspace starts: the newest
+ * recent project takes its place, or home.
+ */
+export function startingFolder(paneFolder: string | null, worktrees: readonly string[], recents: readonly string[]): string {
+  if (paneFolder === null) return "";
+  const lexical = directoryPath(paneFolder) ?? paneFolder;
+  const checkout = /\/\.herdr\/worktrees(?:\/|$)/u.test(lexical)
+    || worktrees.some((raw) => { const root = directoryPath(raw) ?? raw; return lexical === root || lexical.startsWith(`${root}/`); });
+  return checkout ? recents.find((path) => !passingFolder(path, worktrees)) ?? "~" : paneFolder;
+}
+
 type DirectoryStorage = Pick<Storage, "getItem" | "setItem">;
 
 /** Store canonical absolute paths from snapshots; ~/ input is captured after the PC resolves it. */

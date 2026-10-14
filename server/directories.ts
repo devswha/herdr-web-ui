@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -55,4 +55,25 @@ export function listDirectories(path: string, hidden = false, withFiles = false,
     truncated: directories.length > MAX_DIRECTORY_ENTRIES || files.length > MAX_DIRECTORY_ENTRIES,
     ...(withFiles ? { files: files.slice(0, MAX_DIRECTORY_ENTRIES) } : {}),
   };
+}
+
+/** Why a folder was not made: the code the route answers with. */
+export type CreateDirectoryFault = "invalid_cwd" | "invalid_name" | "directory_exists" | "cannot_create";
+
+/**
+ * Makes the folder `name` inside the existing folder `parent` (the listing's own syntax) and
+ * answers the new folder's listing. One level only: a name is never a path.
+ */
+export function createDirectory(parent: string, name: string): DirectoryListing | CreateDirectoryFault {
+  const within = listDirectories(parent, true);
+  if (within === null) return "invalid_cwd";
+  const trimmed = name.trim();
+  if (trimmed === "" || trimmed === "." || trimmed === ".." || trimmed.length > 255 || /[\/\\\0]/.test(trimmed)) return "invalid_name";
+  const target = join(within.path, trimmed);
+  try {
+    mkdirSync(target);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EEXIST" ? "directory_exists" : "cannot_create";
+  }
+  return listDirectories(target) ?? "cannot_create";
 }

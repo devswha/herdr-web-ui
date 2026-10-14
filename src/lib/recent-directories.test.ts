@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { passingFolder, RecentDirectoryStore } from "./recent-directories.ts";
+import { passingFolder, RecentDirectoryStore, startingFolder } from "./recent-directories.ts";
 
 function fixture() {
   const data = new Map<string, string>();
@@ -103,5 +103,19 @@ describe("passingFolder", () => {
     for (const path of ["/home/me/app", "/home/me/tmpwork", "/srv/tmp-site", "/work/app-wt2", "C:/Users/me/projects/app", "/home/me/.herdr"]) {
       expect(passingFolder(path, ["/work/app-wt"])).toBe(false);
     }
+  });
+});
+
+describe("startingFolder", () => {
+  it("keeps the pane's folder, a temporary one included, and is empty without a pane", () => {
+    expect(startingFolder("/home/me/app", [], ["/home/me/other"])).toBe("/home/me/app");
+    expect(startingFolder("/tmp/scratch", [], ["/home/me/other"])).toBe("/tmp/scratch");
+    expect(startingFolder(null, [], ["/home/me/other"])).toBe("");
+  });
+
+  it("leaves a worktree checkout for the newest recent project, or home", () => {
+    expect(startingFolder("/home/me/.herdr/worktrees/app/feat-x", [], ["/home/me/.herdr/worktrees/app/old", "/tmp/x", "/home/me/app", "/home/me/site"])).toBe("/home/me/app");
+    expect(startingFolder("/work/app-wt/src", ["/work/app-wt"], ["/work/app-wt", "/home/me/app"])).toBe("/home/me/app");
+    expect(startingFolder("C:\\work\\app-wt", ["C:\\work\\app-wt\\"], [])).toBe("~");
   });
 });

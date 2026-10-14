@@ -667,6 +667,16 @@ export interface PluginActionResult {
 
 /** GET /api/agents: one agent kind herdr can start (`agent.start` kind), with a display label. */
 /** GET /api/workspace/directories: the folders inside one directory, for the folder browser. */
+/**
+ * POST /api/workspace/directories/create { path, name } -> DirectoryListing: makes the folder `name`
+ * inside the existing folder `path` (the listing's own syntax) and answers the new folder's listing.
+ * 400 invalid_cwd, invalid_name, directory_exists or cannot_create.
+ */
+export interface CreateDirectoryRequest {
+  path: string;
+  name: string;
+}
+
 export interface DirectoryListing {
   /** the directory listed, absolute */
   path: string;

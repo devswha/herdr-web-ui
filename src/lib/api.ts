@@ -2,6 +2,7 @@ import type { PreferencesChange, SharedPreferences } from "../../shared/preferen
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  CreateDirectoryRequest,
   AgentRenameRequest,
   ConversationResponse,
   CreateWorktreeRequest,
@@ -559,6 +560,12 @@ export async function fetchIntegrations(machineId = "local"): Promise<Integratio
 export async function fetchDirectories(path: string, hidden: boolean, machineId = "local", files = false, paneId: string | null = null): Promise<DirectoryListing> {
   const query = new URLSearchParams({ path, ...(hidden ? { hidden: "1" } : {}), ...(files ? { files: "1" } : {}), ...(paneId ? { pane_id: paneId } : {}) });
   return getJson<DirectoryListing>(machinePath(machineId, `workspace/directories?${query.toString()}`));
+}
+
+/** POST /api/workspace/directories/create: a new folder `name` inside `path`; answers the new folder's listing. */
+export async function createDirectory(path: string, name: string, machineId = "local"): Promise<DirectoryListing> {
+  const response = await sendJson(machinePath(machineId, "workspace/directories/create"), "POST", { path, name } satisfies CreateDirectoryRequest);
+  return (await response.json()) as DirectoryListing;
 }
 
 function fileQuery(path: string, paneId: string | null): string {

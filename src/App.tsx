@@ -1679,7 +1679,8 @@ export function App() {
         worktrees={machines.find((m) => m.id === newSessionMachineId)?.snapshot?.workspaces.flatMap((workspace) => workspace.worktree?.is_linked_worktree ? [workspace.worktree.checkout_path] : []) ?? []}
         open={newSessionOpen}
         tab={newTab}
-        defaultCwd={newSessionMachineId === selectedMachineId ? selectedPane?.cwd ?? null : null}
+        // from a worktree's pane the next workspace starts in its repository, not in that branch's checkout
+        defaultCwd={newSessionMachineId === selectedMachineId ? (selectedWorkspace?.worktree?.is_linked_worktree ? selectedWorkspace.worktree.repo_root : selectedPane?.cwd) ?? null : null}
         prefill={newPrefill}
         onDraft={setNewFields}
         onClose={closeNewSession}

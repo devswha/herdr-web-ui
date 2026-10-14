@@ -36,7 +36,7 @@ import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
-import { listDirectories } from "./directories.ts";
+import { createDirectory, listDirectories } from "./directories.ts";
 import { fileResponse, locateFile, crossSiteFileRead } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
@@ -1919,6 +1919,24 @@ export function createServer(
         }
         const listing = listDirectories(url.searchParams.get("path") ?? "", url.searchParams.get("hidden") === "1", url.searchParams.get("files") === "1", base);
         return listing === null ? badRequest("invalid_cwd", "path must be a directory this user can read") : jsonResponse(listing);
+      }
+
+      if (pathname === "/api/workspace/directories/create") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { path?: unknown; name?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.path !== "string") return badRequest("invalid_cwd", "path must be a directory this user can read");
+        if (typeof payload.name !== "string") return badRequest("invalid_name", "name must be a string");
+        const made = createDirectory(payload.path, payload.name);
+        if (typeof made !== "string") return jsonResponse(made);
+        return badRequest(made, made === "invalid_cwd" ? "path must be a directory this user can read"
+          : made === "invalid_name" ? "name must be one folder name, not a path"
+          : made === "directory_exists" ? "a folder or file with that name is already there" : "the folder could not be made");
       }
 
       if (pathname === "/api/workspace/diff/files" || pathname === "/api/workspace/diff/file") {
