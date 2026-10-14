@@ -376,7 +376,7 @@ export const ZH: Record<string, string> = {
   "{action} failed: {detail}": "{action} 失败：{detail}",
   "{action} failed (exit code {code})": "{action} 失败（退出码 {code}）",
   "herdr plugins": "herdr 插件",
-  "Run a plugin's actions from the command palette.": "可在命令面板中运行插件操作。",
+  "The command palette and its plugin actions are not available in the phone touch UI. Use a wider screen or a keyboard's command palette shortcut.": "手机触控界面不提供命令面板及其中的插件操作。请使用更宽的屏幕，或通过键盘的命令面板快捷键打开。",
   "No actions": "无操作",
   "Enabled": "已启用",
   "Disabled": "已停用",

@@ -372,7 +372,7 @@ export const KO: Record<string, string> = {
   "{action} failed: {detail}": "{action} 실패: {detail}",
   "{action} failed (exit code {code})": "{action} 실패 (종료 코드 {code})",
   "herdr plugins": "herdr 플러그인",
-  "Run a plugin's actions from the command palette.": "플러그인 동작은 명령 팔레트에서 실행합니다.",
+  "The command palette and its plugin actions are not available in the phone touch UI. Use a wider screen or a keyboard's command palette shortcut.": "휴대전화 터치 UI에서는 명령 팔레트와 플러그인 동작을 사용할 수 없습니다. 더 넓은 화면이나 키보드의 명령 팔레트 단축키를 사용하세요.",
   "No actions": "동작 없음",
   "Enabled": "사용 중",
   "Disabled": "사용 안 함",

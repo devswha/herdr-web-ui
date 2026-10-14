@@ -3,8 +3,9 @@
   in herdr's TUI; the app follows the roster as before.
 - **Send right-clicks to pane** in the pane menu: a right-click on a pane always opens its menu.
 - **New tab** in the header's More menu: the tab strip's `+` and the command palette open one.
-- **Command palette** in a phone's More menu; an external keyboard still opens it with
-  Mod+Shift+K.
+- **Command palette** in a phone's More menu and **Browse folders in the palette** in its Files
+  dialog. The command palette and its plugin actions are not available in the phone touch UI;
+  use a wider screen or an external keyboard's Mod+Shift+K shortcut.
 
 ### Changed
 - The pane header's `⋯` stays visible on touch screens and appears on keyboard focus on desktop;

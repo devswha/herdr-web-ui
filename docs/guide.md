@@ -90,7 +90,7 @@ bun run start
 
 </details>
 
-**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own, led by its project's favicon when its folder keeps one (`favicon.svg`, `.ico` or `.png`, directly in the folder or in its `public/`; the folder is the worktree checkout, or else the pane's working folder, so a pane that has `cd`'d into `src/` looks there) and a folder glyph otherwise (a repository row with worktrees under it keeps its fold button, and the worktree rows nested under it have no mark); its tabs are always shown in a strip, and the active tab shows all its split panes together. Pick one, start a new agent with **New workspace**, or add a tab to a workspace with **New tab** (the strip's `+`, a tab's right-click menu, or the command palette). Right-click a tab to rename or close it; on a phone, tap the selected tab’s **⋯** for a trimmed menu with pane actions, Rename tab and Close tab. A focused tab also opens its menu with Shift+F10, and double-click still renames it.
+**2. Open it** at **http://localhost:7317**. Every workspace of your herdr session is a row in the sidebar, as in herdr's own, led by its project's favicon when its folder keeps one (`favicon.svg`, `.ico` or `.png`, directly in the folder or in its `public/`; the folder is the worktree checkout, or else the pane's working folder, so a pane that has `cd`'d into `src/` looks there) and a folder glyph otherwise (a repository row with worktrees under it keeps its fold button, and the worktree rows nested under it have no mark); its tabs are always shown in a strip, and the active tab shows all its split panes together. Pick one, start a new agent with **New workspace**, or add a tab to a workspace with **New tab** (the strip's `+`, a tab's right-click menu, or the command palette on a wider screen or with a keyboard). Right-click a tab to rename or close it; on a phone, tap the selected tab’s **⋯** for a trimmed menu with pane actions, Rename tab and Close tab. A focused tab also opens its menu with Shift+F10, and double-click still renames it.
 
 Drag a tab to change its order within the workspace, or choose **Move tab left / right** from
 its menu (also on a phone). Alt+Shift+Left/Right moves a focused tab. Reordering keeps the
@@ -527,8 +527,10 @@ on desktop, tab to the pane header's **⋯** (it appears on keyboard focus) and 
 Shift+F10 inside the terminal stays with the terminal program. On the terminal
 scrollbar, arrows move a line, Page Up/Down a viewport minus the configured overlap, and Home/End the start/end of history.
 
-On a phone, use the header, the tab's ⋯ and the More menu for app actions; the command palette
-opens only from an external keyboard's shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
+On a phone, use the header, the tab's ⋯ and the More menu for app actions. The command palette
+and its plugin actions are not available in the phone touch UI. Use a wider screen or an external
+keyboard's `Mod+Shift+K` shortcut (or your configured binding).
+The terminal key bar is configured separately under **Settings → Terminal**.
 An external keyboard uses the same app bindings as a desktop.
 
 **Settings → Chat → Composer → PageUp / PageDown scroll chat** opts into plain page keys

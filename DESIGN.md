@@ -875,9 +875,9 @@ One set for both themes: the card is island black wherever it shows.
   whole title it is not drawn, and the title has the row. The full path is in the context's
   tooltip and at the top of the More menu. With no selection, the brand fills the context slot.
 - The More menu (`.header-more-button`, the `RowMenu` popover, a bottom sheet at `<=640px`) opens
-  with the location on two lines, "PC › workspace" then the full path in mono, and holds **New
-  tab** (the selected pane's workspace), **Browse files** and **Alerts**, each under the condition
-  its own button had; at `<=480px` **Command palette** is its first item. The Alerts item says
+  with the location on two lines, "PC › workspace" then the full path in mono, and holds
+  **Browse files** and **Alerts**, each under the condition its own button had. New tab stays
+  on the tab strip's `+`; Command palette is not in More. The Alerts item says
   this device's state in words after its label ("On in the app", "On in this tab", "On, pushed to
   this device", "Off on this device") and switches it: it is a `menuitemcheckbox` with
   `aria-checked` in the popover and a button with `aria-pressed` in the sheet. While alerts are off on this device the
@@ -1323,6 +1323,9 @@ One set for both themes: the card is island black wherever it shows.
   Amber only; `--danger` stays for errors.
 
 ### Command palette
+- The command palette and its plugin actions are not available in the phone touch UI
+  (`<=480px`): neither the header nor Files offers a palette button. Use a wider screen;
+  a connected keyboard can still open it with `Mod+Shift+K` (or the configured binding).
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes across all connected PCs
   and the selected PC's actions. PC names participate in search. Recent panes
   lead an empty query; arrows in the search field cycle through visible results, Enter activates
@@ -1596,7 +1599,8 @@ The values are the ones in `src/styles.css`: `--motion-scale` is the panel motio
   Application-owned paging has its own page length; no page input is queued across disconnects.
   The opt-in plain chat page keys preserve composer draft, selection and focus, excluding modified
   keys, composition, other editable controls and modal input. They do not capture terminal keys.
-- On touch screens app actions stay in buttons and menus; a phone has no palette entry of its own.
+- On touch screens app actions stay in buttons and menus. The command palette and its plugin
+  actions are not available in the phone touch UI; a wider screen or keyboard is required.
   The key bar sends terminal input only; it is not an app-action toolbar. Hardware keyboards use
   the same global bindings on phones and desktops.
 - `document.title` is `<pane title> · herdr` while selected, otherwise `herdr web ui`.

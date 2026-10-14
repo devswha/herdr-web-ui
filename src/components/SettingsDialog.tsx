@@ -907,7 +907,7 @@ function PluginsGroup() {
   }, [api]);
   if (plugins.length === 0) return null;
   return (
-    <SettingsGroup title={t("herdr plugins")} note={t("Run a plugin's actions from the command palette.")} className="settings-plugins">
+    <SettingsGroup title={t("herdr plugins")} note={t("The command palette and its plugin actions are not available in the phone touch UI. Use a wider screen or a keyboard's command palette shortcut.")} className="settings-plugins">
       {plugins.map((plugin) => (
         <SettingsRow key={plugin.plugin_id} label={`${plugin.name} ${plugin.version}`} description={plugin.actions.length > 0 ? plugin.actions.map((action) => action.title).join(" · ") : t("No actions")}>
           <span className="settings-hint">{plugin.enabled ? t("Enabled") : t("Disabled")}</span>

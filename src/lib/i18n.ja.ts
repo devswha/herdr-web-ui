@@ -374,7 +374,7 @@ export const JA: Record<string, string> = {
   "{action} failed: {detail}": "{action} に失敗しました: {detail}",
   "{action} failed (exit code {code})": "{action} に失敗しました (終了コード {code})",
   "herdr plugins": "herdr プラグイン",
-  "Run a plugin's actions from the command palette.": "プラグインの操作はコマンドパレットから実行します。",
+  "The command palette and its plugin actions are not available in the phone touch UI. Use a wider screen or a keyboard's command palette shortcut.": "スマートフォンのタッチUIでは、コマンドパレットとプラグインの操作は利用できません。より広い画面か、キーボードのコマンドパレット用ショートカットを使ってください。",
   "No actions": "操作なし",
   "Enabled": "有効",
   "Disabled": "無効",
