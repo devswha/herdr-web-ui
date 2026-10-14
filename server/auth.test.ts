@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { authClient, forgetAuthAttempts, handleAuthRequest, isSecureRequest, presentedToken, recordPresentedTokenFailure } from "./auth.ts";
+import { AUTH_CLIENTS_MAX, authClient, forgetAuthAttempts, handleAuthRequest, isSecureRequest, presentedToken, recordPresentedTokenFailure, sharedFailuresSize } from "./auth.ts";
 import { sameOrigin } from "./machine-security.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "herdr-auth-"));
@@ -121,6 +121,15 @@ describe("the budget visitors behind one proxy share", () => {
       expect(presentedToken(cookie(TOKEN), TOKEN, "100.64.0.31 via 127.0.0.1")).toBe("match");
     } finally { setSystemTime(); }
   });
+
+  it("regression (fails on main): bounds shared failure keys after many distinct peers", () => {
+    for (let peer = 0; peer < AUTH_CLIENTS_MAX * 20; peer += 1) {
+      const loopbackPeer = `127.${Math.floor(peer / 65536)}.${Math.floor((peer % 65536) / 256)}.${peer % 256}`;
+      const client = authClient(loopbackPeer, new Headers({ "x-forwarded-for": `100.64.${Math.floor(peer / 256)}.${peer % 256}` }));
+      recordPresentedTokenFailure(client);
+    }
+    expect(sharedFailuresSize()).toBeLessThanOrEqual(AUTH_CLIENTS_MAX);
+  });
 });
 
 describe("isSecureRequest", () => {
@@ -130,6 +139,7 @@ describe("isSecureRequest", () => {
     expect(isSecureRequest(new Request("http://host/api/auth"))).toBe(false);
     expect(isSecureRequest(new Request("http://host/api/auth", { headers: { "x-forwarded-proto": "http" } }))).toBe(false);
   });
+
 });
 
 describe("sameOrigin", () => {
