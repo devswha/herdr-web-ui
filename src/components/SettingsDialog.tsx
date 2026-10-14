@@ -238,11 +238,8 @@ function PaletteSelect({ id, value, onChange }: { id: string; value: PaletteName
   return (
     <select id={id} className="select settings-select" value={value} onChange={(event) => onChange(event.target.value as PaletteName)}>
       <option value="amber">{t("Amber")}</option>
-      <option value="report">{t("Dark report")}</option>
       <option value="charcoal">{t("Charcoal")}</option>
       <option value="catppuccin">{t("Catppuccin")}</option>
-      <option value="lilac">{t("Lilac")}</option>
-      <option value="forest">{t("Forest")}</option>
     </select>
   );
 }
