@@ -488,6 +488,16 @@ does not fail the job, and is not counted as a plain pass either: its first log 
 `flaky`, and on GitHub it gets a warning annotation and a line in the job summary. A flaky script
 is a bug to fix in the script or the app, not noise: the second run only keeps one PR's merge
 from waiting on another change's race. A script that fails twice fails the job.
+The console, GitHub annotations, job summary and `summary.json` name the failing assertion and
+its first script file and line when the log contains them.
+`bun scripts/ci-flakes.ts` ranks, across the last 24 hours of `ci.yml` runs and every attempt of
+each, which script failed or passed only on a second run, and at which assertion and site. It reads
+through `gh` and changes nothing: a failed job's log, and a passed job's only when the job carries
+the flaky warning.
+Use `--hours 30` for a different window, `--repo owner/name` to select a repository instead of
+the current one, or `--json` for counts and rows as JSON; running jobs and unavailable logs are
+counted as skipped.
+
 Under `CI` or with `CHECK_DIR` set, both runners create `UI_EVIDENCE_DIR` at
 `${CHECK_DIR:-.ci}/browser-evidence`. Only the existing sticky-modifier and file-viewer captures
 are enabled automatically: the UI suite and key-bar demo have evidence branches that add

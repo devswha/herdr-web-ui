@@ -45,7 +45,33 @@ interface ScriptResult {
   log: string;
   /** the log of the run that failed before this one passed or failed again */
   firstLog?: string;
+  site?: string;
+  message?: string;
 }
+
+/**
+ * Where a script's log says it failed: the first error line, and the first stack frame after it
+ * that is one of this repository's scripts (a Playwright error's own frames come before it).
+ * Either is null when the log does not hold it.
+ */
+export function failureSite(log: string): { site: string | null; message: string | null } {
+  const lines = log.split(/\r?\n/);
+  const index = lines.findIndex((line) => /^\s*[A-Za-z_$][\w.$]*Error:/.test(line));
+  if (index < 0) return { site: null, message: null };
+  const message = lines[index]?.trim() ?? null;
+  for (const line of lines.slice(index + 1)) {
+    if (!/^\s*at\s/.test(line) || line.includes("node_modules")) continue;
+    const match = line.match(/\/(scripts\/[\w.-]+\.ts:\d+)(?=[:)\s]|$)/);
+    if (match) return { site: match[1] ?? null, message };
+  }
+  return { site: null, message };
+}
+
+const failureDetail = (result: ScriptResult): string =>
+  [result.site, result.message].filter(Boolean).join(": ");
+
+const workflowData = (message: string): string =>
+  message.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
 
 /** How a script ended, from its last exit code and whether that was its second run: a pass after a failure is flaky, never a plain pass. */
 export function scriptOutcome(code: number, secondRun: boolean): "pass" | "flaky" | "fail" {
@@ -162,8 +188,13 @@ async function main(): Promise<void> {
         const second = await runScript(script, env, log);
         result = { ...second, seconds: result.seconds + second.seconds, firstLog };
       }
-      results.push(result);
       const outcome = scriptOutcome(result.code, result.firstLog !== undefined);
+      if (outcome !== "pass") {
+        const { site, message } = failureSite(readFileSync(outcome === "flaky" ? result.firstLog! : result.log, "utf8"));
+        if (site) result.site = site;
+        if (message) result.message = message;
+      }
+      results.push(result);
       const failure = outcome === "fail" ? ` exit=${result.code}, log ${log}` : outcome === "flaky" ? `, failed once: ${result.firstLog}` : "";
       console.log(`[worker-${workerId}] ${outcome.toUpperCase()} ${script} (${result.seconds.toFixed(1)}s)${failure}`);
       lock.active--;
@@ -200,7 +231,10 @@ async function main(): Promise<void> {
     passed,
     total: results.length,
     flaky: flaky.map((r) => r.script),
-    scripts: ordered.map(({ script, seconds, code, log, firstLog }) => ({ script, seconds, code, log, ...(firstLog ? { firstLog } : {}) })),
+    scripts: ordered.map(({ script, seconds, code, log, firstLog, site, message }) => ({
+      script, seconds, code, log, ...(firstLog ? { firstLog } : {}),
+      ...(site ? { site } : {}), ...(message ? { message } : {}),
+    })),
   }, null, 2) + "\n");
 
   const tail = (path: string): void => {
@@ -213,17 +247,23 @@ async function main(): Promise<void> {
 
   // A pass on the second run is still a failure somebody has to read: say so where a green job is looked at.
   for (const result of flaky) {
-    console.log(`\n${"=".repeat(80)}\nFLAKY ${result.script}: failed, then passed when run again; first log: ${result.firstLog}`);
+    const detail = failureDetail(result);
+    console.log(`\n${"=".repeat(80)}\nFLAKY ${result.script}: failed, then passed when run again; first log: ${result.firstLog}${detail ? `; ${detail}` : ""}`);
     tail(result.firstLog!);
-    if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Flaky browser script::${result.script} failed once and passed when run again. Its first log is ${basename(result.firstLog!)} in the browser-logs artifact.`);
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Flaky browser script::${workflowData(`${result.script}${detail ? `: ${detail}` : ""} failed once and passed when run again. Its first log is ${basename(result.firstLog!)} in the browser-logs artifact.`)}`);
   }
   if (flaky.length > 0 && process.env.GITHUB_STEP_SUMMARY) {
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Flaky browser scripts\n\nFailed once, passed when run again:\n\n${flaky.map((r) => `- \`${r.script}\` (first log \`${basename(r.firstLog!)}\`)`).join("\n")}\n`);
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Flaky browser scripts\n\nFailed once, passed when run again:\n\n${flaky.map((r) => `- \`${r.script}\`${failureDetail(r) ? `: ${failureDetail(r)}` : ""} (first log \`${basename(r.firstLog!)}\`)`).join("\n")}\n`);
   }
 
   for (const result of failed) {
-    console.log(`\n${"=".repeat(80)}\nFAILED ${result.script} (exit ${result.code}${result.firstLog ? ", twice" : ""}), full log: ${result.log}`);
+    const detail = failureDetail(result);
+    console.log(`\n${"=".repeat(80)}\nFAILED ${result.script} (exit ${result.code}${result.firstLog ? ", twice" : ""}), full log: ${result.log}${detail ? `; ${detail}` : ""}`);
     tail(result.log);
+    if (process.env.GITHUB_ACTIONS) console.log(`::error title=Browser script failed::${workflowData(`${result.script}${detail ? `: ${detail}` : ""} failed (exit ${result.code}${result.firstLog ? ", twice" : ""}). Full log: ${basename(result.log)} in the browser-logs artifact.`)}`);
+  }
+  if (failed.length > 0 && process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Failed browser scripts\n\n${failed.map((r) => `- \`${r.script}\`${failureDetail(r) ? `: ${failureDetail(r)}` : ""} (full log \`${basename(r.log)}\`)`).join("\n")}\n`);
   }
 
   process.exit(failed.length > 0 ? 1 : 0);
