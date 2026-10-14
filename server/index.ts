@@ -3298,7 +3298,10 @@ export function createServer(
           }
         } catch (error) {
           const code = error instanceof HerdrError ? error.code : "command_failed";
-          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error) });
+          // an attach that could not start names its pane: the panes of a PC share this connection, and one
+          // without a pane would end every terminal on it
+          const failed = code === "attach_failed" && message.type === "attach" ? { pane_id: message.pane_id } : {};
+          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error), ...failed });
         }
       },
 

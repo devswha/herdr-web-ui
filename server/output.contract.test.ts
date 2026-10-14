@@ -215,9 +215,10 @@ describe("a herdr the server cannot start (#925)", () => {
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
     sockets.push(ws);
     const errors: string[] = [];
+    const errorPanes: (string | undefined)[] = [];
     ws.addEventListener("message", (event) => {
       const frame = JSON.parse(String(event.data)) as ServerMessage;
-      if (frame.type === "error") errors.push(frame.code);
+      if (frame.type === "error") { errors.push(frame.code); errorPanes.push(frame.pane_id); }
     });
     await until(() => ws.readyState === WebSocket.OPEN, "socket open");
     const missing = join(root, "missing-herdr");
@@ -235,6 +236,8 @@ describe("a herdr the server cannot start (#925)", () => {
       else process.env["HERDR_WEB_HERDR_BIN"] = previous;
     }
     expect(errors).toEqual(["attach_failed"]);
+    // the panes of a PC share one connection: the failure names its pane, so only that terminal ends
+    expect(errorPanes).toEqual([paneId]);
     expect(logged.filter((line) => line.includes(paneId) && line.includes(missing))).toHaveLength(1);
     // nothing was left behind: with herdr back, the pane attaches for real
     const client = await connect(paneId);
