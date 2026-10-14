@@ -577,6 +577,13 @@ describe("quick replies row", () => {
   });
 });
 
+describe("language", () => {
+  it("keeps a listed language and loads a removed one (Turkish) as System", () => {
+    expect(sanitizeSettings({ language: "ko" }).language).toBe("ko");
+    expect(sanitizeSettings({ language: "tr" }).language).toBe("system");
+  });
+});
+
 describe("palette", () => {
   it("defaults to amber, the look before this setting, and keeps only a known palette", () => {
     expect(DEFAULT_SETTINGS.palette).toBe("amber");
