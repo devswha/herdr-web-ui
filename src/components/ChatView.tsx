@@ -6,6 +6,9 @@ import {
 } from "lucide-react";
 
 import "./ChatView.css";
+// the timeline's styles stay in the entry: its chunk loads apart (chatTimelineLoader.ts), but
+// .chat-frame and the loading state are drawn before it arrives
+import "./ChatTimeline.css";
 
 import { AgentMark } from "./AgentMark.tsx";
 import { AnimatedHeight } from "./AnimatedHeight.tsx";
@@ -15,7 +18,7 @@ import { Markdown, ReservedImage } from "./Markdown.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { PromptCard } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
-import { ChatTimeline } from "./ChatTimeline.tsx";
+import { loadChatTimeline, loadedChatTimeline, useChatTimeline } from "./chatTimelineLoader.ts";
 import { ChatFind } from "./ChatFind.tsx";
 import { ChatMinimap } from "./ChatMinimap.tsx";
 import { minimapTurns } from "../lib/chatMinimap.ts";
@@ -36,7 +39,7 @@ import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../l
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
 import { useSettings } from "../lib/settings.ts";
-import { pageScrollDistance } from "../lib/pageScroll.ts";
+import { PAGE_OVERLAP_ROWS, pageScrollDistance } from "../lib/pageScroll.ts";
 import { followGlides } from "../lib/followScroll.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { statusEdgeRead } from "../lib/status.ts";
@@ -72,9 +75,21 @@ const ImageViewerContext = createContext<(images: GalleryImage[], index: number)
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import type { AgentStatus, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
-import { formatChatTimestamp } from "../lib/chatTimestamp.ts";
+import { TurnTime } from "./TurnTime.tsx";
 import { isMacPlatform } from "../lib/shortcuts.ts";
-import { currentLocale, useT } from "../lib/i18n.ts";
+import { useT } from "../lib/i18n.ts";
+
+// No row is this object, so the list finds nothing to scroll to.
+const NO_ROW = Object.freeze({});
+/**
+ * The list's scrollToEnd does not scroll at once: it waits for the list's next commit, and then
+ * for the layout to settle after a data change (up to 800 ms). A follow asked for while the reader
+ * was at the end can so land after the reader paged or scrolled away, and pull them back. Any newer
+ * scroll request supersedes a waiting one; a request for no row supersedes it without moving.
+ */
+function dropPendingListScroll(list: LegendListRef | null): void {
+  void list?.scrollToItem({ item: NO_ROW, animated: false });
+}
 
 const TRANSCRIPT_LINES = 400;
 const PROMPT_POLL_MS = 2000;
@@ -87,6 +102,8 @@ export interface ChatViewProps {
   onOpenDiff?: (target: RepoDiffTarget) => void;
   /** Only the active pane owns the chat-local Mod+F shortcut. */
   active?: boolean;
+  /** false while the pane sits off-tab (a cached or retained pane): no reads, no conversation-watch */
+  visible?: boolean;
   pageScroll?: { current: ((direction: -1 | 1) => void) | null };
   refreshKey: number;
   /** bumped by a conversation push; coalesced at the former 2s polling cadence */
@@ -138,14 +155,11 @@ interface ChatState {
 
 const EMPTY_STATE: ChatState = { source: "conversation", turns: [], messages: [], truncated: false };
 
-
-/** One turn's time: day-aware text, the full date as tooltip, focusable so a keyboard reaches the tooltip. */
-function TurnTime({ ts }: { ts: string | null }) {
-  const t = useT();
-  const stamp = formatChatTimestamp(ts, Date.now(), currentLocale(), t);
-  if (stamp === null) return null;
-  return <time className="chat-time" dateTime={ts ?? undefined} title={stamp.full} tabIndex={0}>{stamp.label}</time>;
+/** The view of a structured (not scrollback) answer. */
+function conversationState(conversation: ConversationResponse): ChatState {
+  return { source: "conversation", conversationSource: conversation.source, turns: conversation.turns, messages: [], truncated: false, activity: conversation.activity };
 }
+
 
 function plainText(markdown: string): string {
   return markdown
@@ -685,13 +699,12 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
 }
 
 /** Optional terminal output must never hold initial display or transcript polling. */
-function TerminalFallback({ paneId }: { paneId: string }) {
+function TerminalFallback({ paneId, visible }: { paneId: string; visible: boolean }) {
   const { fetchPaneTranscript } = useMachineApi();
   const t = useT();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const visible = usePageVisible();
   useEffect(() => {
     if (!open || !visible) return;
     let cancelled = false;
@@ -720,15 +733,16 @@ function TerminalFallback({ paneId }: { paneId: string }) {
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff, active = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered }: ChatViewProps) {
   const t = useT();
-  const { fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
+  const { fetchPaneConversation, peekPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
   const machineId = useMachineId();
   const diffContext = useMemo(() => onOpenDiff ? { openDiff: onOpenDiff, cwd } : null, [onOpenDiff, cwd]);
   const skillMatcher = useSkillMatcher(paneId);
-  // polls pause while the page is hidden and pick up at once when it is back
-  const visible = usePageVisible();
+  // polls pause while the page or the pane is hidden and pick up at once when it is back
+  const pageVisible = usePageVisible();
+  const visible = paneVisible && pageVisible;
   /** the answer last laid out: an unchanged poll (a 304) hands back this very object */
   const lastAnswer = useRef<ConversationResponse | null>(null);
   const [conversationRefresh] = useState(() => new ConversationRefresh());
@@ -781,6 +795,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   const [promptPollKey, setPromptPollKey] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const timeline = useRef<LegendListRef>(null);
+  const ChatTimeline = useChatTimeline();
   const stickToBottom = useRef(true);
   // Explicit paging stays away even inside the ordinary near-bottom tolerance.
   const pagingAway = useRef(false);
@@ -818,6 +833,8 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   const seenSent = useRef(sentKey);
   const seenStatus = useRef<{ pane: string; status: AgentStatus | undefined }>({ pane: paneId, status: agentStatus });
   const seenConnected = useRef(connected);
+  /** the socket has been connected since this pane showed: only then is a connected edge a reconnect */
+  const wasConnected = useRef(connected);
   const seenInvalidation = useRef({ pane: paneId, key: invalidationKey });
 
   const dropOlder = (): void => {
@@ -829,6 +846,37 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     setFindOpen(false); setMatchKey(null);
   };
 
+  /** What an answer says beside its turns: where older pages start, its metadata, abandoned turns. */
+  const showAnswerDetails = (conversation: ConversationResponse): void => {
+    if (heldFrom.current === null) setOlderCursor(conversation.source === "scrollback" ? undefined : conversation.cursor);
+    onMetadataRef.current?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
+    setAbandoned(conversation.abandoned ?? null);
+  };
+
+  /** Lays out the state built from an answer and marks that answer as the one shown. */
+  const showAnswer = (conversation: ConversationResponse, next: ChatState): void => {
+    if (next.source === "conversation") {
+      const count = olderCount.current + next.turns.length;
+      if (slots.current.scope.historyId !== (history.current ?? null) || lastAnswer.current?.source === "scrollback") {
+        slots.current = createChatRowSlots({ machineId, paneId, historyId: history.current ?? null, incarnation: ++incarnation.current }, count);
+      } else if (count > slots.current.rows.length) {
+        slots.current = appendChatRowSlots(slots.current, count - slots.current.rows.length);
+      } else if (count < slots.current.rows.length) {
+        slots.current = { ...slots.current, rows: slots.current.rows.slice(0, count) };
+      }
+    }
+    const nextSignature = JSON.stringify(next);
+    if (nextSignature !== signature.current) {
+      if (signature.current !== "" && !stickToBottom.current) setNewMessages(true);
+      signature.current = nextSignature;
+      setState(next);
+    }
+    setError(null); setErrorStatus(null); setLoaded(true);
+    // only an answer laid out in full is skipped when it comes back unchanged: a read
+    // cancelled mid-way (a pane switch, the page hidden during a gap fill) is redone
+    lastAnswer.current = conversation;
+  };
+
   useLayoutEffect(() => {
     shownPane.current = paneId;
     stopRestore.current?.();
@@ -838,6 +886,15 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     dropOlder();
     lastAnswer.current = null;
     setSentOver(null);
+    wasConnected.current = connected;
+    // Stale while revalidating: the last answer read for this pane draws before paint, and the
+    // mount read still asks the server; an unchanged answer (a 304) is this object and is skipped.
+    const cached = peekPaneConversation(paneId);
+    if (cached !== undefined && cached.source !== "scrollback" && loadedChatTimeline() !== null) {
+      history.current = cached.history_id; setHistoryId(cached.history_id);
+      showAnswerDetails(cached);
+      showAnswer(cached, conversationState(cached));
+    }
   }, [paneId, machineId]);
 
   const closeFind = useCallback(() => {
@@ -925,6 +982,11 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
           conversation = await fetchPaneConversation(paneId);
         }
         if (cancelled || generation !== olderGeneration.current) return;
+        // the timeline's chunk is in hand before any turn is: the list mounts once, with the refs bound
+        if (conversation.source !== "scrollback" && loadedChatTimeline() === null) {
+          await loadChatTimeline();
+          if (cancelled || generation !== olderGeneration.current) return;
+        }
         if (history.current !== conversation.history_id) {
           dropOlder(); generation = olderGeneration.current;
           history.current = conversation.history_id; setHistoryId(conversation.history_id);
@@ -950,11 +1012,9 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
           olderCount.current += moved.length;
           setOlder((turns) => [...turns, ...moved]);
         }
-        if (heldFrom.current === null) setOlderCursor(conversation.source === "scrollback" ? undefined : conversation.cursor);
-        onMetadataRef.current?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
-        setAbandoned(conversation.abandoned ?? null);
+        showAnswerDetails(conversation);
         let next: ChatState;
-        if (conversation.source !== "scrollback") next = { source: "conversation", conversationSource: conversation.source, turns: conversation.turns, messages: [], truncated: false, activity: conversation.activity };
+        if (conversation.source !== "scrollback") next = conversationState(conversation);
         else if (agent !== null) next = { source: "scrollback", turns: [], messages: [], truncated: false };
         else {
           // The reader has rejected this history. Hide it before the separate terminal
@@ -968,26 +1028,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
           if (cancelled || generation !== olderGeneration.current) return;
           next = { source: "scrollback", turns: [], messages: toTranscriptMessages(result.text).filter((message) => message.role !== "status"), truncated: result.truncated === true };
         }
-        if (next.source === "conversation") {
-          const count = olderCount.current + next.turns.length;
-          if (slots.current.scope.historyId !== (history.current ?? null) || lastAnswer.current?.source === "scrollback") {
-            slots.current = createChatRowSlots({ machineId, paneId, historyId: history.current ?? null, incarnation: ++incarnation.current }, count);
-          } else if (count > slots.current.rows.length) {
-            slots.current = appendChatRowSlots(slots.current, count - slots.current.rows.length);
-          } else if (count < slots.current.rows.length) {
-            slots.current = { ...slots.current, rows: slots.current.rows.slice(0, count) };
-          }
-        }
-        const nextSignature = JSON.stringify(next);
-        if (nextSignature !== signature.current) {
-          if (signature.current !== "" && !stickToBottom.current) setNewMessages(true);
-          signature.current = nextSignature;
-          setState(next);
-        }
-        setError(null); setErrorStatus(null); setLoaded(true);
-        // only an answer laid out in full is skipped when it comes back unchanged: a read
-        // cancelled mid-way (a pane switch, the page hidden during a gap fill) is redone
-        lastAnswer.current = conversation;
+        showAnswer(conversation, next);
       } catch (cause) {
         if (cancelled || generation !== olderGeneration.current) return;
         setLoaded(true);
@@ -1030,11 +1071,17 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     return () => onTerminalOutput(null);
   }, [state.source, visible, onTerminalOutput, conversationRefresh]);
 
-  // Catch writes made offline as soon as the existing socket is connected again.
+  // Catch writes made offline as soon as the existing socket is connected again. The first
+  // connection after the pane shows (a fresh attach) is no reconnect: while the mount read is
+  // still in flight, that read already answers for it, and a second full read would only repeat it.
   useEffect(() => {
     const before = seenConnected.current;
     seenConnected.current = connected;
-    if (connected && !before && visible) conversationRefresh.refresh();
+    const reconnect = wasConnected.current;
+    if (connected) wasConnected.current = true;
+    if (!connected || before || !visible) return;
+    if (!reconnect && conversationRefresh.reading) return;
+    conversationRefresh.refresh();
   }, [connected, visible, conversationRefresh]);
 
   const loadOlder = useCallback(async (): Promise<void> => {
@@ -1171,7 +1218,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     observer.observe(node);
     if (node.firstElementChild !== null) observer.observe(node.firstElementChild);
     return () => observer.disconnect();
-  }, [state.source]);
+  }, [state.source, ChatTimeline]);
   // One of the app's faces arrived (font-display: swap; a unicode-range chunk on the first Korean
   // answer): the conversation rewraps with no width, size or family string changed, so the
   // observer above takes it for one that only grew taller. A reader at the end stays at the end.
@@ -1187,7 +1234,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   useEffect(() => {
     const node = scroller.current;
     return node === null ? undefined : dismissKeyboardOn(node);
-  }, [state.source]);
+  }, [state.source, ChatTimeline]);
 
   const onScroll = (): void => {
     const node = scroller.current;
@@ -1240,7 +1287,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       const style = getComputedStyle(prose);
       const lineHeight = parseFloat(style.lineHeight);
       const rowHeight = Number.isFinite(lineHeight) ? lineHeight : parseFloat(style.fontSize);
-      const distance = pageScrollDistance(node.clientHeight, rowHeight, settings.pageOverlapRows);
+      const distance = pageScrollDistance(node.clientHeight, rowHeight, PAGE_OVERLAP_ROWS);
       const before = node.scrollTop;
       node.scrollTo({ top: before + direction * distance, behavior: "instant" });
       // A physical end may still report a positive subpixel gap, even with no movement.
@@ -1252,7 +1299,12 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       // At the loaded top, PageUp still asks for the earlier page the scroll position cannot reach.
       if (node.scrollTop === before) { if (direction < 0) onScroll(); return; }
       lastScrollTop.current = before;
-      if (direction < 0) pagingAway.current = true;
+      if (direction < 0) {
+        pagingAway.current = true;
+        // Find, a minimap tick and a restored place scroll through the list, which drops a follow
+        // still waiting there; this native page scroll does not, so drop it here, or it lands after.
+        dropPendingListScroll(timeline.current);
+      }
       // Apply the intent before output or a deferred scroll event can restore following.
       onScroll();
     };
@@ -1398,7 +1450,15 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
     <div className="chat-frame">
     {state.source === "conversation" && findOpen && <ChatFind key={timelineScope} rows={searchRows} older={typeof olderCursor === "string"} olderState={olderState} onOlder={loadOlder} onMatch={showMatch} onClose={closeFind} />}
     <div className="chat-frame-body">
-    {state.source === "conversation" ? <ChatTimeline
+    {state.source === "conversation" ? ChatTimeline === null
+      // its chunk is still loading: no turn is read until it arrives, so this is the loading state
+      ? <div className="chat-view chat-view-virtual" role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
+        <div className="chat-transcript chat-transcript-virtual">
+          <div className={findOpen ? "chat-virtual-header chat-virtual-header-with-find" : "chat-virtual-header"}>{header}</div>
+          <div className="chat-virtual-footer">{footer}</div>
+        </div>
+      </div>
+      : <ChatTimeline
       rows={timelineRows}
       scope={timelineScope}
       source={state.conversationSource}
@@ -1417,7 +1477,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       renderRow={renderTurn}
     /> : <div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
       <div className="chat-transcript" data-conversation-source={state.conversationSource}>
-        {agent !== null ? <TerminalFallback key={paneId} paneId={paneId} />
+        {agent !== null ? <TerminalFallback key={paneId} paneId={paneId} visible={visible} />
           : state.messages.map((message, index) => <FallbackTurn key={index} paneId={paneId} message={message} />)}
         {footer}
       </div>

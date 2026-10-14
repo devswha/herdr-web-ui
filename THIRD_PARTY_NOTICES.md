@@ -76,7 +76,7 @@ Copyright (c) 2026 T3 Tools Inc.
 - `src/lib/workspacePath.ts` <- `apps/web/src/filePathDisplay.ts`
 - `src/lib/fileIcons.ts`, `src/components/FileGlyph.tsx` <- `apps/web/src/pierre-icons.ts`,
   `apps/web/src/components/chat/PierreEntryIcon.tsx`
-- `src/lib/contrast.ts`, `src/styles.css` <- `apps/web/src/appearanceContrast.ts`, `apps/web/src/index.css`
+- `src/styles.css` <- `apps/web/src/index.css`
 - `src/lib/composerNotices.ts` <- `apps/web/src/components/chat/ComposerBannerStack.tsx`
 - `src/lib/changeTree.ts`, `src/components/RepoChanges.tsx` <-
   `apps/web/src/components/diffs/diffFileTree.logic.ts`,
@@ -96,8 +96,6 @@ Copyright (c) 2026 T3 Tools Inc.
   `apps/web/src/components/media/MediaActions.tsx`
 - `src/lib/markdownClipboard.ts`, `src/components/ChatTimeline.tsx` <-
   `apps/web/src/markdown-clipboard.ts`, `apps/web/src/components/chat/MessagesTimeline.tsx`
-- `src/lib/promptStash.ts`, `src/components/ComposerStash.tsx` <-
-  `apps/web/src/promptStashStore.ts`, `apps/web/src/components/chat/ComposerStashMenu.tsx`
 - `src/lib/typography.ts`, `src/lib/settings.ts`, `src/components/SettingsDialog.tsx` <-
   `apps/web/src/appearanceFonts.ts`,
   `apps/web/src/components/settings/SettingsPanels.tsx`

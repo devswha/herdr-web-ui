@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import type { Browser } from "playwright-core";
 import { openSettingsPage } from "./settings-page.ts";
+import { chromePath } from "./chrome-path.ts";
 
 export async function checkTerminalInput(browser: Browser, origin: string, pane: string, otherPane: string): Promise<void> {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -26,6 +27,8 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   let holdPings = false;
   const heldPings: string[] = [];
   let toServer: ((raw: string) => void) | undefined;
+  // the snapshot names what the bridge answers, pings among it; it can follow input-ready by a few ms
+  let snapshotSent = false;
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
     if (refuseConnections) { void socket.close(); return; }
     currentSocket = socket;
@@ -36,6 +39,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
       const frame = JSON.parse(String(raw));
       if (delayReady && frame.type === "input-ready") ready = () => socket.send(raw);
       else socket.send(raw);
+      if (frame.type === "snapshot") snapshotSent = true;
     });
     socket.onMessage((raw) => {
       const frame = JSON.parse(String(raw));
@@ -75,7 +79,12 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     // A liveness probe refuses input without a frame to say so: on a quiet pane the 1 s poll reads
     // it, so the terminal shows it waits instead of looking ready while typing goes to the draft.
     const waiting = page.locator(".terminal-banner", { hasText: "Waiting for terminal input…" });
+    // the banner is drawn only on a connected pane: before the socket opens it is absent too, and
+    // a wake then finds nothing to probe
+    await page.locator(".conn-live").waitFor();
     await waiting.waitFor({ state: "hidden" });
+    // nor does a wake probe before the snapshot has said the bridge answers pings
+    await until(() => snapshotSent);
     holdPings = true;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await until(() => heldPings.length > 0);
@@ -567,7 +576,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     assert.equal(sent.length, switchBefore, "old composition cannot cross a pane reset");
     assert.equal(await page.locator(".draft-text").count(), 0, "old commit cannot enter the new pane's held draft");
     // A late end after reset is stale, not a second attempt to send the abandoned input.
-    await page.locator(".xterm-helper-textarea").dispatchEvent("compositionend", { data: "한" });
+    await page.locator(".pane-frame.is-current .xterm-helper-textarea").dispatchEvent("compositionend", { data: "한" });
     await page.waitForTimeout(75);
     assert.equal(sent.length, switchBefore);
     console.log("PASS xterm composition: local preedit, delayed multi-commit burst, punctuation order, Korean final-consonant movement, pane-reset cancellation");
@@ -653,7 +662,7 @@ if (import.meta.main) {
   const root = mkdtempSync(join(tmpdir(), "herdr-input-qa-"));
   const owned: string[] = [];
   const server = createServer({ port: 0, stateDir: root, token: "" });
-  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+  const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   try {
     const panes: string[] = [];
     for (let i = 0; i < 2; i++) {
