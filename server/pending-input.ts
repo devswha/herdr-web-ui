@@ -1,6 +1,24 @@
 import type { AgentStatus, PendingMessage } from "../shared/protocol.ts";
 
-export interface PendingIdentity { agent: string | null; terminalId: string; session: string | null }
+export interface PendingIdentity {
+  agent: string | null;
+  terminalId: string;
+  session: string | null;
+  processPid?: number | null;
+  processBirth?: number | null;
+  omoSession?: string | null;
+}
+
+/** An identity learned after enqueue is not a replacement; only mutually known parts disagree. */
+export function samePendingIdentity(before: PendingIdentity, after: PendingIdentity, platform: NodeJS.Platform = process.platform): boolean {
+  const changed = <T>(a: T | null | undefined, b: T | null | undefined) => a != null && b != null && a !== b;
+  return before.agent === after.agent && before.terminalId === after.terminalId
+    && !changed(before.session, after.session) && !changed(before.omoSession, after.omoSession)
+    && !changed(before.processPid, after.processPid)
+    // macOS derives birth from whole elapsed seconds; reads of one PID drift by up to a second.
+    && (before.processBirth == null || after.processBirth == null
+      || (platform === "darwin" ? Math.abs(before.processBirth - after.processBirth) <= 1000 : before.processBirth === after.processBirth));
+}
 export interface PendingRecord<Owner, Lease> {
   owner: Owner;
   paneId: string;

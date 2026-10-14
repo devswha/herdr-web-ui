@@ -1,5 +1,32 @@
 import { describe, expect, it } from "bun:test";
-import { MAX_PENDING_PER_OWNER, PendingInputs } from "./pending-input.ts";
+import { MAX_PENDING_PER_OWNER, PendingInputs, samePendingIdentity, type PendingIdentity } from "./pending-input.ts";
+
+describe("pending target identity", () => {
+  const identity: PendingIdentity = { agent: "claude", terminalId: "t1", session: null, processPid: 12, processBirth: 100_000, omoSession: null };
+
+  it("refuses known process, birth, native session and OmO session replacements (regression #540)", () => {
+    expect(samePendingIdentity(identity, { ...identity, processPid: 13 })).toBe(false);
+    expect(samePendingIdentity(identity, { ...identity, processBirth: 110_000 })).toBe(false);
+    expect(samePendingIdentity({ ...identity, session: "old" }, { ...identity, session: "new" })).toBe(false);
+    expect(samePendingIdentity({ ...identity, omoSession: "old" }, { ...identity, omoSession: "new" })).toBe(false);
+  });
+
+  it("permits identity parts that were unknown on either read (control #540)", () => {
+    const unknown: PendingIdentity = { agent: "claude", terminalId: "t1", session: null };
+    const known = { ...identity, session: "native", omoSession: "omo" };
+    expect(samePendingIdentity(unknown, known)).toBe(true);
+    expect(samePendingIdentity(known, unknown)).toBe(true);
+    expect(samePendingIdentity(identity, { ...identity })).toBe(true);
+    expect(samePendingIdentity(identity, { ...identity, terminalId: "t2" })).toBe(false);
+    expect(samePendingIdentity(identity, { ...identity, agent: null })).toBe(false);
+  });
+
+  it("tolerates only the existing macOS birth precision (control #540)", () => {
+    expect(samePendingIdentity(identity, { ...identity, processBirth: 101_000 }, "darwin")).toBe(true);
+    expect(samePendingIdentity(identity, { ...identity, processBirth: 101_001 }, "darwin")).toBe(false);
+    expect(samePendingIdentity(identity, { ...identity, processBirth: 101_000 }, "linux")).toBe(false);
+  });
+});
 
 function fixture() {
   let now = 1_000;
