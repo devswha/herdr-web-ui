@@ -71,6 +71,8 @@ export const ZH: Record<string, string> = {
   "Catppuccin": "Catppuccin",
   "Pin agent": "固定 Agent",
   "Unpin agent": "取消固定 Agent",
+  "Pin workspace": "固定工作区",
+  "Unpin workspace": "取消固定工作区",
   "Pinned": "已固定",
   "Message from another session: {name}": "来自另一个会话的消息：{name}",
   "Message from another session": "来自另一个会话的消息",

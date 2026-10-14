@@ -1507,7 +1507,7 @@ try {
   const repoMenu = page.getByRole("menu");
   await repoMenu.waitFor();
   const repoActions = await repoMenu.getByRole("menuitem").allTextContents();
-  assert.deepEqual(repoActions, ["Rename workspace", "Close group", "New worktree", "Open worktree…", "Expand"],
+  assert.deepEqual(repoActions, ["Pin workspace", "Rename workspace", "Close group", "New worktree", "Open worktree…", "Expand"],
     "a folded repository group has native workspace and worktree actions");
   await page.keyboard.press("Escape");
   await repoMenu.waitFor({ state: "detached" });
@@ -1629,7 +1629,7 @@ try {
   const childMenu = page.getByRole("menu");
   await childMenu.waitFor();
   const childActions = await childMenu.getByRole("menuitem").allTextContents();
-  assert.deepEqual(childActions, ["Rename workspace", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
+  assert.deepEqual(childActions, ["Pin workspace", "Rename workspace", "Close workspace", "Delete worktree checkout…"], "a worktree workspace's menu");
   await page.keyboard.press("Escape");
   await childMenu.waitFor({ state: "detached" });
   await childHeader.locator(".workspace-select").click({ button: "right" });
@@ -1638,6 +1638,17 @@ try {
     "a linked checkout's keyboard menu and right-click menu have identical actions");
   await page.keyboard.press("Escape");
   await childMenu.waitFor({ state: "detached" });
+  // pinned, the worktree leaves its repository's group for the pinned card at the top; unpinned, it returns
+  await childHeader.locator(".workspace-select").click({ button: "right" });
+  await childMenu.getByRole("menuitem", { name: "Pin workspace", exact: true }).click();
+  const pinnedCard = page.locator(".workspace-list-pinned");
+  await pinnedCard.locator(`.workspace-group[data-workspace="${worktree.workspace_id}"]`).waitFor();
+  assert.equal(await page.locator(`.worktree-children .workspace-group[data-workspace="${worktree.workspace_id}"]`).count(), 0, "a pinned worktree leaves its group");
+  assert.equal(await pinnedCard.locator(".sidebar-pin-mark").count(), 1, "the pinned row carries its pin");
+  await pinnedCard.locator(`.workspace-group[data-workspace="${worktree.workspace_id}"] .workspace-select`).click({ button: "right" });
+  await childMenu.getByRole("menuitem", { name: "Unpin workspace", exact: true }).click();
+  await pinnedCard.waitFor({ state: "detached" });
+  await childRow.waitFor();
   await childHeader.locator(".workspace-select").click({ button: "right" });
   await childMenu.waitFor();
   await childMenu.getByRole("menuitem", { name: "Delete worktree checkout…", exact: true }).click();
@@ -2202,7 +2213,7 @@ try {
   const rowMenu = page.getByRole("menu");
   await rowMenu.waitFor();
   const rowActions = await rowMenu.getByRole("menuitem").allTextContents();
-  assert.deepEqual(rowActions, ["Rename workspace", "Close workspace"], "the workspace menu keeps workspace scope");
+  assert.deepEqual(rowActions, ["Pin workspace", "Rename workspace", "Close workspace"], "the workspace menu keeps workspace scope");
   // Escape puts the menu away and the focus back on the row
   await page.keyboard.press("Escape");
   await rowMenu.waitFor({ state: "detached" });

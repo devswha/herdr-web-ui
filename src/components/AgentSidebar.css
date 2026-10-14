@@ -79,13 +79,7 @@
   list-style: none;
 }
 
-/* Pinned agents stand first, each marked with a pin; a hairline, with a gap on each side, parts
-   them from the rest. The Agents head stays the list's only head. */
-.agent-list-pinned + .agent-list {
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: var(--hairline) solid var(--border);
-}
+/* Pinned agents stand first in a card (Sidebar.css), each with a pin; the Agents head stays the list's only head. */
 
 /* The agent row selects its pane; its ⋯ (or a right-click) opens its pin menu. */
 /* The trailing padding keeps the state cell, which the row draws at its right edge after the ⋯, as
@@ -186,13 +180,6 @@
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
-}
-
-.agent-pin-mark {
-  flex: none;
-  width: var(--space-3);
-  height: var(--space-3);
-  color: var(--text-dim);
 }
 
 .agent-context {

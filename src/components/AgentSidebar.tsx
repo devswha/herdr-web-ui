@@ -42,7 +42,7 @@ function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, p
       {markKind && <span className="visually-hidden">{markKind}: </span>}
       <span className="agent-title-line">
         <span className="agent-title">{title}</span>
-        {pinned && <Pin className="agent-pin-mark" aria-hidden="true" />}
+        {pinned && <Pin className="sidebar-pin-mark" aria-hidden="true" />}
       </span>
       {(name || context) && <span className="agent-context">
         {name && <span className="agent-name">{name}</span>}
@@ -74,7 +74,7 @@ interface PinMenu { key: string; anchor: HTMLElement; point?: { x: number; y: nu
 /**
  * All PCs' live agents form a second list; workspace and PC folds do not hide these rows.
  * In the phone's drawer the list starts folded, leaving the room to the workspaces.
- * The pinned agents stand first, each with a pin, a hairline above the rest; on a desktop only a
+ * The pinned agents stand first, in a card, each with a pin; on a desktop only a
  * right-click (or the context-menu key) opens the menu. A row's ⋯, or a right-click on it, opens its
  * menu, which pins or unpins it.
  */
@@ -172,7 +172,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     </button>
     <div className="agent-list-contents" id={listId} hidden={collapsed}>
       {rows.length === 0 ? <p className="agent-empty" role="status">{t("No agents running")}</p> : <>
-        {split.pinned.length > 0 && <ul className="agent-list agent-list-pinned" aria-label={t("Pinned")}>{split.pinned.map(agentItem)}</ul>}
+        {split.pinned.length > 0 && <ul className="agent-list agent-list-pinned sidebar-pinned" aria-label={t("Pinned")}>{split.pinned.map(agentItem)}</ul>}
         {split.rest.length > 0 && <ul className="agent-list">{split.rest.map(agentItem)}</ul>}
       </>}
     </div>

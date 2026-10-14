@@ -588,10 +588,11 @@ One set for both themes: the card is island black wherever it shows.
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
 - The Agents list is flat and every row names its own place. Pinned agents (pinned from a row's
-  menu) stand first, in the order they were pinned, each with a `--space-3` pin in `--text-dim`
-  after its title; a `--hairline` `--border` rule with `--space-2` on each side parts them from the
-  rest, in the chosen order. The Agents head is the only head (the pinned list is labelled
-  **Pinned** for screen readers); without pins there is no rule. Pins are shared with the other browsers of the server.
+  menu) stand first, in the order they were pinned, in a card (a `--hairline` `--border` edge,
+  `--radius-lg`, `--space-1` padding, no fill, so hover and selection read inside it as elsewhere),
+  each with a `--space-3` `--accent` pin after its title; the rest follow `--space-2` below in the
+  chosen order. The Agents head is the only head (the pinned list is labelled **Pinned** for screen
+  readers); without pins there is no card. Pins are shared with the other browsers of the server.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's
   height and type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
@@ -621,6 +622,13 @@ One set for both themes: the card is island black wherever it shows.
   open; always on touch; not drawn on a desktop, where a right-click opens the menu). Inline server failures
   stay beside their workspace. A repository's workspace moves past the
   next or previous group with its worktrees, and a worktree moves among its siblings only.
+- A workspace is pinned from its row menu (**Pin workspace** / **Unpin workspace**, first in the
+  menu), as Paseo pins a chat: pinned workspaces leave their place and stand first in their PC's
+  list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`) with the same
+  `--accent` pin after the name. A pinned repository's workspace brings its worktrees; a pinned
+  worktree leaves its repository's group, which stays. Pinned rows are not dragged and `Alt+↑/↓`
+  does not move them; the rest reorder among the rows they show. The pins are the Agents list's
+  shared list (a workspace's key is `machine:workspace:id`), so other browsers of the server see them.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
   in the row's tooltip. Parent workspace names stay fixed and linked checkouts are named by branch;
