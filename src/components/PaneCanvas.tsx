@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type MutableRefObject, type PointerEvent, type ReactNode } from "react";
-import { Columns2, Ellipsis, Eraser, Maximize2, MousePointer2, Pencil, Rows2, ArrowLeftRight, X } from "lucide-react";
+import { Columns2, Ellipsis, Eraser, Maximize2, Pencil, Rows2, ArrowLeftRight, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { HerdrPane, PaneLayoutSnapshot, SessionSnapshot } from "../../shared/protocol.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { PaneSubmitRetention } from "../lib/paneSubmitRetention.ts";
 import { PaneCachedContext, PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { cachedPaneCells, visitPaneTab } from "../lib/paneTabCache.ts";
-import { PaneAwayContext } from "../lib/paneAwayContext.ts";
 import { ApiError, routeMissing } from "../lib/api.ts";
 import { layoutCells, zoomMode } from "../lib/layoutMap.ts";
 import { layoutTopology, paneContextPress, SOLO_PANE_QUERY, soloPane, splitPath, splitRatioAt } from "../lib/paneCanvas.ts";
@@ -28,7 +27,6 @@ interface Props {
   onSelect: (paneId: string, focusInput?: boolean) => void;
   onChanged: () => void;
   renderPane: (pane: HerdrPane | null, active: boolean, split: boolean) => ReactNode;
-  isTerminal: (pane: HerdrPane) => boolean;
   /** filled with this canvas's pane actions on each render: a phone's tab menu offers them for the open pane (TabStrip) */
   actionsRef?: MutableRefObject<((target: HerdrPane) => RowMenuItem[]) | null>;
 }
@@ -53,15 +51,13 @@ interface Drag {
 }
 
 /** The active tab, drawn from herdr's rectangles. No browser-owned layout or PTY state. */
-export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged, renderPane, isTerminal, actionsRef }: Props) {
+export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged, renderPane, actionsRef }: Props) {
   const t = useT();
   const apple = /Mac|iPhone|iPad/.test(navigator.platform);
   const coarse = useMediaQuery("(pointer: coarse)");
   const narrow = useMediaQuery(SOLO_PANE_QUERY);
   const api = useMachineApi();
   const canvas = useRef<HTMLDivElement>(null);
-  // Survives workspace/tab switches, but the PC-keyed canvas owns this memory exclusively.
-  const awayReleased = useRef(false);
   const [submits] = useState(() => new PaneSubmitRetention());
   const retainedIds = useSyncExternalStore(submits.subscribe, submits.snapshot, submits.snapshot);
   const lastCells = useRef(new Map<string, ReturnType<typeof layoutCells>[number]>());
@@ -75,7 +71,6 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
   const [renaming, setRenaming] = useState<HerdrPane | null>(null);
   const [closing, setClosing] = useState<HerdrPane | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [passthrough, setPassthrough] = useState<Set<string>>(() => new Set());
   // A new pane can be selected before its snapshot arrives, and a selected pane can close
   // before App confirms its replacement. Keep the prior tab's surviving mounts (and their
   // connection-owned pending sends) through either gap, with selection/input still pending.
@@ -128,9 +123,6 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
     setMenu({ paneId: target.pane_id, anchor, point,
       previousFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null });
   };
-  const sendsRightClick = (target: HerdrPane, event: MouseEvent<HTMLElement>): boolean =>
-    passthrough.has(target.pane_id) && isTerminal(target) && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
-      && event.target instanceof Element && !!event.target.closest('.pane-terminal[data-mouse-reporting]');
   // a long press on a touch screen is the phone's own: select text, copy (the tab's menu has the pane's actions)
   const touchPress = useRef(false);
   const context = (event: MouseEvent<HTMLElement>, target: HerdrPane): void => {
@@ -138,7 +130,6 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
     if (pointer === "touch" || pointer === "pen" || (pointer === undefined && touchPress.current)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (sendsRightClick(target, event)) return;
     const rect = event.currentTarget.getBoundingClientRect();
     showMenu(target, event.currentTarget, { x: event.clientX || rect.left + 8, y: event.clientY || rect.top + 8 });
   };
@@ -168,8 +159,6 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
         await api.zoomPane(target.pane_id, layout ? zoomMode(layout, target.pane_id) : "on");
         if (alive.current && latest.current.tabId === tabId && latest.current.selection === selection) onSelect(target.pane_id);
       }) },
-    { id: "right-click", label: t(passthrough.has(target.pane_id) ? "Use Herdr right-click menu" : "Send right-clicks to pane"), icon: MousePointer2,
-      run: () => setPassthrough((old) => { const next = new Set(old); if (next.has(target.pane_id)) next.delete(target.pane_id); else next.add(target.pane_id); return next; }) },
     { id: "close", label: t("Close pane"), icon: X, danger: true, run: () => requestClose(target) },
   ];
   const items = target ? itemsFor(target) : [];
@@ -238,7 +227,7 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
   // no room for a split, so it shows the selected pane alone the same way and leaves herdr's
   // layout as it is; the tab's menu lists the other panes (TabStrip).
   // a phone's hidden siblings take the whole canvas too, so each keeps the grid it is shown with
-  return <PaneSubmitContext.Provider value={submits}><PaneAwayContext.Provider value={awayReleased}><div className={`pane-canvas${!pane && presented ? " is-pending" : ""}`} ref={canvas} aria-busy={!pane && presented ? true : undefined}>
+  return <PaneSubmitContext.Provider value={submits}><div className={`pane-canvas${!pane && presented ? " is-pending" : ""}`} ref={canvas} aria-busy={!pane && presented ? true : undefined}>
     {cells.length === 0 && renderPane(pane, true, false)}
     {mountedCells.map((cell) => {
       const item = snapshot?.panes.find((item) => item.pane_id === cell.paneId);
@@ -279,10 +268,10 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
         onDropCapture={() => { if (!active) onSelect(item.pane_id, false); }}
         onFocusCapture={(event) => { if (!active && event.currentTarget.contains(event.target)) onSelect(item.pane_id, false); }}
         onMouseDownCapture={(event) => {
-          if (paneContextPress(event, apple) && !sendsRightClick(item, event)) { event.preventDefault(); event.stopPropagation(); }
+          if (paneContextPress(event, apple)) { event.preventDefault(); event.stopPropagation(); }
         }}
         onMouseUpCapture={(event) => {
-          if (paneContextPress(event, apple) && !sendsRightClick(item, event)) { event.preventDefault(); event.stopPropagation(); }
+          if (paneContextPress(event, apple)) { event.preventDefault(); event.stopPropagation(); }
         }}
         onContextMenuCapture={(event) => context(event, item)}>
         <div className="pane-frame-head">
@@ -320,7 +309,7 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
     {closing && <ConfirmDialog title={t("Close pane {name}?", { name: displayPaneTitle(closing) })}
       body={t("The pane's running processes will stop. Closing its last pane also closes the workspace.")}
       confirmLabel={t("Close pane")} onClose={() => setClosing(null)} onConfirm={async () => { await api.closePane(closing.pane_id); setClosing(null); onChanged(); }} />}
-  </div></PaneAwayContext.Provider></PaneSubmitContext.Provider>;
+  </div></PaneSubmitContext.Provider>;
 }
 
 function PaneRename({ pane, onClose, onSave }: { pane: HerdrPane; onClose: () => void; onSave: (label: string) => Promise<void> }) {
