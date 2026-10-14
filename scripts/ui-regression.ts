@@ -1716,6 +1716,10 @@ try {
   await page.keyboard.press("F2");
   await tabName.fill("   ");
   await page.keyboard.press("Enter");
+  // a blank name is refused and said so: the field stays for another try, and Escape keeps the old name
+  await page.locator(".tab-strip-error").getByText("A tab needs a name.", { exact: true }).waitFor();
+  assert.equal(await tabName.count(), 1, "a blank name keeps the field open");
+  await page.keyboard.press("Escape");
   await tabName.waitFor({ state: "detached" });
   assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["first", "second"]);
   assert.equal((await tabsInHerdr()).join(), "first,second");
