@@ -3112,7 +3112,7 @@ export function createServer(
               // still be awaiting herdr, and must not revive this hidden grid when it completes.
               claim.keepSize = true;
               const attachment = typeof message.pane_id === "string" ? attachments.get(message.pane_id) : undefined;
-              if (!attachment || attachment.mirror || client.data.mode !== "interact") break;
+              if (!attachment || attachment.mirror) break;
               attachment.grids.delete(client);
               if (attachment.driver !== client) break;
               attachment.driver = undefined;
