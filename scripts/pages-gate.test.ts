@@ -182,6 +182,19 @@ describe("Browser lane script lists", () => {
 });
 
 describe("Extracted UI checks", () => {
+  it("refuses a direct mobile viewport run in unit mode instead of silently passing", () => {
+    // Given a unit run, no browser or herdr fixture is allowed.
+    // When the shared helper is invoked directly, it must execute its entrypoint.
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("./mobile-viewport-regression.ts", import.meta.url))], {
+      encoding: "utf8", timeout: 5_000,
+      env: { ...process.env, HERDR_TEST_MODE: "unit" },
+    });
+    // Then the unit-mode guard rejects the run rather than returning an empty success.
+    expect(result.error).toBeUndefined();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("HERDR_TEST_MODE=unit");
+  });
+
   const moved = [
     "checkPushSettings", "checkWakeLock", "checkSecretInput", "checkTerminalCopy", "checkPaneFind",
     "checkUsageMeters", "checkNotificationStartup", "checkNotificationView", "checkMobileViewport",

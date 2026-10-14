@@ -486,6 +486,57 @@ it("attaches a grid the chat lens covers without resizing the shared pty, on a r
   client.close();
 });
 
+it("releases the shared grid once when the chat lens covers a terminal this tab sized, never replayed", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  const releases = () => socket.sent.filter((m) => m.type === "release-size");
+  const lastAttach = () => socket.sent.filter((m) => m.type === "attach").at(-1);
+  // opened in the chat lens: this tab never sized the pty, so it has nothing to release
+  client.attach("w1:p1", 40, 20, true);
+  client.releaseSize("w1:p1");
+  expect(releases()).toEqual([]);
+  // the terminal lens sized it, then the chat lens covers it: one release, and the attach keeps the size
+  client.resize("w1:p1", 53, 33, true);
+  client.releaseSize("w1:p1");
+  client.releaseSize("w1:p1");
+  expect(releases()).toEqual([{ type: "release-size", pane_id: "w1:p1" }]);
+  socket.open();
+  expect(lastAttach()).toEqual({ type: "attach", pane_id: "w1:p1", cols: 53, rows: 33, flow_control: "ack", keep_size: true });
+  expect(releases()).toHaveLength(1);
+  // an observer never drives the grid, so it never releases it either
+  client.setMode("observe");
+  client.resize("w1:p1", 60, 20, true);
+  client.releaseSize("w1:p1");
+  expect(releases()).toHaveLength(1);
+  client.close();
+});
+
+it("releases the shared grid once when a hidden terminal returns directly to Chat", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  const releases = () => socket.sent.filter((m) => m.type === "release-size");
+  try {
+    client.attach("w1:p1", 53, 33);
+    // Selecting another pane hides this terminal without releasing its server-side grid.
+    client.keepSize("w1:p1");
+    // A notification selects this pane and Chat together, without a terminal-return resize.
+    client.releaseSize("w1:p1");
+    client.releaseSize("w1:p1");
+    expect(releases()).toEqual([{ type: "release-size", pane_id: "w1:p1" }]);
+    socket.open();
+    client.releaseSize("w1:p1");
+    expect(releases()).toHaveLength(1);
+    expect(socket.sent.filter((m) => m.type === "attach").at(-1))
+      .toEqual({ type: "attach", pane_id: "w1:p1", cols: 53, rows: 33, flow_control: "ack", keep_size: true });
+  } finally {
+    client.close();
+  }
+});
+
 it("sends no resize for a pane it let go of, and does not attach it again on a reconnect", () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();

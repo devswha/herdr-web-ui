@@ -8,6 +8,10 @@
  *   orphans every subscribed device, so a malformed file is an error, never a rotation.
  * - push-subscriptions.json: survives restarts, so a reboot does not unsubscribe phones.
  *   A 404/410 from a push service means the device dropped it; the record is deleted.
+ *   The endpoint is also remembered in memory (`RETIRED_LIMIT`, until restart): a browser
+ *   can keep handing over a subscription its push service retired, and registering it again
+ *   would only fail the next push, so it is refused as `subscription_gone` and the device
+ *   subscribes anew (#1038).
  *
  * Requests are built by web-push's generateRequestDetails (RFC 8291 aes128gcm + RFC
  * 8292 VAPID) and sent with fetch; its sendNotification path goes through node:https
@@ -27,6 +31,7 @@
  * would go out, so a window brought forward while the alert waits still holds it back.
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import webpush from "web-push";
@@ -50,6 +55,8 @@ import { isLoopbackHost } from "./access.ts";
 const PUSH_TTL_SECONDS = 12 * 60 * 60;
 const PUSH_TIMEOUT_MS = 10_000;
 const DEFAULT_SUBJECT = "https://github.com/devswha/herdr-web-ui";
+/** How many retired endpoints are remembered; the oldest is forgotten first. */
+const RETIRED_LIMIT = 256;
 
 /** How long an alert waits for the pane to change first, and the turn a finish is worth telling. */
 export interface AlertTiming {
@@ -82,6 +89,8 @@ export interface PushService {
   subscribe(subscription: PushSubscriptionRecord, alerts?: AlertPrefs, deviceId?: string | null): void;
   revokeDevice(id: string): void;
   unsubscribe(endpoint: string): void;
+  /** whether a push service answered 404/410 for this endpoint since the server started */
+  retired(endpoint: string): boolean;
   /** One confirmation push to one device, so enabling alerts proves the whole path works. */
   sendTest(endpoint: string): Promise<PushDelivery | null>;
   /** The collector's view of every pane: status baselines and the titles notifications use. */
@@ -182,6 +191,9 @@ export function createPushService(options: PushServiceOptions): PushService {
   // the workspace a pane was last seen in: an alert names it, so the tap of an ended pane can open
   // its workspace (src/lib/deepLink.ts resolveLink) once herdr has dropped the pane
   const workspaces = new Map<string, string>();
+  /** sha256 of each endpoint a push service retired -> when, oldest first */
+  const retiredEndpoints = new Map<string, number>();
+  const endpointHash = (endpoint: string): string => createHash("sha256").update(endpoint).digest("base64url");
 
   /** Created on first need: a server nobody subscribes to never writes a key. */
   function keys(): { publicKey: string; privateKey: string } {
@@ -250,6 +262,10 @@ export function createPushService(options: PushServiceOptions): PushService {
     // 404/410: the device unsubscribed or the browser dropped the subscription
     const gone = status === 404 || status === 410;
     if (gone) {
+      const hash = endpointHash(subscription.endpoint);
+      retiredEndpoints.delete(hash);
+      retiredEndpoints.set(hash, Date.now());
+      if (retiredEndpoints.size > RETIRED_LIMIT) retiredEndpoints.delete(retiredEndpoints.keys().next().value!);
       if (store().delete(subscription.endpoint)) persist();
     } else {
       console.error(`web push to ${new URL(subscription.endpoint).host} failed: ${status ?? "no response"}`);
@@ -353,6 +369,8 @@ export function createPushService(options: PushServiceOptions): PushService {
     unsubscribe(endpoint) {
       if (store().delete(endpoint)) persist();
     },
+
+    retired: (endpoint) => retiredEndpoints.has(endpointHash(endpoint)),
 
     async sendTest(endpoint) {
       const subscription = store().get(endpoint);
@@ -459,9 +477,14 @@ export function createPushService(options: PushServiceOptions): PushService {
  * a subscription receives pane titles until it is removed.
  *   GET    /api/push                        -> { public_key }
  *   POST   /api/push/subscribe { subscription, alerts? } -> 204 (alerts: this device's AlertPrefs)
+ *          | 410 subscription_gone (its push service retired the endpoint: subscribe anew)
  *   DELETE /api/push/subscribe { endpoint } -> 204
- *   POST   /api/push/test      { endpoint } -> 204 | 404 subscription_not_found | 502 push_failed
+ *   POST   /api/push/test      { endpoint } -> 204 | 404 subscription_not_found | 410 subscription_gone | 502 push_failed
  */
+function subscriptionGone(): Response {
+  return jsonResponse({ error: { code: "subscription_gone", message: "the push service retired this subscription; subscribe again" } }, 410);
+}
+
 export async function handlePushRequest(request: Request, pathname: string, push: PushService, deviceId: string | null | undefined): Promise<Response | null> {
   const route = `${request.method} ${pathname}`;
   if (route === "GET /api/push") return jsonResponse({ public_key: push.publicKey() });
@@ -481,6 +504,7 @@ export async function handlePushRequest(request: Request, pathname: string, push
   if (route === "POST /api/push/subscribe") {
     const subscription = push.parse(body.subscription);
     if (!subscription) return badRequest("invalid_subscription", "subscription needs an https endpoint and p256dh/auth keys");
+    if (push.retired(subscription.endpoint)) return subscriptionGone();
     push.subscribe(subscription, body.alerts === undefined ? undefined : parseAlerts(body.alerts), deviceId);
     return new Response(null, { status: 204 });
   }
@@ -490,7 +514,11 @@ export async function handlePushRequest(request: Request, pathname: string, push
     return new Response(null, { status: 204 });
   }
   const delivery = await push.sendTest(body.endpoint);
-  if (!delivery) return jsonResponse({ error: { code: "subscription_not_found", message: "this device is not subscribed" } }, 404);
+  if (!delivery) {
+    return push.retired(body.endpoint) ? subscriptionGone()
+      : jsonResponse({ error: { code: "subscription_not_found", message: "this device is not subscribed" } }, 404);
+  }
   if (delivery.ok) return new Response(null, { status: 204 });
+  if (delivery.gone) return subscriptionGone();
   return jsonResponse({ error: { code: "push_failed", message: `push service answered ${delivery.status ?? "nothing"}` } }, 502);
 }

@@ -31,10 +31,10 @@ export type AgentMarks = "color" | "mono";
 export type UsageCount = "used" | "left";
 /** the limit a plan meter shows: the plan's week, or its short session (5 hours on Claude and Codex) */
 export type UsageGlance = "week" | "session";
-/** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark;
- *  catppuccin: Catppuccin Mocha in dark, Latte in light; lilac: lavender surfaces and indigo accents;
- *  forest: low-saturation green surfaces for long sessions */
-export type Palette = "amber" | "report" | "charcoal" | "catppuccin" | "lilac" | "forest";
+/** amber: the herdr look (the default); charcoal: neutral Ghostty-style dark;
+ *  catppuccin: Catppuccin Mocha in dark, Latte in light. A record naming a palette that was removed
+ *  (report, lilac, forest) loads as amber. */
+export type Palette = "amber" | "charcoal" | "catppuccin";
 /** the chat lane's widest: the transcript, the composer column and the held list share it (--chat-w in src/styles.css).
  *  narrow: 820px; default: follows the pane, up to 60rem (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
 export type ChatWidth = "narrow" | "default" | "wide" | "full";
@@ -403,7 +403,7 @@ export function alertPrefs(settings: Settings): AlertPrefs {
   return { input: settings.alertInput, done: settings.alertDone };
 }
 
-const PALETTES: readonly Palette[] = ["amber", "report", "charcoal", "catppuccin", "lilac", "forest"];
+const PALETTES: readonly Palette[] = ["amber", "charcoal", "catppuccin"];
 
 const STORAGE_KEY = "herdr-web-ui:settings";
 export const TERMINAL_FONT_MIN = 10;
@@ -598,10 +598,6 @@ const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = 
     light: { background: "#faf8f3", foreground: "#2a251f", cursor: "#8c5000", selectionBackground: "#f0d9ae" },
     dark: { background: "#181613", foreground: "#d8d0c3", cursor: "#f0a830", selectionBackground: "#4a3d26" },
   },
-  report: {
-    light: { background: "#fafaf9", foreground: "#242424", cursor: "#1f5fcc", selectionBackground: "#cfe0fb" },
-    dark: { background: "#0f1319", foreground: "#c9d1dc", cursor: "#4c9aff", selectionBackground: "#1f3a66" },
-  },
   charcoal: {
     light: { background: "#fafaf9", foreground: "#242424", cursor: "#242424", selectionBackground: "#dedad3" },
     dark: { background: "#171717", foreground: "#cbc7c0", cursor: "#cbc7c0", selectionBackground: "#49443d" },
@@ -609,14 +605,6 @@ const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = 
   catppuccin: {
     light: { background: "#eff1f5", foreground: "#4c4f69", cursor: "#dc8a78", selectionBackground: "#d2d4dc" },
     dark: { background: "#1e1e2e", foreground: "#cdd6f4", cursor: "#f5e0dc", selectionBackground: "#3b3d4f" },
-  },
-  lilac: {
-    light: { background: "#f8f7fe", foreground: "#2b2d4d", cursor: "#4a42c2", selectionBackground: "#dcd7f8" },
-    dark: { background: "#18172f", foreground: "#dcdaf4", cursor: "#b3abff", selectionBackground: "#3a3768" },
-  },
-  forest: {
-    light: { background: "#f7fbf8", foreground: "#20352a", cursor: "#2c7648", selectionBackground: "#cfe5d5" },
-    dark: { background: "#16231d", foreground: "#d4e5d8", cursor: "#8fd3a2", selectionBackground: "#31513e" },
   },
 };
 
@@ -627,11 +615,8 @@ export function terminalTheme(theme: ResolvedTheme, palette: Palette = "amber"):
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
 const THEME_COLOR: Record<Palette, Record<ResolvedTheme, string>> = {
   amber: { dark: "#181613", light: "#faf8f3" },
-  report: { dark: "#0f1319", light: "#fafaf9" },
   charcoal: { dark: "#171717", light: "#fafaf9" },
   catppuccin: { dark: "#181825", light: "#e6e9ef" },
-  lilac: { dark: "#1c1b34", light: "#f6f5fe" },
-  forest: { dark: "#16231d", light: "#f7fbf8" },
 };
 
 function applyToDocument(settings: Settings, resolved: ResolvedTheme, palette: Palette, language: Language): void {

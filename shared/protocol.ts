@@ -236,8 +236,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  PATCH  /api/devices/:id  { label }    -> PairedDevice;  DELETE /api/devices/:id -> 204 (revoked at its next request)
  *  GET    /api/push                      -> PushKey (the VAPID application server key)
  *  POST   /api/push/subscribe { subscription }  -> 204 (a browser PushSubscription JSON; upsert by endpoint)
+ *         | 410 subscription_gone (its push service answered 404/410 for that endpoint since the server
+ *         started: the browser must unsubscribe and subscribe anew; an older server never says it)
  *  DELETE /api/push/subscribe { endpoint }      -> 204
- *  POST   /api/push/test      { endpoint }      -> 204 | 404 subscription_not_found | 502 push_failed
+ *  POST   /api/push/test      { endpoint }      -> 204 | 404 subscription_not_found | 410 subscription_gone | 502 push_failed
  *  GET    /api/usage[?refresh=1]         -> UsageReport (plan limits of the AI subscriptions signed in on this PC)
  *  Errors: non-2xx with { error: { code, message } }
  *
@@ -1090,7 +1092,7 @@ export interface PushPayload {
 /** WebSocket at /ws
  *
  *  Client -> server frames: attach {pane_id, cols, rows} | detach {pane_id} | input {pane_id, text}
- *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | role {mode}
+ *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | release-size {pane_id} | role {mode}
  *    | pty-ack {pane_id, stream_id, offset} | secret {id, pane_id, prompt, secret}
  *    | watch {pane_id, cols, rows} | unwatch {pane_id} | conversation-watch {pane_id, enabled}
  *  Server -> client frames: snapshot | pty-data | pty-exit | pane-geometry | role-ack
@@ -1155,13 +1157,22 @@ export type ClientMessage =
    * receipt, and retired ids are rejected rather than executed after history eviction.
    * `clear_draft`: an immediate chat message only, sent again over the `draft` its input_draft
    * refusal named: the server clears Claude's input box first while it still holds exactly that,
-   * and refuses again (input_draft) when it holds anything else or does not read empty after. */
-  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" | "hold"; clear_draft?: string }
+   * and refuses again (input_draft) when it holds anything else or does not read empty after.
+   * `send_anyway`: an immediate chat message only, sent again after an input_draft refusal that
+   * named no draft and showed the box (`box`): the server sends once over that box, only into the same
+   * Claude terminal and session that refusal was for (else pending_target_changed), and only while the
+   * box still shows that `box` or reads empty (else input_draft again, with the new box). Not with
+   * `clear_draft`. */
+  | { type: "submit"; id: number; pane_id: string; text: string; payload: string; typed?: boolean; delivery?: "immediate" | "queue" | "hold"; clear_draft?: string; send_anyway?: true }
   | { type: "pending-action"; id: number; pane_id: string; pending_id: string; action: "steer" | "discard" }
   /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
   | { type: "secret"; id: number; pane_id: string; prompt: string; secret: string }
   | { type: "resize"; pane_id: string; cols: number; rows: number }
+  /** this client's terminal is covered again (the chat lens): if the pty has its grid, the server sizes
+   * the pty for the latest grid of another interact client still showing the terminal, or leaves it.
+   * Never answered; an older server ignores it, so it needs no feature. */
+  | { type: "release-size"; pane_id: string }
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole }
@@ -1197,9 +1208,12 @@ export type ServerMessage =
   /** ok after Enter delivery, or bridge acceptance (`pending`); never an agent execution acknowledgement.
    * `draft`: on an immediate send's input_draft, the one-row draft in Claude's input box that a send
    * with `clear_draft` may clear (absent when the box is not one the server clears).
+   * `box`: on an immediate send's input_draft that names no draft, what the server read in Claude's
+   * input box (plain rows, cut at 200 characters; empty when no whole box could be read). Present
+   * only when a send with `send_anyway` may follow; an older server never sends it.
    * `submit_partial`: the explicitly confirmed terminal draft was cleared, but the send's
    * deadline then expired before the message was sent; never a nothing-typed receipt. */
-  | { type: "submit-result"; id: number; pane_id: string; ok: boolean; pending?: PendingMessage; code?: string; message?: string; draft?: string }
+  | { type: "submit-result"; id: number; pane_id: string; ok: boolean; pending?: PendingMessage; code?: string; message?: string; draft?: string; box?: string }
   | { type: "pending-result"; id: number; pane_id: string; pending_id: string; ok: boolean; code?: string; message?: string }
   /** Owner-only receipt and state; only an explicit removed outcome permits deleting a retained client message. */
   | { type: "pending-messages"; pane_id: string; messages: PendingMessage[]; removed?: Array<{ id: string; outcome: "sent" | "discarded" }> }

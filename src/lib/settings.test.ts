@@ -103,7 +103,7 @@ describe("telemetry settings snapshot", () => {
       sidebarRows: "one",
       agentOrder: "activity",
       agentMarks: "mono",
-      palette: "forest",
+      palette: "catppuccin",
       terminalFontSize: 22,
       terminalCursorStyle: "underline",
       terminalCursorBlink: false,
@@ -131,7 +131,7 @@ describe("telemetry settings snapshot", () => {
       sidebarRows: "one",
       agentOrder: "activity",
       agentMarks: "mono",
-      palette: "forest",
+      palette: "catppuccin",
       terminalFontSize: 22,
       terminalCursorStyle: "underline",
       terminalCursorBlink: false,
@@ -582,19 +582,20 @@ describe("palette", () => {
     expect(DEFAULT_SETTINGS.palette).toBe("amber");
     // settings stored before palettes existed carry no palette key
     expect(sanitizeSettings({ theme: "light" }).palette).toBe("amber");
-    expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
     expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
     expect(sanitizeSettings({ palette: "catppuccin" }).palette).toBe("catppuccin");
-    expect(sanitizeSettings({ palette: "lilac" }).palette).toBe("lilac");
-    expect(sanitizeSettings({ palette: "forest" }).palette).toBe("forest");
     expect(sanitizeSettings({ palette: "pink" }).palette).toBe("amber");
   });
 
-  it("preserves Forest through a saved settings round-trip and unrelated edits", () => {
-    const saved = sanitizeSettings({ palette: "forest", theme: "dark" });
+  it("loads a removed palette (report, lilac, forest) as amber", () => {
+    for (const removed of ["report", "lilac", "forest"]) expect(sanitizeSettings({ palette: removed }).palette).toBe("amber");
+  });
+
+  it("preserves Catppuccin through a saved settings round-trip and unrelated edits", () => {
+    const saved = sanitizeSettings({ palette: "catppuccin", theme: "dark" });
     const reloaded = sanitizeSettings(JSON.parse(JSON.stringify(saved)));
-    expect(reloaded.palette).toBe("forest");
-    expect(sanitizeSettings({ ...reloaded, theme: "light" }).palette).toBe("forest");
+    expect(reloaded.palette).toBe("catppuccin");
+    expect(sanitizeSettings({ ...reloaded, theme: "light" }).palette).toBe("catppuccin");
   });
 
   const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
@@ -603,21 +604,14 @@ describe("palette", () => {
     expect(start).toBeGreaterThanOrEqual(0);
     return css.slice(start, css.indexOf("}", start));
   };
-  const paper = '[data-theme="light"]:is([data-palette="report"], [data-palette="charcoal"])';
   // each case lists its blocks from the most specific to the base; the first one naming a token wins
   const cases = [
     { theme: "dark", palette: "amber", layers: [":root"] },
     { theme: "light", palette: "amber", layers: ['[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "report", layers: ['[data-theme="dark"][data-palette="report"]', ":root"] },
-    { theme: "light", palette: "report", layers: [paper, '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "charcoal", layers: ['[data-theme="dark"][data-palette="charcoal"]', ":root"] },
-    { theme: "light", palette: "charcoal", layers: ['[data-theme="light"][data-palette="charcoal"]', paper, '[data-theme="light"]', ":root"] },
+    { theme: "light", palette: "charcoal", layers: ['[data-theme="light"][data-palette="charcoal"]', '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "catppuccin", layers: ['[data-theme="dark"][data-palette="catppuccin"]', ":root"] },
     { theme: "light", palette: "catppuccin", layers: ['[data-theme="light"][data-palette="catppuccin"]', '[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "lilac", layers: ['[data-theme="dark"][data-palette="lilac"]', ":root"] },
-    { theme: "light", palette: "lilac", layers: ['[data-theme="light"][data-palette="lilac"]', '[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "forest", layers: ['[data-theme="dark"][data-palette="forest"]', ":root"] },
-    { theme: "light", palette: "forest", layers: ['[data-theme="light"][data-palette="forest"]', '[data-theme="light"]', ":root"] },
   ] as const;
   const tokens = (layers: readonly string[]) => (name: string): string =>
     layers.map((selector) => block(selector).match(new RegExp(`--${name}: ([^;]+);`))?.[1]).find((value) => value !== undefined)!;

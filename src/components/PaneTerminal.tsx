@@ -50,6 +50,7 @@ import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fo
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { plainPageDirection } from "../lib/pageScroll.ts";
+import { keyboardHoldsGrid, keyboardUp } from "../lib/keyboard.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { fileUriPath, hyperlinkFilter, isWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
@@ -311,6 +312,11 @@ export function PaneTerminal({
   const cancelLeaveRef = useRef<() => void>(() => {});
   // the mount effect's in-place re-attach after the output stopped, for the banner's Reconnect
   const reattachRef = useRef<() => void>(() => {});
+  // the mount effect's keyboard hold, for the fits outside it: before a fit, whether the soft keyboard
+  // holds the grid (the fit then waits for the keyboard to go; `force` says it was to re-assert the
+  // grid), and after one, that the grid is the host's again
+  const keyboardHoldsRef = useRef<(force: boolean) => boolean>(() => false);
+  const fittedRef = useRef<() => void>(() => {});
   const pendingSubmissionsRef = useRef(new Set<{ pane: string; socket: HerdrSocket; epoch: number }>());
   const endedRef = useRef(false);
   // the modifyOtherKeys level the pane's program asked for, as this pane's stream last said it
@@ -695,16 +701,53 @@ export function PaneTerminal({
     // the grid while the row fits there, else the bottom rows, where a prompt sits. A mirror
     // has no cursor; xterm's own rests on the last row with text, which serves the same.
     const adopted = (): boolean => observeRef.current || fixedGridRef.current;
+    // The soft keyboard takes the bottom of the screen, not the pane: a fit to what is left above
+    // it would size the shared pty to that strip, and every other viewer of the pane, herdr's own
+    // window included, would reflow twice per keyboard (#1045). While the keyboard is up, a host
+    // that only lost height keeps its grid and the view pans to the cursor as an adopted grid's
+    // does; the fit it held back runs once the keyboard goes (the host grows, the observer fits).
+    let keyboardHeld = false;
+    /** the host's width at its last fit: a width that changed (a rotation) refits under the keyboard too */
+    let fittedWidth: number | null = null;
+    /** a fit the keyboard held back was to re-assert the grid (force): the catch-up fit does so */
+    let heldForce = false;
     let panned = false;
     const followCursor = (): void => {
       host.toggleAttribute("data-adopted-grid", adopted());
       const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
-      if (!adopted() || panned || !screen) return;
+      if (!(adopted() || keyboardHeld) || panned || !screen) return;
       const row = screen.offsetHeight / term.rows;
       const cursorBottom = screen.offsetTop + (term.buffer.active.cursorY + 1) * row;
       const max = host.scrollHeight - host.clientHeight;
       host.scrollTop = cursorBottom <= host.clientHeight ? 0 : cursorBottom - row >= max ? max : cursorBottom - host.clientHeight;
     };
+    /** before a fit: true when the keyboard holds the grid, and the fit waits (`force`: it was to re-assert the grid) */
+    const keyboardHolds = (force: boolean): boolean => {
+      if (!keyboardHoldsGrid(keyboardUp(), host.clientWidth, fittedWidth)) return false;
+      keyboardHeld = true;
+      heldForce ||= force;
+      // the pane may be at another device's grid: drawn as it is until the keyboard goes, when the
+      // catch-up fit takes the pane back (as a tap or key in the grid would)
+      const shared = sharedGridRef.current;
+      if (shared && !adopted() && (term.cols !== shared.cols || term.rows !== shared.rows)) {
+        term.resize(shared.cols, shared.rows);
+        heldForce = true;
+      }
+      panned = false;
+      followCursor();
+      return true;
+    };
+    /** after a fit: the grid is the host's again, with nothing left to pan to */
+    const fitted = (): void => {
+      fittedWidth = host.clientWidth;
+      keyboardHeld = false;
+      heldForce = false;
+      // xterm's helper textarea can sit at the old grid's cursor row for a while and keep the host
+      // scrollable: a view panned under the keyboard would stay panned past the grid's top
+      host.scrollTop = 0;
+    };
+    keyboardHoldsRef.current = keyboardHolds;
+    fittedRef.current = fitted;
 
     /** herdr's text for the last drag, while its highlight is still the selection */
     let copiedText: string | null = null;
@@ -1124,9 +1167,10 @@ export function PaneTerminal({
         setObserving(nowObserving);
         term.options.disableStdin = nowObserving || heldRef.current;
         onRoleAckRef.current?.(message.mode);
-        if (!nowObserving && !fixedGridRef.current && !chatViewRef.current && inUse()) {
+        if (!nowObserving && !fixedGridRef.current && !chatViewRef.current && inUse() && !keyboardHolds(true)) {
           try {
             fit.fit();
+            fitted();
           } catch {
             /* not laid out yet */
           }
@@ -1148,7 +1192,12 @@ export function PaneTerminal({
         // chat lens entered later must draw its hidden screen for that grid, not this device's
         sharedGridRef.current = { cols: message.cols, rows: message.rows };
         // the chat lens adopts the shared grid too: the screen it reads (a masked prompt) is drawn for it
-        if (!observeRef.current && !fixedGridRef.current && !chatViewRef.current) return;
+        if (!observeRef.current && !fixedGridRef.current && !chatViewRef.current) {
+          if (!keyboardHeld) return;
+          // a grid held under the keyboard draws the pane's own grid (an attach made under it adopted
+          // the pane's size, another device may have sized it): the catch-up fit takes the pane back
+          heldForce = true;
+        }
         if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
         panned = false;
         followCursor();
@@ -1438,14 +1487,19 @@ export function PaneTerminal({
         // the chat lens covers the grid: a phone's viewport or keyboard must not resize the
         // shared pty under another device (#361); the switch back to the terminal refits
         if (chatViewRef.current || !sizesPty()) return;
+        // the keyboard took the bottom of the screen, not the pane: the grid stays, the view pans
+        if (keyboardHolds(false)) return;
+        // a fit the keyboard held back re-asserts the grid as it would have (a lens or role return)
+        const force = heldForce;
         try {
           fit.fit();
+          fitted();
         } catch {
           return;
         }
         // a window the system moves or resizes in the background fits its own grid only
         const current = paneRef.current;
-        if (current && inUse()) socket.resize(current, term.cols, term.rows);
+        if (current && inUse()) socket.resize(current, term.cols, term.rows, force);
       }, RESIZE_SETTLE_MS);
     });
     observer.observe(host);
@@ -1478,8 +1532,10 @@ export function PaneTerminal({
       baseFontRef.current = size;
       term.options.fontSize = size;
       if (adopted() || chatViewRef.current) return;
+      // a pinch under the keyboard fits what the finger sees: the keyboard going refits the rows
       try {
         fit.fit();
+        fitted();
       } catch {
         return;
       }
@@ -1626,9 +1682,10 @@ export function PaneTerminal({
     // connections never do this: they own no geometry to re-assert.
     const refit = (): void => {
       const current = paneRef.current;
-      if (!current || observeRef.current || fixedGridRef.current || chatViewRef.current || !sizesPty()) return;
+      if (!current || observeRef.current || fixedGridRef.current || chatViewRef.current || !sizesPty() || keyboardHolds(true)) return;
       try {
         fit.fit();
+        fitted();
       } catch {
         return;
       }
@@ -1728,15 +1785,17 @@ export function PaneTerminal({
       cachedReleaseRef.current = false;
       setInputReady(false);
       setOutputReady(false);
-      if (!observeRef.current && !chatViewRef.current && shownRef.current) {
+      if (!observeRef.current && !chatViewRef.current && shownRef.current && !keyboardHolds(true)) {
         try {
           fit.fit();
+          fitted();
         } catch {
           /* not laid out yet; the ResizeObserver will follow up */
         }
       }
       const away = !inUse();
-      socket.attach(current, term.cols, term.rows, chatViewRef.current || away || !shownRef.current);
+      // under the keyboard the attach adopts the pane's size (keep_size) and the catch-up fit takes it
+      socket.attach(current, term.cols, term.rows, chatViewRef.current || away || !shownRef.current || keyboardHeld);
       if (away) leave();
     };
     // out of use, a reconnect attaches at the size the pane has instead of taking it
@@ -1852,6 +1911,8 @@ export function PaneTerminal({
       leaveRef.current = () => {};
       cancelLeaveRef.current = () => {};
       reattachRef.current = () => {};
+      keyboardHoldsRef.current = () => false;
+      fittedRef.current = () => {};
       watchRef.current = () => {};
       onWatchedResize.dispose();
       window.removeEventListener("focus", back);
@@ -1923,9 +1984,10 @@ export function PaneTerminal({
       if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = fontFamily;
-      if (observeRef.current || fixedGridRef.current || chatViewRef.current) return;
+      if (observeRef.current || fixedGridRef.current || chatViewRef.current || keyboardHoldsRef.current(true)) return;
       try {
         fitRef.current?.fit();
+        fittedRef.current();
       } catch {
         return;
       }
@@ -1944,9 +2006,10 @@ export function PaneTerminal({
     if (narrowFontFitted.current === narrowFont) return;
     narrowFontFitted.current = narrowFont;
     const term = termRef.current;
-    if (!term || observeRef.current || fixedGridRef.current || chatViewRef.current) return;
+    if (!term || observeRef.current || fixedGridRef.current || chatViewRef.current || keyboardHoldsRef.current(false)) return;
     try {
       fitRef.current?.fit();
+      fittedRef.current();
     } catch {
       return;
     }
@@ -1959,7 +2022,8 @@ export function PaneTerminal({
   useEffect(() => {
     if (chatView) {
       const pane = paneRef.current;
-      if (pane) socketRef.current?.keepSize(pane);
+      // a grid this tab drove goes back to a terminal still showing on another device (#472)
+      if (pane) socketRef.current?.releaseSize(pane);
       // the grid another device left the pty at while this one showed the terminal
       const shared = sharedGridRef.current;
       const hidden = termRef.current;
@@ -1967,9 +2031,12 @@ export function PaneTerminal({
       return;
     }
     if (observeRef.current || fixedGridRef.current) return;
+    // the composer's keyboard may still be up as the terminal lens appears: its grid waits for it to go
+    if (keyboardHoldsRef.current(true)) return;
     const term = termRef.current;
     try {
       fitRef.current?.fit();
+      fittedRef.current();
     } catch {
       return;
     }
@@ -1989,9 +2056,11 @@ export function PaneTerminal({
     const pane = paneRef.current;
     if (!pane || observeRef.current || fixedGridRef.current || chatViewRef.current) return;
     if (!shown) { socketRef.current?.keepSize(pane); return; }
+    if (keyboardHoldsRef.current(true)) return;
     const term = termRef.current;
     try {
       fitRef.current?.fit();
+      fittedRef.current();
     } catch {
       return;
     }
@@ -2054,15 +2123,21 @@ export function PaneTerminal({
       watchRef.current(paneId);
       return leavePane;
     }
-    try {
-      fit?.fit();
-    } catch {
-      /* not laid out yet; the ResizeObserver will follow up */
+    // under the keyboard (a pane picked while typing) the fit waits for it to go, and the attach adopts
+    // the pane's size meanwhile
+    const held = keyboardHoldsRef.current(true);
+    if (!held) {
+      try {
+        fit?.fit();
+        fittedRef.current();
+      } catch {
+        /* not laid out yet; the ResizeObserver will follow up */
+      }
     }
     // out of use (the pane closed in herdr and the app moved on to the next one, or a reload behind
     // another app), the attach adopts the pane's size; the refit takes it once the user is here
     const away = !inUse();
-    socket.attach(paneId, term.cols, term.rows, chatViewRef.current || away || !shownRef.current);
+    socket.attach(paneId, term.cols, term.rows, chatViewRef.current || away || !shownRef.current || held);
     // no blur or hidden comes for a tab already out of use: it lets go of this pane after a moment too
     if (away) leaveRef.current();
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
@@ -2147,7 +2222,7 @@ export function PaneTerminal({
   // must not turn a one-letter message into a control key. Offline it sends nothing and
   // keeps its text (never-queue); a message the server could not deliver keeps it too,
   // with the reason. Bracketed-paste wrapping follows the pane program's mode.
-  const submitComposerMessage = useCallback((text: string, delivery: SubmitDelivery = "immediate", clearDraft?: string): Promise<SubmitResult> | null => {
+  const submitComposerMessage = useCallback((text: string, delivery: SubmitDelivery = "immediate", clearDraft?: string, sendAnyway = false): Promise<SubmitResult> | null => {
     const term = termRef.current;
     const socket = socketRef.current;
     const session = sessionRef.current;
@@ -2157,7 +2232,7 @@ export function PaneTerminal({
     if (draftHeldForRef.current === pane) return Promise.resolve({ ok: false, code: "held_input", message: "send or discard the held input first" });
     // not the scope itself: a message sent right after a reconnect leaves before the snapshot that names it
     const epoch = session.epoch;
-    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft);
+    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode), false, delivery, clearDraft, sendAnyway);
     if (sent === null) return null;
     const releaseSubmit = submitRetention?.retain(pane);
     const submission = delivery !== "immediate" ? { pane, socket, epoch } : null;
@@ -2398,7 +2473,7 @@ export function PaneTerminal({
     : null;
 
   const composerSend = useCallback(
-    (text: string, clearDraft?: string): boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal> => {
+    (text: string, clearDraft?: string, sendAnyway = false): boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal> => {
       const pane = paneRef.current;
       // Codex's queue open in the terminal holds the input: a message would become the answer
       if (pane !== null && heldByOpenQueue) {
@@ -2427,8 +2502,10 @@ export function PaneTerminal({
       // with automatic sending off, a follow-up waits for Send now; the socket queues it on a PC too old to hold one
       const queued = composerDelivery(agent, agentStatus);
       const delivery: SubmitDelivery = queued === "queue" && !settings.autoSendQueued ? "hold" : queued;
-      const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined);
-      return result === null ? false : result.then((answer) => answer.ok ? true : submitRefusal(answer.code, answer.message, answer.draft));
+      // Send anyway answered a box seen at once: an agent that started working since would queue it unchecked
+      if (sendAnyway && delivery !== "immediate") return t("Not sent: the agent started working since. Check the terminal, then send again.");
+      const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined, sendAnyway);
+      return result === null ? false : result.then((answer) => answer.ok ? true : submitRefusal(answer.code, answer.message, answer.draft, answer.box));
     },
     [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, submitComposerMessage, queueStore, machineId, settings.autoSendQueued],
   );

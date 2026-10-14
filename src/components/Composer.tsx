@@ -90,9 +90,9 @@ export interface ComposerProps {
    * place (the checkout folder is the branch again, with dashes) and says it is a worktree; null: not one */
   worktreeRepo?: string | null;
   /** true: sent, clear the box; a string: keep the text and say why; a DraftRefusal: the same, and the
-   * note offers to send again with `clearDraft`, which clears that draft from the terminal first; a
-   * promise settles to any of them */
-  onSend: (text: string, clearDraft?: string) => boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal>;
+   * note offers to send again with `clearDraft`, which clears that draft from the terminal first, or,
+   * where it named none, with `sendAnyway`; a promise settles to any of them */
+  onSend: (text: string, clearDraft?: string, sendAnyway?: boolean) => boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal>;
   onAbort: () => void;
   onUploadImage: (file: File) => Promise<string>;
 }
@@ -827,8 +827,9 @@ export function Composer({
     }
   }, [placeWaitingMentions]);
 
-  /** `clearDraft`: the terminal draft a DraftRefusal named, which the user asked to clear and send over */
-  const send = useCallback((clearDraft?: string) => {
+  /** `clearDraft`: the terminal draft a DraftRefusal named, which the user asked to clear and send over;
+   * `sendAnyway`: the user saw the box a DraftRefusal showed and sends over it */
+  const send = useCallback((clearDraft?: string, sendAnyway = false) => {
     if (composingRef.current) return;
     if (!connected || uploading || roomless || sending || text.trim().length === 0) return;
     const sent = text;
@@ -852,7 +853,7 @@ export function Composer({
     // a polish landing before the acknowledgement would count as an edit and keep the sent message here
     dictation.forget();
     try {
-      const result = onSend(text, clearDraft);
+      const result = onSend(text, clearDraft, sendAnyway);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
     } catch {
@@ -1029,9 +1030,10 @@ export function Composer({
         <div className={`composer-note${typeof note === "object" ? " composer-note-offer" : ""}`} role="alert">
           <TriangleAlert className="composer-note-icon" aria-hidden="true" />
           <span className="composer-note-text">{typeof note === "string" ? note : note.note}</span>
-          {/* the draft named above, never what has replaced it since: the server checks */}
+          {/* the draft named above, never what has replaced it since: the server checks; a box it could
+              not tell empty, sent over only in the same Claude terminal the refusal was for */}
           {typeof note === "object" && <button type="button" className="composer-note-action" disabled={!connected || uploading || roomless !== undefined || sending || text.trim().length === 0}
-            onClick={() => send(note.draft)}>{t("Clear it and send")}</button>}
+            onClick={() => "draft" in note ? send(note.draft) : send(undefined, true)}>{"draft" in note ? t("Clear it and send") : t("Send anyway")}</button>}
         </div>
       )}
 
