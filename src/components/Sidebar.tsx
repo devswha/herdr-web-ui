@@ -8,7 +8,7 @@ import { paneTitle } from "../../shared/notify-policy.ts";
 import { MAX_LABEL_CHARS } from "../../shared/labels.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
-import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
+import { indicatorGlyph, knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { WorkspaceFavicon } from "./WorkspaceFavicon.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -69,7 +69,7 @@ export function RestoreErrorBadge({ reason }: { reason: string }) {
   );
 }
 
-/** Every breathing dot keeps the document clock's phase, so a row that starts working breathes in step with the rest. */
+/** Every breathing dot or glyph keeps the document clock's phase, so a row that starts working breathes in step with the rest. */
 function alignBreath(event: AnimationEvent<HTMLSpanElement>) {
   if (event.animationName !== "sidebar-breathe") return;
   for (const animation of event.currentTarget.getAnimations()) animation.startTime = 0;
@@ -77,13 +77,16 @@ function alignBreath(event: AnimationEvent<HTMLSpanElement>) {
 
 export function StatusBadge({ status, compact = false }: { status?: AgentStatus; compact?: boolean }) {
   const t = useT();
+  const { settings } = useSettings();
   const value = knownStatus(status);
   const label = t(STATUS_WORD[value]);
   const description = value === "waiting" ? t("Agent waiting on background work") : t("Agent {status}", { status: label });
-  // a compact cell draws only the states that ask for a look: a red question mark while the agent
-  // waits for an answer, a green dot once it has finished and was not looked at, a working-coloured
-  // dot that breathes while it runs, a working-coloured ring held still while its turn waits on
-  // background work. Ready and unknown keep the cell, its label and its tooltip
+  // classic (the default): a compact cell draws only the states that ask for a look: a red question
+  // mark while the agent waits for an answer, a green dot once it has finished and was not looked
+  // at, a working-coloured dot that breathes while it runs, a working-coloured ring held still while
+  // its turn waits on background work. Ready and unknown keep the cell, its label and its tooltip.
+  // Dots or Symbols: herdr's TUI glyph for every state, in herdr's color (lib/status.ts, Sidebar.css)
+  const indicators = settings.statusIndicators;
   const dot = value === "working" || value === "done" || value === "waiting";
   return (
     <span
@@ -93,8 +96,9 @@ export function StatusBadge({ status, compact = false }: { status?: AgentStatus;
       aria-label={compact ? description : undefined}
       title={description}
     >
-      {compact && value === "blocked" && <span className="sidebar-status-mark" aria-hidden="true">?</span>}
-      {compact && dot && <span className="sidebar-status-dot" aria-hidden="true" onAnimationStart={value === "working" ? alignBreath : undefined} />}
+      {compact && indicators !== "classic" && <span className="sidebar-status-glyph" aria-hidden="true" onAnimationStart={value === "working" ? alignBreath : undefined}>{indicatorGlyph(value, indicators)}</span>}
+      {compact && indicators === "classic" && value === "blocked" && <span className="sidebar-status-mark" aria-hidden="true">?</span>}
+      {compact && indicators === "classic" && dot && <span className="sidebar-status-dot" aria-hidden="true" onAnimationStart={value === "working" ? alignBreath : undefined} />}
       <span className={compact ? "visually-hidden" : undefined}>{label}</span>
     </span>
   );

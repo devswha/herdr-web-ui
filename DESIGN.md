@@ -56,6 +56,11 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Working/tint | `--status-working-tint` | `rgba(108, 184, 214, 0.14)` | `rgba(21, 90, 114, 0.12)` |
 | Blocked/tint | `--status-blocked-tint` | `rgba(255, 123, 112, 0.14)` | `rgba(168, 35, 35, 0.12)` |
 | Done/tint | `--status-done-tint` | `rgba(147, 195, 107, 0.14)` | `rgba(47, 99, 23, 0.12)` |
+| Indicator/working | `--indicator-working` | `#f9e2af` | `#df8e1d` |
+| Indicator/blocked | `--indicator-blocked` | `#f38ba8` | `#d20f39` |
+| Indicator/done | `--indicator-done` | `#94e2d5` | `#179299` |
+| Indicator/idle | `--indicator-idle` | `#a6e3a1` | `#40a02b` |
+| Indicator/unknown | `--indicator-unknown` | `#6c7086` | `#9ca0b0` |
 | Danger/tint | `--danger-tint` | `rgba(255, 123, 112, 0.12)` | `rgba(168, 35, 35, 0.1)` |
 | Danger/text | `--danger-text` | `#ffd9d4` | `#8f1d1d` |
 | Notice | `--notice` | `#e8c55c` | `#7a5a00` |
@@ -518,6 +523,13 @@ One set for both themes: the card is island black wherever it shows.
   draws a warning triangle in `--status-blocked`. The element, its label and its tooltip are there
   for every state, and each drawn state has its own glyph as well as its color. Background tasks
   are a quiet count beside it (`.background-count`), not a badge.
+- Settings → Status indicators can trade that default (Classic) for herdr's TUI marks, as its
+  `[ui] status_indicators` draws them, for every state in mono text. Dots: `●` for working,
+  blocked and done, `○` for ready, `·` for unknown. Symbols: `◐` working, `×` blocked, `✓` done,
+  `○` ready, `·` unknown. Their colors are herdr's default theme's, the `--indicator-*` tokens
+  (Catppuccin Mocha, Latte in light): working yellow, blocked red, done teal, ready green, unknown
+  grey. Working breathes as the dot does; BG, which herdr does not have, holds working's glyph still.
+  A tab's mark follows the same choice, held still.
 
 ### Pill (`.pill`)
 - Mono metadata at `--chip-h`. Offline is the one header pill that stays, and uses danger tokens. A deep link that could not open what it named, and Copy link, say so in a plain `.header-note` pill for a moment (8 s, 1.6 s for Link copied). The note takes the flexible context's place and ellipsizes when narrow, keeping the lens and More controls in view.
