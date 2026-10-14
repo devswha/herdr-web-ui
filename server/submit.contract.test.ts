@@ -1326,13 +1326,40 @@ describe("typing without terminal attach, at the edges", () => {
     }
   }, 30_000);
 
-  for (const { secret, transition } of ["sensitive900", "\u{1F642}"].flatMap((secret) =>
-    (["none", "rejoin", "observe", "observe-back", "enter-connect"] as const).map((transition) => ({ secret, transition })),
-  )) {
-    const encoding = secret === "sensitive900" ? "ASCII" : "multibyte";
-    it(`clears a mirrored ${encoding} secret instead of entering it after ${transition} (#900)`, async () => {
+  for (const [label, secret] of [["emoji", "\u{1F642}"], ["accent", "a\u00e9z"]] as const) {
+    it(`refuses a mirrored non-ASCII ${label} secret without typing anything (#1065)`, async () => {
+      // Given a real recorder showing a password prompt on a mirrored pane.
+      const target = await recorder(`secret-${label}`, process.execPath, "Password:");
+      const bare = createServer({ port: 0, stateDir: join(root, `secret-${label}`), terminalAttach: false });
+      const sender = await Socket.connect(bare.port);
+      const send = spyOn(herdr, "paneSendText");
+      const keys = spyOn(herdr, "paneSendKeys");
+      try {
+        await attached(sender, target.pane);
+        const from = chunks(target).length;
+        const result = sender.waitFor((message) => message.type === "secret-result" && message.id === 1065);
+        // When Unicode is submitted, even surrounded by printable ASCII.
+        sender.send({ type: "secret", id: 1065, pane_id: target.pane, prompt: "Password:", secret });
+        const response = await result;
+        // Then no text or key RPC is issued, no bytes arrive, and the existing refusal is returned.
+        expect(send).not.toHaveBeenCalled();
+        expect(keys).not.toHaveBeenCalled();
+        expect(typed(target, from)).toBe("");
+        expect(response).toMatchObject({ ok: false, code: "invalid_secret" });
+      } finally {
+        send.mockRestore();
+        keys.mockRestore();
+        sender.close();
+        bare.stop();
+      }
+    }, 30_000);
+  }
+
+  for (const transition of ["none", "rejoin", "observe", "observe-back", "enter-connect"] as const) {
+    const secret = "sensitive900";
+    it(`clears a mirrored ASCII secret instead of entering it after ${transition} (#900)`, async () => {
       // Given a real masked shell read and a second client keeping the mirror alive.
-      const label = `secret-${encoding}-${transition}`;
+      const label = `secret-ASCII-${transition}`;
       const output = join(root, `${label}.result`);
       const script = join(root, `${label}.sh`);
       writeFileSync(script, `printf 'Password:'; read -s p; printf '%s' "$p" | od -An -tx1 | tr -d '[:space:]' > '${output}'\n`);
@@ -1404,6 +1431,7 @@ describe("typing without terminal attach, at the edges", () => {
           expect(response).toMatchObject({
             ok: false, code: transition.startsWith("observe") ? "read_only" : "not_attached",
           }); // regression (fails on main)
+          expect(keys).toHaveBeenLastCalledWith(pane, Array(secret.length).fill("Backspace"));
           await originalSend(pane, "X");
           await originalKeys(pane, ["Enter"]);
           expect(await completed).toBe("58"); // only X; no residual secret bytes

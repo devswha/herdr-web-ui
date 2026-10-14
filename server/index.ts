@@ -3135,6 +3135,8 @@ export function createServer(
                 if (client.data.mode === "observe") { result(false, "read_only"); break; }
                 const attachment = attachments.get(message.pane_id);
                 if (!attachment?.clients.has(client)) { result(false, "not_attached"); break; }
+                // Mirrored cleanup uses Backspace on Windows too: only printable ASCII erases reliably.
+                if (attachment.mirror && /[^\x20-\x7e]/.test(message.secret)) { result(false, "invalid_secret"); break; }
                 if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); break; }
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
                 // the attach this secret was sent from: leaving it (even joining again) takes the secret back
@@ -3171,9 +3173,8 @@ export function createServer(
                     } catch (error) {
                       if (!(error instanceof HerdrError && error.code === "cancelled")) throw error;
                       // Cleanup is deliberately unguarded: do not leave the secret for another Enter.
-                      // Kill the canonical input line regardless of Unicode byte/character counts.
-                      // Raw-mode readers may receive this key without erasing their own buffer.
-                      await paneSendKeys(message.pane_id, ["ctrl+u"]);
+                      // Raw-mode readers may receive these bytes without erasing their own buffer.
+                      await paneSendKeys(message.pane_id, Array(message.secret.length).fill("Backspace"));
                       result(false, client.data.closing || client.data.roles !== roles
                         ? "read_only" : "not_attached");
                       return;
