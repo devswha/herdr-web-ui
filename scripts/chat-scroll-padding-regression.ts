@@ -22,10 +22,13 @@ try {
     define: { "process.env.NODE_ENV": '"development"' },
   });
   assert.ok(build.success, String(build.logs));
-  server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+  server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/") return new Response('<!doctype html><html lang="en"><body style="margin:0"><div id="root"></div><script type="module" src="/chat-scroll-padding-fixture.js"></script></body></html>', { headers: { "content-type": "text/html" } });
-    return new Response(Bun.file(join(root, path.slice(1))));
+    // a path the build did not write (the browser's /favicon.ico) is a 404: a Bun.file of a
+    // missing path fails the response with ENOENT, and that exits the script with 1
+    const file = Bun.file(join(root, path.slice(1)));
+    return await file.exists() ? new Response(file) : new Response(null, { status: 404 });
   } });
   browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   // a Retina screen: scroll offsets and row edges fall between whole pixels
