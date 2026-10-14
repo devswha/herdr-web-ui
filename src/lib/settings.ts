@@ -244,7 +244,7 @@ export const SETTING_SCOPE = {
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
   paletteLight: "device", paletteDark: "device",
   voiceInput: "device", voiceLanguage: "device", voicePolishChat: "device", voicePolishTerminal: "device",
-  // Viewer layout follows this screen, as chatWidth does; highlighting remains shared.
+  // Viewer layout follows this screen, as chatWidth does.
   wrapCode: "device", markdownWidth: "device", diffStyle: "device",
 } as const satisfies Record<keyof Settings, "shared" | "device">;
 

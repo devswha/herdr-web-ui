@@ -254,7 +254,7 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
   `markdownWidth`: `readable` (the chat lane, `--chat-w`, centered; default) or `full`, and
   `diffStyle`: `unified` (default) or `split` for a repository diff (a phone draws one column
   whatever it says, and the viewer says so).
-  These layout choices stay on this device, like chat width; code highlighting is shared across browsers.
+  These layout choices stay on this device, like chat width.
   The viewer loads a Markdown file's first 256 KB through one bounded streaming reader, with abort
   on close or navigation and a 5 s deadline; any other text that fits 256 KB reads whole under the
   same budget, and a larger one reads up to 8 MB and 200 000 lines with a 30 s deadline
@@ -714,8 +714,8 @@ One set for both themes: the card is island black wherever it shows.
   the same adjacent moves only while a tab has keyboard focus.
 - `PaneCanvas` draws every pane in the active tab at `layouts[].panes[].rect`, normalized to
   the layout's own area. Panes share thin, square boundaries: `--border-strong` when inactive,
-  `--accent` around the selected pane. The compact header names its pane and, on a touch screen
-  (`pointer: coarse`), the ellipsis; a mouse opens the same menu by right-click. Keyboard users
+  `--accent` around the selected pane. The compact header names its pane and, on a screen that takes touch
+  (`any-pointer: coarse`), the ellipsis; a mouse opens the same menu by right-click. Keyboard users
   tab to the pane's ellipsis, which becomes visible on keyboard focus, and press Enter.
   Shift+F10 in the terminal goes to the terminal program, not the app menu. A lone or zoomed
   pane is borderless; on touch its actions live in the tab menu rather than a second ellipsis.
@@ -1362,9 +1362,7 @@ One set for both themes: the card is island black wherever it shows.
   one dim sentence under it (`--fs-xs`, no wider than `54ch`) and one control at the end of the
   line. The controls are a switch, a segmented control for two to four short choices, a select
   for five or more, a stepper (minus, value in `--font-mono`, plus, in one bordered well) and a
-  text field; inside a card they sit on `--bg-input`. Contrast's stepper has a reset arrow before
-  it, an icon button in `--text-dim` that keeps its place unseen at the default, so the line never
-  shifts. On a phone a control that needs the line
+  text field; inside a card they sit on `--bg-input`. On a phone a control that needs the line
   (three or more segments, a text field, or a long sentence above it) goes under its label at
   the card's width, its segments sharing it equally; the rest stay on the label's line.
 - Terminal keeps Key bar as a compact description and Edit key bar button. That button opens
@@ -1528,8 +1526,6 @@ The values are the ones in `src/styles.css`.
 ### Constraints
 - WCAG 2.2 AA is the target; do not document numeric contrast without measuring both shipped themes
   and every actual backing surface.
-- The Contrast setting keeps that target at every step: a step down flattens text toward
-  `--text-dim`, never under it (Contrast, section 2).
 - Global `:focus-visible` uses `--ring`; interactive controls remain keyboard reachable except the
   touch key bar, which intentionally preserves terminal focus and has hardware-key equivalents.
 - Icon-only controls carry `aria-label`; toggles expose `aria-pressed` or `role="switch"`; selected
@@ -1556,7 +1552,7 @@ The values are the ones in `src/styles.css`.
   Paging scrolls herdr history when present; an explicit valid zero-history result instead sends
   one plain PageUp/PageDown through the existing live input lease to the running application.
   Application-owned paging has its own page length; no page input is queued across disconnects.
-  The opt-in plain chat page keys preserve composer draft, selection and focus, excluding modified
+  The plain chat page keys preserve composer draft, selection and focus, excluding modified
   keys, composition, other editable controls and modal input. They do not capture terminal keys.
 - On touch screens app actions stay in buttons and menus. The command palette and its plugin
   actions are not available in the phone touch UI; a wider screen or keyboard is required.
