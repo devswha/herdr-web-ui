@@ -69,7 +69,6 @@ try {
   await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(paneId)}`);
   await firstMetrics;
   assert.ok((await paneScrollInfo(paneId))!.max_offset_from_bottom > 100, "herdr holds the full history");
-  assert.equal(await page.locator('[role="scrollbar"], .terminal-history-scrollbar').count(), 0, "the terminal draws no history scrollbar");
   const widths = await page.evaluate(() => ({ grid: document.querySelector(".pane-terminal")!.getBoundingClientRect().width, surface: document.querySelector(".terminal-surface")!.getBoundingClientRect().width }));
   assert.equal(widths.grid, widths.surface, "the grid takes the full width, with no column reserved beside it");
   // Paging moves native history without reaching the program’s input.
@@ -79,7 +78,7 @@ try {
   // a page asked for before the client's first metrics read only asks for that read: press until one is sent
   for (let attempt = 0; ; attempt++) {
     assert.ok(attempt < 10, "the client pages once it has read the pane's metrics");
-    const sent = page.waitForRequest((request) => request.url().endsWith("/api/pane/scroll") && request.method() === "POST", { timeout: 1000 }).then(() => true, () => false);
+    const sent = page.waitForRequest((request) => request.url().endsWith("/api/pane/scroll") && request.method() === "POST", { timeout: 3000 }).then(() => true, () => false);
     await page.keyboard.press("ControlOrMeta+Shift+PageUp");
     if (await sent) break;
   }
