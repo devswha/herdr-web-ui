@@ -140,12 +140,25 @@ describe("Browser lane script lists", () => {
   it("splits the serial lane across the CI browser jobs with nothing dropped or run twice", () => {
     const shards = ["browser-main", "browser-other"].map((name) => {
       const job = ciJob(name);
-      expect(job).toContain("run: bun scripts/ci-browser-parallel.ts");
+      expect(job).toContain("run: bun run check run -- bun scripts/ci-browser-parallel.ts");
       return selectBrowserScripts(serial, env(job, "BROWSER_SCRIPTS"), env(job, "BROWSER_EXCLUDE"));
     });
     const all = shards.flat();
     expect(all.length).toBe(serial.length);
     expect([...all].sort()).toEqual([...serial].sort());
+  });
+
+  it("runs every herdr-backed lane under a shared check slot that it waits for", () => {
+    expect(ciJob("integration")).toContain("run: bun run check integration");
+    for (const name of ["integration", "browser-main", "browser-other"]) {
+      const job = ciJob(name);
+      expect(env(job, "CHECK_MAX_RUNS")).toMatch(/^[1-8]$/);
+      const wait = Number(env(job, "CHECK_WAIT_SECONDS"));
+      const timeout = Number(job.match(/^    timeout-minutes: (\d+)$/m)?.[1]);
+      expect(wait).toBeGreaterThan(0);
+      // the job outlives its longest wait, with room for the lane itself
+      expect(timeout * 60).toBeGreaterThanOrEqual(wait + 600);
+    }
   });
 
   it("calls a script that passed only on its second run flaky, and one that failed again a failure", () => {

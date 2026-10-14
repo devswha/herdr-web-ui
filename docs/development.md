@@ -42,8 +42,11 @@ listens on while it runs, so a run that died holds none. `CHECK_MAX_RUNS` sets h
 the default is one per eight cores, from 1 to 2. The contract and browser tests are bound by
 timing, so more runs side by side make them fail each other: on a 32-core PC three at once
 already lost Chromium screenshots in the browser lane, so raise it only to look for such failures. A run that finds every slot taken
-names the holders and exits. So does a second run in the same checkout, even with slots free:
-runs in one checkout share `dist/` and the generated types. The
+names the holders and exits, or, with `CHECK_WAIT_SECONDS` (0 to 7200), waits that long for one
+first, as CI's herdr-backed lanes do. A second run in the same checkout exits at once, even with
+slots free: runs in one checkout share `dist/` and the generated types. A checkout is its real
+path, plus `RUNNER_NAME` when that is set: the self-hosted runners of one PC share a loopback and
+all check out to the same path. The
 generated-types check (`bun run generate:types --check`) is read-only, but `test:unit` includes
 `scripts/generate-protocol-types.test.ts`, which rewrites the generated file while it runs. Fast
 checks and the browser lane also build into `dist/`; avoid overlapping runs that write to the same
@@ -539,7 +542,12 @@ under `docs/`, ends in `.md` or `.txt`, is the root `LICENSE` or sits under
 always validate in full.
 
 The runner is an ephemeral Docker container that runs one job and exits. Containers have no CPU
-quota or total-memory limit; concurrent slots share the host's available resources. Its image ships Bun,
+quota or total-memory limit; concurrent slots share the host's available resources. The
+runners of one PC share one network namespace (a container of its own, not the host's), so
+`check.ts`'s slots bound the Integration and both Browser regression jobs of every runner
+together: `ci.yml` runs each of them through `bun run check` with `CHECK_MAX_RUNS` and
+`CHECK_WAIT_SECONDS`, and a job that finds the slots taken waits for one. A check run on the host
+itself is not in that namespace and does not count against it. Its image ships Bun,
 Node 22, checksum-pinned herdr, Playwright Chromium and its system libraries, ffmpeg, git, the
 checksum-pinned GitHub CLI (`gh`) for deployment and release publishing, curl, jq, unzip,
 xz-utils and CA certificates, with no sudo. Self-hosted setup verifies the prepared tools and
