@@ -117,6 +117,8 @@ describe("telemetry receiver", () => {
       { ...settings, theme: "user-selected theme" },
       { ...settings, terminalWheelSpeed: 11 },
       { ...settings, chatFontSize: "16px" },
+      // the Turkish UI language was removed before any release sent a snapshot
+      { ...settings, language: "tr" },
       { ...settings, account: { accountId: "acct-private-42", email: "person@example.com" } },
       { ...settings, fontFamily: { value: "D2Coding" } },
       Object.fromEntries(Object.entries(settings).filter(([key]) => key !== "agentOrder")),

@@ -50,7 +50,7 @@ export interface TelemetrySettings {
   autoSendQueued: boolean;
   showThinking: boolean;
   keepScreenOn: boolean;
-  language: "system" | "en" | "zh" | "ja" | "ko" | "tr";
+  language: "system" | "en" | "zh" | "ja" | "ko";
   alertsOn: boolean;
   alertInput: boolean;
   alertDone: "off" | "long" | "always";
@@ -118,7 +118,7 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   autoSendQueued: booleanValue,
   showThinking: booleanValue,
   keepScreenOn: booleanValue,
-  language: oneOf(["system", "en", "zh", "ja", "ko", "tr"]),
+  language: oneOf(["system", "en", "zh", "ja", "ko"]),
   alertsOn: booleanValue,
   alertInput: booleanValue,
   alertDone: oneOf(["off", "long", "always"]),
