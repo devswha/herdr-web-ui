@@ -147,16 +147,19 @@ export const windowsHost: RemoteHost = {
       // which the next update replaces); a fresh sshd session may not have the PATH it added yet
       "$herdr = \"$env:LOCALAPPDATA\\Programs\\Herdr\\bin\\herdr.exe\"",
       "if (-not (Test-Path $herdr)) { $herdr = (Get-Command herdr.exe -ErrorAction SilentlyContinue).Source }",
-      "Write-Output 'Windows'; Write-Output $env:PROCESSOR_ARCHITECTURE; Write-Output $env:USERPROFILE; Write-Output $env:APPDATA; Write-Output $env:LOCALAPPDATA; Write-Output \"$herdr\"",
+      "Write-Output 'Windows'; Write-Output $env:PROCESSOR_ARCHITECTURE; Write-Output $env:USERPROFILE; Write-Output $env:APPDATA; if ($env:XDG_CONFIG_HOME) { Write-Output $env:XDG_CONFIG_HOME } else { Write-Output '' }; Write-Output $env:LOCALAPPDATA; Write-Output \"$herdr\"",
       `if (Test-Path "${WINDOWS_BUNDLE}\\bin\\bun.exe") { Write-Output 'bundle-ready' }`,
       `if (Get-ChildItem "${WINDOWS_BUNDLE_BASE}" -Directory -Filter 'remote-v*' -ErrorAction SilentlyContinue | Where-Object { Test-Path "$($_.FullName)\\bin\\bun.exe" }) { Write-Output 'bundle-older' }`,
       WINDOWS_DESCRIPTORS,
     ].join("\n"));
-    const [os, arch, home, appData, localAppData, herdrPath, ...lines] = inspection.split("\n");
+    const [os, arch, home, appData, xdgConfigHome, localAppData, herdrPath, ...lines] = inspection.split("\n");
     if (os !== "Windows" || arch !== "AMD64") throw new Error(UNSUPPORTED_HOST);
     const drive = /^[A-Za-z]:\\/;
-    if (!home || !drive.test(home) || !appData || !drive.test(appData) || !localAppData || !drive.test(localAppData)) throw new Error("The SSH account's profile directory (%USERPROFILE%) could not be read on this PC");
-    const herdrDir = `${appData}\\herdr`;
+    if (xdgConfigHome && !drive.test(xdgConfigHome)) throw new Error("The SSH account's XDG_CONFIG_HOME could not be read on this PC");
+    if (!home || !drive.test(home) || !localAppData || !drive.test(localAppData)) throw new Error("The SSH account's profile directory (%USERPROFILE%) could not be read on this PC");
+    const herdrConfig = xdgConfigHome || appData;
+    if (!herdrConfig || !drive.test(herdrConfig)) throw new Error("The SSH account's herdr configuration directory could not be read on this PC");
+    const herdrDir = `${herdrConfig}\\herdr`;
     return {
       platform: "win32-x64", home, herdrPath: herdrPath ?? "",
       // the marker file's own path: the bridge's realpath of it is the same string (live-verified)

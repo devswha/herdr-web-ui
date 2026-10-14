@@ -443,7 +443,10 @@ describe("host detection", () => {
       // the sh probe, then the socket realpath
       return script.includes("uname") ? "Linux\nx86_64\n/home/u\n/home/u/.config\n/usr/bin/herdr\nbundle-ready\n" : "/home/u/.config/herdr/herdr.sock";
     },
-    runPowerShell: async () => { if (ps instanceof Error) throw ps; return ps; },
+    runPowerShell: async (script: string) => {
+      if (ps instanceof Error) throw ps;
+      return script.includes("XDG_CONFIG_HOME") ? ps.replace("AppData\\Roaming\n", "AppData\\Roaming\n\n") : ps;
+    },
   } as unknown as SshConnection);
   const windowsAnswer = "Windows\nAMD64\nC:\\Users\\u\nC:\\Users\\u\\AppData\\Roaming\nC:\\Users\\u\\AppData\\Local\nC:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe\n";
 
@@ -462,6 +465,38 @@ describe("host detection", () => {
         runtimeDir: `C:\\Users\\u\\AppData\\Local\\herdr-web-ui\\remote-v${REMOTE_BUNDLE_VERSION}`, bundleReady: false,
       });
     }
+  });
+  it("uses Windows XDG_CONFIG_HOME when resolving the herdr socket", async () => {
+    const scripts: string[] = [];
+    const ssh = {
+      run: async () => { throw new Error("Unexpected sh probe"); },
+      runPowerShell: async (script: string) => {
+        scripts.push(script);
+        return script.includes("XDG_CONFIG_HOME")
+          ? "Windows\nAMD64\nC:\\Users\\u\nC:\\Users\\u\\AppData\\Roaming\nC:\\Temp\\xdg\nC:\\Users\\u\\AppData\\Local\nC:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe\n"
+          : windowsAnswer;
+      },
+    } as unknown as SshConnection;
+    const { inspection } = await detectHost(ssh, "qa");
+    // regression (fails on main): the inspection must read XDG_CONFIG_HOME and prefer it over APPDATA
+    expect(scripts.some((script) => script.includes("$env:XDG_CONFIG_HOME"))).toBe(true);
+    expect(inspection.expectedSocket).toBe("C:\\Temp\\xdg\\herdr\\sessions\\qa\\herdr.sock");
+  });
+  it("keeps the APPDATA field aligned when Windows XDG_CONFIG_HOME is blank", async () => {
+    const answer = "Windows\nAMD64\nC:\\Users\\u\nC:\\Users\\u\\AppData\\Roaming\n\nC:\\Users\\u\\AppData\\Local\nC:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe\n";
+    const ssh = {
+      run: async () => { throw new Error("'sh' is not recognized as an internal or external command"); },
+      runPowerShell: async (script: string) => script.includes("XDG_CONFIG_HOME") ? answer : windowsAnswer,
+    } as unknown as SshConnection;
+    const { inspection } = await detectHost(ssh, "qa");
+    // control: the empty XDG line preserves APPDATA, LOCALAPPDATA and herdr field positions
+    expect(inspection.expectedSocket).toBe("C:\\Users\\u\\AppData\\Roaming\\herdr\\sessions\\qa\\herdr.sock");
+    expect(inspection.herdrPath).toBe("C:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe");
+  });
+  it("uses Windows APPDATA when XDG_CONFIG_HOME is absent", async () => {
+    const { inspection } = await detectHost(pc("'sh' is not recognized as an internal or external command", windowsAnswer), "qa");
+    // control: the existing APPDATA fallback is unchanged
+    expect(inspection.expectedSocket).toBe("C:\\Users\\u\\AppData\\Roaming\\herdr\\sessions\\qa\\herdr.sock");
   });
   it("refuses a Windows PC that is not x64, by name", async () => {
     await expect(detectHost(pc("sh: not found", windowsAnswer.replace("AMD64", "ARM64")))).rejects.toThrow(UNSUPPORTED_HOST);
