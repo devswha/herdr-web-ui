@@ -500,7 +500,7 @@ The snapshot is the last one a browser reported to this server, not a list of de
 | --- | --- |
 | `Mod+Shift+K` | Command palette |
 | `Mod+Shift+J` | Switch Chat / Terminal |
-| `Mod+Shift+PageUp` / `PageDown` | Scroll the current pane up / down, retaining the configured overlap |
+| `Mod+Shift+PageUp` / `PageDown` | Scroll the current pane up / down, retaining one line |
 | `Mod+Shift+B` | Toggle sidebar |
 | `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
@@ -521,7 +521,7 @@ composing, keys stay with it. In a text field with text, Mod+Shift+arrows keep t
 behavior; from an empty one, such as the chat's empty message box, they switch panes.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
-scrollbar, arrows move a line, Page Up/Down a viewport minus the configured overlap, and Home/End the start/end of history.
+scrollbar, arrows move a line, Page Up/Down a viewport minus one line, and Home/End the start/end of history.
 
 On a phone, use the header and More menu for app actions; Command palette is available there
 without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
