@@ -576,7 +576,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
     // emptied first, after the cursor and before it (ctrl+k, ctrl+u; measured on 2.1.295)
     ...(drafted ? {
       customSteps: (text: string) => [
-        ...keySteps([...navigationKeys(customIndex - rows.findIndex((row) => row.selected)), "ctrl+k", "ctrl+u"]),
+        ...keySteps([...navigationKeys(customIndex - rowAt), "ctrl+k", "ctrl+u"]),
         { text }, ...keySteps([KEY.enter]),
       ],
     } : {}),

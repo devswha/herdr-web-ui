@@ -132,11 +132,6 @@ function localCommandOutput(content: unknown): string {
 /** Lines of one notice Claude Code writes as separate entries, a moment apart. */
 const NOTICE_JOIN_MS = 1000;
 
-/** A notice Claude Code writes as plain text: no terminal codes, and not past a notice's length. */
-function noticeText(raw: string): string {
-  return capNotice(stripTerminalControls(raw).trim());
-}
-
 /** A notice is not a log: past the cap the rest stays in the terminal, also for lines joined into one. */
 function capNotice(text: string): string {
   return text.length > LOCAL_COMMAND_MAX_CHARS ? `${text.slice(0, LOCAL_COMMAND_MAX_CHARS)}\u2026` : text;
@@ -361,7 +356,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
     // goes before the turn it was written in, so the turn stays whole and stays the last one,
     // which is what the chat reads as the turn still running.
     if (entry.type === "system" && entry.subtype === "informational") {
-      const text = typeof entry.content === "string" ? noticeText(entry.content) : "";
+      const text = typeof entry.content === "string" ? capNotice(stripTerminalControls(entry.content).trim()) : "";
       if (text.length === 0) continue;
       const ts = entry.timestamp ?? null;
       const at = noticeAt();
