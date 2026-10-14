@@ -53,7 +53,7 @@ jobs:
             echo "draft=false" >> "$GITHUB_OUTPUT"
           fi
           # Only a pull request may skip the heavy jobs as docs-only. Every other event validates in
-          # full, including workflow_call from release.yml and pages.yml, where github.event_name is
+          # full, including workflow_call from release.yml and manual pages.yml dispatches, where github.event_name is
           # the caller's event and a docs-only last commit must not skip release validation.
           if [ "$EVENT_NAME" != "pull_request" ] || [ -z "$BASE_SHA" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"

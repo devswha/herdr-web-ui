@@ -331,14 +331,16 @@ the page and the data follows. The SoftwareApplication data is written in the pa
 The build also copies the retained `site/assets/` and `site/media/` files, including the film linked
 from the README and its chat loop. These remain available at their existing URLs even though the
 homepage uses the desktop and phone demos.
-`.github/workflows/pages.yml` installs ffmpeg when the runner lacks it and runs on pushes to `main` and manual dispatches from
-`main`. Reusable CI validation and the site build run in parallel against the same triggering SHA,
-and deployment requires both to succeed. Deployments are serialized. Immediately before deploying,
+`.github/workflows/pages.yml` installs ffmpeg when the runner lacks it and runs after CI completes
+on `main`, or on manual dispatches from `main`. A completed CI run only builds and deploys when it
+succeeded for a push from this repository; PR runs and forks cannot publish. It builds that CI run's
+head SHA without running validation again. Manual dispatches run reusable CI validation and the site
+build in parallel against the dispatch SHA, and deployment requires both to succeed.
+Deployments are serialized. Immediately before deploying,
 the workflow checks that the validated SHA is still the latest `main` commit; it fails closed if it is
 stale or that check cannot be completed. This does not change the separate Release workflow.
-The standalone `main` CI also remains enabled: a main push deliberately runs validation twice
-on separate runners, preserving its independent CI history while keeping the deployment gate local
-to the Website workflow.
+The standalone `main` CI supplies the validation for each main push, preserving its independent CI
+history while the Website workflow waits for its successful completion.
 
 ### The browser demo
 
@@ -521,7 +523,8 @@ Linux CI/CD jobs run on GitHub-hosted `ubuntu-24.04` unless the repository varia
 example `["self-hosted","linux","x64","herdr-ci"]`. Set, it routes:
 
 - in `ci.yml`: Fast checks, Integration tests and both Browser regression jobs;
-- in `pages.yml`: the site build and the deploy;
+- in `pages.yml`: the site build and the deploy after successful same-repository main push CI,
+  or on a manual dispatch with reusable CI validation;
 - in `release.yml`: the preflight and publish jobs.
 
 Detect changes, the Integration and browser summary, the Windows and macOS jobs,
@@ -535,8 +538,9 @@ falling back. `pages.yml` and `release.yml` read the variable directly.
 
 Only a `pull_request` may skip the heavy jobs as docs-only, and only when every changed file is
 under `docs/`, ends in `.md` or `.txt`, is the root `LICENSE` or sits under
-`.github/ISSUE_TEMPLATE/`. Pushes, dispatches and runs called from `release.yml` or `pages.yml`
-always validate in full.
+`.github/ISSUE_TEMPLATE/`. Pushes, dispatches and runs called from `release.yml` or manual
+`pages.yml` dispatches always validate in full. Automatic Website runs reuse CI's successful
+main push validation instead of calling CI again.
 
 The runner is an ephemeral Docker container that runs one job and exits. Containers have no CPU
 quota or total-memory limit; concurrent slots share the host's available resources. Its image ships Bun,
