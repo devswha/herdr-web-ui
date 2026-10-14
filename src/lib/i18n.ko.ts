@@ -1034,8 +1034,6 @@ export const KO: Record<string, string> = {
   "This PC's bridge does not offer agent integrations yet. It will after its next runtime update.": "이 PC의 브리지는 아직 에이전트 통합을 제공하지 않습니다. 다음 런타임 업데이트 후에 사용할 수 있습니다.",
   "Clear pane name": "패널 이름 지우기",
   "Swap with focused pane": "선택된 패널과 자리 바꾸기",
-  "Use Herdr right-click menu": "Herdr 우클릭 메뉴 사용",
-  "Send right-clicks to pane": "우클릭을 패널에 전달",
   "Pane actions for {name}": "{name} 패널 메뉴",
   "Resize split": "분할 경계 크기 조절",
   "Close pane {name}?": "{name} 패널을 닫을까요?",

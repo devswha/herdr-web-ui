@@ -208,7 +208,6 @@ export function PaneTerminal({
   const viewportId = useId();
   const viewportIntent = useMemo(() => new ViewportIntentGate(), [machineId, paneId]);
   const viewportSearching = useSyncExternalStore(viewportIntent.subscribe, viewportIntent.isSearching, viewportIntent.isSearching);
-  const [mouseReporting, setMouseReporting] = useState(false);
   const findOpenRef = useRef(findOpen);
   findOpenRef.current = findOpen;
   const lastFindRequest = useRef(findRequest);
@@ -1123,7 +1122,6 @@ export function PaneTerminal({
             return;
           }
           setOutputReady(true);
-          setMouseReporting(term.modes.mouseTrackingMode !== "none" && !fixedGridRef.current);
           followCursor();
           const lines: string[] = [];
           const buffer = term.buffer.active;
@@ -2074,7 +2072,6 @@ export function PaneTerminal({
     const fit = fitRef.current;
     if (!socket || !term) return;
     setEnded(false);
-    setMouseReporting(false);
     setInputReady(false);
     setInputError(null);
     setComposing(false);
@@ -2744,7 +2741,7 @@ export function PaneTerminal({
             visible grid carries the pane's name: a screen reader announces which pane
             this is. No tabIndex: xterm's helper textarea takes the keyboard here on attach, so a
             stop on the wrapper would only be an empty one ahead of it. */}
-        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}${!chatView && paneId !== null ? " has-viewport-tools" : ""}`} ref={hostRef} id={viewportId} data-mouse-reporting={mouseReporting && !observing && !held && !secretActive && connected && !chatView ? "" : undefined} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
+        <div className={`pane-terminal${paneId === null ? " is-idle" : ""}${!chatView && paneId !== null ? " has-viewport-tools" : ""}`} ref={hostRef} id={viewportId} role={chatView ? undefined : "region"} aria-roledescription={chatView ? undefined : t("Terminal")} aria-label={chatView ? undefined : terminalName} />
         <span className="terminal-font-size" ref={pinchBadgeRef} hidden aria-hidden="true" />
         {paneId !== null && <TerminalViewportTools key={paneId} viewportIntent={viewportIntent} terminal={terminal} paneId={paneId} viewportId={viewportId}
           pageScroll={chatView ? undefined : pageScroll}

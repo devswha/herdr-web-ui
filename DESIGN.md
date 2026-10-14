@@ -765,8 +765,8 @@ One set for both themes: the card is island black wherever it shows.
   stays at the top-right (visible on hover/focus, always on touch).
 - A left click or keyboard focus selects the actual pane. Right-click opens the clicked pane's
   menu without changing the selected pane: Rename pane, Clear pane name when named, Swap with
-  focused pane when another is selected, Split right, Split down, Zoom/Unzoom pane, the
-  right-click policy, Close pane. It appears at the pointer, clamped to the window. Up/Down
+  focused pane when another is selected, Split right, Split down, Zoom/Unzoom pane, Close
+  pane. It appears at the pointer, clamped to the window. Up/Down
   stop at the ends, hover selects, Enter acts, Escape and an outside click dismiss.
 - Split selects the new pane (`focus:true`), like the TUI. Swap exchanges the right-clicked
   pane with the previously selected pane and retains the latter's focus. A close confirms when
@@ -798,7 +798,6 @@ One set for both themes: the card is island black wherever it shows.
   connection proof; reconnect/reload never resumes pending delivery.
   A newly split pane awaiting its first snapshot does not unmount its siblings. Geometry is
   fitted inside each rendered pane; layout rectangles are never used as PTY dimensions.
-- Plain right-click can be passed to a mouse-reporting terminal when enabled for that pane.
   Modified clicks, pane frames and non-reporting/read-only terminals still open the menu.
   Native app shortcuts stay Mod+Shift in the browser, so Ctrl+key continues to reach the PTY.
 

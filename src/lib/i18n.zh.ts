@@ -1038,8 +1038,6 @@ export const ZH: Record<string, string> = {
   "Copy the command for {name}": "复制 {name} 的命令",
   "Clear pane name": "清除面板名称",
   "Swap with focused pane": "与当前面板交换位置",
-  "Use Herdr right-click menu": "使用 Herdr 右键菜单",
-  "Send right-clicks to pane": "将右键点击发送到面板",
   "Pane actions for {name}": "{name} 面板菜单",
   "Resize split": "调整分割边界",
   "Close pane {name}?": "关闭面板 {name}？",

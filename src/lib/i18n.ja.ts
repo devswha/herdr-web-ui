@@ -1036,8 +1036,6 @@ export const JA: Record<string, string> = {
   "Copy the command for {name}": "{name} のコマンドをコピー",
   "Clear pane name": "ペイン名をクリア",
   "Swap with focused pane": "フォーカス中のペインと入れ替え",
-  "Use Herdr right-click menu": "Herdrの右クリックメニューを使う",
-  "Send right-clicks to pane": "右クリックをペインに送る",
   "Pane actions for {name}": "{name}のペインメニュー",
   "Resize split": "分割境界のサイズを変更",
   "Close pane {name}?": "ペイン{name}を閉じますか？",
