@@ -252,6 +252,19 @@ describe("push delivery", () => {
     expect(await push.sendTest(fake.subscription.endpoint)).toBeNull();
   });
 
+  it.each([404, 410])("answers subscription_gone on the first test when the push service returns %i", async (status) => {
+    const push = subscribed();
+    fake.answerWith(status);
+
+    const response = await handlePushRequest(new Request("http://localhost/api/push/test", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endpoint: fake.subscription.endpoint }),
+    }), "/api/push/test", push, null);
+
+    expect(response?.status).toBe(410);
+    expect((await response?.json()).error.code).toBe("subscription_gone");
+  });
+
   // regression (fails on main): the browser can keep handing over the endpoint its push service retired (#1038)
   it("refuses a re-registration of an endpoint its push service retired, so the device subscribes anew", async () => {
     const push = subscribed();
@@ -282,6 +295,12 @@ describe("push delivery", () => {
     const push = subscribed();
     fake.answerWith(500);
     expect(await push.sendTest(fake.subscription.endpoint)).toEqual({ ok: false, status: 500, gone: false });
+    const response = await handlePushRequest(new Request("http://localhost/api/push/test", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ endpoint: fake.subscription.endpoint }),
+    }), "/api/push/test", push, null);
+    expect(response?.status).toBe(502);
+    expect((await response?.json()).error.code).toBe("push_failed");
     fake.answerWith(201);
     expect(await push.sendTest(fake.subscription.endpoint)).toEqual({ ok: true });
   });

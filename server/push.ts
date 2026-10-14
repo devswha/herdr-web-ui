@@ -519,5 +519,6 @@ export async function handlePushRequest(request: Request, pathname: string, push
       : jsonResponse({ error: { code: "subscription_not_found", message: "this device is not subscribed" } }, 404);
   }
   if (delivery.ok) return new Response(null, { status: 204 });
+  if (delivery.gone) return subscriptionGone();
   return jsonResponse({ error: { code: "push_failed", message: `push service answered ${delivery.status ?? "nothing"}` } }, 502);
 }

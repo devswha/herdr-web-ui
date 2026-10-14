@@ -2310,12 +2310,14 @@ describe("web push", () => {
   });
 
   // regression (fails on main): an endpoint the push service retired is refused, never-known stays not found (#1038)
-  it("answers subscription_gone for an endpoint its push service retired", async () => {
+  it.each([404, 410])("answers subscription_gone on the first test when the push service returns %i", async (status) => {
     const retiring = await startFakePushService();
     try {
       expect((await postJson("/api/push/subscribe", { subscription: retiring.subscription })).status).toBe(204);
-      retiring.answerWith(410);
-      expect((await postJson("/api/push/test", { endpoint: retiring.subscription.endpoint })).status).toBe(502);
+      retiring.answerWith(status);
+      const first = await postJson("/api/push/test", { endpoint: retiring.subscription.endpoint });
+      expect(first.status).toBe(410);
+      expect(((await first.json()) as ApiError).error.code).toBe("subscription_gone");
       const again = await postJson("/api/push/subscribe", { subscription: retiring.subscription });
       expect(again.status).toBe(410);
       expect(((await again.json()) as ApiError).error.code).toBe("subscription_gone");
