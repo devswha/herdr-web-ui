@@ -12,6 +12,7 @@
  * - An administrator's authorized keys live in %ProgramData%\ssh\administrators_authorized_keys
  *   with a fixed ACL; everyone else's in ~\.ssh\authorized_keys.
  */
+import { win32 } from "node:path";
 import { REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
 import type { BridgeDescriptor } from "./bridge.ts";
 import { shellQuote } from "./machine-security.ts";
@@ -154,16 +155,16 @@ export const windowsHost: RemoteHost = {
     ].join("\n"));
     const [os, arch, home, appData, xdgConfigHome, localAppData, herdrPath, ...lines] = inspection.split("\n");
     if (os !== "Windows" || arch !== "AMD64") throw new Error(UNSUPPORTED_HOST);
-    const drive = /^[A-Za-z]:\\/;
+    const drive = /^[A-Za-z]:[\\/]/;
     if (xdgConfigHome && !drive.test(xdgConfigHome)) throw new Error("The SSH account's XDG_CONFIG_HOME could not be read on this PC");
     if (!home || !drive.test(home) || !localAppData || !drive.test(localAppData)) throw new Error("The SSH account's profile directory (%USERPROFILE%) could not be read on this PC");
     const herdrConfig = xdgConfigHome || appData;
     if (!herdrConfig || !drive.test(herdrConfig)) throw new Error("The SSH account's herdr configuration directory could not be read on this PC");
-    const herdrDir = `${herdrConfig}\\herdr`;
+    const herdrDir = win32.join(herdrConfig, "herdr");
     return {
       platform: "win32-x64", home, herdrPath: herdrPath ?? "",
       // the marker file's own path: the bridge's realpath of it is the same string (live-verified)
-      expectedSocket: session ? `${herdrDir}\\sessions\\${session}\\herdr.sock` : `${herdrDir}\\herdr.sock`,
+      expectedSocket: session ? win32.join(herdrDir, "sessions", session, "herdr.sock") : win32.join(herdrDir, "herdr.sock"),
       bundleReady: lines.includes("bundle-ready"), bundleOlder: lines.includes("bundle-older"),
       descriptors: parseDescriptors(lines),
       runtimeDir: `${localAppData}\\herdr-web-ui\\remote-v${REMOTE_BUNDLE_VERSION}`, registryDir: `${home}\\.config\\herdr-web-ui\\bridges`,

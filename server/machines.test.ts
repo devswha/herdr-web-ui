@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { describeProgress } from "../src/lib/bridgeProgress.ts";
 import type { SetupJob } from "../shared/machines.ts";
 import { paneNotificationTag } from "../shared/notify-policy.ts";
@@ -11,7 +11,7 @@ import { handleMachineRequest, MACHINE_PROXY_PATH } from "./machine-api.ts";
 import type { BridgeDescriptor } from "./bridge.ts";
 import { createServer } from "./index.ts";
 import { MachineManager } from "./machines.ts";
-import { detectHost, psQuote, UNSUPPORTED_HOST, windowsBridgeFiles } from "./remote-host.ts";
+import { detectHost, psQuote, UNSUPPORTED_HOST, windowsBridgeFiles, windowsHost } from "./remote-host.ts";
 import { decodeClixml, SshConnection } from "./ssh.ts";
 import { terminalAttachSupported } from "./herdr/client.ts";
 import { attachableIdentity, isRealNode, sidecarAvailable } from "./pty/sidecar.ts";
@@ -560,6 +560,58 @@ describe("bridge verification failures", () => {
     const descriptor: BridgeDescriptor = { port, token: TOKEN, pid: process.pid, socket_path: socket, bridge_protocol: 0, bundle_version: "" };
     const verify = (manager as unknown as { verify(ssh: SshConnection, descriptor: BridgeDescriptor, socket: string): Promise<unknown> }).verify.bind(manager);
     return verify(ssh, descriptor, socket).then(() => "verified", (error: Error) => error.message);
+  }
+
+  // Evaluate the entrypoint's actual socket setup without starting its daemon.
+  const entryLines = readFileSync(new URL("./remote-entry.ts", import.meta.url), "utf8").split("\n");
+  const socketSetup = ["const herdrConfig =", "const session =", 'process.env["HERDR_SOCKET"] ='].map((prefix) => {
+    const line = entryLines.find((line) => line.startsWith(prefix));
+    if (!line) throw new Error("remote-entry socket setup was not found");
+    return line;
+  }).join("\n");
+  const bridgeSocket = new Function("windows", "process", "join", "homedir", `${socketSetup}\nreturn process.env["HERDR_SOCKET"];`);
+
+  for (const root of ["C:\\Temp\\xdg\\", "C:\\", "C:/Temp/xdg", "C:\\Temp\\xdg\\..\\config"]) {
+    for (const session of ["qa", undefined]) {
+      it(`connects the inspected Windows socket to its bridge for ${JSON.stringify(root)}, session ${session}`, async () => {
+        const env = { XDG_CONFIG_HOME: root, APPDATA: "C:\\Users\\u\\AppData\\Roaming", HERDR_REMOTE_SESSION: session };
+        const socket = String(bridgeSocket(true, { env }, win32.join, () => "C:\\Users\\u"));
+        const identity = { pid: process.pid, managed_remote: true, bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: "1:2", herdr: { protocol: 22 } };
+        const port = answering(200, JSON.stringify(identity));
+        const descriptor = { ...identity, port, token: TOKEN };
+        const ssh = {
+          run: async () => { throw new Error("'sh' is not recognized as an internal or external command"); },
+          runPowerShell: async (script: string) => {
+            if (script.includes("PROCESSOR_ARCHITECTURE")) return `Windows\nAMD64\nC:\\Users\\u\n${env.APPDATA}\n${root}\nC:\\Users\\u\\AppData\\Local\nC:\\Programs\\herdr.exe\n${JSON.stringify(descriptor)}\n`;
+            if (script.includes("--version")) return "herdr 0.9.3";
+            if (script.includes("Get-Process")) return "live";
+            throw new Error("Unexpected remote mutation");
+          },
+          forward: async (local: number, remote: number) => {
+            const relay = Bun.serve({ port: local, hostname: "127.0.0.1", fetch: (request) => fetch(`http://127.0.0.1:${remote}${new URL(request.url).pathname}`, { headers: request.headers }) });
+            stops.push(() => relay.stop(true));
+          },
+        } as unknown as SshConnection;
+        const { inspection } = await detectHost(ssh, session);
+        expect(inspection.expectedSocket).toBe(socket);
+        const manager = new MachineManager(temp(), {} as PushService, {} as CompletionTracker);
+        stops.push(() => manager.stop());
+        const runtime = { generation: 0, ssh, machine: { target: { destination: "pc", session } }, endpoint: undefined };
+        const prepare = (manager as unknown as { prepare(runtime: unknown): Promise<void> }).prepare.bind(manager);
+        await prepare(runtime);
+        expect(runtime.endpoint).toMatchObject({ token: TOKEN });
+      });
+    }
+  }
+
+  for (const root of ["relative\\xdg", "C:xdg", "/Temp/xdg"]) {
+    it(`rejects a Windows XDG root without a drive-absolute path: ${root}`, async () => {
+      const ssh = {
+        run: async () => { throw new Error("'sh' is not recognized as an internal or external command"); },
+        runPowerShell: async () => `Windows\nAMD64\nC:\\Users\\u\nC:\\Users\\u\\AppData\\Roaming\n${root}\nC:\\Users\\u\\AppData\\Local\nC:\\Programs\\herdr.exe\n`,
+      } as unknown as SshConnection;
+      await expect(windowsHost.inspect(ssh)).rejects.toThrow("XDG_CONFIG_HOME");
+    });
   }
 
   it("says herdr is not running when the bridge finds no socket", async () => {
