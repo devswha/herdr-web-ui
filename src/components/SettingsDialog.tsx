@@ -374,6 +374,9 @@ function ChatPage() {
         <SettingsRow label={t("Suggestion chip")} description={t("On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.")}>
           <Toggle label={t("Suggestion chip")} checked={settings.showSuggestionChip} onChange={(showSuggestionChip) => update({ showSuggestionChip })} />
         </SettingsRow>
+        <SettingsRow label={t("Folder and branch")} description={t("A line under the message box names the folder the agent works in and its branch. A worktree names its repository instead.")}>
+          <Toggle label={t("Folder and branch")} checked={settings.showComposerStrip} onChange={(showComposerStrip) => update({ showComposerStrip })} />
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title={t("Quick replies")} section="quick-replies">

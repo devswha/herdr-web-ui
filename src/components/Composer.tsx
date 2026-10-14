@@ -86,8 +86,9 @@ export interface ComposerProps {
   cwd?: string | null;
   /** the pane's branch, beside the folder in that strip; nothing is drawn for it while absent */
   branch?: string | null;
-  /** the workspace is a linked worktree of its repository: the strip says so beside the folder */
-  worktree?: boolean;
+  /** the workspace is a linked worktree of this repository: the strip names the repository in the folder's
+   * place (the checkout folder is the branch again, with dashes) and says it is a worktree; null: not one */
+  worktreeRepo?: string | null;
   /** true: sent, clear the box; a string: keep the text and say why; a DraftRefusal: the same, and the
    * note offers to send again with `clearDraft`, which clears that draft from the terminal first; a
    * promise settles to any of them */
@@ -249,7 +250,7 @@ export function Composer({
   notices = null,
   cwd = null,
   branch = null,
-  worktree = false,
+  worktreeRepo = null,
   onSend,
   onAbort,
   onUploadImage,
@@ -984,10 +985,9 @@ export function Composer({
     : hint === "no-room" ? t("No room for {file}: remove {count} characters", { file: roomless?.file.name ?? "", count: roomless?.missing ?? 0 })
     : hint === "near-limit" ? t("{count} characters left", { count: MAX_COMPOSER_CHARS - text.length })
     : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
-  /** the strip under the card: the folder and the branch the caller knows; none, no strip */
-  const strip = composerStrip({ cwd, branch });
-  /** a hairline between two parts of the model group, as t3code's composer controls are parted */
-  const sep = <span className="composer-sep" aria-hidden="true" />;
+  /** the strip under the card: the folder and the branch the caller knows; none, or turned off, no strip */
+  const strip = settings.showComposerStrip ? composerStrip({ cwd, branch, repo: worktreeRepo }) : null;
+  const worktree = worktreeRepo !== null;
   const menuId = `composer-menu-${paneId}`;
   // the arrow keys move the selection, not the focus (it stays in the box), so the browser does not scroll to it
   useEffect(() => {
@@ -1175,58 +1175,6 @@ export function Composer({
           }}
         />
 
-        {/* the card's last row, as t3code's composer orders it: the model group at the row's start, the action
-            icons and the one round button at its end. The agent's name, its separator and the state word are
-            read, not drawn: the mark and the header name the agent, and Stop, the live row and the prompt card
-            say the state. All state words stay available to assistive tech only.
-            Where the model label does not fit, it steps out and is still read (fitStatus marks data-model) */}
-        <div ref={statusRef} className="composer-status" role="status" data-status={shownStatus}
-          data-offline={connected ? undefined : ""} data-hint={hint ?? undefined}>
-          {/* everything but the sentence: one row that never wraps, also where the sentence takes a line of its own */}
-          <span className="composer-status-meta">
-            <span className="composer-agent-label visually-hidden">{agentLabel}</span>
-            <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
-            <strong className="visually-hidden">{t(composerStatusWord(shownStatus))}</strong>
-            {/* the mark, the model, the level and the context ring as one quiet group, its parts told apart by
-                hairlines (.composer-sep) as t3code's composer controls are. It only shows: no role, no focus,
-                nothing to press but the ring inside it. A pane that names no model draws no group (.is-bare):
-                the mark, a level if it has one, and the ring stand in the row as they are */}
-            <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
-              {agent && <AgentMark agent={agent} size={14} />}
-              {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
-                {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
-                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
-                {/* behind a name the id as received is still read; a touch cannot reach the title */}
-                {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
-                {/* no level recorded: nothing is drawn for it, no hairline and no dash; the sentence is still read */}
-                {metadata?.reasoning_effort && sep}
-                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
-                  <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
-                  {metadata?.reasoning_effort && <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>}
-                </span>
-              </span>}
-              {metadata?.context && modelShown && sep}
-              {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} onCompact={compactNow} />}
-              {usage !== undefined && usage.problem === null && usageLimit !== undefined && (modelShown || metadata?.context) && sep}
-              {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
-                className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
-                title={`${usageName(usage)}\n${usageDetail}`}
-              >
-                <span aria-hidden="true">{usageCaption}</span>
-                <span className="visually-hidden">{usageAccessible}</span>
-              </span>}
-            </span>
-            {/* the chip is a button in the action group; its count is still said here, where a change is announced */}
-            {backgroundTasks > 0 && <span className="composer-task-count visually-hidden">{t(backgroundTasks === 1 ? "{n} background task" : "{n} background tasks", { n: backgroundTasks })}</span>}
-          </span>
-          {hintText !== null && (
-            <span ref={hintRef} className="composer-status-hint" title={hintText}>
-              <span className="composer-status-hint-dot" aria-hidden="true">· </span>{hintText}
-            </span>
-          )}
-        </div>
-        {/* the action icons, between the model group and the round button (the class names are the groups'
-            first names, kept for the browser scripts that read them) */}
         <div className="composer-controls composer-controls-left">
           <input
             ref={fileInputRef}
@@ -1251,6 +1199,54 @@ export function Composer({
           </button>
           {dictation.shown && <MicButton dictation={dictation} />}
           <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} claude={agent === "claude"} plan={plan} />
+        </div>
+        {/* between the two control groups of the card's last row. The agent's name, its separator and the
+            state word are read, not drawn: the mark and the header name the agent, and Stop, the live row and
+            the prompt card say the state. All state words stay available to assistive tech only.
+            Where the model label does not fit, it steps out and is still read (fitStatus marks data-model) */}
+        <div ref={statusRef} className="composer-status" role="status" data-status={shownStatus}
+          data-offline={connected ? undefined : ""} data-hint={hint ?? undefined}>
+          {/* everything but the sentence: one row that never wraps, also where the sentence takes a line of its own */}
+          <span className="composer-status-meta">
+            <span className="composer-agent-label visually-hidden">{agentLabel}</span>
+            <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
+            <strong className="visually-hidden">{t(composerStatusWord(shownStatus))}</strong>
+            {/* the mark, the model, the level and the context ring as one quiet pill. It only shows: no role,
+                no focus, nothing to press but the ring inside it. A pane that names no model draws no pill
+                (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
+            <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
+              {agent && <AgentMark agent={agent} size={14} />}
+              {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
+                {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
+                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
+                {/* behind a name the id as received is still read; a touch cannot reach the title */}
+                {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
+                {/* no level recorded: nothing is drawn for it, no dot and no dash; the sentence is still read */}
+                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+                  <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
+                  {metadata?.reasoning_effort && <>
+                    <span className="composer-reasoning-dot" aria-hidden="true">·</span>
+                    <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
+                  </>}
+                </span>
+              </span>}
+              {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} onCompact={compactNow} />}
+              {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
+                className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
+                title={`${usageName(usage)}\n${usageDetail}`}
+              >
+                <span aria-hidden="true">{usageCaption}</span>
+                <span className="visually-hidden">{usageAccessible}</span>
+              </span>}
+            </span>
+            {/* the chip is a button in the left controls; its count is still said here, where a change is announced */}
+            {backgroundTasks > 0 && <span className="composer-task-count visually-hidden">{t(backgroundTasks === 1 ? "{n} background task" : "{n} background tasks", { n: backgroundTasks })}</span>}
+          </span>
+          {hintText !== null && (
+            <span ref={hintRef} className="composer-status-hint" title={hintText}>
+              <span className="composer-status-hint-dot" aria-hidden="true">· </span>{hintText}
+            </span>
+          )}
         </div>
         <div className="composer-controls composer-controls-right">
           {!sendShown ? (

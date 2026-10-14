@@ -114,6 +114,8 @@ export const JA: Record<string, string> = {
   "Only the first {count} of {total} files were taken. Settings → Chat → Files at once sets how many one paste, pick or drop takes.": "{total} 個のファイルのうち先頭の {count} 個だけを受け取りました。設定 → チャット → 一度に添付するファイル数で、貼り付け・選択・ドロップ 1 回に受け取る数を決めます。",
   "Suggestion chip": "提案チップ",
   "On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "タッチ画面では、入力欄の上のチップで Claude Code が次に提案するプロンプトを入力欄に入れます。キーボードでは Tab で入れます。",
+  "Folder and branch": "フォルダーとブランチ",
+  "A line under the message box names the folder the agent works in and its branch. A worktree names its repository instead.": "メッセージ欄の下の行に、エージェントが作業しているフォルダーとそのブランチを表示します。ワークツリーではフォルダーの代わりにリポジトリ名を表示します。",
   "Chat": "チャット",
   "Panes open in": "ペインを開く表示",
   "Every pane on this device. Switching a pane's lens keeps it there until this changes. Auto: chat for an agent on a touch screen, else the terminal.": "この端末のすべてのペインに適用されます。ペインで表示を切り替えると、この設定を変えるまでその表示で開きます。自動: タッチ画面のエージェントはチャット、それ以外はターミナル。",

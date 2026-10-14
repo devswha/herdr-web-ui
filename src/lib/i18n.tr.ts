@@ -112,6 +112,8 @@ export const TR: Record<string, string> = {
   "Only the first {count} of {total} files were taken. Settings → Chat → Files at once sets how many one paste, pick or drop takes.": "{total} dosyadan yalnızca ilk {count} tanesi alındı. Ayarlar → Sohbet → Bir seferde dosya sayısı, bir yapıştırma, seçme veya sürükleyip bırakmada kaç dosya alınacağını belirler.",
   "Suggestion chip": "Öneri düğmesi",
   "On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "Dokunmatik ekranda mesaj kutusunun üstündeki çip, Claude Code'un sıradaki olarak önerdiği istemi kutuya yerleştirir. Klavyede bunu Tab yapar.",
+  "Folder and branch": "Klasör ve dal",
+  "A line under the message box names the folder the agent works in and its branch. A worktree names its repository instead.": "Mesaj kutusunun altındaki satır, ajanın çalıştığı klasörü ve dalını gösterir. Bir çalışma ağacında klasör yerine deposunun adı gösterilir.",
   "Chat": "Sohbet",
   "Panes open in": "Panellerin açılış görünümü",
   "Every pane on this device. Switching a pane's lens keeps it there until this changes. Auto: chat for an agent on a touch screen, else the terminal.": "Bu cihazdaki tüm paneller için geçerlidir. Bir panelin görünümünü elle değiştirirseniz bu ayarı değiştirene kadar seçiminiz korunur. Otomatik modda dokunmatik ekranda ajanlar için sohbet, diğer durumlarda terminal açılır.",

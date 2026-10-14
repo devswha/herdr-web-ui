@@ -96,8 +96,8 @@ export interface PaneTerminalProps {
   cwd?: string | null;
   /** the pane's workspace: its checkout's branch stands beside the folder under the composer */
   workspaceId?: string | null;
-  /** that workspace is a linked worktree of its repository */
-  linkedWorktree?: boolean;
+  /** that workspace is a linked worktree of this repository (its name, as herdr gives it); null: it is not one */
+  worktreeRepo?: string | null;
   machineName?: string;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
@@ -155,7 +155,7 @@ export function PaneTerminal({
   backgroundWait = false,
   cwd = null,
   workspaceId = null,
-  linkedWorktree = false,
+  worktreeRepo = null,
   machineName = "",
   view,
   findRequest = 0,
@@ -2757,7 +2757,7 @@ export function PaneTerminal({
           paneId={paneId}
           cwd={cwd}
           branch={branchWord === DETACHED ? t("Detached HEAD") : branchWord}
-          worktree={linkedWorktree}
+          worktreeRepo={worktreeRepo}
           autoFocus={active && !autoSelected && !coarse}
           active={active}
           agent={agent}

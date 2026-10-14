@@ -112,6 +112,8 @@ export const KO: Record<string, string> = {
   "Only the first {count} of {total} files were taken. Settings → Chat → Files at once sets how many one paste, pick or drop takes.": "파일 {total}개 중 앞의 {count}개만 가져왔습니다. 설정 → 채팅 → 한 번에 첨부할 파일 수에서 붙여넣기, 선택 또는 끌어놓기 한 번에 가져올 개수를 정합니다.",
   "Suggestion chip": "제안 칩",
   "On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "터치 화면에서 입력창 위의 칩을 누르면 Claude Code가 제안한 다음 프롬프트가 입력창에 들어갑니다. 키보드에서는 Tab으로 넣습니다.",
+  "Folder and branch": "폴더와 브랜치",
+  "A line under the message box names the folder the agent works in and its branch. A worktree names its repository instead.": "입력창 아래 줄에 에이전트가 작업하는 폴더와 브랜치를 보여줍니다. 워크트리에서는 폴더 대신 저장소 이름을 보여줍니다.",
   "Chat": "채팅",
   "Panes open in": "패널 기본 화면",
   "Every pane on this device. Switching a pane's lens keeps it there until this changes. Auto: chat for an agent on a touch screen, else the terminal.": "이 기기의 모든 패널에 적용됩니다. 패널에서 화면을 바꾸면 이 설정을 다시 바꿀 때까지 그 화면으로 열립니다. 자동: 터치 화면의 에이전트는 채팅, 그 밖에는 터미널.",

@@ -1164,15 +1164,9 @@ One set for both themes: the card is island black wherever it shows.
   (the only other card on this surface is the prompt card docked over it, while an agent asks);
   focus turns its border `--accent` (no inner outline). Above it the notices (below), the
   completion popover and the background-task list; inside, the image strip is its own row at the top, then the auto-growing
-  message box as a row of its own at the card's full width, then ONE row of controls under it,
-  ordered as t3code's composer orders its own: at the row's start the status content (the model
-  group, below); then the add button (lucide `Plus`, named "Attach files"), the mic
-  when voice input shows it (see Voice input), and the background-task chip; at the row's end
-  ONE round Send/Stop button. The message's text and the model group's mark both start
-  `--space-4` in (`--space-3` on a phone, `480px` and below), and the round button ends
-  `--space-4` from the card's edge (its transparent touch target reaches `--space-1` from it on
-  a phone). The three groups are parted by `--space-2` (nothing on a phone, where the row holds
-  the same controls at touch size).
+  message box as a row of its own at the card's full width, then ONE row of controls under it:
+  on the left the add button (lucide `Plus`, named "Attach files"), the mic when voice input
+  shows it (see Voice input), and the background-task chip; on the right the status content and ONE round Send/Stop button.
 - The strip (`.composer-strip`) tucked under the card, as t3code's composer context strip: the
   card's own `--bg-elevated` with a `--border` hairline, inset on each side by the card's radius
   (`--radius-2xl`, never under `--space-5`) so it stays under the card's straight bottom edge,
@@ -1210,28 +1204,25 @@ One set for both themes: the card is island black wherever it shows.
   `--status-blocked` on hover and focus. Not connected, Stop is disabled and loses its fill
   (`--border-strong` outline, `--text-dim` glyph). A coarse pointer keeps that compact visible
   circle inside a transparent `--touch-target` / `40px` button, so tapping remains easy.
-- The status content (`.composer-status`, `role="status"`) sits at the row's start, before the
-  action icons. It draws, at `--fs-xs`: the model group and the uploading
-  or reconnecting sentence in `--text-dim`. The background-task chip is a button in the action group;
+- The status content (`.composer-status`, `role="status"`) sits between the two control groups,
+  pushed to the button's side. It draws, at `--fs-xs`: the model pill and the uploading
+  or reconnecting sentence in `--text-dim`. The background-task chip is a button in the left controls;
   its count is repeated here as `.visually-hidden` text, so a change is still announced. The agent's written name, its separator, the state words
   `READY` / `RUN` / `INPUT` / `DONE` / `BG` and the sentence `Reasoning high` stay in it for assistive tech only
   (`.visually-hidden`): the header names the pane, and the state is told by Stop, the live row
   and the prompt card. No state word is drawn in the chat composer.
-- The model group (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
-  context ring as quiet divider-separated text, the way t3code's composer parts its model, effort
-  and mode controls: no fill and no border, `--control-h` tall, `--fs-sm`, `--space-2` between
-  its parts, and a hairline (`.composer-sep`: `--hairline` of `--border-strong`, `--space-4` tall,
-  `--space-1` each side) between the model and the level, before the ring and before the usage
-  reference. The model is in `--text` at
-  `--fw-medium`; the level follows its hairline in `--text-dim`, as the agent's own words with
+- The model pill (`.composer-pill`) holds the agent mark, the model, the reasoning level and the
+  context ring in one quiet surface: `--bg-hover` fill, `--radius-pill`, `--control-h` tall,
+  `--space-3` inline padding, `--space-2` between its parts. The model is in `--text` at
+  `--fw-medium`; the level follows a middle dot in `--text-dim`, as the agent's own words with
   only the first letter drawn as a capital (`::first-letter`, the text is not rewritten); a pane
-  that records no level draws no hairline and no dash, only the name. In the group the ring's
-  track is `--border-strong`, the hairlines' colour; a ring left bare on the card keeps `--border`.
+  that records no level draws no dot and no dash, only the name. On the
+  fill the ring's track is `--border-strong`; a ring left bare on the card keeps `--border`.
   No part carries a chevron: herdr owns the agent, so none of them opens a menu. It is display only: a `span` with no role, no
   focus, no hover or pressed state, no pointer cursor and no chevron; the ring inside it is the
   one thing to press on desktop; mobile keeps the ring inert. The `title` of the model is the id as received, and the level's is its
   sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
-  cannot reach a title. A pane that names no model draws no group: the mark and the ring stand
+  cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
   alone, with a dim `Model —` and the level between them if the pane records only a level.
 - The model is drawn by name only where its id is one `modelLabel` (`src/lib/modelName.ts`) can
   name for certain, from the vendor's own regular naming and matched whole:
@@ -1247,11 +1238,11 @@ One set for both themes: the card is island black wherever it shows.
   suffix is dropped.
 - What does not fit the row gives way in this order: the task chip's words (icon and count below
   a `640px` card), then the reasoning level and model name according to the measured row. A long
-  identifier can shorten inside the group; the context ring remains visible: a name that would
+  identifier can shorten inside the pill; the context ring remains visible: a name that would
   be cut to its floor (the `3ch` the box keeps) steps out whole instead, with its mark and its
-  hairlines (`composerLabelDraw`, `src/lib/composerLabelFit.ts`, measured again with the level
+  pill (`composerLabelDraw`, `src/lib/composerLabelFit.ts`, measured again with the level
   stepped out), so the ring stands alone and whole on a `320px` phone rather than being cut by
-  the group's edge. The row is measured
+  the pill's edge. The row is measured
   again after fonts arrive and the context label opens or closes. The input card keeps one row
   of controls on desktop and phones.
 - Every agent has one primary control: Stop while working with an empty draft, Send with text,
@@ -1284,12 +1275,7 @@ One set for both themes: the card is island black wherever it shows.
   of its own under it, without its leading dot, and wraps there; its `title` repeats it. Only
   the sentence takes a line: the mark, the model, the level and the ring stay one row over it
   (`.composer-status-meta`), where the label gives way exactly as it does with no sentence. The
-  status content keeps the row's start. In a narrow card (`data-compact`, below `640px`) the
-  action icons at touch size leave it too little of the row for a word, so while a sentence
-  shows the status content takes a row of its own over the icons, the card's width
-  (`.composer-surface[data-compact]:has(> .composer-status[data-hint])`): the sentence is read
-  whole beside the model group or under it, the icons keep their row starting at the card's
-  edge, and the card grows by that row while the sentence shows. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
+  status content is then left-aligned, beside the add button. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
   `Uploading file…`, never both: the attachment's own tile says it is uploading.
 - The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
   (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,

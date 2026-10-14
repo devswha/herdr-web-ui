@@ -535,6 +535,15 @@ describe("microphone button", () => {
   });
 });
 
+describe("composer strip", () => {
+  it("stays on until turned off in settings", () => {
+    expect(DEFAULT_SETTINGS.showComposerStrip).toBe(true);
+    expect(sanitizeSettings({}).showComposerStrip).toBe(true);
+    expect(sanitizeSettings({ showComposerStrip: false }).showComposerStrip).toBe(false);
+    expect(sanitizeSettings({ showComposerStrip: "no" }).showComposerStrip).toBe(true);
+  });
+});
+
 describe("suggestion chip", () => {
   it("stays on until turned off in settings", () => {
     expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(true);

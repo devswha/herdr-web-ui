@@ -38,10 +38,8 @@
   pointer-anchored zoom and pan, and Copy image and Download actions, instead of a new tab.
 - Copying a chat selection keeps Markdown lists, code and image links, with sanitized rich HTML for
   pasting into documents; code-only selections stay plain code.
-- The chat composer's card reads like t3code's: the model, reasoning level and context ring stand as
-  quiet divider-separated text at the start of the control row, the action icons and the round Send
-  button at its end, and a slim strip tucked under the card can name the pane's working folder and
-  branch.
+- A slim strip tucked under the chat composer's card, as t3code's, can name the pane's working
+  folder and branch.
 - A long user message folds to twelve lines behind **Show full message**, opens again with **Show
   less** or when Find lands on it, and keeps that choice while the chat scrolls.
 - A work row now says what the agent said the call is for (OmO's eval summary, the description

@@ -161,6 +161,8 @@ export interface Settings {
   showQuickReplies: boolean;
   /** touch screens: a chip above the message box takes the prompt Claude suggests next */
   showSuggestionChip: boolean;
+  /** the strip under the message box: the working folder (a worktree's repository) and the branch */
+  showComposerStrip: boolean;
   /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
   showUsage: boolean;
   usageCount: UsageCount;
@@ -201,7 +203,7 @@ type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily" | "uiFontFamily" | "codeFontFamily"
   | "quickReplies" | "usageOrder" | "usageHidden"
   // not collected: the report's schema (shared/telemetry.ts) has no field for it yet
-  | "diffStyle" | "contrast" | "fontSmoothing" | "panelMotion" | "uiFontSize"
+  | "diffStyle" | "contrast" | "fontSmoothing" | "panelMotion" | "uiFontSize" | "showComposerStrip"
   // not collected: only System mode reads them, and `palette` is already reported
   | "paletteLight" | "paletteDark">;
 
@@ -285,7 +287,7 @@ export const SETTING_SCOPE = {
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
   narrowPaneFont: "device", chatFontSize: "device", chatFontFamily: "device", uiFontSize: "device", uiFontFamily: "device", codeFontFamily: "device", chatWidth: "device", enterSends: "device", attachLimit: "device",
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
-  paletteLight: "device", paletteDark: "device",
+  paletteLight: "device", paletteDark: "device", showComposerStrip: "device",
   // this screen's legibility, as density and the font sizes are
   contrast: "device",
   fontSmoothing: "device", panelMotion: "device",
@@ -348,6 +350,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
   showSuggestionChip: true,
+  showComposerStrip: true,
   showUsage: false,
   usageCount: "used",
   usagePace: false,
@@ -544,6 +547,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       : [...DEFAULT_SETTINGS.quickReplies],
     showQuickReplies: typeof record["showQuickReplies"] === "boolean" ? record["showQuickReplies"] : DEFAULT_SETTINGS.showQuickReplies,
     showSuggestionChip: typeof record["showSuggestionChip"] === "boolean" ? record["showSuggestionChip"] : DEFAULT_SETTINGS.showSuggestionChip,
+    showComposerStrip: typeof record["showComposerStrip"] === "boolean" ? record["showComposerStrip"] : DEFAULT_SETTINGS.showComposerStrip,
     showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
     usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
     usagePace: record["usagePace"] === true,

@@ -116,6 +116,8 @@ export const ZH: Record<string, string> = {
   "Only the first {count} of {total} files were taken. Settings → Chat → Files at once sets how many one paste, pick or drop takes.": "{total} 个文件中只取了前 {count} 个。设置 → 聊天 → 一次附加的文件数决定一次粘贴、选择或拖放取多少个。",
   "Suggestion chip": "建议标签",
   "On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "在触摸屏上，输入框上方的标签会把 Claude Code 建议的下一条提示填入输入框。使用键盘时按 Tab 即可。",
+  "Folder and branch": "文件夹和分支",
+  "A line under the message box names the folder the agent works in and its branch. A worktree names its repository instead.": "消息框下方的一行显示代理所在的文件夹及其分支。工作树显示其仓库名称。",
   "Chat": "聊天",
   "Panes open in": "窗格默认视图",
   "Every pane on this device. Switching a pane's lens keeps it there until this changes. Auto: chat for an agent on a touch screen, else the terminal.": "适用于此设备上的所有窗格。在窗格中切换视图后，在更改此设置之前都会以该视图打开。自动：触屏上的智能体为聊天，其余为终端。",

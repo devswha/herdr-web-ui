@@ -9,6 +9,7 @@ import { PaneCanvas } from "./components/PaneCanvas.tsx";
 import { MachineSessionsProvider } from "./lib/machineSessionContext.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { PANE_TABPANEL_ID, paneTabPanelLabel } from "./lib/paneRegion.ts";
+import { worktreeRepoName } from "./lib/composerStrip.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
@@ -1638,7 +1639,7 @@ export function App() {
                         backgroundWait={item?.background_wait === true}
                         cwd={item?.cwd ?? null}
                         workspaceId={item?.workspace_id ?? null}
-                        linkedWorktree={item !== null && slotSnapshot?.workspaces.find((workspace) => workspace.workspace_id === item.workspace_id)?.worktree?.is_linked_worktree === true}
+                        worktreeRepo={worktreeRepoName(item === null ? undefined : slotSnapshot?.workspaces.find((workspace) => workspace.workspace_id === item.workspace_id))}
                         machineName={machine?.name ?? machineId}
                         view={item ? lensOf(item) : slotView}
                         // the other half never takes the keyboard: a press in it makes it active first
