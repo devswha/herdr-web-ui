@@ -135,6 +135,23 @@ try {
   await page.waitForFunction(() => { const bar = document.querySelector('[role="scrollbar"]'); return bar?.getAttribute("aria-valuenow") === bar?.getAttribute("aria-valuemax"); });
   await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === 0, "End reaches native bottom");
 
+  // The jump button: absent at the bottom, shown above it, and a click returns to the bottom without
+  // taking the terminal's focus or sending input to the program.
+  const jump = page.getByRole("button", { name: "Jump to bottom", exact: true });
+  assert.equal(await jump.count(), 0, "no jump button at the native bottom");
+  await scrollbar.focus();
+  await page.keyboard.press("Home");
+  await jump.waitFor();
+  const jumpBox = (await jump.boundingBox())!, barBox = (await scrollbar.boundingBox())!;
+  assert.ok(jumpBox.x + jumpBox.width <= barBox.x, "the jump button sits left of the history gutter");
+  await page.locator(".xterm-helper-textarea").evaluate((node: HTMLTextAreaElement) => node.focus());
+  const inputsBeforeJump = terminalInput.length;
+  await jump.click();
+  await until(async () => (await paneScrollInfo(paneId))!.offset_from_bottom === 0, "the jump button returns to the native bottom");
+  await jump.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => document.activeElement?.className), "xterm-helper-textarea", "the jump button leaves focus in the terminal");
+  assert.equal(terminalInput.length, inputsBeforeJump, "the jump button sends no input to the program");
+
   // The metrics poll: a quiet pane at the bottom backs off, output brings it back, and a view scrolled
   // up into history keeps reading every second, since growing history there may send no output.
   const metricsReads: number[] = [];

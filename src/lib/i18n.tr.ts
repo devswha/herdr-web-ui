@@ -1005,6 +1005,7 @@ export const TR: Record<string, string> = {
   "Move tab right": "Sekmeyi sağa taşı",
   "Tab order did not refresh. Try again.": "Sekme sırası yenilenmedi. Tekrar deneyin.",
   "Terminal scrollback": "Terminal geri kaydırma arabelleği",
+  "Jump to bottom": "En alta atla",
   "Scroll failed: {reason}": "Kaydırma başarısız: {reason}",
   "Plan: {done} of {total} done": "Plan: {total} adımdan {done} tanesi tamamlandı",
   "Plan": "Plan",

@@ -1512,6 +1512,12 @@ One set for both themes: the card is island black wherever it shows.
   Page Up/Down and Home/End call `pane.scroll`; this moves the shared viewport for every client,
   including the TUI. Pending pointer moves are coalesced, requests retain their owning PC/pane,
   and a failed request displays an error instead of inventing a local history position.
+- While herdr's viewport is above the bottom and the pane is interactive, a round ArrowDown
+  "Jump to bottom" button floats over the grid's bottom-right corner, left of the gutter, and
+  sends the same `pane.scroll` offset 0 as the scrollbar's End key. It uses the chat lens' round
+  button form (`--control-h`, `--touch-target` on coarse pointers, `--radius-pill`,
+  `--shadow-pop`), keeps focus in the terminal, and is hidden at the bottom, in read-only views
+  and while Find owns the viewport.
 - Mod+Shift+PageUp/PageDown pages the selected pane only, preserving chat composer focus and
   selection. Chat moves instantly by its viewport minus the configured prose-line overlap;
   Terminal and focused scrollbar PageUp/PageDown use native viewport rows minus that overlap.
