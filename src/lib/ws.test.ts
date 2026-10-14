@@ -513,6 +513,30 @@ it("releases the shared grid once when the chat lens covers a terminal this tab 
   client.close();
 });
 
+it("releases the shared grid once when a hidden terminal returns directly to Chat", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  const releases = () => socket.sent.filter((m) => m.type === "release-size");
+  try {
+    client.attach("w1:p1", 53, 33);
+    // Selecting another pane hides this terminal without releasing its server-side grid.
+    client.keepSize("w1:p1");
+    // A notification selects this pane and Chat together, without a terminal-return resize.
+    client.releaseSize("w1:p1");
+    client.releaseSize("w1:p1");
+    expect(releases()).toEqual([{ type: "release-size", pane_id: "w1:p1" }]);
+    socket.open();
+    client.releaseSize("w1:p1");
+    expect(releases()).toHaveLength(1);
+    expect(socket.sent.filter((m) => m.type === "attach").at(-1))
+      .toEqual({ type: "attach", pane_id: "w1:p1", cols: 53, rows: 33, flow_control: "ack", keep_size: true });
+  } finally {
+    client.close();
+  }
+});
+
 it("sends no resize for a pane it let go of, and does not attach it again on a reconnect", () => {
   const client = new HerdrSocket("ws://test/ws");
   client.connect();

@@ -72,8 +72,10 @@ export type ConnectionState = "idle" | "connecting" | "open" | "probing" | "wait
 interface AttachState {
   cols: number;
   rows: number;
-  /** the chat lens covers the grid: attaches (a reconnect's too) leave the shared pty's size alone */
+  /** Chat or a hidden pane: attaches (a reconnect's too) leave the shared pty's size alone */
   keepSize: boolean;
+  /** Hiding changes reconnect policy, but this connection may still owe a grid release. */
+  releaseSizeOwed: boolean;
 }
 
 function defaultUrl(): string {
@@ -284,6 +286,7 @@ export class HerdrSocket {
       // a new connection is a new client to the server: it has to hear again whether the page is in use
       if (this.presence !== null) this.rawSend({ type: "presence", active: this.presence });
       for (const [paneId, state] of this.attached) {
+        state.releaseSizeOwed = !state.keepSize;
         this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack", ...(state.keepSize ? { keep_size: true } : {}) });
       }
     });
@@ -629,7 +632,7 @@ export class HerdrSocket {
   attach(paneId: string, cols: number, rows: number, keepSize = false): void {
     this.outputSeen.delete(paneId);
     this.inputReady.delete(paneId);
-    this.attached.set(paneId, { cols, rows, keepSize });
+    this.attached.set(paneId, { cols, rows, keepSize, releaseSizeOwed: !keepSize });
     this.send({ type: "attach", pane_id: paneId, cols, rows, flow_control: "ack", ...(keepSize ? { keep_size: true } : {}) });
     if (this.conversationWanted.has(paneId) && this.features.has("conversation-watch")) {
       this.send({ type: "conversation-watch", pane_id: paneId, enabled: true });
@@ -706,6 +709,7 @@ export class HerdrSocket {
     state.cols = cols;
     state.rows = rows;
     state.keepSize = false;
+    state.releaseSizeOwed = true;
     this.send({ type: "resize", pane_id: paneId, cols, rows });
   }
 
@@ -734,8 +738,9 @@ export class HerdrSocket {
   releaseSize(paneId: string): void {
     const state = this.attached.get(paneId);
     if (!state) return;
-    const drove = !state.keepSize;
+    const drove = state.releaseSizeOwed;
     state.keepSize = true;
+    state.releaseSizeOwed = false;
     if (drove && this.mode === "interact") this.send({ type: "release-size", pane_id: paneId });
   }
 
