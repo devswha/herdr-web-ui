@@ -1,3 +1,3 @@
 ### Added
-- Choose automatic chat focus (Auto/On/Off), including on an iPad with an external keyboard,
-  and focus the selected chat or terminal input with the customizable Mod+Shift+E shortcut.
+- Mod+Shift+E focuses the selected pane's message box or terminal input, so an iPad with an
+  external keyboard needs no tap before typing. It can be reassigned or turned off in Settings → Shortcuts.

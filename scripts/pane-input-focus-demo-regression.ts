@@ -1,6 +1,6 @@
 /** Keyboard-only input focus on the real client against fictional demo panes. */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
@@ -28,14 +28,14 @@ try {
   try {
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? chromium.executablePath(), headless: true });
     try {
-      for (const [touch, mode] of [[true, "auto"], [true, "on"], [true, "off"], [false, "auto"], [false, "on"], [false, "off"]] as const) {
+      for (const touch of [true, false]) {
         const context = await browser.newContext({ viewport: { width: 1024, height: 600 }, hasTouch: touch, locale: "en-US" });
         try {
-          await context.addInitScript(({ mode }) => {
+          await context.addInitScript(() => {
             Object.defineProperty(navigator, "platform", { configurable: true, value: "iPad" });
-            if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "chat", chatAutoFocus: mode, terminalInputMode: "line", alertsOn: false,
+            if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "chat", terminalInputMode: "line", alertsOn: false,
               shortcutOverrides: { "previous-pane": "1", "next-pane": "2" } }));
-          }, { mode });
+          });
           const page = await context.newPage();
           page.setDefaultTimeout(10000);
           const errors: string[] = [];
@@ -46,7 +46,8 @@ try {
           await page.locator(".composer-text").first().waitFor();
           await page.keyboard.press("Meta+Shift+Digit2");
           await page.waitForFunction(previous => document.querySelector(".pane-frame.is-current")?.getAttribute("data-layout-pane") !== previous, panes.api);
-          const wanted = mode === "on" || (mode === "auto" && !touch);
+          // selecting a pane still focuses chat on a desktop and leaves a touch screen alone
+          const wanted = !touch;
           await page.waitForFunction(wanted => !!document.querySelector(".pane-frame.is-current .composer-text:focus") === wanted, wanted);
           assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), touch);
           const frame = page.locator(".pane-frame.is-current");
@@ -65,24 +66,8 @@ try {
           assert.equal(await composer.evaluate(node => node === document.activeElement), false, "composing keys do not focus chat");
           await page.keyboard.press("Meta+Shift+Comma");
           await openSettingsPage(page, "Chat");
-          const focusSetting = page.getByRole("group", { name: "Automatic chat focus", exact: true });
-          await focusSetting.waitFor();
-          assert.equal(await focusSetting.getByRole("button", { name: mode === "auto" ? "Auto" : mode === "on" ? "On" : "Off", exact: true }).getAttribute("aria-pressed"), "true");
           await page.keyboard.press("Meta+Shift+E");
           assert.equal(await page.locator(".settings-dialog").evaluate(node => node.contains(document.activeElement)), true, "focus never leaves Settings");
-          if (touch && mode === "on" && process.env.UI_EVIDENCE_DIR) {
-            await page.evaluate(() => document.fonts.ready);
-            mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
-            await focusSetting.scrollIntoViewIfNeeded();
-            await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "input-focus-settings-ipad.png") });
-            await page.setViewportSize({ width: 320, height: 760 });
-            await page.waitForFunction(() => innerWidth === 320);
-            await focusSetting.scrollIntoViewIfNeeded();
-            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "the new setting fits a narrow phone");
-            await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "input-focus-settings-phone.png") });
-            await page.setViewportSize({ width: 1024, height: 600 });
-            await page.waitForFunction(() => innerWidth === 1024 && document.querySelector(".settings-nav") !== null);
-          }
           await openSettingsPage(page, "Shortcuts");
           const binding = page.getByRole("combobox", { name: "Focus pane input", exact: true });
           await binding.selectOption("g");
@@ -112,7 +97,7 @@ try {
           await frame.focus(); await page.keyboard.press("Meta+Shift+G");
           assert.equal(await frame.locator(".xterm-helper-textarea").evaluate(node => node === document.activeElement), false, "disabled binding leaves focus in place");
           assert.deepEqual(errors, []);
-          console.log(`PASS input focus: ${touch ? "touch" : "desktop"} ${mode}, pane switch, chat draft/selection, modal and IME guards, terminal line/direct, reassign/disable/reload`);
+          console.log(`PASS input focus: ${touch ? "touch" : "desktop"}, pane switch, chat draft/selection, modal and IME guards, terminal line/direct, reassign/disable/reload`);
         } finally { await context.close(); }
       }
     } finally { await browser.close(); }
