@@ -8,10 +8,10 @@
  *   orphans every subscribed device, so a malformed file is an error, never a rotation.
  * - push-subscriptions.json: survives restarts, so a reboot does not unsubscribe phones.
  *   A 404/410 from a push service means the device dropped it; the record is deleted.
- *   The endpoint is also remembered in memory (`RETIRED_LIMIT`, until restart): a browser
- *   can keep handing over a subscription its push service retired, and registering it again
- *   would only fail the next push, so it is refused as `subscription_gone` and the device
- *   subscribes anew (#1038).
+ * - push-retired.json: the endpoint is also remembered, as a hash only (`RETIRED_LIMIT`, `RETIRED_TTL_MS`),
+ *   so a restart does not forget it: a browser can keep handing over a subscription its push
+ *   service retired, and registering it again would only fail the next push, so it is refused as
+ *   `subscription_gone` and the device subscribes anew (#1038).
  *
  * Requests are built by web-push's generateRequestDetails (RFC 8291 aes128gcm + RFC
  * 8292 VAPID) and sent with fetch; its sendNotification path goes through node:https
@@ -56,7 +56,9 @@ const PUSH_TTL_SECONDS = 12 * 60 * 60;
 const PUSH_TIMEOUT_MS = 10_000;
 const DEFAULT_SUBJECT = "https://github.com/devswha/herdr-web-ui";
 /** How many retired endpoints are remembered; the oldest is forgotten first. */
-const RETIRED_LIMIT = 256;
+const RETIRED_LIMIT = 1000;
+/** How long a retired endpoint is remembered: a browser that kept it this long has long since moved on. */
+const RETIRED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** How long an alert waits for the pane to change first, and the turn a finish is worth telling. */
 export interface AlertTiming {
@@ -191,8 +193,9 @@ export function createPushService(options: PushServiceOptions): PushService {
   // the workspace a pane was last seen in: an alert names it, so the tap of an ended pane can open
   // its workspace (src/lib/deepLink.ts resolveLink) once herdr has dropped the pane
   const workspaces = new Map<string, string>();
-  /** sha256 of each endpoint a push service retired -> when, oldest first */
-  const retiredEndpoints = new Map<string, number>();
+  const retiredPath = join(options.stateDir, "push-retired.json");
+  /** sha256 of each endpoint a push service retired -> when, oldest first; loaded on first need */
+  let retiredEndpoints: Map<string, number> | null = null;
   const endpointHash = (endpoint: string): string => createHash("sha256").update(endpoint).digest("base64url");
 
   /** Created on first need: a server nobody subscribes to never writes a key. */
@@ -226,6 +229,24 @@ export function createPushService(options: PushServiceOptions): PushService {
       }
     }
     return subscriptions;
+  }
+
+  function retiredStore(): Map<string, number> {
+    if (retiredEndpoints) return retiredEndpoints;
+    retiredEndpoints = new Map();
+    let stored: unknown;
+    try {
+      stored = readJson(retiredPath);
+    } catch {
+      return retiredEndpoints; // an unreadable file only means a retired endpoint registers again once
+    }
+    if (!Array.isArray(stored)) return retiredEndpoints;
+    const cutoff = (options.now ?? Date.now)() - RETIRED_TTL_MS;
+    for (const entry of stored.slice(-RETIRED_LIMIT)) {
+      const { hash, at } = (entry ?? {}) as { hash?: unknown; at?: unknown };
+      if (typeof hash === "string" && typeof at === "number" && at > cutoff) retiredEndpoints.set(hash, at);
+    }
+    return retiredEndpoints;
   }
 
   function persist(): void {
@@ -263,9 +284,11 @@ export function createPushService(options: PushServiceOptions): PushService {
     const gone = status === 404 || status === 410;
     if (gone) {
       const hash = endpointHash(subscription.endpoint);
-      retiredEndpoints.delete(hash);
-      retiredEndpoints.set(hash, Date.now());
-      if (retiredEndpoints.size > RETIRED_LIMIT) retiredEndpoints.delete(retiredEndpoints.keys().next().value!);
+      const retired = retiredStore();
+      retired.delete(hash);
+      retired.set(hash, (options.now ?? Date.now)());
+      if (retired.size > RETIRED_LIMIT) retired.delete(retired.keys().next().value!);
+      writeJsonPrivate(retiredPath, [...retired].map(([key, at]) => ({ hash: key, at })));
       if (store().delete(subscription.endpoint)) persist();
     } else {
       console.error(`web push to ${new URL(subscription.endpoint).host} failed: ${status ?? "no response"}`);
@@ -370,7 +393,7 @@ export function createPushService(options: PushServiceOptions): PushService {
       if (store().delete(endpoint)) persist();
     },
 
-    retired: (endpoint) => retiredEndpoints.has(endpointHash(endpoint)),
+    retired: (endpoint) => retiredStore().has(endpointHash(endpoint)),
 
     async sendTest(endpoint) {
       const subscription = store().get(endpoint);
