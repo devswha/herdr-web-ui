@@ -1680,7 +1680,7 @@ try {
 
   // A second tab from the tab strip's +: the dialog is New tab, with the workspace's folder shown
   // and not asked for; the new pane opens, the workspace stays one row, and a strip over the pane
-  // lists both tabs from then on. The header's More menu has New tab too, and opens the same dialog.
+  // lists both tabs from then on.
   // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
   await until(() => painted.has(created.pane_id), "created pane paint");
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
@@ -1724,7 +1724,7 @@ try {
   await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab opens its pane again");
   assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "Tab 1");
   // reopened right after a creation: its fields are live and Escape puts it away at once
-  await runMoreItem(page, "New tab");
+  await page.locator(".tab-strip-add").click();
   await tabDialog.waitFor();
   assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");

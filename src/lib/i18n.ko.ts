@@ -991,7 +991,6 @@ export const KO: Record<string, string> = {
   "Try again": "다시 시도",
   // tabs: the strip over the pane, and the New tab dialog
   "New tab": "새 탭",
-  "New tab in {workspace}": "{workspace}에 새 탭",
   "Tab {n}": "탭 {n}",
   "Tab name (optional)": "탭 이름 (선택)",
   "Uses the workspace's folder": "워크스페이스의 폴더를 그대로 씁니다",

@@ -995,7 +995,6 @@ export const ZH: Record<string, string> = {
   "Try again": "重试",
   // tabs: the strip over the pane, and the New tab dialog
   "New tab": "新建标签页",
-  "New tab in {workspace}": "在 {workspace} 中新建标签页",
   "Tab {n}": "标签页 {n}",
   "Tab name (optional)": "标签页名称（可选）",
   "Uses the workspace's folder": "直接使用工作区的文件夹",

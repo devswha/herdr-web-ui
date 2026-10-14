@@ -26,7 +26,7 @@ async function box(page: Page, selector: string): Promise<Box> {
 /** The header keeps the pane's title and the strip sits right under it, whatever the lens. */
 async function assertShell(page: Page, label: string, titleRoom = 60): Promise<void> {
   assert.equal(await page.locator(".app-header").getByRole("button", { name: "New tab" }).count(), 0, `${label}: the header has no New tab button of its own`);
-  assert.equal(await page.locator(".app-header .header-more-button").isVisible(), true, `${label}: New tab is an item of the header's More menu`);
+  assert.equal(await page.locator(".app-header .header-more-button").isVisible(), true, `${label}: the header keeps its More menu`);
   const title = await box(page, ".context-title-text");
   assert.ok(title.width >= titleRoom, `${label}: the pane's title keeps its room in the header (${title.width}px)`);
   const header = await box(page, ".app-header");
