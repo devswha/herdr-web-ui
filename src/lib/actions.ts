@@ -39,7 +39,7 @@ export interface AppActions {
   /** flips dark/light (a `system` setting becomes the opposite of the resolved theme) */
   toggleTheme: () => void;
   /** Sign out of token/device authentication; null for automatic local/Tailscale access. */
-  lock: (() => void) | null;
+  lock: (() => Promise<void>) | null;
   /** null once alerts are on (or unsupported); otherwise asks for permission */
   enableNotifications: (() => void) | null;
   refresh: () => void;

@@ -1608,19 +1608,26 @@ try {
   await childHeader.locator('.workspace-select[aria-current="true"]').waitFor();
   assert.equal(await repoToggle.getAttribute("aria-expanded"), "false", "an explicitly selected child remains visible within a folded group");
   await repoToggle.click();
-  // reorder is group-aware: the repository's row moves up past the group before it, as one, and
-  // its lone worktree has no sibling to move among, so nothing is sent for it
+  // reorder is group-aware: the repository's row moves up past the workspace above it with its
+  // worktree (herdr moves only the workspace named), and its lone worktree has no sibling to move
+  // among, so nothing is sent for it
   const moves: number[] = [];
   await page.route("**/api/workspace/move", async (route) => { moves.push(route.request().postDataJSON().insert_index as number); await route.continue(); });
-  const orderBefore = (await herdrRpc<{ snapshot: { workspaces: { workspace_id: string }[] } }>("session.snapshot", {})).snapshot.workspaces.map((workspace) => workspace.workspace_id);
+  const herdrOrder = async () => (await herdrRpc<{ snapshot: { workspaces: { workspace_id: string }[] } }>("session.snapshot", {})).snapshot.workspaces.map((workspace) => workspace.workspace_id);
+  const orderBefore = await herdrOrder();
+  const repoId = repoWorkspace.workspace.workspace_id;
+  const above = orderBefore[orderBefore.indexOf(repoId) - 1]!;
   await repoHeader.locator(".workspace-select").focus();
   await page.keyboard.press("Alt+ArrowUp");
-  await until(() => moves.length === 1, "the repository's row moved up as a group");
-  assert.equal(moves[0], orderBefore.indexOf(repoWorkspace.workspace.workspace_id) - 1, "it lands before the group above it");
+  await until(async () => {
+    const order = await herdrOrder();
+    return order[order.indexOf(repoId) + 1] === worktree.workspace_id && order.indexOf(above) > order.indexOf(worktree.workspace_id);
+  }, "the repository's row and its worktree moved up past the workspace above them");
+  const sent = moves.length;
   await childHeader.locator(".workspace-select").focus();
   await page.keyboard.press("Alt+ArrowDown");
   await page.waitForTimeout(400);
-  assert.equal(moves.length, 1, "a lone worktree has nowhere to move");
+  assert.equal(moves.length, sent, "a lone worktree has nowhere to move");
   await page.unroute("**/api/workspace/move");
   writeFileSync(join(worktree.path, "unsaved.txt"), "dirty\n");
   // a desktop draws no row ⋯: the context-menu key opens the menu at the focused row
@@ -2281,27 +2288,52 @@ try {
   csp.push(await watchCsp(securedPage));
   await securedContext.request.post(`${securedOrigin}/api/auth`, { data: { token: "browser-test-token" } });
   await securedPage.goto(`${securedOrigin}/?pane=${encodeURIComponent(securedWorkspace.root_pane.pane_id)}`);
-  await securedPage.getByRole("button", { name: "Sign out", exact: true }).waitFor();
+  await securedPage.getByRole("button", { name: "Command palette", exact: true }).waitFor();
+  assert.equal(await securedPage.getByRole("button", { name: "Sign out", exact: true }).count(), 0, "sign out is not in the header");
   await securedPage.keyboard.press("ControlOrMeta+Shift+K");
-  await securedPage.getByRole("option", { name: "Sign out", exact: true }).waitFor();
+  await securedPage.getByRole("dialog", { name: "Command palette", exact: true }).waitFor();
+  assert.equal(await securedPage.getByRole("option", { name: "Sign out", exact: true }).count(), 0, "the palette cannot bypass confirmation");
   // Simulate a late terminal focus change: Escape must still dismiss the modal.
-  await securedPage.getByRole("button", { name: "Sign out", exact: true }).focus();
+  await securedPage.getByRole("button", { name: "Command palette", exact: true }).focus();
   await securedPage.keyboard.press("Escape");
   await securedPage.getByRole("dialog", { name: "Command palette", exact: true }).waitFor({ state: "hidden" });
-  await securedPage.getByRole("button", { name: "Sign out", exact: true }).click();
+  await securedPage.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(securedPage, "Phone & devices");
+  const settingsSignOut = securedPage.getByRole("dialog", { name: "Settings", exact: true }).getByRole("button", { name: "Sign out", exact: true });
+  const signOutConfirm = securedPage.getByRole("alertdialog", { name: "Sign out of this browser?", exact: true });
+  await settingsSignOut.click();
+  await signOutConfirm.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 200, "cancel keeps the session");
+  await settingsSignOut.click();
+  // Fail only the sign-out request: health must still see the real authenticated cookie.
+  await securedPage.route("**/api/auth", (route) => route.request().method() === "DELETE"
+    ? route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Sign-out test failure" } } })
+    : route.continue());
+  await signOutConfirm.getByRole("button", { name: "Sign out", exact: true }).click();
+  await signOutConfirm.getByRole("alert").waitFor();
+  assert.equal(await signOutConfirm.getByRole("button", { name: "Cancel", exact: true }).isEnabled(), true);
+  assert.equal(await signOutConfirm.getByRole("button", { name: "Sign out", exact: true }).isEnabled(), true);
+  assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 200, "failed sign out keeps the session");
+  await securedPage.unroute("**/api/auth");
+  await signOutConfirm.getByRole("button", { name: "Sign out", exact: true }).click();
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
   const pairing = await securedContext.request.post(`${securedOrigin}/api/devices/pair/start`, { headers: { authorization: "Bearer browser-test-token", "x-herdr-machine": "1" } });
   const { code } = await pairing.json();
   await securedContext.request.post(`${securedOrigin}/api/devices/pair`, { data: { code, label: "Browser test device" } });
+  await securedPage.setViewportSize({ width: 390, height: 844 });
   await securedPage.reload();
-  await securedPage.getByRole("button", { name: "Sign out", exact: true }).click();
+  await securedPage.locator(".app-header.is-zoned").waitFor();
+  await securedPage.keyboard.press("ControlOrMeta+Shift+Comma");
+  await openSettingsPage(securedPage, "Phone & devices");
+  await settingsSignOut.click();
+  await signOutConfirm.getByRole("button", { name: "Sign out", exact: true }).click();
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
   if (securedEvidence) await securedEvidence.finish();
   await securedContext.close();
   assertCspClean(csp, "the token gate loads with no CSP violation");
-  console.log("PASS token and paired-device sign out return to the access gate");
+  console.log("PASS Settings sign out: cancel preserves access, failure permits retry, token and paired-device sign out return to the access gate");
 } catch (error) {
   for (const evidence of evidenceSessions) {
     if (evidence.isOpen()) await evidence.captureFailure(error);
