@@ -139,6 +139,8 @@ describe("isReservedShortcutKey", () => {
     expect(isReservedShortcutKey("q", true)).toBe(true);
     expect(isReservedShortcutKey("j", false)).toBe(true);
     expect(isReservedShortcutKey("o", false)).toBe(true);
+    expect(isReservedShortcutKey("PageUp", false)).toBe(true);
+    expect(isReservedShortcutKey("PageDown", false)).toBe(true);
     expect(isReservedShortcutKey("3", true)).toBe(true);
     expect(isReservedShortcutKey("4", true)).toBe(true);
     expect(isReservedShortcutKey("5", true)).toBe(true);
@@ -148,6 +150,7 @@ describe("isReservedShortcutKey", () => {
     expect(isReservedShortcutKey("k", false)).toBe(false);
     expect(isReservedShortcutKey("ArrowUp", true)).toBe(false);
     expect(isReservedShortcutKey("j", true)).toBe(false);
+    expect(isReservedShortcutKey("PageUp", true)).toBe(false);
     expect(isReservedShortcutKey("3", false)).toBe(false);
   });
 
@@ -156,5 +159,44 @@ describe("isReservedShortcutKey", () => {
     expect(overrides).toEqual({ "new-session": "t" });
     expect(matchShortcut(keyEvent("t", { ctrlKey: true }), false, overrides)).toBe("new-session");
     expect(matchShortcut(keyEvent("n", { ctrlKey: true }), false)).toBe("new-session");
+  });
+});
+
+
+it("pages the selected pane with fixed Mod+Shift bindings, remapping and disabling", () => {
+  for (const apple of [true, false]) {
+    const press = (key: string, overrides = {}) => matchShortcut(keyEvent(key, { metaKey: apple, ctrlKey: !apple }), apple, overrides);
+    expect(press("PageUp")).toBe("scroll-up");
+    expect(press("PageDown")).toBe("scroll-down");
+    expect(press("u", sanitizeShortcutOverrides({ "scroll-up": "u" }))).toBe("scroll-up");
+    expect(press("PageUp", { "scroll-up": "u" })).toBeNull();
+    expect(press("PageDown", sanitizeShortcutOverrides({ "scroll-down": null }))).toBeNull();
+    expect(press("PageUp", sanitizeShortcutOverrides({ palette: "PageUp", "scroll-up": null }))).toBe("palette");
+    for (const patch of [{ shiftKey: false }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      expect(matchShortcut(keyEvent("PageUp", { metaKey: apple, ctrlKey: !apple, ...patch }), apple)).toBeNull();
+    }
+    expect(matchShortcut(keyEvent("PageUp"), apple)).toBeNull();
+  }
+  expect(shortcutDisplayKeys("scroll-up", {})).toEqual(["Mod", "Shift", "PageUp"]);
+  expect(shortcutDisplayKeys("scroll-down", {})).toEqual(["Mod", "Shift", "PageDown"]);
+  expect(shortcutConflict("palette", ["PageUp"], {})).toBe(true);
+  expect(sanitizeShortcutOverrides({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp", settings: "Home" })).toEqual({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp" });
+});
+
+describe("new tab and split pane", () => {
+  it("have no key until one is chosen in Settings, and then work like any other binding", () => {
+    for (const id of ["new-tab", "split-right", "split-down"] as const) {
+      expect(shortcutKeys(id, {})).toEqual([]);
+      expect(shortcutDisplayKeys(id, {})).toEqual([]);
+    }
+    expect(matchShortcut(keyEvent("t", { ctrlKey: true }), false)).toBeNull();
+    const overrides = sanitizeShortcutOverrides({ "new-tab": "y", "split-right": "l", "split-down": "h" });
+    expect(overrides).toEqual({ "new-tab": "y", "split-right": "l", "split-down": "h" });
+    expect(matchShortcut(keyEvent("Y", { ctrlKey: true }), false, overrides)).toBe("new-tab");
+    expect(matchShortcut(keyEvent("l", { metaKey: true }), true, overrides)).toBe("split-right");
+    expect(matchShortcut(keyEvent("h", { ctrlKey: true }), false, overrides)).toBe("split-down");
+    expect(shortcutDisplayKeys("new-tab", overrides)).toEqual(["Mod", "Shift", "Y"]);
+    expect(shortcutConflict("split-down", ["y"], overrides)).toBe(true);
+    expect(shortcutConflict("new-tab", ["k"], {})).toBe(true);
   });
 });
