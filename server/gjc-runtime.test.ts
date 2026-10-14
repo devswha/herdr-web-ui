@@ -213,6 +213,52 @@ it("re-reads pane process info and birth identity before accepting the SDK bindi
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+it("shares one SDK lookup between overlapping reads of a pane", async () => {
+  const home = tempDir("gjc-sdk-single-flight-");
+  try {
+    const cwd = join(home, "work"), agentDir = join(home, ".gjc", "agent");
+    const project = join(agentDir, "sessions", "v2-project"), path = join(project, "main.jsonl");
+    mkdirSync(cwd); mkdirSync(project, { recursive: true });
+    const sessionId = "sdk-session-flight";
+    writeFileSync(path, JSON.stringify({ type: "session", id: sessionId, cwd }) + "\n");
+    const binding = { sessionId, pid: 200, path, hostIncarnation: "host", endpointGeneration: 1 };
+    let lookups = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let gated = true;
+    const options = {
+      platform: "linux",
+      processInfo: async () => ({ process_info: { foreground_processes: [{ pid: 200, argv: ["/usr/bin/gjc"] }] } }),
+      processBirth: () => 1000,
+      sdkTranscript: async () => { lookups += 1; if (gated) await gate; return lookups > 6 ? null : binding; },
+    };
+    // regression (fails on main: 5 lookups): five overlapping reads of one pane share one lookup
+    const burst = Array.from({ length: 5 }, () => gjcTranscriptForPane("pane", cwd, home, options));
+    release();
+    expect(await Promise.all(burst)).toEqual(Array(5).fill(realpathSync(path)));
+    expect(lookups).toBe(1);
+    // control: once it settles, the next read looks up again (nothing is retained)
+    gated = false;
+    expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBe(realpathSync(path));
+    expect(lookups).toBe(2);
+    expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBe(realpathSync(path));
+    expect(lookups).toBe(3);
+    // control: another pane is not joined
+    gated = true;
+    const [a, b] = [gjcTranscriptForPane("pane-a", cwd, home, options), gjcTranscriptForPane("pane-b", cwd, home, options)];
+    release();
+    await Promise.all([a, b]);
+    expect(lookups).toBe(5);
+    // control: a null answer is not kept, the next read asks again
+    gated = false; lookups = 6;
+    expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBeNull();
+    expect(lookups).toBe(7);
+    lookups = 0;
+    expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBe(realpathSync(path));
+    expect(lookups).toBe(1);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
 it("fails closed when the pane has no GJC process or its process info cannot be read", async () => {
   const home = tempDir("gjc-sdk-no-process-");
   try {
