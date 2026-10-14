@@ -346,12 +346,36 @@ function liveProcess(target: number): boolean | null {
   });
 }
 
+type StopDependencies = {
+  readonly isWindows: boolean;
+  readonly processTable: typeof windowsProcessTable;
+  readonly isAlive: (pid: number) => boolean;
+  readonly terminateTree: (pid: number) => { status: number | null; error: Error | undefined; stderr: string };
+};
+
+const stopDependencies: StopDependencies = {
+  isWindows: platform() === "win32",
+  processTable: windowsProcessTable,
+  isAlive(pid) {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+  },
+  terminateTree(pid) {
+    const result = spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], { windowsHide: true, encoding: "utf8" });
+    return {
+      status: result.status,
+      error: result.error,
+      stderr: result.stderr?.trim() ?? "",
+    };
+  },
+};
+
 /**
  * Returns once the server is gone. It stops answering at once, but its supervisor holds the
  * checkout's lock until the bridge under it exits, and a `start` before then finds that lock,
  * gives up, and leaves nothing running.
  */
-async function stop(): Promise<number> {
+export async function stop(dependencies: StopDependencies = stopDependencies): Promise<number> {
   const pid = recordedPid();
   if (pid === null) {
     rmSync(PID_FILE, { force: true });
@@ -359,11 +383,11 @@ async function stop(): Promise<number> {
     return 0;
   }
   // the whole process group when the server leads one, as `start` spawns it
-  let target = platform() === "win32" ? pid : -pid;
-  if (platform() === "win32") {
+  let target = dependencies.isWindows ? pid : -pid;
+  if (dependencies.isWindows) {
     // A stale PID can belong to another app, or a newer instance of this plugin.
     const recordedAt = statSync(PID_FILE).mtimeMs;
-    const processes = await windowsProcessTable();
+    const processes = await dependencies.processTable();
     const owner = processes.find(row => row.pid === pid);
     const argv = windowsArgv(owner?.commandLine ?? "");
     if (owner?.path?.toLowerCase() !== process.execPath.toLowerCase()
@@ -379,7 +403,7 @@ async function stop(): Promise<number> {
       return member ? [member] : [];
     })];
     // Windows has no Unix process groups or graceful SIGTERM: include the supervisor and bridge.
-    const killed = spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], { windowsHide: true, encoding: "utf8" });
+    const killed = dependencies.terminateTree(pid);
     if (killed.status !== 0 && recordedPid() !== null) {
       process.stderr.write(`could not stop herdr web ui: ${killed.error?.message ?? killed.stderr.trim()}\n`);
       return 1;
@@ -387,12 +411,9 @@ async function stop(): Promise<number> {
     const deadline = Date.now() + 10_000;
     let exited = false;
     while (Date.now() < deadline) {
-      const currentProcesses = await windowsProcessTable(Math.max(1, deadline - Date.now()));
+      const currentProcesses = await dependencies.processTable(Math.max(1, deadline - Date.now()));
       const running = tree.some(member => {
-        try { process.kill(member.pid, 0); }
-        catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
-        }
+        if (!dependencies.isAlive(member.pid)) return false;
         const current = currentProcesses.find(row => row.pid === member.pid);
         return !(member.started !== undefined && current?.started !== undefined && current.started !== member.started);
       });
@@ -591,14 +612,16 @@ async function status(): Promise<number> {
   return 0;
 }
 
-const command = process.argv[2] ?? "status";
-if (command === "start") process.exit(await start());
-else if (command === "stop") process.exit(await stop());
-else if (command === "status") process.exit(await status());
-else if (command === "pair") process.exit(await pair());
-else if (command === "phone") process.exit(await phone());
-else if (command === "phone-setup") process.exit(await phoneSetup());
-else {
-  process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status|pair|phone|phone-setup>\n`);
-  process.exit(2);
+if (import.meta.main) {
+  const command = process.argv[2] ?? "status";
+  if (command === "start") process.exit(await start());
+  else if (command === "stop") process.exit(await stop());
+  else if (command === "status") process.exit(await status());
+  else if (command === "pair") process.exit(await pair());
+  else if (command === "phone") process.exit(await phone());
+  else if (command === "phone-setup") process.exit(await phoneSetup());
+  else {
+    process.stderr.write(`usage: bun scripts/plugin.ts <start|stop|status|pair|phone|phone-setup>\n`);
+    process.exit(2);
+  }
 }

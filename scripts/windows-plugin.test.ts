@@ -7,75 +7,67 @@ import { socketAddress } from "../server/herdr/client.ts";
 import { windowsProcessTable } from "../server/windows-processes.ts";
 import { updateStateDir } from "../server/update-state.ts";
 
-it("waits for every original Windows tree member after taskkill", async () => {
+it("waits for every snapshotted Windows tree member after termination returns", async () => {
   const root = join(import.meta.dir, "..");
   const scratch = mkdtempSync(join(tmpdir(), "herdr windows stop tree "));
   const state = join(scratch, "plugin-state");
   mkdirSync(state);
-  const pidFile = join(state, "server.pid");
-  const rootPid = 41001;
-  const childPid = 41002;
-  const resultFile = join(scratch, "stop-result.json");
-  const preload = join(scratch, "stop-tree.ts");
-  writeFileSync(pidFile, `${rootPid}\n`);
-  writeFileSync(preload, `
-    const os = require("node:os");
-    os.platform = () => "win32";
-    const childProcess = require("node:child_process");
-    childProcess.spawnSync = (command) => {
-      if (command !== "taskkill") throw new Error("unexpected process command");
-      globalThis.treeKilled = true;
-      return { status: 0, stderr: "" };
-    };
-    require("node:module").syncBuiltinESMExports();
-
-    globalThis.tablePolls = 0;
-    globalThis.childAlive = true;
-    const originalKill = process.kill.bind(process);
-    process.kill = (pid, signal) => {
-      if (pid === ${rootPid}) {
-        if (!globalThis.treeKilled) return true;
-        const error = new Error("root exited");
-        error.code = "ESRCH";
-        throw error;
-      }
-      if (pid === ${childPid}) {
-        if (globalThis.treeKilled && globalThis.childAlive) return true;
-        const error = new Error("child exited");
-        error.code = "ESRCH";
-        throw error;
-      }
-      return originalKill(pid, signal);
-    };
-    Bun.spawn = (command) => {
-      if (command[0] !== "powershell") throw new Error("unexpected process-table command");
-      const rootRow = { ProcessId: ${rootPid}, ParentProcessId: 0, ExecutablePath: process.execPath,
-        CommandLine: '"' + process.execPath + '" "' + ${JSON.stringify(join(root, "server", "managed.ts"))} + '"', Started: 1 };
-      const childRow = { ProcessId: ${childPid}, ParentProcessId: ${rootPid}, ExecutablePath: process.execPath,
-        CommandLine: '"' + process.execPath + '" -e child', Started: 2 };
-      const rows = !globalThis.treeKilled ? [rootRow, childRow] : ++globalThis.tablePolls < 3 ? [childRow] : [];
-      if (globalThis.treeKilled && globalThis.tablePolls >= 3) globalThis.childAlive = false;
-      return { exited: Promise.resolve(0), stdout: new Blob([JSON.stringify(rows)]) };
-    };
-    process.on("exit", () => require("node:fs").writeFileSync(${JSON.stringify(resultFile)},
-      JSON.stringify({ childAlive: globalThis.childAlive, tablePolls: globalThis.tablePolls, taskkillCalled: globalThis.treeKilled === true })));
-  `);
-  const env = {
-    ...process.env,
-    HERDR_PLUGIN_ROOT: root,
-    HERDR_PLUGIN_STATE_DIR: state,
-    HERDR_PLUGIN_CONFIG_DIR: join(scratch, "config"),
-  };
+  const rootPid = process.pid;
+  const childPid = process.pid + 100_000_000;
+  const previousRoot = process.env["HERDR_PLUGIN_ROOT"];
+  const previousStateDir = process.env["HERDR_PLUGIN_STATE_DIR"];
+  const previousConfigDir = process.env["HERDR_PLUGIN_CONFIG_DIR"];
+  process.env["HERDR_PLUGIN_ROOT"] = root;
+  process.env["HERDR_PLUGIN_STATE_DIR"] = state;
+  process.env["HERDR_PLUGIN_CONFIG_DIR"] = join(scratch, "config");
+  mkdirSync(join(scratch, "config"));
+  writeFileSync(join(state, "server.pid"), `${rootPid}\n`);
+  let terminated = false;
+  let childAlive = true;
+  let polls = 0;
   try {
-    const stop = Bun.spawn([process.execPath, "--preload", preload, join(root, "scripts", "plugin.ts"), "stop"],
-      { cwd: root, env, stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([new Response(stop.stdout).text(), new Response(stop.stderr).text(), stop.exited]);
-    expect(code, `control: stop succeeds once the original tree is gone\n${out}${err}`).toBe(0);
-    const result = JSON.parse(readFileSync(resultFile, "utf8")) as { childAlive: boolean; tablePolls: number; taskkillCalled: boolean };
-    expect(result.taskkillCalled, `control: stop ran the Windows tree termination path\n${out}${err}`).toBe(true);
-    expect(result.childAlive, `regression (fails on main): stop returned before its snapshotted child exited (${JSON.stringify(result)})`).toBe(false);
-    expect(result.tablePolls, "control: the process table was read until the delayed child exited").toBeGreaterThanOrEqual(3);
+    const { stop } = await import("./plugin.ts");
+    const rootRow = {
+      pid: rootPid,
+      parent: 0,
+      path: process.execPath,
+      commandLine: `"${process.execPath}" "${join(root, "server", "managed.ts")}"`,
+      started: 1,
+    };
+    const childRow = {
+      pid: childPid,
+      parent: rootPid,
+      path: process.execPath,
+      commandLine: `"${process.execPath}" -e child`,
+      started: 2,
+    };
+    const result = await stop({
+      isWindows: true,
+      isAlive: pid => pid === rootPid ? !terminated : pid === childPid && childAlive,
+      processTable: async () => {
+        if (!terminated) return [rootRow, childRow];
+        polls += 1;
+        if (polls === 4) childAlive = false;
+        return childAlive ? [childRow] : [];
+      },
+      terminateTree: pid => {
+        expect(pid, "control: termination targets the recorded root process").toBe(rootPid);
+        terminated = true;
+        return { status: 0, error: undefined, stderr: "" };
+      },
+    });
+    expect(result, "control: stop returns success after the original tree is gone").toBe(0);
+    expect(childAlive, "regression (fails on main): stop must wait until every snapshotted member reports dead").toBe(false);
+    expect(polls, "control: process liveness was rechecked through the delayed exit").toBe(4);
   } finally {
+    for (const [key, value] of [
+      ["HERDR_PLUGIN_ROOT", previousRoot],
+      ["HERDR_PLUGIN_STATE_DIR", previousStateDir],
+      ["HERDR_PLUGIN_CONFIG_DIR", previousConfigDir],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     rmSync(scratch, { recursive: true, force: true });
   }
 }, 15_000);
