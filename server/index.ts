@@ -1259,7 +1259,7 @@ export function createServer(
         attachment.pty = start();
       } catch (error) {
         const message = spawnFailure(paneId, error);
-        broadcast(paneId, { type: "error", code: "command_failed", message });
+        broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
         broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
         closeAttachment(paneId);
       }
@@ -1413,7 +1413,7 @@ export function createServer(
               attachment.pty = start();
             } catch (error) {
               const message = spawnFailure(paneId, error);
-              broadcast(paneId, { type: "error", code: "command_failed", message });
+              broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
               finish();
             }
           }, (error: unknown) => {
@@ -1425,8 +1425,14 @@ export function createServer(
         };
         relookup();
       };
+      const command = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
+      // node-pty reports a command it cannot exec only as a silent exit 1, which reads as an
+      // ended attach (#925): look it up on the PATH and from the home directory the sidecar uses.
+      if (!Bun.which(command, { PATH: process.env["PATH"] ?? "", cwd: process.env["HOME"] ?? "/" })) {
+        throw new HerdrError("attach_failed", `herdr could not be started: ${command} is not an executable on the server's PATH (set HERDR_WEB_HERDR_BIN to herdr's full path)`);
+      }
       const session = new PtySession({
-        command: process.env["HERDR_WEB_HERDR_BIN"] || "herdr",
+        command,
         // --takeover goes after the id: before it, herdr reads the id as an unknown option
         args: ["terminal", "attach", attachedTerminal, ...(takingOver ? ["--takeover"] : [])],
         // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET: the stream must reach

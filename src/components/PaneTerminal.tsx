@@ -1158,6 +1158,15 @@ export function PaneTerminal({
           setConnected(socket.connected);
           return;
         }
+        if (message.code === "attach_failed") {
+          if (message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
+          // the server could not start herdr: nothing is coming, so say why instead of waiting
+          setOutputError(t("herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_WEB_HERDR_BIN to its full path."));
+          setEnded(true);
+          term.options.disableStdin = true;
+          setConnected(socket.connected);
+          return;
+        }
         if (message.code === "terminal_unsupported") {
           if (message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
           setUnsupported(true);

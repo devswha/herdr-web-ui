@@ -682,6 +682,7 @@ export const ZH: Record<string, string> = {
   "herdr could not restore this pane": "herdr 无法恢复此窗格",
   "Select a pane to open its terminal": "选择一个窗格以打开其终端",
   "Reconnect": "重新连接",
+  "herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_WEB_HERDR_BIN to its full path.": "服务器无法启动 herdr，因此无法连接此终端。请将 herdr 放到服务器的 PATH 中，或将 HERDR_WEB_HERDR_BIN 设置为它的完整路径。",
   "Another app has this pane open. It connects here as soon as that app lets go.": "另一个应用正打开此窗格。它一松开，这里就会立即连接。",
   "Open here": "在此打开",
   "Take this pane from another web app or terminal attach. That connection will close.": "从另一个网页应用或 terminal attach 接管此窗格。那边的连接将关闭。",

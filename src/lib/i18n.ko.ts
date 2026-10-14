@@ -678,6 +678,7 @@ export const KO: Record<string, string> = {
   "herdr could not restore this pane": "herdr가 이 패널을 복원하지 못했습니다",
   "Select a pane to open its terminal": "터미널을 열 패널을 선택하세요",
   "Reconnect": "다시 연결",
+  "herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_WEB_HERDR_BIN to its full path.": "서버에서 herdr를 실행할 수 없어 이 터미널을 연결할 수 없습니다. 서버의 PATH에 herdr를 두거나 HERDR_WEB_HERDR_BIN에 전체 경로를 지정하세요.",
   "Another app has this pane open. It connects here as soon as that app lets go.": "다른 앱이 이 창을 열고 있습니다. 그 앱이 놓으면 바로 여기에 연결됩니다.",
   "Open here": "여기서 열기",
   "Take this pane from another web app or terminal attach. That connection will close.": "다른 웹 앱이나 terminal attach에서 이 패널을 가져옵니다. 그쪽 연결은 종료됩니다.",

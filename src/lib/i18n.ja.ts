@@ -680,6 +680,7 @@ export const JA: Record<string, string> = {
   "herdr could not restore this pane": "herdr はこのペインを復元できませんでした",
   "Select a pane to open its terminal": "ターミナルを開くペインを選択してください",
   "Reconnect": "再接続",
+  "herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_WEB_HERDR_BIN to its full path.": "サーバーで herdr を起動できないため、このターミナルを接続できません。サーバーの PATH に herdr を置くか、HERDR_WEB_HERDR_BIN にフルパスを指定してください。",
   "Another app has this pane open. It connects here as soon as that app lets go.": "別のアプリがこのペインを開いています。そのアプリが離すとすぐにここへ接続します。",
   "Open here": "ここで開く",
   "Take this pane from another web app or terminal attach. That connection will close.": "ほかのウェブアプリや terminal attach からこのペインを引き継ぎます。その接続は終了します。",

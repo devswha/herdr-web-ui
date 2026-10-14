@@ -644,6 +644,7 @@ export const TR: Record<string, string> = {
   "herdr could not restore this pane": "herdr bu paneli geri yükleyemedi",
   "Select a pane to open its terminal": "Terminalini açmak için bir panel seçin",
   "Reconnect": "Yeniden bağlan",
+  "herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_WEB_HERDR_BIN to its full path.": "Sunucuda herdr başlatılamadı, bu yüzden bu terminal bağlanamıyor. herdr'ı sunucunun PATH'ine ekleyin veya HERDR_WEB_HERDR_BIN'i tam yoluna ayarlayın.",
   "Another app has this pane open. It connects here as soon as that app lets go.": "Bu paneli başka bir uygulama açık tutuyor. O uygulama bırakır bırakmaz buraya bağlanır.",
   "Open here": "Burada aç",
   "Take this pane from another web app or terminal attach. That connection will close.": "Bu paneli başka bir web uygulamasından veya terminal bağlantısından al. O bağlantı kapanacak.",
