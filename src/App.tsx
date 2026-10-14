@@ -1,5 +1,5 @@
 import { type CSSProperties, type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Bell, Ellipsis, FolderInput, FolderOpen, Link, Lock, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
+import { Bell, Ellipsis, FolderOpen, Link, Lock, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
@@ -13,13 +13,12 @@ import { worktreeRepoName } from "./lib/composerStrip.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
-import { MovePaneMenu } from "./components/MovePaneMenu.tsx";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { usePreferencesSync } from "./lib/preferencesSync.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
-import { fileFromLink, followMoved, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
+import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { paletteOpenQuery } from "./lib/paletteSeed.ts";
@@ -35,7 +34,6 @@ import { paneStorageId, type Machine, type MachineEvent } from "../shared/machin
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
-import { carryPaneRecords, paneMovedTo, paneMovePending, paneMovesVersion, recordPaneMove, subscribePaneMoves } from "./lib/paneMove.ts";
 import { SnapshotRequests } from "./lib/snapshotRequests.ts";
 import { alertPrefs, useSettings } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
@@ -365,10 +363,6 @@ export function App() {
   const paneActionsRef = useRef<((target: HerdrPane) => RowMenuItem[]) | null>(null);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
-  const [movingPane, setMovingPane] = useState<{ machineId: string; paneId: string; anchor: HTMLElement } | null>(null);
-  const movingOwner = movingPane ? machines.find((machine) => machine.id === movingPane.machineId) : null;
-  const movingLivePane = movingOwner?.state === "connected" ? movingOwner.snapshot?.panes.find((pane) => pane.pane_id === movingPane?.paneId) : null;
-  useEffect(() => { if (movingPane && !movingLivePane) setMovingPane(null); }, [movingPane, movingLivePane]);
   const { viewing, openFile, closeFile } = useFileViewer();
   const viewFile = useCallback((path: string) => {
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
@@ -739,9 +733,6 @@ export function App() {
     selectionSince.current = rosterSeq.current;
   }, [inOtherHalf, setSplit]);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
-  // the moves this client asked for and has no answer to yet (MovePaneMenu): the effect below
-  // looks again when one ends, since a failed move leaves the selection to it after all
-  const movesVersion = useSyncExternalStore(subscribePaneMoves, paneMovesVersion);
   useEffect(() => {
     // An offline PC's cached roster cannot invalidate a selection. Once connected,
     // a closed pane (including one remembered across reloads) must release its selection.
@@ -795,9 +786,6 @@ export function App() {
     let cancelled = false;
     void fetchSession(selectedMachineId).then((current) => {
       if (cancelled || current.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
-      // the pane is gone because this client is moving it and the roster outran the answer:
-      // the answer names the id to follow (actions.paneMoved), and herdr's focus is not it
-      if (paneMovePending(selectedMachineId, selectedPaneId)) return;
       // a pane a tapped alert selected: the workspace the alert named opens, and says so
       const hint = selectionHint.current;
       selectionHint.current = null;
@@ -813,7 +801,7 @@ export function App() {
       setAutoSelected(true);
     }).catch(() => { /* a failed read is not evidence that the pane disappeared */ });
     return () => { cancelled = true; };
-  }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state, movesVersion, linkTick]);
+  }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state, linkTick]);
   useEffect(() => {
     storeSelection(selectedMachineId, selectedPaneId);
   }, [selectedMachineId, selectedPaneId]);
@@ -1102,9 +1090,7 @@ export function App() {
     // Back and Forward land where the address already says: nothing to write
     if (search === window.location.search) return;
     const url = `${window.location.pathname}${search}${window.location.hash}`;
-    // a move gives the pane a new id (lib/paneMove.ts): the same pane, so the same entry
-    const sameMoved = previous !== null && previous.machine === link.machine && paneMovedTo(previous.machine, previous.pane) === link.pane;
-    if (previous !== null && !popped && !sameMoved && !autoSelected && !settingsOpen && !newSessionOpen && isNavigation(previous, link)) window.history.pushState({ [NAV_KEY]: true }, "", url);
+    if (previous !== null && !popped && !autoSelected && !settingsOpen && !newSessionOpen && isNavigation(previous, link)) window.history.pushState({ [NAV_KEY]: true }, "", url);
     else window.history.replaceState(window.history.state, "", url);
   }, [locked, machines.length, snapshot, linkLanded, selectedMachineId, selectedPaneId, linkWorkspaceId, linkSlug, linkFile, view, settingsOpen, settingsPage, settingsLinkPage, settingsLinkSection, newSessionOpen, newTab, newFields, wideScreen, sidebarCollapsed, autoSelected]);
 
@@ -1145,13 +1131,12 @@ export function App() {
       // an entry naming a PC since removed leaves the app where it is and says so, as a link to it would
       if (missing) setHeaderNote("machine-missing");
       else {
-        const target = followMoved(link, paneMovedTo(link.machine, link.pane), machine?.snapshot);
-        const pane = machine?.snapshot ? resolveLink(machine.snapshot, target).pane : target.pane;
+        const pane = machine?.snapshot ? resolveLink(machine.snapshot, link).pane : link.pane;
         if (pane === null) return;
         const current = selectionRef.current;
         // the entry's lens is drawn over the pane's own, as a tapped notification's is. Where it
         // lands is written over the entry, so Forward keeps the entries after it
-        if (current.machineId !== link.machine || current.paneId !== pane) { poppedTo.current = true; selectTargetRef.current(link.machine, pane, target.pane === pane ? link.view ?? undefined : undefined); return; }
+        if (current.machineId !== link.machine || current.paneId !== pane) { poppedTo.current = true; selectTargetRef.current(link.machine, pane, link.pane === pane ? link.view ?? undefined : undefined); return; }
       }
       // the same pane, or no PC to go to: the entry landed on may still say what is no longer shown
       // (the address a link to Settings opened the page with, under the dialog's own entries), so it says it now
@@ -1240,16 +1225,6 @@ export function App() {
         setNewSessionOpen(true);
       },
       openPalette,
-      paneMoved: (machineId, previousPaneId, paneId) => {
-        if (previousPaneId === paneId) return;
-        carryPaneRecords(machineId, previousPaneId, paneId);
-        recordPaneMove(machineId, previousPaneId, paneId);
-        lenses.move(paneStorageId(machineId, previousPaneId), paneStorageId(machineId, paneId));
-        // the new id is selected before a snapshot without the old one can fall the selection
-        // back to herdr's focus; a pane moved from the sidebar while another is open stays unselected
-        const current = selectionRef.current;
-        if (current.machineId === machineId && current.paneId === previousPaneId) selectPane(paneId);
-      },
       agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
       openFind: () => {
         if (selectedPaneId === null) return;
@@ -1347,10 +1322,6 @@ export function App() {
 
   const moreItems: RowMenuItem[] = [
     ...(selectedPane && !selectedPane.restore_error ? [{ id: "find", label: t("Find in terminal"), icon: Search, run: actions.openFind }] : []),
-    ...(selectedPane ? [{ id: "move-pane", label: t("Move pane to…"), icon: FolderInput, run: () => {
-      const anchor = document.querySelector<HTMLElement>(".header-more-button");
-      if (anchor) setMovingPane({ machineId: selectedMachineId, paneId: selectedPane.pane_id, anchor });
-    } }] : []),
     ...(selectedPane ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
     // the address says where the app is (lib/deepLink.ts); a phone has no address bar to copy it from
     { id: "copy-link", label: t("Copy link"), icon: Link, run: () => void copyText(window.location.href).then((ok) => { if (ok) setHeaderNote("copied"); }) },
@@ -1682,9 +1653,6 @@ export function App() {
         setFilesOpen(false);
         selectTargetRef.current(machineId, paneId);
       }} />
-      {movingPane && movingLivePane && movingOwner?.snapshot && <MachineContext.Provider value={movingPane.machineId}><MovePaneMenu anchor={movingPane.anchor} snapshot={movingOwner.snapshot} pane={movingLivePane}
-        paneTitle={displayPaneTitle(movingLivePane)} onMoved={(moved) => actions.paneMoved(movingPane.machineId, moved.previous_pane_id, moved.pane.pane_id)}
-        onError={(reason) => setLayoutNotice(t("Move failed: {reason}", { reason }))} onClose={() => setMovingPane(null)} /></MachineContext.Provider>}
       <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} overPreview={viewing !== null || diffViewing !== null} />
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} paneId={selectedPane.pane_id} viewing={viewing !== null || diffViewing !== null} onOpenFile={viewFile}

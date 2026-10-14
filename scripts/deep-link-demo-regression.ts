@@ -100,36 +100,6 @@ try {
       });
       console.log("PASS opening another pane is a history entry and a lens switch is not; Back and Forward return to each pane in its lens");
 
-      // a move gives a pane a new id: the address follows it on the pane's own entry, and an older
-      // entry naming the old id opens the pane where it went, with Forward's entries kept
-      await withPage(browser, `?ws=${wsOf(DOCS)}&pane=${encodeURIComponent(DOCS)}`, async (page) => {
-        await waitSelected(page, DOCS);
-        await page.locator(`.agents-sidebar .agent-item[data-pane="${INFRA}"] .agent-select`).click();
-        await waitQuery(page, "pane", INFRA);
-        await page.locator(`.agents-sidebar .agent-item[data-pane="${DOCS}"] .agent-select`).click();
-        await waitQuery(page, "pane", DOCS);
-        const length = await page.evaluate(() => history.length);
-        await runMoreItem(page, "Move pane to…");
-        const menu = page.getByRole("menu", { name: /^Move .+ to$/ });
-        await menu.waitFor();
-        await menu.getByRole("menuitem", { name: "infra", exact: true }).click();
-        await page.waitForFunction((old) => { const pane = new URLSearchParams(window.location.search).get("pane"); return pane !== null && pane !== old; }, DOCS, { timeout: 10_000 });
-        const moved = (await query(page))["pane"]!;
-        await waitSelected(page, moved);
-        assert.equal(await page.evaluate(() => history.length), length, "the moved pane's new id is written over its entry");
-        await page.goBack();
-        await waitSelected(page, INFRA);
-        await page.goBack();
-        await waitSelected(page, moved);
-        await waitQuery(page, "pane", moved);
-        await page.goForward();
-        await waitSelected(page, INFRA);
-        await page.goForward();
-        await waitSelected(page, moved);
-        assert.equal(await page.evaluate(() => history.length), length, "Back and Forward kept every entry");
-      });
-      console.log("PASS a moved pane keeps its history entry, and Back to an entry from before the move opens it under its new id");
-
       // an entry naming a PC since removed leaves the app where it is and says so, opens no dialog it
       // named; Forward still works
       await withPage(browser, `?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}`, async (page) => {
@@ -575,17 +545,6 @@ try {
         await page.goBack();
         await creation.waitFor({ state: "detached" });
         assert.equal(await selected(page), DOCS, "Back closed the dialog and left the pane alone");
-        // a sheet opened from a sheet (More → Move pane to…) reuses the entry: one Back closes it
-        await more.tap();
-        await sheet.waitFor();
-        await sheet.getByRole("button", { name: "Move pane to…", exact: true }).tap();
-        const move = page.getByRole("dialog", { name: /^Move / });
-        await move.waitFor();
-        await page.waitForTimeout(150);
-        assert.equal(await page.evaluate(() => history.length), length + 1, "the second sheet took the first's entry");
-        await page.goBack();
-        await move.waitFor({ state: "detached" });
-        assert.equal(await selected(page), DOCS, "Back closed the second sheet and left the pane alone");
         // every other dialog is a sheet on a phone too: the plan and the palette close on Back
         const API = panes.api;
         await page.locator(`.agents-sidebar .agent-item[data-pane="${API}"] .agent-select`).evaluate((node) => (node as HTMLElement).click());
@@ -614,7 +573,7 @@ try {
       } finally {
         await phone.close();
       }
-      console.log("PASS a phone's sheet, plan and palette close on Back without leaving their pane; Cancel, Rename pane and a second sheet leave no Back step behind");
+      console.log("PASS a phone's sheet, plan and palette close on Back without leaving their pane; Cancel and Rename pane leave no Back step behind");
     } finally {
       await browser.close();
     }

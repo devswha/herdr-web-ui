@@ -510,8 +510,7 @@ One set for both themes: the card is island black wherever it shows.
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
   Both the button and right-click offer the same native workspace actions: Rename workspace,
   Close workspace/group, New/Open worktree for repository roots, Delete worktree checkout for
-  linked worktrees, and Expand/Collapse for a group. Pane renaming stays in the pane menu;
-  Move pane to… is in header More. The
+  linked worktrees, and Expand/Collapse for a group. Pane renaming stays in the pane menu. The
   danger item takes `--status-blocked`. The popover is as tall as its items, up to the room on
   its side of the button (it scrolls only on a screen too short for it). At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. The
@@ -535,15 +534,6 @@ One set for both themes: the card is island black wherever it shows.
   strip's `+` sits beside it) and also carries the open pane's actions, less Split and Zoom: a
   phone shows one pane at a time. The pane's own context menu carries pane actions; it opens at the pointer
   without changing which pane is focused. The pane header's ellipsis opens the same menu on touch.
-- **Move pane to…** (header More) opens a menu under the header button
-  (`MovePaneMenu`): a dim uppercase MOVE TO micro label with the pane's name under it
-  (`.move-pane-head`), then New tab and the workspace's other tabs, every other workspace under
-  a hairline, and New workspace under another. A pick moves the pane at once (`POST
-  /api/pane/move`); the app stays on a moved pane that was open, also under the new id herdr
-  gives a pane that changes workspace, and waits for the move's answer before it would read a
-  roster without the pane as the pane gone. A refusal reads as the row's or the strip's inline
-  error, herdr's own too ("Move failed: the tab is zoomed; unzoom it in herdr, then move the
-  pane"): a `changed: false` answer never closes the menu as if the pane had moved.
 
 ### Badge (`.badge`)
 - Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**. **BG** is a pane
