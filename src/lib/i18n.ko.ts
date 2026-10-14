@@ -181,6 +181,7 @@ export const KO: Record<string, string> = {
   "That link's PC is not set up here": "그 링크의 PC는 여기에 설정되어 있지 않습니다",
   "Command palette (⌘⇧K)": "명령 팔레트 (⌘⇧K)",
   "Sign out": "로그아웃",
+  "Could not sign out. Try again.": "로그아웃하지 못했습니다. 다시 시도해 주세요.",
   "Sign out of this browser?": "이 브라우저에서 로그아웃할까요?",
   "Getting back in takes the access token, or a pairing code from the PC: Settings → Phone & devices there, or the pair command in its terminal.": "다시 들어오려면 액세스 토큰이나 PC의 페어링 코드가 필요합니다. 코드는 PC의 설정 → Phone & devices나 PC 터미널의 pair 명령에서 받습니다.",
   "Forget this browser's sign-in. Getting back in takes the access token or a pairing code.": "이 브라우저의 로그인을 지웁니다. 다시 들어오려면 액세스 토큰이나 페어링 코드가 필요합니다.",

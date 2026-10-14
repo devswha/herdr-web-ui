@@ -777,7 +777,7 @@ function ShortcutsPage() {
   );
 }
 
-function DevicesPage({ auth, onSignOut }: { auth: HealthAuth | null; onSignOut: (() => void) | null }) {
+function DevicesPage({ auth, onSignOut }: { auth: HealthAuth | null; onSignOut: (() => Promise<void>) | null }) {
   const { settings, update } = useSettings();
   const t = useT();
   const installPrompt = useInstallPrompt();
@@ -816,7 +816,7 @@ function DevicesPage({ auth, onSignOut }: { auth: HealthAuth | null; onSignOut: 
         {onSignOut && confirmSignOut && (
           <ConfirmDialog title={t("Sign out of this browser?")}
             body={t("Getting back in takes the access token, or a pairing code from the PC: Settings → Phone & devices there, or the pair command in its terminal.")}
-            confirmLabel={t("Sign out")} onClose={() => setConfirmSignOut(false)} onConfirm={async () => { onSignOut(); }} />
+            confirmLabel={t("Sign out")} onClose={() => setConfirmSignOut(false)} onConfirm={onSignOut} />
         )}
       </SettingsGroup>
     </>

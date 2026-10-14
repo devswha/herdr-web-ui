@@ -703,10 +703,12 @@ export function App() {
     try {
       await signOut();
     } catch {
-      /* the cookie may still be set: the health answer decides whether the gate shows */
+      throw new Error(t("Could not sign out. Try again."));
+    } finally {
+      // The response may have been lost after the cookie was cleared.
+      await loadHealth();
     }
-    await loadHealth();
-  }, [loadHealth]);
+  }, [loadHealth, t]);
 
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
@@ -1252,7 +1254,7 @@ export function App() {
         else setSidebarCollapsed((collapsed) => !collapsed);
       },
       toggleTheme: () => updateSettings({ theme: resolvedTheme === "dark" ? "light" : "dark" }),
-      lock: canSignOut ? () => void lock() : null,
+      lock: canSignOut ? lock : null,
       enableNotifications: bellVisible && bell.run === enableNotifications ? () => void enableNotifications() : null,
       refresh: () => void load(),
       openFiles: selectedPaneId !== null ? () => { setDrawerOpen(false); setFilesOpen(true); } : null,

@@ -185,6 +185,7 @@ export const ZH: Record<string, string> = {
   "That link's PC is not set up here": "该链接的电脑未在此处设置",
   "Command palette (⌘⇧K)": "命令面板 (⌘⇧K)",
   "Sign out": "退出登录",
+  "Could not sign out. Try again.": "无法退出登录，请重试。",
   "Sign out of this browser?": "要从此浏览器退出登录吗？",
   "Getting back in takes the access token, or a pairing code from the PC: Settings → Phone & devices there, or the pair command in its terminal.": "再次进入需要访问令牌，或 PC 上的配对码：在 PC 的设置 → Phone & devices 中，或在其终端运行 pair 命令获取。",
   "Forget this browser's sign-in. Getting back in takes the access token or a pairing code.": "清除此浏览器的登录。再次进入需要访问令牌或配对码。",

@@ -183,6 +183,7 @@ export const JA: Record<string, string> = {
   "That link's PC is not set up here": "そのリンクの PC はここに設定されていません",
   "Command palette (⌘⇧K)": "コマンドパレット (⌘⇧K)",
   "Sign out": "サインアウト",
+  "Could not sign out. Try again.": "サインアウトできませんでした。もう一度お試しください。",
   "Sign out of this browser?": "このブラウザーからサインアウトしますか？",
   "Getting back in takes the access token, or a pairing code from the PC: Settings → Phone & devices there, or the pair command in its terminal.": "再び入るにはアクセストークンか、PC のペアリングコードが必要です。コードは PC の設定 → Phone & devices か、PC のターミナルの pair コマンドで表示されます。",
   "Forget this browser's sign-in. Getting back in takes the access token or a pairing code.": "このブラウザーのサインインを消去します。再び入るにはアクセストークンかペアリングコードが必要です。",
