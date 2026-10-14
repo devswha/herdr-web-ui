@@ -687,13 +687,12 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
 }
 
 /** Optional terminal output must never hold initial display or transcript polling. */
-function TerminalFallback({ paneId }: { paneId: string }) {
+function TerminalFallback({ paneId, visible }: { paneId: string; visible: boolean }) {
   const { fetchPaneTranscript } = useMachineApi();
   const t = useT();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const visible = usePageVisible();
   useEffect(() => {
     if (!open || !visible) return;
     let cancelled = false;
@@ -1461,7 +1460,7 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       renderRow={renderTurn}
     /> : <div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
       <div className="chat-transcript" data-conversation-source={state.conversationSource}>
-        {agent !== null ? <TerminalFallback key={paneId} paneId={paneId} />
+        {agent !== null ? <TerminalFallback key={paneId} paneId={paneId} visible={visible} />
           : state.messages.map((message, index) => <FallbackTurn key={index} paneId={paneId} message={message} />)}
         {footer}
       </div>

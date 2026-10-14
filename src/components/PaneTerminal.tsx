@@ -1720,14 +1720,14 @@ export function PaneTerminal({
     const release = (): void => {
       cancelLeave();
       const current = paneRef.current;
-      if (!current) return;
+      if (!current || embedded || fixedGridRef.current) return;
       if (cachedRef.current && releasedRef.current) {
         if (watchingRef.current) { socket.unwatch(current); setWatching(false); }
         // Caching stops the watch, but does not turn an away release into a cache-only release.
         return;
       }
       if (releasedRef.current || (!cachedRef.current
-        && (!(releaseAwayRef.current || hiddenOnTouch()) || inUse() || embedded || fixedGridRef.current || endedRef.current))) return;
+        && (!(releaseAwayRef.current || hiddenOnTouch()) || inUse() || endedRef.current))) return;
       if (queueWaits(current)) {
         queueHeld = true;
         return;
@@ -2767,7 +2767,7 @@ export function PaneTerminal({
             cwd={cwd}
             onOpenDiff={onOpenDiff}
             active={active}
-            visible={presented}
+            visible={presented && shown}
             pageScroll={pageScroll}
             refreshKey={chatRefresh}
             invalidationKey={chatInvalidation}

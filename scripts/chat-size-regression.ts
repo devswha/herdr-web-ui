@@ -471,7 +471,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
     };
     const sent = async (page: Page, start = 0) => (await framesOf(page)).slice(start)
       .filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize"));
-    const scenarios = ["mount", "switch", "background-cache", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
+    const scenarios = ["mount", "switch", "background-cache", "mirrored-cache", "resume", "toggles", "held", "queue-switch", "queue-inflight", "writes"] as const;
     assert.ok(!process.env.CHAT_SIZE_CASE || scenarios.some((scenario) => scenario === process.env.CHAT_SIZE_CASE), "unknown CHAT_SIZE_CASE");
     for (const scenario of scenarios) {
       if (process.env.CHAT_SIZE_CASE && process.env.CHAT_SIZE_CASE !== scenario) continue;
@@ -504,7 +504,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           };
           listeners.add(check); check();
         });
-        const routed = queueScenario || scenario === "writes" || scenario === "background-cache";
+        const routed = queueScenario || scenario === "writes" || scenario === "background-cache" || scenario === "mirrored-cache";
         const recorded = async (): Promise<Frame[]> => {
           if (routed) return [...wire];
           assert.ok(page);
@@ -522,6 +522,11 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
               const frame = JSON.parse(String(raw));
               if (frame.type === "submit-result") acceptedQueue = Boolean(frame.ok && frame.pending);
               record(raw, "in");
+              if (scenario === "mirrored-cache" && frame.type === "input-ready" && frame.pane_id === first) {
+                const geometry = JSON.stringify({ type: "pane-geometry", pane_id: first, cols: 80, rows: 24, fixed: true });
+                record(geometry, "in");
+                socket.send(geometry);
+              }
               if (holdOutput && frame.type === "pty-data") heldOutput.push(() => socket.send(raw));
               else socket.send(raw);
             });
@@ -583,6 +588,22 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           continue;
         }
         await (routed ? waitWire("in", "input-ready") : attached(page));
+        if (scenario === "mirrored-cache") {
+          // Given a mounted fixed-grid pane (the mirror's geometry contract), keep its subscription.
+          await waitWire("in", "pane-geometry");
+          await pauseClock(page);
+          const extra = await tabCreate({ workspaceId: workspaces[0]!, label: "Mirror cache" });
+          const before = wire.length;
+          // When it becomes cached, presentation effects must not release the mirror.
+          await page.locator(`[role="tab"][data-tab-id="${extra.tab.tab_id}"]`).evaluate((button: HTMLElement) => button.click());
+          await page.locator(`.pane-frame.is-hidden[data-layout-pane="${first}"]`).waitFor({ state: "attached" });
+          await page.clock.runFor(0);
+          await waitWire("in", "input-ready", 2);
+          // Then the other pane is attached but no detach was sent for the cached mirror.
+          assert.deepEqual(detachedPanes(wire.slice(before)), [], "caching a mirrored pane never releases it");
+          console.log("PASS inactive attach lifecycle: mirrored-cache");
+          continue;
+        }
         if (queueScenario) {
           await page.locator('.composer-status[data-status="working"]').waitFor();
           await page.locator(".composer-text").fill("lifecycle follow-up");
