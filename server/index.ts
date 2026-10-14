@@ -109,6 +109,7 @@ import { handleUsageRequest, UsageService } from "./usage.ts";
 import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
+import { MAX_LABEL_CHARS } from "../shared/labels.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
 import { bridgeAgentNews, MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
@@ -1962,6 +1963,13 @@ export function createServer(
         const cwd = payload.cwd === undefined ? undefined : expandedDirectory(payload.cwd);
         if (payload.cwd !== undefined && cwd === null) return badRequest("invalid_cwd", "cwd must be an existing directory");
         if (payload.label !== undefined && typeof payload.label !== "string") return badRequest("missing_label", "label must be a string");
+        if (typeof payload.label === "string") {
+          // a blank name is no name: herdr names the workspace after its folder, the tab by its number
+          const label = payload.label.trim();
+          if (label.length > MAX_LABEL_CHARS) return badRequest("label_too_long", `label must be at most ${MAX_LABEL_CHARS} characters`);
+          if (label === "") delete payload.label;
+          else payload.label = label;
+        }
         const fault = agentFault(payload.agent);
         if (fault !== null) return badRequest("invalid_agent", fault);
         // agent.start can legitimately take a minute; Bun's default idle timeout is shorter.
@@ -2110,8 +2118,12 @@ export function createServer(
         if (pathname === "/api/workspace/close" && payload.close_group !== undefined && typeof payload.close_group !== "boolean") {
           return badRequest("invalid_close_group", "close_group must be a boolean");
         }
-        if (pathname === "/api/workspace/rename" && typeof payload.label !== "string") {
-          return badRequest("missing_label", "label is required");
+        if (pathname === "/api/workspace/rename") {
+          // herdr would keep an empty label, and the sidebar row would show no name
+          const label = typeof payload.label === "string" ? payload.label.trim() : "";
+          if (label === "") return badRequest("missing_label", "label is required");
+          if (label.length > MAX_LABEL_CHARS) return badRequest("label_too_long", `label must be at most ${MAX_LABEL_CHARS} characters`);
+          payload.label = label;
         }
         if (pathname === "/api/workspace/move" && (typeof payload.insert_index !== "number" || !Number.isInteger(payload.insert_index) || payload.insert_index < 0)) {
           return badRequest("invalid_index", "insert_index must be a non-negative integer");
@@ -2150,6 +2162,7 @@ export function createServer(
             // herdr would keep an empty label as the tab's name, and its own tab row would show nothing
             const label = typeof payload.label === "string" ? payload.label.trim() : "";
             if (label === "") return badRequest("missing_label", "label is required");
+            if (label.length > MAX_LABEL_CHARS) return badRequest("label_too_long", `label must be at most ${MAX_LABEL_CHARS} characters`);
             await tabRename(payload.tab_id, label);
             // no pane event follows a rename, so the clients are told here
             broadcastAll({ type: "session-changed" });

@@ -5,6 +5,7 @@ import "./Sidebar.css";
 
 import type { AgentStatus, PaneInfo, PlanSummary, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { paneTitle } from "../../shared/notify-policy.ts";
+import { MAX_LABEL_CHARS } from "../../shared/labels.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
 import { knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
@@ -414,7 +415,11 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const saveWorkspaceRename = (workspaceId: string): void => {
     const typed = workspaceLabel;
     const label = typed.trim();
+    // herdr would keep an empty name, and the row would show none: the editor stays open
+    if (label === "") { noteError(t("A workspace needs a name."), workspaceId); return; }
     setEditingWorkspaceId(null);
+    // a name herdr set longer than the field allows is not sent back to be refused
+    if (label === snapshotRef.current?.workspaces.find((candidate) => candidate.workspace_id === workspaceId)?.label) return;
     void renameWorkspace(workspaceId, label).catch((reason: unknown) => {
       // as for a pane: the typed name survives a failed request, for as long as the workspace does
       if (!editorOpen() && snapshotRef.current?.workspaces.some((candidate) => candidate.workspace_id === workspaceId)) {
@@ -616,6 +621,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
             className="input workspace-rename-input"
             aria-label={t("Workspace name")}
             autoFocus
+            maxLength={MAX_LABEL_CHARS}
             value={workspaceLabel}
             onClick={(event) => event.stopPropagation()}
             onChange={(event) => setWorkspaceLabel(event.target.value)}

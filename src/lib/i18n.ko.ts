@@ -303,6 +303,8 @@ export const KO: Record<string, string> = {
   "{n} panes close with it, and the agents in them stop.": "패널 {n}개가 함께 닫히고, 안의 에이전트가 멈춥니다.",
   "{n} pane closes with it, and the agent in it stops.": "패널 {n}개가 함께 닫히고, 안의 에이전트가 멈춥니다.",
   "Rename failed: {reason}": "이름 바꾸기 실패: {reason}",
+  "A workspace needs a name.": "워크스페이스 이름을 입력하세요.",
+  "A tab needs a name.": "탭 이름을 입력하세요.",
   "Reorder failed: {reason}": "순서 바꾸기 실패: {reason}",
 
   // ---- PCs sidebar ----

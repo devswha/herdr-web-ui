@@ -707,6 +707,9 @@ describe("tab rename and close", () => {
       expect(res.status).toBe(400);
       expect(((await res.json()) as ApiError).error.code).toBe("missing_label");
     }
+    const long = await post("rename", { tab_id: "unknown:t9", label: "T".repeat(81) });
+    expect(long.status).toBe(400);
+    expect(((await long.json()) as ApiError).error.code).toBe("label_too_long");
   });
 
   it("renames a tab, closes one beside another, and takes the workspace with its last tab", async () => {
@@ -904,6 +907,7 @@ describe("tab creation", () => {
       [{ cwd: join(tmpdir(), crypto.randomUUID()) }, "invalid_cwd"],
       [{ cwd: 42 }, "invalid_cwd"],
       [{ label: false }, "missing_label"],
+      [{ label: "T".repeat(81) }, "label_too_long"],
       [{ agent: {} }, "invalid_agent"],
       [{ agent: { kind: "muse", args: "--help" } }, "invalid_agent"],
     ] as const) {
@@ -1355,6 +1359,10 @@ describe("workspace and discovery endpoints", () => {
   it("uses the shared error envelope for malformed mutation bodies", async () => {
     for (const [path, body, code] of [
       ["/api/workspace/rename", {}, "missing_workspace_id"],
+      // #927: herdr would keep a blank or any-length name
+      ["/api/workspace/rename", { workspace_id: "x", label: "" }, "missing_label"],
+      ["/api/workspace/rename", { workspace_id: "x", label: "   " }, "missing_label"],
+      ["/api/workspace/rename", { workspace_id: "x", label: "W".repeat(81) }, "label_too_long"],
       ["/api/workspace/move", { workspace_id: "x", insert_index: -1 }, "invalid_index"],
       ["/api/workspace/close", {}, "missing_workspace_id"],
       ["/api/pane/rename", {}, "missing_pane_id"],

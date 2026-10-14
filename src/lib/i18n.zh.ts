@@ -307,6 +307,8 @@ export const ZH: Record<string, string> = {
   "{n} panes close with it, and the agents in them stop.": "窗格 {n} 个会一同关闭，其中的代理会停止。",
   "{n} pane closes with it, and the agent in it stops.": "窗格 {n} 个会一同关闭，其中的代理会停止。",
   "Rename failed: {reason}": "重命名失败：{reason}",
+  "A workspace needs a name.": "工作区需要一个名称。",
+  "A tab needs a name.": "标签页需要一个名称。",
   "Reorder failed: {reason}": "调整顺序失败：{reason}",
 
   // ---- PCs sidebar ----

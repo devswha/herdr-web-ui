@@ -290,6 +290,8 @@ export const TR: Record<string, string> = {
   "{n} panes close with it, and the agents in them stop.": "Onunla birlikte {n} panel kapanır ve içindeki ajanlar durur.",
   "{n} pane closes with it, and the agent in it stops.": "Onunla birlikte {n} panel kapanır ve içindeki ajan durur.",
   "Rename failed: {reason}": "Yeniden adlandırma başarısız: {reason}",
+  "A workspace needs a name.": "Çalışma alanının bir adı olmalı.",
+  "A tab needs a name.": "Sekmenin bir adı olmalı.",
   "Reorder failed: {reason}": "Yeniden sıralama başarısız: {reason}",
   "Connecting…": "Bağlanıyor…",
   "Connected": "Bağlandı",

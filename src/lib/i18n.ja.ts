@@ -305,6 +305,8 @@ export const JA: Record<string, string> = {
   "{n} panes close with it, and the agents in them stop.": "ペイン {n} 個も一緒に閉じ、中のエージェントは停止します。",
   "{n} pane closes with it, and the agent in it stops.": "ペイン {n} 個も一緒に閉じ、中のエージェントは停止します。",
   "Rename failed: {reason}": "名前を変更できませんでした: {reason}",
+  "A workspace needs a name.": "ワークスペースには名前が必要です。",
+  "A tab needs a name.": "タブには名前が必要です。",
   "Reorder failed: {reason}": "並べ替えできませんでした: {reason}",
 
   // ---- PCs sidebar ----
