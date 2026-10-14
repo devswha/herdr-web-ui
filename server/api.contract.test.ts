@@ -2596,6 +2596,18 @@ describe("pairing and identity", () => {
     expect(((await refused.json()) as ApiError).error.code).toBe("other_user");
   });
 
+  it("regression: refuses identity headers without a single tailnet forwarded address", async () => {
+    for (const forwardedFor of [null, "127.0.0.1", "203.0.113.50", "100.64.0.9, 100.64.0.10"]) {
+      const headers = { "tailscale-user-login": OWNER, ...(forwardedFor === null ? {} : { "x-forwarded-for": forwardedFor }) };
+      const response = await fetch(`${base()}/api/devices`, { headers });
+      expect(response.status).toBe(401);
+      expect(((await response.json()) as ApiError).error.code).toBe("unauthorized");
+      expect(await auth(headers)).toMatchObject({ authenticated: false, reason: "pairing_required" });
+    }
+    // control: Serve may forward either tailnet address family.
+    expect((await fetch(`${base()}/api/devices`, { headers: proxied(OWNER, { "x-forwarded-for": "fd7a:115c:a1e0::1" }) })).status).toBe(200);
+  });
+
   it("lets the owner's own device in with no login header, where serve is the only ingress and one login owns the tailnet", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-sole-user-"));
     const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
@@ -2627,6 +2639,8 @@ describe("pairing and identity", () => {
       expect(await at(sole.port, { ...phone, "tailscale-user-login": "someone@example.com" })).toMatchObject({ authenticated: false, reason: "other_user" });
       expect(await at(sole.port, { ...phone, "tailscale-funnel-request": "?1" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
       expect(await at(sole.port, { ...phone, "tailscale-user-login": OWNER })).toMatchObject({ authenticated: true, via: "tailscale" });
+      // regression: a rejected identity is not an absent identity, even at this PC's Host.
+      expect(await at(sole.port, { ...phone, "tailscale-user-login": OWNER, "x-forwarded-for": "127.0.0.1" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
       // where the operator did not declare serve the only ingress, the same request pairs, with or without the tailnet's name as Host
       expect(await at(off.port, proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
       expect(await at(off.port, phone)).toMatchObject({ authenticated: false, reason: "pairing_required" });

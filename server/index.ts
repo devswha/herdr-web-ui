@@ -1685,6 +1685,7 @@ export function createServer(
       const forwarded = cameThroughProxy(request.headers);
       const funnel = request.headers.has("tailscale-funnel-request");
       const tailscaleLogin = request.headers.get("tailscale-user-login");
+      const forwardedFor = request.headers.get("x-forwarded-for");
       const requestHost = request.headers.get("host");
       // the guessing budget of the address that asks (auth.ts): a token presented while it waits is not compared
       const client = authClient(ip?.address ?? null, request.headers);
@@ -1701,7 +1702,7 @@ export function createServer(
         // First-cookie confirmation is an authorization write, not best-effort telemetry.
         return errorResponse(error);
       }
-      const requestShape = { loopback, forwarded, funnel, tailscaleLogin, serveOnly };
+      const requestShape = { loopback, forwarded, funnel, tailscaleLogin, forwardedFor, serveOnly };
       const identity = await identityOf(token === "" && pairedDevice === null && isServeOwnerRequest(requestShape) && (pathname === "/ws" || pathname.startsWith("/api/")), requestHost);
       const access = decideAccess({
         ...requestShape,
