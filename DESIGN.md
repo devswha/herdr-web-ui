@@ -1276,7 +1276,13 @@ One set for both themes: the card is island black wherever it shows.
   of its own under it, without its leading dot, and wraps there; its `title` repeats it. Only
   the sentence takes a line: the mark, the model, the level and the ring stay one row over it
   (`.composer-status-meta`), where the label gives way exactly as it does with no sentence. The
-  status content is then left-aligned, beside the add button. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
+  status content is then left-aligned, beside the add button. In a narrow card (`data-compact`,
+  below `640px`) add, the icons and the round button at touch size leave it too little of the
+  row for a word, so while a sentence shows the status content takes a row of its own over them,
+  the card's width (`.composer-surface[data-compact]:has(> .composer-status[data-hint])`): the
+  sentence is read whole beside the model pill or under it, from where the message's text
+  starts, add and the round button keep their row, and the card grows by that row while the
+  sentence shows. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
   `Uploading file…`, never both: the attachment's own tile says it is uploading.
 - The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
   (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,

@@ -192,6 +192,26 @@
   row-gap: 0;
 }
 
+/* A narrow card (data-compact: the card's own width, Composer.tsx) with a sentence to say: add,
+   the icons and the round button at touch size leave the status content too little of the row
+   for a word, so it takes a row of its own over them, the card's width, where the sentence is
+   read whole beside the model pill or under it, from where the message's text starts. Add and
+   the round button keep their row. The card grows by that row while the sentence shows.
+   data-hint is the sentence's presence, not a measurement, so this layout never feeds back into
+   the fit that measures the row */
+.composer-surface[data-compact]:has(> .composer-status[data-hint]) {
+  grid-template-areas:
+    "attachments attachments attachments"
+    "text text text"
+    "status status status"
+    "left . right";
+}
+
+.composer-surface[data-compact]:has(> .composer-status[data-hint]) > .composer-status {
+  justify-content: flex-start;
+  padding: var(--space-1) var(--space-4) 0;
+}
+
 /* everything but the sentence. No box of its own at rest: its items are the status line's. Beside
    a sentence it is one row that does not wrap, so the sentence is the only thing that takes a
    line: a label that does not fit is clipped there as it is at rest, which is what the composer
@@ -976,6 +996,10 @@
 
   .composer-status {
     padding: var(--space-1) var(--space-2) var(--space-2) var(--space-1);
+  }
+
+  .composer-surface[data-compact]:has(> .composer-status[data-hint]) > .composer-status {
+    padding: var(--space-1) var(--space-3) 0;
   }
 
   /* A phone fits neither half of a pi command's row, and pi writes explanations twice as long as
