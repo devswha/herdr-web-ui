@@ -1363,6 +1363,8 @@ describe("workspace and discovery endpoints", () => {
       ["/api/workspace/rename", { workspace_id: "x", label: "" }, "missing_label"],
       ["/api/workspace/rename", { workspace_id: "x", label: "   " }, "missing_label"],
       ["/api/workspace/rename", { workspace_id: "x", label: "W".repeat(81) }, "label_too_long"],
+      ["/api/worktree/create", { workspace_id: "x", branch: "b", label: "W".repeat(81) }, "label_too_long"],
+      ["/api/worktree/open", { workspace_id: "x", path: "/tmp", label: "W".repeat(81) }, "label_too_long"],
       ["/api/workspace/move", { workspace_id: "x", insert_index: -1 }, "invalid_index"],
       ["/api/workspace/close", {}, "missing_workspace_id"],
       ["/api/pane/rename", {}, "missing_pane_id"],

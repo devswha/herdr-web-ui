@@ -2054,6 +2054,7 @@ export function createServer(
         } catch (response) {
           return response as Response;
         }
+        if (label !== undefined && label.length > MAX_LABEL_CHARS) return badRequest("label_too_long", `label must be at most ${MAX_LABEL_CHARS} characters`);
         // a checkout path is taken as git names it, spaces and all
         let path: string | undefined;
         if (payload.path !== undefined && payload.path !== null) {

@@ -218,7 +218,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/worktree/create { workspace_id, branch, base?, label?, path?, agent?: { kind, name?, args? } } -> WorktreeOpened
  *         (worktree.create: a git worktree of that workspace's repo, checked out under herdr's
  *         worktree directory unless `path` says where, and opened as a new workspace grouped with it;
- *         409 repository_without_commits when no base is named and the repository has no commit yet)
+ *         409 repository_without_commits when no base is named and the repository has no commit yet;
+ *         both worktree routes refuse a label over MAX_LABEL_CHARS with 400 label_too_long)
  *  GET    /api/worktree/list?workspace_id= -> WorktreeListing (worktree.list: the repo's checkouts)
  *  POST   /api/worktree/open   { workspace_id, path | branch, label? } -> WorktreeOpened
  *         (worktree.open: an existing checkout as a workspace; already_open names the one it has)
