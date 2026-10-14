@@ -3580,7 +3580,7 @@ if (import.meta.main) {
   if (process.env["HERDR_WEB_MANAGED"] === "1") process.on("disconnect", shutdown);
   console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
   if (!isLoopbackBind(instance.hostname)) {
-    if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "") {
+    if (lanExposed({ hostname: instance.hostname, tokenConfigured: (process.env["HERDR_WEB_TOKEN"] ?? "") !== "", gated: false })) {
       console.error(
         `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
       );
