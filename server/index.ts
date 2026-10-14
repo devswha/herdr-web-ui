@@ -37,7 +37,8 @@ import { freeAgentName } from "./agent-name.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
-import { fileResponse, locateFile, crossSiteFileRead } from "./file-view.ts";
+import { claudeSessionTempDir } from "./claude-store.ts";
+import { fileResponse, locateFile, locateFileInFolder, crossSiteFileRead } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
   agentManifests,
@@ -259,6 +260,16 @@ async function paneContext(paneId: string): Promise<{ agent: string | null; cwd:
   const cwd = pane.foreground_cwd ?? pane.cwd;
   if (!cwd) throw new HerdrError("cwd_not_found", `pane ${paneId} has no working directory`);
   return { agent: pane.agent ?? pane.agent_session?.agent ?? null, cwd };
+}
+
+/** The temp folder of the Claude Code session in a pane, or null when the pane runs none or it has none. */
+async function claudeTempFolder(paneId: string): Promise<string | null> {
+  try {
+    const pane = await paneGet(paneId);
+    if ((pane.agent ?? pane.agent_session?.agent) !== "claude") return null;
+    const session = await claudePaneSession(pane);
+    return session === null ? null : await claudeSessionTempDir(session.path);
+  } catch { return null; /* herdr busy or the pane gone: the path stays not found */ }
 }
 
 type AgentPayload = { kind?: unknown; name?: unknown; args?: unknown };
@@ -2006,7 +2017,13 @@ export function createServer(
         if (paneId) {
           try { cwd = (await paneContext(paneId)).cwd; } catch { /* an absolute path still opens */ }
         }
-        const found = locateFile(url.searchParams.get("path") ?? "", cwd);
+        const path = url.searchParams.get("path") ?? "";
+        let found = locateFile(path, cwd);
+        // a Claude Code pane names the files it keeps outside the project (`scratchpad/…`) relative to its session's temp folder
+        if (found === null && paneId && cwd !== null && !isAbsolute(path.trim()) && !path.trim().startsWith("~")) {
+          const folder = await claudeTempFolder(paneId);
+          if (folder !== null) found = locateFileInFolder(path, folder);
+        }
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
         // several files end in that name: the viewer lists them to choose from
         if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);

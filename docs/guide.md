@@ -114,8 +114,9 @@ Each pane keeps its own Chat/Terminal view and unsent draft.
 **A pairing code, on a PC with no browser of its own:**
 
 ```bash
-bun "$(ls -d ~/.config/herdr/plugins/github/devswha.herdr-web-ui-* | head -1)/scripts/plugin.ts" pair   # plugin install
-bun scripts/plugin.ts pair                                                                             # from a checkout
+root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "devswha.herdr-web-ui")?.plugin_root ?? "")')
+bun "$root/scripts/plugin.ts" pair   # plugin install
+bun scripts/plugin.ts pair           # from a checkout
 ```
 
 `pair` prints the code, the address the phone opens when Tailscale serves one, and that address as a QR code. Neither is a herdr action: herdr keeps an action's output in its log, and a pairing code belongs on the screen. The actions start, stop and report on the server:
@@ -429,7 +430,7 @@ Portal prints `service ready at https://<name>-<address>.<relay>:443`, where `<a
 
 At startup, the app waits for any recorded Portal process to stop before answering requests. If `portal/state.json` under `HERDR_WEB_STATE_DIR` is damaged, or the recorded process cannot be identified or stopped, requests fail closed rather than risk exposing a server restarted without a token. Check the server log. After confirming that this app's Portal process has stopped, repair or remove only `portal/state.json` and restart the app. Keep `portal/identity.json` to preserve the address; never discard the state record while its tunnel may still be running. Servers on different ports need separate state directories to control their own Portal addresses.
 
-**Sign out** in the header or command palette clears this browser's token and device cookies; terminal sessions and agents keep running. It is shown for token or device authentication, not automatic local or Tailscale access.
+**Sign out** in Settings → Devices clears, after asking once, this browser's token and device cookies; terminal sessions and agents keep running. It is shown for token or device authentication, not automatic local or Tailscale access.
 
 If `devices.json` under `HERDR_WEB_STATE_DIR` (default `~/.config/herdr-web-ui`) is corrupt or unreadable, the server keeps unrecognized external clients out and preserves the file. Local access and the owner's trusted Tailscale login without a configured token, and a valid token, still work. Settings → Phone & devices and the server log explain the error. Restore a valid registry from backup or fix its permissions, then restart; pairing and device changes remain disabled until it is repaired.
 
@@ -510,6 +511,9 @@ The snapshot is the last one a browser reported to this server, not a list of de
 | `Mod+Shift+,` | Settings |
 
 Selecting a pane or opening chat focuses its message box on desktop, while touch screens keep focus where it was. **Mod+Shift+E** focuses the selected pane's input in any mode, including the terminal's input line and direct input; it prefers masked input while a secret prompt is open. The shortcut can be reassigned or disabled in Settings → Shortcuts.
+
+**New tab**, **Split pane right** and **Split pane down** have no default key: pick one in
+**Settings → Shortcuts**, and the command palette shows it beside the action.
 
 **Settings → Shortcuts** changes the final key of each app binding or turns it off: press
 **Record** on a row, then the new Mod+Shift chord (Escape cancels); a reserved, unbindable or
