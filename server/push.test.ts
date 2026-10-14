@@ -284,11 +284,43 @@ describe("push delivery", () => {
     const unknown = (await post("/api/push/test", { endpoint: "https://push.example/never-known" }))!;
     expect(unknown.status).toBe(404);
     expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe("subscription_not_found");
-    // control: the memory is this process's only; a restarted server accepts the endpoint as before
+  });
+
+  // regression (fails on the merged #1060): a restart between the retirement and "Turn alerts on again" re-registered the dead endpoint
+  it("still refuses a retired endpoint after a server restart", async () => {
+    const push = subscribed();
+    fake.answerWith(410);
+    expect(await push.sendTest(fake.subscription.endpoint)).toEqual({ ok: false, status: 410, gone: true });
+    const path = join(stateDir, "push-retired.json");
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    const raw = readFileSync(path, "utf8");
+    expect(raw).not.toContain(fake.subscription.endpoint);
     const restarted = createPushService({ loopbackHttp: true, stateDir });
-    expect((await handlePushRequest(new Request("http://localhost/api/push/subscribe", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: fake.subscription }),
-    }), "/api/push/subscribe", restarted, null))?.status).toBe(204);
+    const post = (path: string, body: unknown) => handlePushRequest(new Request(`http://localhost${path}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }), path, restarted, null);
+    const again = (await post("/api/push/subscribe", { subscription: fake.subscription }))!;
+    expect(again.status).toBe(410);
+    expect(((await again.json()) as { error: { code: string } }).error.code).toBe("subscription_gone");
+    // control: an endpoint this server never retired registers after a restart as before
+    const other = { ...fake.subscription, endpoint: `${fake.subscription.endpoint}-other` };
+    expect((await post("/api/push/subscribe", { subscription: other }))?.status).toBe(204);
+  });
+
+  it("forgets a retired endpoint after its time to live and ignores a malformed file", async () => {
+    let clock = 1_000_000;
+    const push = createPushService({ loopbackHttp: true, stateDir, now: () => clock });
+    push.subscribe(fake.subscription);
+    fake.answerWith(410);
+    await push.sendTest(fake.subscription.endpoint);
+    expect(push.retired(fake.subscription.endpoint)).toBe(true);
+    clock += 31 * 24 * 60 * 60 * 1000;
+    expect(createPushService({ loopbackHttp: true, stateDir, now: () => clock }).retired(fake.subscription.endpoint)).toBe(false);
+    // control: inside the time to live it is still remembered
+    expect(createPushService({ loopbackHttp: true, stateDir, now: () => 1_000_000 + 1000 }).retired(fake.subscription.endpoint)).toBe(true);
+    // a malformed file is ignored, never fatal
+    writeFileSync(join(stateDir, "push-retired.json"), "not json");
+    expect(createPushService({ loopbackHttp: true, stateDir }).retired(fake.subscription.endpoint)).toBe(false);
   });
 
   it("keeps a device through a failure that is not a goodbye", async () => {
