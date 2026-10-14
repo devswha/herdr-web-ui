@@ -599,13 +599,10 @@ try {
         await page.goBack();
         await plan.waitFor({ state: "detached" });
         assert.equal(await selected(page), API, "Back closed the plan and left the pane alone");
-        await more.tap();
-        await sheet.waitFor();
-        await sheet.getByRole("button", { name: "Command palette", exact: true }).tap();
+        await page.keyboard.press("ControlOrMeta+Shift+K");
         const palette = page.getByRole("dialog", { name: "Command palette" });
         await palette.waitFor();
-        await page.waitForTimeout(150);
-        assert.equal(await page.evaluate(() => history.length), atApi + 1, "the palette took the More sheet's entry");
+        assert.equal(await page.evaluate(() => history.length), atApi + 1, "the palette is an entry");
         await page.goBack();
         await palette.waitFor({ state: "detached" });
         assert.equal(await selected(page), API, "Back closed the palette and left the pane alone");

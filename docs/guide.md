@@ -524,8 +524,8 @@ List and tab controls also have focus-local keys; those do not become global ter
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. On the terminal
 scrollbar, arrows move a line, Page Up/Down a viewport minus the configured overlap, and Home/End the start/end of history.
 
-On a phone, use the header and More menu for app actions; Command palette is available there
-without a shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
+On a phone, use the header, the tab's ⋯ and the More menu for app actions; the command palette
+opens only from an external keyboard's shortcut. The terminal key bar is configured separately under **Settings → Terminal**.
 An external keyboard uses the same app bindings as a desktop.
 
 **Settings → Chat → Composer → PageUp / PageDown scroll chat** opts into plain page keys

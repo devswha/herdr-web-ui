@@ -968,11 +968,6 @@ button {
   display: inline-flex;
 }
 
-/* nothing to offer but the palette, which has its own button above phone width */
-.header-more.is-phone-only {
-  display: none;
-}
-
 /* alerts are off on this device: the one state of the menu worth a glance. The button's name
    and the Alerts item say it in words. */
 .header-more-dot {
@@ -1702,10 +1697,6 @@ button {
   .palette-button,
   .header-desktop-only {
     display: none;
-  }
-
-  .header-more.is-phone-only {
-    display: inline-flex;
   }
 }
 

@@ -452,7 +452,7 @@ One set for both themes: the card is island black wherever it shows.
 - The terminal stack contains a positioned terminal surface, then composer or key bar. The xterm
   mount stays alive under the chat lens; changing views never creates a second connection.
 - At `<=480px` the brand name, the offline pill and desktop-only control labels go, and the
-  palette's button gives its room to the title: the palette is the More menu's first item there.
+  palette's button gives its room to the title (a hardware keyboard still opens it).
   Icons and selected context remain.
 
 ## 5. Components
@@ -1602,7 +1602,7 @@ The values are the ones in `src/styles.css`: `--motion-scale` is the panel motio
   Application-owned paging has its own page length; no page input is queued across disconnects.
   The opt-in plain chat page keys preserve composer draft, selection and focus, excluding modified
   keys, composition, other editable controls and modal input. They do not capture terminal keys.
-- On touch screens app actions stay in buttons and menus, including the palette in More on phones.
+- On touch screens app actions stay in buttons and menus; a phone has no palette entry of its own.
   The key bar sends terminal input only; it is not an app-action toolbar. Hardware keyboards use
   the same global bindings on phones and desktops.
 - `document.title` is `<pane title> · herdr` while selected, otherwise `herdr web ui`.

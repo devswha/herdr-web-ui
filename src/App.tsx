@@ -358,21 +358,11 @@ export function App() {
   const openPalette = useCallback((query?: unknown) => { setPaletteQuery(paletteOpenQuery(query)); setPaletteOpen(true); }, []);
   const paneControls = useRef<PaneControls | null>(null);
   const [findRequest, setFindRequest] = useState<{ paneId: string | null; serial: number }>({ paneId: null, serial: 0 });
-  // the header's More menu: its button, and whether it opened on a phone-width screen
-  const [more, setMore] = useState<{ anchor: HTMLElement; phone: boolean } | null>(null);
+  // the header's More menu: its button
+  const [more, setMore] = useState<{ anchor: HTMLElement } | null>(null);
   const closeMore = useCallback(() => setMore(null), []);
   // the pane canvas's actions, for the phone's tab menu (TabStrip)
   const paneActionsRef = useRef<((target: HerdrPane) => RowMenuItem[]) | null>(null);
-  const moreOpen = more !== null;
-  // a sheet stays up through a resize: its palette item follows the header's palette button,
-  // which the same breakpoint hides
-  useEffect(() => {
-    if (!moreOpen) return;
-    const media = window.matchMedia("(max-width: 480px)");
-    const onChange = (): void => setMore((open) => open && { ...open, phone: media.matches });
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, [moreOpen]);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
   const [movingPane, setMovingPane] = useState<{ machineId: string; paneId: string; anchor: HTMLElement } | null>(null);
@@ -1316,8 +1306,7 @@ export function App() {
 
   // The header's More menu: what used to be three buttons of its own. Each item is there under
   // the condition its button had. At phone width the palette's button gives its room to the
-  // pane's title, and the palette is the menu's first item.
-  const paletteItem: RowMenuItem = { id: "palette", label: t("Command palette"), icon: Search, run: () => openPalette() };
+  // pane's title.
   // a link to a PC this app does not have lands on this PC instead, and says so: the roster lists
   // every configured PC, connected or not, so one missing from it is not set up here. So does a
   // selection of a PC removed since (a reload, a new window), here or on another device. Only a
@@ -1487,8 +1476,7 @@ export function App() {
               <Lock />
             </button>
           )}
-          {/* with nothing of its own to offer it is still the phone's way to the palette */}
-          <span className={`header-more${moreItems.length === 0 ? " is-phone-only" : ""}`}>
+          <span className="header-more">
             <button
               type="button"
               className="icon-button header-more-button"
@@ -1498,7 +1486,7 @@ export function App() {
               aria-expanded={more !== null}
               onClick={(event) => {
                 const anchor = event.currentTarget;
-                setMore((open) => (open ? null : { anchor, phone: window.matchMedia("(max-width: 480px)").matches }));
+                setMore((open) => (open ? null : { anchor }));
               }}
             >
               <Ellipsis />
@@ -1516,7 +1504,7 @@ export function App() {
                 {crumb.path !== null && <span className="header-more-path">{crumb.path}</span>}
               </div>
             ) : undefined}
-            items={more.phone ? [paletteItem, ...moreItems] : moreItems}
+            items={moreItems}
             onClose={closeMore}
           />
         )}
