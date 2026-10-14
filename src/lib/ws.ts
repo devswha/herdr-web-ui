@@ -75,7 +75,7 @@ interface AttachState {
   rows: number;
   /** Chat or a hidden pane: attaches (a reconnect's too) leave the shared pty's size alone */
   keepSize: boolean;
-  /** Hiding changes reconnect policy, but this connection may still owe a grid release. */
+  /** This connection has sized the terminal since its last grid release. */
   releaseSizeOwed: boolean;
 }
 
@@ -707,7 +707,7 @@ export class HerdrSocket {
     if (!state) return;
     // skip only redundant resizes of OUR OWN geometry: a force resize re-asserts
     // it after another client resized the shared pty (see PaneTerminal refit)
-    if (!force && state.cols === cols && state.rows === rows) return;
+    if (!force && !state.keepSize && state.cols === cols && state.rows === rows) return;
     state.cols = cols;
     state.rows = rows;
     state.keepSize = false;
@@ -727,14 +727,13 @@ export class HerdrSocket {
     return true;
   }
 
-  /** The chat lens covers the grid again: a reconnect attaches without resizing, until the next resize. */
+  /** A hidden pane or a tab out of use releases its grid, just as the chat lens does. */
   keepSize(paneId: string): void {
-    const state = this.attached.get(paneId);
-    if (state) state.keepSize = true;
+    this.releaseSize(paneId);
   }
 
   /**
-   * keepSize, for the chat lens covering a terminal this tab sized: the server hands the pty to a
+   * A terminal this tab sized is no longer showing: the server hands the pty to a
    * terminal still showing on another device (#472). Not replayed: a reconnect attaches with keep_size.
    */
   releaseSize(paneId: string): void {

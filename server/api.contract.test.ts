@@ -14,6 +14,7 @@ import { VoiceService } from "./voice.ts";
 import { Telemetry } from "./telemetry.ts";
 import { NOTICE_VERSION, type TelemetryEvent, type TelemetryStatus } from "../shared/telemetry.ts";
 import { DEFAULT_SETTINGS, telemetrySettingsSnapshot } from "../src/lib/settings.ts";
+import { HerdrSocket } from "../src/lib/ws.ts";
 import { herdrRpc, paneRead, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
@@ -2091,6 +2092,94 @@ describe("WebSocket roles and status push", () => {
         desktop.close();
         phone.close();
         await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+      }
+    }, 60_000);
+
+    it("skips a hidden client's grid when another client releases, leaving the size if nobody shows a terminal", async () => {
+      const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-release-size-hidden" });
+      const paneId = created.root_pane.pane_id;
+      const desktop = await ws();
+      const phone = await ws();
+      // Use the actual browser client for keepSize, not a hand-written release frame: the bug is
+      // that a mounted but hidden terminal used to leave its grid on the server.
+      const globals = globalThis as unknown as { window?: unknown };
+      const beforeWindow = globals.window;
+      globals.window = globalThis;
+      const hidden = new HerdrSocket(`ws://localhost:${server.port}/ws`);
+      const nextHidden = (matches: (message: import("../shared/protocol.ts").ServerMessage) => boolean) =>
+        new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => { off(); reject(new Error("hidden client did not answer")); }, 15_000);
+          const off = hidden.on((message) => {
+            const ack = message.type === "pty-data" ? hidden.outputAcknowledgement(message) : undefined;
+            ack?.();
+            if (matches(message)) { clearTimeout(timeout); off(); resolve(); }
+          });
+        });
+      try {
+        await attach(desktop, paneId, 120, 40);
+        const ready = nextHidden((m) => m.type === "input-ready" && m.pane_id === paneId);
+        hidden.attach(paneId, 100, 30);
+        hidden.connect();
+        await ready;
+        await desktop.waitFor((m) => m.type === "pane-geometry" && m.cols === 100, "hidden client's initial grid", 5000);
+        await attach(phone, paneId, 53, 33);
+        await desktop.waitFor((m) => m.type === "pane-geometry" && m.cols === 53, "phone's grid", 5000);
+        await shellSees(desktop, paneId, "33x53");
+
+        // An in-band response on the same connection orders keepSize before the phone releases.
+        // A nonexistent pending ID changes nothing and sends no terminal input.
+        hidden.keepSize(paneId);
+        expect(await hidden.pendingAction(paneId, "nonexistent-472", "discard")).toMatchObject({ ok: false });
+        desktop.seen.length = 0;
+        phone.send({ type: "release-size", pane_id: paneId });
+        // regression (fails on main): the hidden 100x30 candidate must not win.
+        expect(await desktop.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "remaining terminal's grid", 1000))
+          .toMatchObject({ cols: 120, rows: 40 });
+        await shellSees(desktop, paneId, "40x120");
+        expect(desktop.seen.filter((m) => m.type === "pane-geometry")).toHaveLength(1);
+
+        desktop.seen.length = 0;
+        desktop.send({ type: "release-size", pane_id: paneId });
+        desktop.send({ type: "ping", id: 47221 });
+        await desktop.waitFor((m) => m.type === "pong" && m.id === 47221, "last terminal released", 5000);
+        // control: no terminal viewers remain; do not resize to a hidden or Chat grid.
+        expect(desktop.seen.filter((m) => m.type === "pane-geometry")).toEqual([]);
+        await shellSees(desktop, paneId, "40x120");
+      } finally {
+        hidden.close();
+        globals.window = beforeWindow;
+        desktop.close();
+        phone.close();
+        await workspaceClose(created.workspace.workspace_id);
+      }
+    }, 60_000);
+
+    it("keeps a grid released during attach creation out of the fallback candidates", async () => {
+      const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-release-size-creating" });
+      const paneId = created.root_pane.pane_id;
+      const hidden = await ws();
+      const phone = await ws();
+      try {
+        // Back-to-back on the same connection: release lands during the initial terminal lookup.
+        hidden.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+        hidden.send({ type: "release-size", pane_id: paneId });
+        hidden.send({ type: "ping", id: 47222 });
+        await hidden.waitFor((m) => m.type === "pong" && m.id === 47222, "release processed during creation", 5000);
+        await hidden.waitFor((m) => m.type === "input-ready", "hidden attach completed", 15_000);
+        await attach(phone, paneId, 53, 33);
+        await hidden.waitFor((m) => m.type === "pane-geometry" && m.cols === 53, "phone grid", 5000);
+        await shellSees(phone, paneId, "33x53");
+        hidden.seen.length = 0;
+        phone.send({ type: "release-size", pane_id: paneId });
+        phone.send({ type: "ping", id: 47223 });
+        await phone.waitFor((m) => m.type === "pong" && m.id === 47223, "phone release processed", 5000);
+        // regression (fails on main): the completed attach must not revive a released grid.
+        expect(hidden.seen.filter((m) => m.type === "pane-geometry")).toEqual([]);
+        await shellSees(phone, paneId, "33x53");
+      } finally {
+        hidden.close();
+        phone.close();
+        await workspaceClose(created.workspace.workspace_id);
       }
     }, 60_000);
 

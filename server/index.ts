@@ -332,7 +332,7 @@ interface SocketData {
   unwatchDevice?: () => void;
   relay?: MachineRelay;
   /** A fresh claim per attach lifetime; deleting it invalidates queued terminal keys. */
-  attached: Map<string, object>;
+  attached: Map<string, { keepSize: boolean }>;
   conversationInterests: Set<string>;
   watches: Map<string, PaneWatch>;
   output: Map<string, OutputWindow>;
@@ -1200,6 +1200,8 @@ export function createServer(
   /** An interact client's terminal sizes the pty: the grid is remembered as this client's, and it drives. */
   function drivePty(paneId: string, client: Client, cols: number, rows: number): void {
     const attachment = attachments.get(paneId);
+    const claim = client.data.attached.get(paneId);
+    if (claim) claim.keepSize = false;
     if (attachment && !attachment.mirror) {
       attachment.grids.delete(client);
       attachment.grids.set(client, { cols, rows });
@@ -1846,13 +1848,13 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, { keepSize: boolean }>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, object>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, { keepSize: boolean }>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -2882,7 +2884,8 @@ export function createServer(
               // record the pane before the await: a detach (switching panes) or a close
               // that lands while the terminal is looked up must cancel this attach, and
               // neither can see a client that only joins the attachment afterwards
-              const claim = client.data.attached.get(message.pane_id) ?? {};
+              const claim = client.data.attached.get(message.pane_id) ?? { keepSize: false };
+              claim.keepSize = message.keep_size === true;
               if (!client.data.attached.has(message.pane_id)) client.data.attached.set(message.pane_id, claim);
               let attachment: PaneAttachment;
               try {
@@ -2928,7 +2931,7 @@ export function createServer(
               if (client.data.closing) break;
               if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
               if (attachment.mirror) break;
-              if (client.data.mode === "interact" && message.keep_size !== true) {
+              if (client.data.mode === "interact" && !claim.keepSize) {
                 // an operator's viewport owns the shared grid
                 drivePty(message.pane_id, client, geometry.cols, geometry.rows);
               } else {
@@ -3094,25 +3097,34 @@ export function createServer(
               // the pty is still being created (an attach from the chat lens, then the switch to the
               // terminal lens before the terminal was looked up): the resize waits for it. Dropped,
               // it would leave the pty at the pane's own grid under a terminal fitted to another.
+              const claim = client.data.attached.get(message.pane_id);
+              if (claim) claim.keepSize = false;
               const creating = attachments.has(message.pane_id) ? undefined : pendingAttachments.get(message.pane_id);
               if (creating && client.data.attached.has(message.pane_id)) {
                 try { await creating; } catch { break; }
-                if (client.data.closing || client.data.mode !== "interact" || !client.data.attached.has(message.pane_id)) break;
+                if (client.data.closing || client.data.mode !== "interact" || client.data.attached.get(message.pane_id) !== claim || claim?.keepSize) break;
               }
               drivePty(message.pane_id, client, geometry.cols, geometry.rows);
               break;
             }
             case "release-size": {
-              // this client's terminal is covered now (the chat lens): if its grid is the pty's, the pty
+              // this client's terminal is hidden, out of use or covered by Chat: if its grid is the pty's, the pty
               // goes back to the latest grid of another interact client still showing the terminal (#472).
               // Nothing to hand it to, or another client drove since: the size stays. Never an error, as
               // an older server ignores the frame.
+              if (client.data.mode !== "interact") break;
+              const claim = client.data.attached.get(message.pane_id);
+              if (!claim) break;
+              // Remember the release before looking up the attachment: its initial creation can
+              // still be awaiting herdr, and must not revive this hidden grid when it completes.
+              claim.keepSize = true;
               const attachment = typeof message.pane_id === "string" ? attachments.get(message.pane_id) : undefined;
               if (!attachment || attachment.mirror || client.data.mode !== "interact") break;
               attachment.grids.delete(client);
               if (attachment.driver !== client) break;
               attachment.driver = undefined;
-              const next = [...attachment.grids].reverse().find(([other]) => other.data.mode === "interact" && attachment.clients.has(other));
+              const next = [...attachment.grids].reverse().find(([other]) => other.data.mode === "interact"
+                && attachment.clients.has(other) && other.data.attached.get(message.pane_id)?.keepSize === false);
               if (next) drivePty(message.pane_id, next[0], next[1].cols, next[1].rows);
               break;
             }

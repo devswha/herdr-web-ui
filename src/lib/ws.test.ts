@@ -521,8 +521,10 @@ it("releases the shared grid once when a hidden terminal returns directly to Cha
   const releases = () => socket.sent.filter((m) => m.type === "release-size");
   try {
     client.attach("w1:p1", 53, 33);
-    // Selecting another pane hides this terminal without releasing its server-side grid.
+    // Selecting another pane must release its grid immediately, even if Chat never opens.
     client.keepSize("w1:p1");
+    // regression (fails on main): hiding itself removes this client's server-side grid.
+    expect(releases()).toEqual([{ type: "release-size", pane_id: "w1:p1" }]);
     // A notification selects this pane and Chat together, without a terminal-return resize.
     client.releaseSize("w1:p1");
     client.releaseSize("w1:p1");
@@ -532,6 +534,11 @@ it("releases the shared grid once when a hidden terminal returns directly to Cha
     expect(releases()).toHaveLength(1);
     expect(socket.sent.filter((m) => m.type === "attach").at(-1))
       .toEqual({ type: "attach", pane_id: "w1:p1", cols: 53, rows: 33, flow_control: "ack", keep_size: true });
+    // Showing the terminal again at the same dimensions still reclaims its released grid.
+    client.resize("w1:p1", 53, 33);
+    expect(socket.sent.at(-1)).toEqual({ type: "resize", pane_id: "w1:p1", cols: 53, rows: 33 });
+    client.keepSize("w1:p1");
+    expect(releases()).toHaveLength(2);
   } finally {
     client.close();
   }
