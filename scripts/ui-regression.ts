@@ -2135,6 +2135,16 @@ try {
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
   console.log("PASS a pane picked on a phone waits for a tap before raising the keyboard");
 
+  // Escape with the drawer open closes it and reaches nothing else, wherever the focus is
+  await mobilePage.evaluate(() => { (window as unknown as { escapes: number }).escapes = 0; window.addEventListener("keydown", (e) => { if (e.key === "Escape") (window as unknown as { escapes: number }).escapes++; }); });
+  await mobilePage.locator('button[aria-controls="workspace-drawer"]').click();
+  await mobilePage.locator("#workspace-drawer.is-open").waitFor();
+  await mobilePage.getByRole("textbox", { name: "Message", exact: true }).focus();
+  await mobilePage.keyboard.press("Escape");
+  await mobilePage.locator("#workspace-drawer.is-open").waitFor({ state: "detached" });
+  assert.equal(await mobilePage.evaluate(() => (window as unknown as { escapes: number }).escapes), 0, "Escape that closes the drawer does not reach the page");
+  console.log("PASS Escape closes a phone's drawer and goes no further");
+
   // Claude's suggestion on a phone is the placeholder and a chip that fills the box, until Settings turns the chip off
   const promptRoute = `**/api/pane/prompt?pane_id=${encodeURIComponent(paneB)}`;
   const suggest = { json: { prompt: null, suggestion: "run the tests" } };

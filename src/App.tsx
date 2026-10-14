@@ -292,6 +292,19 @@ export function App() {
   }, [selectedMachineId, selectedPaneId]);
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
+  // Escape puts the open drawer away and goes no further: in the capture phase, so a terminal that kept the
+  // focus never receives it. A dialog or an IME composition on top keeps its own Escape
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || !drawerOpenRef.current || event.isComposing || event.keyCode === 229) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", onEscape, true);
+    return () => window.removeEventListener("keydown", onEscape, true);
+  }, []);
   // a desktop opened by a link that says so starts with the sidebar collapsed, and the address says so while it is
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => initialLink?.sidebar === "hidden");
   // the width the sidebar's edge was dragged to on this device; null is the density's own
