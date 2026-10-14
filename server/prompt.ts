@@ -2991,15 +2991,24 @@ export function claudeClearableDraft(live: string, colors: string | null): strin
 export const INPUT_BOX_SHOWN_CHARS = 200;
 
 /**
- * What a refusal that names no clearable draft shows the user of the live input box (claudeInputBox),
- * its rows as plain text, so they can tell a real draft from a box misread and choose to send anyway.
- * Empty when no box could be read whole (none on screen, or clipped by the pane).
+ * The live input box (claudeInputBox) as plain text, whole: what a refusal that names no clearable
+ * draft records, so a send anyway goes only over exactly that box. Empty when no box could be read
+ * whole (none on screen, or clipped by the pane).
  */
-export function claudeInputBoxText(live: string): string {
+export function claudeInputBoxContent(live: string): string {
   const box = claudeInputBox(live);
   if (box === null || box === "clipped") return "";
-  const text = box.plain.map((row) => row.replace(/\u00a0/g, " ").trimEnd()).join("\n").trim();
-  return text.length > INPUT_BOX_SHOWN_CHARS ? `${text.slice(0, INPUT_BOX_SHOWN_CHARS)}…` : text;
+  return box.plain.map((row) => row.replace(/\u00a0/g, " ").trimEnd()).join("\n").trim();
+}
+
+/** What the user is shown of a box's content: enough to tell a real draft from a box misread. */
+export function shownInputBox(content: string): string {
+  return content.length > INPUT_BOX_SHOWN_CHARS ? `${content.slice(0, INPUT_BOX_SHOWN_CHARS)}…` : content;
+}
+
+/** The live input box as a refusal shows it (claudeInputBoxContent, cut by shownInputBox). */
+export function claudeInputBoxText(live: string): string {
+  return shownInputBox(claudeInputBoxContent(live));
 }
 
 /**

@@ -571,6 +571,52 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("refuses send anyway when the box changed past what the note shows", async () => {
+    const socket = await Socket.connect();
+    let shown = claudeInputScreen("! " + "x".repeat(220) + " OLD");
+    const screen = mockClaudeInput(agent.pane, () => shown);
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 105, pane_id: agent.pane, text: "chat", payload: "chat" });
+      const refused = await socket.result(105);
+      expect(refused).toMatchObject({ ok: false, code: "input_draft" });
+      // the note shows the box cut at 200 characters; the server keeps it whole
+      expect(refused.box).toBe(`! ${"x".repeat(198)}…`);
+      shown = claudeInputScreen("! " + "x".repeat(220) + " NEW");
+      socket.send({ type: "submit", id: 106, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(106)).toMatchObject({ ok: false, code: "input_draft" });
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      prompt.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
+  it("refuses send anyway when Claude's session is replaced while the box is read", async () => {
+    const socket = await Socket.connect();
+    let replaceOnRead = false;
+    let replaced = false;
+    const original = herdr.paneGet;
+    const get = spyOn(herdr, "paneGet").mockImplementation(async (paneId, socketPath) => {
+      const pane = await original(paneId, socketPath);
+      return paneId === agent.pane && replaced ? { ...pane, agent_session: { kind: "session_id", source: "cli", value: "replacement-after-check", agent: "claude" } } : pane;
+    });
+    const screen = mockClaudeInput(agent.pane, () => { if (replaceOnRead) replaced = true; return claudeInputScreen("! ls"); });
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 107, pane_id: agent.pane, text: "chat", payload: "chat" });
+      expect(await socket.result(107)).toMatchObject({ ok: false, code: "input_draft", box: "! ls" });
+      replaceOnRead = true;
+      socket.send({ type: "submit", id: 108, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(108)).toMatchObject({ ok: false, code: "pending_target_changed" });
+      expect(replaced).toBe(true);
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      prompt.mockRestore(); get.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
   it("sends anyway only a chat message sent at once, without clearing a draft", async () => {
     const socket = await Socket.connect();
     try {

@@ -87,7 +87,7 @@ import {
   worktreeRemove,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxText, claudeInputDraft, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
+import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeInputDraft, shownInputBox, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -206,7 +206,7 @@ const DRAFT_CLEAR_POLL_MS = 50;
 
 /**
  * input_draft, naming the one-row draft the chat may offer to clear (claudeClearableDraft), or none.
- * `box`: the input box as read (claudeInputBoxText), which a refusal naming no draft shows so the
+ * `box`: the input box as read, whole (claudeInputBoxContent; the client is shown it cut), which a refusal naming no draft shows so the
  * user may send anyway; null where the refusal offers nothing (after a clear began).
  */
 class InputDraftError extends HerdrError {
@@ -638,8 +638,14 @@ export function createServer(
           // only over the box the user was shown: anything typed there since is refused again, and shown
           const reads = await claudeBoxReads(paneId);
           inTime();
-          const box = claudeInputBoxText(reads[0]);
+          const box = claudeInputBoxContent(reads[0]);
           if (claudeInputDraft(...reads) && box !== confirmation!.box) throw new InputDraftError(claudeClearableDraft(...reads), identity ?? undefined, box);
+          // the reads waited on herdr: the pane may hold another Claude by now, checked again right before the write
+          const now = pendingIdentity(await paneGet(paneId));
+          inTime();
+          if (now.agent !== "claude" || now.terminalId !== confirmation!.identity.terminalId || now.session !== confirmation!.identity.session) {
+            throw new HerdrError("pending_target_changed", "The refused message's Claude terminal or session changed; nothing was sent");
+          }
         }
         if ((pane?.agent ?? pane?.agent_session?.agent) === "claude" && !sendAnyway) {
           if (clearDraft === undefined) {
@@ -673,7 +679,7 @@ export function createServer(
           if (claudeInputDraft(...reads)) {
             // only the draft the user was shown goes, never what has since replaced it
             const draft = claudeClearableDraft(...reads);
-            if (clearDraft === undefined || draft !== clearDraft) throw new InputDraftError(draft, identity ?? undefined, clearDraft === undefined ? claudeInputBoxText(reads[0]) : null);
+            if (clearDraft === undefined || draft !== clearDraft) throw new InputDraftError(draft, identity ?? undefined, clearDraft === undefined ? claudeInputBoxContent(reads[0]) : null);
             const reserve = DRAFT_CLEAR_WAIT_MS + 500;
             inTime(reserve);
             // A confirmation names the earlier draft, not text typed while it was inspected.
@@ -865,7 +871,7 @@ export function createServer(
     const [live, colors] = await claudeBoxReads(paneId);
     if (!claudeInputDraft(live, colors)) return;
     if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
-      throw new InputDraftError(claudeClearableDraft(live, colors), undefined, claudeInputBoxText(live));
+      throw new InputDraftError(claudeClearableDraft(live, colors), undefined, claudeInputBoxContent(live));
     }
     if (deadline - Date.now() < RESTORED_CLEAR_RESERVE_MS) throw new HerdrError("submit_timeout", "Too little time was left to clear Claude Code's input box and send; nothing was typed");
     // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
@@ -3288,7 +3294,7 @@ export function createServer(
                 }
                 const fault = pendingFault(error);
                 result(false, fault.code, fault.message, undefined, error instanceof InputDraftError ? error.draft : null,
-                  error instanceof InputDraftError && error.identity ? error.box : null);
+                  error instanceof InputDraftError && error.identity && error.box !== null ? shownInputBox(error.box) : null);
               }
               break;
             }
