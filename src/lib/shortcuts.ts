@@ -170,6 +170,8 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
       if (shortcut === null) return;
       if (event.key.startsWith("Arrow") && keepsArrowsForText(event.target)) return;
       event.preventDefault();
+      // a held chord repeats: a tab or a split is made once per press, not once per key repeat
+      if (event.repeat && (shortcut === "new-tab" || shortcut === "split-right" || shortcut === "split-down")) return;
       switch (shortcut) {
         case "palette":
           actions.openPalette();
