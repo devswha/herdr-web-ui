@@ -130,6 +130,21 @@ describe("the budget visitors behind one proxy share", () => {
     }
     expect(sharedFailuresSize()).toBeLessThanOrEqual(AUTH_CLIENTS_MAX);
   });
+
+  it("keeps the hold of the proxy that failed last when full, evicting the one quiet longest", () => {
+    const start = Date.now();
+    try {
+      setSystemTime(start);
+      for (let attempt = 0; attempt < 49; attempt += 1) recordPresentedTokenFailure(`first-${attempt} via 127.0.0.1`);
+      for (let peer = 1; peer < AUTH_CLIENTS_MAX; peer += 1) recordPresentedTokenFailure(`fill via 127.1.${Math.floor(peer / 256)}.${peer % 256}`);
+      // the oldest key fails again: its hold starts, and it is now the newest
+      recordPresentedTokenFailure("last via 127.0.0.1");
+      expect(presentedToken(cookie(TOKEN), TOKEN, "unknown via 127.0.0.1")).toBe("held");
+      recordPresentedTokenFailure("overflow via 127.2.0.1");
+      expect(sharedFailuresSize()).toBe(AUTH_CLIENTS_MAX);
+      expect(presentedToken(cookie(TOKEN), TOKEN, "unknown via 127.0.0.1")).toBe("held");
+    } finally { setSystemTime(); }
+  });
 });
 
 describe("isSecureRequest", () => {

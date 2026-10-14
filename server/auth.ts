@@ -188,6 +188,8 @@ function recordFailure(channel: Channel, client: string | null): void {
   if (key === null) return;
   const recent = (sharedFailures.get(key) ?? []).filter((time) => Date.now() - time < SHARED_WINDOW_MS);
   recent.push(Date.now());
+  // re-inserted, so a full map evicts the proxy that failed longest ago, never one failing now
+  sharedFailures.delete(key);
   sharedFailures.set(key, recent.slice(-SHARED_FAILURES));
   trimSharedFailures();
 }
