@@ -102,6 +102,7 @@ export class HerdrSocket {
   private readonly url: string;
   private readonly handlers = new Set<Handler>();
   private readonly disconnectHandlers = new Set<() => void>();
+  private readonly beforeReplayHandlers = new Set<() => void>();
   private snapshotKnown = false;
   private readonly outputSeen = new Set<string>();
   private readonly inputReady = new Set<string>();
@@ -286,6 +287,8 @@ export class HerdrSocket {
       this.rawSend({ type: "role", mode: this.mode });
       // a new connection is a new client to the server: it has to hear again whether the page is in use
       if (this.presence !== null) this.rawSend({ type: "presence", active: this.presence });
+      // Mounted panes decide whether a new connection may acquire an attach before any replay.
+      for (const handler of this.beforeReplayHandlers) handler();
       for (const [paneId, state] of this.attached) {
         state.releaseSizeOwed = !state.keepSize;
         this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack", ...(state.keepSize ? { keep_size: true } : {}) });
@@ -631,6 +634,11 @@ export class HerdrSocket {
     return () => { this.disconnectHandlers.delete(handler); };
   }
 
+  onBeforeReplay(handler: () => void): () => void {
+    this.beforeReplayHandlers.add(handler);
+    return () => { this.beforeReplayHandlers.delete(handler); };
+  }
+
   attach(paneId: string, cols: number, rows: number, keepSize = false): void {
     this.outputSeen.delete(paneId);
     this.inputReady.delete(paneId);
@@ -689,11 +697,16 @@ export class HerdrSocket {
    * a reconnect's snapshot. False when the server cannot (no "watch" in its snapshot): the tab stays paused.
    */
   watch(paneId: string, cols: number, rows: number): boolean {
-    if (this.snapshotKnown && !this.features.has("watch")) return false;
+    if (!this.canWatch()) return false;
     this.watched.set(paneId, { cols, rows });
     // before the snapshot, the snapshot handler sends it
     if (this.connected && this.snapshotKnown) this.rawSend({ type: "watch", pane_id: paneId, cols, rows });
     return true;
+  }
+
+  /** Before the snapshot, a watch waits for capability discovery rather than acquiring an attach. */
+  canWatch(): boolean {
+    return !this.snapshotKnown || this.features.has("watch");
   }
 
   unwatch(paneId: string): void {
@@ -727,9 +740,13 @@ export class HerdrSocket {
     return true;
   }
 
-  /** A hidden pane or a tab out of use releases its grid, just as the chat lens does. */
-  keepSize(paneId: string): void {
-    this.releaseSize(paneId);
+  /** Keep the pane's size on reconnect; release its grid only when the terminal stops showing. */
+  keepSize(paneId: string, releaseGrid = true): void {
+    if (releaseGrid) this.releaseSize(paneId);
+    else {
+      const state = this.attached.get(paneId);
+      if (state) state.keepSize = true;
+    }
   }
 
   /**
@@ -773,9 +790,10 @@ export class HerdrSocket {
     return this.canQueueMessages() && this.features.has("pending-hold");
   }
 
-  sendInput(paneId: string, text: string): boolean {
+  /** `stop`: the composer's Stop, a lone ESC the bridge keeps ahead of the next message. */
+  sendInput(paneId: string, text: string, stop = false): boolean {
     if (!this.canInput(paneId)) return false;
-    try { this.rawSend({ type: "input", pane_id: paneId, text }); return true; } catch { return false; }
+    try { this.rawSend(stop ? { type: "input", pane_id: paneId, text, stop: true } : { type: "input", pane_id: paneId, text }); return true; } catch { return false; }
   }
 
   /**
@@ -790,9 +808,10 @@ export class HerdrSocket {
   /** `typed`: from the terminal's input line, typed into the pane like the keyboard (see ClientMessage).
    * `clearDraft`: an immediate send over the draft an input_draft refusal named (ClientMessage `clear_draft`)
    * `sendAnyway`: an immediate send after a refusal that showed the box (ClientMessage `send_anyway`) */
-  submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string, sendAnyway = false): Promise<SubmitResult> | null {
+  submit(paneId: string, text: string, payload: string, typed = false, delivery: SubmitDelivery = "immediate", clearDraft?: string, sendAnyway = false, resendId?: string, generation?: number): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
+    if (resendId !== undefined && sendAnyway) return Promise.resolve({ ok: false, code: "invalid_delivery", message: "Use a held-copy resend id only for an immediate chat message" });
     return (async (): Promise<SubmitResult> => {
       await Promise.race([this.snapshotSeen, new Promise((resolve) => window.setTimeout(resolve, SNAPSHOT_WAIT_MS))]);
       // a liveness probe in flight is waited out: nothing is sent on a socket that may be dead
@@ -808,12 +827,12 @@ export class HerdrSocket {
       }
       const id = this.nextSubmit++;
       return this.submitRequest({ type: "submit", id, pane_id: paneId, text, payload, ...(typed ? { typed: true } : {}), ...(delivery !== "immediate" ? { delivery } : {}),
-        ...(clearDraft !== undefined ? { clear_draft: clearDraft } : {}), ...(sendAnyway ? { send_anyway: true as const } : {}) });
+        ...(clearDraft !== undefined ? { clear_draft: clearDraft } : {}), ...(sendAnyway ? { send_anyway: true as const } : {}), ...(resendId !== undefined ? { resend_id: resendId, resend_generation: generation ?? 0 } : {}) });
     })();
   }
 
   /** Explicitly steer or discard one server-owned pending item. Never queued or replayed. */
-  pendingAction(paneId: string, pendingId: string, action: "steer" | "discard"): Promise<SubmitResult> | null {
+  pendingAction(paneId: string, pendingId: string, action: "steer" | "discard", generation?: number): Promise<SubmitResult> | null {
     const socket = this.socket;
     if (!this.connected || socket === null || this.mode === "observe") return null;
     return (async (): Promise<SubmitResult> => {
@@ -821,7 +840,8 @@ export class HerdrSocket {
       if (!(await this.probeSettled(socket))) return DISCONNECTED;
       if (this.mode === "observe") return { ok: false, code: "read_only", message: "Observe connections cannot change pending messages." };
       if (!this.canQueueMessages()) return { ok: false, code: "pending_input_unsupported", message: "Update this PC to manage pending messages." };
-      return this.submitRequest({ type: "pending-action", id: this.nextSubmit++, pane_id: paneId, pending_id: pendingId, action });
+      return this.submitRequest({ type: "pending-action", id: this.nextSubmit++, pane_id: paneId, pending_id: pendingId, action,
+        ...(generation !== undefined ? { resend_generation: generation } : {}) });
     })();
   }
 
@@ -917,5 +937,6 @@ export class HerdrSocket {
     this.settleSubmits(DISCONNECTED);
     this.handlers.clear();
     this.disconnectHandlers.clear();
+    this.beforeReplayHandlers.clear();
   }
 }

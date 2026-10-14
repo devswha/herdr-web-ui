@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Browser } from "playwright-core";
-import { moreItem } from "./header-more.ts";
 import { sheetsSettled } from "./sheets-settled.ts";
 
 type ViewportQA = Window & { viewportQA: { resize: (height: number) => void; pointer: (touch: boolean) => void } };
@@ -165,11 +164,10 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
 
     // A sheet with a text field ends where the keyboard begins: an iPhone home screen app keeps
     // the layout viewport at full height, so a sheet on its bottom edge would sit under the keyboard.
-    // at phone width the palette's header button is gone: it is the More menu's first item
+    // at phone width the palette's header button is gone: a hardware keyboard's shortcut opens it
     assert.equal(await page.locator(".app-header .palette-button").isVisible(), false, "a phone's header has no palette button");
-    const palette = await moreItem(page, "Command palette");
-    assert.equal(await page.locator(".row-sheet-item").first().textContent(), "Command palette", "the palette is the More menu's first item");
-    await palette.click();
+    await page.keyboard.press("ControlOrMeta+Shift+K");
+    await page.getByRole("dialog", { name: "Command palette", exact: true }).waitFor();
     const search = page.locator(".palette-search input");
     await search.focus();
     await height(500);

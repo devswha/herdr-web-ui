@@ -134,11 +134,11 @@ bun scripts/droplet-demo-regression.ts        # real-app alerts below the header
 bun scripts/chat-greeting-demo-regression.ts  # an empty chat's greeting: centred on a desktop, docked on a phone
 bun scripts/composer-fit-demo-regression.ts   # one Send/Stop control, pending Send now actions, context/label fit and Chat font sizing
 bun scripts/held-rows-demo-regression.ts      # held messages: the fold under an approval card, its button, a row's error
-bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and Quiet opened finishes: blocked pinned, recency, an opened DONE drawn as ready
+bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and pins: blocked pinned, recency, Pin agent / Unpin agent from the ⋯ and a right-click
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/plugin-actions-demo-regression.ts # a plugin action that ends after the server stopped waiting: the late failure said, a traceback's height on a phone with its keyboard up
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
-bun scripts/narrow-pane-demo-regression.ts    # a split pane under 80 columns: the smaller font, its setting, a zoom, and a pane no font can bring to 80
+bun scripts/narrow-pane-demo-regression.ts    # a split pane under 80 columns: the smaller font, a zoom, and a pane no font can bring to 80
 ```
 
 `FILE_VIEWER_CASE=landscape-notch` selects a viewer case; `FILE_VIEWER_CSS=/path/to/before.css` compares another stylesheet. These checks use Chromium mobile emulation and synthetic safe-area/keyboard geometry; they cannot verify actual iOS Safari keyboard dismissal or notch insets. The existing `bun scripts/file-viewer-regression.ts` separately checks history with an owned herdr pane. The original `scripts/mobile-viewport-regression.ts` exports `checkMobileViewport` for the real-app `bun run test:ui` suite; it also checks the command palette and xterm focus transitions. The demo runners build the real client into a temporary directory, inject the committed fictional-session transport and serve it only on loopback; they do not use a live herdr session or download website media. Run on its own, each builds the client itself (`scripts/demo-build.ts`); the browser lane builds it once and names the directory in `HERDR_DEMO_BUILD`, and each runner copies that instead. They exercise real-app viewport and alert geometry, but not live herdr connectivity.
@@ -156,6 +156,55 @@ cannot be confirmed, the message is uncertain and must be checked in the termina
 retried automatically. The restart gate waits for the interrupted turn's readiness followed
 by the new turn's working/ready cycle. If Codex never exposes that cycle, remaining messages
 are held for explicit review.
+
+## GJC parent-turn status
+
+GJC status follows the native transcript bound to that pane, rather than a provider child's stale status or session ID. A user message, tool result or tool call keeps the parent turn working; an explicit final answer ends it. Native background-result, monitor and scheduled-task notifications start another turn, and an open `ask` waits for input.
+
+This is parent-turn state, not a count of live background jobs. GJC's job manager keeps that live state in memory, so historical job starts are not treated as proof that a job still runs. Missing or unreadable native evidence leaves herdr's status in charge; interrupted old turns are not successful completions. The isolated `scripts/gjc-status-browser-regression.ts` fixture exercises the real server and browser without invoking a provider or touching existing sessions.
+
+## OmO runtime recognition
+
+A pane runs OmO when its foreground processes prove it. The first proof is the program
+itself (`isOmoProcess`): omo's own binary, the omo-ai script a JS runtime runs, the
+claude-sdk child, or a hoisted senpi entry loading omo-ai's plugin.
+
+A launcher whose own argv says nothing — a renamed entrypoint, a profile wrapper — is
+recognized only by native session ownership, verified read-only on every lookup
+(`omoProcessIdentity`):
+
+- its environment as it was at `exec` resolves to an OmO store: an explicit
+  `OMO_CODING_AGENT_DIR` entry (an empty value still means the default), or no entry at
+  all so the store stays the default `~/.omo/agent`. A store moved only by
+  `SENPI_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR` is not an OmO identity;
+- the OS reports a live start time for the exact pid, and the store's
+  `sessions/<cwd-slug>/session-holders/` keeps a holder record naming that pid, a
+  matching `processStartedAtMs` and the process's own cwd.
+
+An environment marker alone, an argv mention, a stale or reused pid, a foreign cwd or
+an unreadable start never identify a custom OmO, and a custom runtime never falls back
+to cwd/time inference, file mtimes or launch hints — only its current holders bind it,
+so `/new` reports the pending held id and releasing a holder never resurrects an older
+transcript. Binding is per owning store: a held or reported session id, a pending check
+and an open descriptor match only inside the canonical stores that pane's own processes
+resolved, so the same id in two stores stays two independent sessions and two panes
+claiming one file fail closed. A held claim survives a missing or unreadable session
+file with its store scope intact — a broken header never resolves to another store's
+same-id file, and a holder whose own store cannot be resolved claims nothing.
+
+The folder a pane binds is the one its OmO processes actually run in: a process-reported
+cwd wins over the pane's `foreground_cwd`/`cwd`, which count only when no process reports
+(`omoTranscriptsOfCwd`, `omoSessionForPane` and `omoPanes` resolve it the same way, and
+same-cwd peers are the panes resolving to that folder, not the ones sharing a stale pane
+cwd). A pane whose holders run in two different cwds is ambiguous and selects nothing.
+
+The process evidence lives in `/proc`: a launcher argv does not identify is verifiable
+only where `/proc/<pid>/environ` and `/proc/<pid>/cwd` (or a reported process cwd) are
+readable — Linux today; on macOS or Windows such a launcher stays unrecognized until
+its argv is added to `isOmoProcess`. A custom launcher must therefore set the store in
+the child's environment before `exec` (`OMO_CODING_AGENT_DIR=… my-launcher`): a
+variable the process sets only in-process later may never appear in
+`/proc/<pid>/environ`, which reports the environment the kernel recorded at `exec`.
 
 ## Conversation refresh
 
@@ -367,7 +416,7 @@ after changing the staged session. Files, images, push and remote PCs are not pa
    fragments; then add the `by @login` credits; a fragment merged later must be moved into the
    version by hand, since the release workflow refuses while one is left), and tells the release
    in [release-summaries.json](../release-summaries.json) the way a game's patch notes do: under
-   the version, for each of `en`, `ko`, `ja`, `zh` and `tr`, the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
+   the version, for each language in `SUMMARY_LANGUAGES` (`shared/update.ts`: `en`, `ko`, `ja` and `zh`), the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
    plain text, 90 characters at most, the same number of lines in every language. It is what
    an install shows before and after the update, with the changelog section folded under it,
    so a line names what changes for the people who use the app and leaves out PR numbers and
@@ -582,10 +631,12 @@ continues after `main` pushes.
 
 Repository protection should require PRs and all three checks on `main`—**Fast checks**,
 **Integration and browser**, and **Native Windows install** (GitHub App ID `15368`)—including for
-administrators, with branches up to date before merging and every review thread resolved. Force
-pushes and branch deletion are disabled. Human approvals are optional for this maintainer-led
+administrators. Branch protection does not require branches to be up to date before merging and
+does not enforce resolved review threads; resolve every review thread before merging anyway, as a
+practice. Force pushes and branch deletion are disabled. Human approvals are optional for this maintainer-led
 project; external contributions still need maintainer review. CodeRabbit is advisory, not a required
-check.
+check. It reviews a pull request once when it opens and not on later pushes;
+comment `@coderabbitai review` on the final head before merging and wait for it.
 Release tags must not be moved or deleted. These GitHub settings are separate from files
 in the checkout.
 
