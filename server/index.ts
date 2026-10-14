@@ -1092,7 +1092,8 @@ export function createServer(
     snapshot: sessionSnapshot,
     onChange: (paneId, derived, background, turn, rest) => omoChanged(paneId, derived, background, turn, rest),
     // herdr called it `claude` or `pi` until now: what it finished under that name is its own
-    onFound: (paneId) => { completions.adopt(paneId, "omo", OMO_ALIASES); waits.forget(paneId); },
+    // a wait another agent left is not OmO's; one OmO held before it was missed a while goes on
+    onFound: (paneId, again) => { completions.adopt(paneId, "omo", OMO_ALIASES); if (!again) waits.forget(paneId); },
   });
   const omoSnapshot = () => readOmoSnapshot(sessionSnapshot, omo);
   /** GJC panes get their status from gjc's own transcript: herdr's `working` can be a provider child's (server/gjc-status.ts) */

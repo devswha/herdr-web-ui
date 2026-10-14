@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -147,6 +147,7 @@ describe("OmO panes' status in place of herdr's", () => {
     const ids: Record<string, string> = {};
     const told: ([string, AgentStatus, number, boolean] | [string, AgentStatus, number, boolean, OmoRest])[] = [];
     const found: string[] = [];
+    const again: boolean[] = [];
     const backgroundCwds: string[] = [];
     const state = { background: 0, discovered: new Map<string, OmoPane>([["omo", { path: FILE, startedAt: null }], ["lost", { path: null, startedAt: null }]]), lookups: 0, clock: 0, failing: false, during: () => {} };
     const omo = new OmoStatus({
@@ -154,7 +155,7 @@ describe("OmO panes' status in place of herdr's", () => {
       discover: async () => { state.lookups += 1; state.during(); return new Map(state.discovered); },
       snapshot: async () => herdr(),
       onChange: (id, status, count, turn, rest) => told.push(rest ? [id, status, count, turn, rest] : [id, status, count, turn]),
-      onFound: (id) => found.push(id),
+      onFound: (id, held) => { found.push(id); again.push(held); },
       file: {
         stat: (path) => path in files ? { size: Buffer.byteLength(files[path]!), id: ids[path] ?? "1" } : null,
         lines: (path, from, size, each) => { if (state.failing) return from; const text = Buffer.from(files[path]!).subarray(from, size).toString("utf8"); const whole = text.slice(0, text.lastIndexOf("\n") + 1); for (const line of whole.split("\n").slice(0, -1)) each({ text: line }); return from + Buffer.byteLength(whole); },
@@ -165,7 +166,7 @@ describe("OmO panes' status in place of herdr's", () => {
     const append = (...entries: string[]) => { files[FILE] += lines(...entries); };
     /** the file put anew in place of the old one, as a rewrite does */
     const replace = (...entries: string[]) => { files[FILE] = lines(...entries); ids[FILE] = `${Number(ids[FILE] ?? 1) + 1}`; };
-    return { omo, told, found, append, replace, state, files, backgroundCwds };
+    return { omo, told, found, again, append, replace, state, files, backgroundCwds };
   }
   const statuses = (snapshot: SessionSnapshot) => Object.fromEntries(snapshot.panes.map((p) => [p.pane_id, `${p.agent}/${p.agent_status}`]));
 
@@ -183,6 +184,33 @@ describe("OmO panes' status in place of herdr's", () => {
       omo.poll();
       expect(omo.sessionOf("omo")?.cwd).toBe("/work");
       expect(backgroundCwds.at(-1)).toBe("/work");
+    }
+  });
+
+  it("tells a pane found again after a missed lookup from one found for the first time", async () => {
+    const { omo, found, again, state } = setup();
+    await omo.refresh(herdr().panes);
+    state.discovered.delete("omo");
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    state.discovered.set("omo", { path: FILE, startedAt: null });
+    state.clock += 10_000;
+    await omo.refresh(herdr().panes);
+    expect(found.filter((id) => id === "omo")).toEqual(["omo", "omo"]);
+    expect(again.slice(found.indexOf("omo"), found.indexOf("omo") + 1)).toEqual([false]);
+    expect(again[found.lastIndexOf("omo")]).toBe(true);
+  });
+
+  it("counts nothing for a folder that cannot be resolved, rather than throwing from the poll", () => {
+    const parent = mkdtempSync(join(tmpdir(), "omo-locked-"));
+    const cwd = join(parent, "project");
+    mkdirSync(cwd);
+    chmodSync(parent, 0o000);
+    try {
+      expect(omoBackgroundTasks(cwd, () => true, { env: { HOME: parent } })).toEqual(new Map());
+    } finally {
+      chmodSync(parent, 0o700);
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 

@@ -120,9 +120,10 @@ export function omoSessionId(path: string): string | null {
  */
 export function omoBackgroundTasks(cwd: string, alive: (pid: number) => boolean = processAlive, options: OmoStateOptions = {}): Map<string, number> {
   const running = new Map<string, number>();
-  const dir = join(omoStateDir(cwd, options), "tasks");
+  let dir: string;
   let names: string[];
-  try { names = readdirSync(dir); } catch { return running; }
+  // a folder that cannot be resolved (permissions) counts nothing, and picks no other store
+  try { dir = join(omoStateDir(cwd, options), "tasks"); names = readdirSync(dir); } catch { return running; }
   for (const name of names.slice(0, 2048)) {
     if (!name.startsWith("st_") || !name.endsWith(".json")) continue;
     try {
@@ -159,7 +160,7 @@ export interface OmoStatusDeps {
    */
   onChange: (paneId: string, status: AgentStatus, background: number, turn: boolean, rest?: OmoRest) => void;
   /** a pane was found to run OmO: what herdr called it until now is the same agent */
-  onFound?: (paneId: string) => void;
+  onFound?: (paneId: string, again: boolean) => void;
   /** the identity the panes' status is reported under (`omo`), and the names herdr gave the agent before */
   agent?: string;
   aliases?: readonly string[];
@@ -297,7 +298,8 @@ export class OmoStatus {
       for (const paneId of [...this.last.keys()]) if (!cwds.has(paneId)) this.last.delete(paneId);
       for (const [paneId, pane] of found) {
         const before = this.panes.get(paneId);
-        if (!before) this.deps.onFound?.(paneId);
+        // `again`: OmO held it when last looked at, and goes on from what it read then
+        if (!before) this.deps.onFound?.(paneId, this.last.has(paneId));
         // the same session goes on being read from where it was: what happened meanwhile is told.
         // A start that cannot be read this time is the one read before
         if (before && before.path === pane.path) before.startedAt = pane.startedAt ?? before.startedAt;

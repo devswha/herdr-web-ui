@@ -62,9 +62,9 @@ function task(record: Row): OmoTask | null {
 
 /** Running tasks first (oldest first), then up to ten that ended in the last day (newest first). */
 export function omoTasks(cwd: string, sessionId: string, alive: (pid: number) => boolean, now = Date.now(), options: OmoStateOptions = {}): OmoTask[] {
-  const dir = join(omoStateDir(cwd, options), "tasks");
+  let dir: string;
   let names: string[];
-  try { names = readdirSync(dir); } catch { return []; }
+  try { dir = join(omoStateDir(cwd, options), "tasks"); names = readdirSync(dir); } catch { return []; }
   const running: OmoTask[] = [];
   const ended: OmoTask[] = [];
   const newest = names.filter((name) => name.startsWith("st_") && name.endsWith(".json")).sort().reverse().slice(0, MAX_TASK_FILES);
@@ -162,9 +162,9 @@ function parseRun(record: Row): OmoRun | null {
 
 /** Workflows still going first (oldest first), then up to five that ended in the last day (newest first). */
 export function omoRuns(cwd: string, sessionId: string, now = Date.now(), options: OmoStateOptions = {}): OmoRun[] {
-  const dir = join(omoStateDir(cwd, options), "dag", "runs");
+  let dir: string;
   let names: string[];
-  try { names = readdirSync(dir); } catch { return []; }
+  try { dir = join(omoStateDir(cwd, options), "dag", "runs"); names = readdirSync(dir); } catch { return []; }
   const recent: { path: string; key: string; size: number; mtime: number }[] = [];
   for (const name of names.slice(0, 10_000)) {
     if (!name.startsWith("dag_") || !name.endsWith(".json")) continue;
