@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, Minimize2, Plus, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Minimize2, Plus, Square, TriangleAlert, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -86,17 +86,20 @@ export interface ComposerProps {
   cwd?: string | null;
   /** the pane's branch, beside the folder in that strip; nothing is drawn for it while absent */
   branch?: string | null;
-  /** the workspace is a linked worktree of its repository: the strip says so beside the folder */
-  worktree?: boolean;
+  /** the workspace is a linked worktree of this repository: the strip names the repository in the folder's
+   * place (the checkout folder is the branch again, with dashes) and says it is a worktree; null: not one */
+  worktreeRepo?: string | null;
   /** true: sent, clear the box; a string: keep the text and say why; a DraftRefusal: the same, and the
-   * note offers to send again with `clearDraft`, which clears that draft from the terminal first; a
-   * promise settles to any of them */
-  onSend: (text: string, clearDraft?: string) => boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal>;
+   * note offers to send again with `clearDraft`, which clears that draft from the terminal first, or,
+   * where it named none, with `sendAnyway`; a promise settles to any of them */
+  onSend: (text: string, clearDraft?: string, sendAnyway?: boolean) => boolean | string | DraftRefusal | Promise<boolean | string | DraftRefusal>;
   onAbort: () => void;
   onUploadImage: (file: File) => Promise<string>;
 }
 
 const UPLOADS_AT_ONCE = 3;
+/** files one paste, pick or drop takes; the rest are left out with a note */
+const ATTACH_LIMIT = 100;
 /**
  * Any file can be attached (an icon, a PDF, a log): the server stores it beside the pane
  * and the message mentions its path. These image types also get a thumbnail.
@@ -249,7 +252,7 @@ export function Composer({
   notices = null,
   cwd = null,
   branch = null,
-  worktree = false,
+  worktreeRepo = null,
   onSend,
   onAbort,
   onUploadImage,
@@ -423,7 +426,9 @@ export function Composer({
     setAutoHeight((current) => current === height ? current : height);
   }, [manualHeight]);
 
-  useLayoutEffect(sizeTextarea, [sizeTextarea, text, placeholder, boxWidth, facesLoaded]);
+  // A suggestion or prompt hint changes only the placeholder of a populated draft.
+  // Collapsing it to measure unused placeholder text can scroll iOS's focused caret.
+  useLayoutEffect(sizeTextarea, [sizeTextarea, text, text.length === 0 ? placeholder : null, boxWidth, facesLoaded]);
 
   // SettingsProvider writes --chat-scale in a passive effect. Measure on the next frame,
   // after that CSS is applied, so a draft rewraps without waiting for another keystroke.
@@ -446,9 +451,9 @@ export function Composer({
    * - The model label: measured with everything drawn, then drawn as composerModelDraw says
    *   (the effort word steps out first); measured again without it, a name cut to its floor steps
    *   out whole with its mark (composerLabelDraw), so the ring after it is drawn whole. Stepping
-   *   out is CSS on the mark's attribute, so the label is still read. It runs after every render
-   *   of the composer, which is why the context ring's open number is this component's state:
-   *   opening it takes room from the label without changing the card's size.
+   *   out is CSS on the mark's attribute, so the label is still read. Drawn content changes fit
+   *   the row again: opening the context number takes room from the label without changing
+   *   the card's size.
    * - The sentence is never cut. Where it does not fit beside the model it wraps to a line of its
    *   own (CSS); there it is marked, so it takes the whole line and drops the dot that separated
    *   it from the model. The sentence alone wraps: the rest stays one row (.composer-status-meta),
@@ -457,38 +462,54 @@ export function Composer({
   const fitStatus = useCallback((): void => {
     const status = statusRef.current;
     if (!status) return;
-    status.removeAttribute("data-model");
-    status.removeAttribute("data-hint-alone");
-    status.removeAttribute("data-meta-empty");
-    const clipped = (selector: string): boolean => {
-      const item = status.querySelector<HTMLElement>(selector);
-      return item !== null && item.scrollWidth > item.clientWidth;
-    };
-    const first = composerModelDraw({
-      modelClipped: clipped(".composer-model"),
-      effortClipped: clipped(".composer-reasoning"),
-    });
-    if (first !== "full") status.setAttribute("data-model", first);
-    // with the level stepped out the row is laid out again: a name still cut to its floor (its
-    // min-width, in px once computed) takes the mark and the hairlines out with it
-    const model = status.querySelector<HTMLElement>(".composer-model");
-    const draw = model === null ? first : composerLabelDraw(first, {
-      modelClipped: model.scrollWidth > model.clientWidth,
-      modelWidth: model.clientWidth,
-      modelFloor: parseFloat(getComputedStyle(model).minWidth) || 0,
-    });
-    if (draw !== first) status.setAttribute("data-model", draw);
-    const hint = hintRef.current;
-    if (!hint) return;
-    // with the label stepped out and no ring, the row beside the sentence draws nothing: it gives
-    // up its box, or it would keep an empty line over the sentence
-    const meta = status.querySelector<HTMLElement>(".composer-status-meta")?.getBoundingClientRect();
-    if (!meta || meta.width <= 1) status.setAttribute("data-meta-empty", "");
-    const line = hint.getBoundingClientRect();
-    const beside = meta !== undefined && meta.width > 1 && meta.bottom > line.top && meta.top < line.top + line.height / 2 && meta.right <= line.left + 1;
-    if (!beside) status.setAttribute("data-hint-alone", "");
+    // Fitting temporarily exposes hidden labels and unwraps hints. Keep those measurement
+    // layouts from moving the focused textarea before the final attributes are restored.
+    const surface = surfaceRef.current;
+    const rows = surface?.style.gridTemplateRows ?? "";
+    if (surface) surface.style.gridTemplateRows = getComputedStyle(surface).gridTemplateRows;
+    try {
+      status.removeAttribute("data-model");
+      status.removeAttribute("data-hint-alone");
+      status.removeAttribute("data-meta-empty");
+      const clipped = (selector: string): boolean => {
+        const item = status.querySelector<HTMLElement>(selector);
+        return item !== null && item.scrollWidth > item.clientWidth;
+      };
+      const first = composerModelDraw({
+        modelClipped: clipped(".composer-model"),
+        effortClipped: clipped(".composer-reasoning"),
+      });
+      if (first !== "full") status.setAttribute("data-model", first);
+      // with the level stepped out the row is laid out again: a name still cut to its floor (its
+      // min-width, in px once computed) takes the mark and the hairlines out with it
+      const model = status.querySelector<HTMLElement>(".composer-model");
+      const draw = model === null ? first : composerLabelDraw(first, {
+        modelClipped: model.scrollWidth > model.clientWidth,
+        modelWidth: model.clientWidth,
+        modelFloor: parseFloat(getComputedStyle(model).minWidth) || 0,
+      });
+      if (draw !== first) status.setAttribute("data-model", draw);
+      const hint = hintRef.current;
+      if (!hint) return;
+      // with the label stepped out and no ring, the row beside the sentence draws nothing: it gives
+      // up its box, or it would keep an empty line over the sentence
+      const meta = status.querySelector<HTMLElement>(".composer-status-meta")?.getBoundingClientRect();
+      if (!meta || meta.width <= 1) status.setAttribute("data-meta-empty", "");
+      const line = hint.getBoundingClientRect();
+      const beside = meta !== undefined && meta.width > 1 && meta.bottom > line.top && meta.top < line.top + line.height / 2 && meta.right <= line.left + 1;
+      if (!beside) status.setAttribute("data-hint-alone", "");
+    } finally {
+      if (surface) surface.style.gridTemplateRows = rows;
+    }
   }, []);
-  useLayoutEffect(fitStatus);
+
+  // SettingsProvider applies typography in a passive effect. Fit after those CSS tokens land,
+  // even when the card's total width stays the same, without fitting on streaming renders.
+  useEffect(() => {
+    const frame = requestAnimationFrame(fitStatus);
+    return () => cancelAnimationFrame(frame);
+  }, [fitStatus, settings.uiFontSize,
+    settings.chatFontSize, settings.chatFontFamily, settings.density]);
 
   // the card's own width decides, not the window's: a sidebar or a narrow lane shrinks the card
   // in a wide window. Measured before the first paint, so a phone never draws the words first.
@@ -498,9 +519,13 @@ export function Composer({
     const surface = surfaceRef.current;
     if (!surface) return;
     let frame = 0;
-    setCardWidth(Math.round(surface.getBoundingClientRect().width));
+    let width = Math.round(surface.getBoundingClientRect().width);
+    setCardWidth(width);
     const observer = new ResizeObserver(() => {
-      setCardWidth(Math.round(surface.getBoundingClientRect().width));
+      const next = Math.round(surface.getBoundingClientRect().width);
+      if (next === width) return;
+      width = next;
+      setCardWidth(width);
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(fitStatus);
     });
@@ -778,12 +803,12 @@ export function Composer({
 
   const uploadImages = useCallback(
     (incoming: readonly File[]) => {
-      const images = incoming.slice(0, settings.attachLimit);
+      const images = incoming.slice(0, ATTACH_LIMIT);
       if (images.length === 0) return;
 
       // the files left out of this pick: told now, and again beside an upload error of this batch
       const leftOut = images.length < incoming.length
-        ? t("Only the first {count} of {total} files were taken. Settings → Chat → Files at once sets how many one paste, pick or drop takes.", { count: images.length, total: incoming.length })
+        ? t("Only the first {count} of {total} files were taken.", { count: images.length, total: incoming.length })
         : null;
       const added = images.map<Attachment>((file) => {
         const uploadFile = normalizeComposerImageFile(file);
@@ -803,7 +828,7 @@ export function Composer({
       uploadQueue.current.push(...added);
       pumpUploads();
     },
-    [pumpUploads, settings.attachLimit, t],
+    [pumpUploads, t],
   );
 
   const removeAttachment = useCallback((attachment: Attachment) => {
@@ -826,8 +851,9 @@ export function Composer({
     }
   }, [placeWaitingMentions]);
 
-  /** `clearDraft`: the terminal draft a DraftRefusal named, which the user asked to clear and send over */
-  const send = useCallback((clearDraft?: string) => {
+  /** `clearDraft`: the terminal draft a DraftRefusal named, which the user asked to clear and send over;
+   * `sendAnyway`: the user saw the box a DraftRefusal showed and sends over it */
+  const send = useCallback((clearDraft?: string, sendAnyway = false) => {
     if (composingRef.current) return;
     if (!connected || uploading || roomless || sending || text.trim().length === 0) return;
     const sent = text;
@@ -851,7 +877,7 @@ export function Composer({
     // a polish landing before the acknowledgement would count as an edit and keep the sent message here
     dictation.forget();
     try {
-      const result = onSend(text, clearDraft);
+      const result = onSend(text, clearDraft, sendAnyway);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
     } catch {
@@ -970,7 +996,7 @@ export function Composer({
   // what the status line says; what may be sent, queued or stopped goes by the agent's own status
   const shownStatus = paneStatus({ agent_status: agentStatus, ...(backgroundWait ? { background_wait: true as const } : {}) });
   const statusCompact = composerStatusCompact(cardWidth);
-  const sendShown = composerSendShown({ working: isWorking, text });
+  const sendShown = sending || composerSendShown({ working: isWorking, text });
   const hint = composerStatusHint({ uploading, connected, text, noRoom: roomless !== undefined });
   const model = metadata?.model ? modelLabel(metadata.model) : null;
   const modelShown = Boolean(metadata?.model || metadata?.reasoning_effort);
@@ -984,10 +1010,15 @@ export function Composer({
     : hint === "no-room" ? t("No room for {file}: remove {count} characters", { file: roomless?.file.name ?? "", count: roomless?.missing ?? 0 })
     : hint === "near-limit" ? t("{count} characters left", { count: MAX_COMPOSER_CHARS - text.length })
     : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
-  /** the strip under the card: the folder and the branch the caller knows; none, no strip */
-  const strip = composerStrip({ cwd, branch });
-  /** a hairline between two parts of the model group, as t3code's composer controls are parted */
-  const sep = <span className="composer-sep" aria-hidden="true" />;
+  /** the strip under the card: the folder and the branch the caller knows; none, or a phone's screen, no strip */
+  const strip = mobile ? null : composerStrip({ cwd, branch, repo: worktreeRepo });
+  const worktree = worktreeRepo !== null;
+  // Fit only changes to drawn content. Streaming context usage is a fixed-size ring unless
+  // its number is open on desktop; transcript/status refreshes need no measurement layout.
+  useLayoutEffect(fitStatus, [fitStatus, agent, metadata?.model, metadata?.reasoning_effort,
+    metadata?.context?.window, contextShown && !mobile && metadata?.context ? contextLeftPercent(metadata.context) : null,
+    contextShown, mobile, usageCaption, usage?.problem, hintText, dictation.shown, backgroundTasks,
+    plan?.done, plan?.total, statusCompact, compactNow !== undefined, facesLoaded, t]);
   const menuId = `composer-menu-${paneId}`;
   // the arrow keys move the selection, not the focus (it stays in the box), so the browser does not scroll to it
   useEffect(() => {
@@ -998,8 +1029,8 @@ export function Composer({
     <div className={`composer${notices ? " has-notices" : ""}`} role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined}>
       {greeting}
       {notices}
-      {/* no Tab key on a phone: the suggestion is a chip there that fills the box, unless Settings turns it off */}
-      {settings.showSuggestionChip && offered !== null && text === "" && (
+      {/* no Tab key on a phone: the suggestion is a chip there that fills the box */}
+      {offered !== null && text === "" && (
         <div className="composer-quick composer-suggestion-row">
           <button type="button" className="composer-quick-reply composer-suggestion" title={t("Use the suggestion")} onClick={() => setTextAndCaret(offered, offered.length)}>
             <span aria-hidden="true">↹ </span>{offered}
@@ -1029,9 +1060,10 @@ export function Composer({
         <div className={`composer-note${typeof note === "object" ? " composer-note-offer" : ""}`} role="alert">
           <TriangleAlert className="composer-note-icon" aria-hidden="true" />
           <span className="composer-note-text">{typeof note === "string" ? note : note.note}</span>
-          {/* the draft named above, never what has replaced it since: the server checks */}
+          {/* the draft named above, never what has replaced it since: the server checks; a box it could
+              not tell empty, sent over only in the same Claude terminal the refusal was for */}
           {typeof note === "object" && <button type="button" className="composer-note-action" disabled={!connected || uploading || roomless !== undefined || sending || text.trim().length === 0}
-            onClick={() => send(note.draft)}>{t("Clear it and send")}</button>}
+            onClick={() => "draft" in note ? send(note.draft) : send(undefined, true)}>{"draft" in note ? t("Clear it and send") : t("Send anyway")}</button>}
         </div>
       )}
 
@@ -1154,9 +1186,11 @@ export function Composer({
           aria-controls={menuOpen ? menuId : undefined}
           aria-expanded={menuOpen}
           aria-activedescendant={menuOpen ? `${menuId}-${selectedIndex}` : undefined}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
+          // most of what is typed to an agent is prose: a phone keyboard's corrections, suggestions
+          // and sentence capitals stay on here (the terminal input line keeps them off)
+          spellCheck
+          autoCapitalize="sentences"
+          autoCorrect="on"
           // stays editable while the socket reconnects (sending waits for it): a phone's
           // dictation keyboard opens its own app and comes back, the socket may drop meanwhile,
           // and a disabled box would lose its focus and the dictated text with it
@@ -1175,58 +1209,6 @@ export function Composer({
           }}
         />
 
-        {/* the card's last row, as t3code's composer orders it: the model group at the row's start, the action
-            icons and the one round button at its end. The agent's name, its separator and the state word are
-            read, not drawn: the mark and the header name the agent, and Stop, the live row and the prompt card
-            say the state. All state words stay available to assistive tech only.
-            Where the model label does not fit, it steps out and is still read (fitStatus marks data-model) */}
-        <div ref={statusRef} className="composer-status" role="status" data-status={shownStatus}
-          data-offline={connected ? undefined : ""} data-hint={hint ?? undefined}>
-          {/* everything but the sentence: one row that never wraps, also where the sentence takes a line of its own */}
-          <span className="composer-status-meta">
-            <span className="composer-agent-label visually-hidden">{agentLabel}</span>
-            <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
-            <strong className="visually-hidden">{t(composerStatusWord(shownStatus))}</strong>
-            {/* the mark, the model, the level and the context ring as one quiet group, its parts told apart by
-                hairlines (.composer-sep) as t3code's composer controls are. It only shows: no role, no focus,
-                nothing to press but the ring inside it. A pane that names no model draws no group (.is-bare):
-                the mark, a level if it has one, and the ring stand in the row as they are */}
-            <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
-              {agent && <AgentMark agent={agent} size={14} />}
-              {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
-                {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
-                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
-                {/* behind a name the id as received is still read; a touch cannot reach the title */}
-                {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
-                {/* no level recorded: nothing is drawn for it, no hairline and no dash; the sentence is still read */}
-                {metadata?.reasoning_effort && sep}
-                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
-                  <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
-                  {metadata?.reasoning_effort && <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>}
-                </span>
-              </span>}
-              {metadata?.context && modelShown && sep}
-              {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} onCompact={compactNow} />}
-              {usage !== undefined && usage.problem === null && usageLimit !== undefined && (modelShown || metadata?.context) && sep}
-              {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
-                className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
-                title={`${usageName(usage)}\n${usageDetail}`}
-              >
-                <span aria-hidden="true">{usageCaption}</span>
-                <span className="visually-hidden">{usageAccessible}</span>
-              </span>}
-            </span>
-            {/* the chip is a button in the action group; its count is still said here, where a change is announced */}
-            {backgroundTasks > 0 && <span className="composer-task-count visually-hidden">{t(backgroundTasks === 1 ? "{n} background task" : "{n} background tasks", { n: backgroundTasks })}</span>}
-          </span>
-          {hintText !== null && (
-            <span ref={hintRef} className="composer-status-hint" title={hintText}>
-              <span className="composer-status-hint-dot" aria-hidden="true">· </span>{hintText}
-            </span>
-          )}
-        </div>
-        {/* the action icons, between the model group and the round button (the class names are the groups'
-            first names, kept for the browser scripts that read them) */}
         <div className="composer-controls composer-controls-left">
           <input
             ref={fileInputRef}
@@ -1252,6 +1234,54 @@ export function Composer({
           {dictation.shown && <MicButton dictation={dictation} />}
           <BackgroundTasks paneId={paneId} count={backgroundTasks} omo={agent === "omo"} claude={agent === "claude"} plan={plan} />
         </div>
+        {/* between the two control groups of the card's last row. The agent's name, its separator and the
+            state word are read, not drawn: the mark and the header name the agent, and Stop, the live row and
+            the prompt card say the state. All state words stay available to assistive tech only.
+            Where the model label does not fit, it steps out and is still read (fitStatus marks data-model) */}
+        <div ref={statusRef} className="composer-status" role="status" data-status={shownStatus}
+          data-offline={connected ? undefined : ""} data-hint={hint ?? undefined}>
+          {/* everything but the sentence: one row that never wraps, also where the sentence takes a line of its own */}
+          <span className="composer-status-meta">
+            <span className="composer-agent-label visually-hidden">{agentLabel}</span>
+            <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
+            <strong className="visually-hidden">{t(composerStatusWord(shownStatus))}</strong>
+            {/* the mark, the model, the level and the context ring as one quiet pill. It only shows: no role,
+                no focus, nothing to press but the ring inside it. A pane that names no model draws no pill
+                (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
+            <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
+              {agent && <AgentMark agent={agent} size={14} />}
+              {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
+                {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
+                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
+                {/* behind a name the id as received is still read; a touch cannot reach the title */}
+                {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
+                {/* no level recorded: nothing is drawn for it, no dot and no dash; the sentence is still read */}
+                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
+                  <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
+                  {metadata?.reasoning_effort && <>
+                    <span className="composer-reasoning-dot" aria-hidden="true">·</span>
+                    <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
+                  </>}
+                </span>
+              </span>}
+              {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} onCompact={compactNow} />}
+              {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span
+                className={`composer-usage${usageLimit.used_percent >= HIGH_PERCENT ? " is-high" : ""}${usage.problem ? " has-problem" : ""}`}
+                title={`${usageName(usage)}\n${usageDetail}`}
+              >
+                <span aria-hidden="true">{usageCaption}</span>
+                <span className="visually-hidden">{usageAccessible}</span>
+              </span>}
+            </span>
+            {/* the chip is a button in the left controls; its count is still said here, where a change is announced */}
+            {backgroundTasks > 0 && <span className="composer-task-count visually-hidden">{t(backgroundTasks === 1 ? "{n} background task" : "{n} background tasks", { n: backgroundTasks })}</span>}
+          </span>
+          {hintText !== null && (
+            <span ref={hintRef} className="composer-status-hint" title={hintText}>
+              <span className="composer-status-hint-dot" aria-hidden="true">· </span>{hintText}
+            </span>
+          )}
+        </div>
         <div className="composer-controls composer-controls-right">
           {!sendShown ? (
             <button
@@ -1269,11 +1299,15 @@ export function Composer({
               type="button"
               className="composer-action composer-send"
               aria-label={t("Send message")}
-              title={t("Send message")}
+              title={sending ? t("Sending…") : t("Send message")}
+              aria-busy={sending || undefined}
               disabled={!connected || uploading || roomless !== undefined || sending || text.trim().length === 0}
+              // focus stays in the text box: leaving it closes the soft keyboard and moves the button
+              // out from under the tap before the click lands
+              onPointerDown={(event) => event.preventDefault()}
               onClick={() => send()}
             >
-              <ArrowUp aria-hidden="true" />
+              {sending ? <LoaderCircle className="composer-send-progress" aria-hidden="true" /> : <ArrowUp aria-hidden="true" />}
             </button>
           )}
         </div>
