@@ -139,7 +139,7 @@ afterAll(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-it("reads a visible picker resume from another cwd (regression)", async () => {
+it("reads an old visible picker resume from another cwd before any new record (regression)", async () => {
   const cwd = join(root, "picker-visible");
   mkdirSync(cwd);
   const screen = join(cwd, "screen.txt");
@@ -147,8 +147,8 @@ it("reads a visible picker resume from another cwd (regression)", async () => {
   const opened = workspaces.length;
   const paneId = await pane("picker-visible", `SCREEN_FILE=${screen} ${join(root, "bin", "codex")} resume --all`, cwd);
   const db = new Database(join(codexHome, "state_5.sqlite"));
-  db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, ?, 'cli', ?)").run(
-    threads.fresh, rollout("fresh"), root, Math.ceil(Date.now() / 1000), "question for fresh",
+  db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, 1, 'cli', ?)").run(
+    threads.fresh, rollout("fresh"), root, "question for fresh",
   );
   db.close();
   try {
@@ -176,6 +176,31 @@ it("reads a unique open rollout from another cwd (control)", async () => {
     await onScreen(paneId, "Open rollout ready");
     expect(lastAnswer(await read(paneId))).toBe(answers.fresh); // control
   } finally {
+    for (const id of workspaces.splice(opened)) await workspaceClose(id);
+  }
+});
+
+it("refuses picker discovery when interactive candidates exceed the read bound (control)", async () => {
+  const cwd = join(root, "picker-overflow");
+  mkdirSync(cwd);
+  const screen = join(cwd, "screen.txt");
+  writeFileSync(screen, `› question for fresh\n${answers.fresh}\n`);
+  const opened = workspaces.length;
+  const db = new Database(join(codexHome, "state_5.sqlite"));
+  for (let index = 0; index < 33; index++) {
+    db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, 1, 'cli', 'picker-overflow')").run(
+      `picker-overflow-${index}`, rollout("fresh"), root,
+    );
+  }
+  db.close();
+  try {
+    const paneId = await pane("picker-overflow", `SCREEN_FILE=${screen} ${join(root, "bin", "codex")} resume --all`, cwd);
+    await onScreen(paneId, answers.fresh);
+    expect((await read(paneId)).source).toBe("scrollback"); // control: omitted rows could explain the screen
+  } finally {
+    const db = new Database(join(codexHome, "state_5.sqlite"));
+    db.query("DELETE FROM threads WHERE first_user_message = 'picker-overflow'").run();
+    db.close();
     for (const id of workspaces.splice(opened)) await workspaceClose(id);
   }
 });

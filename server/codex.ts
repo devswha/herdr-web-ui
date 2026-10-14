@@ -986,7 +986,7 @@ function displayedFirstExchange(screen: string): CodexExchange | null {
   return { user, assistant: response };
 }
 
-function matchingCodexExchanges(screen: string, candidates: readonly CodexFirstExchangeCandidate[], answerFloor = 16): { candidate: CodexFirstExchangeCandidate; index: number }[] {
+function matchingCodexExchanges(screen: string, candidates: readonly CodexFirstExchangeCandidate[], answerFloor: number): { candidate: CodexFirstExchangeCandidate; index: number }[] {
   const shown = displayedFirstExchange(screen);
   if (shown === null) return [];
   const prompt = normalizePrompt(shown.user);
@@ -1420,29 +1420,24 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     listed = rows.length <= 32 && !rollouts.includes(null);
     paths = [...new Set([...paths, ...(reported !== null ? [reported] : []), ...rollouts.filter((path): path is string => path !== null)])];
     if (picker) {
-      const starts = codexProcesses.map(({ pid }) => processStartedAt(pid));
-      if (starts.every((start) => start !== null && Number.isFinite(start))) {
-        const since = Math.ceil(Math.min(...starts.filter((start): start is number => start !== null)) / 1000);
-        const rows = db.query<{ rollout_path: string; cwd: string; first_user_message?: string | null }, [number]>(
-          `SELECT rollout_path, cwd${db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : ""}
-           FROM threads WHERE archived = 0 AND agent_role IS NULL${interactive(db)}
-           AND updated_at >= ? ORDER BY updated_at DESC LIMIT 33`,
-        ).all(since);
-        // A picker can resume outside its launch directory. Recency only supplies
-        // candidates: the unique visible answer still decides, and peer claims win.
-        if (rows.length <= 32) {
-          const pickerPaths = rows.flatMap((row) => {
-            const path = codexRolloutPath(row.rollout_path, home);
-            if (path === null) return [];
-            if (typeof row.first_user_message === "string") firsts.set(path, row.first_user_message);
-            return [path];
-          });
-          for (const directory of new Set(rows.map((row) => row.cwd))) {
-            for (const path of await claimedByOtherPanes(paneId, directory, pickerPaths, [], firsts, home, panes)) pickerClaimed.add(path);
-          }
-          paths = [...new Set([...paths, ...pickerPaths])];
-        }
+      const rows = db.query<{ rollout_path: string; cwd: string; first_user_message?: string | null }, []>(
+        `SELECT rollout_path, cwd${db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : ""}
+         FROM threads WHERE archived = 0 AND agent_role IS NULL${interactive(db)}
+         ORDER BY updated_at DESC LIMIT 33`,
+      ).all();
+      // Resuming history does not update the store until Codex writes a new record.
+      // Read old threads too; never manufacture uniqueness by truncating candidates.
+      if (rows.length > 32) return null;
+      const pickerPaths = rows.flatMap((row) => {
+        const path = codexRolloutPath(row.rollout_path, home);
+        if (path === null) return [];
+        if (typeof row.first_user_message === "string") firsts.set(path, row.first_user_message);
+        return [path];
+      });
+      for (const directory of new Set(rows.map((row) => row.cwd))) {
+        for (const path of await claimedByOtherPanes(paneId, directory, pickerPaths, [], firsts, home, panes)) pickerClaimed.add(path);
       }
+      paths = [...new Set([...paths, ...pickerPaths])];
     }
   } catch { /* Older installations can still resolve their open descriptors. */ }
   finally { db?.close(); }
