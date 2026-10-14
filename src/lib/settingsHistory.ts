@@ -79,8 +79,8 @@ let writing = false;
 let loadedOnSettings = false;
 /** the opening of Settings the entries held belong to, as written into its base entry */
 let opening: unknown;
-/** an opening whose entries lie under an entry that is not their base: Back onto them steps over them */
-let buried: unknown;
+/** the openings whose entries lie under an entry that is not their base: Back onto them steps over them, each until it has been */
+const buried = new Set<unknown>();
 
 function releasePending(): void { pending = null; rewinding = 0; clearTimeout(landing); }
 
@@ -115,7 +115,7 @@ function reconcile(): void {
   const have = current?.depth ?? 0;
   // entries held under a state that is not the one they began from: a markerless entry (a typed
   // #hash, another script's pushState, a preview) landed above them, and they are buried there
-  if (have === 0 && held.length > 0 && fieldOf(state, BASE_KEY) !== opening) buried = opening;
+  if (have === 0 && held.length > 0 && fieldOf(state, BASE_KEY) !== opening) buried.add(opening);
   if (have > 0) opening = fieldOf(state, BASE_KEY);
   // what the history holds up to here: a Back landed under what was recorded; the step shown is
   // read from the state; one this module did not push (a reload or a Forward landed on entries
@@ -189,8 +189,8 @@ if (typeof window !== "undefined") {
     const entry = settingsEntry(event.state);
     // Back from above onto the entries of a buried opening: Settings closed when they were buried,
     // so they are stepped over to the entry they began from instead of opening it again
-    if (pending === null && entry !== null && buried !== undefined && fieldOf(event.state, BASE_KEY) === buried && fieldOf(previous, BASE_KEY) !== buried) {
-      buried = undefined;
+    if (pending === null && entry !== null && buried.has(fieldOf(event.state, BASE_KEY)) && fieldOf(previous, BASE_KEY) !== fieldOf(event.state, BASE_KEY)) {
+      buried.delete(fieldOf(event.state, BASE_KEY));
       rewind(entry.depth);
       return;
     }
@@ -209,6 +209,6 @@ if (typeof window !== "undefined") {
     // an entry above Settings (a preview opened over it) stays, and Settings stays closed: Back
     // from it steps over the entries beneath
     loadedOnSettings = true;
-    buried = fieldOf(window.history.state, ABOVE_KEY);
+    buried.add(fieldOf(window.history.state, ABOVE_KEY));
   }
 }

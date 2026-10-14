@@ -270,6 +270,34 @@ describe("history traversal races", () => {
     expect(moves[2]).toEqual([{ page: null, keyBar: false, depth: 1 }, false]);
   });
 
+  it("steps over every opening a markerless entry buried, not only the latest", async () => {
+    const browser = await delayedHistory();
+    const moves: Array<[ReturnType<typeof browser.settingsEntry>, boolean]> = [];
+    browser.onSettingsHistory((entry, own) => moves.push([entry, own]));
+    // a first opening, buried by a markerless entry and closed
+    browser.recordSettings(browser.settingsLevels(false, "appearance", false));
+    browser.history.pushState({ route: "first" });
+    browser.history.pushState({ route: "after-first" });
+    await browser.move(-1);
+    browser.recordSettings([]);
+    // a second opening from there, buried the same way and closed
+    browser.recordSettings(browser.settingsLevels(false, "appearance", false));
+    browser.history.pushState({ route: "second" });
+    browser.history.pushState({ route: "after-second" });
+    await browser.move(-1);
+    browser.recordSettings([]);
+    expect(browser.requests).toEqual([]);
+    // Back steps over the newer opening, then the older one: neither shows Settings again
+    await browser.move(-1);
+    await browser.land();
+    await browser.move(-1);
+    await browser.land();
+    expect(browser.index).toBe(0);
+    expect(browser.settingsEntry(browser.history.state)).toBeNull();
+    expect(browser.requests).toEqual([]);
+    expect(moves.at(-1)).toEqual([null, true]);
+  });
+
   it("steps over the entries a foreign pushState buried when Settings closed by itself", async () => {
     const browser = await delayedHistory();
     browser.recordSettings(browser.settingsLevels(false, "appearance", false));
