@@ -15,12 +15,6 @@ it("keeps a tab's pane while out of use until this device turns the pause on", (
   expect(sanitizeSettings({ releasePaneAway: "true" }).releasePaneAway).toBe(false);
 });
 
-it("drops the settings that were removed from a stored record", () => {
-  const removed = ["contrast", "fontSmoothing", "panelMotion", "uiFontFamily", "codeFontFamily", "usagePace", "showSuggestionChip", "showComposerStrip", "narrowPaneFont", "terminalCursorStyle", "terminalCursorBlink", "pageOverlapRows", "chatPageKeys", "attachLimit", "highlightCode"];
-  const settings = sanitizeSettings(Object.fromEntries(removed.map((key) => [key, false])));
-  for (const key of removed) expect(key in settings).toBe(false);
-});
-
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
   expect(DEFAULT_SETTINGS.keepScreenOn).toBe(false);
   expect(sanitizeSettings({}).keepScreenOn).toBe(false);

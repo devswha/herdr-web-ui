@@ -1348,10 +1348,10 @@ One set for both themes: the card is island black wherever it shows.
   an edge swipe) takes one step out and never leaves the app from inside Settings; the Back
   control, the X, Escape and the scrim take the same entries off. Beside the list, turning pages
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
-- Pages, in order: **Appearance** (theme, colors, contrast, density, language, sidebar rows), **Chat**
+- Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family, highlight code; then
-  **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, files at once, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
-  lines, Markdown width, Diff layout), **Terminal** (font size, 80 columns in a split, font family, wheel
+  **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, files at once; then **Quick replies**; then **File viewer**: wrap long
+  lines, Markdown width, Diff layout), **Terminal** (font size, font family, wheel
   speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings, then **Paging** with a 0–100 line overlap stepper; one line by default, zero for a full viewport), **Phone & devices** (the phone address,
   Keep screen on, Install; then Portal, where the server offers it; then paired devices),
