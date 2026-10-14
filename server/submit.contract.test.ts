@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS } from "./index.ts";
@@ -1325,6 +1325,98 @@ describe("typing without terminal attach, at the edges", () => {
       bare.stop();
     }
   }, 30_000);
+
+  for (const transition of ["none", "rejoin", "observe", "observe-back", "enter-connect"] as const) {
+    it(`clears a mirrored secret instead of entering it after ${transition} (#900)`, async () => {
+      // Given a real masked shell read and a second client keeping the mirror alive.
+      const label = `secret-${transition}`;
+      const output = join(root, `${label}.result`);
+      const script = join(root, `${label}.sh`);
+      writeFileSync(script, `printf 'Password:'; read -s p; printf 'got=%s' "\${#p}" > '${output}'\n`);
+      const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+        "workspace.create", { label: `herdr-web-ui-test-${label}`, cwd: root, focus: false },
+      );
+      workspaces.push(created.workspace.workspace_id);
+      const pane = created.root_pane.pane_id;
+      const bare = createServer({ port: 0, stateDir: join(root, label), terminalAttach: false });
+      const sender = await Socket.connect(bare.port);
+      const keeper = await Socket.connect(bare.port);
+      const entered = deferred();
+      const gate = deferred();
+      const originalSend = herdr.paneSendText;
+      const originalKeys = herdr.paneSendKeys;
+      const send = spyOn(herdr, "paneSendText").mockImplementation(async (paneId, text, socketPath, guard) => {
+        await originalSend(paneId, text, socketPath, guard);
+        if (paneId === pane && text === "sensitive900" && transition !== "enter-connect") {
+          entered.resolve();
+          await gate.promise;
+        }
+      });
+      const keys = spyOn(herdr, "paneSendKeys").mockImplementation(async (paneId, sent, socketPath, guard) => {
+        if (paneId === pane && sent.includes("Enter") && transition === "enter-connect") {
+          entered.resolve();
+          await gate.promise;
+        }
+        return originalKeys(paneId, sent, socketPath, guard);
+      });
+      let watcher: ReturnType<typeof watch> | undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // Subscribe before starting the reader; the command itself contains no prompt text.
+        const prompt = keeper.waitFor((message) => message.type === "pty-data" && message.pane_id === pane && message.data.includes("Password:"));
+        await attached(keeper, pane);
+        await herdr.paneSendText(pane, `exec bash '${script}'\n`);
+        await prompt;
+        await attached(sender, pane);
+        const completed = new Promise<string>((resolve, reject) => {
+          watcher = watch(root, (_event, filename) => {
+            if (filename !== `${label}.result` || !existsSync(output)) return;
+            const text = readFileSync(output, "utf8");
+            if (text) resolve(text);
+          });
+          timer = setTimeout(() => reject(new Error("masked read did not finish within 5s")), 5000);
+        });
+        const result = sender.waitFor((message) => message.type === "secret-result" && message.id === 900);
+        // When authority changes after the real text RPC, or while Enter connects.
+        sender.send({ type: "secret", id: 900, pane_id: pane, prompt: "Password:", secret: "sensitive900" });
+        await entered.promise;
+        if (transition === "rejoin" || transition === "enter-connect") {
+          sender.send({ type: "detach", pane_id: pane });
+          await attached(sender, pane);
+        } else if (transition === "observe" || transition === "observe-back") {
+          sender.send({ type: "role", mode: "observe" });
+          await sender.waitFor((message) => message.type === "role-ack" && message.mode === "observe");
+          if (transition === "observe-back") {
+            sender.send({ type: "role", mode: "interact" });
+            await sender.waitFor((message) => message.type === "role-ack" && message.mode === "interact");
+          }
+        }
+        gate.resolve();
+        const response = await result;
+        // Then controls keep normal delivery; regressions refuse stale authority and erase the buffer.
+        if (transition === "none") {
+          expect(response).toMatchObject({ ok: true }); // control
+          expect(await completed).toBe("got=12"); // control
+        } else {
+          expect(response).toMatchObject({
+            ok: false, code: transition.startsWith("observe") ? "read_only" : "not_attached",
+          }); // regression (fails on main)
+          await originalSend(pane, "X");
+          await originalKeys(pane, ["Enter"]);
+          expect(await completed).toBe("got=1"); // regression (fails on main)
+        }
+      } finally {
+        gate.resolve();
+        watcher?.close();
+        clearTimeout(timer);
+        send.mockRestore();
+        keys.mockRestore();
+        sender.close();
+        keeper.close();
+        bare.stop();
+      }
+    }, 30_000);
+  }
 
   it("presses no chord for a sender that switched to observe and back while herdr was being reached (#545)", async () => {
     const bare = createServer({ port: 0, stateDir: join(root, "push-role-keys"), terminalAttach: false });
