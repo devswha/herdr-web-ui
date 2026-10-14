@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary } from "./workBlocks.ts";
+import { formatWorkDuration, liveLine, splitTurn, workFailed, workStartsOpen, workSummary } from "./workBlocks.ts";
 import type { ConversationPart } from "../../shared/protocol.ts";
 
 const tool = (name: string, summary = name): Extract<ConversationPart, { kind: "tool" }> => ({ kind: "tool", name, summary, input: "{}", output: "" });
@@ -38,9 +38,9 @@ describe("workStartsOpen", () => {
   const commentary = (value: string) => ({ ...text(value), phase: "commentary" as const });
   const final = (value: string) => ({ ...text(value), phase: "final_answer" as const });
 
-  it("is open while the turn runs, whatever it holds", () => {
-    expect(workStartsOpen(true, [tool("read"), text("done")])).toBe(true);
-    expect(workStartsOpen(true, [tool("bash")])).toBe(true);
+  it("is folded while the turn runs, whatever it holds: its head says the newest row", () => {
+    expect(workStartsOpen(true, [tool("read"), text("done")])).toBe(false);
+    expect(workStartsOpen(true, [tool("bash")])).toBe(false);
   });
 
   it("folds a settled turn: its answer stays outside the fold", () => {
@@ -153,4 +153,18 @@ it("says the open block waits for the user while the agent is blocked, and only 
   // a settled turn keeps "Worked for …" whatever the pane's status
   expect(isWaitingWorkTurn(false, "blocked")).toBe(false);
   expect(isWaitingWorkTurn(true, undefined)).toBe(false);
+});
+
+describe("liveLine", () => {
+  it("is the first line with words, without the Markdown that opens it", () => {
+    expect(liveLine("\n\n## Checking the tests\nthen more")).toBe("Checking the tests");
+    expect(liveLine("- first item\n- second")).toBe("first item");
+    expect(liveLine("> 1. quoted step")).toBe("quoted step");
+    expect(liveLine("Reading `index.js` now.")).toBe("Reading `index.js` now.");
+  });
+
+  it("is empty for prose without words", () => {
+    expect(liveLine("  \n\t\n")).toBe("");
+    expect(liveLine("")).toBe("");
+  });
 });

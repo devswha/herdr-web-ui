@@ -729,6 +729,18 @@
   font-weight: var(--fw-medium);
 }
 
+/* a running block is one line: its newest row, cut with an ellipsis where the head ends */
+.work-block.is-live .work-block-title {
+  min-width: 0;
+}
+
+.work-block-live {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* the dot breathes, the words hold still (same rule as the RUN badge) */
 .work-block.is-live .work-block-title::before {
   content: "";

@@ -104,14 +104,20 @@ try {
   const report = (state: "working" | "idle") => herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state });
   const head = (expanded: boolean, title: string) => log.locator(`.work-block-head[aria-expanded="${expanded}"]`).filter({ hasText: title });
   await head(false, "Worked for 7s").waitFor();
+  const liveHead = (expanded: boolean) => log.locator(`.work-block.is-live .work-block-head[aria-expanded="${expanded}"]`);
   await report("working");
-  await head(true, "Working…").waitFor();
-  assert.equal(await log.locator(".work-block.is-folded").count(), 0, "the running turn's work is open");
+  await liveHead(false).waitFor();
+  assert.equal(await log.locator(".work-block.is-live.is-folded").count(), 1, "the running turn's work is one folded line");
+  const line = (await liveHead(false).locator(".work-block-live").innerText()).trim();
+  assert.ok(line.length > 0 && line !== "Working…", `the line says the newest thing the agent did (${JSON.stringify(line)})`);
+  assert.equal(await liveHead(false).locator(".work-block-summary").count(), 0, "a running line carries no counts");
+  assert.equal(await log.locator(".chat-activity").count(), 0, "the head says the agent works: no second line under it");
   await report("idle");
   await head(false, "Worked for 7s").waitFor();
-  // working inside the block is a choice to keep it: the fold must not take a focused row away
+  // opening the running block and working inside it is a choice to keep it: the fold must not take a focused row away
   await report("working");
-  await head(true, "Working…").waitFor();
+  await liveHead(false).click();
+  await liveHead(true).waitFor();
   // the row reads as verb + object (#457); its tool id is the title
   const toolRow = log.getByRole("button", { name: "Ran git status", exact: true });
   await toolRow.click();
@@ -122,8 +128,8 @@ try {
   await log.getByText("git status", { exact: true }).last().waitFor();
   await work.click();
   await head(false, "Worked for 7s").waitFor();
-  console.log("PASS the running turn's work is open, folds when it settles, and stays open under a reader working inside it");
-  assert.equal(await work.getAttribute("aria-expanded"), "false", "a settled turn folds its work: only a running turn is open");
+  console.log("PASS the running turn's work is one line of its newest row, and a block its reader opened stays open when the turn settles");
+  assert.equal(await work.getAttribute("aria-expanded"), "false", "a settled turn folds its work");
   assert.equal(await log.locator(".work-block.is-folded").count(), 1);
   assert.match(await work.innerText(), /Worked for 7s/);
   await work.click();

@@ -76,9 +76,8 @@ try {
     const box = await activity.boundingBox();
     assert.ok(box && box.y >= 0 && box.y + box.height <= viewport.height, "working status is visible above the composer");
     appendFileSync(path, event({ sessionUpdate: "tool_call", toolCallId: `activity-${promptIndex}`, title: `Activity tool ${promptIndex}`, rawInput: { path: "fiction.txt" } }));
-    // a tool row opens the turn's work block, whose head says Working: the line under it goes
-    await log.locator(".work-block.is-live .work-row-head").last().waitFor({ state: "visible" });
-    await log.locator(".work-block.is-live .work-block-title", { hasText: "Working…" }).waitFor();
+    // a tool row starts the turn's work block, whose one line says it: the line under it goes
+    await log.locator(".work-block.is-live.is-folded .work-block-live").waitFor({ state: "visible" });
     await activity.waitFor({ state: "detached" });
     if (viewport.width === 390 && process.env.UI_EVIDENCE_DIR) {
       mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });

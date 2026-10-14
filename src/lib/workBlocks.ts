@@ -31,7 +31,8 @@ export function splitTurn(parts: ConversationPart[]): SplitTurn {
 }
 
 /**
- * A work block is open while its turn runs and folded once the turn settles: the answer stays
+ * A work block is folded while its turn runs, its head saying the latest thing the agent did
+ * (after T3 Code's live work line), and stays folded once the turn settles: the answer is
  * outside the fold, so a finished turn reads as its answer under one "Worked for" row.
  *
  * A settled turn keeps its block open when the work holds words the answer does not end on:
@@ -40,11 +41,23 @@ export function splitTurn(parts: ConversationPart[]): SplitTurn {
  * thing the agent said, or all of it. It takes the turn's parts, not the split: the order decides.
  */
 export function workStartsOpen(live: boolean, parts: ConversationPart[]): boolean {
-  if (live) return true;
+  if (live) return false;
   const lastAnswer = splitTurn(parts).answer.at(-1);
   const after = lastAnswer === undefined ? 0 : parts.lastIndexOf(lastAnswer) + 1;
   // everything readable after the last answer part is work: it is inside the fold
   return parts.slice(after).some((part) => part.kind === "text" && part.text.trim().length > 0);
+}
+
+/**
+ * The one line a running block's head shows of the agent's narration: its first line with words,
+ * without the Markdown that opens a heading, a quote or a list item.
+ */
+export function liveLine(text: string): string {
+  for (const line of text.split("\n")) {
+    const words = line.replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)*/u, "").trim();
+    if (words.length > 0) return words;
+  }
+  return "";
 }
 
 type WorkCategory = "edit" | "read" | "command" | "other";

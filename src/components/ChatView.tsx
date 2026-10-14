@@ -34,7 +34,7 @@ import { copyText } from "../lib/clipboard.ts";
 import { attachmentFileName, mentionFileName, type GalleryImage } from "../lib/imageViewer.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
-import { isLiveWorkTurn, isWaitingWorkTurn, formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
+import { isLiveWorkTurn, isWaitingWorkTurn, formatWorkDuration, liveLine, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
@@ -397,6 +397,18 @@ function ThinkingRow({ text, stateKey }: { text: string; stateKey: string }) {
   </div>;
 }
 
+/** A running block's head: the newest row as one line, cut where the head ends. */
+function LiveWorkLine({ part }: { part: ConversationPart }) {
+  const t = useT();
+  if (part.kind === "thinking") return <span className="work-block-live">{t("Thinking…")}</span>;
+  if (part.kind === "text") return <span className="work-block-live">{liveLine(part.text) || t("Working…")}</span>;
+  if (part.kind !== "tool") return <span className="work-block-live">{t("Working…")}</span>;
+  const summary = part.arguments_omitted ? "" : todoCallSummary(part) ?? part.summary;
+  const { verb, narration } = workRowLabel({ name: part.name, input: part.input }, summary);
+  const name = narration ? "" : verb !== null ? t(verb) : part.name;
+  return <span className="work-block-live">{[name, summary !== part.name ? summary : ""].filter((word) => word.length > 0).join(" ")}</span>;
+}
+
 /**
  * Everything the agent did on the way — tool calls, reasoning and the narration
  * between them — under one header ("Worked for 7s · 1 edit"). Rows stay one line
@@ -413,13 +425,15 @@ function WorkBlockView({ paneId, parts, duration, live, waiting, defaultOpen, sh
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
   const failed = workFailed(parts);
-  // a blocked agent is not working: the open block takes the sidebar's words for it
-  const title = waiting ? t("Needs you") : live ? t("Working…") : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
+  // a blocked agent is not working: the block takes the sidebar's words for it. A running one says
+  // the newest thing it did on its one line, the rows behind the fold
+  const title = waiting ? t("Needs you") : live ? <LiveWorkLine part={visible.at(-1)!} /> : duration !== null ? t("Worked for {duration}", { duration }) : t("Worked");
   return <section className={`work-block${live ? " is-live" : ""}${waiting ? " is-waiting" : ""}${open ? "" : " is-folded"}`}>
     <button type="button" className="work-block-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className="work-row-caret" aria-hidden="true">{open ? <ChevronDown /> : <ChevronRight />}</span>
       <span className="work-block-title">{title}</span>
-      {summary.length > 0 && <span className="work-block-summary">· {summary}</span>}
+      {/* the counts sum a finished turn up; a running one's line is what it does now */}
+      {summary.length > 0 && !(live && !waiting) && <span className="work-block-summary">· {summary}</span>}
       {/* its own span: the counts before it are cut on a narrow screen, a failure never is */}
       {failed > 0 && <span className="work-block-failed">· {t("{n} failed", { n: failed })}</span>}
     </button>
@@ -1275,6 +1289,8 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
   // the last turn is an open work block, whose head already says the agent works
   const lastShownTurn = state.source === "conversation" ? shownTurns.at(-1) : undefined;
   const workBlockLive = lastShownTurn !== undefined && isLiveWorkTurn(lastShownTurn, true, workStatus, finishedBeforeSend);
+  // a running turn draws a block only for work it may show: a text-only answer has none, nor one that only thought with thinking hidden
+  const workBlockDrawn = workBlockLive && splitTurn(lastShownTurn!.parts).work.some((part) => part.kind !== "skill" && (settings.showThinking || part.kind !== "thinking"));
   const empty = state.source === "conversation" ? turns.length === 0 : agent === null && state.messages.length === 0;
   const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, older: typeof olderCursor === "string", abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
   // the scrollback standing in says nothing of the conversation: it has no history to compare
@@ -1387,10 +1403,11 @@ export const ChatView = memo(function ChatView({ paneId, cwd = null, onOpenDiff,
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && error === null && agent === "grok" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Grok chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
       {loaded && error === null && agent === "agy" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Antigravity chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
-      {/* A native turn's activity, where no open work block says it: before the turn has an assistant
-          or tool row, and while it thinks (a work block's head says Working). One Working at a time. */}
-      {state.activity !== undefined && connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && (activity === "thinking" || !workBlockLive) && <p className="chat-activity" role="status"><CircleDot aria-hidden="true" />{activity === "thinking" ? t("Thinking…") : t("Working…")}</p>}
-      {loaded && empty && error === null && prompt === null && (state.activity === undefined || activity === "idle") && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {/* That the agent works, where no work block's head says it: before the turn has a row, through an
+          answer written without tools, and while a native turn thinks. One line at a time, and none for a
+          shell, whose command is no turn. */}
+      {(state.activity !== undefined || agent !== null) && connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && (activity === "thinking" || !workBlockDrawn) && <p className="chat-activity" role="status"><CircleDot aria-hidden="true" />{activity === "thinking" ? t("Thinking…") : t("Working…")}</p>}
+      {loaded && empty && error === null && prompt === null && (activity === "idle" || (state.activity === undefined && agent === null)) && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
   </>;
   const jump = newMessages ? <button type="button" className="btn chat-new-messages chat-virtual-jump" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
