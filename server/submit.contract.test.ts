@@ -1326,13 +1326,16 @@ describe("typing without terminal attach, at the edges", () => {
     }
   }, 30_000);
 
-  for (const transition of ["none", "rejoin", "observe", "observe-back", "enter-connect"] as const) {
-    it(`clears a mirrored secret instead of entering it after ${transition} (#900)`, async () => {
+  for (const { secret, transition } of ["sensitive900", "\u{1F642}"].flatMap((secret) =>
+    (["none", "rejoin", "observe", "observe-back", "enter-connect"] as const).map((transition) => ({ secret, transition })),
+  )) {
+    const encoding = secret === "sensitive900" ? "ASCII" : "multibyte";
+    it(`clears a mirrored ${encoding} secret instead of entering it after ${transition} (#900)`, async () => {
       // Given a real masked shell read and a second client keeping the mirror alive.
-      const label = `secret-${transition}`;
+      const label = `secret-${encoding}-${transition}`;
       const output = join(root, `${label}.result`);
       const script = join(root, `${label}.sh`);
-      writeFileSync(script, `printf 'Password:'; read -s p; printf 'got=%s' "\${#p}" > '${output}'\n`);
+      writeFileSync(script, `printf 'Password:'; read -s p; printf '%s' "$p" | od -An -tx1 | tr -d '[:space:]' > '${output}'\n`);
       const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
         "workspace.create", { label: `herdr-web-ui-test-${label}`, cwd: root, focus: false },
       );
@@ -1347,7 +1350,7 @@ describe("typing without terminal attach, at the edges", () => {
       const originalKeys = herdr.paneSendKeys;
       const send = spyOn(herdr, "paneSendText").mockImplementation(async (paneId, text, socketPath, guard) => {
         await originalSend(paneId, text, socketPath, guard);
-        if (paneId === pane && text === "sensitive900" && transition !== "enter-connect") {
+        if (paneId === pane && text === secret && transition !== "enter-connect") {
           entered.resolve();
           await gate.promise;
         }
@@ -1378,7 +1381,7 @@ describe("typing without terminal attach, at the edges", () => {
         });
         const result = sender.waitFor((message) => message.type === "secret-result" && message.id === 900);
         // When authority changes after the real text RPC, or while Enter connects.
-        sender.send({ type: "secret", id: 900, pane_id: pane, prompt: "Password:", secret: "sensitive900" });
+        sender.send({ type: "secret", id: 900, pane_id: pane, prompt: "Password:", secret });
         await entered.promise;
         if (transition === "rejoin" || transition === "enter-connect") {
           sender.send({ type: "detach", pane_id: pane });
@@ -1396,14 +1399,14 @@ describe("typing without terminal attach, at the edges", () => {
         // Then controls keep normal delivery; regressions refuse stale authority and erase the buffer.
         if (transition === "none") {
           expect(response).toMatchObject({ ok: true }); // control
-          expect(await completed).toBe("got=12"); // control
+          expect(await completed).toBe(Buffer.from(secret).toString("hex")); // control
         } else {
           expect(response).toMatchObject({
             ok: false, code: transition.startsWith("observe") ? "read_only" : "not_attached",
           }); // regression (fails on main)
           await originalSend(pane, "X");
           await originalKeys(pane, ["Enter"]);
-          expect(await completed).toBe("got=1"); // regression (fails on main)
+          expect(await completed).toBe("58"); // only X; no residual secret bytes
         }
       } finally {
         gate.resolve();
