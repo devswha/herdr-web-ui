@@ -43,7 +43,6 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Text/primary | `--text` | `#d8d0c3` | `#2a251f` |
 | Text/dim | `--text-dim` | `#9b9183` | `#685e52` |
 | Text/strong | `--text-strong` | `#f2ebdf` | `#16120d` |
-| Contrast pole | `--contrast-far` | `#ffffff` | `#000000` |
 | Accent | `--accent` | `#f0a830` | `#8c5000` |
 | Accent/tint | `--accent-tint` | `rgba(240, 168, 48, 0.13)` | `rgba(140, 80, 0, 0.1)` |
 | Primary | `--primary` | `#f0a830` | `#c57d12` |
@@ -147,35 +146,6 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
   `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha
   overlay2 `#9399b2` (5.8:1), Latte `#64677d` (subtext0 darkened to 4.9:1 on `--bg`).
 
-### Contrast
-
-Settings → Appearance → Contrast moves text and hairlines away from or toward the surfaces in
-whole steps, `-2` to `+3` (`settings.contrast`, this device's; `src/lib/contrast.ts`). The step is
-written on `<html>` as `data-contrast`, and not at all at the default `0`, so the palette is drawn
-exactly as its block says until a step is chosen. The mix is made under `<html>`, on `body` and on
-a leaving sheet's copy of the page (`lib/sheets.ts`), from `*-base` copies of the palette's values
-that `:root` makes (`--text-base`, `--text-dim-base`, `--text-strong-base`, `--border-base`,
-`--border-strong-base`, `--line-number-base`, `--syntax-comment-base`): a token cannot be mixed
-from itself on the element whose block sets it.
-
-| Step | `--text`, `--text-strong` | `--text-dim`, `--line-number`, `--syntax-comment` | `--border`, `--border-strong` |
-|------|------|------|------|
-| `+3` | 60% toward `--contrast-far` | 60% toward `--contrast-far` | 30% toward `--text` |
-| `+2` | 40% toward `--contrast-far` | 40% toward `--contrast-far` | 20% toward `--text` |
-| `+1` | 20% toward `--contrast-far` | 20% toward `--contrast-far` | 10% toward `--text` |
-| `0` | the palette's | the palette's | the palette's |
-| `-1` | 25% toward `--text-dim` | the palette's | 25% transparent |
-| `-2` | 50% toward `--text-dim` | the palette's | 50% transparent |
-
-Text mixes in oklab, hairlines in sRGB. `--contrast-far` is the pole beyond `--text-strong`: white
-in dark, black in light. A step down never touches `--text-dim`: it is the dimmest text, the one
-every palette keeps at 4.5:1 on each surface it sits on, with no room under it (dark charcoal
-`4.54:1` and light amber `4.92:1` on `--bg-hover`, the tightest). `--text` and `--text-strong`
-only move toward it, so at `-2` the lowest of them on any surface is light Catppuccin's `5.3:1`,
-and every 4.5:1 rule of this document holds at `-2` as at `0`; a step up only raises ratios. The
-chat's user bubble edge (`--bubble-border`), the popover ring in `--shadow-pop`, the agent state
-colors and the terminal (xterm reads `terminalTheme()`) keep the palette's values at every step.
-
 ### Rules
 - Amber is the one chrome color. Accent (selected, focused, informational) and primary (the user's
   action: Send, primary buttons) are both amber; in light, accent is the darker text-safe ochre and
@@ -213,8 +183,8 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
 | Token | Value | Usage |
 |-------|-------|-------|
 | `--ui-scale` | `1`; Settings → Appearance → Interface font size over the density's body size, written on `<html>` | Multiplies every `--fs-*` token but `--fs-input` |
-| `--font-ui` | `"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif`; a chosen Interface font goes in front of it, written as the token on `<html>` (`src/lib/typography.ts` keeps the stack verbatim) | Chrome and chat prose |
-| `--font-mono` | `"Symbols Nerd Font Mono", "JetBrains Mono Web", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace`; a chosen Code font goes after the icon font, the same way | Code, paths, keys, terminal-adjacent metadata |
+| `--font-ui` | `"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif` | Chrome and chat prose |
+| `--font-mono` | `"Symbols Nerd Font Mono", "JetBrains Mono Web", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace` | Code, paths, keys, terminal-adjacent metadata |
 | `--lh-tight` | `1.2` | Titles |
 | `--lh-base` | `1.5` comfortable / `1.45` compact | Body copy |
 | `--lh-code` | `1.6` | Code blocks; the message box with a mouse |
@@ -259,27 +229,23 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
 - `palette`: `amber`, `charcoal` or `catppuccin`; default `amber`. A removed palette (`report`,
   `lilac`, `forest`) loads as `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
-- `contrast`: a whole step from `-2` to `+3`; default `0`, the palette as drawn (Contrast, above).
 - `sidebarRows`: `one` or `two`; default `two`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
   During a two-finger pinch the font follows the fingers live and a badge above the grid shows the
   size in pixels; the grid refits locally and the shared pty resizes once when a finger lifts.
   Cancellation restores the starting size.
 - A split pane that would have fewer than 80 columns at that size draws in the largest smaller
-  whole-pixel size that gives it 80, never below `10px` (Settings → Terminal → Fit 80 columns in
-  a split pane, on by default). A pane alone in its tab or zoomed, a pane that `10px` cannot bring
+  whole-pixel size that gives it 80, never below `10px`. A pane alone in its tab or zoomed, a pane that `10px` cannot bring
   to 80 columns, and a pane this browser only watches or mirrors keep the user's size. The saved
   size never changes for this; in such a pane a pinch still saves the size it shows, and the pane
   draws it once it has the room.
 - Interface font size (`uiFontSize`): the body size (`--fs-md`) in px, `11–20px`, `null` follows the
   density (`14px` comfortable, `13px` compact); it reaches CSS as `--ui-scale` (above). The chat follows
   it until it has a size of its own; the terminal keeps its own size.
-- Terminal, chat, interface and code font families are comma-separated lists, default empty. They go in
-  front of the built-in fonts, never in place of them: the terminal's (after the bundled Symbols Nerd
-  Font Mono, which only draws icons), `--font-ui` in the chat's prose (as `--font-chat`), `--font-ui`
-  itself for the interface (`uiFontFamily`: the chrome, and the chat's prose until it has a font of its
-  own) and `--font-mono` after the icon font for code (`codeFontFamily`: code blocks, the file viewer,
-  diffs, paths and keycaps; the terminal keeps its own). Code in the chat keeps `--font-mono`. A file
+- Terminal and chat font families are comma-separated lists, default empty. They go in front of the
+  built-in fonts, never in place of them: the terminal's (after the bundled Symbols Nerd Font Mono,
+  which only draws icons) and `--font-ui` in the chat's prose (as `--font-chat`). The interface keeps
+  `--font-ui` and code keeps `--font-mono`. A file
   viewer's Markdown preview takes the chat font size and family too.
   At most 200 characters, with `;`, `{`, `}`, `<`,
   `>`, `\` and control characters stripped and names with spaces quoted.
@@ -712,16 +678,12 @@ One set for both themes: the card is island black wherever it shows.
   account in the user's order: provider mark, mono `--fs-2xs` percent of the limit chosen in
   Settings, the plan's week or its session (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
   filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
-  chrome. A limit that runs out before its reset at its pace so far takes `--status-blocked` on
-  the bar alone. A chip whose numbers are stale or missing dims. An account hidden in Settings is
+  chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
   footer and scrolling when it outgrows the sidebar: per account its mark, name and plan pill with
   the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
-  note is dim, red for an expired sign-in or a failed request. Where the window's start is known, a
-  2px `--text-strong` mark on the bar sits where an even pace would be by now, and a dim `--fs-2xs`
-  line under it gives the rate, with **Runs out in …** in `--status-blocked` when it comes before
-  the reset; once that time has gone by it reads **Runs out before reset** until the reset.
+  note is dim, red for an expired sign-in or a failed request.
 
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
@@ -1517,21 +1479,20 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Timing
 
-The values are the ones in `src/styles.css`: `--motion-scale` is the panel motion factor, which Settings → Appearance → Panel motion writes on `<html>`, and it multiplies `--dur-base`, `--dur-sheet` and `--dur-sheet-out`.
+The values are the ones in `src/styles.css`.
 
 | Type | Token | Value | Usage |
 |------|-------|-------|-------|
 | Micro | `--dur-fast` | `120ms` | Hover, active, toggle and control state |
-| Scale | `--motion-scale` | `1` | Factor on `--dur-base`, `--dur-sheet` and `--dur-sheet-out`; Settings → Panel motion writes it on `<html>` (Off `0`, Fast `0.5`, Default `1`, Slow `1.75`) |
-| Standard | `--dur-base` | `calc(180ms * var(--motion-scale))` | Drawer slide; reserved dialog timing token |
+| Standard | `--dur-base` | `180ms` | Drawer slide; reserved dialog timing token |
 | Pulse | `--dur-pulse` | `1600ms` | Working and reconnecting dots (trough opacity 0.35; text never pulses) |
 | Spin | `--dur-spin` | `1600ms` | One turn of a stepped spinner (the command palette's busy arc); the step count sets the frame rate |
 | Breathe | `--dur-breathe` | `2000ms` | The sidebar's working dot: full for 40% of the cycle, six steps down to opacity 0.5, held, six steps back; every dot shares the document clock's phase, so several runs breathe together. It replaced a spinning arc that read as flicker beside the rows |
 | Easing | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Finite transitions |
 | Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Endless working and reconnecting dots; avoids drawing every display refresh |
 | Spring easing | `--ease-spring` | `cubic-bezier(0.32, 0.72, 0, 1)` | Voice recording pill enter (180ms, scale 0.96->1 + opacity, from the mic button) and exit (120ms); a phone's sheet rising and springing back |
-| Sheet in | `--dur-sheet` | `calc(360ms * var(--motion-scale))` | A phone's sheet rising, and springing back after a short drag |
-| Sheet out | `--dur-sheet-out` | `calc(240ms * var(--motion-scale))` | A phone's sheet dropping, however it closed |
+| Sheet in | `--dur-sheet` | `360ms` | A phone's sheet rising, and springing back after a short drag |
+| Sheet out | `--dur-sheet-out` | `240ms` | A phone's sheet dropping, however it closed |
 
 ### Rules
 - Only state changes move: hover/press, the drawer, a phone's sheets, settings switches, working and

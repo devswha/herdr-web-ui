@@ -1650,8 +1650,6 @@ export function App() {
                         autoSelected={active ? autoSelected : true}
                         terminalFontSize={settings.terminalFontSize}
                         split={herdrSplit || splitOn}
-                        terminalCursorStyle={settings.terminalCursorStyle}
-                        terminalCursorBlink={settings.terminalCursorBlink}
                         terminalWheelSpeed={settings.terminalWheelSpeed}
                         terminalFontFamily={settings.terminalFontFamily}
                         theme={resolvedTheme}

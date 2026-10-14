@@ -2204,24 +2204,9 @@ try {
   assert.equal(await mobileComposer.inputValue(), "run the tests", "the chip puts the suggestion in the box");
   await mobilePage.unroute(promptRoute);
   try { await mobileEvidence?.finish(); } finally { await mobile.close(); }
-  const plainPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-  await plainPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: false })); });
-  const plainPage = await plainPhone.newPage();
-  const plainEvidence = evidenceDirectory ? await watchBrowserEvidence(plainPhone, plainPage, "suggestion-chip-off") : undefined;
-  csp.push(await watchCsp(plainPage));
-  plainPage.on("pageerror", (error) => errors.push(error.message));
-  await plainPage.route(promptRoute, (route) => route.fulfill(suggest));
-  await plainPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
-  await plainPage.locator(".conn-live").waitFor();
-  await plainPage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
-  const plainComposer = plainPage.getByRole("textbox", { name: "Message", exact: true });
-  await until(async () => await plainComposer.getAttribute("placeholder") === "run the tests", "the suggestion stays the placeholder with the chip off");
-  assert.equal(await plainPage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip once Settings turns it off");
-  if (plainEvidence) await plainEvidence.finish();
-  await plainPhone.close();
   assert.equal(errors.length, 0, errors.join("\n"));
   assertCspClean(csp, "the suggestion chip loads with no CSP violation");
-  console.log("PASS a phone offers Claude's suggestion as a chip until Settings turns it off");
+  console.log("PASS a phone offers Claude's suggestion as a chip");
 
   await checkTerminalInput(browser, origin, paneA, paneB);
   await checkSafariIme(browser, origin, paneA, paneB);

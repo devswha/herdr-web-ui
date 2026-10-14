@@ -986,8 +986,8 @@ export function Composer({
     : hint === "no-room" ? t("No room for {file}: remove {count} characters", { file: roomless?.file.name ?? "", count: roomless?.missing ?? 0 })
     : hint === "near-limit" ? t("{count} characters left", { count: MAX_COMPOSER_CHARS - text.length })
     : t(hint === "uploading" ? "Uploading file…" : "Reconnecting… message held here, never queued");
-  /** the strip under the card: the folder and the branch the caller knows; none, or turned off, no strip */
-  const strip = settings.showComposerStrip ? composerStrip({ cwd, branch, repo: worktreeRepo }) : null;
+  /** the strip under the card: the folder and the branch the caller knows; none, no strip */
+  const strip = composerStrip({ cwd, branch, repo: worktreeRepo });
   const worktree = worktreeRepo !== null;
   const menuId = `composer-menu-${paneId}`;
   // the arrow keys move the selection, not the focus (it stays in the box), so the browser does not scroll to it
@@ -999,8 +999,8 @@ export function Composer({
     <div className={`composer${notices ? " has-notices" : ""}`} role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined}>
       {greeting}
       {notices}
-      {/* no Tab key on a phone: the suggestion is a chip there that fills the box, unless Settings turns it off */}
-      {settings.showSuggestionChip && offered !== null && text === "" && (
+      {/* no Tab key on a phone: the suggestion is a chip there that fills the box */}
+      {offered !== null && text === "" && (
         <div className="composer-quick composer-suggestion-row">
           <button type="button" className="composer-quick-reply composer-suggestion" title={t("Use the suggestion")} onClick={() => setTextAndCaret(offered, offered.length)}>
             <span aria-hidden="true">↹ </span>{offered}

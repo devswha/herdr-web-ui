@@ -45,7 +45,7 @@ import { PendingMessages } from "./PendingMessages.tsx";
 import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, PlanSummary, ServerMessage } from "../../shared/protocol.ts";
 import type { PaneControls, PaneView } from "../lib/actions.ts";
 import { usePaneLane } from "../lib/chatLane.ts";
-import { useSettings, terminalTheme, type Palette, type ResolvedTheme, type TerminalCursorStyle } from "../lib/settings.ts";
+import { useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -112,10 +112,6 @@ export interface PaneTerminalProps {
   terminalFontSize: number;
   /** one of several panes drawn side by side: under 80 columns its font shrinks to reach them */
   split?: boolean;
-  /** xterm cursorStyle (settings); a program's own DECSCUSR still changes it, as before this setting existed */
-  terminalCursorStyle: TerminalCursorStyle;
-  /** xterm cursorBlink (settings) */
-  terminalCursorBlink: boolean;
   /** mouse reports sent per wheel event (settings): 1 is xterm's own one report */
   terminalWheelSpeed: number;
   /** fonts tried before the built-in stack (settings); "" keeps the built-in one */
@@ -165,8 +161,6 @@ export function PaneTerminal({
   autoSelected = false,
   terminalFontSize,
   split = false,
-  terminalCursorStyle,
-  terminalCursorBlink,
   terminalWheelSpeed,
   terminalFontFamily,
   theme,
@@ -352,7 +346,7 @@ export function PaneTerminal({
   // Settings → Use alongside herdr's own window: off (the default), a tab out of use keeps its pane and its size
   const releaseAwayRef = useRef(settings.releasePaneAway);
   releaseAwayRef.current = settings.releasePaneAway;
-  const narrowFont = split && settings.narrowPaneFont;
+  const narrowFont = split;
   const narrowFontRef = useRef(narrowFont);
   narrowFontRef.current = narrowFont;
   const narrowFontFitted = useRef(narrowFont);
@@ -539,8 +533,9 @@ export function PaneTerminal({
     const linkPressed = (event: MouseEvent): boolean => event.button === 0 && !term.hasSelection();
     const term = new Terminal({
       convertEol: false,
-      cursorStyle: terminalCursorStyle,
-      cursorBlink: terminalCursorBlink,
+      // a program's own DECSCUSR still changes the cursor
+      cursorStyle: "block",
+      cursorBlink: true,
       // xterm keeps no scrollback: the attach stream lives in the alternate screen and herdr
       // owns scrollback (wheel and touch go to it). With scrollback on, the fit addon reserves
       // a scrollbar column - 15px by fallback wherever scrollbars are overlays - and the last
@@ -1958,15 +1953,6 @@ export function PaneTerminal({
     const term = termRef.current;
     if (term) term.options.theme = terminalTheme(theme, palette);
   }, [theme, palette]);
-
-  // the cursor's shape and blink follow too; a program's own DECSCUSR still overrides them until
-  // the next change here, as it already could when they were fixed
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
-    term.options.cursorStyle = terminalCursorStyle;
-    term.options.cursorBlink = terminalCursorBlink;
-  }, [terminalCursorStyle, terminalCursorBlink]);
 
   // the font follows too, and a font change moves the grid. xterm measures the cell (and the DOM
   // renderer its glyph widths) when fontFamily or fontSize changes, and setting the same value

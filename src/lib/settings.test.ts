@@ -15,11 +15,10 @@ it("keeps a tab's pane while out of use until this device turns the pause on", (
   expect(sanitizeSettings({ releasePaneAway: "true" }).releasePaneAway).toBe(false);
 });
 
-it("shrinks a narrow split pane's font until this device turns it off", () => {
-  expect(DEFAULT_SETTINGS.narrowPaneFont).toBe(true);
-  expect(sanitizeSettings({}).narrowPaneFont).toBe(true);
-  expect(sanitizeSettings({ narrowPaneFont: false }).narrowPaneFont).toBe(false);
-  expect(sanitizeSettings({ narrowPaneFont: "false" }).narrowPaneFont).toBe(true);
+it("drops the settings that were removed from a stored record", () => {
+  const removed = ["contrast", "fontSmoothing", "panelMotion", "uiFontFamily", "codeFontFamily", "usagePace", "showSuggestionChip", "showComposerStrip", "narrowPaneFont", "terminalCursorStyle", "terminalCursorBlink"];
+  const settings = sanitizeSettings(Object.fromEntries(removed.map((key) => [key, false])));
+  for (const key of removed) expect(key in settings).toBe(false);
 });
 
 it("keeps the screen wake lock off until this device explicitly enables it", () => {
@@ -44,19 +43,6 @@ it("takes twenty files from one paste, pick or drop unless this device chose ano
   expect(sanitizeSettings({ attachLimit: 0 }).attachLimit).toBe(1);
   expect(sanitizeSettings({ attachLimit: "8" }).attachLimit).toBe(20);
   expect(SETTING_SCOPE.attachLimit).toBe("device");
-});
-
-it("keeps the terminal cursor at a block that blinks unless a saved shape or blink says otherwise", () => {
-  expect(DEFAULT_SETTINGS.terminalCursorStyle).toBe("block");
-  expect(DEFAULT_SETTINGS.terminalCursorBlink).toBe(true);
-  expect(sanitizeSettings({}).terminalCursorStyle).toBe("block");
-  expect(sanitizeSettings({}).terminalCursorBlink).toBe(true);
-  expect(sanitizeSettings({ terminalCursorStyle: "bar" }).terminalCursorStyle).toBe("bar");
-  expect(sanitizeSettings({ terminalCursorStyle: "underline" }).terminalCursorStyle).toBe("underline");
-  // a value no shape answers for falls back, never breaking the UI on a stale or hand-edited record
-  expect(sanitizeSettings({ terminalCursorStyle: "pipe" }).terminalCursorStyle).toBe("block");
-  expect(sanitizeSettings({ terminalCursorBlink: false }).terminalCursorBlink).toBe(false);
-  expect(sanitizeSettings({ terminalCursorBlink: "false" }).terminalCursorBlink).toBe(true);
 });
 
 it("keeps sidebar rows on two lines unless one line was chosen", () => {
@@ -105,8 +91,6 @@ describe("telemetry settings snapshot", () => {
       agentMarks: "mono",
       palette: "catppuccin",
       terminalFontSize: 22,
-      terminalCursorStyle: "underline",
-      terminalCursorBlink: false,
       terminalWheelSpeed: 10,
       chatFontSize: 11,
       chatWidth: "wide",
@@ -133,8 +117,8 @@ describe("telemetry settings snapshot", () => {
       agentMarks: "mono",
       palette: "catppuccin",
       terminalFontSize: 22,
-      terminalCursorStyle: "underline",
-      terminalCursorBlink: false,
+      terminalCursorStyle: "block",
+      terminalCursorBlink: true,
       terminalWheelSpeed: 10,
       chatFontSize: 11,
       chatWidth: "wide",
@@ -535,24 +519,6 @@ describe("microphone button", () => {
   });
 });
 
-describe("composer strip", () => {
-  it("stays on until turned off in settings", () => {
-    expect(DEFAULT_SETTINGS.showComposerStrip).toBe(true);
-    expect(sanitizeSettings({}).showComposerStrip).toBe(true);
-    expect(sanitizeSettings({ showComposerStrip: false }).showComposerStrip).toBe(false);
-    expect(sanitizeSettings({ showComposerStrip: "no" }).showComposerStrip).toBe(true);
-  });
-});
-
-describe("suggestion chip", () => {
-  it("stays on until turned off in settings", () => {
-    expect(DEFAULT_SETTINGS.showSuggestionChip).toBe(true);
-    expect(sanitizeSettings({}).showSuggestionChip).toBe(true);
-    expect(sanitizeSettings({ showSuggestionChip: false }).showSuggestionChip).toBe(false);
-    expect(sanitizeSettings({ showSuggestionChip: "no" }).showSuggestionChip).toBe(true);
-  });
-});
-
 describe("quick replies row", () => {
   it("stays hidden until chosen in settings", () => {
     expect(DEFAULT_SETTINGS.showQuickReplies).toBe(false);
@@ -562,10 +528,6 @@ describe("quick replies row", () => {
     expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
     expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
     expect(DEFAULT_SETTINGS.usageCount).toBe("used");
-    // the pace is shown only once chosen
-    expect(DEFAULT_SETTINGS.usagePace).toBe(false);
-    expect(sanitizeSettings({ usagePace: true }).usagePace).toBe(true);
-    expect(sanitizeSettings({ usagePace: "yes" }).usagePace).toBe(false);
     expect(sanitizeSettings({ usageCount: "left" }).usageCount).toBe("left");
     expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("used");
     expect(DEFAULT_SETTINGS.usageGlance).toBe("week");
