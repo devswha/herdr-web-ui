@@ -1992,6 +1992,119 @@ describe("WebSocket roles and status push", () => {
     }
   }, 60_000);
 
+  // #472: a device that goes back to its chat lens gives the shared pty back to a terminal still
+  // showing, without waiting for that terminal's own resize, focus or click
+  describe("release-size", () => {
+    const ws = () => RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    // the shell's `stty size` goes to a file of its own per ask: herdr redraws the pane's screen as
+    // cell updates, so the same answer twice never reads back from the stream. Asked again until the
+    // deadline: herdr applies a pty resize to the pane a moment after it.
+    let asks = 0;
+    const shellSees = async (socket: RecordingSocket, paneId: string, size: string) => {
+      const want = size.replace("x", " ");
+      let last = "";
+      for (const deadline = Date.now() + 15_000; Date.now() < deadline;) {
+        const file = join(tmpdir(), `herdr-web-ui-release-size-${process.pid}-${++asks}`);
+        socket.send({ type: "input", pane_id: paneId, text: `stty size > ${file}.part && mv ${file}.part ${file}\r` });
+        for (const answered = Date.now() + 1000; Date.now() < answered && !existsSync(file);) await Bun.sleep(25);
+        if (!existsSync(file)) continue;
+        last = readFileSync(file, "utf8").trim();
+        rmSync(file, { force: true });
+        if (last === want) return;
+      }
+      throw new Error(`the shell saw "${last}", not "${want}"`);
+    };
+    const attach = async (socket: RecordingSocket, paneId: string, cols: number, rows: number) => {
+      socket.send({ type: "attach", pane_id: paneId, cols, rows });
+      await socket.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
+    };
+
+    it("returns the pty to the desktop's grid when the phone leaves the terminal lens", async () => {
+      const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-release-size" });
+      const paneId = created.root_pane.pane_id;
+      const desktop = await ws();
+      const phone = await ws();
+      try {
+        await attach(desktop, paneId, 120, 40);
+        // the phone opens the terminal lens: its viewport takes the shared grid
+        await attach(phone, paneId, 53, 33);
+        await desktop.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 53, "the phone took the grid", 5000);
+        await shellSees(desktop, paneId, "33x53");
+
+        desktop.seen.length = 0;
+        phone.send({ type: "release-size", pane_id: paneId });
+        // regression (fails on main): the desktop's grid comes back within 1 s, with no desktop frame sent
+        expect(await desktop.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "the grid given back", 1000)).toMatchObject({ cols: 120, rows: 40 });
+        // regression (fails on main): the shell in the pane sees the desktop's grid
+        await shellSees(desktop, paneId, "40x120");
+        // control: one server resize for the release, no ping-pong after it
+        expect(desktop.seen.filter((m) => m.type === "pane-geometry" && m.pane_id === paneId)).toHaveLength(1);
+      } finally {
+        desktop.close();
+        phone.close();
+        await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+      }
+    }, 60_000);
+
+    it("never overwrites a resize another client sends after the release", async () => {
+      const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-release-size-race" });
+      const paneId = created.root_pane.pane_id;
+      const desktop = await ws();
+      const phone = await ws();
+      const third = await ws();
+      try {
+        await attach(desktop, paneId, 120, 40);
+        await attach(phone, paneId, 53, 33);
+        // the third client watches from the chat lens until it resizes
+        third.send({ type: "attach", pane_id: paneId, cols: 30, rows: 10, keep_size: true });
+        await third.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "third attach took", 15_000);
+        await desktop.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 53, "the phone took the grid", 5000);
+
+        desktop.seen.length = 0;
+        phone.send({ type: "release-size", pane_id: paneId });
+        third.send({ type: "resize", pane_id: paneId, cols: 100, rows: 30 });
+        await desktop.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 100, "the third client's resize", 5000);
+        // control: the pty ends at the later resize, whichever of the two frames the server read first
+        await shellSees(third, paneId, "30x100");
+        // control: at most the release's own resize before the third client's, nothing after it
+        const grids = desktop.seen.filter((m) => m.type === "pane-geometry" && m.pane_id === paneId);
+        expect(grids.length).toBeLessThanOrEqual(2);
+        expect(grids.at(-1)).toMatchObject({ cols: 100, rows: 30 });
+      } finally {
+        for (const socket of [desktop, phone, third]) socket.close();
+        await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+      }
+    }, 60_000);
+
+    it("ignores a release from a client that never drove the grid, as an older server ignores the frame", async () => {
+      const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-release-size-noop" });
+      const paneId = created.root_pane.pane_id;
+      const desktop = await ws();
+      const chat = await ws();
+      try {
+        await attach(desktop, paneId, 120, 40);
+        chat.send({ type: "attach", pane_id: paneId, cols: 53, rows: 33, keep_size: true });
+        await chat.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "chat attach took", 15_000);
+        desktop.seen.length = 0;
+        chat.seen.length = 0;
+        chat.send({ type: "release-size", pane_id: paneId });
+        // also for a pane this connection never attached
+        chat.send({ type: "release-size", pane_id: "w-nonexistent:p1" });
+        chat.send({ type: "ping", id: 472 });
+        // control (passes on main): the connection stays open and answers, with no error frame
+        await chat.waitFor((m) => m.type === "pong" && m.id === 472, "pong after release-size", 5000);
+        expect(chat.seen.filter((m) => m.type === "error")).toEqual([]);
+        // control (passes on main): the grid stays the desktop's
+        await shellSees(desktop, paneId, "40x120");
+        expect(desktop.seen.filter((m) => m.type === "pane-geometry")).toEqual([]);
+      } finally {
+        desktop.close();
+        chat.close();
+        await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+      }
+    }, 60_000);
+  });
+
   it("rejects an unknown role mode with an in-band error", async () => {
     const client = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     try {

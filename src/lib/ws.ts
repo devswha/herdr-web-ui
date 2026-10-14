@@ -727,6 +727,18 @@ export class HerdrSocket {
     if (state) state.keepSize = true;
   }
 
+  /**
+   * keepSize, for the chat lens covering a terminal this tab sized: the server hands the pty to a
+   * terminal still showing on another device (#472). Not replayed: a reconnect attaches with keep_size.
+   */
+  releaseSize(paneId: string): void {
+    const state = this.attached.get(paneId);
+    if (!state) return;
+    const drove = !state.keepSize;
+    state.keepSize = true;
+    if (drove && this.mode === "interact") this.send({ type: "release-size", pane_id: paneId });
+  }
+
   /** Whether the page is in use (visible and focused): the server holds web push while one is. Replays on reconnect. */
   setPresence(active: boolean): void {
     if (this.presence === active) return;

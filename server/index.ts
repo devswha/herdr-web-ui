@@ -367,6 +367,10 @@ interface PaneAttachment {
   /** the pty's current grid: interact clients set it, observe clients adopt it */
   cols: number;
   rows: number;
+  /** each interact client's own grid while it shows the terminal, the latest last (`release-size` hands the pty to it) */
+  grids: Map<Client, { cols: number; rows: number }>;
+  /** the client whose grid the pty took last: only its release may hand the pty on */
+  driver?: Client;
   /** bounded tail so a client joining late still sees the current screen */
   replay: ReplayBuffer;
   /** when each client without ACKs (no OutputWindow) became blocked on its transport queue */
@@ -1145,6 +1149,17 @@ export function createServer(
     return { cols, rows };
   }
 
+  /** An interact client's terminal sizes the pty: the grid is remembered as this client's, and it drives. */
+  function drivePty(paneId: string, client: Client, cols: number, rows: number): void {
+    const attachment = attachments.get(paneId);
+    if (attachment && !attachment.mirror) {
+      attachment.grids.delete(client);
+      attachment.grids.set(client, { cols, rows });
+      attachment.driver = client;
+    }
+    resizePty(paneId, cols, rows);
+  }
+
   function resizePty(paneId: string, cols: number, rows: number): void {
     const attachment = attachments.get(paneId);
     // a mirrored pane's grid is herdr's own: no browser resizes it
@@ -1187,6 +1202,7 @@ export function createServer(
       rows: spawnRows,
       replay: new ReplayBuffer(MAX_REPLAY_BYTES),
       stalled: new Map(),
+      grids: new Map(),
     };
     attachments.set(paneId, attachment);
 
@@ -1497,6 +1513,8 @@ export function createServer(
     if (!attachment) return;
     attachment.clients.delete(client);
     attachment.stalled.delete(client);
+    attachment.grids.delete(client);
+    if (attachment.driver === client) attachment.driver = undefined;
     if (attachment.clients.size === 0) closeAttachment(paneId);
     else reconcileOutput(paneId);
   }
@@ -2861,8 +2879,10 @@ export function createServer(
               if (attachment.mirror) break;
               if (client.data.mode === "interact" && message.keep_size !== true) {
                 // an operator's viewport owns the shared grid
-                resizePty(message.pane_id, geometry.cols, geometry.rows);
+                drivePty(message.pane_id, client, geometry.cols, geometry.rows);
               } else {
+                // a covered grid is not a terminal showing: a release never hands the pty to it
+                attachment.grids.delete(client);
                 // an observer, or a grid the chat lens covers, adopts the grid the operators left behind
                 send(client, {
                   type: "pane-geometry",
@@ -3028,7 +3048,21 @@ export function createServer(
                 try { await creating; } catch { break; }
                 if (client.data.closing || client.data.mode !== "interact" || !client.data.attached.has(message.pane_id)) break;
               }
-              resizePty(message.pane_id, geometry.cols, geometry.rows);
+              drivePty(message.pane_id, client, geometry.cols, geometry.rows);
+              break;
+            }
+            case "release-size": {
+              // this client's terminal is covered now (the chat lens): if its grid is the pty's, the pty
+              // goes back to the latest grid of another interact client still showing the terminal (#472).
+              // Nothing to hand it to, or another client drove since: the size stays. Never an error, as
+              // an older server ignores the frame.
+              const attachment = typeof message.pane_id === "string" ? attachments.get(message.pane_id) : undefined;
+              if (!attachment || attachment.mirror || client.data.mode !== "interact") break;
+              attachment.grids.delete(client);
+              if (attachment.driver !== client) break;
+              attachment.driver = undefined;
+              const next = [...attachment.grids].reverse().find(([other]) => other.data.mode === "interact" && attachment.clients.has(other));
+              if (next) drivePty(message.pane_id, next[0], next[1].cols, next[1].rows);
               break;
             }
             case "keys": {

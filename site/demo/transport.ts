@@ -1333,6 +1333,9 @@ class DemoSocket extends EventTarget {
       case "resize":
         if (message.pane_id && this.attached.has(message.pane_id) && this.mode === "interact") this.resizeGrid(message.pane_id, message.cols, message.rows);
         break;
+      // the demo page is its pane's only terminal: no other grid to hand the pty to, and the server answers nothing
+      case "release-size":
+        break;
       // The demo has no competing attach slots and does not advertise this capability.
       case "take-over":
         this.push({ type: "error", code: "unsupported", message: "The demo has no competing terminal attachments.", pane_id: message.pane_id });

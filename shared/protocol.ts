@@ -1090,7 +1090,7 @@ export interface PushPayload {
 /** WebSocket at /ws
  *
  *  Client -> server frames: attach {pane_id, cols, rows} | detach {pane_id} | input {pane_id, text}
- *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | role {mode}
+ *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | release-size {pane_id} | role {mode}
  *    | pty-ack {pane_id, stream_id, offset} | secret {id, pane_id, prompt, secret}
  *    | watch {pane_id, cols, rows} | unwatch {pane_id} | conversation-watch {pane_id, enabled}
  *  Server -> client frames: snapshot | pty-data | pty-exit | pane-geometry | role-ack
@@ -1162,6 +1162,10 @@ export type ClientMessage =
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
   | { type: "secret"; id: number; pane_id: string; prompt: string; secret: string }
   | { type: "resize"; pane_id: string; cols: number; rows: number }
+  /** this client's terminal is covered again (the chat lens): if the pty has its grid, the server sizes
+   * the pty for the latest grid of another interact client still showing the terminal, or leaves it.
+   * Never answered; an older server ignores it, so it needs no feature. */
+  | { type: "release-size"; pane_id: string }
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole }

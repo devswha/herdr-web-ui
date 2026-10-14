@@ -1907,7 +1907,8 @@ export function PaneTerminal({
   useEffect(() => {
     if (chatView) {
       const pane = paneRef.current;
-      if (pane) socketRef.current?.keepSize(pane);
+      // a grid this tab drove goes back to a terminal still showing on another device (#472)
+      if (pane) socketRef.current?.releaseSize(pane);
       // the grid another device left the pty at while this one showed the terminal
       const shared = sharedGridRef.current;
       const hidden = termRef.current;
