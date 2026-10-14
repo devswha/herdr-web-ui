@@ -739,9 +739,11 @@ One set for both themes: the card is island black wherever it shows.
   Tabs retain their names, status dots, active underline, keyboard navigation, rename field and
   close confirmation. A right-click opens tab actions at the pointer, including Move tab left/right
   when a neighbouring position exists. Desktop tabs have no close or dropdown buttons. Touch and narrow layouts show a `⋯` beside
-  the selected tab for the same menu; Shift+F10 or the menu key opens it from a focused tab.
+  the selected tab for a trimmed menu; Shift+F10 or the menu key opens the full tab menu from a focused tab.
   Pane actions are not tab actions. Up to 768px, where a split tab shows one pane at a time, the
   tab's menu lists the tab's panes first, the open one marked current, over a hairline.
+  Its touch menu omits New tab (the strip's `+` opens it). Only at these narrow widths does it
+  omit Split and Zoom pane; Unzoom pane stays available whenever the tab is zoomed.
 - Mouse dragging previews an accent insertion line, with edge scrolling for an overflowing strip.
   The snapshot's tab order is authoritative: a tab's stable `number` is not its place. A drop calls
   `tab.move` with an insertion boundary before removal, within that workspace and PC. The visible
@@ -753,8 +755,10 @@ One set for both themes: the card is island black wherever it shows.
 - `PaneCanvas` draws every pane in the active tab at `layouts[].panes[].rect`, normalized to
   the layout's own area. Panes share thin, square boundaries: `--border-strong` when inactive,
   `--accent` around the selected pane. The compact header names its pane and, on a touch screen
-  (`pointer: coarse`), the ellipsis; a mouse opens the same menu by right-click or Shift+F10. A lone
-  or zoomed pane is borderless; on touch its menu button stays at the top-right.
+  (`pointer: coarse`), the ellipsis; a mouse opens the same menu by right-click. Keyboard users
+  tab to the pane's ellipsis, which becomes visible on keyboard focus, and press Enter.
+  Shift+F10 in the terminal goes to the terminal program, not the app menu. A lone or zoomed
+  pane is borderless; on touch its actions live in the tab menu rather than a second ellipsis.
 - A left click or keyboard focus selects the actual pane. Right-click opens the clicked pane's
   menu without changing the selected pane: Rename pane, Clear pane name when named, Swap with
   focused pane when another is selected, Split right, Split down, Zoom/Unzoom pane, Close
@@ -790,7 +794,7 @@ One set for both themes: the card is island black wherever it shows.
   connection proof; reconnect/reload never resumes pending delivery.
   A newly split pane awaiting its first snapshot does not unmount its siblings. Geometry is
   fitted inside each rendered pane; layout rectangles are never used as PTY dimensions.
-  Modified clicks, pane frames and non-reporting/read-only terminals still open the menu.
+  A right-click on a pane always opens its menu.
   Native app shortcuts stay Mod+Shift in the browser, so Ctrl+key continues to reach the PTY.
 
 ### Worktree dialog (`.worktree-modal`)

@@ -1,7 +1,7 @@
 /**
  * Herdr's tab row, visible for a single tab too. Left-click selects; right-click opens
  * New tab / Rename / Close at the pointer. Pane actions belong to PaneCanvas.
- * A phone keeps an ellipsis on the selected tab as a touch entry to the same menu. Where the
+ * A phone keeps an ellipsis on the selected tab as a touch entry to its trimmed menu. Where the
  * canvas shows a split tab's panes one at a time (SOLO_PANE_QUERY), that menu lists them first.
  * That menu also carries the open pane's actions, so a lone pane shows no ellipsis of its own.
  */
@@ -35,8 +35,6 @@ const said = (reason: unknown): string => reason instanceof ApiError ? reason.de
 
 /** the pane each tab was last seen on, per PC: a tab clicked again opens where it was left */
 const lastViewed = new Map<string, string>();
-/** pane actions (PaneCanvas) the touch tab menu leaves to a screen that shows panes side by side */
-const TOUCH_HIDDEN_PANE_ACTIONS = new Set(["split-right", "split-down", "zoom"]);
 
 export interface TabStripProps {
   snapshot: SessionSnapshot;
@@ -319,11 +317,13 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // Native tab menu: pane actions live on the pane itself. A split tab drawn one pane at a time
   // has no other way to its panes, so they lead its menu, the open one marked.
   // The touch menu also holds the open pane's actions, between its panes and the tab's own,
-  // less the layout ones: a phone shows one pane at a time, so a split or a zoom draws nothing there.
+  // A one-pane-at-a-time canvas omits split and zoom, but must keep unzoom to free the other panes.
   const pickerItems = (tab: HerdrTab, touch: boolean): RowMenuItem[] => {
     const own = soloPanes ? panesOf(tab) : [];
+    const layout = snapshot.layouts?.find((entry) => entry.tab_id === tab.tab_id);
     const paneItems = touch && tab.tab_id === selectedPane.tab_id
-      ? (paneActions?.(selectedPane.pane_id) ?? []).filter((item) => !TOUCH_HIDDEN_PANE_ACTIONS.has(item.id)) : [];
+      ? (paneActions?.(selectedPane.pane_id) ?? []).filter((item) => !soloPanes
+        || (item.id === "zoom" ? layout?.zoomed : item.id !== "split-right" && item.id !== "split-down")) : [];
     const groups: RowMenuItem[][] = [
       own.length < 2 ? [] : own.map((pane): RowMenuItem => ({
         id: `pane:${pane.pane_id}`, label: displayPaneTitle(pane), icon: Terminal,

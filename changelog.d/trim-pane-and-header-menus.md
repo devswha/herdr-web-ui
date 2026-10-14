@@ -7,8 +7,9 @@
   Mod+Shift+K.
 
 ### Changed
-- The pane header's `⋯` shows only on touch screens; with a mouse, right-click the pane (or press
-  Shift+F10) for the same menu.
-- The tab's `⋯` on touch screens no longer lists New tab (the strip's `+` sits beside it) or the
-  open pane's Split right, Split down and Zoom pane, which change nothing on a phone that shows one
-  pane at a time. Right-click menus on a desktop keep them.
+- The pane header's `⋯` stays visible on touch screens and appears on keyboard focus on desktop;
+  tab to it and press Enter, or right-click the pane with a mouse. Shift+F10 in the terminal
+  stays with the terminal program.
+- The tab's `⋯` on touch screens no longer lists New tab (the strip's `+` sits beside it).
+  At widths that show one pane at a time, it omits Split right, Split down and Zoom pane, but
+  keeps Unzoom pane so other panes remain reachable. Wider touch screens keep split and zoom.

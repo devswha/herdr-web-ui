@@ -12,7 +12,6 @@ import type { SessionSnapshot, WorkspaceCreated, WorktreeOpened } from "../share
 import type { Machine } from "../shared/machines.ts";
 import { MAX_ATTACHMENT_BYTES } from "../shared/attachments.ts";
 import { alertsOffMarked, alertsState, runMoreItem } from "./header-more.ts";
-import { sheetsSettled } from "./sheets-settled.ts";
 import { routeDrained } from "./drained-route.ts";
 import { checkTerminalFileInput } from "./terminal-file-input-regression.ts";
 import { checkTerminalInput } from "./terminal-input-regression.ts";
@@ -1777,17 +1776,10 @@ try {
   await tabName.fill("build");
   await page.keyboard.press("Enter");
   await until(async () => (await tabsInHerdr()).join() === "first,build", "the menu's rename reaches herdr");
-  // On a touch screen the open tab carries a menu button: the same actions, as a sheet.
-  // A dozen more tabs first, so the open tab sits between siblings
-  const manyTabs: string[] = [];
-  // herdr puts a new tab after its own focused one, which the web's selection no longer moves:
-  // focus build there, so the dozen land after it and build sits between siblings
+  // One new neighbour puts build between two tabs for both adjacent move actions.
   await herdrRpc("pane.focus", { pane_id: createdTab.pane_id });
-  for (let index = 1; index <= 12; index += 1) {
-    const made = await herdrRpc<{ tab: { tab_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: `many-${index}`, focus: false });
-    manyTabs.push(made.tab.tab_id);
-  }
-  await until(async () => (await tabsInHerdr()).length === 14, "herdr has the dozen tabs");
+  const neighbour = await herdrRpc<{ tab: { tab_id: string } }>("tab.create", { workspace_id: created.workspace_id, label: "neighbour", focus: false });
+  await until(async () => (await tabsInHerdr()).length === 3, "build has two neighbours");
   const tabPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const tabPhonePage = await tabPhone.newPage();
   const tabPhoneEvidence = evidenceDirectory ? await watchBrowserEvidence(tabPhone, tabPhonePage, "touch-tab-menu") : undefined;
@@ -1808,8 +1800,8 @@ try {
   await tabSheet.waitFor({ state: "detached" });
   if (tabPhoneEvidence) await tabPhoneEvidence.finish();
   await tabPhone.close();
-  for (const tabId of manyTabs) await herdrRpc("tab.close", { tab_id: tabId });
-  await until(async () => (await tabsInHerdr()).join() === "first,build", "the dozen tabs are closed again");
+  await herdrRpc("tab.close", { tab_id: neighbour.tab.tab_id });
+  await until(async () => (await tabsInHerdr()).join() === "first,build", "the extra neighbour is closed again");
   // a tab whose agent is at work asks before it closes; a no leaves it
   await herdrRpc("pane.report_agent", { pane_id: createdTab.pane_id, source: "manual", agent: "codex", state: "working" });
   await strip.locator('.tab-strip-dot[data-status="working"]').waitFor();
