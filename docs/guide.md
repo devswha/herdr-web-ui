@@ -508,6 +508,9 @@ The snapshot is the last one a browser reported to this server, not a list of de
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
 
+**New tab**, **Split pane right** and **Split pane down** have no default key: pick one in
+**Settings → Shortcuts**, and the command palette shows it beside the action.
+
 **Settings → Shortcuts** changes the final key of each app binding or turns it off: press
 **Record** on a row, then the new Mod+Shift chord (Escape cancels); a reserved, unbindable or
 already-assigned chord is refused on the row. A search field filters the list. Settings

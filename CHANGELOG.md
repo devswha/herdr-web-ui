@@ -8,6 +8,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [Unreleased]
 
 ### Added
+- **New tab**, **Split pane right** and **Split pane down** can take a Mod+Shift shortcut in
+  **Settings → Shortcuts**. They have no default key, and the command palette shows the chosen one.
+  ([#940](https://github.com/devswha/herdr-web-ui/pull/940) by @sergiorademacher)
 - **Settings → Phone & devices → Portal** gives this PC a public HTTPS address through
   [Portal](https://github.com/gosuda/portal-tunnel), with no account and no domain of your own.
   With Portal v2.6.1 or later installed, **Start** runs it on a relay you enter, dropping any

@@ -744,19 +744,21 @@ function ShortcutsPage() {
           const defaultKeys = shortcutDisplayKeys(shortcut.id, {});
           const defaultKey = defaultKeys[defaultKeys.length - 1];
           const defaultReserved = defaultKey !== undefined && isReservedShortcutKey(defaultKey, platformIsMac);
+          // a binding without a default key is off by default: its Default row reads Off, with no second Off
+          const unbound = defaultKeys.length === 0;
           return (
             <SettingsRow key={shortcut.id} label={t(shortcut.label)} wide={shortcut.id !== "voice"} description={recording?.id === shortcut.id ? (recording.problem ?? t("Press the new shortcut, or Escape to cancel.")) : selectedReserved ? t("Your browser or operating system may intercept {keys}.", { keys: compactKeys(displayedKeys) }) : undefined}>
               {shortcut.id === "voice" ? <span className="settings-keys">{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span> : (
                 <span className="settings-shortcut-control">
                 <button type="button" className="btn settings-shortcut-record" aria-pressed={recording?.id === shortcut.id} aria-label={t("Record shortcut for {name}", { name: t(shortcut.label) })} onClick={() => setRecording(recording?.id === shortcut.id ? null : { id: shortcut.id, problem: null })}>{recording?.id === shortcut.id ? t("Press keys…") : t("Record")}</button>
-                <select className="select settings-select settings-shortcut-select" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? "off" : "default"} onChange={(event) => {
+                <select className="select settings-select settings-shortcut-select" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? (unbound ? "default" : "off") : "default"} onChange={(event) => {
                   const next = { ...settings.shortcutOverrides };
                   if (event.target.value === "default") delete next[shortcut.id];
                   else next[shortcut.id] = event.target.value === "off" ? null : event.target.value;
                   update({ shortcutOverrides: next });
                 }}>
-                  <option value="default" title={t("Default")} disabled={shortcutConflict(shortcut.id, shortcutKeys(shortcut.id, {}), settings.shortcutOverrides)}>{compactKeys(defaultKeys)}{defaultReserved ? ` — ${t("Reserved")}` : ""}</option>
-                  <option value="off" title={t("Send keys to terminal")}>{t("Off")}</option>
+                  <option value="default" title={t("Default")} disabled={shortcutConflict(shortcut.id, shortcutKeys(shortcut.id, {}), settings.shortcutOverrides)}>{unbound ? t("Off") : compactKeys(defaultKeys)}{defaultReserved ? ` — ${t("Reserved")}` : ""}</option>
+                  {!unbound && <option value="off" title={t("Send keys to terminal")}>{t("Off")}</option>}
                   {SHORTCUT_KEYS.map((key) => {
                     const conflict = shortcutConflict(shortcut.id, [key], settings.shortcutOverrides);
                     const reserved = isReservedShortcutKey(key, platformIsMac);
