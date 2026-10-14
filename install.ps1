@@ -119,10 +119,58 @@ Write-Host 'herdr web ui: open Phone setup in herdr for phone access.'
 # One gh api call: gh's exit code and the HTTP status GitHub answered with, or nothing when gh is
 # not there or does not answer in 10 seconds. A gh that hangs must not hold up an install that is done:
 # the deadline covers its exit and its output both (a child it handed the output to could live on),
-# and what outlasts it is killed with its children.
+# and what outlasts it is killed with its children. gh runs in a job that ends with the call, because
+# a shim's launcher may be gone already, and taskkill /T finds no tree under a PID that exited.
 function Invoke-GhApi([string]$Arguments) {
     $gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $gh) { return }
+    $job = [IntPtr]::Zero
+    try {
+        if (-not ('HerdrWebUi.GhJob' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace HerdrWebUi {
+    public static class GhJob {
+        [StructLayout(LayoutKind.Sequential)]
+        struct BasicLimits {
+            public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit;
+            public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        struct IoCounters { public ulong Reads, Writes, Others, ReadBytes, WriteBytes, OtherBytes; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct ExtendedLimits {
+            public BasicLimits Basic; public IoCounters Io; public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit; public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed;
+        }
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, uint length);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr handle);
+        // A job whose processes are all killed when its last handle closes (KILL_ON_JOB_CLOSE).
+        public static IntPtr Create() {
+            IntPtr job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero) return job;
+            ExtendedLimits info = new ExtendedLimits();
+            info.Basic.LimitFlags = 0x2000;
+            if (SetInformationJobObject(job, 9, ref info, (uint)Marshal.SizeOf(typeof(ExtendedLimits)))) return job;
+            CloseHandle(job);
+            return IntPtr.Zero;
+        }
+        public static bool Assign(IntPtr job, IntPtr process) { return AssignProcessToJobObject(job, process); }
+    }
+}
+'@
+        }
+        # made before gh starts, so that gh is in it before it can start anything of its own
+        $job = [HerdrWebUi.GhJob]::Create()
+    } catch { $job = [IntPtr]::Zero } # without a job the deadline still kills gh and its tree, as it did before
     $start = New-Object Diagnostics.ProcessStartInfo
     $ghArguments = "api --hostname github.com --include $Arguments"
     if ($gh.Path -match '\.(cmd|bat)$') {
@@ -141,17 +189,31 @@ function Invoke-GhApi([string]$Arguments) {
     $process = $null
     try {
         $process = [Diagnostics.Process]::Start($start)
+        if ($job -ne [IntPtr]::Zero -and -not [HerdrWebUi.GhJob]::Assign($job, $process.Handle)) {
+            $null = [HerdrWebUi.GhJob]::CloseHandle($job); $job = [IntPtr]::Zero
+        }
         $process.StandardInput.Close()
         $said = $process.StandardOutput.ReadToEndAsync()
         $null = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(10000) -or -not $said.Wait(2000)) {
+            # closing the job kills gh and every process it started, also one whose parent has exited
+            if ($job -ne [IntPtr]::Zero) { $null = [HerdrWebUi.GhJob]::CloseHandle($job); $job = [IntPtr]::Zero }
             try { & $env:ComSpec /d /c "taskkill /T /F /PID $($process.Id) >nul 2>&1" } catch { }
             return
         }
         $status = ''
         if ($said.Result -match '^HTTP\S* (\d{3})') { $status = $Matches[1] }
         @{ code = $process.ExitCode; status = $status }
-    } finally { if ($process) { $process.Dispose() } }
+    } finally {
+        # what gh left running after it answered ends here too
+        if ($job -ne [IntPtr]::Zero) { $null = [HerdrWebUi.GhJob]::CloseHandle($job) }
+        if ($process) {
+            # Dispose leaves the pipe readers open on .NET Framework; a reader still busy with its
+            # ReadToEndAsync may refuse to close, and then the job has ended the writers already
+            foreach ($reader in @($process.StandardOutput, $process.StandardError)) { try { $reader.Close() } catch { } }
+            $process.Dispose()
+        }
+    }
 }
 # A script that runs this has nobody to answer. A terminal can have nobody at it either (an agent's),
 # so the answer is read key by key within 20 seconds in all: what was typed before the question is

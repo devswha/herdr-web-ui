@@ -6,7 +6,8 @@ $originalLocalAppData = $env:LOCALAPPDATA
 $originalUserProfile = $env:USERPROFILE
 $state = @{ installed = $false; installs = 0; uninstalls = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false; windowsRelease = $true }
 # gh is a stand-in .cmd, first on PATH: the installer runs gh as a process, and no real star is read or given.
-# mode.txt beside it is what it answers: starred, not, refuses (the star itself), upstream, signed-out or hangs.
+# mode.txt beside it is what it answers: starred, not, refuses (the star itself), upstream, signed-out, hangs or
+# lingering (it answers, and leaves a child holding its output; child.txt gets that child's PID).
 $star = @{ asked = 0; answer = ''; failAsk = $false }
 $ghStandIn = Join-Path ([IO.Path]::GetTempPath()) "herdr-installer-gh-$PID"
 # A real directory: the installer reads the installed copy to tell whether it can run on Windows.
@@ -73,6 +74,7 @@ if "%mode%"=="starred" goto starred
 if "%mode%"=="hangs" goto hangs
 if "%mode%"=="signed-out" goto signedout
 if "%mode%"=="upstream" goto upstream
+if "%mode%"=="lingering" goto lingering
 echo HTTP/2.0 404 Not Found
 echo gh: Not Found (HTTP 404) 1>&2
 exit /b 1
@@ -85,6 +87,10 @@ exit /b 0
 :signedout
 echo To get started with GitHub CLI, please run:  gh auth login 1>&2
 exit /b 4
+:lingering
+powershell -NoProfile -Command "(Start-Process ping -ArgumentList '-n','47','127.0.0.1' -NoNewWindow -PassThru).Id | Set-Content -Encoding Ascii '%~dp0child.txt'"
+echo HTTP/2.0 404 Not Found
+exit /b 1
 :upstream
 echo HTTP/2.0 500 Internal Server Error
 echo gh: upstream answered HTTP 404 (HTTP 500) 1>&2
@@ -205,6 +211,29 @@ exit /b 1
     Assert ($state.installed -and $star.asked -eq 1 -and (& $given) -eq 0) "A question that cannot be asked must not fail the install: $said"
     & $firstInstall 'signed-out' | Out-Null
     Write-Host 'PASS star: silent when starred or on a rerun, a link without gh, an answer or a terminal, asked once at a terminal and given only on yes'
+
+    # A gh that leaves a child holding its output: the call ends on its deadline and the child ends with it.
+    # Invoke-GhApi alone, from the installer's own text, so that only what it starts is looked at.
+    $parsed = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $installer).Path, [ref]$null, [ref]$null)
+    $ghApi = $parsed.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-GhApi' }, $true)
+    Assert ($null -ne $ghApi) 'The installer must define Invoke-GhApi'
+    Invoke-Expression $ghApi.Extent.Text
+    Set-Content -LiteralPath (Join-Path $ghStandIn 'mode.txt') -Encoding Ascii -Value 'lingering'
+    $childFile = Join-Path $ghStandIn 'child.txt'
+    Remove-Item -LiteralPath $childFile -Force -ErrorAction SilentlyContinue
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $answer = Invoke-GhApi 'user/starred/devswha/herdr-web-ui'
+    $elapsed = $clock.Elapsed.TotalSeconds
+    $childPid = [int](Get-Content -LiteralPath $childFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+    Assert ($childPid -gt 0) 'control: the lingering stand-in must have started its child and named its PID'
+    Assert ($null -eq $answer -and $elapsed -lt 15) "control: a gh whose output stays open must be left after its deadline, with no answer: $elapsed s"
+    # the job ends the child as the call returns; give Windows a bounded moment to take it off the process list
+    $gone = [Diagnostics.Stopwatch]::StartNew()
+    while ((Get-Process -Id $childPid -ErrorAction SilentlyContinue | Where-Object ProcessName -eq 'PING') -and $gone.Elapsed.TotalSeconds -lt 5) { Start-Sleep -Milliseconds 100 }
+    $left = Get-Process -Id $childPid -ErrorAction SilentlyContinue | Where-Object ProcessName -eq 'PING'
+    if ($left) { Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue }
+    Assert (-not $left) "regression (fails on main): the child gh left holding its output (PID $childPid) must not outlive the call"
+    Write-Host "PASS gh deadline: a child of gh that holds its output ends with the call (PID $childPid, $([math]::Round($elapsed, 1)) s)"
 
     # A PC without herdr: its installer is a stand-in .cmd, and nothing of this PC's own herdr is in reach.
     $scratch = Join-Path ([IO.Path]::GetTempPath()) "herdr-installer-test-$PID"
