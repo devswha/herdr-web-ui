@@ -2029,11 +2029,18 @@ describe("WebSocket roles and status push", () => {
       phone.send({ type: "input", pane_id: paneId, text: "clear; echo size=$(stty size | tr ' ' x)\r" });
       const deadline = Date.now() + 15_000;
       let screen = "";
+      let lastError: unknown;
       while (Date.now() <= deadline) {
-        screen = (await paneRead({ paneId, source: "visible", format: "text", timeoutMs: 1_000 })).text;
+        // one read that times out is not the verdict: keep polling until the deadline
+        try {
+          screen = (await paneRead({ paneId, source: "visible", format: "text", timeoutMs: 1_000 })).text;
+        } catch (error) {
+          lastError = error;
+          continue;
+        }
         if (screen.includes("size=27x91")) break;
       }
-      expect(screen, "the shell sees the terminal lens's grid").toContain("size=27x91");
+      expect(screen, `the shell sees the terminal lens's grid (last pane.read error: ${String(lastError)})`).toContain("size=27x91");
     } finally {
       phone.close();
       await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
