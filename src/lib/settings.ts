@@ -164,11 +164,7 @@ export type DiffStyle = (typeof DIFF_STYLES)[number];
  * Settings field in the projection makes a new field require an explicit collection decision. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
-  | "quickReplies" | "usageOrder" | "usageHidden"
-  // not collected: the report's schema (shared/telemetry.ts) has no field for it yet
-  | "diffStyle" | "uiFontSize"
-  // not collected: only System mode reads them, and `palette` is already reported
-  | "paletteLight" | "paletteDark">;
+  | "quickReplies" | "usageOrder" | "usageHidden">;
 
 /** Compare structured custom settings by content against this app's built-in defaults. */
 function differsFromDefault(value: unknown, defaultValue: unknown): boolean {
@@ -188,15 +184,14 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     quietOpenedDone: settings.quietOpenedDone,
     agentMarks: settings.agentMarks,
     palette: settings.palette,
+    paletteLight: settings.paletteLight,
+    paletteDark: settings.paletteDark,
     terminalFontSize: settings.terminalFontSize,
-    // removed settings the report's schema still names: their fixed values, so the Worker needs no redeploy
-    terminalCursorStyle: "block",
-    terminalCursorBlink: true,
     terminalWheelSpeed: settings.terminalWheelSpeed,
     paneClipboard: settings.paneClipboard,
     releasePaneAway: settings.releasePaneAway,
-    narrowPaneFont: true,
     chatFontSize: settings.chatFontSize,
+    uiFontSize: settings.uiFontSize,
     chatWidth: settings.chatWidth,
     enterSends: settings.enterSends,
     autoSendQueued: settings.autoSendQueued,
@@ -209,10 +204,8 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     alertInApp: settings.alertInApp,
     alertSound: settings.alertSound,
     showQuickReplies: settings.showQuickReplies,
-    showSuggestionChip: true,
     showUsage: settings.showUsage,
     usageCount: settings.usageCount,
-    usagePace: false,
     usageGlance: settings.usageGlance,
     defaultView: settings.defaultView,
     voiceInput: settings.voiceInput,
@@ -220,8 +213,8 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     voicePolishChat: settings.voicePolishChat,
     voicePolishTerminal: settings.voicePolishTerminal,
     wrapCode: settings.wrapCode,
-    highlightCode: true,
     markdownWidth: settings.markdownWidth,
+    diffStyle: settings.diffStyle,
     terminalFontCustom: settings.terminalFontFamily !== DEFAULT_SETTINGS.terminalFontFamily,
     chatFontCustom: settings.chatFontFamily !== DEFAULT_SETTINGS.chatFontFamily,
     shortcutsCustom: differsFromDefault(settings.shortcutOverrides, DEFAULT_SETTINGS.shortcutOverrides),
@@ -230,10 +223,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     quickRepliesCustom: differsFromDefault(settings.quickReplies, DEFAULT_SETTINGS.quickReplies),
     quickReplyCount: settings.quickReplies.length,
     usageHiddenCount: settings.usageHidden.length,
-    pageOverlapRows: 1,
-    chatPageKeys: true,
-    // the app takes 100 files at once; the schema stops at 50
-    attachLimit: 50,
+    usageOrderCustom: settings.usageOrder.length > 0,
   };
 }
 
