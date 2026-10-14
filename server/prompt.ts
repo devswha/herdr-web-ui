@@ -2992,12 +2992,12 @@ export const INPUT_BOX_SHOWN_CHARS = 200;
 
 /**
  * The live input box (claudeInputBox) as plain text, whole: what a refusal that names no clearable
- * draft records, so a send anyway goes only over exactly that box. Empty when no box could be read
- * whole (none on screen, or clipped by the pane).
+ * draft records, so a send anyway goes only over exactly that box. null when no box could be read
+ * whole (none on screen, or clipped by the pane): such a box cannot be compared, so nothing is sent over it.
  */
-export function claudeInputBoxContent(live: string): string {
+export function claudeInputBoxContent(live: string): string | null {
   const box = claudeInputBox(live);
-  if (box === null || box === "clipped") return "";
+  if (box === null || box === "clipped") return null;
   return box.plain.map((row) => row.replace(/\u00a0/g, " ").trimEnd()).join("\n").trim();
 }
 
@@ -3008,7 +3008,7 @@ export function shownInputBox(content: string): string {
 
 /** The live input box as a refusal shows it (claudeInputBoxContent, cut by shownInputBox). */
 export function claudeInputBoxText(live: string): string {
-  return shownInputBox(claudeInputBoxContent(live));
+  return shownInputBox(claudeInputBoxContent(live) ?? "");
 }
 
 /**

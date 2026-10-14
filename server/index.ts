@@ -639,7 +639,8 @@ export function createServer(
           const reads = await claudeBoxReads(paneId);
           inTime();
           const box = claudeInputBoxContent(reads[0]);
-          if (claudeInputDraft(...reads) && box !== confirmation!.box) throw new InputDraftError(claudeClearableDraft(...reads), identity ?? undefined, box);
+          // a box that cannot be read whole cannot be compared: it is refused, and offers no send anyway
+          if (claudeInputDraft(...reads) && (box === null || box !== confirmation!.box)) throw new InputDraftError(claudeClearableDraft(...reads), identity ?? undefined, box);
           // the reads waited on herdr: the pane may hold another Claude by now, checked again right before the write
           const now = pendingIdentity(await paneGet(paneId));
           inTime();

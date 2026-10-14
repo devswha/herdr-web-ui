@@ -571,6 +571,25 @@ describe("WebSocket submit", () => {
     }
   }, 30_000);
 
+  it("offers no send anyway over a box it cannot read whole, and refuses one", async () => {
+    const socket = await Socket.connect();
+    // a draft taller than the pane: only the bottom rule is on screen
+    const screen = mockClaudeInput(agent.pane, ["  more of a tall draft", "  its last line", claudeRule, "  footer"].join("\r\n"));
+    const prompt = spyOn(herdr, "agentPrompt").mockResolvedValue(undefined);
+    try {
+      socket.send({ type: "submit", id: 109, pane_id: agent.pane, text: "chat", payload: "chat" });
+      const refused = await socket.result(109);
+      expect(refused).toMatchObject({ ok: false, code: "input_draft" });
+      expect(refused.box).toBeUndefined();
+      socket.send({ type: "submit", id: 110, pane_id: agent.pane, text: "chat", payload: "chat", send_anyway: true });
+      expect(await socket.result(110)).toMatchObject({ ok: false, code: "pending_target_changed" });
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      prompt.mockRestore();
+      screen.scroll.mockRestore(); screen.read.mockRestore(); socket.close();
+    }
+  }, 30_000);
+
   it("refuses send anyway when the box changed past what the note shows", async () => {
     const socket = await Socket.connect();
     let shown = claudeInputScreen("! " + "x".repeat(220) + " OLD");

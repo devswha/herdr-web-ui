@@ -626,7 +626,7 @@ export const JA: Record<string, string> = {
   "Clear it and send": "消して送信",
   "Send anyway": "そのまま送信",
   "Not sent: Claude Code's input box in the terminal may not be empty. It shows “{box}”.": "未送信: ターミナルの Claude Code 入力欄が空ではない可能性があります。入力欄には「{box}」と表示されています。",
-  "Not sent: Claude Code's input box in the terminal could not be read.": "未送信: ターミナルの Claude Code 入力欄を読み取れませんでした。",
+  "Not sent: the agent started working since. Check the terminal, then send again.": "未送信: その間にエージェントが作業を始めました。ターミナルを確認してから、もう一度送信してください。",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "未送信: 前のメッセージの後で長く待ちすぎたため、何も入力されませんでした。もう一度送信してください。",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "未確認: ペインがこのメッセージを確認しませんでした。再送信する前にターミナルを確認してください。",
   "Not sent: {message}": "未送信: {message}",

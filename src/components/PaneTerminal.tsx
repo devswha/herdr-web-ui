@@ -2374,7 +2374,9 @@ export function PaneTerminal({
       // with automatic sending off, a follow-up waits for Send now; the socket queues it on a PC too old to hold one
       const queued = composerDelivery(agent, agentStatus);
       const delivery: SubmitDelivery = queued === "queue" && !settings.autoSendQueued ? "hold" : queued;
-      const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined, delivery === "immediate" && sendAnyway);
+      // Send anyway answered a box seen at once: an agent that started working since would queue it unchecked
+      if (sendAnyway && delivery !== "immediate") return t("Not sent: the agent started working since. Check the terminal, then send again.");
+      const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined, sendAnyway);
       return result === null ? false : result.then((answer) => answer.ok ? true : submitRefusal(answer.code, answer.message, answer.draft, answer.box));
     },
     [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, submitComposerMessage, queueStore, machineId, settings.autoSendQueued],

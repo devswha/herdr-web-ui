@@ -594,7 +594,7 @@ export const TR: Record<string, string> = {
   "Clear it and send": "Temizle ve gönder",
   "Send anyway": "Yine de gönder",
   "Not sent: Claude Code's input box in the terminal may not be empty. It shows “{box}”.": "Gönderilmedi: Terminaldeki Claude Code giriş kutusu boş olmayabilir. Kutuda “{box}” görünüyor.",
-  "Not sent: Claude Code's input box in the terminal could not be read.": "Gönderilmedi: Terminaldeki Claude Code giriş kutusu okunamadı.",
+  "Not sent: the agent started working since. Check the terminal, then send again.": "Gönderilmedi: bu arada ajan çalışmaya başladı. Terminali kontrol edip yeniden gönderin.",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "Gönderilmedi: önceki bir mesajın arkasında çok bekledi ve hiçbir şey yazılmadı. Yeniden gönderin.",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "Onaylanmadı: panel bu mesajı onaylamadı. Yeniden göndermeden önce terminali kontrol edin.",
   "Not sent: {message}": "Gönderilmedi: {message}",

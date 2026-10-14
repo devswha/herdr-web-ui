@@ -51,10 +51,7 @@ export type DraftRefusal = { note: string; draft: string } | { note: string; any
  */
 export function submitRefusal(code: string, message: string, draft?: string, box?: string): string | DraftRefusal {
   if (code === "input_draft" && draft) return { note: t("Not sent: Claude Code's input box in the terminal already holds “{draft}”.", { draft }), draft };
-  if (code === "input_draft" && box !== undefined) {
-    return { note: box ? t("Not sent: Claude Code's input box in the terminal may not be empty. It shows “{box}”.", { box })
-      : t("Not sent: Claude Code's input box in the terminal could not be read."), anyway: true };
-  }
+  if (code === "input_draft" && box) return { note: t("Not sent: Claude Code's input box in the terminal may not be empty. It shows “{box}”.", { box }), anyway: true };
   return submitNote(code, message);
 }
 

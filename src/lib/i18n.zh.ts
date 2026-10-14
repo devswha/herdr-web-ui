@@ -628,7 +628,7 @@ export const ZH: Record<string, string> = {
   "Clear it and send": "清除并发送",
   "Send anyway": "仍然发送",
   "Not sent: Claude Code's input box in the terminal may not be empty. It shows “{box}”.": "未发送：终端中 Claude Code 的输入框可能不是空的。输入框中显示“{box}”。",
-  "Not sent: Claude Code's input box in the terminal could not be read.": "未发送：无法读取终端中 Claude Code 的输入框。",
+  "Not sent: the agent started working since. Check the terminal, then send again.": "未发送：此后代理已开始工作。请先查看终端，再重新发送。",
   "Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.": "未发送：在前一条消息之后等待过久，且未输入任何内容。请重新发送。",
   "Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.": "未确认：窗格未确认此消息。重新发送前请检查终端。",
   "Not sent: {message}": "未发送：{message}",
