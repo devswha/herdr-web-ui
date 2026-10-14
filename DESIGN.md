@@ -1348,12 +1348,12 @@ One set for both themes: the card is island black wherever it shows.
   an edge swipe) takes one step out and never leaves the app from inside Settings; the Back
   control, the X, Escape and the scrim take the same entries off. Beside the list, turning pages
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
-- Pages, in order: **Appearance** (theme, colors, contrast, density, language, sidebar rows), **Chat**
-  (panes open in, show thinking, chat width, chat font size and family, highlight code; then
-  **Composer**: optional plain PageUp/PageDown chat scrolling (off by default), Enter sends, files at once, suggestion chip; then **Quick replies**; then **File viewer**: wrap long
-  lines, Markdown width, Diff layout), **Terminal** (font size, 80 columns in a split, font family, wheel
+- Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
+  (panes open in, show thinking, chat width, chat font size and family; then
+  **Composer**: Enter sends; then **Quick replies**; then **File viewer**: wrap long
+  lines, Markdown width, Diff layout), **Terminal** (font size, font family, wheel
   speed, input mode, Key bar), **Alerts**, **Voice input**, **Subscription usage**,
-  **Shortcuts** (the platform-resolved global bindings, then **Paging** with a 0–100 line overlap stepper; one line by default, zero for a full viewport), **Phone & devices** (the phone address,
+  **Shortcuts** (the platform-resolved global bindings), **Phone & devices** (the phone address,
   Keep screen on, Install; then Portal, where the server offers it; then paired devices),
   **Remote PCs**, **About** (Updates, herdr, the repository links). A button that points at
   Updates opens the dialog on About.
@@ -1428,9 +1428,10 @@ One set for both themes: the card is island black wherever it shows.
   including the TUI. Pending pointer moves are coalesced, requests retain their owning PC/pane,
   and a failed request displays an error instead of inventing a local history position.
 - Mod+Shift+PageUp/PageDown pages the selected pane only, preserving chat composer focus and
-  selection. Chat moves instantly by its viewport minus the configured prose-line overlap;
-  Terminal and focused scrollbar PageUp/PageDown use native viewport rows minus that overlap.
-  A large overlap still advances one pixel or one terminal row. Paging is blocked by modals;
+  selection. Chat moves instantly by its viewport minus one prose line;
+  Terminal and focused scrollbar PageUp/PageDown use native viewport rows minus one. A page still
+  advances at least one pixel or one terminal row. Plain PageUp/PageDown always scroll the chat
+  transcript. Paging is blocked by modals;
   repeated terminal pages accumulate against the pending offset until herdr acknowledges it.
 - Explicit Find cancels unsent scrollbar offsets and waits for a native scroll already sent;
   the scrollbar is disabled until that search ends, so an older drag cannot overwrite its result.
