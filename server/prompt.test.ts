@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, claudeClearableDraft, claudeInputDraft, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
+import { answerKeys, claudeClearableDraft, claudeInputDraft, claudeInputEmpty, viewportShowsLive, removedInvisible, noteSubmitted, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, modelListWaits, openOmoAsks, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 const CLAUDE_BACKGROUND_APPROVAL_FOOTER = "Esc to cancel · ctrl+x ctrl+k twice to stop background agents";
@@ -1636,6 +1636,28 @@ describe("Claude's suggested next prompt", () => {
     expect(draft(screen("❯ typed", "──── my-session ─"))).toBe(true);
     // no rule on screen says nothing
     expect(draft("❯ loose text\nmore")).toBe(false);
+  });
+
+  test("Claude's tip drawn without colors (NO_COLOR, #926) is no draft; other plain words are", () => {
+    // Claude Code 2.1.296 under NO_COLOR=1: an empty input box, no SGR color or dim anywhere
+    const plainRule = "\u2500".repeat(60);
+    const colorless = (row: string) => ["", plainRule, row, plainRule, "  \u23f5\u23f5 auto mode on (shift+tab to cycle) \u00b7 \u2190 for agents"].join("\r\n");
+    const strip = (ansi: string) => ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    const tip = colorless('\u276f Try "how does <filepath> work?"');
+    expect(claudeInputDraft(strip(tip), tip)).toBe(false);
+    expect(claudeInputEmpty(strip(tip), tip)).toBe(true);
+    expect(claudeClearableDraft(strip(tip), tip)).toBeNull();
+    // Claude's drawn cursor on its first character
+    const cursor = colorless('\u276f \u001b[7mT\u001b[27mry "how does <filepath> work?"');
+    expect(claudeInputDraft(strip(cursor), cursor)).toBe(false);
+    // typed words that are not the tip's whole form stay a draft
+    for (const typed of ['\u276f Try this instead', '\u276f Try "x" and more', '\u276f please Try "x"']) {
+      expect(claudeInputDraft(strip(colorless(typed)), colorless(typed))).toBe(true);
+    }
+    // on a colored screen only dim tells the tip: typed `Try "\u2026"` there is a draft
+    expect(claudeInputDraft(strip(screen('\u276f Try "x"')), screen('\u276f Try "x"'))).toBe(true);
+    // colors not verified to show the live screen prove nothing
+    expect(claudeInputDraft(strip(tip), null)).toBe(true);
   });
 
   test("a viewport's colors count only when it is verified to show the live screen", () => {

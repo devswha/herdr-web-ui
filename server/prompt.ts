@@ -2882,6 +2882,19 @@ function claudeInputBox(screen: string): { plain: string[]; raw: string[] } | "c
   return { plain: plain.slice(start + 1, end), raw: raw.slice(start + 1, end) };
 }
 
+/** Claude's new-session tip as a whole input row: `Try "how does <filepath> work?"`. */
+const CLAUDE_TIP_ROW_RE = /^Try "[^"]+"$/;
+
+/** Whether an ANSI read sets no color and no dim anywhere, as Claude Code draws under NO_COLOR. */
+function colorless(ansi: string): boolean {
+  for (const match of ansi.matchAll(/\u001b\[([0-9;:]*)m/g)) {
+    for (const code of (match[1] || "0").split(/[;:]/).map((value) => Number(value || 0))) {
+      if (code === 2 || (code >= 30 && code <= 38) || (code >= 40 && code <= 48) || (code >= 90 && code <= 97) || (code >= 100 && code <= 107)) return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Whether Claude Code's input box is not known to be empty, so that a paste would land in what is
  * there and the Enter after it send both, or run it as a command: typed text, bash mode (`!`), a
@@ -2903,6 +2916,9 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
   if (colors === null) return true;
   const shown = claudeInputBox(colors);
   if (shown === null || shown === "clipped" || shown.plain.join("\n") !== box.plain.join("\n")) return true;
+  // Under NO_COLOR (#926) the tip is not dim: only its exact form as the box's whole one row, on a
+  // screen drawn without any color, tells it from typed words. Typed `Try "…"` reads the same there.
+  if (box.plain.length === 1 && CLAUDE_TIP_ROW_RE.test(box.plain[0]!.slice(1).replace(/\u00a0/g, " ").trim()) && colorless(colors)) return false;
   let prompt = false;
   let first = true;
   let cursor = false;
