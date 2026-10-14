@@ -12,7 +12,7 @@ import { useMachineSessions } from "../lib/machineSessionContext.tsx";
 import { ViewportIntentGate } from "../lib/viewportIntent.ts";
 import { PanePresentedContext, PaneShownContext, PaneSubmitContext } from "../lib/paneSubmitContext.ts";
 import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
-import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
+import { clipboardKey, hasModifiers, physicalKey, terminalChord, navigationSequence, keyFromData, ctrlEnterSequence, mirroredCtrlEnterKey, modifyOtherKeysLevel, NO_STICKY_MODIFIERS, type StickyModifiers } from "../lib/keys.ts";
 import { keyBarInputSequence, type KeyBarKeyItem } from "../lib/keyBar.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, restoreDraft, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
@@ -1222,14 +1222,20 @@ export function PaneTerminal({
     // key's onData. Remap only that CR, preserving composition text and its order.
     // xterm.js types Shift+Enter and Ctrl+Enter as plain Enter: Shift+Enter becomes the Alt+Enter
     // newline chord, Ctrl+Enter what modifyOtherKeys makes it (Claude Code's "send now") while
-    // the program has asked for that, and stays Enter otherwise.
+    // the program has asked for that, and stays Enter otherwise. A mirrored pane never hears that
+    // request, so its Ctrl+Enter goes as herdr's key, which herdr encodes as the program asked.
     let enterAs: string | null = null;
+    let enterKey: string | null = null;
     const onModifiedEnter = term.onKey(({ key, domEvent: event }) => {
       enterAs = null;
+      enterKey = null;
       if (term.options.disableStdin || key !== "\r" || event.key !== "Enter" || event.altKey || event.metaKey
         || event.isComposing || event.keyCode === 229) return;
       if (event.shiftKey && !event.ctrlKey) enterAs = "\x1b\r";
-      else if (event.ctrlKey && !event.shiftKey) enterAs = ctrlEnterSequence(modifyOtherKeysRef.current);
+      else if (event.ctrlKey && !event.shiftKey) {
+        enterKey = mirroredCtrlEnterKey(fixedGridRef.current, modifyOtherKeysRef.current);
+        enterAs = enterKey !== null ? "\r" : ctrlEnterSequence(modifyOtherKeysRef.current);
+      }
     });
     // Let xterm finish pending IME text before remapping the key's following data.
     // Cmd+Backspace uses the terminal's Ctrl+U line-deletion shortcut on macOS.
@@ -1270,18 +1276,20 @@ export function PaneTerminal({
       // a modified Enter (Shift+Enter's newline, Ctrl+Enter's "send now") is decided on before its
       // rewrite: its sequence may carry no line break at all
       const modifiedEnter = enterAs !== null && data === "\r";
+      const enterChord = modifiedEnter ? enterKey : null;
       if (modifiedEnter) data = enterAs!;
       enterAs = null;
+      enterKey = null;
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
       const current = paneRef.current;
       if (!current || observeRef.current || secretRef.current !== null || heldRef.current) return;
       const input = data;
       const key = keyFromData(data);
-      const chord = !pasting && !composingRef.current && !compositionCommitPendingRef.current
+      const chord = enterChord ?? (!pasting && !composingRef.current && !compositionCommitPendingRef.current
         ? barKey !== null ? barKey.chord
           : physicalChord ?? (hasModifiers(modifiersRef.current) && key !== null ? terminalChord(key, modifiersRef.current) : null)
-        : null;
+        : null);
       if (draftHeldForRef.current === current) {
         // A chord or a modified Enter is never held, and never sent beside held text either
         // (Ctrl+J, or Ctrl+Enter under modifyOtherKeys, would run the line).
