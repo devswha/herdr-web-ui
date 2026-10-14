@@ -1099,9 +1099,10 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const pane: Pane = { ...structuredClone(template), pane_id: `${id}:p${(nextWorkspace++).toString(36)}`, tab_id: tabId, terminal_id: `${id}:term${number}`, workspace_id: id, label: null, title: null, agent, agent_session: null, agent_status: agent ? "working" : "unknown", cwd, foreground_cwd: cwd, focused: false, terminal_title: null, terminal_title_stripped: null, revision: 1 };
     snap.panes.push(pane);
     addAgent(pane);
-    snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: tabId, workspace_id: id, label: String(body["label"] ?? ""), number, agent_status: pane.agent_status, focused: false, pane_count: 1 });
+    const label = String(body["label"] ?? "");
+    snap.tabs.push({ ...structuredClone(snap.tabs[0]!), tab_id: tabId, workspace_id: id, label, number, agent_status: pane.agent_status, focused: false, pane_count: 1 });
     addDemoLayout(id, tabId, pane.pane_id);
-    if (String(body["label"] ?? "") === "") autoTabs.add(tabId);
+    if (label === "") autoTabs.add(tabId);
     else autoTabs.delete(tabId);
     relabelAutoTabs(id);
     workspace.tab_count = tabs.length + 1;
