@@ -1042,7 +1042,7 @@ export function PaneTerminal({
         stalledRef.current = false;
         setOutputError(null);
         setEnded(false);
-        term.options.disableStdin = observeRef.current || secretRef.current !== null || heldRef.current;
+        term.options.disableStdin = observeRef.current || heldRef.current;
       }
       if (message.type === "pending-messages" && sent) {
         redrawGreeting();
@@ -1085,9 +1085,12 @@ export function PaneTerminal({
             if (line?.isWrapped && lines.length) lines[lines.length - 1] += text;
             else lines.push(text);
           }
+          // A masked prompt does not close the grid: a desktop answers it there, as in any terminal,
+          // and the masked input stands by for a phone (#1031). onData keeps what is typed then out
+          // of every draft.
           const prompt = secretPrompt(lines.join("\n"), term.cols);
           secretRef.current = prompt;
-          term.options.disableStdin = observeRef.current || prompt !== null || heldRef.current;
+          term.options.disableStdin = observeRef.current || heldRef.current;
           setSecret((previous) => previous?.pane === owner && previous.prompt === prompt ? previous : prompt ? { pane: owner, prompt } : null);
         });
       } else if (message.type === "watch-data") {
@@ -1100,7 +1103,7 @@ export function PaneTerminal({
       } else if (message.type === "attach-resumed") {
         if (message.pane_id === paneRef.current) {
           setHeld(false);
-          term.options.disableStdin = observeRef.current || secretRef.current !== null;
+          term.options.disableStdin = observeRef.current;
         }
       } else if (message.type === "pty-exit") {
         // an ended pane takes no input: a file dropped on it must not upload and paste either
@@ -1114,7 +1117,7 @@ export function PaneTerminal({
         // no fit runs while observing: a font shrunk for this client's own grid would stay
         if (nowObserving) term.options.fontSize = baseFontRef.current;
         setObserving(nowObserving);
-        term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
+        term.options.disableStdin = nowObserving || heldRef.current;
         onRoleAckRef.current?.(message.mode);
         if (!nowObserving && !fixedGridRef.current && !chatViewRef.current && inUse()) {
           try {
@@ -1275,7 +1278,10 @@ export function PaneTerminal({
       if (commandBackspace && data === "\x7f") data = "\x15";
       commandBackspace = false;
       const current = paneRef.current;
-      if (!current || observeRef.current || secretRef.current !== null || heldRef.current) return;
+      if (!current || observeRef.current || heldRef.current) return;
+      // while a masked prompt is on screen, what is typed goes to the program or nowhere: never
+      // into a draft, which is kept in the clear and offered back for review
+      const secret = secretRef.current !== null;
       const input = data;
       const key = keyFromData(data);
       const chord = !pasting && !composingRef.current && !compositionCommitPendingRef.current
@@ -1297,6 +1303,11 @@ export function PaneTerminal({
         // Enter out, so a partial command never runs. Other control keys (Ctrl+C, Escape, Tab,
         // arrows) still reach the program below: an interrupt must not wait on the draft.
         if (pasted || /[\r\n\x7f\b]/.test(input) || applyToDraft(EMPTY_DRAFT, input) !== EMPTY_DRAFT) {
+          if (secret) {
+            const t = tRef.current;
+            setInputError(t("Not sent: send or discard the held input first."));
+            return;
+          }
           setDraft((prev) => applyToDraft(prev, input));
           return;
         }
@@ -1320,6 +1331,11 @@ export function PaneTerminal({
         return;
       }
       if (socket.sendInput(current, input)) return;
+      if (secret) {
+        const t = tRef.current;
+        setInputError(t("Not sent: the terminal is not ready, and a password is never held for later."));
+        return;
+      }
       // A closed socket, an attachment still opening, or a failed synchronous send:
       // keep printable input for explicit review, never replay it automatically.
       if (draftPaneRef.current !== current) {
@@ -1717,7 +1733,7 @@ export function PaneTerminal({
       setOutputError(null);
       setEnded(false);
       resume();
-      term.options.disableStdin = observeRef.current || secretRef.current !== null || heldRef.current;
+      term.options.disableStdin = observeRef.current || heldRef.current;
     };
     reattachRef.current = reattach;
     const back = (): void => {

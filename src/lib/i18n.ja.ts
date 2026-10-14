@@ -911,6 +911,7 @@ export const JA: Record<string, string> = {
   "Finish the word, then send.": "単語を確定してから送信してください。",
   "Not sent: the terminal is disconnected.": "未送信: ターミナルが切断されています。",
   "Not sent: the terminal is not ready for keys.": "未送信: ターミナルはまだキー入力を受け付けていません。",
+  "Not sent: the terminal is not ready, and a password is never held for later.": "未送信: ターミナルの準備ができておらず、パスワードは後のために保持されません。",
   "Not sent: send or discard the held input first.": "未送信: 先に保持した入力を送信するか破棄してください。",
   "Type straight into the terminal": "ターミナルに直接入力",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "キューを保存できませんでした。このタブを開いたままにするか、再読み込みする前にメッセージをコピーしてください。",

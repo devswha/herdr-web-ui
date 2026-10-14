@@ -913,6 +913,7 @@ export const ZH: Record<string, string> = {
   "Finish the word, then send.": "请先完成输入，再发送。",
   "Not sent: the terminal is disconnected.": "未发送：终端已断开连接。",
   "Not sent: the terminal is not ready for keys.": "未发送：终端尚未准备好接收按键。",
+  "Not sent: the terminal is not ready, and a password is never held for later.": "未发送：终端尚未就绪，密码不会被保留以供稍后发送。",
   "Not sent: send or discard the held input first.": "未发送：请先发送或丢弃保留的输入。",
   "Type straight into the terminal": "直接在终端中输入",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "无法保存队列。请保持此标签页打开，或在重新加载前复制这些消息。",

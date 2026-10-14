@@ -866,6 +866,7 @@ export const TR: Record<string, string> = {
   "Finish the word, then send.": "Kelimeyi bitirip sonra gönderin.",
   "Not sent: the terminal is disconnected.": "Gönderilmedi: terminalin bağlantısı kesik.",
   "Not sent: the terminal is not ready for keys.": "Gönderilmedi: terminal tuşlar için hazır değil.",
+  "Not sent: the terminal is not ready, and a password is never held for later.": "Gönderilmedi: terminal hazır değil ve parola daha sonrası için asla tutulmaz.",
   "Not sent: send or discard the held input first.": "Gönderilmedi: önce tutulan girdiyi gönderin ya da atın.",
   "Type straight into the terminal": "Doğrudan terminale yazın",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "Kuyruk kaydedilemedi. Yeniden yüklemeden önce bu sekmeyi açık tutun ya da mesajları kopyalayın.",
