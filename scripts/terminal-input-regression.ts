@@ -27,6 +27,8 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
   let holdPings = false;
   const heldPings: string[] = [];
   let toServer: ((raw: string) => void) | undefined;
+  // the snapshot names what the bridge answers, pings among it; it can follow input-ready by a few ms
+  let snapshotSent = false;
   await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
     if (refuseConnections) { void socket.close(); return; }
     currentSocket = socket;
@@ -37,6 +39,7 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
       const frame = JSON.parse(String(raw));
       if (delayReady && frame.type === "input-ready") ready = () => socket.send(raw);
       else socket.send(raw);
+      if (frame.type === "snapshot") snapshotSent = true;
     });
     socket.onMessage((raw) => {
       const frame = JSON.parse(String(raw));
@@ -80,6 +83,8 @@ export async function checkTerminalInput(browser: Browser, origin: string, pane:
     // a wake then finds nothing to probe
     await page.locator(".conn-live").waitFor();
     await waiting.waitFor({ state: "hidden" });
+    // nor does a wake probe before the snapshot has said the bridge answers pings
+    await until(() => snapshotSent);
     holdPings = true;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await until(() => heldPings.length > 0);
