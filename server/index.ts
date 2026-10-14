@@ -124,7 +124,6 @@ const MAX_REPLAY_BYTES = 128 * 1024;
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
 const PLUGIN_ACTION_WAIT_MS = 5_000;
-/** How far back in herdr's plugin command log a run is looked for. */
 const livePaneIds = async (timeoutMs?: number): Promise<string[]> => (await sessionSnapshot(undefined, timeoutMs)).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
@@ -2500,9 +2499,9 @@ export function createServer(
         try {
           return jsonResponse(await paneFind({
             pane_id: payload.pane_id, query: payload.query, direction: payload.direction,
-            ...(typeof payload.jump === "boolean" ? { jump: payload.jump } : {}),
+            ...(payload.jump !== undefined ? { jump: payload.jump } : {}),
             ...(isJsonObject(previous) && point(previous.start) && point(previous.end) ? { previous: { start: previous.start, end: previous.end } } : {}),
-            ...(isCount(payload.content_revision) ? { content_revision: payload.content_revision } : {}),
+            ...(payload.content_revision !== undefined ? { content_revision: payload.content_revision } : {}),
           }));
         } catch (error) {
           if (error instanceof HerdrError && error.code === "stale_content") return conflictResponse(error.code, error.message);
