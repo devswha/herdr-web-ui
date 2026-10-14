@@ -33,9 +33,6 @@ export interface TelemetrySettings {
   density: "compact" | "comfortable";
   sidebarRows: "one" | "two";
   agentOrder: "workspace" | "activity";
-  agentCards: boolean;
-  agentPins: boolean;
-  quietOpenedDone: boolean;
   agentMarks: "color" | "mono";
   palette: "amber" | "charcoal" | "catppuccin";
   /** the pair System mode switches between */
@@ -106,9 +103,6 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   density: oneOf(["compact", "comfortable"]),
   sidebarRows: oneOf(["one", "two"]),
   agentOrder: oneOf(["workspace", "activity"]),
-  agentCards: booleanValue,
-  agentPins: booleanValue,
-  quietOpenedDone: booleanValue,
   agentMarks: oneOf(["color", "mono"]),
   palette: oneOf(PALETTES),
   paletteLight: oneOf(PALETTES),

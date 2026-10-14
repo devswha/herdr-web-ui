@@ -175,7 +175,6 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const { settings } = useSettings();
   const twoLine = settings.sidebarRows === "two";
   const machineId = useMachineId();
-  // a DONE looked at here reads as ready with Quiet opened finishes on (lib/sidebarActivity.tsx)
   const activity = useSidebarActivity();
   const { branches, rememberOpened } = useWorktreeBranches(snapshot, online, true);
   const { closeWorkspace, listWorktrees, moveWorkspace, removeWorktree, renameWorkspace } = useMachineApi();

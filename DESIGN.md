@@ -487,7 +487,9 @@ One set for both themes: the card is island black wherever it shows.
   worktree actions, and Expand/Collapse for a group. Dismissal restores the prior focus. The
   explicit `⋯` uses those same actions at its button. An edited name keeps the browser's paste menu;
   touch long press still reorders. Agents and PC headers keep the browser's context menu.
-  Agent rows only select their pane; they have no secondary action button or app context menu.
+  An agent row selects its pane. Its `⋯` (shown as a workspace row's is: on hover, focus,
+  selection, an open menu, and always on touch) opens its menu with one item, Pin agent or Unpin
+  agent; a right-click opens the same menu at the pointer and leaves the focus where it was.
 
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
@@ -582,21 +584,10 @@ One set for both themes: the card is island black wherever it shows.
   authoritative when the agent roster and pane status differ. The workspace and agent lists
   share the existing combined machine roster and its SSE updates; neither adds a status subscription.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
-- Appearance's **Workspace cards** is off by default: the Agents list is flat and every row names
-  its own place. On, in the **Workspaces** order the Agents list puts each workspace's agents on a PC in a card,
-  a workspace with one agent included: a `--hairline` `--border` edge with `--radius-lg`, `--space-1`
-  inside and `--space-2` between cards, and no fill, so a row's hover and selection read as they do
-  outside it. The card opens with a `--space-6` line in `--text-dim` `--fs-xs`: a `--space-4`
-  folder in the leading cell, then the workspace's name, after the PC's when two or more PCs are
-  registered (`machine · workspace`). The line is the card's name, not a control. A row in a card
-  leaves the PC and the workspace out of its dim line (`agentContext` with `grouped`); its tooltip
-  still names them, and the card's list is labelled by its head for screen readers. A row in a card
-  with nothing else to say (no live name, no tab of its own) says its kind there, even the one its
-  mark or title already says, rather than leave the line empty. The head of
-  a disconnected PC's card dims with its rows. **Activity** mixes workspaces, so it draws no cards
-  and every row names its own place. Appearance's **Pin agents** is off by
-  default: rows carry no star and saved pins lead nothing. On, pinned agents, when the list has them, sit in their own
-  section above the cards, and a pinned row is not repeated in its workspace's card.
+- The Agents list is flat and every row names its own place. Pinned agents (pinned from a row's
+  menu) stand first, in the order they were pinned, under a **Pinned** head in `--text-dim`
+  `--fs-xs` aligned with the rows' titles; the rest follow `--space-2` below in the chosen order,
+  with no head. Without pins there is no head. Pins are shared with the other browsers of the server.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's
   height and type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
@@ -609,19 +600,7 @@ One set for both themes: the card is island black wherever it shows.
   workspace, tab and pane order. **Activity** pins a blocked agent on top and orders the rest by
   their most recent state change (herdr's `state_change_seq`, read from the snapshot's `agents`),
   within each PC, so the agent just worked in stays on top while it runs and after it finishes.
-  It changes only the Agents list, which then draws no workspace cards; herdr's order and the
-  workspace rows stay as they are.
-- Appearance's **Quiet opened finishes** is off by default. herdr reports DONE until one of its
-  own clients shows the pane, so an agent opened here would keep its finished dot. On, a DONE
-  opened here (selected while the page is visible) since it finished draws as ready in the
-  Agents list and in its workspace's roll-up. "Opened" is kept per PC in this browser
-  (`herdr-web-ui:seen:<pc>`) and dropped with the PC. The first time it is turned on in a
-  browser, everything open on the connected PCs counts as opened, so the lists start quiet; a PC
-  first seen later starts with nothing opened, so its finishes keep their dots until opened.
-  Storage holds herdr's own counters only, so a page reloaded within the poll window after
-  leaving a finish it watched shows that finish's dot again rather than guess. herdr's counter
-  only goes up within a session, so a look recorded above it is from before a herdr restart and
-  is dropped.
+  It changes only the Agents list; herdr's order and the workspace rows stay as they are.
 - Each workspace row holds its folder (top-level rows), a leading glyph, the name (on two lines,
   the title over the place) and the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
   shell shows the terminal glyph, and a linked worktree without an agent the branch glyph. The

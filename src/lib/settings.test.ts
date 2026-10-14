@@ -37,24 +37,6 @@ it("keeps sidebar rows on two lines unless one line was chosen", () => {
   }
 });
 
-it("draws workspace cards in the Agents list only when they were turned on", () => {
-  expect(DEFAULT_SETTINGS.agentCards).toBe(false);
-  expect(sanitizeSettings({}).agentCards).toBe(false);
-  expect(sanitizeSettings({ agentCards: true }).agentCards).toBe(true);
-  for (const agentCards of [null, "true", 1]) {
-    expect(sanitizeSettings({ agentCards }).agentCards).toBe(false);
-  }
-});
-
-it("shows the Agents list's pin stars only when they were turned on", () => {
-  expect(DEFAULT_SETTINGS.agentPins).toBe(false);
-  expect(sanitizeSettings({}).agentPins).toBe(false);
-  expect(sanitizeSettings({ agentPins: true }).agentPins).toBe(true);
-  for (const agentPins of [null, "true", 1]) {
-    expect(sanitizeSettings({ agentPins }).agentPins).toBe(false);
-  }
-});
-
 it("draws agent logos in their brand colors unless Mono was chosen", () => {
   expect(DEFAULT_SETTINGS.agentMarks).toBe("color");
   expect(sanitizeSettings({}).agentMarks).toBe("color");

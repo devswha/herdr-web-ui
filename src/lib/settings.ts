@@ -69,12 +69,6 @@ export interface Settings {
   sidebarRows: SidebarRows;
   /** The Agents list's order. Activity is display-only: herdr's own order never changes. */
   agentOrder: AgentOrder;
-  /** In the Workspaces order, each workspace's agents sit in a card under its name. */
-  agentCards: boolean;
-  /** Each agent row carries a star that keeps it on top of the Agents list. */
-  agentPins: boolean;
-  /** a DONE opened here since it finished reads as ready, as herdr's own view would make it (per browser and PC) */
-  quietOpenedDone: boolean;
   /** Agent logos: brand colors, or without color, so a list of one agent is not a stripe of tiles */
   agentMarks: AgentMarks;
   /** the chrome color family, keyed as data-palette in src/styles.css */
@@ -179,9 +173,6 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     density: settings.density,
     sidebarRows: settings.sidebarRows,
     agentOrder: settings.agentOrder,
-    agentCards: settings.agentCards,
-    agentPins: settings.agentPins,
-    quietOpenedDone: settings.quietOpenedDone,
     agentMarks: settings.agentMarks,
     palette: settings.palette,
     paletteLight: settings.paletteLight,
@@ -233,12 +224,12 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
  * must be placed here, or the build fails; when in doubt it is the device's.
  */
 export const SETTING_SCOPE = {
-  theme: "shared", palette: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared", agentCards: "shared",
-  agentPins: "shared", agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
+  theme: "shared", palette: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared",
+  agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
   showQuickReplies: "shared", showUsage: "shared", usageCount: "shared",
   usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", defaultView: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", density: "device",
-  quietOpenedDone: "device", terminalFontSize: "device",
+  terminalFontSize: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
   chatFontSize: "device", chatFontFamily: "device", uiFontSize: "device", chatWidth: "device", enterSends: "device",
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
@@ -262,9 +253,6 @@ export const DEFAULT_SETTINGS: Settings = {
   density: "comfortable",
   sidebarRows: "two",
   agentOrder: "workspace",
-  agentCards: false,
-  agentPins: false,
-  quietOpenedDone: false,
   agentMarks: "color",
   palette: "amber",
   paletteLight: "amber",
@@ -429,9 +417,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarRows: record["sidebarRows"] === "one" || record["sidebarRows"] === "two" ? record["sidebarRows"] : DEFAULT_SETTINGS.sidebarRows,
     agentOrder: record["agentOrder"] === "workspace" || record["agentOrder"] === "activity" ? record["agentOrder"] : DEFAULT_SETTINGS.agentOrder,
-    agentCards: record["agentCards"] === true,
-    agentPins: record["agentPins"] === true,
-    quietOpenedDone: record["quietOpenedDone"] === true,
     agentMarks: record["agentMarks"] === "color" || record["agentMarks"] === "mono" ? record["agentMarks"] : DEFAULT_SETTINGS.agentMarks,
     palette,
     // a record from before the pair starts both from its one palette, so System mode looks as it did
