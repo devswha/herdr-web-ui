@@ -40,6 +40,8 @@ try {
     const path = new URL(request.url).pathname;
     // the chat asks for the pane's slash commands (skill chips); this fixture has none
     if (path.endsWith("/pane/commands")) return Response.json({ commands: [] });
+    // each page answers the conversation itself; one asked while the browser closes reaches here
+    if (path.endsWith("/pane/conversation")) return Response.json(conversation);
     return new Response(Bun.file(join(output, path === "/" ? "index.html" : path.slice(1))));
   } });
 
