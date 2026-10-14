@@ -1220,7 +1220,7 @@ class DemoSocket extends EventTarget {
           for (const [key, receipt] of heldCopyResends) if (Date.now() - receipt.at >= 60_000) heldCopyResends.delete(key);
           const resendKey = message.resend_id === undefined ? null : JSON.stringify([message.pane_id, message.resend_id, message.resend_generation ?? 0]);
           const previous = resendKey === null ? undefined : heldCopyResends.get(resendKey);
-          if (previous && this.mode !== "observe") {
+          if (previous && this.mode !== "observe" && message.clear_draft === undefined) {
             this.push(previous.text === message.text ? { ...previous.reply, id: message.id }
               : { type: "submit-result", id: message.id, pane_id: message.pane_id, ok: false, code: "invalid_submit_id", message: "This resend id already belongs to another message." });
             break;
@@ -1242,7 +1242,7 @@ class DemoSocket extends EventTarget {
           else if (queued) code = this.pendingTargetError(message.pane_id);
           if (code) {
             const reply: Extract<ServerMessage, { type: "submit-result" }> = { type: "submit-result", id: message.id, pane_id: message.pane_id, ok: false, code, message: "The demo agent cannot take this submission." };
-            if (resendKey !== null && this.mode !== "observe" && code !== "pending_limit") heldCopyResends.set(resendKey, { text: message.text, reply, at: Date.now() });
+            if (resendKey !== null && this.mode !== "observe" && code !== "pending_limit" && !previous) heldCopyResends.set(resendKey, { text: message.text, reply, at: Date.now() });
             this.completeRequest(reply);
             break;
           }

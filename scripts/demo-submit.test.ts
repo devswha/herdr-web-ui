@@ -180,6 +180,10 @@ it("the demo refuses draft clearing, drains accepted pending IDs once, and never
     assert.deepEqual(await json("/api/pane/conversation?pane_id=" + claude), combinationBefore);
     assert.equal(combined(547, false).ok, true, "rejection must not reserve the resend id");
     assert.equal(combined(548, true).code, "invalid_delivery", "a successful receipt must not bypass combination validation");
+    combinationPeer.socket.send(JSON.stringify({ type: "submit", id: 550, pane_id: claude, text: "combined demo copy", payload: "combined demo copy",
+      resend_id: "combined-demo-copy", clear_draft: "named draft" }));
+    assert.equal(combinationPeer.frames.findLast((frame) => frame.type === "submit-result" && frame.id === 550).code, "unsupported",
+      "a successful receipt must not bypass clear_draft validation");
     assert.equal(combined(549, false).ok, true);
     assert.equal((await json("/api/pane/conversation?pane_id=" + claude)).turns.filter((turn: any) => turn.parts.some((part: any) => part.text === "combined demo copy")).length, 1);
   } finally {
