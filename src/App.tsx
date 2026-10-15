@@ -262,9 +262,13 @@ export function App() {
   // was, changes nothing they watch), and on a link a tap set (its pane may be the one selected)
   const [rosterTick, setRosterTick] = useState(0);
   const [linkTick, setLinkTick] = useState(0);
+  // a split half whose pane the PC could not be asked about is checked again on the next roster
+  const otherRecheck = useRef(false);
+  const [otherRosterTick, setOtherRosterTick] = useState(0);
   const rosterIn = useCallback((): void => {
     rosterSeq.current += 1;
     if (pendingLink.current !== null) setRosterTick(rosterSeq.current);
+    if (otherRecheck.current) { otherRecheck.current = false; setOtherRosterTick(rosterSeq.current); }
   }, []);
   // the file a link named, opened over its pane once that pane is shown
   const pendingFile = useRef<string | null>(initialLink ? fileFromLink(initialLink) : null);
@@ -932,14 +936,17 @@ export function App() {
       const other = split.other;
       void fetchSession(other.machineId).then((current) => {
         if (!cancelled && !current.panes.some((pane) => pane.pane_id === other.paneId)) endSplit(split.active);
-      }).catch(() => { /* a failed read is not evidence that the pane closed */ });
+      }).catch(() => {
+        // a failed read is not evidence that the pane closed: ask again on the next roster
+        if (!cancelled) otherRecheck.current = true;
+      });
       return () => { cancelled = true; };
     }
     const focused = otherMachine.snapshot.layouts.find((layout) => layout.tab_id === tabId)?.focused_pane_id;
     const heir = panes.find((pane) => pane.tab_id === tabId && pane.pane_id === focused) ?? panes.find((pane) => pane.tab_id === tabId);
     if (heir) setSplit({ ...split, other: { machineId: split.other.machineId, paneId: heir.pane_id } });
     else endSplit(split.active);
-  }, [split, machineRosterLoaded, otherMachine, endSplit, setSplit]);
+  }, [split, machineRosterLoaded, otherMachine, otherRosterTick, endSplit, setSplit]);
 
   /** A split change and the pane it selects. The half that becomes active keeps its terminals: only
    *  a half whose pane moves to another PC attaches again and reports its connection. */
