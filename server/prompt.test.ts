@@ -5009,6 +5009,8 @@ describe("hermesInputDraft", () => {
   test("knows text typed into the classic CLI or the TUI for a draft", () => {
     expect(draft(CLASSIC_TYPED)).toBe(true);
     expect(draft(TUI_TYPED)).toBe(true);
+    // a `❯` the user typed is text, not the prompt
+    expect(draft("\u001b[0m\u001b[38;5;230m❯ \u001b[0mreview ❯ ")).toBe(true);
   });
 
   test("takes neither interface's own hint for a draft: the classic italic placeholder, the TUI's cursor chip", () => {

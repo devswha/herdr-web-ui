@@ -2952,10 +2952,11 @@ export function hermesInputDraft(live: string, colors: string | null): boolean {
   const row = hermesInputRow(live);
   if (row === null) return true;
   const plain = plainRow(row);
-  if (plain.slice(plain.lastIndexOf("❯") + 1).replace(/\u00a0/g, " ").trim() === "") return false;
+  // the row's first `❯` is the prompt: one after it is typed text
+  if (plain.slice(plain.indexOf("❯") + 1).replace(/\u00a0/g, " ").trim() === "") return false;
   const shown = colors === null ? null : hermesInputRow(colors);
   if (shown === null || plainRow(shown).trimEnd() !== plain.trimEnd()) return true;
-  const after = plainRow(shown).lastIndexOf("❯");
+  const after = plainRow(shown).indexOf("❯");
   let column = 0;
   let italic = false;
   let background = false;
