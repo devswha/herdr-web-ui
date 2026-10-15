@@ -9,8 +9,6 @@ export type ViewedScope = "workspace" | "tab";
 const KEY = "herdr-web-ui:last-viewed-pane";
 const LIMIT = 200;
 
-let entries: Map<string, string> | null = null;
-
 const scopeKey = (scope: ViewedScope, machineId: string, id: string): string => `${scope}:${machineId}:${id}`;
 
 /** a stored value back into entries, oldest first; anything malformed is dropped */
@@ -39,23 +37,44 @@ export function withViewedPane(current: ReadonlyMap<string, string>, key: string
   return next;
 }
 
-function load(): Map<string, string> {
-  if (entries === null) {
-    let raw: string | null = null;
-    try { raw = localStorage.getItem(KEY); } catch { /* storage denied: memory only */ }
-    entries = parseViewedPanes(raw);
-  }
-  return entries;
+type ViewedStorage = Pick<Storage, "getItem" | "setItem">;
+
+/**
+ * One browser tab's view of the stored entries. Another app tab writes the same key, so a write
+ * re-reads storage and applies just its one entry, and `forget` drops the cache when another tab
+ * changed it: neither tab overwrites what the other remembered.
+ */
+export function viewedPanes(storage: () => ViewedStorage) {
+  let entries: Map<string, string> | null = null;
+  let memoryOnly = false;
+  // the stored entries, or this tab's own when storage cannot be read or written
+  const fresh = (): Map<string, string> => {
+    if (memoryOnly && entries) return entries;
+    try { entries = parseViewedPanes(storage().getItem(KEY)); } catch { entries ??= new Map(); /* storage denied: memory only */ }
+    return entries;
+  };
+  return {
+    get(scope: ViewedScope, machineId: string, id: string): string | undefined {
+      return (entries ?? fresh()).get(scopeKey(scope, machineId, id));
+    },
+    /** the entry becomes the newest, also for the same pane seen again, so the oldest seen goes first */
+    remember(scope: ViewedScope, machineId: string, id: string, paneId: string): void {
+      const key = scopeKey(scope, machineId, id);
+      const current = fresh();
+      if ([...current.keys()].at(-1) === key && current.get(key) === paneId) return;
+      entries = withViewedPane(current, key, paneId);
+      try { storage().setItem(KEY, JSON.stringify([...entries])); } catch { memoryOnly = true; /* storage denied: memory only */ }
+    },
+    forget(): void {
+      entries = null;
+    },
+  };
 }
 
-export function lastViewedPane(scope: ViewedScope, machineId: string, id: string): string | undefined {
-  return load().get(scopeKey(scope, machineId, id));
-}
+const browserPanes = viewedPanes(() => localStorage);
+if (typeof window !== "undefined") window.addEventListener("storage", (event) => {
+  if (event.key === KEY || event.key === null) browserPanes.forget();
+});
 
-export function rememberViewedPane(scope: ViewedScope, machineId: string, id: string, paneId: string): void {
-  const key = scopeKey(scope, machineId, id);
-  const current = load();
-  if (current.get(key) === paneId) return;
-  entries = withViewedPane(current, key, paneId);
-  try { localStorage.setItem(KEY, JSON.stringify([...entries])); } catch { /* storage denied: memory only */ }
-}
+export const lastViewedPane = browserPanes.get;
+export const rememberViewedPane = browserPanes.remember;

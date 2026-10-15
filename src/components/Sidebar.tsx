@@ -224,11 +224,12 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const revealOpenedWorkspace = useRef<string | null>(null);
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(() => storedWorktreeCollapsed(machineId, snapshot?.workspaces.flatMap((workspace) => workspace.worktree ? [workspace.worktree.repo_key] : []) ?? []));
   // the pane each workspace was last seen on in this browser: its row keeps showing and opening
-  // that one, also after the page reloads (lib/lastViewedPane.ts)
+  // that one, also after the page reloads (lib/lastViewedPane.ts). Kept once per pane opened, not
+  // per snapshot, and a workspace opened again on the same pane becomes the newest seen again.
+  const viewedWorkspaceId = selectedPaneId ? snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id : undefined;
   useEffect(() => {
-    const pane = selectedPaneId ? snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) : undefined;
-    if (pane) rememberViewedPane("workspace", machineId, pane.workspace_id, pane.pane_id);
-  }, [machineId, selectedPaneId, snapshot]);
+    if (selectedPaneId && viewedWorkspaceId) rememberViewedPane("workspace", machineId, viewedWorkspaceId, selectedPaneId);
+  }, [machineId, selectedPaneId, viewedWorkspaceId]);
 
   const setWorktreeCollapsed = (repoKey: string, collapsed: boolean): void => {
     setCollapsedWorktrees((current) => {
