@@ -5022,6 +5022,11 @@ describe("hermesInputDraft", () => {
     expect(draft(" \u001b[1m❯ \u001b[0m", null)).toBe(false);
   });
 
+  test("knows a draft that holds a `❯` without colors too, and reads an empty prompt row with colors as empty", () => {
+    expect(draft("\u001b[0m\u001b[38;5;230m❯ \u001b[0mreview ❯ ", null)).toBe(true);
+    expect(draft("\u001b[0m\u001b[38;5;230m❯ \u001b[0m")).toBe(false);
+  });
+
   test("counts any text as a draft without colors verified to show that screen", () => {
     expect(draft(CLASSIC_HINT, null)).toBe(true);
     expect(draft(TUI_HINT, screen(CLASSIC_TYPED))).toBe(true);
