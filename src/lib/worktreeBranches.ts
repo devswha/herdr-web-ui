@@ -108,7 +108,7 @@ export class WorkspaceBranchCache {
       this.records.set(id, {
         repoKey,
         checkoutPath: identity.checkoutPath,
-        branch: entry.branch,
+        branch: entry.branch ?? null,
         isDetached: entry.is_detached,
       });
     }
