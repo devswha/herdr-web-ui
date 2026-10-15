@@ -954,6 +954,21 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     return json({ workspace_id: id, pane_id: pane.pane_id, agent_started: agent !== null } satisfies WorkspaceCreated);
   }
+  if (path === "/api/workspace/omp-sessions") {
+    const cwd = query.get("cwd") ?? "";
+    const session = (id: string, title: string, preview: string, updated_at: string) => ({ session_id: id, path: `/home/demo/.omp/agent/sessions/demo/${id}.jsonl`, title, preview, updated_at, size_bytes: 48_000 });
+    return json({ cwd, limit: 20, has_more: false, sessions: [
+      session("demo-2", "Idempotent payments", "Make the charge endpoint safe to retry", "2026-10-14T09:30:00.000Z"),
+      session("demo-1", "Review the release notes", "Check the changelog against the merged PRs", "2026-10-12T16:05:00.000Z"),
+    ] });
+  }
+  if (path === "/api/workspace/omp-resume") {
+    const body = await bodyOf(init, input);
+    const pane = snapshot().panes.find((p) => p.workspace_id === body["workspace_id"]);
+    if (!pane) return error("not_found", "no such workspace", 404);
+    // the demo runs no omp: the pane the workspace already has stands for the resumed session
+    return json({ workspace_id: pane.workspace_id, pane_id: pane.pane_id, outcome: "focused", agent_started: true });
+  }
   // no key in the demo: the app falls back to the browser's own speech recognition
   if (path === "/api/voice") return json({ configured: false, source: null, ...VOICE_DEFAULTS } satisfies VoiceStatus, 200, { "cache-control": "no-store" });
   if (path === "/api/voice/config") return error("demo", "the demo saves no OpenAI key", 409);

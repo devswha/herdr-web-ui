@@ -39,6 +39,8 @@ import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent }
 import { listDirectories } from "./directories.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
 import { fileResponse, locateFile, locateFileInFolder, crossSiteFileRead } from "./file-view.ts";
+import { ompHeldTranscript } from "./omp.ts";
+import { listOmpSessions, OMP_SESSIONS_DEFAULT_LIMIT, OMP_SESSIONS_MAX_LIMIT, OmpResumer, openOmpSessions, resolveOmpSession } from "./omp-history.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
   agentManifests,
@@ -1097,6 +1099,18 @@ export function createServer(
 
   /** `done` for agents herdr loses track of (server/completion.ts), kept across restarts */
   const completions = new CompletionTracker(join(options.stateDir ?? defaultStateDir(), "completions.json"));
+  /** one omp resume per session at a time, and the panes it started (server/omp-history.ts) */
+  const ompPaneSession = (pane: HerdrPane): Promise<string | null> => ompHeldTranscript(pane.pane_id, pane.foreground_cwd ?? pane.cwd ?? "");
+  const ompResumer = new OmpResumer({
+    panes: async () => (await sessionSnapshot()).panes,
+    open: (panes) => openOmpSessions(panes, ompPaneSession),
+    focus: (paneId) => paneFocus(paneId),
+    createTab: async (workspaceId, cwd) => {
+      const created = await tabCreate({ workspaceId, cwd });
+      return { workspace_id: created.tab.workspace_id, pane_id: created.root_pane.pane_id };
+    },
+    launch: (paneId, args) => agentLaunch(paneId, { kind: "omp", args }),
+  });
   /** OmO panes get their status from OmO's session files: herdr reports none for them (server/omo-status.ts) */
   const omo = new OmoStatus({
     discover: (panes) => omoPanes(panes),
@@ -2127,6 +2141,48 @@ export function createServer(
             return jsonResponse({ workspace_id: workspaceId, pane_id: created.root_pane.pane_id, agent_started: false });
           }
           return jsonResponse({ workspace_id: workspaceId, pane_id: created.root_pane.pane_id, ...(await agentLaunch(created.root_pane.pane_id, payload.agent)) });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      // Earlier omp sessions of a folder, and resuming one exactly (server/omp-history.ts). This PC's own
+      // store: the PC proxy has no route for either, and the browser offers them for the local PC only.
+      if (pathname === "/api/workspace/omp-sessions") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        // the previews are what was asked of the agent: a watching device reads the chat of open panes only
+        if (readOnly) return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
+        const cwd = url.searchParams.get("cwd") ?? "";
+        if (!isAbsolute(cwd) || expandedDirectory(cwd) === null) return badRequest("invalid_cwd", "cwd must be an absolute path of a directory this user can read");
+        const asked = url.searchParams.get("limit");
+        const limit = asked === null ? OMP_SESSIONS_DEFAULT_LIMIT : Number(asked);
+        if (!Number.isInteger(limit) || limit < 1 || limit > OMP_SESSIONS_MAX_LIMIT) return badRequest("invalid_limit", `limit must be a whole number from 1 to ${OMP_SESSIONS_MAX_LIMIT}`);
+        try {
+          const open = await openOmpSessions((await sessionSnapshot()).panes, ompPaneSession);
+          return jsonResponse({ cwd, limit, ...listOmpSessions(cwd, new Set(open.keys()), limit) });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/workspace/omp-resume") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { workspace_id?: unknown; cwd?: unknown; path?: unknown };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.workspace_id !== "string" || payload.workspace_id.trim() === "") return badRequest("missing_workspace_id", "workspace_id is required");
+        if (typeof payload.cwd !== "string" || !isAbsolute(payload.cwd) || expandedDirectory(payload.cwd) === null) return badRequest("invalid_cwd", "cwd must be an absolute path of a directory this user can read");
+        // only a file the listing of that folder could have named: inside the omp store, a main session, recorded for this folder
+        const session = resolveOmpSession(payload.path, payload.cwd);
+        if (session === null) return badRequest("invalid_session", "path must be an omp session of this folder");
+        // tab.create, then agent.start can take a minute
+        bunServer.timeout(request, 75);
+        try {
+          return jsonResponse(await ompResumer.resume(session, payload.workspace_id, payload.cwd));
         } catch (error) {
           return errorResponse(error);
         }

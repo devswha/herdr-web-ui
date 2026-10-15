@@ -298,6 +298,8 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
     { id: "new", label: t("New workspace"), icon: MessageSquarePlus, shortcut: "new-session", run: actions.openNewSession },
     // in the selected pane's workspace: nothing to add a tab to without one
     ...(selectedPaneId !== null ? [{ id: "new-tab", label: t("New tab"), icon: Plus, shortcut: "new-tab", run: () => actions.openNewTab() }] satisfies PaletteAction[] : []),
+    // the selected pane's workspace folder, on the local PC only: a remote PC's omp sessions are not read here
+    ...(selectedPaneId !== null && machineId === "local" ? [{ id: "omp-history", label: t("Resume Oh My Pi session…"), icon: History, run: () => actions.openOmpHistory() }] satisfies PaletteAction[] : []),
     // herdr's prefix+v and prefix+-: the new pane is opened here only when asked, as herdr's --focus
     ...(splitPane ? [
       { id: "split-right", label: t("Split pane right"), icon: Columns2, shortcut: "split-right", run: () => splitPane("right") },
@@ -315,7 +317,7 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
     ...(actions.openFiles ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: actions.openFiles }] : []),
     ...(online ? [{ id: "browse-folders", label: t("Browse folders"), icon: FolderSearch, keepOpen: true, run: () => browseTo(browseStart ?? home ?? "~") }] : []),
     { id: "refresh", label: t("Refresh"), icon: RefreshCw, run: actions.refresh },
-  ], [actions, splitPane, zoomPane, tabPanes, zoom, view, t, selectedPaneId, online, browseTo, browseStart, home]);
+  ], [actions, splitPane, zoomPane, tabPanes, zoom, view, t, selectedPaneId, machineId, online, browseTo, browseStart, home]);
 
   // Settings pages are found by a query only, and open on the page itself: the dialog reads the request as it mounts
   const settingsActions = useMemo(() => {

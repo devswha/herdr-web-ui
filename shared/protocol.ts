@@ -195,6 +195,14 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         pane; without cwd herdr uses the workspace's folder, without label the tab's number)
  *         Both creates trim `label`; a blank one counts as not given, one over MAX_LABEL_CHARS
  *         (shared/labels.ts) is refused with 400 label_too_long.
+ *  GET    /api/workspace/omp-sessions?cwd=&limit= -> OmpSessionList (earlier omp sessions of that absolute
+ *         folder, from the headers of the files in ~/.omp/agent/sessions; limit 1..50, default 20;
+ *         sessions an open pane shows are left out; 400 invalid_cwd | invalid_limit; this PC only,
+ *         and refused to a watching device: 403 read_only)
+ *  POST   /api/workspace/omp-resume ResumeOmpSessionRequest -> OmpSessionResumed (one tab.create in the
+ *         workspace, then `omp --resume <path>` through the same launch as /api/tab/create; the same
+ *         session asked at once starts once; one an open pane has is focused instead. 400
+ *         invalid_session when the file is not a main session of `cwd` inside the omp store)
  *  POST   /api/tab/rename { tab_id, label } -> { ok: true } (tab.rename; an empty label is refused:
  *         herdr would keep it as the name; over MAX_LABEL_CHARS: 400 label_too_long)
  *  POST   /api/tab/move { tab_id, insert_index } -> TabMoved
@@ -895,6 +903,44 @@ export interface WorkspaceCreated {
  * launch leaves the tab there, reachable through pane_id, as workspace creation does.
  */
 export type TabCreated = WorkspaceCreated;
+
+/** One earlier omp session of a folder, read from the head of its file (never the whole transcript). */
+export interface OmpSessionSummary {
+  session_id: string;
+  /** the session file, absolute: what `omp --resume` is given */
+  path: string;
+  /** omp's own title for the session, null while it has none */
+  title: string | null;
+  /** the first user message, whitespace collapsed and cut; null when it is not in the file's first 128 KiB */
+  preview: string | null;
+  /** when the file was last written, ISO 8601 */
+  updated_at: string;
+  size_bytes: number;
+}
+
+/** GET /api/workspace/omp-sessions: newest first, without the sessions open panes show. */
+export interface OmpSessionList {
+  cwd: string;
+  limit: number;
+  sessions: OmpSessionSummary[];
+  /** the limit (or the server's read bound) cut the list short */
+  has_more: boolean;
+}
+
+/** POST /api/workspace/omp-resume: `path` is one a listing of `cwd` returned. */
+export interface ResumeOmpSessionRequest {
+  workspace_id: string;
+  cwd: string;
+  path: string;
+}
+
+/**
+ * `started`: a new tab of the workspace runs `omp --resume <path>`; `focused`: an open pane already
+ * had the session and herdr brought it forward. A failed start leaves the tab, as tab creation does.
+ */
+export interface OmpSessionResumed extends WorkspaceCreated {
+  outcome: "started" | "focused";
+}
 
 /** The two ways herdr splits a pane: a new pane to its right, or below it. */
 export type SplitPaneDirection = "right" | "down";

@@ -1,0 +1,57 @@
+.omp-history-modal {
+  width: min(100%, calc(var(--sidebar-w) + var(--content-w) / 3));
+}
+
+.omp-history-state {
+  margin: var(--space-3) 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+/* one row a session: what it was about, then when; Resume sits at the end and stays reachable on a phone */
+.omp-history-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.omp-history-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--hairline) solid var(--border);
+}
+
+.omp-history-row .btn {
+  flex: none;
+}
+
+.omp-history-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.omp-history-title,
+.omp-history-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omp-history-title {
+  color: var(--text-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.omp-history-preview,
+.omp-history-meta {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}

@@ -47,6 +47,9 @@ import type {
   SplitPaneRequest,
   SwapPaneRequest,
   TabCreated,
+  OmpSessionList,
+  OmpSessionResumed,
+  ResumeOmpSessionRequest,
   UsageReport,
   WorkspaceCreated,
   PluginActionRequest,
@@ -653,6 +656,17 @@ export async function openWorktree(request: OpenWorktreeRequest, machineId = "lo
 export async function createTab(request: CreateTabRequest, machineId = "local"): Promise<TabCreated> {
   const response = await sendJson(machinePath(machineId, "tab/create"), "POST", request);
   return (await response.json()) as TabCreated;
+}
+
+/** GET /api/workspace/omp-sessions: the earlier omp sessions of a folder, newest first. This PC's own store: only ever asked of the local PC. */
+export function fetchOmpSessions(cwd: string, machineId = "local"): Promise<OmpSessionList> {
+  return getJson<OmpSessionList>(machinePath(machineId, `workspace/omp-sessions?cwd=${encodeURIComponent(cwd)}`));
+}
+
+/** POST /api/workspace/omp-resume: one listed session in a new tab, or the pane that already shows it brought forward. */
+export async function resumeOmpSession(request: ResumeOmpSessionRequest, machineId = "local"): Promise<OmpSessionResumed> {
+  const response = await sendJson(machinePath(machineId, "workspace/omp-resume"), "POST", request);
+  return (await response.json()) as OmpSessionResumed;
 }
 
 /** POST /api/tab/rename: the tab's name in herdr; an empty one is refused. */

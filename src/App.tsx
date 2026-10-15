@@ -1,7 +1,7 @@
 import { type CSSProperties, type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
+import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane, HerdrWorkspace, SessionSnapshot } from "../shared/protocol.ts";
 import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
@@ -13,6 +13,7 @@ import { worktreeRepoName } from "./lib/composerStrip.ts";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
+import { OmpHistoryDialog, type OmpHistoryTarget } from "./components/OmpHistoryDialog.tsx";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { usePreferencesSync } from "./lib/preferencesSync.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
@@ -150,6 +151,18 @@ function Brand() {
       </span>
     </h1>
   );
+}
+
+/**
+ * The folder a workspace stands for: a worktree's checkout, else where the pane in front (the
+ * selected one, else the one herdr has in front, else the first) is.
+ */
+function workspaceFolder(roster: SessionSnapshot, workspace: HerdrWorkspace, selectedPaneId: string | null): string | null {
+  const panes = roster.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
+  const inFront = panes.find((pane) => pane.pane_id === selectedPaneId)
+    ?? panes.find((pane) => pane.pane_id === roster.layouts?.find((layout) => layout.tab_id === workspace.active_tab_id)?.focused_pane_id)
+    ?? panes[0];
+  return workspace.worktree?.checkout_path ?? inFront?.cwd ?? null;
 }
 
 export function App() {
@@ -401,6 +414,8 @@ export function App() {
   const pendingCreate = useRef<CreateDraft | null>(initialLink?.create ?? null);
   // the dialog makes a tab in this workspace instead of a workspace, while set
   const [newTab, setNewTab] = useState<NewTabTarget | null>(null);
+  // the earlier Oh My Pi sessions of this workspace's folder, listed while set (local PC only)
+  const [ompHistory, setOmpHistory] = useState<OmpHistoryTarget | null>(null);
   const [connected, setConnected] = useState(false);
   // the active slot's pane could not be drawn: no terminal is attached there to say so itself
   const paneLost = useCallback(() => setConnected(false), []);
@@ -1219,16 +1234,26 @@ export function App() {
         const workspaceId = target?.workspaceId ?? roster?.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
         const workspace = roster?.workspaces.find((candidate) => candidate.workspace_id === workspaceId);
         if (!roster || !workspace) return;
-        // the tab's folder is the workspace's: a worktree's checkout, else where the pane in
-        // front (the selected one, else the one herdr has in front, else the first) is
-        const panes = roster.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
-        const inFront = panes.find((pane) => pane.pane_id === selectedPaneId)
-          ?? panes.find((pane) => pane.pane_id === roster.layouts?.find((layout) => layout.tab_id === workspace.active_tab_id)?.focused_pane_id)
-          ?? panes[0];
+        // the tab's folder is the workspace's (workspaceFolder)
+        const folder = workspaceFolder(roster, workspace, selectedPaneId);
         setDrawerOpen(false);
         setNewSessionMachineId(machineId);
-        setNewTab({ workspaceId: workspace.workspace_id, workspaceLabel: workspace.label, cwd: workspace.worktree?.checkout_path ?? inFront?.cwd ?? null, number: workspace.tab_count + 1 });
+        setNewTab({ workspaceId: workspace.workspace_id, workspaceLabel: workspace.label, cwd: folder, number: workspace.tab_count + 1 });
         setNewSessionOpen(true);
+      },
+      openOmpHistory: (target) => {
+        const machineId = target?.machineId ?? selectionRef.current.machineId;
+        // omp keeps its sessions on the PC it runs on, where only this server reads them: a remote PC's are not offered
+        if (machineId !== "local") return;
+        const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
+        const selectedPaneId = selectionRef.current.machineId === machineId ? selectionRef.current.paneId : null;
+        const workspaceId = target?.workspaceId ?? roster?.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
+        const workspace = roster?.workspaces.find((candidate) => candidate.workspace_id === workspaceId);
+        if (!roster || !workspace) return;
+        const folder = workspaceFolder(roster, workspace, selectedPaneId);
+        if (folder === null) return;
+        setDrawerOpen(false);
+        setOmpHistory({ workspaceId: workspace.workspace_id, workspaceLabel: workspace.label, cwd: folder });
       },
       openPalette,
       agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
@@ -1642,6 +1667,16 @@ export function App() {
           closeNewSession();
           if (agentStarted) actions.agentStarted(newSessionMachineId, paneId);
           selectTarget(newSessionMachineId, paneId);
+          void load();
+        }}
+      /></MachineContext.Provider>
+      {/* only the local PC's sessions are read (actions.openOmpHistory), whichever PC is selected */}
+      <MachineContext.Provider value="local"><OmpHistoryDialog
+        target={ompHistory}
+        onClose={() => setOmpHistory(null)}
+        onResumed={(paneId) => {
+          setOmpHistory(null);
+          selectTarget("local", paneId);
           void load();
         }}
       /></MachineContext.Provider>

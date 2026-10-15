@@ -1056,6 +1056,58 @@ describe("tab creation", () => {
   });
 });
 
+// The earlier omp sessions of a folder (server/omp-history.ts). The cases below all end before herdr
+// is asked, and none reads the user's own omp store: a folder nobody ran omp in lists nothing.
+describe("omp session history", () => {
+  const list = (query: string) => fetch(`${base()}/api/workspace/omp-sessions?${query}`);
+  const resume = (body: unknown) => fetch(`${base()}/api/workspace/omp-resume`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+
+  it("lists nothing for a folder with no sessions and validates its query", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "herdr-web-ui-omp-history-"));
+    try {
+      const res = await list(`cwd=${encodeURIComponent(cwd)}&limit=5`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ cwd, limit: 5, sessions: [], has_more: false });
+      for (const [query, code] of [
+        ["", "invalid_cwd"],
+        ["cwd=relative%2Fdir", "invalid_cwd"],
+        [`cwd=${encodeURIComponent(join(cwd, "missing"))}`, "invalid_cwd"],
+        [`cwd=${encodeURIComponent(cwd)}&limit=0`, "invalid_limit"],
+        [`cwd=${encodeURIComponent(cwd)}&limit=51`, "invalid_limit"],
+        [`cwd=${encodeURIComponent(cwd)}&limit=2.5`, "invalid_limit"],
+      ] as const) {
+        const bad = await list(query);
+        expect(bad.status).toBe(400);
+        expect(((await bad.json()) as ApiError).error.code).toBe(code);
+      }
+      expect((await fetch(`${base()}/api/workspace/omp-sessions`, { method: "POST" })).status).toBe(400);
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+
+  it("refuses a resume that does not name a session of the folder inside the omp store", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "herdr-web-ui-omp-history-"));
+    const stray = join(cwd, "stray.jsonl");
+    writeFileSync(stray, `${JSON.stringify({ type: "session", id: "stray", cwd })}\n`);
+    try {
+      for (const [body, code] of [
+        [{ cwd, path: stray }, "missing_workspace_id"],
+        [{ workspace_id: "w", cwd: "relative", path: stray }, "invalid_cwd"],
+        [{ workspace_id: "w", cwd, path: stray }, "invalid_session"],
+        [{ workspace_id: "w", cwd, path: 42 }, "invalid_session"],
+        [{ workspace_id: "w", cwd, path: join(cwd, "../../etc/passwd") }, "invalid_session"],
+      ] as const) {
+        const res = await resume(body);
+        expect(res.status).toBe(400);
+        expect(((await res.json()) as ApiError).error.code).toBe(code);
+      }
+      expect((await fetch(`${base()}/api/workspace/omp-resume`)).status).toBe(400);
+      expect((await fetch(`${base()}/api/machines/local/workspace/omp-sessions?cwd=${encodeURIComponent(cwd)}`)).status).toBe(200);
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  });
+});
+
 describe("workspace and discovery endpoints", () => {
   let workspaceId: string | null = null;
   let paneId: string | null = null;

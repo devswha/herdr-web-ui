@@ -30,6 +30,12 @@ export interface AppActions {
    * else the selected pane's. Nothing happens without a workspace to add the tab to.
    */
   openNewTab: (target?: { machineId: string; workspaceId: string }) => void;
+  /**
+   * The earlier Oh My Pi sessions of a workspace's folder, each resumable: the named workspace (a
+   * sidebar row's menu), else the selected pane's. Local PC only: nothing happens for a remote PC,
+   * whose sessions this server does not read.
+   */
+  openOmpHistory: (target?: { machineId: string; workspaceId: string }) => void;
   /** the palette, blank or opened on `query` (a `>` prefix keeps the actions alone) */
   openPalette: (query?: string) => void;
   /** A pane this page started an agent in opens in an agent's lens, whatever its first snapshot says. */
