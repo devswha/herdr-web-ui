@@ -8,13 +8,6 @@
  * in English. Placeholders in braces keep their English names.
  */
 export const JA: Record<string, string> = {
-  "Find in messages": "メッセージ内を検索",
-  "Match case": "大文字と小文字を区別",
-  "Search earlier messages": "以前のメッセージを検索",
-  "Cancel search": "検索をキャンセル",
-  "Searching earlier messages…": "以前のメッセージを検索中…",
-  "Matches in loaded message source, including folded content.": "折りたたまれた内容を含む、読み込み済みメッセージの原文を検索します。",
-  "Matching source": "一致する原文",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravityのチャットを利用できません。ターミナルを開いて動作状況とツール呼び出しを確認してください。",
   "Chat read timed out.": "会話の読み込みがタイムアウトしました。",
   "Thinking…": "思考中…",

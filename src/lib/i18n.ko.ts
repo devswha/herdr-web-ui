@@ -6,13 +6,6 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
-  "Find in messages": "메시지에서 찾기",
-  "Match case": "대소문자 구분",
-  "Search earlier messages": "이전 메시지 검색",
-  "Cancel search": "검색 취소",
-  "Searching earlier messages…": "이전 메시지 검색 중…",
-  "Matches in loaded message source, including folded content.": "접힌 내용을 포함해 불러온 메시지 원문에서 찾습니다.",
-  "Matching source": "일치하는 원문",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 채팅을 사용할 수 없습니다. 터미널을 열어 작업 상태와 도구 호출을 확인하세요.",
   "Chat read timed out.": "대화 읽기 시간이 초과되었습니다.",
   "Thinking…": "생각 중…",

@@ -10,13 +10,6 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
-  "Find in messages": "在消息中查找",
-  "Match case": "区分大小写",
-  "Search earlier messages": "搜索更早的消息",
-  "Cancel search": "取消搜索",
-  "Searching earlier messages…": "正在搜索更早的消息…",
-  "Matches in loaded message source, including folded content.": "在已加载的消息原文中查找，包括折叠的内容。",
-  "Matching source": "匹配的原文",
   "Antigravity chat is unavailable. Open Terminal to see activity and tool calls.": "Antigravity 聊天暂不可用。请打开终端查看运行状态和工具调用。",
   "Chat read timed out.": "读取对话超时。",
   "Thinking…": "思考中…",
