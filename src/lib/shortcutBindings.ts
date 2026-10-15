@@ -15,7 +15,8 @@ export interface ExactChord {
   key: string;
 }
 
-const BINDABLE_KEY = "(?:[a-z0-9,]|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|PageUp|PageDown|Home|End)";
+// the punctuation keys are named by their US character but read by position (shortcutEventKey)
+const BINDABLE_KEY = "(?:[a-z0-9,\\-=\\[\\];'\\\\./`§]|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|PageUp|PageDown|Home|End)";
 const MOD_SHIFT_KEY = new RegExp(`^${BINDABLE_KEY}$`);
 const EXACT_CHORD = new RegExp(`^(ctrl\\+)?(alt\\+)?(shift\\+)?(meta\\+)?(${BINDABLE_KEY})$`);
 
@@ -50,7 +51,7 @@ export function isReservedShortcutKey(key: string, platformIsMac: boolean): bool
   const normalized = /^[a-z]$/i.test(key) ? key.toLowerCase() : key;
   if (normalized === "n" || normalized === "t" || normalized === "b" || normalized === "p" || normalized === "w") return true;
   return platformIsMac
-    ? normalized === "3" || normalized === "4" || normalized === "5" || normalized === "q"
+    ? normalized === "3" || normalized === "4" || normalized === "5" || normalized === "q" || normalized === "[" || normalized === "]"
     : normalized === "c" || normalized === "i" || normalized === "j" || normalized === "o" || normalized === "PageUp" || normalized === "PageDown";
 }
 
@@ -66,7 +67,7 @@ export function exactChordRefusal(chord: ExactChord, platformIsMac: boolean): "c
   if (!platformIsMac && chord.meta) return "chord";
   const modOnly = !chord.shift && !chord.alt && (platformIsMac ? chord.meta && !chord.ctrl : chord.ctrl && !chord.meta);
   if (modOnly && "acvxzntw".includes(chord.key)) return "reserved";
-  if (platformIsMac && modOnly && "qhm".includes(chord.key)) return "reserved";
+  if (platformIsMac && modOnly && ["q", "h", "m", "`"].includes(chord.key)) return "reserved";
   if (platformIsMac && chord.ctrl && !chord.meta && chord.key.startsWith("Arrow")) return "reserved";
   if (chord.ctrl && !chord.meta && !chord.alt && (chord.key === "PageUp" || chord.key === "PageDown")) return "reserved";
   return null;
@@ -81,7 +82,7 @@ export function exactChordRefusal(chord: ExactChord, platformIsMac: boolean): "c
  */
 export function exactChordRisk(chord: ExactChord, platformIsMac: boolean): "terminal" | "browser" | null {
   if (!chord.meta && (chord.ctrl || chord.alt)) return "terminal";
-  if (platformIsMac && chord.meta && (/^[0-9defgjlopruy]$/.test(chord.key) || chord.key === "ArrowLeft" || chord.key === "ArrowRight")) return "browser";
+  if (platformIsMac && chord.meta && (/^[0-9defgjlopruy=\-[\]]$/.test(chord.key) || chord.key === "ArrowLeft" || chord.key === "ArrowRight")) return "browser";
   return null;
 }
 

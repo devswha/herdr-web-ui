@@ -36,6 +36,12 @@ describe("recordShortcut", () => {
     expect(recordShortcut(press("End", { ctrlKey: false, shiftKey: false, metaKey: true }), true)).toEqual({ kind: "exact", value: "meta+End", risk: null });
   });
 
+  it("records an accented letter by its key, and refuses the browser's tab keys", () => {
+    expect(recordShortcut(press("É", { ctrlKey: false, metaKey: true, code: "Semicolon" }), true)).toEqual({ kind: "key", key: ";" });
+    expect(recordShortcut(press("ő", { ctrlKey: false, shiftKey: false, metaKey: true, code: "BracketLeft" }), true)).toEqual({ kind: "exact", value: "meta+[", risk: "browser" });
+    expect(recordShortcut(press("Ő", { ctrlKey: false, metaKey: true, code: "BracketLeft" }), true)).toEqual({ kind: "invalid", reason: "reserved" });
+  });
+
   it("names a macOS Option chord by its key, not the character Option types", () => {
     expect(recordShortcut(press("˚", { ctrlKey: false, shiftKey: false, metaKey: true, altKey: true, code: "KeyK" }), true)).toEqual({ kind: "exact", value: "alt+meta+k", risk: null });
     expect(recordShortcut(press("Dead", { ctrlKey: false, shiftKey: false, altKey: true, code: "KeyE" }), true)).toEqual({ kind: "exact", value: "alt+e", risk: "terminal" });

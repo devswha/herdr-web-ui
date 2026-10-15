@@ -2,7 +2,7 @@ import { exactChordRefusal, exactChordRisk, formatExactChord, isReservedShortcut
 import { exactChordFromEvent, shortcutEventKey, type ShortcutEventLike } from "./shortcuts.ts";
 
 /** The keys a binding may use, with Mod+Shift or exact modifiers: what sanitizeShortcutOverrides accepts. */
-export const SHORTCUT_KEYS: readonly string[] = [..."abcdefghijklmnopqrstuvwxyz0123456789,", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"];
+export const SHORTCUT_KEYS: readonly string[] = [..."abcdefghijklmnopqrstuvwxyz0123456789,-=[];'\\./`§", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"];
 
 export type RecordedShortcut =
   | { kind: "key"; key: string }

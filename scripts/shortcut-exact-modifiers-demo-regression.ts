@@ -91,6 +91,12 @@ try {
         assert.equal(Object.hasOwn(await stored(page), "find"), false);
         if (screenshotDir) await page.locator(".settings-dialog").screenshot({ path: join(screenshotDir, "exact-shortcut-list.png") });
 
+        // a Hungarian É is read by the key it sits on (Semicolon), so the binding works on any layout
+        const hungarianE = () => page.evaluate(() => (document.activeElement ?? window).dispatchEvent(new KeyboardEvent("keydown", { key: "É", code: "Semicolon", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
+        await page.getByRole("button", { name: "Record shortcut for Settings", exact: true }).click();
+        await hungarianE();
+        assert.equal((await stored(page)).settings, ";");
+
         // the exact chord runs the action; the default Mod+Shift+K is released
         await page.getByRole("button", { name: "Close settings", exact: true }).click();
         const palette = page.locator(".command-palette");
@@ -102,6 +108,10 @@ try {
         await page.keyboard.press("Escape");
         await palette.waitFor({ state: "detached" });
 
+        await hungarianE();
+        await page.locator(".settings-dialog").waitFor();
+        await page.getByRole("button", { name: "Close settings", exact: true }).click();
+
         // from the message box too, and after a reload
         await page.reload();
         await page.locator(".conn-live").waitFor();
@@ -109,7 +119,7 @@ try {
         await page.keyboard.press("Control+KeyK");
         await palette.waitFor();
         assert.deepEqual(errors, []);
-        console.log("PASS exact shortcuts: safe chord saved, terminal key confirm/cancel, refusals, dispatch, released default, reload");
+        console.log("PASS exact shortcuts: Hungarian É by position, safe chord saved, terminal key confirm/cancel, refusals, dispatch, released default, reload");
       } finally { await context.close(); }
     } finally { await browser.close(); }
   } finally { server.stop(true); }

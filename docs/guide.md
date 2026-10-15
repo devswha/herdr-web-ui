@@ -531,7 +531,9 @@ shortcut can be reassigned or disabled in Settings → Shortcuts.
 **Settings → Shortcuts** changes each app binding or turns it off: press **Record** on a row,
 then the new chord (Escape cancels). A Mod+Shift chord is always safe for the terminal. Other
 chords are kept exactly as pressed, such as `⌘+PageUp` or `Ctrl+K`, and need Ctrl, Alt or (on a
-Mac) ⌘. Letters, digits, comma, arrows, PageUp/PageDown and Home/End can be bound. A chord the browser, the OS or text editing keeps (`Mod+W`/`T`/`N`, `⌘+Q`, `Mod+C`/`V`/`X`/`A`/`Z`,
+Mac) ⌘. Letters, digits, the punctuation keys, arrows, PageUp/PageDown and Home/End can be bound. A
+punctuation key is read by where it sits, so on a Hungarian keyboard É is the key US labels `;`, and
+the binding works on any layout; the row shows your keyboard's own character where the browser says it. A chord the browser, the OS or text editing keeps (`Mod+W`/`T`/`N`, `⌘+Q`, `Mod+C`/`V`/`X`/`A`/`Z`,
 `Ctrl+PageUp`/`PageDown`, macOS `Ctrl+arrows`), an unbindable key or an already-assigned chord is
 refused on the row. Plain Ctrl or Alt chords are shells', editors' and agents' keys (`Ctrl+R`,
 `Ctrl+A`/`E`, Alt word moves): the row says so and saves one only after **Save anyway**, and from

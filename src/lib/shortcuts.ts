@@ -91,11 +91,29 @@ export function shortcutEventKey(event: ShortcutEventLike): string {
   // Turkish F's Ç on KeyB, and neither is that binding.
   const nonLatinLetter = /^\p{L}$/u.test(event.key) && !/^\p{Script=Latin}$/u.test(event.key);
   const letter = nonLatinLetter ? physicalKey(event.key, code) : event.key;
-  return code === "Comma"
-    ? ","
-    : /^Digit[0-9]$/.test(code)
-      ? code.slice(-1)
-      : letter.length === 1 ? letter.toLowerCase() : letter;
+  if (code === "Comma") return ",";
+  if (/^Digit[0-9]$/.test(code)) return code.slice(-1);
+  const typed = letter.length === 1 ? letter.toLowerCase() : letter;
+  // An a–z letter stays as typed (AZERTY's M sits on Semicolon); anything else on a punctuation key
+  // is read by position, so a Hungarian É or a German Ö is the key it sits on, on any layout.
+  return !/^[a-z]$/.test(typed) && Object.hasOwn(PUNCTUATION_BY_CODE, code) ? PUNCTUATION_BY_CODE[code]! : typed;
+}
+
+/** Punctuation keys by position, named by the US character (IntlBackslash, the ISO key, as §). */
+const PUNCTUATION_BY_CODE: Readonly<Record<string, string>> = {
+  Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'",
+  Backslash: "\\", Period: ".", Slash: "/", Backquote: "`", IntlBackslash: "§",
+};
+const CODE_BY_PUNCTUATION: Readonly<Record<string, string>> = Object.fromEntries(Object.entries(PUNCTUATION_BY_CODE).map(([code, key]) => [key, code]));
+
+/** This keyboard's own character on each key, where the browser tells it (Chromium); else the US name. */
+let layoutMap: ReadonlyMap<string, string> | null = null;
+let layoutRequested = false;
+function loadKeyboardLayout(): void {
+  if (layoutRequested || typeof navigator === "undefined") return;
+  layoutRequested = true;
+  const keyboard = (navigator as Navigator & { keyboard?: { getLayoutMap?: () => Promise<ReadonlyMap<string, string>> } }).keyboard;
+  keyboard?.getLayoutMap?.().then((map) => { layoutMap = map; }, () => { /* keep the US names */ });
 }
 
 /**
@@ -182,7 +200,13 @@ export function modKeyLabel(): string {
 export function formatKeys(keys: readonly string[]): string[] {
   const mac = isMacPlatform();
   const mod = modKeyLabel();
-  return keys.map((key) => (key === "Mod" ? mod : key === "Meta" ? (mac ? "⌘" : "Meta") : key === "Alt" && mac ? "⌥" : key));
+  return keys.map((key) => (key === "Mod" ? mod : key === "Meta" ? (mac ? "⌘" : "Meta") : key === "Alt" && mac ? "⌥" : layoutLabel(key)));
+}
+
+function layoutLabel(key: string): string {
+  const code = CODE_BY_PUNCTUATION[key];
+  const own = code === undefined ? undefined : layoutMap?.get(code);
+  return own ? own.toUpperCase() : key;
 }
 
 /** True while Settings records a chord: the dispatcher below stands down so the pressed chord is not run. */
@@ -195,6 +219,7 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
   const { settings } = useSettings();
   useEffect(() => {
     if (!enabled) return;
+    loadKeyboardLayout();
     const platformIsMac = isMacPlatform();
     const onKeyDown = (event: KeyboardEvent): void => {
       if (recordingShortcut) return;

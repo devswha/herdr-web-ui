@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { bindingDisplayKeys, isAppShortcut, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
+import { bindingDisplayKeys, isAppShortcut, shortcutEventKey, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
 import { isReservedShortcutKey, sanitizeShortcutOverrides } from "./shortcutBindings.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
@@ -262,5 +262,31 @@ describe("exact-modifier bindings", () => {
     expect(bindingDisplayKeys("meta+PageUp")).toEqual(["Meta", "PageUp"]);
     expect(bindingDisplayKeys("k")).toEqual(["Mod", "Shift", "K"]);
     expect(shortcutDisplayKeys("palette", { palette: "ctrl+k" })).toEqual(["Ctrl", "K"]);
+  });
+});
+
+describe("punctuation keys by position", () => {
+  const at = (key: string, code: string) => shortcutEventKey(keyEvent(key, { code, metaKey: true }));
+
+  it("reads an accented letter or a symbol by the key it sits on", () => {
+    // Hungarian: é ; á ' ő [ ú ] ű \ ü - ó =
+    expect([at("é", "Semicolon"), at("á", "Quote"), at("ő", "BracketLeft"), at("ú", "BracketRight"), at("ű", "Backslash"), at("ü", "Minus"), at("ó", "Equal")])
+      .toEqual([";", "'", "[", "]", "\\", "-", "="]);
+    expect(at("í", "IntlBackslash")).toBe("§");
+    expect(at("ö", "Semicolon")).toBe(";"); // German
+    expect(at("ж", "Semicolon")).toBe(";"); // Russian
+    expect(at(";", "Semicolon")).toBe(";"); // US
+  });
+
+  it("keeps an a–z letter as typed wherever it sits", () => {
+    expect(at("m", "Semicolon")).toBe("m"); // AZERTY
+    expect(at("M", "Semicolon")).toBe("m");
+  });
+
+  it("runs a binding recorded on one layout from the same key on another", () => {
+    const overrides = sanitizeShortcutOverrides({ "previous-pane": ";", "next-pane": "meta+'" });
+    expect(matchShortcut(keyEvent("É", { code: "Semicolon", metaKey: true }), true, overrides)).toBe("previous-pane");
+    expect(matchShortcut(keyEvent(":", { code: "Semicolon", metaKey: true }), true, overrides)).toBe("previous-pane");
+    expect(matchShortcut(keyEvent("á", { code: "Quote", metaKey: true, shiftKey: false }), true, overrides)).toBe("next-pane");
   });
 });
