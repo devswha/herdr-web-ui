@@ -202,7 +202,9 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
                   {t("Browse")}
                 </button>
               </div>
-              {browsing && <DirectoryBrowser start={cwd} onPick={(picked) => { setCwd(picked); setBrowsing(false); }} />}
+              {/* Browse updates Directory as you open folders, so Start uses what the path bar shows
+                  even when Use this folder was never pressed (issue #1162). */}
+              {browsing && <DirectoryBrowser start={cwd} onPick={(picked) => { setCwd(picked); setBrowsing(false); }} onFolder={setCwd} />}
               <span className="field-hint">{t("absolute path or ~/…")}</span>
             </div>
           )}
