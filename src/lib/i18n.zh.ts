@@ -900,7 +900,6 @@ export const ZH: Record<string, string> = {
   "Not stopped: Hermes got Ctrl+C under 2 seconds ago, and a second one would quit it. Try again in a moment.": "未停止：Hermes 在 2 秒内刚收到 Ctrl+C，再发送一次会使其退出。请稍后再试。",
   "Not sent: the terminal is not ready, and a password is never held for later.": "未发送：终端尚未就绪，密码不会被保留以供稍后发送。",
   "Not sent: send or discard the held input first.": "未发送：请先发送或丢弃保留的输入。",
-  "Type straight into the terminal": "直接在终端中输入",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "无法保存队列。请保持此标签页打开，或在重新加载前复制这些消息。",
   "Queued messages": "排队的消息",
   "Queued messages ({n})": "排队的消息（{n}）",

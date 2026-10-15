@@ -898,7 +898,6 @@ export const JA: Record<string, string> = {
   "Not stopped: Hermes got Ctrl+C under 2 seconds ago, and a second one would quit it. Try again in a moment.": "停止していません: Hermes は 2 秒以内に Ctrl+C を受け取っており、もう一度送ると終了します。少し待ってから再試行してください。",
   "Not sent: the terminal is not ready, and a password is never held for later.": "未送信: ターミナルの準備ができておらず、パスワードは後のために保持されません。",
   "Not sent: send or discard the held input first.": "未送信: 先に保持した入力を送信するか破棄してください。",
-  "Type straight into the terminal": "ターミナルに直接入力",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "キューを保存できませんでした。このタブを開いたままにするか、再読み込みする前にメッセージをコピーしてください。",
   "Queued messages": "キュー内のメッセージ",
   "Queued messages ({n})": "キュー内のメッセージ ({n})",

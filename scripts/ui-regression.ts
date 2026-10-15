@@ -2178,9 +2178,13 @@ try {
   assert.equal(await touchPage.locator(".terminal-input").count(), 0, "a phone starts in direct typing");
   assert.equal(await touchPage.evaluate(() => document.activeElement?.classList.contains("xterm-helper-textarea") ?? false), false,
     "opening the terminal on a phone does not focus the grid, so the keyboard stays down until a tap");
-  await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
+  // the keyboard key is the input line's switch: lit while the line is shown, unlit in direct typing
+  const lineKey = touchPage.getByRole("button", { name: "Input line", exact: true });
+  assert.equal(await lineKey.getAttribute("aria-pressed"), "false", "direct typing leaves the input-line key unlit");
+  await lineKey.click();
   const line = touchPage.getByRole("textbox", { name: "Terminal input line", exact: true });
   await line.waitFor();
+  assert.equal(await lineKey.getAttribute("aria-pressed"), "true", "the shown input line lights its key");
   assert.equal(await touchPage.locator(".xterm-helper-textarea").getAttribute("inputmode"), "none");
   await line.fill("printf 'line-ok\\n'");
   await line.press("Enter");
@@ -2210,10 +2214,10 @@ try {
   await until(() => touchSent.length > enters && touchSent.at(-1)?.type === "input" && touchSent.at(-1)?.text === "\r", "enter from the empty line");
   await line.fill("unsent 한글 😀");
   // typing straight into the grid is one tap away, and gives the keyboard back to it
-  await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
+  await touchPage.getByRole("button", { name: "Input line", exact: true }).click();
   assert.equal(await touchPage.locator(".terminal-input").count(), 0);
   assert.equal(await touchPage.locator(".xterm-helper-textarea").getAttribute("inputmode"), null);
-  await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
+  await touchPage.getByRole("button", { name: "Input line", exact: true }).click();
   await line.waitFor();
   assert.equal(await line.inputValue(), "unsent 한글 😀", "mode switches preserve the unsent line");
   await touchPage.reload();

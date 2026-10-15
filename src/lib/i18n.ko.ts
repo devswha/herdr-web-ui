@@ -896,7 +896,6 @@ export const KO: Record<string, string> = {
   "Not stopped: Hermes got Ctrl+C under 2 seconds ago, and a second one would quit it. Try again in a moment.": "멈추지 않았습니다: Hermes가 2초 안에 Ctrl+C를 받았고, 한 번 더 보내면 종료됩니다. 잠시 후 다시 시도하세요.",
   "Not sent: the terminal is not ready, and a password is never held for later.": "보내지 못했습니다: 터미널이 아직 준비되지 않았고, 비밀번호는 나중을 위해 보관하지 않습니다.",
   "Not sent: send or discard the held input first.": "보내지 못했습니다: 보관한 입력을 먼저 보내거나 버리세요.",
-  "Type straight into the terminal": "터미널에 직접 입력",
   "Queue could not be saved. Keep this tab open or copy the messages before reloading.": "대기 메시지를 저장하지 못했습니다. 이 탭을 유지하거나 새로고침 전에 메시지를 복사하세요.",
   "Queued messages": "대기 메시지",
   "Queued messages ({n})": "대기 메시지 {n}개",
