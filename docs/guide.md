@@ -472,6 +472,8 @@ Observe connections cannot take a pane, and a displaced bridge never takes it ba
 
 An update is built and typechecked in a private checkout while the current server keeps serving. The new server must pass a health check, or the previous build comes back. herdr and your agents keep running, and a **Reload app** notice lets you save drafts before the new frontend loads.
 
+After a herdr plugin reinstall, or a `git pull` and a build, in the checkout the app runs from, reloading the page cannot bring the update in: the server keeps running its old code. The next update check (within 5 minutes, or **Check for updates** in Settings) makes the app say so and ask you to restart herdr web ui on the PC, in place of the **Reload app** notice. The notice goes away once it restarts.
+
 Updates need a clean checkout: `main` for a source install, or herdr's plugin checkout. Local changes block an update, and they are never overwritten. More in [app updates](app-updates.md).
 
 ### Updating herdr

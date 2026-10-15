@@ -88,7 +88,7 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
     <div className="settings-card"><div className="settings-item">
     {/* always a version: the sidebar no longer carries one */}
     <p className="settings-hint">{t("Running {version}", { version: runningAppVersion(status, __APP_VERSION__) })}</p>
-    {tabVersion && <p className="settings-hint">{t("This tab still runs {version} until it is reloaded.", { version: tabVersion })}</p>}
+    {tabVersion && reload !== "restart" && <p className="settings-hint">{t("This tab still runs {version} until it is reloaded.", { version: tabVersion })}</p>}
     {installing && !error ? <div role="status"><UpdateProgress status={status} fallback={t(status?.phase === "building" ? "Installing dependencies and building…" : "Restarting the bridge…")} /></div> : <p className="settings-hint" role="status">
       {error ?? status?.error ?? status?.blocked_reason ?? (busy ? t("Checking for updates…") :
         status?.available ? t("Version {version} is available.", { version: versionLabel(status.latest_version, status.latest_revision) ?? "" }) : status?.checked_at ? t("Up to date.") : t("Waiting for an update check…"))}
@@ -104,7 +104,8 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
       </div>
     </>}
     {status?.checked_at && <p className="settings-hint">{t("Last checked {when}", { when: new Date(status.checked_at).toLocaleString(locale) })}</p>}
-    {needsReload && <p className="settings-hint">{reload === "updated" ? t("The server was updated. Save any unsent drafts, then") : t("Part of the app could not load. Save unsent drafts, then reload.")} <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button></p>}
+    {needsReload && (reload === "restart" ? <p className="settings-hint">{t("herdr web ui changed on the PC. Restart it there to finish the update.")}</p>
+      : <p className="settings-hint">{reload === "updated" ? t("The server was updated. Save any unsent drafts, then") : t("Part of the app could not load. Save unsent drafts, then reload.")} <button type="button" className="btn" onClick={() => window.location.reload()}>{t("Reload app")}</button></p>)}
     </div></div>
   </section>;
 }
@@ -183,6 +184,10 @@ export function UpdateNotice({ updates, onOpen }: { updates: UpdatesModel; onOpe
     </div>;
   }
   if (needsReload) {
+    // a reload cannot help here: the line only tells what to do, and goes when the server restarts
+    if (reload === "restart") return <div className="update-notice is-line is-warning" role="status">
+      <span>{t("herdr web ui changed on the PC. Restart it there to finish the update.")}</span>
+    </div>;
     // a warning before a step that loses unsent drafts: read in full, so this line alone may wrap
     const text = reload === "updated" ? t("App updated. Save unsent drafts before reloading.") : t("Part of the app could not load. Save unsent drafts, then reload.");
     return <div className="update-notice is-line is-warning" role="status">

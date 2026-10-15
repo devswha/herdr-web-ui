@@ -7,16 +7,23 @@ import { ApiError } from "./api.ts";
  * The second does not wait on the first: an unmanaged server names no commit, an older one may not
  * answer at all, a build outside Git has none, and a rebuild of the same commit compares equal,
  * yet the part is gone for this page until it is reloaded. Nothing while an update is underway.
+ *
+ * "restart" is "updated" where a reload cannot help: the server serves the files of a source
+ * checkout that was replaced under it, and this tab is already the build of that checkout, so a
+ * reload loads the same build again. It ends when the server is restarted and reports the commit
+ * the tab was built from.
  */
-export type ReloadReason = "updated" | "incomplete";
+export type ReloadReason = "updated" | "restart" | "incomplete";
 export function reloadReason(
   appRevision: string | null,
-  status: Pick<UpdateStatus, "current_revision"> | null,
+  status: Pick<UpdateStatus, "current_revision" | "checkout_revision"> | null,
   busy: boolean,
   chunkFailed: boolean,
 ): ReloadReason | null {
   if (busy) return null;
-  if (appRevision && status?.current_revision && appRevision !== status.current_revision) return "updated";
+  if (appRevision && status?.current_revision && appRevision !== status.current_revision) {
+    return appRevision === status.checkout_revision ? "restart" : "updated";
+  }
   return chunkFailed ? "incomplete" : null;
 }
 

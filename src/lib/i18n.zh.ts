@@ -475,6 +475,7 @@ export const ZH: Record<string, string> = {
   "Reload app": "重新加载应用",
   "App updated. Save unsent drafts before reloading.": "应用已更新。重新加载前请保存未发送的草稿。",
   "Part of the app could not load. Save unsent drafts, then reload.": "应用的一部分未能加载。请先保存未发送的草稿，再重新加载。",
+  "herdr web ui changed on the PC. Restart it there to finish the update.": "PC 上的 herdr web ui 已变更。请在 PC 上重新启动它以完成更新。",
   "herdr web ui v{version} is available.": "herdr web ui v{version} 已发布。",
   "A herdr web ui update is available.": "herdr web ui 有可用更新。",
   "Update": "更新",

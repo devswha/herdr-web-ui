@@ -18,6 +18,14 @@ export interface UpdateStatus {
    * field: an update is always run by the version being replaced.
    */
   step?: UpdateStep | null;
+  /**
+   * The commit the source checkout points at once it has moved since this server started, while
+   * the server itself runs from that checkout; null otherwise (a release directory is serving, or
+   * the checkout is unchanged). The server serves that checkout's files, so a tab built from this
+   * commit cannot be reloaded onto the running revision: only a restart reports it. Absent from a
+   * supervisor older than this field.
+   */
+  checkout_revision?: string | null;
 }
 
 /** An install's steps, in the order it takes them. */
