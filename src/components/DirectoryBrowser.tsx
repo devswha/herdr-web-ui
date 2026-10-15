@@ -50,11 +50,14 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
   const shownPath = listing?.path;
   // home shown in place of a path that does not open was not opened by the user: the typed path stays
   const fellBack = useRef(false);
+  // counts moves to another folder; a refresh of the one shown (Show hidden) is not one
+  const moves = useRef(0);
   const shownByFallback = useRef(false);
   useEffect(() => { if (listing && !shownByFallback.current) onFolder?.(listing.path, listing.home); }, [shownPath]);
 
   const open = useCallback(async (path: string, showHidden: boolean, fallbackHome: boolean) => {
     const id = ++request.current;
+    if (path !== listing?.path) moves.current++;
     const fallback = fellBack.current;
     fellBack.current = false;
     setLoading(true);
@@ -102,12 +105,12 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
     if (listing === null || naming === null || naming.trim() === "" || creating) return;
     setCreating(true);
     // the user may open another folder while the folder is made: then the made one is not opened
-    const asked = request.current;
+    const asked = moves.current;
     try {
       const made = await createDirectory(listing.path, naming);
       setNaming(null);
       setNamingError(null);
-      if (request.current === asked) void open(made.path, hidden, false);
+      if (moves.current === asked) void open(made.path, hidden, false);
     } catch (reason: unknown) {
       const code = reason instanceof ApiError ? reason.code : null;
       setNamingError(code === "folder_exists" ? t("Something with that name is already here.")
