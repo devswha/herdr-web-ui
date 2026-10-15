@@ -93,7 +93,7 @@ import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
 import { PaneWatch } from "./watch.ts";
-import { AttachOutputTail, isTakeoverExit } from "./attach-output.ts";
+import { AttachOutputTail, AttachStartupProbes, isTakeoverExit } from "./attach-output.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { mirrorInput } from "./mirror-input.ts";
@@ -1398,6 +1398,7 @@ export function createServer(
       let heldSince = 0;
       let holding = false;
       let holdTimer: ReturnType<typeof setTimeout> | undefined;
+      const probes = new AttachStartupProbes();
       const outputTail = new AttachOutputTail();
       let tailTimer: ReturnType<typeof setTimeout> | undefined;
       const flushTail = (taken = false): void => {
@@ -1564,6 +1565,13 @@ export function createServer(
         rows: attachment.rows,
         onData: (data) => {
           if (retired || attachments.get(paneId) !== attachment) return;
+          // herdr's startup queries are the bridge's to answer: never readiness, broadcast or replay
+          if (!holding && held !== null) {
+            const taken = probes.take(data);
+            if (taken.replies) session.write(taken.replies);
+            data = taken.output;
+          } else data = probes.flush() + data;
+          if (!data) return;
           output = (output + data).slice(-1024);
           if (held === null) return publish(data);
           held += data;
