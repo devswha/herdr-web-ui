@@ -101,11 +101,13 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
   const makeFolder = async () => {
     if (listing === null || naming === null || naming.trim() === "" || creating) return;
     setCreating(true);
+    // the user may open another folder while the folder is made: then the made one is not opened
+    const asked = request.current;
     try {
       const made = await createDirectory(listing.path, naming);
       setNaming(null);
       setNamingError(null);
-      void open(made.path, hidden, false);
+      if (request.current === asked) void open(made.path, hidden, false);
     } catch (reason: unknown) {
       const code = reason instanceof ApiError ? reason.code : null;
       setNamingError(code === "folder_exists" ? t("Something with that name is already here.")
