@@ -9,6 +9,7 @@ export const SHORTCUTS = [
   { id: "palette", label: "Command palette", keys: ["Mod", "Shift", "K"] },
   { id: "find", label: "Find in terminal", keys: ["Mod", "Shift", "F"] },
   { id: "toggle-view", label: "Switch chat / terminal", keys: ["Mod", "Shift", "J"] },
+  { id: "focus-input", label: "Focus pane input", keys: ["Mod", "Shift", "E"] },
   { id: "scroll-up", label: "Scroll pane up", keys: ["Mod", "Shift", "PageUp"] },
   { id: "scroll-down", label: "Scroll pane down", keys: ["Mod", "Shift", "PageDown"] },
   { id: "toggle-sidebar", label: "Toggle sidebar", keys: ["Mod", "Shift", "B"] },
@@ -43,6 +44,7 @@ const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   k: "palette",
   f: "find",
   j: "toggle-view",
+  e: "focus-input",
   PageUp: "scroll-up",
   PageDown: "scroll-down",
   b: "toggle-sidebar",
@@ -181,6 +183,9 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
           break;
         case "toggle-view":
           actions.toggleView();
+          break;
+        case "focus-input":
+          actions.focusInput();
           break;
         case "scroll-up":
           actions.scrollPage(-1);

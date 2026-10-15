@@ -134,6 +134,7 @@ export const ZH: Record<string, string> = {
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "命令面板",
   "Switch chat / terminal": "切换聊天 / 终端",
+  "Focus pane input": "聚焦面板输入框",
   "Toggle sidebar": "切换侧边栏",
   "New workspace": "新建工作区",
   "Previous pane": "上一个窗格",

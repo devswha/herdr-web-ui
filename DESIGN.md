@@ -289,6 +289,11 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
   explicit header notice, never a misleading jump. Markdown reader tabs retain the requested line.
   Copy file copies the loaded text; when the clipboard is out of reach it selects the source
   `<pre>`, or shows a virtualized source as one readonly text box, selected.
+- Mod+Shift+E focuses the selected pane's existing composer, terminal input line or xterm input,
+  preferring a mounted secret-input field. The callback is synchronous with the hardware key
+  event, scoped to the active, presented pane and its PC; a modal or observe mode blocks it.
+  It sends no text or keys and never takes an attach. The binding follows the existing shortcut
+  customization and Mod+Shift policy.
 - All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
 
 ## 4. Spacing & Layout

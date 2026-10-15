@@ -503,11 +503,17 @@ The snapshot is the last one a browser reported to this server, not a list of de
 | --- | --- |
 | `Mod+Shift+K` | Command palette |
 | `Mod+Shift+J` | Switch Chat / Terminal |
+| `Mod+Shift+E` | Focus the current pane's message box, terminal input line or terminal |
 | `Mod+Shift+PageUp` / `PageDown` | Scroll the current pane up / down, retaining one line |
 | `Mod+Shift+B` | Toggle sidebar |
 | `Mod+Shift+O` | New workspace (`Mod+Shift+N` too, in the installed app: a Chrome tab keeps `Ctrl+Shift+N` for an incognito window) |
 | `Mod+Shift+↑` / `↓` | Previous / next pane |
 | `Mod+Shift+,` | Settings |
+
+Selecting a pane or opening chat focuses its message box on desktop, while touch screens keep
+focus where it was. **Mod+Shift+E** focuses the selected pane's input in any mode, including the
+terminal's input line and direct input; it prefers masked input while a secret prompt is open. The
+shortcut can be reassigned or disabled in Settings → Shortcuts.
 
 **New tab**, **Split pane right** and **Split pane down** have no default key: pick one in
 **Settings → Shortcuts**, and the command palette shows it beside the action.

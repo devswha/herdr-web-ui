@@ -9,8 +9,9 @@ import type { ZoomMode } from "./layoutMap.ts";
 
 export type PaneView = "chat" | "terminal";
 
-/** The selected pane’s mounted history, bound to its PC. */
+/** The selected pane’s mounted input and history, bound to its PC. */
 export interface PaneControls {
+  focusInput: () => void;
   scrollPage: (direction: -1 | 1) => void;
 }
 
@@ -20,6 +21,8 @@ export interface AppActions {
   selectAdjacentPane: (direction: -1 | 1) => void;
   setView: (view: PaneView) => void;
   toggleView: () => void;
+  /** Focus the selected pane's mounted input without sending any text or keys. */
+  focusInput: () => void;
   scrollPage: (direction: -1 | 1) => void;
   openNewSession: () => void;
   /**

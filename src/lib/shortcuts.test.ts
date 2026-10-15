@@ -163,6 +163,23 @@ describe("isReservedShortcutKey", () => {
 });
 
 
+describe("focus pane input", () => {
+  it("uses a terminal-safe default on both platform families", () => {
+    expect(matchShortcut(keyEvent("E", { metaKey: true }), true)).toBe("focus-input");
+    expect(matchShortcut(keyEvent("e", { ctrlKey: true }), false)).toBe("focus-input");
+    expect(matchShortcut(keyEvent("e", { ctrlKey: true, shiftKey: false }), false)).toBeNull();
+    expect(matchShortcut(keyEvent("E", { metaKey: true, isComposing: true }), true)).toBeNull();
+  });
+  it("can be reassigned or disabled with the existing settings", () => {
+    const custom = sanitizeShortcutOverrides({ "focus-input": "g" });
+    expect(custom["focus-input"]).toBe("g");
+    expect(matchShortcut(keyEvent("G", { metaKey: true }), true, custom)).toBe("focus-input");
+    expect(matchShortcut(keyEvent("E", { metaKey: true }), true, custom)).toBeNull();
+    expect(matchShortcut(keyEvent("E", { metaKey: true }), true, { "focus-input": null })).toBeNull();
+    expect(shortcutDisplayKeys("focus-input", {})).toEqual(["Mod", "Shift", "E"]);
+  });
+});
+
 it("pages the selected pane with fixed Mod+Shift bindings, remapping and disabling", () => {
   for (const apple of [true, false]) {
     const press = (key: string, overrides = {}) => matchShortcut(keyEvent(key, { metaKey: apple, ctrlKey: !apple }), apple, overrides);

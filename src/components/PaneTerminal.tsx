@@ -2605,6 +2605,15 @@ export function PaneTerminal({
   useLayoutEffect(() => {
     if (!controls || !active || !paneId) return;
     const current: PaneControls = {
+      focusInput: () => {
+        if (!activeRef.current || !presentedRef.current || modalOpen() || observeRef.current) return;
+        const stack = stackRef.current;
+        const secret = stack?.querySelector<HTMLInputElement>(".secret-input input");
+        if (secret) { secret.focus({ preventScroll: true }); return; }
+        const input = stack?.querySelector<HTMLTextAreaElement>(chatViewRef.current ? ".composer-text" : ".terminal-input-text");
+        if (input) input.focus({ preventScroll: true });
+        else if (!chatViewRef.current && !heldRef.current && !endedRef.current) termRef.current?.focus();
+      },
       scrollPage: (direction) => {
         if (activeRef.current && presentedRef.current && !modalOpen()) pageScroll.current?.(direction);
       },

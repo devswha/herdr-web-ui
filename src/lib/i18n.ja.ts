@@ -132,6 +132,7 @@ export const JA: Record<string, string> = {
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "コマンドパレット",
   "Switch chat / terminal": "チャット / ターミナルを切り替え",
+  "Focus pane input": "ペインの入力欄にフォーカス",
   "Toggle sidebar": "サイドバーの切り替え",
   "New workspace": "新しいワークスペース",
   "Previous pane": "前のペイン",

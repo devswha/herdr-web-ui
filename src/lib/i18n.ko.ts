@@ -130,6 +130,7 @@ export const KO: Record<string, string> = {
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "명령 팔레트",
   "Switch chat / terminal": "채팅 / 터미널 전환",
+  "Focus pane input": "패널 입력창으로 이동",
   "Toggle sidebar": "사이드바 토글",
   "New workspace": "새 워크스페이스",
   "Previous pane": "이전 패널",

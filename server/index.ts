@@ -1103,7 +1103,8 @@ export function createServer(
     snapshot: sessionSnapshot,
     onChange: (paneId, derived, background, turn, rest) => omoChanged(paneId, derived, background, turn, rest),
     // herdr called it `claude` or `pi` until now: what it finished under that name is its own
-    onFound: (paneId) => completions.adopt(paneId, "omo", OMO_ALIASES),
+    // a wait another agent left is not OmO's; one OmO held before it was missed a while goes on
+    onFound: (paneId, again) => { completions.adopt(paneId, "omo", OMO_ALIASES); if (!again) waits.forget(paneId); },
   });
   const omoSnapshot = () => readOmoSnapshot(sessionSnapshot, omo);
   /** GJC panes get their status from gjc's own transcript: herdr's `working` can be a provider child's (server/gjc-status.ts) */
@@ -1622,8 +1623,15 @@ export function createServer(
     // A turn that ended in an error is at rest, not finished; an answer after it is a finish (#687)
     const status = turn ? completions.observe(paneId, derived, "omo", rest) : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
     if (turn) { pending.status(paneId, status); drainPending(paneId); }
+    // a turn that ended while tasks its session started still run waits on them, as a Claude
+    // pane's does (background-wait.ts): BG, not DONE, and a finish alerted once the work is over.
+    // The count first: a turn that ends in the same read as its tasks were counted is held at once.
+    // No time limit: the count drops a task whose host died, and a task's end wakes OmO
+    const held = waits.waiting(paneId);
+    waits.running(paneId, background, null, false);
+    if (turn) waits.status(paneId, status);
     broadcastAll(paneStatus(paneId, status, { background_tasks: background }));
-    if (turn) push.onStatus(paneId, status).catch(logPushError);
+    if (turn || waits.waiting(paneId) !== held) push.onStatus(paneId, alertStatus(status, waits.waiting(paneId))).catch(logPushError);
   }
 
   /**
@@ -1690,7 +1698,9 @@ export function createServer(
       if (machines) machines.localAgents(named); else bridgeAgents!.status(named);
       // herdr says `claude/idle` for an OmO pane whatever it does, and a provider child's work for
       // a GJC one while its transcript is tracked: their own status stands, and no Claude turn waits there
-      if (omo.tracks(paneId) || gjc.tracks(paneId)) {
+      // (an OmO pane's wait on its background tasks is omoChanged's)
+      if (omo.tracks(paneId)) return;
+      if (gjc.tracks(paneId)) {
         waits.forget(paneId);
         return;
       }
