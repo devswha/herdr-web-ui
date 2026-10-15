@@ -842,6 +842,8 @@ export const KO: Record<string, string> = {
   "Quick reply {number}": "빠른 답장 {number}",
   "Remove quick reply {number}": "빠른 답장 {number} 삭제",
   "Add reply": "답장 추가",
+  "Suggestion chip": "제안 칩",
+  "A chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "입력창 위의 칩을 누르면 Claude Code가 제안한 다음 프롬프트가 입력창에 들어갑니다. 키보드에서는 Tab으로 넣습니다.",
   "Use the suggestion": "제안 사용",
   "Send “{reply}”": "“{reply}” 보내기",
   "Show above the message box": "입력창 위에 표시",

@@ -846,6 +846,8 @@ export const ZH: Record<string, string> = {
   "Quick reply {number}": "快捷回复 {number}",
   "Remove quick reply {number}": "删除快捷回复 {number}",
   "Add reply": "添加回复",
+  "Suggestion chip": "建议标签",
+  "A chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.": "输入框上方的标签会把 Claude Code 建议的下一条提示填入输入框。使用键盘时按 Tab 即可。",
   "Use the suggestion": "使用建议",
   "Send “{reply}”": "发送“{reply}”",
   "Show above the message box": "显示在输入框上方",
