@@ -1101,7 +1101,7 @@ export function Composer({
       {greeting}
       {notices}
       {/* no Tab key on a phone: the suggestion can be a chip there that fills the box, when Settings asks for it */}
-      {settings.showSuggestionChip && offered !== null && text === "" && (
+      {settings.suggestionChip && offered !== null && text === "" && (
         <div className="composer-quick composer-suggestion-row">
           <button type="button" className="composer-quick-reply composer-suggestion" title={t("Use the suggestion")} onClick={() => setTextAndCaret(offered, offered.length)}>
             <span aria-hidden="true">↹ </span>{offered}

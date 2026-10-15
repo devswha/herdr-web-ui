@@ -49,7 +49,7 @@ export interface TelemetrySettings {
   chatWidth: "narrow" | "default" | "wide" | "full";
   enterSends: boolean;
   autoSendQueued: boolean;
-  showSuggestionChip: boolean;
+  suggestionChip: boolean;
   showThinking: boolean;
   keepScreenOn: boolean;
   language: "system" | "en" | "zh" | "ja" | "ko";
@@ -119,7 +119,7 @@ const TELEMETRY_SETTINGS_VALIDATORS = {
   chatWidth: oneOf(["narrow", "default", "wide", "full"]),
   enterSends: booleanValue,
   autoSendQueued: booleanValue,
-  showSuggestionChip: booleanValue,
+  suggestionChip: booleanValue,
   showThinking: booleanValue,
   keepScreenOn: booleanValue,
   language: oneOf(["system", "en", "zh", "ja", "ko"]),

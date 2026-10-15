@@ -107,8 +107,9 @@ export interface Settings {
   enterSends: boolean;
   /** true: a message sent while the agent works goes by itself when the turn ends; false: it waits for Send now */
   autoSendQueued: boolean;
-  /** on a touch screen, a chip above the message box offers the prompt the agent suggests next */
-  showSuggestionChip: boolean;
+  /** on a touch screen, a chip above the message box offers the prompt the agent suggests next.
+   * Not `showSuggestionChip`: that key was on by default until 0.4.9 and is still stored on phones */
+  suggestionChip: boolean;
   /** show the agent's folded reasoning blocks in the chat view */
   showThinking: boolean;
   /** request a screen wake lock while a pane is open in this visible tab */
@@ -192,7 +193,7 @@ export function telemetrySettingsSnapshot(settings: Settings): TelemetrySettings
     chatWidth: settings.chatWidth,
     enterSends: settings.enterSends,
     autoSendQueued: settings.autoSendQueued,
-    showSuggestionChip: settings.showSuggestionChip,
+    suggestionChip: settings.suggestionChip,
     showThinking: settings.showThinking,
     keepScreenOn: settings.keepScreenOn,
     language: settings.language,
@@ -234,7 +235,7 @@ export const SETTING_SCOPE = {
   theme: "shared", palette: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared",
   agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
   showQuickReplies: "shared", showUsage: "shared", usageCount: "shared",
-  usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", defaultView: "device", showSuggestionChip: "device",
+  usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", defaultView: "device", suggestionChip: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", density: "device",
   terminalFontSize: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
@@ -276,7 +277,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatWidth: "default",
   enterSends: true,
   autoSendQueued: true,
-  showSuggestionChip: false,
+  suggestionChip: false,
   showThinking: false,
   keepScreenOn: false,
   language: "system",
@@ -447,7 +448,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     chatWidth: CHAT_WIDTHS.includes(record["chatWidth"] as ChatWidth) ? record["chatWidth"] as ChatWidth : DEFAULT_SETTINGS.chatWidth,
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     autoSendQueued: typeof record["autoSendQueued"] === "boolean" ? record["autoSendQueued"] : DEFAULT_SETTINGS.autoSendQueued,
-    showSuggestionChip: typeof record["showSuggestionChip"] === "boolean" ? record["showSuggestionChip"] : DEFAULT_SETTINGS.showSuggestionChip,
+    suggestionChip: typeof record["suggestionChip"] === "boolean" ? record["suggestionChip"] : DEFAULT_SETTINGS.suggestionChip,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,
     language: LANGUAGE_SETTINGS.includes(record["language"] as LanguageSetting) ? record["language"] as LanguageSetting : DEFAULT_SETTINGS.language,
