@@ -2,22 +2,22 @@
   "0.4.10": {
     "en": {
       "improved": [
-        "On a phone, the suggestion chip above the message box is off; Settings → Chat turns it on."
+        "Phones and tablets hide the suggestion chip by default; Settings → Chat turns it on."
       ]
     },
     "ko": {
       "improved": [
-        "휴대폰에서 입력창 위 제안 칩은 기본으로 꺼집니다. 설정 → 채팅에서 켤 수 있습니다."
+        "휴대폰과 태블릿에서 입력창 위 제안 칩은 기본으로 꺼집니다. 설정 → 채팅에서 켤 수 있습니다."
       ]
     },
     "ja": {
       "improved": [
-        "スマートフォンでは入力欄の上の提案チップが既定でオフです。設定 → チャットでオンにできます。"
+        "スマートフォンとタブレットでは入力欄の上の提案チップが既定でオフです。設定 → チャットでオンにできます。"
       ]
     },
     "zh": {
       "improved": [
-        "手机上输入框上方的建议标签默认关闭，可在设置 → 聊天中打开。"
+        "手机和平板上输入框上方的建议标签默认关闭，可在设置 → 聊天中打开。"
       ]
     }
   },
