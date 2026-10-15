@@ -32,7 +32,6 @@ export const JA: Record<string, string> = {
   "View only while you use another window · click to type": "別のウィンドウを使っている間は表示のみ · クリックで入力",
   "Direct typing": "直接入力",
   "Input line": "入力欄",
-  "Automatic": "自動",
   "Terminal input mode": "端末入力モード",
   "Reset shortcuts": "ショートカットをリセット",
   "Bindings apply to this browser and device. Mod+Shift chords leave the terminal its keys; Record also takes other chords with Ctrl, Alt or (on a Mac) ⌘, exactly as pressed.": "ショートカットはこのブラウザーとデバイスに適用されます。Mod+Shiftの組み合わせはターミナルのキーを奪いません。記録ではCtrl、Alt、または（Macでは）⌘を使う他の組み合わせも押したとおりに保存できます。",

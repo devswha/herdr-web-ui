@@ -30,7 +30,6 @@ export const KO: Record<string, string> = {
   "View only while you use another window · click to type": "다른 창을 쓰는 동안 보기 전용 · 클릭하면 입력",
   "Direct typing": "직접 입력",
   "Input line": "입력창",
-  "Automatic": "자동",
   "Terminal input mode": "터미널 입력 방식",
   "Reset shortcuts": "단축키 초기화",
   "Bindings apply to this browser and device. Mod+Shift chords leave the terminal its keys; Record also takes other chords with Ctrl, Alt or (on a Mac) ⌘, exactly as pressed.": "단축키는 이 브라우저와 기기에 적용됩니다. Mod+Shift 조합은 터미널 키를 그대로 남겨 두며, 기록 기능으로는 Ctrl, Alt 또는 (Mac에서는) ⌘를 쓰는 다른 조합도 누른 그대로 저장할 수 있습니다.",

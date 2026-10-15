@@ -2141,7 +2141,8 @@ try {
   await checkIpadIme(browser, origin, paneA, paneB);
   await checkHeldDraftPaneSwitch(browser, origin, paneA, paneB);
 
-  // the terminal lens on a touch screen: an input line sends whole lines; the grid raises no keyboard
+  // the terminal lens on a touch screen starts in direct typing without raising the keyboard;
+  // its input line sends whole lines, and there a tapped grid raises no keyboard
   const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const touchPage = await touch.newPage();
   const touchEvidence = evidenceDirectory ? await watchBrowserEvidence(touch, touchPage, "touch-terminal-input") : undefined;
@@ -2155,6 +2156,11 @@ try {
   await touchPage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
   await touchPage.locator(".conn-live").waitFor();
   await touchPage.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+  await touchPage.locator("[data-direct-typing]").waitFor();
+  assert.equal(await touchPage.locator(".terminal-input").count(), 0, "a phone starts in direct typing");
+  assert.equal(await touchPage.evaluate(() => document.activeElement?.classList.contains("xterm-helper-textarea") ?? false), false,
+    "opening the terminal on a phone does not focus the grid, so the keyboard stays down until a tap");
+  await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
   const line = touchPage.getByRole("textbox", { name: "Terminal input line", exact: true });
   await line.waitFor();
   assert.equal(await touchPage.locator(".xterm-helper-textarea").getAttribute("inputmode"), "none");
