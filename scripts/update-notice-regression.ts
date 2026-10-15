@@ -151,15 +151,17 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     await page.locator(".conn-live").waitFor();
     // __APP_REVISION__ is replaced when the client is built, from the same checkout and command
     const tabRevision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: join(import.meta.dir, ".."), encoding: "utf8" }).trim();
-    const restart = "herdr web ui changed on the PC. Restart it there to finish the update.";
+    const restart = "herdr web ui was updated on this PC. Restart it there to load the update.";
+    const howTo = (scope: typeof page | ReturnType<typeof page.locator>) => scope.getByRole("link", { name: "How to restart", exact: true });
     const updated = "App updated. Save unsent drafts before reloading.";
     const reloadButton = page.getByRole("button", { name: "Reload app", exact: true });
-    status = { ...status, available: false, latest_revision: null, current_revision: "d".repeat(40), checkout_revision: tabRevision,
+    status = { ...status, available: false, latest_revision: null, current_revision: "d".repeat(40), served_revision: tabRevision,
       blocked_reason: "The source checkout changed. Restart the app before updating." };
     await page.reload();
     await page.getByText(restart, { exact: true }).waitFor();
     assert.equal(await reloadButton.count(), 0, "the restart line offers no reload");
     assert.equal(await page.getByText(updated, { exact: true }).count(), 0, "and does not say the app updated");
+    assert.match(await howTo(page).getAttribute("href") ?? "", /docs\/guide\.md#updates$/, "the line links to the restart commands");
     await fits("restart");
     await shot("6-restart-line");
     // what the reload button did before: the line is still there
@@ -172,16 +174,30 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     await settings.getByText(restart, { exact: true }).waitFor();
     assert.equal(await settings.getByText(/until it is reloaded/).count(), 0, "Settings does not tell to reload either");
     assert.equal(await settings.getByRole("button", { name: "Reload app", exact: true }).count(), 0, "and has no reload button");
+    assert.equal(await settings.getByText(status.blocked_reason!, { exact: true }).count(), 0, "one restart line: the check's own restart reason gives way to it");
+    await howTo(settings).waitFor();
     await shot("7-restart-settings");
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
+    // a blocker of its own stays beside the restart line: it still holds installs back after the restart
+    const changed = status.blocked_reason;
+    const dirty = "The source checkout has local changes. Commit or move them before updating.";
+    status = { ...status, blocked_reason: dirty };
+    await page.reload();
+    await page.getByText(restart, { exact: true }).waitFor();
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "About");
+    await settings.getByText(restart, { exact: true }).waitFor();
+    await settings.getByText(dirty, { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+    status = { ...status, blocked_reason: changed };
     // a pull without a build: the server serves its own build, which a reload does bring
-    status = { ...status, checkout_revision: null };
+    status = { ...status, served_revision: null };
     await page.reload();
     await page.getByText(updated, { exact: true }).waitFor();
     await reloadButton.waitFor();
     assert.equal(await page.getByText(restart, { exact: true }).count(), 0, "a checkout the tab was not built from keeps the reload line");
     // the server was restarted: it reports the commit the tab was built from, and the line goes
-    status = { ...status, current_revision: tabRevision, checkout_revision: null, blocked_reason: null };
+    status = { ...status, current_revision: tabRevision, served_revision: null, blocked_reason: null };
     await page.reload();
     await page.locator(".conn-live").waitFor();
     await page.getByText(updated, { exact: true }).waitFor({ state: "hidden" });

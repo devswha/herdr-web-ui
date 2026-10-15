@@ -289,33 +289,6 @@ describe("managed source updates with real Git repositories and builds", () => {
     expect(updater.status.blocked_reason).toContain("release history");
   });
 
-  it("reports checkout_revision: the moved HEAD while the source checkout itself runs", async () => {
-    await updater.request("check");
-    expect(updater.status.checkout_revision).toBeNull();
-    expect(updater.status.blocked_reason).toBeNull();
-    const moved = await commit("second");
-    await git(root, "pull", "--ff-only", "--quiet");
-    await updater.request("check");
-    expect(updater.status.checkout_revision).toBe(moved);
-    expect(updater.status.blocked_reason).toContain("Restart");
-    // a checkout that also has local changes is still the one that was replaced
-    writeFileSync(join(root, "user-draft.txt"), "preserve");
-    await updater.request("check");
-    expect(updater.status.checkout_revision).toBe(moved);
-    expect(updater.status.blocked_reason).toContain("local changes");
-  });
-
-  it("reports checkout_revision: none while a release directory runs", async () => {
-    await release("second", "v0.2.0");
-    await updater.request("install");
-    expect(updater.status.error).toBeNull();
-    await commit("third");
-    await git(root, "pull", "--ff-only", "--quiet");
-    await updater.request("check");
-    expect(updater.status.checkout_revision).toBeNull();
-    expect(updater.status.blocked_reason).toContain("Restart");
-  });
-
   it("updates a herdr-managed plugin checkout: shallow, detached, owned by herdr", async () => {
     // What `herdr plugin install` leaves behind: a depth-1 fetch checked out as FETCH_HEAD.
     const plugin = join(directory, "plugin");
@@ -555,7 +528,7 @@ describe("managed source updates with real Git repositories and builds", () => {
   }, 30_000);
 
   it.skipIf(!liveHerdr)("tells over HTTP that the checkout was replaced under the running server", async () => {
-    const { launch, readStatus, until, request, health, explain } = await managedFixture();
+    const { launch, readStatus, until, health, explain } = await managedFixture();
     const handle = launch();
     try {
       await until(async () => /^[0-9a-f]{40}$/.test((await readStatus())?.current_revision ?? ""));
@@ -563,8 +536,12 @@ describe("managed source updates with real Git repositories and builds", () => {
       // what `herdr plugin install` or `git pull` plus a build does to a checkout that is being served
       const replaced = await commit("replaced checkout");
       await git(root, "pull", "--ff-only", "--quiet");
-      await request("check");
-      await until(async () => (await readStatus())?.checkout_revision === replaced);
+      // pulled, not built: the server serves the build it runs, which a reload does bring
+      expect((await readStatus())?.served_revision ?? null).toBeNull();
+      mkdirSync(join(root, "dist"), { recursive: true });
+      writeFileSync(join(root, "dist", "build.json"), JSON.stringify({ revision: replaced }));
+      // no update check: the bridge reads the build it serves when asked, not every 5 minutes
+      expect((await readStatus())?.served_revision).toBe(replaced);
       // the server still runs what it started with: only a restart reports the new commit
       expect((await readStatus())?.current_revision).toBe(running!);
       expect((await health()).web_ui.revision).toBe(running!);

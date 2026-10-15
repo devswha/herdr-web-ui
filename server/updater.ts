@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
+import { CHECKOUT_CHANGED_REASON, noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
 import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
 
 export interface Release {
@@ -185,14 +185,8 @@ export class Updater {
     const branch = await this.git("branch", "--show-current");
     if (branch !== "main" && !(branch === "" && this.options.pluginCheckout)) return "Switch the source checkout to main to update.";
     if (await this.git("status", "--porcelain", "--untracked-files=all")) return "The source checkout has local changes. Commit or move them before updating.";
-    if (await this.movedHead()) return "The source checkout changed. Restart the app before updating.";
+    if (await this.git("rev-parse", "HEAD") !== this.sourceRevision) return CHECKOUT_CHANGED_REASON;
     return null;
-  }
-
-  /** The checkout's HEAD when it is not the commit this server started from; null while it is. */
-  private async movedHead(): Promise<string | null> {
-    const head = await this.git("rev-parse", "HEAD");
-    return head === this.sourceRevision ? null : head;
   }
 
   start() {
@@ -205,14 +199,9 @@ export class Updater {
   }
 
   private async discover() {
-    this.patch({ phase: "checking", error: this.options.notice ?? null, available: false, blocked_reason: null, checkout_revision: null });
+    this.patch({ phase: "checking", error: this.options.notice ?? null, available: false, blocked_reason: null });
     const reason = await this.sourceBlock();
-    if (reason) {
-      // the checkout's files are served only while it is the running release: a release directory serves its own
-      const checkout_revision = this.release!.directory === this.options.root ? await this.movedHead() : null;
-      this.patch({ blocked_reason: reason, checkout_revision, checked_at: new Date().toISOString() });
-      return;
-    }
+    if (reason) { this.patch({ blocked_reason: reason, checked_at: new Date().toISOString() }); return; }
     // Only published releases update installs: commits pushed to main without a tag stay put.
     await this.git("fetch", "--no-tags", "origin", "+refs/tags/v*:refs/tags/v*");
     const tags = (await this.git("for-each-ref", "--sort=-v:refname", "--format=%(refname:short)", "refs/tags/v*"))

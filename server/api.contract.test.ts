@@ -377,6 +377,25 @@ describe("update API", () => {
     } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
   });
 
+  it("tells the served build's commit once it differs from the running revision", async () => {
+    const running = "a".repeat(40), moved = "d".repeat(40);
+    let head: string | null = running;
+    const managedState = mkdtempSync(join(tmpdir(), "herdr-update-checkout-"));
+    const managed = createServer({ port: 0, stateDir: managedState,
+      updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true, current_revision: running }), notes: () => ({ revision: null, releases: [], omitted: 0 }),
+        installed: noInstalledNotes, request() {}, servedRevision: async () => head } });
+    const read = async () => (await (await fetch(`http://localhost:${managed.port}/api/updates`)).json()) as { served_revision?: string | null };
+    try {
+      expect((await read()).served_revision).toBeNull();
+      head = moved;
+      expect((await read()).served_revision).toBe(moved);
+      head = null;
+      expect((await read()).served_revision).toBeNull();
+    } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
+    // an unmanaged server names no checkout
+    expect((await (await fetch(`${base()}/api/updates`)).json() as { served_revision?: string | null }).served_revision).toBeUndefined();
+  });
+
   it("answers what the last update brought, and nothing where no update was installed", async () => {
     const none = await fetch(`${base()}/api/updates/installed`);
     expect(none.status).toBe(200);

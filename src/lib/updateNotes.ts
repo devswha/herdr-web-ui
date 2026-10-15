@@ -9,20 +9,21 @@ import { ApiError } from "./api.ts";
  * yet the part is gone for this page until it is reloaded. Nothing while an update is underway.
  *
  * "restart" is "updated" where a reload cannot help: the server serves the files of a source
- * checkout that was replaced under it, and this tab is already the build of that checkout, so a
- * reload loads the same build again. It ends when the server is restarted and reports the commit
- * the tab was built from.
+ * checkout that was rebuilt under it, and this tab is already that build, so a reload loads the
+ * same build again. It ends when the server is restarted and reports the commit the tab was built
+ * from. A part of this page that failed to load is still "incomplete": only a reload brings it.
  */
 export type ReloadReason = "updated" | "restart" | "incomplete";
 export function reloadReason(
   appRevision: string | null,
-  status: Pick<UpdateStatus, "current_revision" | "checkout_revision"> | null,
+  status: Pick<UpdateStatus, "current_revision" | "served_revision"> | null,
   busy: boolean,
   chunkFailed: boolean,
 ): ReloadReason | null {
   if (busy) return null;
   if (appRevision && status?.current_revision && appRevision !== status.current_revision) {
-    return appRevision === status.checkout_revision ? "restart" : "updated";
+    if (appRevision !== status.served_revision) return "updated";
+    return chunkFailed ? "incomplete" : "restart";
   }
   return chunkFailed ? "incomplete" : null;
 }
