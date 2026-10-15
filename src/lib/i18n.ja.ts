@@ -389,6 +389,13 @@ export const JA: Record<string, string> = {
   "This PC's bridge cannot browse folders yet. Type the path instead.": "この PC のブリッジはまだフォルダーを参照できません。パスを直接入力してください。",
   "This folder cannot be opened.": "このフォルダーは開けません。",
   "Folders could not be loaded.": "フォルダーを読み込めませんでした。",
+  "New folder": "新しいフォルダー",
+  "New folder name": "新しいフォルダー名",
+  "Something with that name is already here.": "同じ名前の項目がすでにあります。",
+  "That name cannot be a folder name.": "その名前はフォルダー名に使えません。",
+  "No permission to make a folder here.": "ここにフォルダーを作成する権限がありません。",
+  "This PC's bridge cannot make folders yet.": "この PC のブリッジはまだフォルダーを作成できません。",
+  "The folder could not be made.": "フォルダーを作成できませんでした。",
 
   // ---- files ----
   "Files": "ファイル",

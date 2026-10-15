@@ -387,6 +387,13 @@ export const KO: Record<string, string> = {
   "This PC's bridge cannot browse folders yet. Type the path instead.": "이 PC의 브리지는 아직 폴더를 탐색할 수 없습니다. 경로를 직접 입력하세요.",
   "This folder cannot be opened.": "이 폴더를 열 수 없습니다.",
   "Folders could not be loaded.": "폴더를 불러올 수 없습니다.",
+  "New folder": "새 폴더",
+  "New folder name": "새 폴더 이름",
+  "Something with that name is already here.": "같은 이름의 항목이 이미 있습니다.",
+  "That name cannot be a folder name.": "폴더 이름으로 쓸 수 없는 이름입니다.",
+  "No permission to make a folder here.": "여기에 폴더를 만들 권한이 없습니다.",
+  "This PC's bridge cannot make folders yet.": "이 PC의 브리지는 아직 폴더를 만들 수 없습니다.",
+  "The folder could not be made.": "폴더를 만들 수 없습니다.",
 
   // ---- files ----
   "Files": "파일",

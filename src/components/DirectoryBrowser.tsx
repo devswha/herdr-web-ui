@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, House } from "lucide-react";
+import { ArrowUp, FolderPlus, House } from "lucide-react";
 
 import "./DirectoryBrowser.css";
 import { FileGlyph } from "./FileGlyph.tsx";
@@ -35,12 +35,16 @@ function childPath(parent: string, name: string): string {
  */
 export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: DirectoryBrowserProps) {
   const t = useT();
-  const { fetchDirectories } = useMachineApi();
+  const { fetchDirectories, createDirectory } = useMachineApi();
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [query, setQuery] = useState("");
   const [hidden, setHidden] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // New folder: the name being typed (null: no field), and why the last try failed
+  const [naming, setNaming] = useState<string | null>(null);
+  const [namingError, setNamingError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const request = useRef(0);
   const listRef = useRef<HTMLUListElement>(null);
   const shownPath = listing?.path;
@@ -84,6 +88,28 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
     });
   }, []);
 
+  // makes the folder inside the one shown and opens it, so New workspace's Directory follows
+  const makeFolder = async () => {
+    if (listing === null || naming === null || naming.trim() === "" || creating) return;
+    setCreating(true);
+    try {
+      const made = await createDirectory(listing.path, naming);
+      setNaming(null);
+      setNamingError(null);
+      void open(made.path, hidden, false);
+    } catch (reason: unknown) {
+      const code = reason instanceof ApiError ? reason.code : null;
+      setNamingError(code === "folder_exists" ? t("Something with that name is already here.")
+        : code === "invalid_name" ? t("That name cannot be a folder name.")
+        : code === "permission_denied" ? t("No permission to make a folder here.")
+        // a PC on an older version answers the listing's own GET-only refusal
+        : code === "method_not_allowed" || (reason instanceof ApiError && reason.status === 404) ? t("This PC's bridge cannot make folders yet.")
+        : t("The folder could not be made."));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const path = listing?.path ?? "";
   const homeShown = listing ? homeRelative(listing.path, listing.home) : start || "~";
   // browsing files reads from the folder opened on; picking a folder keeps the `~/…` form it hands back
@@ -103,7 +129,39 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
           <House aria-hidden="true" />
         </button>
         <span className="dir-browser-path" title={path}><span dir="ltr">{shown}</span></span>
+        {onPick !== undefined && (
+          <button type="button" className="icon-button" aria-label={t("New folder")} title={t("New folder")} aria-expanded={naming !== null} disabled={listing === null || loading || error !== null} onClick={() => setNaming((current) => current ?? "")}>
+            <FolderPlus aria-hidden="true" />
+          </button>
+        )}
       </div>
+      {naming !== null && (
+        <div className="dir-browser-new">
+          {/* inside New workspace's form: Enter makes the folder rather than starting the workspace,
+              Escape closes this field rather than the dialog, and an IME keeps its own keys */}
+          <input className="input" aria-label={t("New folder name")} placeholder={t("New folder name")} autoFocus value={naming} readOnly={creating}
+            autoComplete="off" autoCapitalize="off" spellCheck={false} aria-invalid={namingError !== null}
+            onChange={(event) => { setNaming(event.target.value); setNamingError(null); }}
+            onBlur={() => { if (naming.trim() === "") setNaming(null); }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+                event.stopPropagation();
+                return;
+              }
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void makeFolder();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                setNaming(null);
+                setNamingError(null);
+              }
+            }} />
+          {namingError !== null && <p className="dir-browser-note dir-browser-error" role="alert">{namingError}</p>}
+        </div>
+      )}
       {onPick !== undefined && (
         <label className="field dir-browser-search">
           <span className="field-label">{t("Filter folders")}</span>

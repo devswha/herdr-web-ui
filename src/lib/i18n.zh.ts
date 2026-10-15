@@ -391,6 +391,13 @@ export const ZH: Record<string, string> = {
   "This PC's bridge cannot browse folders yet. Type the path instead.": "此 PC 的 bridge 尚不支持浏览文件夹。请直接输入路径。",
   "This folder cannot be opened.": "无法打开此文件夹。",
   "Folders could not be loaded.": "无法加载文件夹。",
+  "New folder": "新建文件夹",
+  "New folder name": "新文件夹名称",
+  "Something with that name is already here.": "此处已有同名项目。",
+  "That name cannot be a folder name.": "该名称不能用作文件夹名。",
+  "No permission to make a folder here.": "没有在此处创建文件夹的权限。",
+  "This PC's bridge cannot make folders yet.": "此 PC 的 bridge 尚不支持创建文件夹。",
+  "The folder could not be made.": "无法创建文件夹。",
 
   // ---- files ----
   "Files": "文件",

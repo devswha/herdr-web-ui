@@ -908,6 +908,14 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     return json({ ok: true });
   }
+  if (path === "/api/workspace/directories" && method === "POST") {
+    // New folder: the demo has no disk, so the folder opens empty and is not listed again
+    const body = await bodyOf(init, input);
+    const name = String(body["name"] ?? "").trim();
+    if (name === "" || name === "." || name === ".." || /[/\\]/.test(name)) return error("invalid_name", "name must be one folder name", 400);
+    const parent = String(body["path"] ?? "/home/demo");
+    return json({ path: `${parent.replace(/\/$/, "")}/${name}` }, 201);
+  }
   if (path === "/api/workspace/directories") {
     const dir = query.get("path") || "/home/demo";
     return json({ path: dir, parent: dir === "/" ? null : dir.replace(/\/[^/]*$/, "") || "/", home: "/home/demo", directories: dir === "/home/demo" ? ["checkout-api", "docs-site", "infra", "release", "web-dashboard"] : [], truncated: false, files: [] });
