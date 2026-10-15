@@ -47,6 +47,19 @@ export async function checkFolderFilter(page: Page, dialog: Locator, createReque
   }, "Directory follows Browse back to the parent");
   await dialog.getByRole("button", { name: "Use this folder", exact: true }).click();
   await filter.waitFor({ state: "detached" });
+  // a typed path that does not open shows home in its place, and Directory keeps what was typed:
+  // Start must refuse the typo, not start in home. Closing Browse is a new event, so React has run
+  // the listing's effects by the time the value is read.
+  const typo = "~/herdr-web-ui-no-such-folder";
+  const picked = await directory.inputValue();
+  await directory.fill(typo);
+  await dialog.getByRole("button", { name: "Browse", exact: true }).click();
+  await until(async () => ((await dialog.locator(".dir-browser-path").textContent()) ?? "") !== "", "Browse shows home for a path that does not open");
+  await dialog.getByRole("button", { name: "Browse", exact: true }).click();
+  await filter.waitFor({ state: "detached" });
+  assert.equal(await directory.inputValue(), typo, "Browse's home in place of a typo does not replace the typed Directory");
+  // the checks after this one browse the owned fixture folder again
+  await directory.fill(picked);
   console.log("PASS folder filtering preserves IME keys, blocks form submission and clears on navigation");
 }
 

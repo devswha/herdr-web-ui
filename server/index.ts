@@ -2079,7 +2079,8 @@ export function createServer(
         let payload: unknown;
         try { payload = await request.json(); } catch { return badRequest("invalid_json", "request body must be JSON"); }
         if (!isJsonObject(payload) || typeof payload["path"] !== "string" || typeof payload["name"] !== "string") return badRequest("invalid_body", "path and name must be strings");
-        const made = createDirectory(payload["path"], payload["name"]);
+        let made;
+        try { made = createDirectory(payload["path"], payload["name"]); } catch (error) { return errorResponse(error); }
         if ("path" in made) return jsonResponse({ path: made.path } satisfies DirectoryCreated, 201);
         if (made.error === "folder_exists") return conflictResponse("folder_exists", "a file or folder with that name is already there");
         if (made.error === "permission_denied") return jsonResponse({ error: { code: "permission_denied", message: "this user cannot make a folder there" } }, 403);

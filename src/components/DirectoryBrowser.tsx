@@ -48,22 +48,31 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
   const request = useRef(0);
   const listRef = useRef<HTMLUListElement>(null);
   const shownPath = listing?.path;
-  useEffect(() => { if (listing) onFolder?.(listing.path, listing.home); }, [shownPath]);
+  // home shown in place of a path that does not open was not opened by the user: the typed path stays
+  const fellBack = useRef(false);
+  const shownByFallback = useRef(false);
+  useEffect(() => { if (listing && !shownByFallback.current) onFolder?.(listing.path, listing.home); }, [shownPath]);
 
   const open = useCallback(async (path: string, showHidden: boolean, fallbackHome: boolean) => {
     const id = ++request.current;
+    const fallback = fellBack.current;
+    fellBack.current = false;
     setLoading(true);
     try {
       const next = await fetchDirectories(path, showHidden, onOpenFile !== undefined);
       if (id !== request.current) return;
       if (listing !== null && next.path !== listing.path) setQuery("");
+      shownByFallback.current = fallback;
       setListing(next);
       setError(null);
       listRef.current?.scrollTo({ top: 0 });
     } catch (reason: unknown) {
       if (id !== request.current) return;
       // a path typed half-way opens home instead of an error
-      if (fallbackHome && reason instanceof ApiError && reason.code === "invalid_cwd") return void open("", showHidden, false);
+      if (fallbackHome && reason instanceof ApiError && reason.code === "invalid_cwd") {
+        fellBack.current = true;
+        return void open("", showHidden, false);
+      }
       setError(reason instanceof ApiError && reason.status === 404
         ? t("This PC's bridge cannot browse folders yet. Type the path instead.")
         : reason instanceof ApiError && reason.code === "invalid_cwd" ? t("This folder cannot be opened.") : t("Folders could not be loaded."));
