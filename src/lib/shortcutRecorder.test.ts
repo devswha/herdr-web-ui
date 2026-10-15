@@ -51,6 +51,11 @@ describe("recordShortcut", () => {
     expect(recordShortcut(press("l", { ctrlKey: false, shiftKey: false, metaKey: true }), true)).toEqual({ kind: "exact", value: "meta+l", risk: "browser" });
     expect(recordShortcut(press("1", { ctrlKey: false, shiftKey: false, metaKey: true, code: "Digit1" }), true)).toEqual({ kind: "exact", value: "meta+1", risk: "browser" });
     expect(recordShortcut(press("k", { ctrlKey: false, shiftKey: false, metaKey: true }), true)).toEqual({ kind: "exact", value: "meta+k", risk: null });
+    expect(recordShortcut(press("s", { ctrlKey: false, shiftKey: false, metaKey: true }), true)).toEqual({ kind: "exact", value: "meta+s", risk: "browser" });
+    // ⌘⌥I/C/U (Option types ˆ ç ¨) open the developer tools and the page source
+    for (const [key, code] of [["ˆ", "KeyI"], ["ç", "KeyC"], ["¨", "KeyU"]] as const) {
+      expect(recordShortcut(press(key, { ctrlKey: false, shiftKey: false, metaKey: true, altKey: true, code }), true)).toEqual({ kind: "exact", value: `alt+meta+${code.slice(3).toLowerCase()}`, risk: "browser" });
+    }
   });
 
   it("refuses chords the browser, the OS or text editing keep", () => {

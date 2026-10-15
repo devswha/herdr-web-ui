@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useSettings } from "./settings.ts";
-import { bindingChord, formatExactChord, parseExactChord, type ExactChord, type ShortcutOverrides } from "./shortcutBindings.ts";
+import { bindingChord, formatExactChord, isMacPlatform, parseExactChord, type ExactChord, type ShortcutOverrides } from "./shortcutBindings.ts";
 import { physicalKey } from "./keys.ts";
 
 import type { AppActions } from "./actions.ts";
@@ -188,9 +188,11 @@ export function isAppShortcut(event: ShortcutEventLike, overrides: ShortcutOverr
   return matchShortcut(event, isMacPlatform(), overrides) !== null;
 }
 
-export function isMacPlatform(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
+export { isMacPlatform };
+
+/** Arrows, Home and End select or move in a field with text; there a matching binding gives way. */
+export function keepsKeyForText(event: { key: string; target: KeyTargetLike | EventTarget | null }): boolean {
+  return (event.key.startsWith("Arrow") || event.key === "Home" || event.key === "End") && keepsArrowsForText(event.target);
 }
 
 export function modKeyLabel(): string {
@@ -200,7 +202,7 @@ export function modKeyLabel(): string {
 export function formatKeys(keys: readonly string[]): string[] {
   const mac = isMacPlatform();
   const mod = modKeyLabel();
-  return keys.map((key) => (key === "Mod" ? mod : key === "Meta" ? (mac ? "⌘" : "Meta") : key === "Alt" && mac ? "⌥" : layoutLabel(key)));
+  return keys.map((key) => (key === "Mod" ? mod : key === "Meta" ? (mac ? "⌘" : "Meta") : key === "Alt" && mac ? "⌥" : key === "Ctrl" && mac ? "⌃" : layoutLabel(key)));
 }
 
 function layoutLabel(key: string): string {
@@ -225,7 +227,7 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
       if (recordingShortcut) return;
       const shortcut = matchShortcut(event, platformIsMac, settings.shortcutOverrides);
       if (shortcut === null) return;
-      if (event.key.startsWith("Arrow") && keepsArrowsForText(event.target)) return;
+      if (keepsKeyForText(event)) return;
       event.preventDefault();
       // a held chord repeats: a tab or a split is made once per press, not once per key repeat
       if (event.repeat && (shortcut === "new-tab" || shortcut === "split-right" || shortcut === "split-down")) return;

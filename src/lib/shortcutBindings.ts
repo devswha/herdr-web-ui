@@ -78,20 +78,31 @@ export function exactChordRefusal(chord: ExactChord, platformIsMac: boolean): "c
  * - "terminal": Ctrl or Alt without ⌘ is a key shells, editors and agents use (Ctrl+R, Ctrl+A/E,
  *   Alt+word moves, AltGr and macOS Option characters); the app takes it, so it never reaches the pane;
  * - "browser": a ⌘ chord the browser commonly uses (find, location bar, reload, print, save, tab
- *   numbers, history arrows); the app gets it only where the browser lets it through.
+ *   numbers, history arrows, and with ⌥ the developer tools and page source); the app gets it only
+ *   where the browser lets it through.
  */
 export function exactChordRisk(chord: ExactChord, platformIsMac: boolean): "terminal" | "browser" | null {
   if (!chord.meta && (chord.ctrl || chord.alt)) return "terminal";
-  if (platformIsMac && chord.meta && (/^[0-9defgjlopruy=\-[\]]$/.test(chord.key) || chord.key === "ArrowLeft" || chord.key === "ArrowRight")) return "browser";
+  if (platformIsMac && chord.meta && (/^[0-9defgjloprsuy=\-[\]]$/.test(chord.key) || chord.key === "ArrowLeft" || chord.key === "ArrowRight")) return "browser";
+  if (platformIsMac && chord.meta && chord.alt && /^[ciu]$/.test(chord.key)) return "browser";
   return null;
 }
 
-export function sanitizeShortcutOverrides(raw: unknown): ShortcutOverrides {
+export function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
+}
+
+/** Stored overrides as this device may use them: an exact chord the recorder would refuse here is dropped. */
+export function sanitizeShortcutOverrides(raw: unknown, platformIsMac = isMacPlatform()): ShortcutOverrides {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result: ShortcutOverrides = {};
   for (const id of CUSTOM_SHORTCUT_IDS) {
     const value = (raw as Record<string, unknown>)[id];
-    if (value === null || (typeof value === "string" && (MOD_SHIFT_KEY.test(value) || parseExactChord(value) !== null))) result[id] = value;
+    if (value === null) result[id] = null;
+    if (typeof value !== "string") continue;
+    const chord = parseExactChord(value);
+    if (MOD_SHIFT_KEY.test(value) || (chord !== null && exactChordRefusal(chord, platformIsMac) === null)) result[id] = value;
   }
   return result;
 }

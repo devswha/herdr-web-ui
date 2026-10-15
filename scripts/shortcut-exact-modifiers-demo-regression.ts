@@ -78,7 +78,7 @@ try {
 
         // a terminal key waits for Save anyway; Cancel keeps the old binding
         const warning = await record(page, "Command palette", "Control+KeyK");
-        assert.match(warning, /Ctrl\+K is a terminal key/);
+        assert.match(warning, /⌃\+K is a terminal key/);
         assert.equal(await page.getByRole("combobox", { name: "Command palette", exact: true }).count(), 0, "the list gives way to the confirmation");
         if (screenshotDir) await page.locator(".settings-dialog").screenshot({ path: join(screenshotDir, "exact-shortcut-confirm.png") });
         await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -87,7 +87,7 @@ try {
         await page.getByRole("button", { name: "Save anyway", exact: true }).click();
         assert.equal((await stored(page)).palette, "ctrl+k");
         const paletteRow = await page.locator(".settings-row", { has: page.getByRole("button", { name: "Record shortcut for Command palette", exact: true }) }).locator(".settings-description").textContent();
-        assert.match(paletteRow ?? "", /Ctrl\+K is a terminal key/, "a saved terminal key keeps its note");
+        assert.match(paletteRow ?? "", /⌃\+K is a terminal key/, "a saved terminal key keeps its note");
 
         // refused: a chord the browser keeps, one already assigned, and one without Ctrl, Alt or ⌘
         assert.match(await record(page, "Find in terminal", "Meta+KeyW"), /keeps that shortcut/);

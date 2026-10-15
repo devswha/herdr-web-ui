@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { bindingDisplayKeys, isAppShortcut, shortcutEventKey, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
+import { bindingDisplayKeys, isAppShortcut, shortcutEventKey, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, keepsKeyForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
 import { isReservedShortcutKey, sanitizeShortcutOverrides } from "./shortcutBindings.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
@@ -54,6 +54,15 @@ describe("keepsArrowsForText", () => {
     expect(keepsArrowsForText({ tagName: "INPUT", type: "checkbox", classList: classes() })).toBe(false);
     expect(keepsArrowsForText({ tagName: "BUTTON", classList: classes() })).toBe(false);
     expect(keepsArrowsForText(null)).toBe(false);
+  });
+
+  it("leaves Home and End to a field with text too, and only selection keys", () => {
+    const draft = { tagName: "TEXTAREA", value: "draft", classList: classes("composer-text") };
+    expect(keepsKeyForText({ key: "Home", target: draft })).toBe(true);
+    expect(keepsKeyForText({ key: "End", target: draft })).toBe(true);
+    expect(keepsKeyForText({ key: "ArrowUp", target: draft })).toBe(true);
+    expect(keepsKeyForText({ key: "k", target: draft })).toBe(false);
+    expect(keepsKeyForText({ key: "Home", target: { tagName: "TEXTAREA", classList: classes("xterm-helper-textarea") } })).toBe(false);
   });
 });
 
@@ -222,7 +231,7 @@ describe("exact-modifier bindings", () => {
   const ctrlK = (patch: Partial<ShortcutEventLike> = {}) => keyEvent("k", { ctrlKey: true, shiftKey: false, ...patch });
 
   it("runs only on the exact chord recorded", () => {
-    const overrides = sanitizeShortcutOverrides({ palette: "ctrl+k", "scroll-up": "meta+PageUp" });
+    const overrides = sanitizeShortcutOverrides({ palette: "ctrl+k", "scroll-up": "meta+PageUp" }, true);
     expect(matchShortcut(ctrlK(), false, overrides)).toBe("palette");
     expect(matchShortcut(ctrlK({ altKey: true }), false, overrides)).toBeNull();
     // the moved palette no longer answers its default Mod+Shift+K
@@ -233,14 +242,14 @@ describe("exact-modifier bindings", () => {
   });
 
   it("runs Mod+Shift+Home/End and exact Home/End chords", () => {
-    const overrides = sanitizeShortcutOverrides({ "previous-pane": "Home", "next-pane": "meta+End" });
+    const overrides = sanitizeShortcutOverrides({ "previous-pane": "Home", "next-pane": "meta+End" }, true);
     expect(matchShortcut(keyEvent("Home", { metaKey: true }), true, overrides)).toBe("previous-pane");
     expect(matchShortcut(keyEvent("End", { metaKey: true, shiftKey: false }), true, overrides)).toBe("next-pane");
     expect(shortcutDisplayKeys("previous-pane", overrides)).toEqual(["Mod", "Shift", "Home"]);
   });
 
   it("matches a macOS Option chord by its key", () => {
-    const overrides = sanitizeShortcutOverrides({ find: "alt+meta+f" });
+    const overrides = sanitizeShortcutOverrides({ find: "alt+meta+f" }, true);
     expect(matchShortcut(keyEvent("ƒ", { metaKey: true, altKey: true, shiftKey: false, code: "KeyF" }), true, overrides)).toBe("find");
   });
 
@@ -253,8 +262,15 @@ describe("exact-modifier bindings", () => {
   });
 
   it("keeps stored values valid and drops malformed ones", () => {
-    expect(sanitizeShortcutOverrides({ palette: "ctrl+k", find: "shift+g", settings: "meta+ctrl+k", "new-tab": "alt+F5", "split-right": "ctrl+alt+shift+meta+," }))
+    expect(sanitizeShortcutOverrides({ palette: "ctrl+k", find: "shift+g", settings: "meta+ctrl+k", "new-tab": "alt+F5", "split-right": "ctrl+alt+shift+meta+," }, true))
       .toEqual({ palette: "ctrl+k", "split-right": "ctrl+alt+shift+meta+," });
+  });
+
+  it("drops a stored chord the recorder refuses on this platform", () => {
+    const stored = { palette: "ctrl+t", find: "meta+q", settings: "ctrl+PageUp", "new-tab": "meta+PageUp", "split-right": "ctrl+k", "split-down": null };
+    expect(sanitizeShortcutOverrides(stored, false)).toEqual({ "split-right": "ctrl+k", "split-down": null });
+    // on a Mac the browser keeps ⌘T and ⌘Q, not Ctrl+T
+    expect(sanitizeShortcutOverrides(stored, true)).toEqual({ palette: "ctrl+t", "new-tab": "meta+PageUp", "split-right": "ctrl+k", "split-down": null });
   });
 
   it("shows the exact modifiers in macOS order", () => {
@@ -284,7 +300,7 @@ describe("punctuation keys by position", () => {
   });
 
   it("runs a binding recorded on one layout from the same key on another", () => {
-    const overrides = sanitizeShortcutOverrides({ "previous-pane": ";", "next-pane": "meta+'" });
+    const overrides = sanitizeShortcutOverrides({ "previous-pane": ";", "next-pane": "meta+'" }, true);
     expect(matchShortcut(keyEvent("É", { code: "Semicolon", metaKey: true }), true, overrides)).toBe("previous-pane");
     expect(matchShortcut(keyEvent(":", { code: "Semicolon", metaKey: true }), true, overrides)).toBe("previous-pane");
     expect(matchShortcut(keyEvent("á", { code: "Quote", metaKey: true, shiftKey: false }), true, overrides)).toBe("next-pane");

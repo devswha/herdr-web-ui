@@ -700,6 +700,12 @@ function ShortcutsPage() {
   const [recording, setRecording] = useState<{ id: ShortcutId; problem: string | null } | null>(null);
   // a recorded chord the terminal or the browser also uses waits here for Save anyway or Cancel
   const [pending, setPending] = useState<{ id: ShortcutId; value: string; risk: "terminal" | "browser" } | null>(null);
+  // Save anyway and Cancel leave with the prompt: focus goes back to the row's Record button
+  const recordButtons = useRef(new Map<ShortcutId, HTMLButtonElement>());
+  const settlePending = (id: ShortcutId): void => {
+    setPending(null);
+    recordButtons.current.get(id)?.focus();
+  };
   const recordingId = recording?.id ?? null;
   const riskText = (risk: "terminal" | "browser", keys: string): string => risk === "terminal"
     ? t("{keys} is a terminal key: shells, editors and agents use it. Once saved, it no longer reaches the pane.", { keys })
@@ -762,17 +768,18 @@ function ShortcutsPage() {
           const defaultReserved = defaultKey !== undefined && isReservedShortcutKey(defaultKey, platformIsMac);
           // a binding without a default key is off by default: its Default row reads Off, with no second Off
           const unbound = defaultKeys.length === 0;
+          const rowText = recording?.id === shortcut.id ? (recording.problem ?? t("Press the new shortcut, or Escape to cancel.")) : confirming ? riskText(confirming.risk, compactKeys(bindingDisplayKeys(confirming.value))) : selectedRisk ? riskText(selectedRisk, compactKeys(displayedKeys)) : undefined;
           return (
-            <SettingsRow key={shortcut.id} label={t(shortcut.label)} wide={shortcut.id !== "voice"} description={recording?.id === shortcut.id ? (recording.problem ?? t("Press the new shortcut, or Escape to cancel.")) : confirming ? riskText(confirming.risk, compactKeys(bindingDisplayKeys(confirming.value))) : selectedRisk ? riskText(selectedRisk, compactKeys(displayedKeys)) : undefined}>
+            <SettingsRow key={shortcut.id} label={t(shortcut.label)} wide={shortcut.id !== "voice"} description={rowText === undefined ? undefined : <span role="status">{rowText}</span>}>
               {shortcut.id === "voice" ? <span className="settings-keys">{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span> : (
                 <span className="settings-shortcut-control">
-                <button type="button" className="btn settings-shortcut-record" aria-pressed={recording?.id === shortcut.id} aria-label={t("Record shortcut for {name}", { name: t(shortcut.label) })} onClick={() => { setPending(null); setRecording(recording?.id === shortcut.id ? null : { id: shortcut.id, problem: null }); }}>{recording?.id === shortcut.id ? t("Press keys…") : t("Record")}</button>
+                <button type="button" className="btn settings-shortcut-record" ref={(button) => { if (button) recordButtons.current.set(shortcut.id, button); else recordButtons.current.delete(shortcut.id); }} aria-pressed={recording?.id === shortcut.id} aria-label={t("Record shortcut for {name}", { name: t(shortcut.label) })} onClick={() => { setPending(null); setRecording(recording?.id === shortcut.id ? null : { id: shortcut.id, problem: null }); }}>{recording?.id === shortcut.id ? t("Press keys…") : t("Record")}</button>
                 {confirming ? <>
                   <button type="button" className="btn settings-shortcut-confirm" onClick={() => {
-                    setPending(null);
+                    settlePending(confirming.id);
                     update({ shortcutOverrides: { ...settings.shortcutOverrides, [confirming.id]: confirming.value } });
                   }}>{t("Save anyway")}</button>
-                  <button type="button" className="btn" onClick={() => setPending(null)}>{t("Cancel")}</button>
+                  <button type="button" className="btn" onClick={() => settlePending(confirming.id)}>{t("Cancel")}</button>
                 </> : <select className="select settings-select settings-shortcut-select" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? (unbound ? "default" : "off") : "default"} onChange={(event) => {
                   const next = { ...settings.shortcutOverrides };
                   if (event.target.value === "default") delete next[shortcut.id];
@@ -796,7 +803,11 @@ function ShortcutsPage() {
         })}
       </SettingsGroup>
       <div className="settings-actions">
-        <button type="button" className="btn" onClick={() => update({ shortcutOverrides: {} })}>{t("Reset shortcuts")}</button>
+        <button type="button" className="btn" onClick={() => {
+          setPending(null);
+          setRecording(null);
+          update({ shortcutOverrides: {} });
+        }}>{t("Reset shortcuts")}</button>
       </div>
     </>
   );

@@ -1147,7 +1147,7 @@ export const ZH: Record<string, string> = {
   "Press the new shortcut, or Escape to cancel.": "请按下新的快捷键，或按 Escape 取消。",
   "Hold ⌘, Ctrl or ⌥, with or without Shift, and press a key.": "按住 ⌘、Ctrl 或 ⌥（可同时按 Shift），再按一个键。",
   "Hold Ctrl or Alt, with or without Shift, and press a key.": "按住 Ctrl 或 Alt（可同时按 Shift），再按一个键。",
-  "{keys} is a terminal key: shells, editors and agents use it. Once saved, it no longer reaches the pane.": "{keys} 是终端按键：shell、编辑器和代理都会使用它。保存后，它将不再传给窗格。",
+  "{keys} is a terminal key: shells, editors and agents use it. Once saved, it no longer reaches the pane.": "{keys} 是终端按键：Shell、编辑器和 Agent 都会使用它。保存后，它将不再传给窗格。",
   "Save anyway": "仍然保存",
   "That key cannot be a shortcut.": "该键不能用作快捷键。",
   "Your browser or operating system keeps that shortcut.": "该快捷键由浏览器或操作系统占用。",
