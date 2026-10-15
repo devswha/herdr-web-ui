@@ -33,7 +33,17 @@ export async function checkFolderFilter(page: Page, dialog: Locator, createReque
   await filter.fill("a");
   await dialog.locator(".dir-browser-item").click();
   await until(async () => (await filter.inputValue()) === "", "navigation clears the filter");
+  const directory = dialog.getByLabel(/^Directory/);
+  // Browse writes the opened folder into Directory, so Start would use it without Use this folder
+  await until(async () => {
+    const value = await directory.inputValue();
+    return value.endsWith("/a") || value === "a";
+  }, "Directory follows the folder Browse opened");
   await dialog.getByRole("button", { name: "Parent folder", exact: true }).click();
+  await until(async () => {
+    const value = await directory.inputValue();
+    return !value.endsWith("/a") && value !== "a";
+  }, "Directory follows Browse back to the parent");
   await dialog.getByRole("button", { name: "Use this folder", exact: true }).click();
   await filter.waitFor({ state: "detached" });
   console.log("PASS folder filtering preserves IME keys, blocks form submission and clears on navigation");

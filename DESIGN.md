@@ -685,7 +685,10 @@ One set for both themes: the card is island black wherever it shows.
 
 ### New workspace dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
-  the selected pane cwd and name is an optional workspace label.
+  the selected pane cwd and name is an optional workspace label. **Browse** updates Directory as
+  each folder opens (`onFolder`), so **Start** uses the path shown in the browser even when
+  **Use this folder** was not pressed; that button still closes Browse and rewrites the path with
+  `~/…` when it sits under home.
 - Recent folders appear as neutral `.btn` chips with `--radius-pill` and `--space-2` gaps: the
   three most recent, on one row that never wraps. Each shows the folder basename with ellipsis
   and the full path in its tooltip and accessible name. Clicking puts the folder in Directory and

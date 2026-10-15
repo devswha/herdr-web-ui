@@ -21,7 +21,7 @@ export interface DirectoryBrowserProps {
   onPick?: (path: string) => void;
   /** lists files too, and opens the one clicked (its absolute path) */
   onOpenFile?: (path: string) => void;
-  /** told the folder shown (its absolute path) each time one opens */
+  /** told the folder shown (its absolute path) each time one opens; New workspace drafts Directory from it */
   onFolder?: (path: string) => void;
 }
 

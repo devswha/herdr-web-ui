@@ -1424,8 +1424,11 @@ try {
   const createGate = new Promise<void>((resolve) => { releaseCreate = resolve; });
   releases.push(releaseCreate);
   let createRequests = 0;
+  let createCwd: string | null = null;
   await page.route("**/api/workspace/create", async (route) => {
     createRequests += 1;
+    const body = route.request().postDataJSON() as { cwd?: string | null };
+    createCwd = typeof body.cwd === "string" ? body.cwd : null;
     await createGate;
     await route.continue();
   });
@@ -1433,9 +1436,16 @@ try {
   const dialog = page.getByRole("dialog", { name: /^New workspace/ });
   await dialog.getByLabel(/^Directory/).fill(root);
   await checkFolderFilter(page, dialog, () => createRequests);
+  // Browse into a child and Start without Use this folder: create must use that child (#1162).
+  // root/a and root/b already exist from the owned panes at the top of this script.
+  await dialog.getByRole("button", { name: "Browse", exact: true }).click();
+  await dialog.getByRole("searchbox", { name: "Filter folders" }).waitFor();
+  await dialog.locator(".dir-browser-item", { hasText: /^a$/ }).click();
+  await until(async () => (await dialog.getByLabel(/^Directory/).inputValue()).endsWith("/a"), "Directory follows Browse into a");
   await dialog.getByLabel(/^Name/).fill("herdr-web-ui-test-browser-created");
   await dialog.getByRole("button", { name: "Start", exact: true }).click();
   await until(() => createRequests === 1, "creation started");
+  assert.equal(createCwd, join(root, "a"), "Start uses the folder Browse is showing");
   await page.keyboard.press("Escape");
   assert.equal(await dialog.isVisible(), true, "in-flight creation cannot be dismissed");
   assert.equal(await dialog.getByRole("button", { name: "Close dialog" }).isDisabled(), true);
@@ -1681,7 +1691,7 @@ try {
   await page.locator(".tab-strip-add").click();
   const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
   await tabDialog.waitFor();
-  assert.equal(await tabDialog.locator(".new-session-folder").textContent(), root, "the folder is the workspace's, shown");
+  assert.equal(await tabDialog.locator(".new-session-folder").textContent(), join(root, "a"), "the folder is the workspace's, shown");
   assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 0, "the folder is not asked for");
   const tabNameField = tabDialog.getByLabel(/^Name/);
   await tabNameField.fill("second");
