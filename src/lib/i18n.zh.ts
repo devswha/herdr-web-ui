@@ -531,6 +531,7 @@ export const ZH: Record<string, string> = {
   "Questions": "问题列表",
   "(answered)": "(已回答)",
   "Agent is asking": "Agent 提问",
+  "View plan": "查看计划",
   "input needed": "需要输入",
   "Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed.": "Codex 会在此期间继续工作。请在此处回答。在回答或关闭之前，此问题会占用终端的输入。",
   "Codex keeps working meanwhile. Answer here; the message box still talks to Codex.": "Codex 会在此期间继续工作。请在此处回答。消息输入框仍会发送给 Codex。",

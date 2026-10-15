@@ -527,6 +527,7 @@ export const KO: Record<string, string> = {
   "Questions": "질문 목록",
   "(answered)": "(답함)",
   "Agent is asking": "에이전트의 질문",
+  "View plan": "계획 보기",
   "input needed": "입력 필요",
   "Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed.": "Codex는 그동안 계속 작업합니다. 여기서 답하세요. 답하거나 닫기 전까지 이 질문이 터미널 입력을 붙들고 있습니다.",
   "Codex keeps working meanwhile. Answer here; the message box still talks to Codex.": "Codex는 그동안 계속 작업합니다. 여기서 답하세요. 메시지 입력창은 그대로 Codex에게 갑니다.",

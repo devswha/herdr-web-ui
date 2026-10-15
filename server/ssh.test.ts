@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,6 +55,19 @@ fi
 echo ran
 `;
 
+// `ssh-keygen -l -f <known_hosts>` for the ed25519 lines the stand-in ssh learns. CI's runner
+// image has no OpenSSH, so the real one cannot be relied on.
+const FAKE_SSH_KEYGEN = String.raw`#!/bin/sh
+for file; do :; done
+exec "$FAKE_BUN" -e '
+const { createHash } = require("node:crypto");
+const { readFileSync } = require("node:fs");
+for (const line of readFileSync(process.argv.at(-1), "utf8").trim().split("\n")) {
+  const [host, , key] = line.split(" ");
+  console.log("256 SHA256:" + createHash("sha256").update(Buffer.from(key, "base64")).digest("base64").replace(/=+$/, "") + " " + host + " (ED25519)");
+}' "$file"
+`;
+
 const FAKE_KEYS = ["FAKE_DIR", "FAKE_BUN", "FAKE_PASSPHRASE", "FAKE_PROMPT", "FAKE_HOSTKEY_LINE", "FAKE_INTRUDER", "FAKE_CONFIG_FORWARD", "FAKE_TUNNEL_ENDS_AT"];
 
 describe.skipIf(process.platform === "win32")("SSH without connection sharing", () => {
@@ -66,6 +80,8 @@ describe.skipIf(process.platform === "win32")("SSH without connection sharing", 
     mkdirSync(bin);
     writeFileSync(join(bin, "ssh"), FAKE_SSH);
     chmodSync(join(bin, "ssh"), 0o755);
+    writeFileSync(join(bin, "ssh-keygen"), FAKE_SSH_KEYGEN);
+    chmodSync(join(bin, "ssh-keygen"), 0o755);
     const saved = Object.fromEntries(["PATH", ...FAKE_KEYS].map((key) => [key, process.env[key]]));
     process.env["PATH"] = `${bin}:${saved["PATH"]}`;
     Object.assign(process.env, { FAKE_DIR: root, FAKE_BUN: process.execPath }, env);
@@ -128,17 +144,17 @@ describe.skipIf(process.platform === "win32")("SSH without connection sharing", 
   });
 
   describe("an unknown host", () => {
-    function hostKey(root: string): { line: string; fingerprint: string } {
-      const key = join(root, "hostkey");
-      expect(Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "", "-f", key]).exitCode).toBe(0);
-      const [type, body] = readFileSync(key + ".pub", "utf8").trim().split(" ");
-      const fingerprint = Bun.spawnSync(["ssh-keygen", "-l", "-f", key + ".pub"]).stdout.toString().split(" ")[1]!;
-      return { line: `pc.example ${type} ${body}`, fingerprint };
+    function hostKey(): { line: string; fingerprint: string } {
+      const raw = Buffer.from(generateKeyPairSync("ed25519").publicKey.export({ format: "jwk" }).x!, "base64url");
+      const field = (bytes: Buffer) => Buffer.concat([Buffer.from([0, 0, 0, bytes.length]), bytes]);
+      const blob = Buffer.concat([field(Buffer.from("ssh-ed25519")), field(raw)]);
+      const fingerprint = "SHA256:" + createHash("sha256").update(blob).digest("base64").replace(/=+$/, "");
+      return { line: `pc.example ssh-ed25519 ${blob.toString("base64")}`, fingerprint };
     }
 
     it("shows the fingerprint before any authenticating connection and trusts it on yes", async () => {
-      const { root, state, ssh, prompts, calls, ask } = fixture();
-      const key = hostKey(root);
+      const { state, ssh, prompts, calls, ask } = fixture();
+      const key = hostKey();
       process.env["FAKE_HOSTKEY_LINE"] = key.line;
       await ssh.start(ask("yes"));
       expect(prompts).toHaveLength(1);
@@ -150,15 +166,15 @@ describe.skipIf(process.platform === "win32")("SSH without connection sharing", 
     });
 
     it("trusts nothing on no", async () => {
-      const { root, state, ssh, ask } = fixture();
-      process.env["FAKE_HOSTKEY_LINE"] = hostKey(root).line;
+      const { state, ssh, ask } = fixture();
+      process.env["FAKE_HOSTKEY_LINE"] = hostKey().line;
       await expect(ssh.start(ask("no"))).rejects.toThrow("Host key verification failed.");
       expect(readFileSync(join(state, "known_hosts"), "utf8")).toBe("");
     });
 
     it("is not learned without someone to ask", async () => {
       const { root, ssh } = fixture();
-      process.env["FAKE_HOSTKEY_LINE"] = hostKey(root).line;
+      process.env["FAKE_HOSTKEY_LINE"] = hostKey().line;
       await expect(ssh.start()).rejects.toThrow("Host key verification failed.");
       expect(existsSync(join(root, "calls")) && readFileSync(join(root, "calls"), "utf8").includes("PreferredAuthentications=none")).toBe(false);
     });

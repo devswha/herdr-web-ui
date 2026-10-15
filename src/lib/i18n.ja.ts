@@ -529,6 +529,7 @@ export const JA: Record<string, string> = {
   "Questions": "質問一覧",
   "(answered)": "(回答済み)",
   "Agent is asking": "エージェントからの質問",
+  "View plan": "プランを表示",
   "input needed": "入力が必要",
   "Codex keeps working meanwhile. Answer here; the question holds the terminal's input until it is answered or closed.": "その間も Codex は作業を続けます。ここで回答してください。回答するか閉じるまで、この質問がターミナルの入力を占有します。",
   "Codex keeps working meanwhile. Answer here; the message box still talks to Codex.": "その間も Codex は作業を続けます。ここで回答してください。メッセージ入力欄はそのまま Codex に送られます。",
