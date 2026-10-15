@@ -120,6 +120,11 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 | Cursor | `--term-cursor` | `#f0a830` | `#8c5000` | `cursor` |
 | Selection | `--term-selection` | `#4a3d26` | `#f0d9ae` | `selectionBackground` |
 
+Programs pick their own colors for one background, so xterm keeps every cell's text at 4.5:1 or
+more against the cell's background (`minimumContrastRatio`, WCAG AA): a foreground below it moves
+toward black or white. Claude Code's default dark theme draws its question titles in `#ffffff`,
+which a light palette's terminal shows at 1.04 to 1.13:1.
+
 ### Syntax highlighting
 
 Code in the chat and in the file viewer is colored by `--syntax-*` tokens. Four follow the
