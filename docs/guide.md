@@ -296,9 +296,9 @@ On a phone:
 - Agent panes open in the chat.
 - The terminal gets a key bar above the keyboard (Esc, Tab, Ctrl+C, Ctrl, Alt, Shift, Enter, arrows).
   Ctrl, Alt and Shift stay held until tapped again and combine with each other.
-  Enable direct terminal typing with the keyboard button to use them with letters and
-  symbols. Herdr encodes each chord for the program's keyboard protocol; legacy
-  protocols cannot distinguish every chord (for example Ctrl+I and Tab).
+  The terminal starts in direct typing, where they combine with letters and symbols; the
+  keyboard button switches to an input line you edit before sending. Herdr encodes each chord
+  for the program's keyboard protocol; legacy protocols cannot distinguish every chord (for example Ctrl+I and Tab).
   Draft text in the input line is sent unchanged. Modifiers clear
   when leaving the pane or terminal view, or when the connection drops.
   **Settings → Terminal → Key bar → Edit key bar** opens a separate screen to add, remove and

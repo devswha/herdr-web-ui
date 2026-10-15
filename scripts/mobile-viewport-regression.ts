@@ -11,6 +11,8 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
   try {
     await context.addInitScript(() => {
+      // the walk starts in the input line, where a tapped grid raises no keyboard
+      if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ terminalInputMode: "line" }));
       const viewport = window.visualViewport!;
       let height = 795; // a standalone app's idle visual viewport can exclude its status bar
       Object.defineProperty(viewport, "height", { get: () => height });
