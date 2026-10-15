@@ -197,7 +197,7 @@ it("pages the selected pane with fixed Mod+Shift bindings, remapping and disabli
   expect(shortcutDisplayKeys("scroll-up", {})).toEqual(["Mod", "Shift", "PageUp"]);
   expect(shortcutDisplayKeys("scroll-down", {})).toEqual(["Mod", "Shift", "PageDown"]);
   expect(shortcutConflict("palette", ["PageUp"], {})).toBe(true);
-  expect(sanitizeShortcutOverrides({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp", settings: "Home" })).toEqual({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp" });
+  expect(sanitizeShortcutOverrides({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp", settings: "F5" })).toEqual({ "scroll-up": "PageDown", "scroll-down": "PageUp", find: "PageUp" });
 });
 
 describe("new tab and split pane", () => {
@@ -230,6 +230,13 @@ describe("exact-modifier bindings", () => {
     expect(matchShortcut(keyEvent("PageUp", { metaKey: true, shiftKey: false }), true, overrides)).toBe("scroll-up");
     expect(matchShortcut(keyEvent("PageUp", { metaKey: true, shiftKey: true }), true, overrides)).toBeNull();
     expect(isAppShortcut(ctrlK(), overrides)).toBe(true);
+  });
+
+  it("runs Mod+Shift+Home/End and exact Home/End chords", () => {
+    const overrides = sanitizeShortcutOverrides({ "previous-pane": "Home", "next-pane": "meta+End" });
+    expect(matchShortcut(keyEvent("Home", { metaKey: true }), true, overrides)).toBe("previous-pane");
+    expect(matchShortcut(keyEvent("End", { metaKey: true, shiftKey: false }), true, overrides)).toBe("next-pane");
+    expect(shortcutDisplayKeys("previous-pane", overrides)).toEqual(["Mod", "Shift", "Home"]);
   });
 
   it("matches a macOS Option chord by its key", () => {

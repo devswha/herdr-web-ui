@@ -15,7 +15,7 @@ export interface ExactChord {
   key: string;
 }
 
-const BINDABLE_KEY = "(?:[a-z0-9,]|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|PageUp|PageDown)";
+const BINDABLE_KEY = "(?:[a-z0-9,]|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|PageUp|PageDown|Home|End)";
 const MOD_SHIFT_KEY = new RegExp(`^${BINDABLE_KEY}$`);
 const EXACT_CHORD = new RegExp(`^(ctrl\\+)?(alt\\+)?(shift\\+)?(meta\\+)?(${BINDABLE_KEY})$`);
 

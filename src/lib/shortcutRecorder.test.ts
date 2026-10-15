@@ -31,6 +31,11 @@ describe("recordShortcut", () => {
     expect(recordShortcut(press("ArrowLeft", { ctrlKey: false, shiftKey: false, altKey: true }), false)).toEqual({ kind: "exact", value: "alt+ArrowLeft", risk: "terminal" });
   });
 
+  it("takes Home and End, with Mod+Shift or exact modifiers", () => {
+    expect(recordShortcut(press("Home", { ctrlKey: false, metaKey: true }), true)).toEqual({ kind: "key", key: "Home" });
+    expect(recordShortcut(press("End", { ctrlKey: false, shiftKey: false, metaKey: true }), true)).toEqual({ kind: "exact", value: "meta+End", risk: null });
+  });
+
   it("names a macOS Option chord by its key, not the character Option types", () => {
     expect(recordShortcut(press("˚", { ctrlKey: false, shiftKey: false, metaKey: true, altKey: true, code: "KeyK" }), true)).toEqual({ kind: "exact", value: "alt+meta+k", risk: null });
     expect(recordShortcut(press("Dead", { ctrlKey: false, shiftKey: false, altKey: true, code: "KeyE" }), true)).toEqual({ kind: "exact", value: "alt+e", risk: "terminal" });
