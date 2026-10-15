@@ -2349,7 +2349,9 @@ export function PaneTerminal({
   // supported TUI (Claude Code, omp, codex) without killing the process the way ^C would
   // Hermes' Stop is one Ctrl+C per turn (hermesStop.ts): a second one would quit it
   const hermesStopSentRef = useRef(false);
-  useEffect(() => { if (agentStatus !== "working") hermesStopSentRef.current = false; }, [agentStatus, paneId]);
+  // a turn waiting on an approval (blocked) is still the same turn
+  useEffect(() => { if (agentStatus !== "working" && agentStatus !== "blocked") hermesStopSentRef.current = false; }, [agentStatus]);
+  useEffect(() => { hermesStopSentRef.current = false; }, [paneId, agent]);
   const abortTurn = useCallback(() => {
     const term = termRef.current;
     const socket = socketRef.current;
