@@ -1586,6 +1586,7 @@ export function App() {
                         // Wait for the roster before attaching: the loading placeholder is replaced
                         // by the keyed tile, and must never claim the pane on a throwaway connection.
                         paneId={item?.restore_error ? null : item?.pane_id ?? null}
+                        terminalId={item?.terminal_id ?? null}
                         mirrored={herdr ? herdr.terminal_attach === false || herdr.terminal_mirror === true : null}
                         restoreError={item?.restore_error ?? null}
                         agent={item?.agent ?? null}
