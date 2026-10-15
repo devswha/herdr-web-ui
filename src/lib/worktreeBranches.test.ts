@@ -86,6 +86,9 @@ describe("worktree branch metadata", () => {
     const cache = new WorkspaceBranchCache();
     cache.reconcile(workspaces);
     // Herdr 0.9.5 omits absent Option fields from JSON rather than sending null.
+    cache.rememberOpened(JSON.parse(JSON.stringify(opened("detached", "/repo/detached", null)),
+      (key, value: unknown) => key === "branch" ? undefined : value));
+    expect([...branchWords(cache.branchesFor(workspaces))]).toEqual([]);
     const inventory: WorktreeListing = JSON.parse(JSON.stringify(listing([
       entry("detached", "/repo/detached", null, { is_detached: true }),
       entry("unknown", "/repo/unknown", null),
