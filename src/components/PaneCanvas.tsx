@@ -127,7 +127,9 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
   const touchPress = useRef(false);
   const context = (event: MouseEvent<HTMLElement>, target: HerdrPane): void => {
     const pointer = (event.nativeEvent as Partial<globalThis.PointerEvent>).pointerType;
-    if (pointer === "touch" || pointer === "pen" || (pointer === undefined && touchPress.current)) return;
+    // Android Chrome ends a dragged text selection with a second contextmenu typed "mouse" and no
+    // press of its own: only a mouse or the keyboard pressing since the touch makes it the app's
+    if (pointer === "touch" || pointer === "pen" || touchPress.current) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
