@@ -3343,7 +3343,10 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       if (!paneId) return badRequest("missing_pane_id", "pane_id is required.");
       const read = await readPrompt(paneId, options.codexHome);
       const { agent, status } = read;
-      const prompt = options.readOnly ? read.prompt : await withPlanFile(read.prompt, options.claudeTranscript?.(paneId));
+      // `plan=0` is how a connection server asks for a watching device through its PC proxy, which
+      // reaches this PC with its own credential: it only ever narrows the answer
+      const watching = options.readOnly || url.searchParams.get("plan") === "0";
+      const prompt = watching ? read.prompt : await withPlanFile(read.prompt, options.claudeTranscript?.(paneId));
       // no menu up: what Claude suggests typing next, for the composer's placeholder, and the chat's
       // own last message where Claude put it back into the box on a cancel. Only a nicety: it is read
       // only while Claude waits for the next prompt (a working agent shows none), and a failed or

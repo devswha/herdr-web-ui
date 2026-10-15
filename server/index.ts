@@ -1887,7 +1887,7 @@ export function createServer(
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
           bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : pathname.endsWith("/worktree/create") ? 180 : 80);
           const deviceId = access.level === "full" ? access.device?.id : undefined;
-          const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : undefined, preferences);
+          const response = await handleMachineRequest(request, machines, deviceId ? (close) => devices.onRevoke(deviceId, close) : undefined, preferences, readOnly);
           response.headers.set("cache-control", "no-store");
           return response;
         }

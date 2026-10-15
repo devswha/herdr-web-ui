@@ -2339,6 +2339,18 @@ Claude has written up a plan and is ready to execute. Would you like to proceed?
     });
   }, 4_000);
 
+  test("gives a connection server's plan=0 ask the screen's card, as for a watching device", async () => {
+    await planHerdr(async (transcript) => {
+      const screen = await poll();
+      const url = new URL("http://127.0.0.1/api/pane/prompt?pane_id=p_1&plan=0");
+      const response = await handlePromptRequest(new Request(url), url, { claudeTranscript: () => transcript });
+      const asked = ((await response!.json()) as { prompt: InteractivePrompt | null }).prompt;
+      expect(asked).toMatchObject({ kind: "plan", id: screen!.id });
+      expect(asked?.plan_file).toBeUndefined();
+      expect(asked?.body).not.toContain("The first step");
+    });
+  }, 4_000);
+
   test("a changed plan file is a new card, and an answer to the old one is refused", async () => {
     await planHerdr(async (transcript, planFile) => {
       const claudeTranscript = () => transcript;
