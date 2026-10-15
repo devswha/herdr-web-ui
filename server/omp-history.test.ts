@@ -126,6 +126,8 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 function resumer(overrides: Partial<OmpResumeDeps> = {}) {
   const calls = { createTab: [] as [string, string][], launch: [] as [string, string[]][], focus: [] as string[] };
   const panes: HerdrPane[] = [pane("p0")];
+  /** the panes herdr's agent.get answers `launch_pending` for: registered by a launch, gone (agent_not_found) once the process exits */
+  const registered = new Set<string>();
   const deps: OmpResumeDeps = {
     panes: async () => panes,
     open: async () => new Map(),
@@ -136,10 +138,12 @@ function resumer(overrides: Partial<OmpResumeDeps> = {}) {
       panes.push(created);
       return { workspace_id: workspaceId, pane_id: created.pane_id };
     },
-    launch: async (paneId, args) => { calls.launch.push([paneId, args]); return { agent_started: true }; },
+    // a pane herdr has just started omp in, as observed on herdr 0.9.5: no agent, no session, status "unknown" until it detects omp; agent.get already has the launch registered
+    launch: async (paneId, args) => { calls.launch.push([paneId, args]); const started = panes.find((candidate) => candidate.pane_id === paneId); if (started) started.agent_status = "unknown"; registered.add(paneId); return { agent_started: true }; },
+    launchPending: async (paneId) => registered.has(paneId),
     ...overrides,
   };
-  return { calls, panes, resumer: new OmpResumer(deps) };
+  return { calls, panes, registered, resumer: new OmpResumer(deps) };
 }
 
 describe("OmpResumer", () => {
@@ -191,5 +195,120 @@ describe("OmpResumer", () => {
     fail = false;
     expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ outcome: "started", agent_started: true });
     expect(calls.createTab).toHaveLength(2);
+  });
+
+  it("starts again, without focusing the shell, when the pane it started is a shell herdr reports unknown with no agent registered", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const { resumer: subject, calls, panes, registered } = resumer();
+    await subject.resume({ path }, "w1", cwd);
+    // observed after omp exited: process_info shows only the shell, agent.get answers agent_not_found, and the status went idle and later back to unknown
+    registered.delete("p1");
+    Object.assign(panes.find((candidate) => candidate.pane_id === "p1")!, { agent: null, agent_session: null, agent_status: "unknown" });
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p2", outcome: "started" });
+    expect(calls.focus).toEqual([]);
+    expect(calls.launch).toEqual([["p1", ["--resume", path]], ["p2", ["--resume", path]]]);
+  });
+
+  it("keeps focusing the pane it started while herdr has its launch registered, even when the pane reports no agent or session and status idle", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const { resumer: subject, calls, panes, registered } = resumer();
+    await subject.resume({ path }, "w1", cwd);
+    expect(registered.has("p1")).toBe(true);
+    Object.assign(panes.find((candidate) => candidate.pane_id === "p1")!, { agent: null, agent_session: null, agent_status: "idle" });
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p1", outcome: "focused" });
+    expect(calls.focus).toEqual(["p1"]);
+    expect(calls.createTab).toHaveLength(1);
+    expect(calls.launch).toHaveLength(1);
+  });
+
+  it("answers the failure when herdr cannot say whether the launch is pending, instead of guessing", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    let fail = false;
+    const { resumer: subject, calls } = resumer({ launchPending: async () => { if (fail) throw new Error("herdr unreachable"); return true; } });
+    await subject.resume({ path }, "w1", cwd);
+    fail = true;
+    await expect(subject.resume({ path }, "w1", cwd)).rejects.toThrow("herdr unreachable");
+    expect(calls.focus).toEqual([]);
+    expect(calls.createTab).toHaveLength(1);
+  });
+
+  /** herdr's view of a pane once it detected omp (before and without naming a session), and of the shell left when omp exits */
+  const detected = (target: HerdrPane): void => { Object.assign(target, { agent: "omp", agent_status: "idle" }); };
+  const exited = (target: HerdrPane): void => { Object.assign(target, { agent: null, agent_session: null, agent_status: "idle" }); };
+
+  it("keeps focusing the pane it started while omp runs there with no session reported", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const { resumer: subject, calls, panes } = resumer();
+    await subject.resume({ path }, "w1", cwd);
+    detected(panes.find((candidate) => candidate.pane_id === "p1")!);
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p1", outcome: "focused" });
+    expect(calls.createTab).toHaveLength(1);
+    expect(calls.launch).toHaveLength(1);
+  });
+
+  it("starts again, without focusing the shell, once omp exited from the pane it started", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const { resumer: subject, calls, panes, registered } = resumer();
+    await subject.resume({ path }, "w1", cwd);
+    const first = panes.find((candidate) => candidate.pane_id === "p1")!;
+    detected(first);
+    exited(first);
+    registered.delete("p1");
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p2", outcome: "started" });
+    expect(calls.focus).toEqual([]);
+    expect(calls.launch).toEqual([["p1", ["--resume", path]], ["p2", ["--resume", path]]]);
+  });
+
+  it("starts again when the pane it started now reports another session", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const other = session("2026-10-01_y", [...header("id-y", cwd)]);
+    const { resumer: subject, calls, panes } = resumer();
+    await subject.resume({ path }, "w1", cwd);
+    Object.assign(panes.find((candidate) => candidate.pane_id === "p1")!, { agent: "omp", agent_status: "idle", agent_session: { agent: "omp", kind: "path", source: "herdr:omp", value: other } });
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p2", outcome: "started" });
+    expect(calls.focus).toEqual([]);
+  });
+
+  it("starts again when the pane it started holds another transcript that herdr does not report", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const other = session("2026-10-01_y", [...header("id-y", cwd)]);
+    // the real open map: an omp pane names the file its own process holds, a shell has none
+    const open = (current: readonly HerdrPane[]) => openOmpSessions(current, async (candidate) => candidate.agent === "omp" && candidate.pane_id === "p1" ? other : null);
+    const { resumer: subject, calls, panes } = resumer({ open });
+    await subject.resume({ path }, "w1", cwd);
+    detected(panes.find((candidate) => candidate.pane_id === "p1")!);
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p2", outcome: "started" });
+    expect(calls.focus).toEqual([]);
+  });
+
+  it("starts again when the pane it started now shows another agent, status still unknown", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const { resumer: subject, calls, panes } = resumer();
+    await subject.resume({ path }, "w1", cwd);
+    Object.assign(panes.find((candidate) => candidate.pane_id === "p1")!, { agent: "claude", agent_status: "unknown" });
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p2", outcome: "started" });
+    expect(calls.focus).toEqual([]);
+  });
+
+  it("starts again when the pane it started reports another agent's session, status still unknown", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    const { resumer: subject, calls, panes } = resumer();
+    await subject.resume({ path }, "w1", cwd);
+    Object.assign(panes.find((candidate) => candidate.pane_id === "p1")!, { agent_session: { agent: "claude", kind: "id", source: "x", value: "c" }, agent_status: "unknown" });
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p2", outcome: "started" });
+    expect(calls.focus).toEqual([]);
+  });
+
+  it("prefers what the open panes show now: another pane showing the session is focused over a stale started one", async () => {
+    const path = session("2026-10-01_x", [...header("id-x", cwd)]);
+    let shown = new Map<string, string>();
+    const { resumer: subject, calls, panes } = resumer({ open: async () => shown });
+    await subject.resume({ path }, "w1", cwd);
+    exited(panes.find((candidate) => candidate.pane_id === "p1")!);
+    panes.push(pane("p7"));
+    shown = new Map([[path, "p7"]]);
+    expect(await subject.resume({ path }, "w1", cwd)).toMatchObject({ pane_id: "p7", outcome: "focused" });
+    expect(calls.focus).toEqual(["p7"]);
+    expect(calls.createTab).toHaveLength(1);
   });
 });

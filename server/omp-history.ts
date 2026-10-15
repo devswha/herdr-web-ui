@@ -190,6 +190,29 @@ export interface OmpResumeDeps {
   createTab: (workspaceId: string, cwd: string) => Promise<{ workspace_id: string; pane_id: string }>;
   /** the app's one agent launch (index.ts agentLaunch): a failure is answered, not thrown */
   launch: (paneId: string, args: string[]) => Promise<{ agent_started: true } | { agent_started: false; error: { code: string; message: string } }>;
+  /**
+   * Whether herdr has an omp launch registered for the pane that is still starting (agent.get:
+   * `launch_pending`). False when it has no agent there (agent_not_found: omp exited, a shell is
+   * left); any other failure is thrown, not answered either way.
+   */
+  launchPending: (paneId: string) => Promise<boolean>;
+}
+
+/**
+ * Whether the pane this server started `path` in still shows it, as herdr and the open map say now.
+ * Gone, no longer omp, or on another transcript: no. A pane that reports no agent and no session
+ * is kept only while herdr has the omp launch registered (`launchPending`): its status "unknown"
+ * says nothing, a shell left by an omp that exited reads `idle` and later `unknown`. An omp pane
+ * that names no session yet is kept; another agent or session never is.
+ */
+async function stillShows(deps: OmpResumeDeps, panes: readonly HerdrPane[], paneId: string, path: string, open: ReadonlyMap<string, string>): Promise<boolean> {
+  const pane = panes.find((candidate) => candidate.pane_id === paneId);
+  if (pane === undefined) return false;
+  if (pane.agent !== "omp" && pane.agent_session?.agent !== "omp") return (pane.agent ?? null) === null && (pane.agent_session ?? null) === null && await deps.launchPending(paneId);
+  const session = pane.agent_session;
+  const reported = session?.agent === "omp" && session.kind === "path" && session.value.endsWith(".jsonl") ? canonical(session.value) : null;
+  const held = [...open].find(([, holder]) => holder === paneId)?.[0] ?? null;
+  return (reported ?? path) === path && (held ?? path) === path;
 }
 
 /** Starts a listed session in a new tab, once however many ask at once, or brings forward the pane that already has it. */
@@ -211,13 +234,14 @@ export class OmpResumer {
 
   private async run(path: string, workspaceId: string, cwd: string): Promise<OmpSessionResumed> {
     const panes = await this.deps.panes();
+    const open = await this.deps.open(panes);
     const startedHere = this.started.get(path);
-    if (startedHere !== undefined && !panes.some((pane) => pane.pane_id === startedHere)) this.started.delete(path);
-    const holder = (await this.deps.open(panes)).get(path) ?? this.started.get(path);
-    const open = holder === undefined ? undefined : panes.find((pane) => pane.pane_id === holder);
-    if (open !== undefined) {
-      await this.deps.focus(open.pane_id);
-      return { workspace_id: open.workspace_id, pane_id: open.pane_id, outcome: "focused", agent_started: true };
+    if (startedHere !== undefined && !await stillShows(this.deps, panes, startedHere, path, open)) this.started.delete(path);
+    const holder = open.get(path) ?? this.started.get(path);
+    const shown = holder === undefined ? undefined : panes.find((pane) => pane.pane_id === holder);
+    if (shown !== undefined) {
+      await this.deps.focus(shown.pane_id);
+      return { workspace_id: shown.workspace_id, pane_id: shown.pane_id, outcome: "focused", agent_started: true };
     }
     const created = await this.deps.createTab(workspaceId, cwd);
     const launched = await this.deps.launch(created.pane_id, ["--resume", path]);

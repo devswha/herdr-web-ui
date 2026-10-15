@@ -43,6 +43,7 @@ import { ompHeldTranscript } from "./omp.ts";
 import { listOmpSessions, OMP_SESSIONS_DEFAULT_LIMIT, OMP_SESSIONS_MAX_LIMIT, OmpResumer, openOmpSessions, resolveOmpSession } from "./omp-history.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
+  agentGet,
   agentManifests,
   agentPrompt,
   agentRename,
@@ -1110,6 +1111,16 @@ export function createServer(
       return { workspace_id: created.tab.workspace_id, pane_id: created.root_pane.pane_id };
     },
     launch: (paneId, args) => agentLaunch(paneId, { kind: "omp", args }),
+    // herdr's own record that an omp launch is still starting in the pane (named omp, `agent` not set until detected): gone (agent_not_found) once the process exited
+    launchPending: async (paneId) => {
+      try {
+        const agent = await agentGet(paneId);
+        return agent.launch_pending === true && (agent.agent ?? "omp") === "omp";
+      } catch (error) {
+        if (error instanceof HerdrError && error.code === "agent_not_found") return false;
+        throw error;
+      }
+    },
   });
   /** OmO panes get their status from OmO's session files: herdr reports none for them (server/omo-status.ts) */
   const omo = new OmoStatus({
