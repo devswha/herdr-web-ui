@@ -21,8 +21,8 @@ export interface DirectoryBrowserProps {
   onPick?: (path: string) => void;
   /** lists files too, and opens the one clicked (its absolute path) */
   onOpenFile?: (path: string) => void;
-  /** told the folder shown (its absolute path) each time one opens; New workspace drafts Directory from it */
-  onFolder?: (path: string) => void;
+  /** told the folder shown (its absolute path, and the PC's home) each time one opens; New workspace drafts Directory from it */
+  onFolder?: (path: string, home: string) => void;
 }
 
 function childPath(parent: string, name: string): string {
@@ -44,7 +44,7 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
   const request = useRef(0);
   const listRef = useRef<HTMLUListElement>(null);
   const shownPath = listing?.path;
-  useEffect(() => { if (shownPath !== undefined) onFolder?.(shownPath); }, [shownPath]);
+  useEffect(() => { if (listing) onFolder?.(listing.path, listing.home); }, [shownPath]);
 
   const open = useCallback(async (path: string, showHidden: boolean, fallbackHome: boolean) => {
     const id = ++request.current;

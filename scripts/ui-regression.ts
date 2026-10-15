@@ -1434,6 +1434,12 @@ try {
   });
   await page.getByRole("button", { name: /^New workspace on / }).click();
   const dialog = page.getByRole("dialog", { name: /^New workspace/ });
+  // opening Browse on home leaves Directory as typed, `~`, not the absolute path it lists
+  await dialog.getByLabel(/^Directory/).fill("~");
+  await dialog.getByRole("button", { name: "Browse", exact: true }).click();
+  await dialog.locator(".dir-browser-item").first().waitFor();
+  assert.equal(await dialog.getByLabel(/^Directory/).inputValue(), "~", "Browse keeps the home-relative form");
+  await dialog.getByRole("button", { name: "Browse", exact: true }).click();
   await dialog.getByLabel(/^Directory/).fill(root);
   await checkFolderFilter(page, dialog, () => createRequests);
   // Browse into a child and Start without Use this folder: create must use that child (#1162).
