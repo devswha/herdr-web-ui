@@ -5,9 +5,8 @@ input boundary; the terminal screen is still rendered from the attach stream.
 
 ## Input modes and drafts
 
-Settings → Terminal → Terminal input mode offers Automatic, Input line and Direct typing.
-Automatic types straight into the terminal on every device, phones included; choose Input line
-for a line you edit before sending. The key bar's keyboard
+Settings → Terminal → Terminal input mode offers Direct typing, the default on every device
+with phones included, and Input line, for a line you edit before sending. The key bar's keyboard
 button switches modes too, on a touch screen only: a desktop changes the mode in Settings.
 Settings → Shortcuts can change each app action's Mod+Shift key or return its keys to the
 terminal. The hold-to-dictate binding remains fixed. Conflicts include the legacy New workspace

@@ -34,7 +34,6 @@ export const ZH: Record<string, string> = {
   "View only while you use another window · click to type": "使用其他窗口时仅查看 · 点击即可输入",
   "Direct typing": "直接输入",
   "Input line": "输入框",
-  "Automatic": "自动",
   "Terminal input mode": "终端输入模式",
   "Reset shortcuts": "重置快捷键",
   "Bindings apply to this browser and device; Mod+Shift is fixed.": "快捷键仅应用于此浏览器和设备；Mod+Shift 固定不变。",
