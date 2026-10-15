@@ -30,7 +30,7 @@ it("answers herdr's startup probes and keeps them out of the output across every
     const first = probes.take(input.slice(0, cut));
     const second = probes.take(input.slice(cut));
     expect(first.output + second.output + probes.flush()).toBe("\x1b[?1049hpane\x1b[?1049l");
-    expect(first.replies + second.replies).toBe("\x1b[?1016;0$y\x1b[?1;2c");
+    expect(first.replies + second.replies).toBe("\x1b[?1016;4$y\x1b[?1;2c");
   }
 });
 

@@ -13,7 +13,7 @@ export function isTakeoverExit(output: string): boolean {
  * a browser joining later answered them again and herdr typed the late reply into the pane.
  */
 const STARTUP_PROBES: ReadonlyArray<readonly [query: string, reply: string]> = [
-  ["\x1b[?1016$p", "\x1b[?1016;0$y"], // pixel mouse coordinates (DECRQM): not offered, cells it is
+  ["\x1b[?1016$p", "\x1b[?1016;4$y"], // pixel mouse coordinates (DECRQM): permanently off, cells it is
   ["\x1b[c", "\x1b[?1;2c"], // device attributes (DA1): xterm.js's own answer
 ];
 
