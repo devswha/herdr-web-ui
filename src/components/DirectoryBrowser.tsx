@@ -52,6 +52,9 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
   const fellBack = useRef(false);
   // counts moves to another folder; a refresh of the one shown (Show hidden) is not one
   const moves = useRef(0);
+  // Show hidden as it is when a made folder opens, not as it was when making it began
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
   const shownByFallback = useRef(false);
   useEffect(() => { if (listing && !shownByFallback.current) onFolder?.(listing.path, listing.home); }, [shownPath]);
 
@@ -110,7 +113,7 @@ export function DirectoryBrowser({ start, onPick, onOpenFile, onFolder }: Direct
       const made = await createDirectory(listing.path, naming);
       setNaming(null);
       setNamingError(null);
-      if (moves.current === asked) void open(made.path, hidden, false);
+      if (moves.current === asked) void open(made.path, hiddenRef.current, false);
     } catch (reason: unknown) {
       const code = reason instanceof ApiError ? reason.code : null;
       setNamingError(code === "folder_exists" ? t("Something with that name is already here.")
