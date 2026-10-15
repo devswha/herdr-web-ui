@@ -108,8 +108,10 @@ try {
         // the exact chord runs the action; the default Mod+Shift+K is released
         await page.getByRole("button", { name: "Close settings", exact: true }).click();
         const palette = page.locator(".command-palette");
-        await page.keyboard.press("Meta+Shift+KeyK");
-        assert.equal(await palette.count(), 0, "the moved palette no longer answers Mod+Shift+K");
+        // dispatched in the page: a shortcut that ran has already prevented it when dispatchEvent returns
+        const chord = (key: string, code: string) => page.evaluate(([key, code]) => (document.activeElement ?? document.body).dispatchEvent(
+          new KeyboardEvent("keydown", { key, code, metaKey: true, shiftKey: true, bubbles: true, cancelable: true })), [key, code] as const);
+        assert.equal(await chord("K", "KeyK"), true, "the moved palette no longer answers Mod+Shift+K");
         await page.keyboard.press("Control+KeyK");
         await palette.waitFor();
         assert.equal(await palette.locator(".palette-shortcut[aria-label='⌥ + ⌘ + B']").count(), 1, "the palette shows an exact chord as recorded");
@@ -119,6 +121,13 @@ try {
         await hungarianE();
         await page.locator(".settings-dialog").waitFor();
         await page.getByRole("button", { name: "Close settings", exact: true }).click();
+
+        // a binding on End gives way to a message box that has text, as the arrows do; an empty box lets it run
+        const composer = page.locator(".composer-text").first();
+        await composer.fill("draft");
+        assert.equal(await chord("End", "End"), true, "\u2318\u21e7End in a message box with text stays with the text");
+        await composer.fill("");
+        assert.equal(await chord("End", "End"), false, "with the box empty, \u2318\u21e7End runs Next pane");
 
         // from the message box too, and after a reload
         await page.reload();
