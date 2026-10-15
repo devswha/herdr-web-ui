@@ -132,13 +132,6 @@ export interface PaneTerminalProps {
 }
 
 
-/** Whether this device types in the terminal's input line or straight into the grid: remembered per device. */
-const DIRECT_TYPING_KEY = "herdr-web-ui:direct-typing";
-
-function storedDirectTyping(): boolean {
-  try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
-}
-
 /** The last refused Send now note per pane, kept across that pane's mounts (see queueError). */
 const heldRowNotes = new Map<string, { owner: string; id: string; text: string }>();
 
@@ -353,7 +346,8 @@ export function PaneTerminal({
   const narrowFontFitted = useRef(narrowFont);
   // Settings → Chat width, Default: the lane follows this pane, on the stack its columns share
   usePaneLane(stackRef);
-  const directTyping = settings.terminalInputMode === "direct" || (settings.terminalInputMode === "auto" && (!coarse || storedDirectTyping()));
+  // every device starts typing straight into the grid; the input line is a choice (key bar or Settings)
+  const directTyping = settings.terminalInputMode !== "line";
   const inputLine = !directTyping && !chatView;
   const inputLineRef = useRef(inputLine);
   inputLineRef.current = inputLine;
