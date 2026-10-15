@@ -2309,21 +2309,51 @@ Claude has written up a plan and is ready to execute. Would you like to proceed?
     }
   }
 
-  async function poll(claudeTranscript?: (paneId: string) => string | null): Promise<InteractivePrompt | null> {
+  async function poll(claudeTranscript?: (paneId: string) => string | null, readOnly?: boolean): Promise<InteractivePrompt | null> {
     const url = new URL("http://127.0.0.1/api/pane/prompt?pane_id=p_1");
-    const response = await handlePromptRequest(new Request(url), url, { claudeTranscript });
+    const response = await handlePromptRequest(new Request(url), url, { claudeTranscript, readOnly });
     return ((await response!.json()) as { prompt: InteractivePrompt | null }).prompt;
   }
 
-  test("takes the whole plan from Claude's plan file, with the same id", async () => {
+  test("takes the whole plan from Claude's plan file, with the screen's id and the plan's revision", async () => {
     await planHerdr(async (transcript, planFile) => {
       const screen = await poll();
       const filed = await poll((paneId) => paneId === "p_1" ? transcript : null);
       expect(screen).toMatchObject({ kind: "plan" });
       expect(screen?.plan_file).toBeUndefined();
       expect(screen?.body).not.toContain("The first step");
-      expect(filed).toMatchObject({ kind: "plan", id: screen!.id, plan_file: planFile });
+      expect(filed).toMatchObject({ kind: "plan", plan_file: planFile });
+      expect(filed?.id.startsWith(`${screen!.id}.`)).toBe(true);
       expect(filed?.body).toContain("1. The first step, gone from the pane.");
+    });
+  }, 4_000);
+
+  test("gives a watch-only requester the screen's card, without the plan file's text or path", async () => {
+    await planHerdr(async (transcript) => {
+      const screen = await poll();
+      const watched = await poll(() => transcript, true);
+      expect(watched).toMatchObject({ kind: "plan", id: screen!.id });
+      expect(watched?.plan_file).toBeUndefined();
+      expect(watched?.body).not.toContain("The first step");
+      expect(watched?.body).toContain("The last step that fits the pane.");
+    });
+  }, 4_000);
+
+  test("a changed plan file is a new card, and an answer to the old one is refused", async () => {
+    await planHerdr(async (transcript, planFile) => {
+      const claudeTranscript = () => transcript;
+      const before = await poll(claudeTranscript);
+      writeFileSync(planFile, "# Plan\n\n1. A rewritten first step.\n4. The last step that fits the pane.\n");
+      const after = await poll(claudeTranscript);
+      expect(after?.id).not.toBe(before!.id);
+      expect(after?.body).toContain("A rewritten first step.");
+      const url = new URL("http://127.0.0.1/api/pane/prompt/answer");
+      const response = await handlePromptRequest(new Request(url, {
+        method: "POST",
+        body: JSON.stringify({ pane_id: "p_1", prompt_id: before!.id, option_index: 0 }),
+      }), url, { claudeTranscript });
+      expect(response!.status).toBe(409);
+      expect(((await response!.json()) as { error: { code: string } }).error.code).toBe("prompt_changed");
     });
   }, 4_000);
 

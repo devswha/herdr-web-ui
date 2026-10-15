@@ -3315,13 +3315,21 @@ export interface PromptRequestOptions {
   codexHome?: string;
   /** a Claude pane's transcript, for the plan file behind a plan card */
   claudeTranscript?: (paneId: string) => string | null;
+  /** the requester can only watch: it gets the screen's card, never the plan file's text or path */
+  readOnly?: boolean;
 }
 
-/** A Claude plan card with the whole plan from Claude's plan file, as the screen shows only what fits the pane. */
+/**
+ * A Claude plan card with the whole plan from Claude's plan file, as the screen shows only what fits
+ * the pane. The plan's revision is part of the id, so an answer to a card read before the file
+ * changed is refused.
+ */
 async function withPlanFile(prompt: InteractivePrompt | null, transcript: string | null | undefined): Promise<InteractivePrompt | null> {
   if (!prompt || !transcript || parsedByPublicPrompt.get(prompt)?.responder !== "claude-plan") return prompt;
   const plan = await claudePlanFile(transcript);
-  return plan ? { ...prompt, body: plan.text.slice(0, 12_000), plan_file: plan.path } : prompt;
+  if (!plan) return prompt;
+  const revision = createHash("sha256").update(plan.text).digest("hex").slice(0, 8);
+  return { ...prompt, id: `${prompt.id}.${revision}`, body: plan.text.slice(0, 12_000), plan_file: plan.path };
 }
 
 export async function handlePromptRequest(request: Request, url: URL, options: PromptRequestOptions = {}): Promise<Response | null> {
@@ -3335,7 +3343,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       if (!paneId) return badRequest("missing_pane_id", "pane_id is required.");
       const read = await readPrompt(paneId, options.codexHome);
       const { agent, status } = read;
-      const prompt = await withPlanFile(read.prompt, options.claudeTranscript?.(paneId));
+      const prompt = options.readOnly ? read.prompt : await withPlanFile(read.prompt, options.claudeTranscript?.(paneId));
       // no menu up: what Claude suggests typing next, for the composer's placeholder, and the chat's
       // own last message where Claude put it back into the box on a cancel. Only a nicety: it is read
       // only while Claude waits for the next prompt (a working agent shows none), and a failed or
@@ -3373,7 +3381,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       // given up while it waited its turn: nothing is read, opened or sent for it
       if (request.signal.aborted) return promptChanged();
       const { prompt, agent, pane, panes } = await readPrompt(body.pane_id, options.codexHome);
-      if (!prompt || prompt.id !== body.prompt_id) return promptChanged();
+      // a plan card's id carries its plan file's revision: the file as it is now must match too
+      if (!prompt || (await withPlanFile(prompt, options.claudeTranscript?.(body.pane_id)))!.id !== body.prompt_id) return promptChanged();
       log.matched = true;
       // checked against the card before anything is sent: an invalid answer never opens the queue
       let steps: AnswerStep[];
