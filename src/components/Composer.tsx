@@ -854,10 +854,10 @@ export function Composer({
   }, [placeWaitingMentions]);
 
   /** `clearDraft`: the terminal draft a DraftRefusal named, which the user asked to clear and send over;
-   * `sendAnyway`: the user saw the box a DraftRefusal showed and sends over it */
-  const send = useCallback((clearDraft?: string, sendAnyway = false) => {
-    if (composingRef.current) return;
-    if (!connected || uploading || roomless || sending || text.trim().length === 0) return;
+   * `sendAnyway`: the user saw the box a DraftRefusal showed and sends over it. False: nothing went out */
+  const send = useCallback((clearDraft?: string, sendAnyway = false): boolean => {
+    if (composingRef.current) return false;
+    if (!connected || uploading || roomless || sending || text.trim().length === 0) return false;
     const sent = text;
     const sentAttachments = attachments;
     const settle = (result: boolean | string | DraftRefusal): void => {
@@ -875,20 +875,23 @@ export function Composer({
       for (const attachment of sentAttachments) { URL.revokeObjectURL(attachment.previewUrl); placedMentions.current.delete(attachment.id); }
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
     };
-    if (!composerDrafts.begin(draftKey, sent)) return;
+    if (!composerDrafts.begin(draftKey, sent)) return false;
     // a polish landing before the acknowledgement would count as an edit and keep the sent message here
     dictation.forget();
     try {
       const result = onSend(text, clearDraft, sendAnyway);
-      if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
+      if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return true; }
       void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
     } catch {
       composerDrafts.end(draftKey);
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
+    return true;
   }, [attachments, connected, dictation.forget, draftKey, onSend, roomless, sending, text, uploading]);
   const sendRef = useRef(send);
   sendRef.current = send;
+  const connectedRef = useRef(connected);
+  connectedRef.current = connected;
 
   // A Send tapped while the keyboard still composes the last word (Gboard composes every word,
   // CJK IMEs an open syllable) finishes that word and sends once it commits. The button keeps
@@ -902,6 +905,12 @@ export function Composer({
     commitWait.current = null;
   }, []);
   useEffect(() => clearCommitWait, [clearCommitWait]);
+  // a drop withdraws the tap: a quick reconnect inside the wait must not send it after all
+  useEffect(() => {
+    if (connected || commitWait.current === null) return;
+    clearCommitWait();
+    setNote(t("Not sent: the terminal is disconnected."));
+  }, [clearCommitWait, connected, t]);
   const awaitCommit = useCallback((current: { timer: ReturnType<typeof setTimeout> | null; deadline: number }) => {
     if (current.timer !== null) clearTimeout(current.timer);
     current.timer = null;
@@ -915,7 +924,8 @@ export function Composer({
     }, left);
   }, [t]);
   const sendTapped = useCallback(() => {
-    if (!composingRef.current) { clearCommitWait(); send(); return; }
+    // only a tap on a live connection waits for the commit: the wait ends with that connection
+    if (!composingRef.current || !connected) { clearCommitWait(); send(); return; }
     clearCommitWait();
     const tapped = { timer: null, deadline: Date.now() + COMMIT_WAIT_MS };
     commitWait.current = tapped;
@@ -926,7 +936,7 @@ export function Composer({
     }
     // committed inside the tap (Chrome, Gboard): compositionend already queued the send, no note
     if (composingRef.current && commitWait.current === tapped) awaitCommit(tapped);
-  }, [awaitCommit, clearCommitWait, send]);
+  }, [awaitCommit, clearCommitWait, connected, send]);
   /** The committed word's send, a tick after compositionend, for a tap still waiting. */
   const sendCommitted = useCallback(() => {
     const current = commitWait.current;
@@ -935,8 +945,11 @@ export function Composer({
     if (composingRef.current) { awaitCommit(current); return; }
     clearCommitWait();
     setNote(null);
-    sendRef.current();
-  }, [awaitCommit, clearCommitWait]);
+    // a send that cannot go out (offline, uploading) says so instead of leaving the tap without a word
+    if (!sendRef.current() && textRef.current.trim().length > 0) {
+      setNote(connectedRef.current ? t("Not sent. Send it again.") : t("Not sent: the terminal is disconnected."));
+    }
+  }, [awaitCommit, clearCommitWait, t]);
 
   /** A quick reply follows the same delivery policy as Send, and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {

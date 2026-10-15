@@ -649,6 +649,57 @@ try {
       });
       console.log("PASS Send tapped mid-composition finishes the word and sends");
 
+      // A keyboard that does not commit inside the tap leaves it waiting for the word. A drop inside
+      // that wait withdraws it: the commit after a quick reconnect sends nothing on the new connection.
+      await withCard(browser, 390, { status: "idle", model: "claude-opus-5-5" }, async (page) => {
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        await box.tap();
+        await box.fill("dropped while composing ");
+        await page.evaluate(() => {
+          // the keyboard keeps composing through the tap's blur, and the tap's 300 ms deadline is held,
+          // so only the drop can withdraw the tap, however long the reconnect takes
+          document.querySelector<HTMLTextAreaElement>(".composer-text")!.blur = () => {};
+          const later = window.setTimeout;
+          window.setTimeout = ((callback: TimerHandler, ms?: number, ...args: unknown[]) => ms !== undefined && ms >= 280 && ms <= 300 ? 0 : later(callback, ms, ...args)) as typeof window.setTimeout;
+        });
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.imeSetComposition", { text: "안", selectionStart: 1, selectionEnd: 1 });
+        await page.getByRole("button", { name: "Send message", exact: true }).tap();
+        const note = page.locator(".composer-note");
+        await note.filter({ hasText: "Finishing the word…" }).waitFor({ timeout: 5_000 });
+        // drop the connection and wait, a frame at a time, until it went offline and came back
+        await page.evaluate(() => new Promise<void>((resolve, reject) => {
+          const fixture = window as unknown as { fitSocket: WebSocket };
+          const dropped = fixture.fitSocket;
+          const offline = () => document.querySelector(".composer-status")?.hasAttribute("data-offline") === true;
+          const deadline = performance.now() + 10_000;
+          let sawOffline = false;
+          const check = () => {
+            sawOffline ||= offline();
+            if (sawOffline && !offline() && fixture.fitSocket !== dropped && fixture.fitSocket.readyState === WebSocket.OPEN) return resolve();
+            if (performance.now() > deadline) return reject(new Error(`reconnect: sawOffline ${sawOffline}`));
+            requestAnimationFrame(check);
+          };
+          dropped.close();
+          check();
+        }));
+        // count the submits on the new connection, then let the keyboard commit the word
+        await page.evaluate(() => {
+          const fixture = window as unknown as { fitSocket: WebSocket; fitSubmits: number };
+          fixture.fitSubmits = 0;
+          const send = fixture.fitSocket.send.bind(fixture.fitSocket);
+          fixture.fitSocket.send = (raw) => { if (typeof raw === "string" && JSON.parse(raw).type === "submit") fixture.fitSubmits += 1; send(raw); };
+        });
+        await cdp.send("Input.insertText", { text: "안" });
+        // the committed word's send runs a task after compositionend: wait one task and a frame past it
+        await page.evaluate(() => new Promise((resolve) => setTimeout(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.evaluate(() => (window as unknown as { fitSubmits: number }).fitSubmits), 0, "nothing is submitted on the new connection");
+        assert.equal(await box.inputValue(), "dropped while composing 안", "the message stays in the box");
+        assert.equal(await note.textContent(), "Not sent: the terminal is disconnected.");
+        await cdp.detach();
+      });
+      console.log("PASS a drop while Send waits for the word withdraws it; the reconnect sends nothing");
+
       // Changing the setting in an already-open chat rewraps the existing draft: an automatic
       // box grows and shrinks with it, while a height chosen with the grip stays chosen.
       for (const width of [390, 1440]) await withCard(browser, width, { model: "claude-opus-5-5" }, async (page) => {

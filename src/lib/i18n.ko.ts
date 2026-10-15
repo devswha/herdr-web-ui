@@ -879,6 +879,7 @@ export const KO: Record<string, string> = {
   "Send to the terminal": "터미널로 보내기",
   "Finishing the word…": "단어를 마무리하는 중…",
   "Finish the word, then send.": "단어 입력을 마친 뒤 보내세요.",
+  "Not sent. Send it again.": "보내지 못했습니다. 다시 보내세요.",
   "Not sent: the terminal is disconnected.": "보내지 못했습니다: 터미널 연결이 끊겼습니다.",
   "Not sent: the terminal is not ready for keys.": "보내지 못했습니다: 터미널이 아직 키를 받을 준비가 되지 않았습니다.",
   "Not sent: the terminal is not ready, and a password is never held for later.": "보내지 못했습니다: 터미널이 아직 준비되지 않았고, 비밀번호는 나중을 위해 보관하지 않습니다.",

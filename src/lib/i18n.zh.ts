@@ -883,6 +883,7 @@ export const ZH: Record<string, string> = {
   "Send to the terminal": "发送到终端",
   "Finishing the word…": "正在完成输入…",
   "Finish the word, then send.": "请先完成输入，再发送。",
+  "Not sent. Send it again.": "未发送。请再次发送。",
   "Not sent: the terminal is disconnected.": "未发送：终端已断开连接。",
   "Not sent: the terminal is not ready for keys.": "未发送：终端尚未准备好接收按键。",
   "Not sent: the terminal is not ready, and a password is never held for later.": "未发送：终端尚未就绪，密码不会被保留以供稍后发送。",
