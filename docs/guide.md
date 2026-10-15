@@ -537,8 +537,8 @@ the binding works on any layout; the row shows your keyboard's own character whe
 `Ctrl+PageUp`/`PageDown`, macOS `Ctrl+arrows`), an unbindable key or an already-assigned chord is
 refused on the row. Plain Ctrl or Alt chords are shells', editors' and agents' keys (`Ctrl+R`,
 `Ctrl+A`/`E`, Alt word moves): the row says so and saves one only after **Save anyway**, and from
-then on that key no longer reaches the pane. The row's list still picks a Mod+Shift key without a
-keyboard. A search field filters the list. Settings
+then on that key no longer reaches the pane. The row's list still picks a Mod+Shift letter, digit,
+arrow or PageUp/PageDown without a keyboard; Home, End and the punctuation keys are bound with Record. A search field filters the list. Settings
 are saved in this browser, not on the remote PC. The command palette shows the current bindings
 and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
 (`Mod+Shift+Space`) remains fixed.

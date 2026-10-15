@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { recordShortcut, shortcutMatchesQuery } from "./shortcutRecorder.ts";
+import { MENU_SHORTCUT_KEYS, SHORTCUT_KEYS, recordShortcut, shortcutMatchesQuery } from "./shortcutRecorder.ts";
 import type { ShortcutEventLike } from "./shortcuts.ts";
 
 function press(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
@@ -86,5 +86,15 @@ describe("shortcutMatchesQuery", () => {
     expect(shortcutMatchesQuery("Toggle sidebar", "Ctrl Shift B", "side")).toBe(true);
     expect(shortcutMatchesQuery("Toggle sidebar", "Ctrl Shift B", "shift b")).toBe(true);
     expect(shortcutMatchesQuery("Toggle sidebar", "Ctrl Shift B", "palette")).toBe(false);
+  });
+});
+
+describe("the Settings list", () => {
+  it("offers only keys whose label names the same key on every layout; Record takes the rest", () => {
+    for (const key of ["Home", "End", ";", "'", "[", "]", "\\", "-", "=", ".", "/", "`", "§"]) {
+      expect(MENU_SHORTCUT_KEYS).not.toContain(key);
+      expect(SHORTCUT_KEYS).toContain(key);
+    }
+    for (const key of MENU_SHORTCUT_KEYS) expect(SHORTCUT_KEYS).toContain(key);
   });
 });

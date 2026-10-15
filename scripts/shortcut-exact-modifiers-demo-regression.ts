@@ -64,6 +64,14 @@ try {
         assert.equal(await scrollUp.inputValue(), "meta+PageUp");
         assert.equal(await scrollUp.locator("option:checked").textContent(), "⌘+PageUp");
 
+        // the list offers Mod+Shift letters, digits and arrows; End is recorded, and then listed as itself
+        const nextPane = page.getByRole("combobox", { name: "Next pane", exact: true });
+        assert.equal(await nextPane.locator("option[value='End']").count(), 0, "the list does not offer End");
+        await record(page, "Next pane", "Meta+Shift+End");
+        assert.equal((await stored(page))["next-pane"], "End");
+        assert.equal(await nextPane.inputValue(), "End");
+        assert.match((await nextPane.locator("option:checked").textContent()) ?? "", /End/);
+
         // macOS Option is read by its key, not by the character it types
         await record(page, "Toggle sidebar", "Meta+Alt+KeyB");
         assert.equal((await stored(page))["toggle-sidebar"], "alt+meta+b");
