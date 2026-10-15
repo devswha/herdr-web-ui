@@ -19,6 +19,7 @@ import { messageQueues } from "../lib/messageQueue.ts";
 import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
 import { arrangeNotices, dismissNotice, NO_DISMISSALS, settleDismissed, type DismissedNotices } from "../lib/composerNotices.ts";
+import { stopKey } from "../lib/hermesStop.ts";
 import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, submitNote, submitNotTyped, submitRefusal } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { DETACHED, usePaneBranch } from "../lib/paneBranch.ts";
@@ -2346,13 +2347,26 @@ export function PaneTerminal({
 
   // the composer's stop button: Escape interrupts the agent's current turn in every
   // supported TUI (Claude Code, omp, codex) without killing the process the way ^C would
+  // Hermes' Stop is one Ctrl+C per turn (hermesStop.ts): a second one would quit it
+  const hermesStopSentRef = useRef(false);
+  useEffect(() => { if (agentStatus !== "working") hermesStopSentRef.current = false; }, [agentStatus, paneId]);
   const abortTurn = useCallback(() => {
     const term = termRef.current;
     const socket = socketRef.current;
     if (!term || !socket || !socket.connected) return;
+    const key = stopKey(agent, () => {
+      const buffer = term.buffer.active;
+      return Array.from({ length: term.rows }, (_, row) => buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "");
+    }, hermesStopSentRef.current);
+    if (key === null) {
+      const t = tRef.current;
+      if (!hermesStopSentRef.current) setInputError(t("Not stopped: Hermes does not show a turn to interrupt. Check the terminal."));
+      return;
+    }
+    if (key === "\u0003") hermesStopSentRef.current = true;
     stopKeyRef.current = true;
-    try { term.input("\u001b"); } finally { stopKeyRef.current = false; }
-  }, []);
+    try { term.input(key); } finally { stopKeyRef.current = false; }
+  }, [agent]);
 
   // While the agent runs, append to its held messages. Each requires an explicit send.
   // a question in Codex's queue leaves the composer alone: Codex keeps working, and a
