@@ -67,6 +67,8 @@ export const KO: Record<string, string> = {
   "Catppuccin": "Catppuccin",
   "Pin agent": "에이전트 고정",
   "Unpin agent": "에이전트 고정 해제",
+  "Pin workspace": "워크스페이스 고정",
+  "Unpin workspace": "워크스페이스 고정 해제",
   "Pinned": "고정됨",
   "Message from another session: {name}": "다른 세션에서 온 메시지: {name}",
   "Message from another session": "다른 세션에서 온 메시지",

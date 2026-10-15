@@ -69,6 +69,8 @@ export const JA: Record<string, string> = {
   "Catppuccin": "Catppuccin",
   "Pin agent": "エージェントを固定",
   "Unpin agent": "エージェントの固定を解除",
+  "Pin workspace": "ワークスペースを固定",
+  "Unpin workspace": "ワークスペースの固定を解除",
   "Pinned": "固定済み",
   "Message from another session: {name}": "別のセッションからのメッセージ: {name}",
   "Message from another session": "別のセッションからのメッセージ",
