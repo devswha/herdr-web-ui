@@ -21,8 +21,12 @@ const STARTUP_PROBES: ReadonlyArray<readonly [query: string, reply: string]> = [
 export class AttachStartupProbes {
   private partial = "";
 
-  /** The output without the probes, and the replies the attach is owed for them. */
-  take(data: string): { output: string; replies: string } {
+  /**
+   * The output without the probes, and the replies the attach is owed for them. `startup` says
+   * whether output so far is still the attach's setup: from its first real byte on, the rest of
+   * the read is the pane's and passes unchanged, whatever it holds.
+   */
+  take(data: string, startup: (output: string) => boolean): { output: string; replies: string } {
     let rest = this.partial + data;
     this.partial = "";
     let output = "";
@@ -35,9 +39,12 @@ export class AttachStartupProbes {
       } else if (STARTUP_PROBES.some(([query]) => query.startsWith(rest))) {
         this.partial = rest;
         break;
-      } else {
+      } else if (startup(output + rest[0])) {
         output += rest[0];
         rest = rest.slice(1);
+      } else {
+        output += rest;
+        break;
       }
     }
     return { output, replies };

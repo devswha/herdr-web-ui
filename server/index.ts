@@ -1568,7 +1568,8 @@ export function createServer(
           if (retired || attachments.get(paneId) !== attachment) return;
           // herdr's startup queries are the bridge's to answer: never readiness, broadcast or replay
           if (!holding && held !== null) {
-            const taken = probes.take(data);
+            const before = held;
+            const taken = probes.take(data, (text) => ATTACH_PREAMBLE_RE.test(before + text));
             if (taken.replies) session.write(taken.replies);
             data = taken.output;
           } else data = probes.flush() + data;
