@@ -1,6 +1,7 @@
+import { randomBytes } from "node:crypto";
 import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, resolve, sep } from "node:path";
 
 import type { FileInfo, FileKind } from "../shared/protocol.ts";
 import { filesNamed } from "./files.ts";
@@ -107,8 +108,10 @@ export function fileInfo(path: string): FileInfo | null {
  * that loads or fails would tell it which of this PC's files exist. Only this app may frame it.
  * What it takes from its own folder (a screenshot beside the report, its stylesheet and script)
  * is put into the page before it is sent (`pageWithLocalFiles`), so it still asks for nothing.
+ * The one exception is a video or sound too large to put into it, which plays from
+ * `mediaSource` (`PAGE_MEDIA_PATH`): that path answers only the addresses this page was given.
  */
-const PAGE_POLICY = [
+const pagePolicy = (mediaSource: string | null): string => [
   "sandbox allow-scripts",
   "default-src 'none'",
   // nothing from the web either: the page holds its own folder's files (below), and a script that
@@ -116,7 +119,7 @@ const PAGE_POLICY = [
   "script-src 'unsafe-inline' 'unsafe-eval' data:",
   "style-src 'unsafe-inline' data:",
   "img-src data: blob:",
-  "media-src data: blob:",
+  mediaSource === null ? "media-src data: blob:" : `media-src data: blob: ${mediaSource}`,
   "font-src data:",
   "base-uri 'none'",
   "form-action 'none'",
@@ -132,11 +135,75 @@ const EMBED_PAGE_BYTES = 8 * 1024 * 1024;
 const EMBED_REFS = 1_000;
 
 /**
- * The file a page names by a relative URL, when it is a file in the page's folder or below,
- * symlinks resolved, with no hidden name on the way (`.ssh/`, `.env`); null for a URL with a
- * scheme, a host or a rooted path, or anything outside.
+ * Where a rendered page plays a video or sound too large to put into it: a random address per
+ * file, handed out only by `pageWithLocalFiles` for a file that page names. The page never holds
+ * the file (its script cannot read media served to another origin), and without an address this
+ * server gave it, it reaches nothing here: what it can learn is only that its own video plays.
  */
-function pageFile(ref: string, folder: string): string | null {
+export const PAGE_MEDIA_PATH = "/api/fs/page-media/";
+/** A page media address and nothing else: the one shape `requiresAuth` lets through without a cookie. */
+export const PAGE_MEDIA_ROUTE = /^\/api\/fs\/page-media\/[A-Za-z0-9_-]{32}$/;
+/** An address outlives the page by this long after its last render or play, so a page left open keeps playing. */
+const PAGE_MEDIA_TTL_MS = 12 * 60 * 60 * 1000;
+/** Addresses held at once; past this many the least recently used goes. */
+const PAGE_MEDIA_ADDRESSES = 4_096;
+/** What an address serves: the file as its render found it, symlinks resolved, and which file that was. */
+const pageMediaFiles = new Map<string, { file: string; mime: string; expires: number; dev: number; ino: number }>();
+const pageMediaTokens = new Map<string, string>();
+
+/** The address a page plays `file` (a resolved path) from, the same one while it lasts. */
+function pageMediaUrl(file: string, mime: string, now = Date.now()): string {
+  let token = pageMediaTokens.get(file);
+  const held = token === undefined ? undefined : pageMediaFiles.get(token);
+  if (token === undefined || held === undefined || held.expires <= now) token = randomBytes(24).toString("base64url");
+  const { dev, ino } = statSync(file);
+  // re-inserted, it moves to the end: the map's order is least recently used first
+  pageMediaFiles.delete(token);
+  pageMediaFiles.set(token, { file, mime, expires: now + PAGE_MEDIA_TTL_MS, dev, ino });
+  pageMediaTokens.set(file, token);
+  for (const [old, entry] of pageMediaFiles) {
+    if (pageMediaFiles.size <= PAGE_MEDIA_ADDRESSES) break;
+    pageMediaFiles.delete(old);
+    if (pageMediaTokens.get(entry.file) === old) pageMediaTokens.delete(entry.file);
+  }
+  return PAGE_MEDIA_PATH + token;
+}
+
+/** The media source a page's policy allows, for the address the browser asked this server by; null for a Host that is not a plain host[:port]. */
+export function pageMediaSource(host: string | null, secure: boolean): string | null {
+  if (host === null || !/^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i.test(host)) return null;
+  return `${secure ? "https" : "http"}://${host}${PAGE_MEDIA_PATH}`;
+}
+
+/** The file behind a page's media address (with Range, as any file), or null when this server never gave it out or it lapsed. */
+export function pageMediaResponse(token: string, now = Date.now()): Response | null {
+  const entry = pageMediaFiles.get(token);
+  if (entry === undefined) return null;
+  if (entry.expires <= now) {
+    pageMediaFiles.delete(token);
+    if (pageMediaTokens.get(entry.file) === token) pageMediaTokens.delete(entry.file);
+    return null;
+  }
+  // still the file its render checked: a folder on the way swapped for a symlink since, or the
+  // file replaced, would serve another one under the address (a new render gives a new address)
+  try {
+    if (realpathSync(entry.file) !== entry.file) return null;
+    const stat = statSync(entry.file);
+    if (!stat.isFile() || stat.dev !== entry.dev || stat.ino !== entry.ino) return null;
+  } catch { return null; }
+  pageMediaFiles.delete(token);
+  pageMediaFiles.set(token, { ...entry, expires: now + PAGE_MEDIA_TTL_MS });
+  // no CORS and no Cross-Origin-Resource-Policy: the page that plays it has no origin, and its script cannot read it
+  return new Response(Bun.file(entry.file, { type: entry.mime }), { headers: {
+    "content-disposition": "inline",
+    "x-content-type-options": "nosniff",
+    "cache-control": "private, no-store",
+    "content-security-policy": "sandbox; default-src 'none'",
+  } });
+}
+
+/** A page's relative URL as a path, decoded; null for a URL with a scheme, a host or a rooted path. */
+function pageRelative(ref: string): string | null {
   const value = ref.trim();
   if (!value || /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("/") || value.startsWith("\\") || value.startsWith("#")) return null;
   let relative: string;
@@ -144,12 +211,71 @@ function pageFile(ref: string, folder: string): string | null {
   // decoded, it may name a root, a drive or a share (`%5C%5Chost%5Cshare`): on Windows, resolving
   // that would reach out to the share before any check, so it never gets that far
   if (!relative || isAbsolute(relative) || /^[\\/]/.test(relative) || /^[a-z]:/i.test(relative)) return null;
+  return relative;
+}
+
+/**
+ * Where a relative URL of a page leads, in the page's folder or below before symlinks are
+ * resolved; null for a URL with a scheme, a host or a rooted path, or anything outside.
+ */
+function pageTarget(ref: string, folder: string): string | null {
+  const relative = pageRelative(ref);
+  if (relative === null) return null;
   const target = resolve(folder, relative);
-  if (!target.startsWith(folder + sep)) return null;
+  return target.startsWith(folder + sep) ? target : null;
+}
+
+const hiddenBelow = (folder: string, path: string): boolean => path.slice(folder.length + 1).split(sep).some((part) => part.startsWith("."));
+
+/**
+ * The file a page names by a relative URL, when it is a file in the page's folder or below,
+ * symlinks resolved, with no hidden name on the way (`.ssh/`, `.env`); null for a URL with a
+ * scheme, a host or a rooted path, or anything outside.
+ */
+function pageFile(ref: string, folder: string): string | null {
+  const target = pageTarget(ref, folder);
+  if (target === null) return null;
   try {
     const file = realpathSync(target);
-    if (!file.startsWith(folder + sep) || file.slice(folder.length + 1).split(sep).some((part) => part.startsWith("."))) return null;
+    if (!file.startsWith(folder + sep) || hiddenBelow(folder, file)) return null;
     return statSync(file).isFile() ? file : null;
+  } catch { return null; }
+}
+
+/**
+ * The folders besides a page's own that a video it plays may lie in (a network share where
+ * recordings are kept), from HERDR_WEB_MEDIA_ROOTS: absolute paths joined by the path delimiter.
+ * None by default: a page that came with its own symlinks (an unpacked archive, a cloned
+ * repository) could otherwise name any of this PC's videos, and whether one plays would tell it
+ * that the file exists; in a folder named here, any page may learn that. Read on every render, so
+ * a share mounted later counts.
+ */
+function mediaRoots(): string[] {
+  const roots: string[] = [];
+  for (const entry of (process.env["HERDR_WEB_MEDIA_ROOTS"] ?? "").split(delimiter)) {
+    const path = entry.trim();
+    if (!path || !isAbsolute(path)) continue;
+    try { roots.push(realpathSync(path)); } catch { /* a share that is not mounted holds nothing to play */ }
+  }
+  return roots;
+}
+
+/**
+ * A video or sound a page names by a relative URL with no hidden name in it, that is a file in
+ * its folder or in one of `roots`, again with no hidden name below that: what decides is where the
+ * file lies, whether a symlink beside the page leads there or the URL climbs out of its folder
+ * (`../clips/take.mp4`). Without `roots` the URL stays in its folder. Null for anything else.
+ */
+function pageStreamFile(ref: string, folder: string, roots: readonly string[]): string | null {
+  const relative = pageRelative(ref);
+  if (relative === null || relative.split(/[\\/]/).some((part) => part.startsWith(".") && part !== "." && part !== "..")) return null;
+  const target = resolve(folder, relative);
+  if (!target.startsWith(folder + sep) && roots.length === 0) return null;
+  try {
+    const file = realpathSync(target);
+    const root = [folder, ...roots].find((candidate) => file.startsWith(candidate.endsWith(sep) ? candidate : candidate + sep));
+    if (root === undefined || hiddenBelow(root.endsWith(sep) ? root.slice(0, -1) : root, file)) return null;
+    return statSync(file).isFile() && PLAYS(mimeOf(file)) ? file : null;
   } catch { return null; }
 }
 
@@ -157,6 +283,7 @@ function pageFile(ref: string, folder: string): string | null {
  * file: never a key or a .env named as a picture's source. */
 const mimeOf = (file: string): string => Bun.file(file).type.split(";")[0] || "application/octet-stream";
 const MEDIA = (mime: string) => /^(?:image|video|audio)\//.test(mime);
+const PLAYS = (mime: string) => /^(?:video|audio)\//.test(mime);
 const SCRIPT = (mime: string) => mime === "text/javascript" || mime === "application/javascript";
 const STYLE = (mime: string) => mime === "text/css";
 /** a script element that runs (no type, a JavaScript type, or a module); a data block (`type="text/plain"`) takes no file */
@@ -168,14 +295,19 @@ const RUNS = (type: string | null) => type === null || /^\s*(?:module|(?:text|ap
  * stylesheet's `media`): the sandbox may ask this server for nothing, and on a paired phone it
  * could not anyway (the device cookie is SameSite=Strict, and a sandboxed page has no origin).
  * Nothing outside the page's folder is read; a URL is resolved once however often it is named.
+ * With `stream`, a video or sound that does not fit is given an address to play from instead
+ * (`PAGE_MEDIA_PATH`), the one thing this server answers the page.
  */
-export function pageWithLocalFiles(path: string): string {
+export function pageWithLocalFiles(path: string, stream = false): string {
   const folder = realpathSync(dirname(path));
   let left = EMBED_TOTAL_BYTES;
   const resolved = new Map<string, string | null>();
+  const streamed = new Map<string, string | null>();
+  const roots = stream ? mediaRoots() : [];
+  const lookups = () => resolved.size + streamed.size;
   const take = (ref: string | null, accepts: (mime: string) => boolean): string | null => {
     if (ref === null) return null;
-    if (!resolved.has(ref)) resolved.set(ref, resolved.size < EMBED_REFS ? pageFile(ref, folder) : null);
+    if (!resolved.has(ref)) resolved.set(ref, lookups() < EMBED_REFS ? pageFile(ref, folder) : null);
     const file = resolved.get(ref) ?? null;
     if (file === null || !accepts(mimeOf(file))) return null;
     const size = statSync(file).size;
@@ -183,19 +315,28 @@ export function pageWithLocalFiles(path: string): string {
     left -= size;
     return file;
   };
-  const embed = (attribute: string, accepts: (mime: string) => boolean, when: (element: HTMLRewriterTypes.Element) => boolean = () => true) => ({
+  const play = (ref: string): string | null => {
+    if (!streamed.has(ref)) streamed.set(ref, lookups() < EMBED_REFS ? pageStreamFile(ref, folder, roots) : null);
+    return streamed.get(ref) ?? null;
+  };
+  const embed = (attribute: string, accepts: (mime: string) => boolean, when: (element: HTMLRewriterTypes.Element) => boolean = () => true, streams = false) => ({
     element(element: HTMLRewriterTypes.Element) {
       if (!when(element)) return;
-      const file = take(element.getAttribute(attribute), accepts);
+      const ref = element.getAttribute(attribute);
+      const file = take(ref, accepts);
       if (file !== null) element.setAttribute(attribute, `data:${mimeOf(file)};base64,${readFileSync(file).toString("base64")}`);
+      else if (stream && streams && ref !== null) {
+        const far = play(ref);
+        if (far !== null) element.setAttribute(attribute, pageMediaUrl(far, mimeOf(far)));
+      }
     },
   });
   return new HTMLRewriter()
     .on("img[src]", embed("src", MEDIA))
-    .on("source[src]", embed("src", MEDIA))
-    .on("video[src]", embed("src", MEDIA))
+    .on("source[src]", embed("src", MEDIA, undefined, true))
+    .on("video[src]", embed("src", MEDIA, undefined, true))
     .on("video[poster]", embed("poster", MEDIA))
-    .on("audio[src]", embed("src", MEDIA))
+    .on("audio[src]", embed("src", MEDIA, undefined, true))
     .on("script[src]", embed("src", SCRIPT, (element) => RUNS(element.getAttribute("type"))))
     .on('link[rel~="stylesheet" i][href]', embed("href", STYLE))
     .transform(readFileSync(path, "utf8"));
@@ -223,9 +364,10 @@ export function isHtmlPage(info: FileInfo): boolean {
  * The file itself. `download` asks the browser to save it. Answers are sandboxed (an HTML
  * or SVG file opened from this origin must not run script with the app's access), and
  * text is served as plain text whatever its extension says it runs as. `render` asks for an
- * HTML page as a page (`PAGE_POLICY`); any other file ignores it.
+ * HTML page as a page (`pagePolicy`); any other file ignores it. `mediaSource`
+ * (`pageMediaSource`) lets that page play its videos too large to put into it.
  */
-export function fileResponse(info: FileInfo, download: boolean, render = false): Response {
+export function fileResponse(info: FileInfo, download: boolean, render = false, mediaSource: string | null = null): Response {
   const name = encodeURIComponent(info.name);
   const headers = new Headers({
     "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${name}`,
@@ -235,13 +377,13 @@ export function fileResponse(info: FileInfo, download: boolean, render = false):
   const page = render && !download && isHtmlPage(info);
   // a PDF is drawn by the browser's own viewer, which refuses a sandboxed document; its
   // scripts stay inside that viewer, never on this origin
-  if (page) headers.set("content-security-policy", PAGE_POLICY);
+  if (page) headers.set("content-security-policy", pagePolicy(mediaSource));
   else if (info.kind !== "pdf") headers.set("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
   // text shows as text, whatever its extension says it runs as
   const type = page ? "text/html; charset=utf-8" : info.kind === "text" && info.mime !== "image/svg+xml" ? "text/plain; charset=utf-8" : info.mime;
   if (page && info.size <= EMBED_PAGE_BYTES) {
     headers.set("content-type", type);
-    return new Response(pageWithLocalFiles(info.path), { headers });
+    return new Response(pageWithLocalFiles(info.path, mediaSource !== null), { headers });
   }
   const file = Bun.file(info.path, { type });
   return new Response(file, { headers });

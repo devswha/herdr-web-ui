@@ -16,6 +16,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { isLoopbackAddress } from "./access.ts";
+import { PAGE_MEDIA_ROUTE } from "./file-view.ts";
 import { badRequest, jsonResponse } from "./http.ts";
 
 export const TOKEN_COOKIE = "herdr_web_token";
@@ -82,6 +83,8 @@ export function isAuthenticated(request: Request, token: string): boolean {
 export function requiresAuth(pathname: string): boolean {
   if (pathname === "/ws") return true;
   if (!pathname.startsWith("/api/")) return false;
+  // a rendered page's media address is its own credential: the page has no origin and sends no cookie
+  if (PAGE_MEDIA_ROUTE.test(pathname)) return false;
   return pathname !== "/api/health" && pathname !== "/api/auth" && pathname !== "/api/devices/pair";
 }
 
