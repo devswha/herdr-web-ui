@@ -10,6 +10,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 ## [0.4.9] - 2026-10-16
 
 ### Added
+- Mod+Shift+PageUp/PageDown page the current chat transcript or the terminal's native history, one
+  line overlapping between pages. When herdr reports no native history, they send plain page keys to
+  the running program, which sets its own page length.
+  ([#811](https://github.com/devswha/herdr-web-ui/pull/811) by @kratam)
 - **Settings → Phone & devices → Portal** gives this PC a public HTTPS address through
   [Portal](https://github.com/gosuda/portal-tunnel), with no account and no domain of your own.
   With Portal v2.6.1 or later installed, **Start** runs it on a relay you enter, dropping any
@@ -319,8 +323,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - A slim strip tucked under the chat composer's card, as t3code's, can name the pane's working
   folder and branch.
   ([#951](https://github.com/devswha/herdr-web-ui/pull/951))
-- A long user message folds to twelve lines behind **Show full message**, opens again with **Show
-  less** or when Find lands on it, and keeps that choice while the chat scrolls.
+- A long user message folds to twelve lines behind **Show full message** (**Show less** folds it
+  again), and keeps that choice while the chat scrolls.
   ([#951](https://github.com/devswha/herdr-web-ui/pull/951))
 - A work row now says what the agent said the call is for (OmO's eval summary, the description
   Claude gives a Bash command or a subagent) instead of the tool id or the raw command, which stays
@@ -576,8 +580,9 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   Hermes interrupts with, instead of an Escape Hermes ignores. It does so only while Hermes' own input
   row shows a running turn, and once per turn, since Ctrl+C quits an idle Hermes and a second one
   force-quits it ([#856](https://github.com/devswha/herdr-web-ui/issues/856),
-  [#859](https://github.com/devswha/herdr-web-ui/pull/859) by @RikiSanjayaa).
-  ([#1148](https://github.com/devswha/herdr-web-ui/pull/1148))
+  [#859](https://github.com/devswha/herdr-web-ui/pull/859) by @RikiSanjayaa). Text typed into Hermes' input
+  that quotes its busy hint is not taken for a running turn.
+  ([#1148](https://github.com/devswha/herdr-web-ui/pull/1148), [#1161](https://github.com/devswha/herdr-web-ui/pull/1161))
 - The terminal's input line no longer resizes the pane while it grows to more rows, shows a note
   or collapses after Send: it now floats over the terminal's last rows, and so does the masked
   password input, so the pane keeps its size for every device on it. In a short pane both stop at
@@ -827,13 +832,13 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   of being lost, and a message sent during the check waits for the answer instead of failing. The
   key bar comes back as soon as the answer does, and a PC on an older version is no longer dropped
   after a reconnect.
-  ([#967](https://github.com/devswha/herdr-web-ui/pull/967))
+  ([#967](https://github.com/devswha/herdr-web-ui/pull/967), [#972](https://github.com/devswha/herdr-web-ui/pull/972))
 - Once terminal input is held, later typing joins the held input until you send or discard it,
   also after the terminal is ready again: a command is never split between the held text and the
   terminal, and Enter never runs the part that already reached it. Ctrl+Enter, a paste the held
   input cannot take (a tab, for one), the input line's Send and the message box's Send (a queued
   "Send now" too) are refused with a note saying to send or discard the held input first.
-  ([#967](https://github.com/devswha/herdr-web-ui/pull/967))
+  ([#967](https://github.com/devswha/herdr-web-ui/pull/967), [#972](https://github.com/devswha/herdr-web-ui/pull/972))
 
 ### Maintenance
 - The remote-PC runtime is now version 28: every saved PC asks for **Update bridge…** once.
@@ -1008,7 +1013,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   start or length (Claude, Codex, Grok), from 5% of the window on.
   ([#513](https://github.com/devswha/herdr-web-ui/pull/513) by @kilhyeonjun, [#834](https://github.com/devswha/herdr-web-ui/pull/834))
 - Turkish (Türkçe) UI translation: a full `i18n.tr.ts` dictionary, the language in the Settings menu with browser detection, and a Turkish README. ([#815](https://github.com/devswha/herdr-web-ui/pull/815) by @fitzgpt)
-- Configurable paging shortcuts scroll the current chat transcript or native terminal history with Mod+Shift+PageUp/PageDown and 0–100 lines of overlap (one by default). Settings → Chat can opt into plain PageUp/PageDown while composing, preserving the draft, selection and focus. When herdr explicitly reports no native history, a paging action sends plain page keys to the running application, which controls its own page length. ([#811](https://github.com/devswha/herdr-web-ui/pull/811) by @kratam)
 - Native conversation transcripts for Hermes Agent: turns, thinking blocks, and tool calls are read directly from its SQLite session store. ([#604](https://github.com/devswha/herdr-web-ui/pull/604) by @RikiSanjayaa)
   A remote PC reads them once its bridge is updated to this release's runtime.
 - **Deep links.** The address now says where you are, and opens there: the PC, the workspace (by id and a short slug of its name, so `?ws=w2K-herdr-web-ui&pane=w2K:p1&view=chat` reads like the place), the pane and its lens, an open file, a Settings page and group (`&settings=about&section=updates`), the New workspace dialog with its fields filled (`?new=workspace&cwd=…&name=…&agent=…`; a link never creates anything), and a collapsed sidebar (`&sidebar=hidden`). Opening another pane is a history entry, so Back returns to the last one. A link to a pane that has closed opens its workspace, a link to nothing open says so, and **Copy link** in the header's More menu copies the address on a phone.
