@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { hermesInterruptible, stopKey } from "./hermesStop.ts";
+import { HERMES_CTRL_C_WINDOW_MS, hermesCtrlCTooSoon, hermesInterruptible, stopKey } from "./hermesStop.ts";
 
 // The bottom rows of real Hermes 0.21.5 screens (herdr pane read), classic CLI and TUI.
 const CLASSIC_BUSY = [
@@ -54,14 +54,35 @@ describe("hermesInterruptible", () => {
 describe("stopKey", () => {
   const rows = () => CLASSIC_BUSY;
 
+  // an injected clock: the last Hermes Ctrl+C went out at T
+  const T = 1_000_000;
+
   it("keeps Escape for every other agent, without reading the screen", () => {
-    expect(stopKey("claude", () => { throw new Error("read"); }, false)).toBe("\u001b");
-    expect(stopKey(null, () => [], true)).toBe("\u001b");
+    expect(stopKey("claude", () => { throw new Error("read"); }, false, null, T)).toBe("\u001b");
+    expect(stopKey(null, () => [], true, T, T + 1)).toBe("\u001b");
+    expect(stopKey("codex", () => [], false, T, T + 10)).toBe("\u001b");
   });
 
   it("sends Hermes one Ctrl+C per turn, and only while the turn shows", () => {
-    expect(stopKey("hermes", rows, false)).toBe("\u0003");
-    expect(stopKey("hermes", rows, true)).toBeNull();
-    expect(stopKey("hermes", () => CLASSIC_IDLE, false)).toBeNull();
+    expect(stopKey("hermes", rows, false, null, T)).toBe("\u0003");
+    expect(stopKey("hermes", rows, true, null, T)).toBeNull();
+    expect(stopKey("hermes", () => CLASSIC_IDLE, false, null, T)).toBeNull();
+  });
+
+  it("keeps the per-turn guard of a blocked turn past the 2 s window", () => {
+    expect(stopKey("hermes", rows, true, T, T + 60_000)).toBeNull();
+  });
+
+  it("refuses a second Ctrl+C within 2 s even after the status flickered and reset the guard", () => {
+    // working -> idle/unknown -> working resets sentThisTurn; the busy hint still shows
+    expect(stopKey("hermes", rows, false, T, T + 500)).toBeNull();
+    expect(stopKey("hermes", () => TUI_BUSY, false, T, T + HERMES_CTRL_C_WINDOW_MS - 1)).toBeNull();
+    expect(hermesCtrlCTooSoon(T, T + HERMES_CTRL_C_WINDOW_MS - 1)).toBe(true);
+  });
+
+  it("allows Ctrl+C again on a new working turn once 2 s have passed", () => {
+    expect(stopKey("hermes", rows, false, T, T + HERMES_CTRL_C_WINDOW_MS)).toBe("\u0003");
+    expect(stopKey("hermes", () => TUI_BUSY, false, T, T + 5000)).toBe("\u0003");
+    expect(hermesCtrlCTooSoon(null, T)).toBe(false);
   });
 });

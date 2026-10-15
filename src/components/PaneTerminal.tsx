@@ -19,7 +19,7 @@ import { messageQueues } from "../lib/messageQueue.ts";
 import { pendingMessages } from "../lib/pendingMessages.ts";
 import { heldCountShown, heldOpenAtFold, heldOpenOnFocus, heldRefocusDue, heldRowError, heldRowsFold, heldRowsHidden, heldToggleShown, SHORT_PHONE_QUERY } from "../lib/heldRows.ts";
 import { arrangeNotices, dismissNotice, NO_DISMISSALS, settleDismissed, type DismissedNotices } from "../lib/composerNotices.ts";
-import { stopKey } from "../lib/hermesStop.ts";
+import { hermesCtrlCTooSoon, stopKey } from "../lib/hermesStop.ts";
 import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, submitNote, submitNotTyped, submitRefusal } from "../lib/compose.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { DETACHED, usePaneBranch } from "../lib/paneBranch.ts";
@@ -2349,23 +2349,33 @@ export function PaneTerminal({
   // supported TUI (Claude Code, omp, codex) without killing the process the way ^C would
   // Hermes' Stop is one Ctrl+C per turn (hermesStop.ts): a second one would quit it
   const hermesStopSentRef = useRef(false);
+  // when this pane last sent Hermes a Ctrl+C: status flicker or a quick new turn resets the
+  // guard above, so a second Ctrl+C inside Hermes' 2 s force-quit window is refused by time
+  const hermesCtrlCAtRef = useRef<number | null>(null);
   // a turn waiting on an approval (blocked) is still the same turn
   useEffect(() => { if (agentStatus !== "working" && agentStatus !== "blocked") hermesStopSentRef.current = false; }, [agentStatus]);
-  useEffect(() => { hermesStopSentRef.current = false; }, [paneId, agent]);
+  useEffect(() => { hermesStopSentRef.current = false; hermesCtrlCAtRef.current = null; }, [paneId, agent]);
   const abortTurn = useCallback(() => {
     const term = termRef.current;
     const socket = socketRef.current;
     if (!term || !socket || !socket.connected) return;
+    const now = Date.now();
     const key = stopKey(agent, () => {
       const buffer = term.buffer.active;
       return Array.from({ length: term.rows }, (_, row) => buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "");
-    }, hermesStopSentRef.current);
+    }, hermesStopSentRef.current, hermesCtrlCAtRef.current, now);
     if (key === null) {
       const t = tRef.current;
-      if (!hermesStopSentRef.current) setInputError(t("Not stopped: Hermes does not show a turn to interrupt. Check the terminal."));
+      if (hermesStopSentRef.current) return;
+      setInputError(hermesCtrlCTooSoon(hermesCtrlCAtRef.current, now)
+        ? t("Not stopped: Hermes got Ctrl+C under 2 seconds ago, and a second one would quit it. Try again in a moment.")
+        : t("Not stopped: Hermes does not show a turn to interrupt. Check the terminal."));
       return;
     }
-    if (key === "\u0003") hermesStopSentRef.current = true;
+    if (key === "\u0003") {
+      hermesStopSentRef.current = true;
+      hermesCtrlCAtRef.current = now;
+    }
     stopKeyRef.current = true;
     try { term.input(key); } finally { stopKeyRef.current = false; }
   }, [agent]);
