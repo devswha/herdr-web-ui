@@ -118,6 +118,11 @@ export function splitPinnedGroups<W>(groups: readonly WorkspaceGroup<W>[], pinne
   return { pinned, rest: groups.filter((group) => !pinnedSet.has(idOf(group.workspace))).map(strip) };
 }
 
+/** The rows of the pinned groups, a pinned repository's worktrees too: none of them is reordered. */
+export function pinnedGroupIds<W>(pinned: readonly WorkspaceGroup<W>[], idOf: (workspace: W) => string): Set<string> {
+  return new Set(pinned.flatMap((group) => [group.workspace, ...group.children].map(idOf)));
+}
+
 /** Pinned rows in their saved order, and the other rows in the source roster order. */
 export function splitPinnedRows<T>(rows: readonly T[], keys: readonly string[], keyOf: (row: T) => string): { pinned: T[]; rest: T[] } {
   const byKey = new Map(rows.map((row) => [keyOf(row), row]));

@@ -28,7 +28,7 @@ import { placeBlock, workspaceMoves } from "../lib/workspaceOrder.ts";
 import { worktreeLabel } from "../lib/worktreeName.ts";
 import { paneMark, sidebarAgents, workspaceAgentLabels } from "../lib/sidebarAgents.ts";
 import { PANE_DRAG_TYPE, paneDragData } from "../lib/split.ts";
-import { currentSidebarPins, pinnedWorkspaceIds, pruneWorkspacePins, setSidebarPins, splitPinnedGroups, subscribeSidebarPins, toggleSidebarPin, workspacePinKey, type WorkspaceGroup } from "../lib/sidebarPins.ts";
+import { currentSidebarPins, pinnedGroupIds, pinnedWorkspaceIds, pruneWorkspacePins, setSidebarPins, splitPinnedGroups, subscribeSidebarPins, toggleSidebarPin, workspacePinKey, type WorkspaceGroup } from "../lib/sidebarPins.ts";
 
 const ERROR_NOTE_MS = 5000;
 
@@ -297,6 +297,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const pinnedIds = useMemo(() => pinnedWorkspaceIds(pins, machineId), [pins, machineId]);
   const shownGroups = useMemo(() => splitPinnedGroups(worktreeGroups, pinnedIds, (workspace) => workspace.workspace_id), [worktreeGroups, pinnedIds]);
   const movableGroups = shownGroups.rest;
+  // a pinned repository's worktrees stay with it: they are not dragged or moved either
+  const fixedIds = useMemo(() => pinnedGroupIds(shownGroups.pinned, (workspace) => workspace.workspace_id), [shownGroups]);
   // a pin moves the row to the other list, so React draws it anew: the row that had the focus gets it back
   const refocusRow = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -539,7 +541,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   // a finger's drag lands where the mouse's does: the same groups, the same index for herdr
   const touchHandlers = useRef<Parameters<typeof watchTouchReorder>[1] | null>(null);
   touchHandlers.current = {
-    canLift: (id) => editingWorkspaceId !== id && !pinnedIds.includes(id),
+    canLift: (id) => editingWorkspaceId !== id && !fixedIds.has(id),
     onLift: (id) => { setMenu(null); setTouchDrag({ source: id, over: id }); },
     onOver: (id) => setTouchDrag((current) => current && { ...current, over: id }),
     onDrop: (id, target) => {
@@ -604,6 +606,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     // a folded group still shows the checkout that is open; the count is of the ones put away
     const foldedCount = collapsed ? children.filter((child) => !roster.some((candidate) => candidate.workspace_id === child.workspace_id && candidate.pane_id === selectedPaneId)).length : 0;
     const editingWorkspace = editingWorkspaceId === workspace.workspace_id;
+    const fixed = fixedIds.has(workspace.workspace_id);
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id;
     const contentsId = `${rosterId}-worktrees-${encodeURIComponent(repoKey ?? workspace.workspace_id)}`;
     const toggleMenu = (anchor: HTMLElement, point?: { x: number; y: number }, previousFocus?: HTMLElement | null): void => setMenu(menuOpen ? null : { anchor, point, previousFocus, workspace, title: rowTitle, place: [branchNote, ...paths].filter(Boolean).join(" · ") || workspace.label });
@@ -633,11 +636,11 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           className="pane-select workspace-select"
           role="button"
           tabIndex={0}
-          draggable={!coarsePointer && !editingWorkspace && !pinned}
+          draggable={!coarsePointer && !editingWorkspace && !fixed}
           onDragStart={(event) => { if (!editingWorkspace) onDragStart(event, workspace.workspace_id, pane.pane_id); }}
           onDragEnd={() => setDragWorkspaceId(null)}
-          aria-keyshortcuts={pinned ? undefined : "Alt+ArrowUp Alt+ArrowDown"}
-          aria-description={pinned ? undefined : `${t("Reorder workspace {name}", { name: workspace.label })} · ${t("Drag to reorder · Alt+↑/↓")}`}
+          aria-keyshortcuts={fixed ? undefined : "Alt+ArrowUp Alt+ArrowDown"}
+          aria-description={fixed ? undefined : `${t("Reorder workspace {name}", { name: workspace.label })} · ${t("Drag to reorder · Alt+↑/↓")}`}
           data-pane={pane.pane_id}
           aria-current={selected ? "true" : undefined}
           title={[`${pane.pane_id} — ${rowTitle}`, branchNote, ...paths, paneTitle(pane), agentsTitle(workspace)].filter(Boolean).join(" — ")}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isWorkspacePinKey, loadSidebarPins, pinnedWorkspaceIds, pruneSidebarPins, pruneWorkspacePins, sidebarPinKey, splitPinnedGroups, splitPinnedRows, toggleSidebarPin, workspacePinKey } from "./sidebarPins.ts";
+import { isWorkspacePinKey, loadSidebarPins, pinnedGroupIds, pinnedWorkspaceIds, pruneSidebarPins, pruneWorkspacePins, sidebarPinKey, splitPinnedGroups, splitPinnedRows, toggleSidebarPin, workspacePinKey } from "./sidebarPins.ts";
 
 describe("sidebar agent pins", () => {
   it("keys a pin by PC and pane", () => {
@@ -70,6 +70,16 @@ describe("sidebar agent pins", () => {
       pinned: [{ workspace: "repo", children: ["wt2"] }, { workspace: "wt1", children: [] }],
       rest: [{ workspace: "solo", children: [] }, { workspace: "other", children: [] }],
     });
+  });
+
+  it("holds a pinned repository's worktrees in place with it", () => {
+    const groups = [
+      { workspace: "repo", children: ["wt1", "wt2"] },
+      { workspace: "solo", children: [] },
+    ];
+    const { pinned } = splitPinnedGroups(groups, ["repo"], (id) => id);
+    expect([...pinnedGroupIds(pinned, (id) => id)]).toEqual(["repo", "wt1", "wt2"]);
+    expect(pinnedGroupIds([], (id: string) => id).size).toBe(0);
   });
 
   it("starts with no pins when storage denies the read", () => {
