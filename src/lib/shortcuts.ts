@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useSettings } from "./settings.ts";
-import type { ShortcutOverrides } from "./shortcutBindings.ts";
+import { bindingChord, formatExactChord, parseExactChord, type ExactChord, type ShortcutOverrides } from "./shortcutBindings.ts";
 import { physicalKey } from "./keys.ts";
 
 import type { AppActions } from "./actions.ts";
@@ -63,13 +63,23 @@ export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): stri
 export function shortcutDisplayKeys(id: ShortcutId, overrides: ShortcutOverrides): string[] {
   const shortcut = SHORTCUTS.find((candidate) => candidate.id === id)!;
   if (id === "voice" || !Object.hasOwn(overrides, id)) return [...shortcut.keys];
-  const key = overrides[id];
-  if (!key) return [];
-  return ["Mod", "Shift", key.length === 1 ? key.toUpperCase() : key];
+  const value = overrides[id];
+  return value ? bindingDisplayKeys(value) : [];
 }
 
-export function shortcutConflict(id: ShortcutId, keys: string[], overrides: ShortcutOverrides): boolean {
-  return SHORTCUTS.some((other) => other.id !== id && shortcutKeys(other.id, overrides).some((key) => keys.includes(key)));
+/** A stored binding as shown: Mod+Shift+key, or its exact modifiers in macOS order (⌃⌥⇧⌘). */
+export function bindingDisplayKeys(value: string): string[] {
+  const chord = parseExactChord(value);
+  const bare = chord?.key ?? value;
+  const key = bare.length === 1 ? bare.toUpperCase() : bare;
+  if (!chord) return ["Mod", "Shift", key];
+  return [...(chord.ctrl ? ["Ctrl"] : []), ...(chord.alt ? ["Alt"] : []), ...(chord.shift ? ["Shift"] : []), ...(chord.meta ? ["Meta"] : []), key];
+}
+
+/** Two bindings conflict when they name the same chord on this platform, however each is stored. */
+export function shortcutConflict(id: ShortcutId, keys: string[], overrides: ShortcutOverrides, platformIsMac = isMacPlatform()): boolean {
+  const wanted = new Set(keys.map((key) => formatExactChord(bindingChord(key, platformIsMac))));
+  return SHORTCUTS.some((other) => other.id !== id && shortcutKeys(other.id, overrides).some((key) => wanted.has(formatExactChord(bindingChord(key, platformIsMac)))));
 }
 
 /** The key a Mod+Shift chord names, as overrides and KEY_TO_ID store it (letters lowercase). */
@@ -88,8 +98,27 @@ export function shortcutEventKey(event: ShortcutEventLike): string {
       : letter.length === 1 ? letter.toLowerCase() : letter;
 }
 
+/**
+ * The pressed chord with its exact modifiers. With Alt the key is read from its position: macOS
+ * Option turns K into "˚" and E into a dead key, and the binding is the key, not that character.
+ */
+export function exactChordFromEvent(event: ShortcutEventLike): ExactChord {
+  const code = event.code ?? "";
+  const key = event.altKey && /^Key[A-Z]$/.test(code) ? code.slice(3).toLowerCase() : shortcutEventKey(event);
+  return { ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey, key };
+}
+
 export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, overrides: ShortcutOverrides = {}): ShortcutId | null {
   if (event.isComposing || event.keyCode === 229) return null;
+  if (event.ctrlKey || event.altKey || event.metaKey) {
+    const pressed = formatExactChord(exactChordFromEvent(event));
+    for (const shortcut of SHORTCUTS) {
+      if (shortcut.id === "voice") continue;
+      const value = Object.hasOwn(overrides, shortcut.id) ? overrides[shortcut.id] : null;
+      const chord = value ? parseExactChord(value) : null;
+      if (chord && formatExactChord(chord) === pressed) return shortcut.id;
+    }
+  }
   const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   if (!hasMod || !event.shiftKey || event.altKey) return null;
   const key = shortcutEventKey(event);
@@ -151,8 +180,9 @@ export function modKeyLabel(): string {
 }
 
 export function formatKeys(keys: readonly string[]): string[] {
+  const mac = isMacPlatform();
   const mod = modKeyLabel();
-  return keys.map((key) => (key === "Mod" ? mod : key));
+  return keys.map((key) => (key === "Mod" ? mod : key === "Meta" ? (mac ? "⌘" : "Meta") : key === "Alt" && mac ? "⌥" : key));
 }
 
 /** True while Settings records a chord: the dispatcher below stands down so the pressed chord is not run. */

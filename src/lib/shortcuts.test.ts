@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { isAppShortcut, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
+import { bindingDisplayKeys, isAppShortcut, isMacPlatform, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutDisplayKeys, shortcutKeys } from "./shortcuts.ts";
 import { isReservedShortcutKey, sanitizeShortcutOverrides } from "./shortcutBindings.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
@@ -215,5 +215,45 @@ describe("new tab and split pane", () => {
     expect(shortcutDisplayKeys("new-tab", overrides)).toEqual(["Mod", "Shift", "Y"]);
     expect(shortcutConflict("split-down", ["y"], overrides)).toBe(true);
     expect(shortcutConflict("new-tab", ["k"], {})).toBe(true);
+  });
+});
+
+describe("exact-modifier bindings", () => {
+  const ctrlK = (patch: Partial<ShortcutEventLike> = {}) => keyEvent("k", { ctrlKey: true, shiftKey: false, ...patch });
+
+  it("runs only on the exact chord recorded", () => {
+    const overrides = sanitizeShortcutOverrides({ palette: "ctrl+k", "scroll-up": "meta+PageUp" });
+    expect(matchShortcut(ctrlK(), false, overrides)).toBe("palette");
+    expect(matchShortcut(ctrlK({ altKey: true }), false, overrides)).toBeNull();
+    // the moved palette no longer answers its default Mod+Shift+K
+    expect(matchShortcut(ctrlK({ shiftKey: true }), false, overrides)).toBeNull();
+    expect(matchShortcut(keyEvent("PageUp", { metaKey: true, shiftKey: false }), true, overrides)).toBe("scroll-up");
+    expect(matchShortcut(keyEvent("PageUp", { metaKey: true, shiftKey: true }), true, overrides)).toBeNull();
+    expect(isAppShortcut(ctrlK(), overrides)).toBe(true);
+  });
+
+  it("matches a macOS Option chord by its key", () => {
+    const overrides = sanitizeShortcutOverrides({ find: "alt+meta+f" });
+    expect(matchShortcut(keyEvent("ƒ", { metaKey: true, altKey: true, shiftKey: false, code: "KeyF" }), true, overrides)).toBe("find");
+  });
+
+  it("finds a conflict between a Mod+Shift key and the same chord stored exactly", () => {
+    expect(shortcutConflict("find", ["ctrl+shift+k"], {}, false)).toBe(true);
+    expect(shortcutConflict("find", ["shift+meta+k"], {}, true)).toBe(true);
+    expect(shortcutConflict("find", ["ctrl+shift+k"], {}, true)).toBe(false);
+    expect(shortcutConflict("find", ["ctrl+k"], { palette: "ctrl+k" }, false)).toBe(true);
+    expect(shortcutConflict("find", ["k"], { palette: "ctrl+k" }, false)).toBe(false);
+  });
+
+  it("keeps stored values valid and drops malformed ones", () => {
+    expect(sanitizeShortcutOverrides({ palette: "ctrl+k", find: "shift+g", settings: "meta+ctrl+k", "new-tab": "alt+F5", "split-right": "ctrl+alt+shift+meta+," }))
+      .toEqual({ palette: "ctrl+k", "split-right": "ctrl+alt+shift+meta+," });
+  });
+
+  it("shows the exact modifiers in macOS order", () => {
+    expect(bindingDisplayKeys("ctrl+alt+shift+meta+k")).toEqual(["Ctrl", "Alt", "Shift", "Meta", "K"]);
+    expect(bindingDisplayKeys("meta+PageUp")).toEqual(["Meta", "PageUp"]);
+    expect(bindingDisplayKeys("k")).toEqual(["Mod", "Shift", "K"]);
+    expect(shortcutDisplayKeys("palette", { palette: "ctrl+k" })).toEqual(["Ctrl", "K"]);
   });
 });

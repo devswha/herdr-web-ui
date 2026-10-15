@@ -528,9 +528,15 @@ shortcut can be reassigned or disabled in Settings → Shortcuts.
 **New tab**, **Split pane right** and **Split pane down** have no default key: pick one in
 **Settings → Shortcuts**, and the command palette shows it beside the action.
 
-**Settings → Shortcuts** changes the final key of each app binding or turns it off: press
-**Record** on a row, then the new Mod+Shift chord (Escape cancels); a reserved, unbindable or
-already-assigned chord is refused on the row. A search field filters the list. Settings
+**Settings → Shortcuts** changes each app binding or turns it off: press **Record** on a row,
+then the new chord (Escape cancels). A Mod+Shift chord is always safe for the terminal. Other
+chords are kept exactly as pressed, such as `⌘+PageUp` or `Ctrl+K`, and need Ctrl, Alt or (on a
+Mac) ⌘. A chord the browser, the OS or text editing keeps (`Mod+W`/`T`/`N`, `⌘+Q`, `Mod+C`/`V`/`X`/`A`/`Z`,
+`Ctrl+PageUp`/`PageDown`, macOS `Ctrl+arrows`), an unbindable key or an already-assigned chord is
+refused on the row. Plain Ctrl or Alt chords are shells', editors' and agents' keys (`Ctrl+R`,
+`Ctrl+A`/`E`, Alt word moves): the row says so and saves one only after **Save anyway**, and from
+then on that key no longer reaches the pane. The row's list still picks a Mod+Shift key without a
+keyboard. A search field filters the list. Settings
 are saved in this browser, not on the remote PC. The command palette shows the current bindings
 and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
 (`Mod+Shift+Space`) remains fixed.
@@ -565,8 +571,8 @@ while disconnected.
 One line stays visible between pages. Chat uses the displayed text's line height, and Terminal
 uses native rows. A page still advances by at least one pixel in chat or one terminal row.
 For an iPad with an external keyboard that lacks PageUp/PageDown, assign letters such as
-U and D to **Scroll pane up** and **Scroll pane down** in Settings → Shortcuts. Mod+Shift
-stays fixed. This lets you read history without leaving the message box or reaching for
+U and D to **Scroll pane up** and **Scroll pane down** in Settings → Shortcuts (Mod+Shift+U/D,
+or record a chord such as `⌘+U`). This lets you read history without leaving the message box or reaching for
 the screen. Shift+PageUp/PageDown alone retains the focused control's own behavior.
 
 Enter sends and Shift+Enter adds a line. On a touch screen, Settings → Chat → Composer → Return inserts a new line lets Return add a line instead; use Send to send the message. On a desktop, turning off Enter sends switches sending to Mod+Enter. On a touch screen with a hardware keyboard, Mod+Enter sends while Return inserts a new line is on. This choice is saved per device.
