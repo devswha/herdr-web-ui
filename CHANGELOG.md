@@ -7,6 +7,17 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-10-16
+
+### Changed
+- On a phone or tablet, the chip above the message box that holds the prompt Claude Code suggests
+  next is off by default. **Settings → Chat → Composer → Suggestion chip** turns it back on; the
+  suggestion still shows grey in the empty message box. With a keyboard, Tab takes it as before.
+  ([#1185](https://github.com/devswha/herdr-web-ui/pull/1185))
+
+### Maintenance
+- The remote-PC runtime is now version 29: every saved PC asks for **Update bridge…** once.
+
 ## [0.4.9] - 2026-10-16
 
 ### Added
@@ -4073,7 +4084,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.9...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.10...HEAD
+[0.4.10]: https://github.com/devswha/herdr-web-ui/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/devswha/herdr-web-ui/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/devswha/herdr-web-ui/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/devswha/herdr-web-ui/compare/v0.4.6...v0.4.7
