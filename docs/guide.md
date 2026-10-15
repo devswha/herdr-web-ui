@@ -537,7 +537,8 @@ the binding works on any layout; the row shows your keyboard's own character whe
 `Ctrl+PageUp`/`PageDown`, macOS `Ctrl+arrows`), an unbindable key or an already-assigned chord is
 refused on the row. Plain Ctrl or Alt chords are shells', editors' and agents' keys (`Ctrl+R`,
 `Ctrl+A`/`E`, Alt word moves): the row says so and saves one only after **Save anyway**, and from
-then on that key no longer reaches the pane. The row's list still picks a Mod+Shift letter, digit,
+then on that key no longer reaches the pane. A ⌘ chord the browser commonly uses (such as `⌘+S`,
+`⌘+L` or `⌘+⌥+I`) asks the same way. The row's list still picks a Mod+Shift letter, digit,
 arrow or PageUp/PageDown without a keyboard; Home, End and the punctuation keys are bound with Record. A search field filters the list. Settings
 are saved in this browser, not on the remote PC. The command palette shows the current bindings
 and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
@@ -545,8 +546,8 @@ and omits disabled ones. Reset shortcuts restores the defaults. Hold-to-dictate
 
 Known browser/OS reservations are marked, but other combinations can also be intercepted by
 your browser, OS or extensions. Installed-app mode may behave differently. While an IME is
-composing, keys stay with it. In a text field with text, Mod+Shift+arrows keep their text-selection
-behavior; from an empty one, such as the chat's empty message box, they switch panes.
+composing, keys stay with it. In a text field with text, a binding on an arrow, Home or End keeps
+its text-selection behavior; from an empty one, such as the chat's empty message box, they switch panes.
 List and tab controls also have focus-local keys; those do not become global terminal shortcuts.
 On a focused tab, Alt+Shift+Left/Right reorders it and Shift+F10 opens its menu. For the pane menu
 on desktop, tab to the pane header's **⋯** (it appears on keyboard focus) and press Enter.

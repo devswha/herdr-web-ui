@@ -763,7 +763,8 @@ One set for both themes: the card is island black wherever it shows.
   A newly split pane awaiting its first snapshot does not unmount its siblings. Geometry is
   fitted inside each rendered pane; layout rectangles are never used as PTY dimensions.
   A right-click on a pane always opens its menu.
-  Native app shortcuts stay Mod+Shift in the browser, so Ctrl+key continues to reach the PTY.
+  Native app shortcuts default to Mod+Shift in the browser, so Ctrl+key continues to reach the PTY;
+  a plain Ctrl/Alt chord is taken only after the user records it and confirms Save anyway.
 
 ### Worktree dialog (`.worktree-modal`)
 - From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
@@ -1545,9 +1546,12 @@ The values are the ones in `src/styles.css`.
   sizes its font; landscape does not inflate text. A pressed button dims to `0.55` at once in place
   of the amber `:active` box; a list row (sidebar, agent, menu, sheet, Settings page) fills instead.
 - `prefers-reduced-motion` is honored. Lucide/inline SVG decoration is hidden from assistive tech.
-- Global shortcuts use the convention **Mod+Shift+key**: Mod is Command on Apple platforms and Ctrl
-  elsewhere. Settings lists the global bindings and allows changing their final key or disabling
-  them, with duplicate assignments blocked and known browser/OS reservations warned about.
+- Global shortcuts default to **Mod+Shift+key**: Mod is Command on Apple platforms and Ctrl
+  elsewhere. Settings lists the global bindings and allows changing or disabling them, with
+  duplicate assignments blocked and known browser/OS reservations warned about. Record also keeps
+  other chords exactly as pressed (such as ⌘+PageUp): chords the browser, OS or text editing keep
+  are refused, and a plain Ctrl/Alt chord the terminal uses, or a ⌘ chord the browser commonly
+  uses, saves only after Save anyway.
   Reservations vary by browser and installed-app mode; a warning is not a guarantee of delivery.
   Bindings belong to this browser, not the remote PC or pane. Hold-to-dictate remains fixed.
 - Text-field selection and IME composition keep their keys. Focus-local list/tab navigation and
