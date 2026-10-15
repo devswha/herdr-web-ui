@@ -625,6 +625,30 @@ try {
       });
       console.log("PASS pressing Send keeps focus in the message box");
 
+      // With focus kept, the tap does not end a composition (Gboard composes every word, a Korean
+      // keyboard the open syllable): Send finishes the word itself and sends the box as shown.
+      await withCard(browser, 390, { status: "idle", model: "claude-opus-5-5" }, async (page) => {
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        const holds = (value: string, label: string) => box.evaluate((node: HTMLTextAreaElement, value) => new Promise<void>((resolve, reject) => {
+          const deadline = performance.now() + 5_000;
+          const check = () => node.value === value ? resolve() : performance.now() > deadline ? reject(new Error(`value ${JSON.stringify(node.value)}`)) : requestAnimationFrame(check);
+          check();
+        }), value).catch((error) => { throw new Error(`${label}: ${error}`); });
+        await box.tap();
+        await box.fill("hello ");
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.imeSetComposition", { text: "안", selectionStart: 1, selectionEnd: 1 });
+        await holds("hello 안", "the syllable is composing");
+        await page.getByRole("button", { name: "Send message", exact: true }).tap();
+        await holds("", "Send during a composition sends the message");
+        assert.equal(await box.evaluate((node) => node === document.activeElement), true, "the message box keeps focus");
+        await cdp.send("Input.imeSetComposition", { text: "나", selectionStart: 1, selectionEnd: 1 });
+        await cdp.send("Input.insertText", { text: "나" });
+        await holds("나", "the next syllable starts in an empty box");
+        await cdp.detach();
+      });
+      console.log("PASS Send tapped mid-composition finishes the word and sends");
+
       // Changing the setting in an already-open chat rewraps the existing draft: an automatic
       // box grows and shrinks with it, while a height chosen with the grip stays chosen.
       for (const width of [390, 1440]) await withCard(browser, width, { model: "claude-opus-5-5" }, async (page) => {
