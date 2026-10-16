@@ -119,7 +119,9 @@ try {
     // Browser locale alone does not override the app's remembered language.
     // Preserve a language changed through Settings across subsequent reloads.
     if (!localStorage.getItem("herdr-web-ui:settings")) {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false }));
+      // Two lines: the task row (pane title over its place) is what this script reads; One line,
+      // the default, is ui-regression's sidebar-rows check
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false, sidebarRows: "two" }));
       localStorage.setItem(legacyFoldKey, "1");
     }
     for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
