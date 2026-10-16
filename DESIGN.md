@@ -613,8 +613,8 @@ One set for both themes: the card is island black wherever it shows.
 - The Agents list is flat and every row names its own place. Pinned agents (pinned from a row's
   menu) stand first, in the order they were pinned, in a card (a `--hairline` `--border` edge,
   `--radius-lg`, `--space-1` padding, no fill, so hover and selection read inside it as elsewhere),
-  with no mark of their own (the card says they are pinned); the rest follow `--space-2` below in
-  the chosen order. The Agents head is the only head (the pinned list is labelled **Pinned** for screen
+  with no mark of their own (the card says so); the rest follow `--space-2` below in the
+  chosen order. The Agents head is the only head (the pinned list is labelled **Pinned** for screen
   readers); without pins there is no card. Pins are shared with the other browsers of the server.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's
