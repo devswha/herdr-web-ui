@@ -965,7 +965,7 @@ One set for both themes: the card is island black wherever it shows.
   folder): selecting another pane or PC closes it (a file in the popup too), and the move takes the
   file's history entry over, so Back returns to the pane the file was open on, without the file.
   Closed from inside itself (Close file, Escape) the panel gives the focus back to what opened the
-  file, as the dialog does; a focus that is elsewhere by then (the composer, a sidebar row) stays there.
+  file, as the dialog does; a focus already elsewhere (the composer, a sidebar row) stays there.
   A link keeps `--accent` and a file chip reads in `--text-strong` with a dotted underline; both
   underlines are `--text-dim` at rest and both take the accent on hover and focus-visible.
   Code blocks are `--radius-lg` and never scroll inside: one longer than 30 lines opens at its
