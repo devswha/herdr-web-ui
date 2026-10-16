@@ -43,7 +43,7 @@ import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, cod
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
-import { omoAgentDir, omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
+import { omoProcessIdentity, omoSessionForPane } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
@@ -1145,7 +1145,7 @@ export async function paneOmoRoots(paneId: string): Promise<{ agentDir: string |
     };
     const identity = omoProcessIdentity(process, "", home);
     if (!identity) continue;
-    const agentDir = directory(omoAgentDir(processEnviron(process.pid), home, process.cwd));
+    const agentDir = directory(identity.agentDir);
     const argv = process.argv.map((word) => word.replace(/\\/g, "/"));
     const extension = argv.find((word, index) => argv[index - 1] === "--extension" && /\/omo-ai\/plugin\/?$/.test(word));
     let pluginDir = directory(extension ? nodePath.resolve(process.cwd, extension) : null);
@@ -1154,8 +1154,13 @@ export async function paneOmoRoots(paneId: string): Promise<{ agentDir: string |
       if (word) {
         try {
           const canonical = realpathSync(nodePath.resolve(process.cwd, word));
-          const at = canonical.indexOf("/omo-ai/");
-          if (at !== -1) pluginDir = directory(nodePath.join(canonical.slice(0, at + "/omo-ai".length), "plugin"));
+          const paths = nodePath.win32.isAbsolute(canonical) && !nodePath.posix.isAbsolute(canonical) ? nodePath.win32 : nodePath.posix;
+          for (let parent = paths.dirname(canonical); parent !== paths.dirname(parent); parent = paths.dirname(parent)) {
+            if (paths.basename(parent) === "omo-ai") {
+              pluginDir = directory(paths.join(parent, "plugin"));
+              break;
+            }
+          }
         } catch { /* launcher may have gone away; try the installed executable */ }
       }
     }

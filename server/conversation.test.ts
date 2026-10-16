@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { appendFileSync, copyFileSync, linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
+import * as fs from "node:fs";
 import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { MAX_TURNS, parseOmpTranscript } from "./transcript-records.ts";
 import { toolVerb } from "../src/lib/toolVerbs.ts";
@@ -14,7 +15,41 @@ import * as herdr from "./herdr/client.ts";
 import { forgetHistoryChains } from "./codex.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import * as omo from "./omo.ts";
-import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneOmoRoots, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+
+describe("omo skill roots", () => {
+  it("finds the bundled plugin from a Windows canonical launcher path", async () => {
+    const canonical = win32.join("C:\\Users\\demo", "node_modules", "omo-ai", "dist", "cli.js");
+    const directory = fs.statSync(import.meta.dir);
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({
+      process_info: { foreground_processes: [{ pid: -1, argv: ["node", "/install/omo-ai/dist/cli.js"] }] },
+    });
+    const realpath = spyOn(fs, "realpathSync").mockReturnValue(canonical);
+    const stat = spyOn(fs, "statSync").mockReturnValue(directory);
+    try {
+      const roots = await paneOmoRoots("omo-windows-fixture");
+      expect(roots?.pluginDir).toBe(win32.join(win32.dirname(win32.dirname(canonical)), "plugin"));
+    } finally {
+      stat.mockRestore();
+      realpath.mockRestore();
+      rpc.mockRestore();
+    }
+  });
+
+  it("keeps the agent directory already resolved by process identity when cwd is missing", async () => {
+    const agentDir = import.meta.dir;
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({
+      process_info: { foreground_processes: [{ pid: -1, argv: ["omo"] }] },
+    });
+    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir, heldIds: [], custom: false });
+    try {
+      expect((await paneOmoRoots("omo-cwd-fixture"))?.agentDir).toBe(agentDir);
+    } finally {
+      identity.mockRestore();
+      rpc.mockRestore();
+    }
+  });
+});
 
 let mockedPanes: HerdrPane[] = [];
 let mockedProcesses: { argv?: unknown }[] = [];
