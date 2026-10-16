@@ -15,13 +15,14 @@ import { chromePath } from "./chrome-path.ts";
 // page's data is patched here, in the test only: the pane's agent is the case's (omo, and pi for
 // the regression), its command list is omo's own builtins with three skills, and its conversation
 // ends with a user turn that invokes two of them. Every case runs in a 1280×800 window and on a
-// 390×844 phone; the screenshots and run.log go to evidence/omo-skill-menu/. All files and HTTP
+// 390×844 phone; the screenshots and run.log go to omo-skill-menu/ under UI_EVIDENCE_DIR (CI's
+// uploaded folder) or else evidence/. All files and HTTP
 // traffic stay in this disposable, loopback-only app; no herdr session is opened.
 const repo = join(import.meta.dir, "..");
 const app = mkdtempSync(join(tmpdir(), "herdr-omo-skill-menu-demo-"));
 /** an empty home: omo's builtins alone, none of this machine's skills */
 const home = mkdtempSync(join(tmpdir(), "herdr-omo-skill-menu-home-"));
-const evidence = join(repo, "evidence", "omo-skill-menu");
+const evidence = join(process.env.UI_EVIDENCE_DIR || join(repo, "evidence"), "omo-skill-menu");
 const TARGET = panes.docs;
 const WIDTHS = [1280, 390] as const;
 /** omo's own descriptions, as long as omo 5.1.34 ships them, and one of the person's own skills */
