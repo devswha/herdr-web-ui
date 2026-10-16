@@ -1,12 +1,12 @@
 /** A phone's New worktree sheet, on a herdr of the run's own. Run after `bun run build`. */
 import "./test-herdr.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, realpathSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
-import { workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { UsageService } from "../server/usage.ts";
 import { chromePath } from "./chrome-path.ts";
 
@@ -15,7 +15,8 @@ import { chromePath } from "./chrome-path.ts";
 // off its history entry before the roster lists the new pane, and that step is not a Back to the
 // pane before (an agent's checkout returns only once it runs, by when the roster has it).
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-phone-worktree-")));
-const repo = join(root, "repo");
+// herdr keeps a checkout under ~/.herdr/worktrees/<repo name>: a name of the run's own shares it with no real repository
+const repo = join(root, `herdr-web-ui-test-phone-worktree-${process.pid.toString(36)}`);
 mkdirSync(repo);
 const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "user.name=herdr-web-ui test", "-c", "user.email=test@example.invalid", ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" });
 assert.equal(git("init", "-q", "-b", "main").exitCode, 0, "git init");
@@ -69,7 +70,6 @@ try {
     await page.getByRole("option", { name: "Shell", exact: true }).click();
     await sheet.getByRole("button", { name: "Create worktree", exact: true }).click();
     const opened = await (await created).json() as { workspace_id: string; pane_id: string };
-    owned.push(opened.workspace_id);
     await sheet.waitFor({ state: "detached" });
     await page.waitForFunction((pane) => new URLSearchParams(location.search).get("pane") === pane, opened.pane_id, { timeout: 10_000 });
     assert.equal(await page.locator(".pane-frame.is-current").getAttribute("data-layout-pane"), opened.pane_id, "the checkout's shell pane is the one shown");
@@ -81,6 +81,16 @@ try {
     await browser.close();
   }
 } finally {
+  // the checkout the run made goes with it: herdr removes the checkout, then its workspace. The
+  // roster says what was made, so a create whose answer never arrived is removed too.
+  const snapshot = await sessionSnapshot().catch(() => null);
+  for (const workspace of snapshot?.workspaces ?? []) {
+    if (!workspace.worktree?.is_linked_worktree || workspace.worktree.repo_root !== repo) continue;
+    await herdrRpc("worktree.remove", { workspace_id: workspace.workspace_id, force: true }).catch(() => undefined);
+    await workspaceClose(workspace.workspace_id).catch(() => undefined);
+  }
+  // herdr keeps the repository's folder under its worktree directory once the checkout is gone: only an empty one is ours to drop
+  try { rmdirSync(join(homedir(), ".herdr", "worktrees", basename(repo))); } catch { /* not there, or not empty: not ours */ }
   for (const id of owned.reverse()) await workspaceClose(id).catch(() => {});
   server.stop();
   rmSync(root, { recursive: true, force: true });
