@@ -118,3 +118,24 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
 
   return surface;
 }
+
+/**
+ * The return alone, for a surface that is no dialog (the file panel beside the pane): nothing
+ * holds Tab or moves the focus in, but when the surface goes and took the focus with it (Close
+ * file, Escape inside it), the focus goes back to what opened it, as a dialog's does. A focus
+ * that is elsewhere by then (the pane's composer, the sidebar row that moved to another pane)
+ * stays there. Owned by the surface's parent, not the surface: a surface remade for another
+ * file must not send the focus back meanwhile.
+ */
+export function useFocusReturn(shown: boolean): void {
+  useLayoutEffect(() => {
+    if (!shown) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      // after the surface left the DOM: a focus it held is the body's now
+      const active = document.activeElement;
+      if (active !== null && active !== document.body) return;
+      if (opener?.isConnected && !nativeModalOver(null)) opener.focus({ preventScroll: true });
+    };
+  }, [shown]);
+}

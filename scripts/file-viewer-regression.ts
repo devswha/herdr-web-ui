@@ -102,6 +102,8 @@ writeFileSync(markdownPath, markdownSource);
 writeFileSync(join(root, "other.md"), "# Other notes\n\nLinked from the preview.\n");
 writeFileSync(join(root, "preview.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80"><rect width="240" height="80" fill="teal"/></svg>');
 let workspace: string | undefined;
+// a second workspace, for the pane moves of the docked block alone
+let otherWorkspace: string | undefined;
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
@@ -433,11 +435,13 @@ try {
   assert.equal(await composer.evaluate((input) => document.activeElement === input), true, "the pane beside the panel takes a click");
   assert.equal(await panel.count(), 1, "a click in the pane leaves the panel open");
   assert.equal(await composer.inputValue(), "Keep my mobile draft");
-  // Escape from inside the panel closes it and takes its entry off
+  // Escape from inside the panel closes it and takes its entry off, and the focus it held goes
+  // back to the link that opened the file, as it does from the popup
   await panel.locator(".file-panel-resizer").focus();
   await page.keyboard.press("Escape");
   await panel.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "Escape in the panel consumes the preview entry");
+  assert.equal(await notesLink.evaluate((link) => document.activeElement === link), true, "Escape in the panel returns the focus to the link that opened the file");
   // the left edge dragged 100px to the left widens the panel by as much, and the width is stored
   await notesLink.click();
   await panel.getByText("File preview history regression", { exact: true }).waitFor();
@@ -482,11 +486,14 @@ try {
   console.log("PASS from 980px a file opened from the Files dialog shows in the panel and the dialog closes");
 
   for (const [label, content] of [["extensionless", "Extensionless text"], ["unknown text", "Unknown extension text"]] as const) {
-    await page.getByRole("button", { name: label, exact: true }).click();
+    const link = page.getByRole("button", { name: label, exact: true });
+    await link.click();
     await panel.getByText(content, { exact: true }).waitFor();
     assert.equal(await page.locator(".modal.file-viewer").count(), 0, "real text metadata corrects an unknown-extension popup guess");
     await panel.getByRole("button", { name: "Close file", exact: true }).click();
     await panel.waitFor({ state: "detached" });
+    // whether the panel was the first guess or the correction of a popup, Close file gives the focus back to the link
+    assert.equal(await link.evaluate((button) => document.activeElement === button), true, `Close file returns the focus to the ${label} link that opened the file`);
   }
   await page.getByRole("button", { name: "dotted folder", exact: true }).click();
   const folderPopup = page.locator(".modal.file-viewer");
@@ -550,6 +557,37 @@ try {
   await videoLink.waitFor();
   console.log("PASS remembered width maxima at 1280px and 980px preserve a 320px pane, keep the panel onscreen, and match the resizer limits");
 
+  // The file beside the pane is the pane's: selecting another pane closes it, and the move takes
+  // the file's entry over, so Back returns to the first pane without the file (DESIGN.md)
+  const other = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-file-back-other" });
+  otherWorkspace = other.workspace.workspace_id;
+  const otherPane = other.root_pane.pane_id;
+  const selectedPane = () => page.evaluate(() => new URLSearchParams(location.search).get("pane"));
+  const rowOf = (paneId: string) => page.locator(`.workspace-select[data-pane=${JSON.stringify(paneId)}]`);
+  if (await showSidebar.count()) await showSidebar.click();
+  await rowOf(otherPane).waitFor();
+  await notesLink.click();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  const openLength = await page.evaluate(() => history.length);
+  await rowOf(otherPane).click();
+  await page.waitForFunction((paneId) => new URLSearchParams(location.search).get("pane") === paneId, otherPane);
+  assert.equal(await panel.count(), 0, "selecting another pane closes the file open beside the first");
+  assert.equal(await page.evaluate(() => history.length), openLength, "the move takes the file's entry over: no entry is pushed");
+  assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "the other pane's entry holds no file");
+  assert.equal(new URL(page.url()).searchParams.has("file"), false, "the other pane's address names no file");
+  await page.goBack();
+  await page.waitForFunction((paneId) => new URLSearchParams(location.search).get("pane") === paneId, pane);
+  assert.equal(await panel.count(), 0, "Back returns to the first pane without the file");
+  assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "Back lands on no file entry");
+  assert.equal(new URL(page.url()).searchParams.has("file"), false, "the first pane's address names no file either");
+  console.log("PASS selecting another pane closes the panel and takes its entry over; Back returns to the pane without the file");
+  // two moves (there and back) leave entries behind the pane: the handoff below then has room for a stray second step to show
+  await rowOf(otherPane).click();
+  await page.waitForFunction((paneId) => new URLSearchParams(location.search).get("pane") === paneId, otherPane);
+  await rowOf(pane).click();
+  await page.waitForFunction((paneId) => new URLSearchParams(location.search).get("pane") === paneId, pane);
+  await videoLink.waitFor();
+
   await openFiles(page);
   await filesDialog.getByRole("button", { name: "Changes", exact: true }).click();
   const beforeMediaDiff = await page.evaluate(() => history.state);
@@ -571,6 +609,22 @@ try {
   await panel.getByRole("button", { name: "Close file", exact: true }).click();
   await panel.waitFor({ state: "detached" });
   assert.deepEqual(await page.evaluate(() => history.state), beforeMediaDiff, "moving a stacked popup to the panel hands off the diff entry; one Close returns to its opener");
+  // two clicks on Show beside the pane before the first has landed (or a text file's automatic
+  // move in the same moment) collapse the stack once, not twice: a second pair of steps would
+  // land on the pane moves above and open the file a second time
+  await openFiles(page);
+  await filesDialog.getByRole("button", { name: "Changes", exact: true }).click();
+  await filesDialog.locator(".repo-change").filter({ hasText: "preview.webm" }).click();
+  await mediaDiff.waitFor();
+  await mediaDiff.getByRole("button", { name: "Open file", exact: true }).click();
+  await page.locator(".modal.file-viewer video").waitFor();
+  // both clicks in one task, before the traversal the first asks for can land
+  await preview.getByRole("button", { name: "Show beside the pane", exact: true }).evaluate((button: HTMLElement) => { button.click(); button.click(); });
+  await panel.locator("video").waitFor();
+  await mediaDiff.waitFor({ state: "detached" });
+  await panel.getByRole("button", { name: "Close file", exact: true }).click();
+  await panel.waitFor({ state: "detached" });
+  assert.deepEqual(await page.evaluate(() => ({ state: history.state, pane: new URLSearchParams(location.search).get("pane") })), { state: beforeMediaDiff, pane }, "two clicks collapse once: one Close returns to the diff's opener, on the same pane");
   await openFiles(page);
   await filesDialog.getByRole("button", { name: "Changes", exact: true }).click();
   await filesDialog.locator(".repo-change").filter({ hasText: "preview.webm" }).click();
@@ -579,7 +633,17 @@ try {
   await mediaDiff.waitFor({ state: "detached" });
   await filesDialog.getByRole("button", { name: "Close files", exact: true }).click();
   await filesDialog.waitFor({ state: "detached" });
-  console.log("PASS a wide video handoff stacks above the diff and Close file returns to the diff");
+  console.log("PASS a wide video handoff stacks above the diff and Close file returns to the diff, also after two clicks");
+  // back over the two pane moves, so the steps after this one start from the pane's own entry
+  await page.goBack();
+  await page.waitForFunction((paneId) => new URLSearchParams(location.search).get("pane") === paneId, otherPane);
+  await page.goBack();
+  await page.waitForFunction((paneId) => new URLSearchParams(location.search).get("pane") === paneId, pane);
+  await videoLink.waitFor();
+  await workspaceClose(otherWorkspace);
+  otherWorkspace = undefined;
+  await rowOf(otherPane).waitFor({ state: "detached" });
+  assert.equal(await selectedPane(), pane, "closing the other workspace leaves the selection on the pane");
 
   // The actual App and server, with a readable file in the owned pane's repository.
   for (const width of [1280, 980, 979]) {
@@ -1217,6 +1281,7 @@ try {
 } finally {
   await browser?.close();
   server?.stop();
+  if (otherWorkspace) await workspaceClose(otherWorkspace);
   if (workspace) await workspaceClose(workspace);
   rmSync(root, { recursive: true, force: true });
 }

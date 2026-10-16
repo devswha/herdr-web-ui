@@ -961,7 +961,11 @@ One set for both themes: the card is island black wherever it shows.
   video; code and Markdown keep their `--space-3` inset). The panel's left edge is an unseen
   `--space-2` grip that draws a 2px `--accent` seam under the pointer, while held and on focus.
   Under 300px (a 980px window with the sidebar at its widest) the header keeps the name, the
-  popup toggle and Close alone.
+  popup toggle and Close alone. The panel is its pane's (its paths are read from the pane's
+  folder): selecting another pane or PC closes it, and the move takes the file's history entry
+  over, so Back returns to the pane the file was open on, without the file. Closed from inside
+  itself (Close file, Escape) the panel gives the focus back to what opened the file, as the
+  dialog does; a focus that is elsewhere by then (the composer, a sidebar row) stays there.
   A link keeps `--accent` and a file chip reads in `--text-strong` with a dotted underline; both
   underlines are `--text-dim` at rest and both take the accent on hover and focus-visible.
   Code blocks are `--radius-lg` and never scroll inside: one longer than 30 lines opens at its

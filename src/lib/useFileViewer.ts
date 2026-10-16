@@ -64,5 +64,12 @@ export function useFileViewer() {
     setViewing(next);
   }, []);
 
-  return { viewing, openFile, closeFile, setPresentation };
+  /** Hands the file's entry to a move to another pane: the file leaves it without a traversal, and the viewer closes. */
+  const releaseFile = useCallback(() => {
+    const { [HISTORY_KEY]: _, ...rest } = (window.history.state ?? {}) as Record<string, unknown>;
+    window.history.replaceState(rest, "");
+    setViewing(null);
+  }, []);
+
+  return { viewing, openFile, closeFile, setPresentation, releaseFile };
 }

@@ -66,6 +66,7 @@ import { FileViewer } from "./components/FileViewer.tsx";
 import { RepoDiffViewer } from "./components/RepoDiffViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useFileViewer } from "./lib/useFileViewer.ts";
+import { useFocusReturn } from "./lib/useFocusTrap.ts";
 import { useRepoDiffViewer } from "./lib/useRepoDiffViewer.ts";
 import { useT } from "./lib/i18n.ts";
 import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
@@ -379,7 +380,7 @@ export function App() {
   const paneActionsRef = useRef<((target: HerdrPane) => RowMenuItem[]) | null>(null);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
-  const { viewing, openFile, closeFile, setPresentation } = useFileViewer();
+  const { viewing, openFile, closeFile, setPresentation, releaseFile } = useFileViewer();
   // a repository diff from the Files dialog's Changes tab, an entry of its own like a file
   const { viewing: diffViewing, openDiff, closeDiff, releaseDiff } = useRepoDiffViewer();
   const presentation = viewing?.presentation ?? filePresentation(viewing?.path ?? "");
@@ -387,12 +388,21 @@ export function App() {
   useEffect(() => {
     if (viewing !== null && fileDocked) setFilesOpen(false);
   }, [viewing, fileDocked]);
+  // the panel is no dialog, so no trap gives the focus back when it closes: what opened the file
+  // (a link in the chat, a row of Files) gets it, as it does from the popup
+  useFocusReturn(viewing !== null && fileDocked);
+  // a collapse (below) whose two steps back have not landed: a second click on Show beside the
+  // pane, or the kind correction in the same moment, must not queue two steps more and the file twice
+  const collapsing = useRef(false);
   const presentFile = useCallback((next: FilePresentation) => {
+    if (collapsing.current) return;
     if (next === "panel" && filePanelAvailable && diffViewing !== null && viewing !== null) {
       // Collapse the stacked diff and popup to one panel entry. Pushing from their opener
       // also discards the old forward entries, so Forward cannot resurrect the popup or diff.
       const preview = { ...viewing, presentation: next };
+      collapsing.current = true;
       window.addEventListener("popstate", () => {
+        collapsing.current = false;
         releaseDiff();
         openFile(preview);
       }, { once: true });
@@ -1102,6 +1112,13 @@ export function App() {
   const linkWorkspaceId = selectedPane?.workspace_id ?? (selectedPaneId === null ? null : undefined);
   const linkSlug = slugOf(selectedWorkspace?.label) || null;
   const linkFile = viewing && viewing.machineId === selectedMachineId && (viewing.paneId === null || viewing.paneId === selectedPaneId) ? viewing.path : null;
+  // the file is its pane's (its paths are read from the pane's folder): another pane or PC
+  // selected leaves it behind, and the move takes the file's entry over (below), so Back returns
+  // to the pane the file was open on, without the file
+  const fileLeft = viewing !== null && linkFile === null;
+  useEffect(() => {
+    if (fileLeft) releaseFile();
+  }, [fileLeft, releaseFile]);
   useEffect(() => {
     if (locked !== false || machines.length === 0 || snapshot === null || linkWorkspaceId === undefined || !linkLanded) return;
     const link: AppLink = {
@@ -1118,9 +1135,12 @@ export function App() {
     // Back and Forward land where the address already says: nothing to write
     if (search === window.location.search) return;
     const url = `${window.location.pathname}${search}${window.location.hash}`;
-    if (previous !== null && !popped && !autoSelected && !settingsOpen && !newSessionOpen && isNavigation(previous, link)) window.history.pushState({ [NAV_KEY]: true }, "", url);
-    else window.history.replaceState(window.history.state, "", url);
-  }, [locked, machines.length, snapshot, linkLanded, selectedMachineId, selectedPaneId, linkWorkspaceId, linkSlug, linkFile, view, settingsOpen, settingsPage, settingsLinkPage, settingsLinkSection, newSessionOpen, newTab, newFields, wideScreen, sidebarCollapsed, autoSelected]);
+    if (previous !== null && !popped && !autoSelected && !settingsOpen && !newSessionOpen && isNavigation(previous, link)) {
+      // a move that leaves the open file behind takes the file's entry: no entry is left between
+      if (fileLeft) window.history.replaceState({ [NAV_KEY]: true }, "", url);
+      else window.history.pushState({ [NAV_KEY]: true }, "", url);
+    } else window.history.replaceState(window.history.state, "", url);
+  }, [locked, machines.length, snapshot, linkLanded, selectedMachineId, selectedPaneId, linkWorkspaceId, linkSlug, linkFile, fileLeft, view, settingsOpen, settingsPage, settingsLinkPage, settingsLinkSection, newSessionOpen, newTab, newFields, wideScreen, sidebarCollapsed, autoSelected]);
 
 
   // a file a link named opens over its pane once the pane is shown, as the chat's file links do
