@@ -13,7 +13,7 @@ export function useSkillMatcher(paneId: string, agent?: string | null): SkillMat
   const key = `${machineId}:${paneId}:${agent ?? ""}`;
   useEffect(() => {
     let live = true;
-    cachedPaneCommands(paneId, machineId, fetchPaneCommands).then(
+    cachedPaneCommands(paneId, machineId, agent, fetchPaneCommands).then(
       (commands) => { if (live) setLoaded({ key, matcher: createSkillMatcher(commands, skillSyntax(agent)) }); },
       () => { if (live) setLoaded({ key, matcher: null }); },
     );

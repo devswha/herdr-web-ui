@@ -141,7 +141,7 @@ bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the 
 bun scripts/plugin-actions-demo-regression.ts # a plugin action that ends after the server stopped waiting: the late failure said, a traceback's height on a phone with its keyboard up
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
 bun scripts/narrow-pane-demo-regression.ts    # a split pane under 80 columns: the smaller font, a zoom, and a pane no font can bring to 80
-bun scripts/omo-skill-menu-demo-regression.ts # an OmO pane's `/` and `$` skill menu and its skill chips at 1280 and 390px, screenshots in evidence/omo-skill-menu/
+bun scripts/agent-skill-menu-demo-regression.ts [agent …] # each agent's `/` (and `$`) skill menu, its origin groups and its skill chips at 1280 and 390px, one case file per agent in scripts/skill-menu-cases/, screenshots in evidence/agent-skill-menu/<agent>/
 bun scripts/install-state-demo-regression.ts  # Install app against a real CDP install on a throwaway profile and HOME: the help or the prompt before, gone in the app window and a tab of its origin, back after uninstall
 ```
 

@@ -249,6 +249,42 @@ describe("skills and plugins", () => {
     ]);
   });
 
+  it("passes a long or multi-line description on whole: the menu shortens it, the tooltip shows it", () => {
+    const home = temp("whole-home-");
+    const long = "Builds the docs site, deploys it to a throwaway preview host and posts the address on the pull request it was asked from, then tears the host down once that pull request closes, however long that takes.";
+    expect(long.length).toBeGreaterThanOrEqual(200);
+    write(join(home, ".claude", "commands", "preview.md"), `---\ndescription: ${long}\n---\nbody\n`);
+    write(join(home, ".claude", "skills", "patina", "SKILL.md"), "---\nname: patina\ndescription: >-\n  Rewrites AI prose in the house style.\n  Use when asked to deslop; never on code.\n---\n");
+    write(join(home, ".claude", "skills", "literal", "SKILL.md"), "---\ndescription: |\n  Line one.\n  Line two.\n---\n");
+    write(join(home, ".pi", "agent", "prompts", "review.md"), "---\ndescription: >-\n  Review the staged changes\n  one file at a time.\n---\nbody\n");
+    const claude = paneCommands("claude", null, home);
+    expect(claude.find((command) => command.name === "preview")?.description).toBe(long);
+    expect(claude.find((command) => command.name === "patina")?.description).toBe("Rewrites AI prose in the house style. Use when asked to deslop; never on code.");
+    expect(claude.find((command) => command.name === "literal")?.description).toBe("Line one.\nLine two.");
+    expect(paneCommands("pi", null, home).find((command) => command.name === "review")?.description).toBe("Review the staged changes one file at a time.");
+  });
+
+  it("keeps the description line of a header that is not strict YAML", () => {
+    const home = temp("loose-home-");
+    const commands = join(home, ".claude", "commands");
+    write(join(commands, "hint.md"), "---\nargument-hint: [system] [--source <path>]\ndescription: With hint\n---\nYou are the front door\n");
+    write(join(commands, "colon.md"), "---\ndescription: Use when: the user asks\n---\n# Heading\n");
+    write(join(commands, "sibling.md"), "---\nname: [broken\ndescription: \"Still here\"\n---\nBody line\n");
+    write(join(commands, "none.md"), "---\nname: [broken\n---\nBody line\n");
+    write(join(commands, "hash.md"), "---\ndescription: Close issue #102 and its PR\n---\nbody\n");
+    write(join(commands, "escaped.md"), "---\ndescription: \"Say \\\"hi\\\" first\"\n---\nbody\n");
+    const claude = paneCommands("claude", null, home);
+    const said = (name: string) => claude.find((command) => command.name === name)?.description;
+    expect(said("hint")).toBe("With hint");
+    expect(said("colon")).toBe("Use when: the user asks");
+    expect(said("sibling")).toBe("Still here");
+    // no description line at all: the body's first line, as before
+    expect(said("none")).toBe("Body line");
+    // a ` #` in a plain value is part of the text, not a YAML comment; a quoted value is YAML's
+    expect(said("hash")).toBe("Close issue #102 and its PR");
+    expect(said("escaped")).toBe('Say "hi" first');
+  });
+
   it("offers Codex's saved prompts as /prompts:<name> and its skills with $", () => {
     const home = temp("codex-home-");
     write(join(home, ".codex", "prompts", "review.md"), "Review the diff\n");

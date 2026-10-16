@@ -43,6 +43,14 @@ describe("createSkillMatcher", () => {
     expect(raws("[skill: unknown] $skill:unknown $skill:mass-ulwx a$skill:mass-ulw")).toEqual([]);
   });
 
+  test("chips another agent's skills in the form it types them: /skill:x for pi, $x for Codex", () => {
+    const pi = createSkillMatcher([command("skill:pdf-tools", "skill"), command("review", "user")], skillSyntax("pi"))!;
+    expect(pi("run /skill:pdf-tools on it, then /review")).toEqual(["run ", { raw: "/skill:pdf-tools", name: "skill:pdf-tools" }, " on it, then /review"]);
+    const codex = createSkillMatcher([command("deepinit", "skill", "$")], skillSyntax("codex"))!;
+    expect(codex("start with $deepinit")).toEqual(["start with ", { raw: "$deepinit", name: "deepinit" }]);
+    expect(codex("start with /deepinit")).toEqual(["start with /deepinit"]);
+  });
+
   test("without omo, $skill:x and [skill: x] stay plain text", () => {
     const list = [command("skill:mass-ulw", "skill")];
     const plain = createSkillMatcher(list)!;

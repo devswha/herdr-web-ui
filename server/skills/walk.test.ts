@@ -26,14 +26,14 @@ const recursive: WalkRules = { depth: "recursive", looseMarkdown: "root", ignore
 const one: WalkRules = { depth: "one", looseMarkdown: "none", ignoreFiles: false, requireDescription: false };
 
 describe("shared skill walk", () => {
-  it("keeps one-level names, short descriptions, and body fallbacks", () => {
+  it("keeps one-level names, whole descriptions, and body fallbacks", () => {
     const root = temp();
     put(join(root, "named", "SKILL.md"), `---\nname: valid:name\ndescription: ${"x".repeat(150)}\n---\n`);
     put(join(root, "fallback", "SKILL.md"), "---\nname: invalid name\n---\nBody fallback\n");
     put(join(root, "group", "deep", "SKILL.md"), "---\ndescription: Deep\n---\n");
     put(join(root, "loose.md"), "---\ndescription: Loose\n---\n");
     expect(walkSkills(root, one).map(({ name, description }) => [name, description])).toEqual([
-      ["fallback", "Body fallback"], ["valid:name", "x".repeat(120)],
+      ["fallback", "Body fallback"], ["valid:name", "x".repeat(150)],
     ]);
   });
 

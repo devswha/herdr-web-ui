@@ -78,7 +78,7 @@ describe("browser lane", () => {
     expect(rows(text).map((row) => row.script)).toContain("scripts/chat-virtual-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/pwa-update-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/omo-chat-browser-qa.ts");
-    expect(rows(text).map((row) => row.script)).toContain("scripts/omo-skill-menu-demo-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/agent-skill-menu-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/portal-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/agy-chat-browser-qa.ts");
     expect(rows(text).filter((row) => row.script === "scripts/ui-contexts-regression.ts")).toHaveLength(1);

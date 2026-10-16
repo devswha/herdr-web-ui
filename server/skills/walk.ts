@@ -17,6 +17,18 @@ export interface WalkedSkill {
   readonly fields: Readonly<Record<string, unknown>>;
 }
 
+const FRONTMATTER = /^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/;
+
+/** The YAML fields of `markdown`'s frontmatter; null without a well-formed header. */
+function parseFrontmatter(markdown: string): Readonly<Record<string, unknown>> | null {
+  const header = markdown.match(FRONTMATTER)?.[1];
+  if (!header) return null;
+  try {
+    const fields: unknown = Bun.YAML.parse(header);
+    return typeof fields === "object" && fields !== null && !Array.isArray(fields) ? Object.fromEntries(Object.entries(fields)) : null;
+  } catch { return null; /* malformed YAML */ }
+}
+
 /** Reads only through the closing frontmatter delimiter, without reading the skill body. */
 export function readFrontmatter(path: string): Readonly<Record<string, unknown>> | null {
   try {
@@ -33,21 +45,29 @@ export function readFrontmatter(path: string): Readonly<Record<string, unknown>>
         if (/\r?\n---(?:\s*\r?\n|$)/.test(markdown) || count < chunk.length) break;
       }
     } finally { closeSync(fd); }
-    const header = markdown.match(/^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/)?.[1];
-    if (!header) return null;
-    const fields: unknown = Bun.YAML.parse(header);
-    return typeof fields === "object" && fields !== null && !Array.isArray(fields) ? Object.fromEntries(Object.entries(fields)) : null;
-  } catch { return null; /* missing, unreadable or malformed frontmatter */ }
+    return parseFrontmatter(markdown);
+  } catch { return null; /* missing or unreadable */ }
 }
 
+/**
+ * A command's description, whole: the frontmatter's `description` as YAML reads it (a `>-` or `|`
+ * block scalar included), else the `description:` line as written, else the body's first non-empty
+ * line. Agents read a header that is not strict YAML (an unquoted colon, `argument-hint: [a] [b]`)
+ * line by line, so a header YAML refuses still yields its description line. The menu shortens it
+ * to one sentence itself and shows the whole text in the row's tooltip, so nothing is cut here.
+ */
 export function description(markdown: string): string {
-  const frontmatter = markdown.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/);
-  if (frontmatter) {
-    const found = frontmatter[1]?.match(/^description:\s*(.+?)\s*$/m)?.[1]?.trim();
-    if (found) return found.replace(/^(["'])(.*)\1$/, "$2").slice(0, 120);
-  }
+  const frontmatter = markdown.match(FRONTMATTER);
+  const found = parseFrontmatter(markdown)?.description;
+  const raw = frontmatter?.[1]?.match(/^description:[ \t]*(.+?)\s*$/m)?.[1]?.trim();
+  // a block scalar's indicator alone is no description: its text is on the lines below it
+  const line = raw && !/^[>|][-+]?\d?$/.test(raw) ? raw.replace(/^(["'])(.*)\1$/, "$2") : undefined;
+  // YAML takes ` #` in a plain value as a comment (`Issue #102 ...` reads as `Issue`); the line
+  // as written is what the person meant there, and what the line-reading loaders showed before
+  if (typeof found === "string" && found.trim()) return line && !/^["']/.test(raw!) && line.length > found.trim().length && line.startsWith(found.trim()) ? line : found.trim();
+  if (line) return line;
   const body = frontmatter ? markdown.slice(frontmatter[0].length) : markdown;
-  return (body.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "").slice(0, 120);
+  return body.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "";
 }
 
 /** `name:` from a SKILL.md's frontmatter, else its directory's name. */
@@ -129,6 +149,33 @@ export function skills(root: string, source: SlashCommand["source"], options: { 
   return walkSkills(root, { depth: "one", looseMarkdown: "none", ignoreFiles: false, requireDescription: false }).map(({ name, description }) => ({
     name: options.prefix ? `${options.prefix}:${name}` : name, description, source, ...(options.trigger ? { trigger: options.trigger } : {}),
   }));
+}
+
+/** A process environ block (`NAME=value` lines) as a record; entries without `=` are skipped. */
+export function environRecord(env: readonly string[] | null | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const entry of env ?? []) {
+    const equal = entry.indexOf("=");
+    if (equal > 0) result[entry.slice(0, equal)] = entry.slice(equal + 1);
+  }
+  return result;
+}
+
+/** One variable of a process environ block; unset and empty both read as undefined. */
+export function environValue(env: readonly string[] | null | undefined, name: string): string | undefined {
+  return env?.find((entry) => entry.startsWith(`${name}=`))?.slice(name.length + 1) || undefined;
+}
+
+/** A parsed config value as a plain record; anything else is empty. */
+export function plainObject(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
+}
+
+/** JSONC as JSON: comments and trailing commas removed outside strings (URLs and escaped quotes kept). */
+export function stripJsonc(text: string): string {
+  return text
+    .replace(/"(?:\\.|[^"\\])*"|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g, (part) => part.startsWith('"') ? part : "")
+    .replace(/("(?:\\.|[^"\\])*")|,\s*(?=[}\]])/g, (_part, quoted: string | undefined) => quoted ?? "");
 }
 
 export function customCommands(root: string, source: SlashCommand["source"]): SlashCommand[] {  if (!existsSync(root)) return [];

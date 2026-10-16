@@ -13,9 +13,10 @@ export const DEFAULT_SKILL_SYNTAX: SkillSyntax = {
 
 export const SKILL_SYNTAX: Readonly<Record<string, SkillSyntax>> = {
   omo: { skillTriggers: ["/", "$"], inline: ["$"], namespaced: true, chipForms: ["$skill:{bare}", "[skill: {bare}]"] },
-  codex: { skillTriggers: ["$"], inline: ["/", "$"], namespaced: false, chipForms: [] },
-  claude: { skillTriggers: ["/"], inline: ["/"], namespaced: false, chipForms: [] },
-  pi: { skillTriggers: ["/"], inline: [], namespaced: false, chipForms: [] },
+  // `/prompts:x`, `/plugin:x` and `/skill:x` keep the menu open past their `:`
+  codex: { skillTriggers: ["$"], inline: ["/", "$"], namespaced: true, chipForms: [] },
+  claude: { skillTriggers: ["/"], inline: ["/"], namespaced: true, chipForms: [] },
+  pi: { skillTriggers: ["/"], inline: [], namespaced: true, chipForms: [] },
   omp: { skillTriggers: ["/"], inline: ["/"], namespaced: true, chipForms: [] },
   gjc: { skillTriggers: ["/"], inline: [], namespaced: true, chipForms: [] },
   devin: { skillTriggers: ["/"], inline: [], namespaced: true, chipForms: [] },

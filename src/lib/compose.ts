@@ -276,12 +276,15 @@ export function briefDescription(description: string): string {
   return (end ? text.slice(0, end.index) : text).replace(/(?<!\.)[.\u3002]$/u, "");
 }
 
-/** Where a bare `/` or `$` lists a command: an omo skill under whose it is, yours before omo's. */
-export const COMMAND_GROUPS = ["builtin", "user", "project", "skill-user", "skill", "skill-bundled", "plugin"] as const;
+/**
+ * Where a bare `/` or `$` lists a command: a skill under where it comes from, yours before the
+ * project's, then the ones without a known origin, the agent's own and its plugins'.
+ */
+export const COMMAND_GROUPS = ["builtin", "user", "project", "skill-user", "skill-project", "skill", "skill-bundled", "skill-plugin", "plugin"] as const;
 export type CommandGroup = (typeof COMMAND_GROUPS)[number];
 
 export function commandGroup(command: SlashCommand): CommandGroup {
-  if (command.source === "skill" && command.origin !== undefined) return command.origin === "user" ? "skill-user" : "skill-bundled";
+  if (command.source === "skill" && command.origin !== undefined) return `skill-${command.origin}`;
   return command.source;
 }
 

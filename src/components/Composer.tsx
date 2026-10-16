@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Minimize2, Package, Plus, Square, TriangleAlert, UserRound, X } from "lucide-react";
+import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Minimize2, Package, Plus, Puzzle, Square, TriangleAlert, UserRound, X, type LucideIcon } from "lucide-react";
 
 import "./Composer.css";
 
@@ -129,6 +129,8 @@ export const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
   skill: "Skills",
   plugin: "Plugins",
 };
+/** Where a skill comes from, as a row's icon: yours in the accent (Composer.css), the rest dimmed like any icon. */
+const ORIGIN_ICON: Record<NonNullable<SlashCommand["origin"]>, LucideIcon> = { user: UserRound, project: FolderGit2, bundled: Package, plugin: Puzzle };
 
 let attachmentSequence = 0;
 
@@ -369,7 +371,7 @@ export function Composer({
 
   useEffect(() => {
     let live = true;
-    void cachedPaneCommands(paneId, machineId, fetchPaneCommands)
+    void cachedPaneCommands(paneId, machineId, agent, fetchPaneCommands)
       .then((next) => {
         if (live) setCommands(next);
       })
@@ -379,7 +381,7 @@ export function Composer({
     return () => {
       live = false;
     };
-  }, [paneId]);
+  }, [paneId, agent]);
 
   useEffect(() => {
     const request = ++fileRequest.current;
@@ -1169,16 +1171,31 @@ export function Composer({
           <div id={menuId} className="menu composer-menu" role="listbox" aria-label={t(trigger.kind === "slash" ? "Slash commands" : "Files")}>
             {trigger.kind === "slash" ? (
               (() => {
-                // omo's rows say what a command does in one sentence (the full text is the row's
-                // tooltip), and an omo skill's icon says whose it is: one that came with omo, or yours
-                const brief = agent === "omo";
-                const groupLabel = (group: ReturnType<typeof commandGroup>): string =>
-                  group === "skill-user" ? t("Your skills") : group === "skill-bundled" ? t("Built-in skills") : t(SOURCE_LABEL[group]);
+                // a row says what a command does in one sentence (the full text is the row's
+                // tooltip), and a skill's icon says where it comes from: yours, this project's,
+                // one that came with the agent, or one of its plugins'
+                const groupLabel = (group: ReturnType<typeof commandGroup>): string => {
+                  switch (group) {
+                    case "skill-user": return t("Your skills");
+                    case "skill-project": return t("Project skills");
+                    case "skill-bundled": return t("Built-in skills");
+                    case "skill-plugin": return t("Plugin skills");
+                    default: return t(SOURCE_LABEL[group]);
+                  }
+                };
+                const ownerLabel = (origin: NonNullable<SlashCommand["origin"]>): string => {
+                  switch (origin) {
+                    case "user": return t("Your skill");
+                    case "project": return t("Project skill");
+                    case "bundled": return t("Built-in skill");
+                    case "plugin": return t("Plugin skill");
+                  }
+                };
                 const row = (command: SlashCommand, withSource: boolean) => {
                   const index = orderedCommands.indexOf(command);
-                  const description = brief ? briefDescription(command.description) : command.description;
-                  const owner = command.origin === undefined ? null : command.origin === "user" ? t("Your skill") : t("Built-in skill");
-                  const Owner = command.origin === "user" ? UserRound : Package;
+                  const description = briefDescription(command.description);
+                  const owner = command.origin === undefined ? null : ownerLabel(command.origin);
+                  const Owner = command.origin === undefined ? null : ORIGIN_ICON[command.origin];
                   return (
                     <button
                       id={`${menuId}-${index}`}
@@ -1187,13 +1204,12 @@ export function Composer({
                       className="menu-item"
                       role="option"
                       aria-selected={index === selectedIndex}
-                      data-brief={brief ? "" : undefined}
                       data-origin={command.origin}
-                      title={brief && command.description.trim() !== "" ? command.description : undefined}
+                      title={command.description.trim() !== "" ? command.description : undefined}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectCompletion(command, trigger)}
                     >
-                      {owner !== null && <Owner aria-hidden="true" />}
+                      {Owner !== null && <Owner aria-hidden="true" />}
                       <span className="menu-item-main">{syntax.skillTriggers.includes(trigger.prefix ?? "/") ? trigger.prefix ?? command.trigger ?? "/" : command.trigger ?? "/"}{command.name}</span>
                       {owner !== null && <span className="visually-hidden">{owner}</span>}
                       <span className="menu-item-hint">{withSource && owner === null ? `${t(SOURCE_LABEL[command.source])}${description ? " · " : ""}` : ""}{description}</span>
