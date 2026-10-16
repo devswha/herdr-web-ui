@@ -3016,6 +3016,46 @@ ${"─".repeat(120)}
     for (const agent of ["codex", "omp", "pi", "omo", ""]) expect(parseInteractivePrompt(agent, captured)).toBeNull();
   });
 
+  test("reads 2.1.301's slider, which describes the level between the names and the hint", () => {
+    // captures from Claude Code 2.1.301: one line under the names at low, two at max
+    const rule = "▔".repeat(120);
+    const low = `❯ /effort
+${rule}
+   Effort
+
+                             Faster                             Smarter
+                             ─▲────────────────────────────────────────      Ultracode  off
+                             low     medium     high     xhigh      max      Tab to toggle
+
+                                    ~0.7x the estimated cost of medium (the default)
+
+
+   ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
+`;
+    const max = `❯ /effort
+${rule}
+   Effort
+
+                             Faster                             Smarter
+                             ────────────────────────────────────────▲─      Ultracode  off
+                             low     medium     high     xhigh      max      Tab to toggle
+
+    May use excessive tokens resulting in long response times or overthinking. Use sparingly for the hardest tasks.
+    (~5.2x)
+
+   ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
+`;
+    const atLow = parseInteractivePrompt("claude", low)!;
+    expect(labels(atLow)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(answerKeys(atLow, { option_index: 2 })).toEqual([{ keys: ["right"] }, { keys: ["right"] }, { text: "s" }]);
+    const atMax = parseInteractivePrompt("claude", max)!;
+    expect(atMax.id).toBe(atLow.id);
+    expect(answerKeys(atMax, { option_index: 3 })).toEqual([{ keys: ["left"] }, { text: "s" }]);
+    // the description a narrow pane wrapped over more lines is still between the names and the hint
+    const wrapped = max.replace("Use sparingly for the hardest tasks.", "\n    Use sparingly\n    for the hardest tasks.");
+    expect(labels(parseInteractivePrompt("claude", wrapped)!)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
   test("moves with ←/→ from the level ▲ is over and picks with s, never with Enter", () => {
     const prompt = parseInteractivePrompt("claude", claudeEffort(2))!;
     expect(answerKeys(prompt, { option_index: 2 })).toEqual([{ text: "s" }]);
