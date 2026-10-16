@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { skillSyntax } from "../../shared/skill-syntax.ts";
 import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage } from "./compose.ts";
 import { briefDescription, commandGroup, commandsForTrigger, slashCommandReplacement } from "./compose.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "./mentions.ts";
@@ -77,6 +78,20 @@ describe("omo command completion", () => {
     expect(slashCommandReplacement(claudeSkill, "claude", inline)).toBe("/delegate ");
     expect(slashCommandReplacement(codexSkill, "codex", inline)).toBe("$delegate ");
     expect(slashCommandReplacement(skill, "pi", slash)).toBe("/skill:mass-ulw ");
+  });
+
+  it("offers omp inline /skill: but not /model or dollar triggers", () => {
+    const syntax = skillSyntax("omp");
+    const options = { skills: syntax.skillTriggers.includes("$"), namespaced: syntax.namespaced };
+    const text = "please /skill:mas";
+    const trigger = activeTrigger(text, text.length, options);
+    if (trigger === null) throw new Error("Expected omp skill trigger");
+    expect(rankSlashCommands(commandsForTrigger(commands, "omp", trigger), trigger.query, {}, true)).toEqual([skill]);
+    const model = "please /model";
+    const modelTrigger = activeTrigger(model, model.length, options);
+    if (modelTrigger === null) throw new Error("Expected slash trigger");
+    expect(rankSlashCommands(commandsForTrigger(commands, "omp", modelTrigger), modelTrigger.query, {}, true)).toEqual([]);
+    expect(activeTrigger("x $", 3, options)).toBeNull();
   });
 });
 

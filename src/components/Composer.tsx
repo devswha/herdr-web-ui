@@ -18,6 +18,7 @@ import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Minimiz
 import "./Composer.css";
 
 import type { AgentStatus, ConversationMetadata, PlanSummary, SlashCommand } from "../../shared/protocol.ts";
+import { skillSyntax } from "../../shared/skill-syntax.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
@@ -329,8 +330,8 @@ export function Composer({
   attachmentsRef.current = attachments;
   textRef.current = text;
   caretRef.current = caret;
-  // Codex uses `$name`; omo also accepts `$skill:name` anywhere a word starts.
-  const trigger = useMemo(() => activeTrigger(text, caret, { skills: agent === "codex" || agent === "omo", namespaced: agent === "omo" }), [agent, caret, text]);
+  const syntax = skillSyntax(agent);
+  const trigger = useMemo(() => activeTrigger(text, caret, { skills: syntax.skillTriggers.includes("$"), namespaced: syntax.namespaced }), [syntax, caret, text]);
   /** a command the agent runs but the chat cannot finish, while it is what the box holds */
   const terminalOnly = useMemo(() => terminalOnlyCommand(agent, text), [agent, text]);
   const uploading = attachments.some((attachment) => attachment.state === "uploading");
@@ -1193,7 +1194,7 @@ export function Composer({
                       onClick={() => selectCompletion(command, trigger)}
                     >
                       {owner !== null && <Owner aria-hidden="true" />}
-                      <span className="menu-item-main">{agent === "omo" && trigger.prefix === "$" ? "$" : command.trigger ?? "/"}{command.name}</span>
+                      <span className="menu-item-main">{syntax.skillTriggers.includes(trigger.prefix ?? "/") ? trigger.prefix ?? command.trigger ?? "/" : command.trigger ?? "/"}{command.name}</span>
                       {owner !== null && <span className="visually-hidden">{owner}</span>}
                       <span className="menu-item-hint">{withSource && owner === null ? `${t(SOURCE_LABEL[command.source])}${description ? " · " : ""}` : ""}{description}</span>
                     </button>

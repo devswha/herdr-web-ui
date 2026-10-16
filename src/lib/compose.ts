@@ -10,6 +10,7 @@
  */
 
 import type { AgentStatus, SlashCommand } from "../../shared/protocol.ts";
+import { skillSyntax } from "../../shared/skill-syntax.ts";
 import { knownStatus, STATUS_WORD } from "./status.ts";
 import { t } from "./i18n.ts";
 import type { ActiveTrigger } from "./mentions.ts";
@@ -247,15 +248,19 @@ function slashMatchTier(command: SlashCommand, needle: string, prefixOnly: boole
 
 /** Commands the agent can invoke at this position, before query ranking. */
 export function commandsForTrigger(commands: readonly SlashCommand[], agent: string | null, trigger: ActiveTrigger): SlashCommand[] {
+  const syntax = skillSyntax(agent);
+  const prefix = trigger.prefix ?? "/";
   return commands.filter((command) => {
-    if (agent === "omo") {
-      return trigger.prefix === "$" ? command.source === "skill" : trigger.start === 0;
+    if (trigger.start === 0) {
+      return syntax.skillTriggers.length > 1
+        ? prefix === "/" || command.source === "skill"
+        : (command.trigger ?? "/") === prefix;
     }
-    const prefix = command.trigger ?? "/";
-    if (trigger.start === 0) return prefix === (trigger.prefix ?? "/");
-    // Claude honours a skill mention as permission to invoke it; Codex names skills with `$`.
-    // pi expands /skill:name only at message start, and builtins are whole-message commands.
-    return command.source === "skill" && (agent === "claude" ? prefix === "/" : agent === "codex" && prefix === "$");
+    if (command.source !== "skill" || !syntax.inline.includes(prefix)) return false;
+    if (agent === "codex") return command.trigger === "$";
+    if (agent === "claude") return command.trigger === undefined;
+    if (agent === "omp") return command.name.startsWith("skill:");
+    return true;
   });
 }
 
@@ -280,9 +285,9 @@ export function commandGroup(command: SlashCommand): CommandGroup {
   return command.source;
 }
 
-/** omo's inline skills use the typed `$`, while other agents use the command's wire trigger. */
+/** Multi-trigger skills use the typed prefix; others use the command's wire trigger. */
 export function slashCommandReplacement(command: SlashCommand, agent: string | null, trigger: ActiveTrigger): string {
-  const prefix = agent === "omo" ? trigger.prefix ?? "/" : command.trigger ?? "/";
+  const prefix = skillSyntax(agent).skillTriggers.length > 1 ? trigger.prefix ?? "/" : command.trigger ?? "/";
   return `${prefix}${command.name} `;
 }
 

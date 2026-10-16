@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { SlashCommand } from "../../shared/protocol.ts";
+import { skillSyntax } from "../../shared/skill-syntax.ts";
 import { createSkillMatcher } from "./skillMentions.ts";
 
 const command = (name: string, source: SlashCommand["source"], trigger?: "$"): SlashCommand => ({ name, description: "", source, ...(trigger ? { trigger } : {}) });
@@ -33,7 +34,7 @@ describe("createSkillMatcher", () => {
   });
 
   test("omo chips /skill:x, $skill:x and [skill: x] for a listed skill only", () => {
-    const omo = createSkillMatcher([command("skill:mass-ulw", "skill"), command("compact", "builtin")], { omo: true })!;
+    const omo = createSkillMatcher([command("skill:mass-ulw", "skill"), command("compact", "builtin")], skillSyntax("omo"))!;
     const raws = (text: string) => omo(text).flatMap((part) => typeof part === "string" ? [] : [part.raw]);
     expect(omo("run $skill:mass-ulw now")).toEqual(["run ", { raw: "$skill:mass-ulw", name: "skill:mass-ulw" }, " now"]);
     expect(raws("/skill:mass-ulw go")).toEqual(["/skill:mass-ulw"]);
@@ -46,7 +47,7 @@ describe("createSkillMatcher", () => {
     const list = [command("skill:mass-ulw", "skill")];
     const plain = createSkillMatcher(list)!;
     expect(plain("$skill:mass-ulw [skill: mass-ulw]")).toEqual(["$skill:mass-ulw [skill: mass-ulw]"]);
-    expect(createSkillMatcher(list, { omo: false })!("$skill:mass-ulw")).toEqual(["$skill:mass-ulw"]);
+    expect(createSkillMatcher(list, skillSyntax(null))!("$skill:mass-ulw")).toEqual(["$skill:mass-ulw"]);
   });
 
   test("whole names only", () => {
