@@ -613,8 +613,8 @@ One set for both themes: the card is island black wherever it shows.
 - The Agents list is flat and every row names its own place. Pinned agents (pinned from a row's
   menu) stand first, in the order they were pinned, in a card (a `--hairline` `--border` edge,
   `--radius-lg`, `--space-1` padding, no fill, so hover and selection read inside it as elsewhere),
-  each with a `--space-3` `--accent` pin after its title; the rest follow `--space-2` below in the
-  chosen order. The Agents head is the only head (the pinned list is labelled **Pinned** for screen
+  with no mark of their own (the card says they are pinned); the rest follow `--space-2` below in
+  the chosen order. The Agents head is the only head (the pinned list is labelled **Pinned** for screen
   readers); without pins there is no card. Pins are shared with the other browsers of the server.
 - Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
   its name. Two lines draws the row as the roster did before it was one line, on an agent row's
@@ -647,8 +647,8 @@ One set for both themes: the card is island black wherever it shows.
   next or previous group with its worktrees, and a worktree moves among its siblings only.
 - A workspace is pinned from its row menu (**Pin workspace** / **Unpin workspace**, first in the
   menu), as Paseo pins a chat: pinned workspaces leave their place and stand first in their PC's
-  list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`) with the same
-  `--accent` pin after the name. A pinned repository's workspace brings its worktrees; a pinned
+  list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`), with no mark
+  of their own either. A pinned repository's workspace brings its worktrees; a pinned
   worktree leaves its repository's group, which stays. Pinned rows are not dragged and `Alt+↑/↓`
   does not move them; the rest reorder among the rows they show. The pins are the Agents list's
   shared list (a workspace's key is `machine:workspace:id`), so other browsers of the server see them.
