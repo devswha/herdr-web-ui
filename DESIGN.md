@@ -30,6 +30,7 @@ lens glyph and the terminal cursor.
 
 Only tokens overridden by `[data-theme="light"]` have a light value. Both columns are literal CSS.
 
+<!-- BEGIN GENERATED THEMES -->
 | Role | Token | Dark | Light |
 |------|-------|------|-------|
 | Surface/base | `--bg` | `#12100e` | `#eeeae2` |
@@ -65,13 +66,19 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Danger/text | `--danger-text` | `#ffd9d4` | `#8f1d1d` |
 | Notice | `--notice` | `#e8c55c` | `#7a5a00` |
 | Overlay/scrim | `--scrim` | `rgba(8, 6, 4, 0.55)` | `rgba(40, 32, 22, 0.35)` |
-| Glass bar | `--bar-bg` | `color-mix(in srgb, var(--bg-panel) 72%, transparent)` | same expression |
-| Glass card | `--card-glass` | `color-mix(in srgb, var(--bg-elevated) 80%, transparent)` | same expression |
-| Glass blur | `--glass-blur` | `saturate(180%) blur(20px)` | same |
 | Drawer shadow | `--shadow-drawer` | `0 0 40px rgba(0, 0, 0, 0.6)` | `0 0 40px rgba(40, 32, 22, 0.22)` |
 | Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
 | Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
 | Document surface | `--pdf-page` | `#ffffff` | `#ffffff` |
+<!-- END GENERATED THEMES -->
+
+The glass tokens are expressions over the palette above, not colors of their own:
+
+| Role | Token | Dark | Light |
+|------|-------|------|-------|
+| Glass bar | `--bar-bg` | `color-mix(in srgb, var(--bg-panel) 72%, transparent)` | same expression |
+| Glass card | `--card-glass` | `color-mix(in srgb, var(--bg-elevated) 80%, transparent)` | same expression |
+| Glass blur | `--glass-blur` | `saturate(180%) blur(20px)` | same |
 
 `--pdf-page` is the one color with the same value in both columns, on purpose: a PDF page is
 paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the theme. It is named in
