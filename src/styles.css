@@ -7,8 +7,11 @@
  * the attribute); `[data-density="compact"]` overrides the type scale and row
  * heights. The base blocks are the amber palette, the default and the look before
  * settings load; `[data-palette]` blocks override them for the opt-in
- * charcoal and catppuccin palettes. xterm cannot read CSS custom
- * properties, so the --term-* group is mirrored in settings.ts `terminalTheme()`.
+ * charcoal and catppuccin palettes. These theme blocks are the single source of
+ * theme colors: `bun run generate:themes` (scripts/generate-themes.ts) reads them
+ * and writes src/lib/themes.generated.ts (xterm's --term-* colors and the panel
+ * color), DESIGN.md's amber table, index.html's theme-color and the web manifest's
+ * colors. Edit a color here and regenerate; never edit those copies.
  * Component-scoped rules live beside their component (Sidebar.css,
  * PaneTerminal.css, ...); this file owns the app shell, the header and the
  * primitives (.icon-button, .btn, .pill, .badge, .segmented, .modal, .menu, .kbd)
@@ -77,7 +80,7 @@
      (FileViewer's .file-viewer-pdf) */
   --pdf-page: #ffffff;
 
-  /* terminal theme: mirrored verbatim in src/lib/settings.ts terminalTheme() */
+  /* terminal theme: copied into src/lib/themes.generated.ts by `bun run generate:themes` for xterm */
   --term-bg: #181613;
   --term-fg: #d8d0c3;
   --term-cursor: #f0a830;

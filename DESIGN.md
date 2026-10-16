@@ -88,37 +88,40 @@ paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the them
 
 `settings.palette` (`amber` default, `charcoal`, `catppuccin`) is written as `data-palette`. The
 tables above are amber, the base blocks; the two opt-in palettes override them in
-`[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
+`[data-theme][data-palette]` blocks of `src/styles.css`.
+
+The theme blocks of `src/styles.css` are the theme table and the one place a theme color is
+edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
+`[data-theme="<mode>"][data-palette="<id>"]` is every other entry. `bun run generate:themes`
+(`scripts/generate-themes.ts`) reads them and writes the copies: `src/lib/themes.generated.ts`
+(the supported entries with their roles, xterm colors and panel color), the amber table above
+between its `GENERATED THEMES` markers, the `theme-color` tag in `index.html` and the manifest's
+`theme_color` and `background_color`. Never edit those copies by hand; `--check` fails when one
+is stale. Only amber has a hex table here; read another palette's values in its blocks.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
 alone parts the bubble from `--bg`: dark amber and dark charcoal. It is `var(--border)`
 where the two surfaces sit close: every light theme (the `[data-theme="light"]` block sets it for
 all palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
 
-- **Charcoal** is a neutral Ghostty-style dark: `--bg` `#0f0f0f`, panel and terminal `#171717`, text
-  `#cbc7c0` / `#918c85` / `#f5f2ec`, accent and primary near-white `#e8e4dc` with `#171717` text,
-  muted states (working `#c2a2af`, input `#e0877f`, done `#a7b789`, idle `#9a958e`), terminal cursor
-  `#cbc7c0`, selection `#49443d`. It keeps amber's rounded corners and card shadow.
-  In light it is plain paper (`--bg` `#f2f2f0`, panel `#fafaf9`, text `#242424`, primary ink
-  `#242424` with `#fafaf9` text) with an ink accent and cursor `#242424`, selection `#dedad3`.
+- **Charcoal** is a neutral Ghostty-style dark: near-black canvas, a slightly lighter panel and
+  terminal, a near-white accent and primary, and muted agent states. It keeps amber's rounded
+  corners and card shadow. In light it's plain paper with an ink accent and cursor.
 - **Catppuccin** follows [catppuccin.com/palette](https://catppuccin.com/palette/), its style guide
   and its Zed port: Mocha in dark, Latte in light. In both the content (chat canvas `--bg`,
   terminal) is Base, the chrome (`--bg-panel`: sidebar, the header over it and on a phone, tabs) and elevated surfaces Mantle,
   dimmed text Subtext1, cursor Rosewater, selection Overlay2 at 25% over Base. Dark uses palette
-  colors (only the primary hover `#d3b3f8`, Mauve lightened, and the tints are derived): Base
-  `#1e1e2e`, Mantle `#181825`, input Crust, hover Surface0, text Text `#cdd6f4` / Subtext1 `#bac2de`,
-  accent and primary Mauve `#cba6f7` with Crust text, states Blue / Maroon / Green, idle Subtext0
-  (Maroon, not Red, keeps input AA on a hovered row), cursor `#f5e0dc`, selection `#3b3d4f`. Light
-  keeps Latte's surfaces and text: Base `#eff1f5` (also input), Mantle `#e6e9ef`, hover Crust
-  `#dce0e8` (the darkest surface Subtext1 stays AA on), idle Subtext1, cursor `#dc8a78`, selection
-  `#d2d4dc`. Latte's accents are under 4.5:1 on these surfaces, so each keeps its hue and is darkened
-  until it passes AA: Mauve `#712fc6` (primary hover is plain Latte Mauve `#8839ef`), Blue `#1750bf`,
-  Red `#ac0c2f`, Green `#28651b`. It keeps amber's rounded corners.
+  colors, with only the primary hover (Mauve lightened) and the tints derived; its states are
+  Blue / Maroon / Green (Maroon, not Red, keeps input AA on a hovered row). Light keeps Latte's
+  surfaces and text, with Crust as the hover, the darkest surface Subtext1 stays AA on. Latte's
+  accents are under 4.5:1 on these surfaces, so each keeps its hue and is darkened until it passes
+  AA. It keeps amber's rounded corners.
 
 ### Terminal theme
 
-xterm.js reads a JavaScript theme, so `src/lib/settings.ts` `terminalTheme()` mirrors these four
-CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` checks the match).
+xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens
+of every supported entry into `src/lib/themes.generated.ts`, and `terminalTheme()` hands them to
+xterm (`settings.test.ts` checks the match).
 
 | Role | Token | Dark | Light | xterm key |
 |------|-------|------|-------|-----------|
@@ -145,12 +148,9 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 |-------|---------|--------|--------|------|----------|------|
 | Dark amber | `#e8875f` | `#a8c17c` | `#d6a0c9` | `#6cb8d6` | `#e0c08f` | `#b49dd6` |
 | Light amber | `#a33a17` | `#4b6b18` | `#8a3f7a` | `#155a72` | `#7a5418` | `#5d4791` |
-| Light charcoal | `#b3261e` | `#22743a` | `#8a5300` | `#0b6e8a` | `#3b3b3b` | `#6f42c1` |
-| Dark charcoal | `#d7a08a` | `#a7b789` | `#c2a2af` | `#9fb4c2` | `#dcd8d0` | `#b8a5c9` |
-| Catppuccin Mocha | `#cba6f7` | `#a6e3a1` | `#fab387` | `#f9e2af` | `#f5e0dc` | `#f5c2e7` |
-| Catppuccin Latte | `#712fc6` | `#2f7620` | `#b44201` | `#905c13` | `#4c4f69` | `#bc1d91` |
 
-`--syntax-function` in Catppuccin: Mocha `#89b4fa`, Latte `#0b59f4`.
+Charcoal and Catppuccin set their own six (and Catppuccin its `--syntax-function`) in their
+blocks of `src/styles.css`.
 
 ### File viewer
 
@@ -1676,4 +1676,3 @@ The values are the ones in `src/styles.css`.
 | Terminal content accessibility relies on xterm defaults | `PaneTerminal.tsx` | Screen-reader mode changes terminal DOM and input behavior | Decide with herdr TUI owners |
 | Drawer has no focus trap | `.sidebar.is-open` | Closed state leaves the tab order, but open-state trapping is not implemented | Add a shared focus utility |
 | Modal focus is initialized, not fully trapped | Dialog components | Escape/scrim/close work; tab containment is not shared | Add the same focus utility |
-| Terminal colors exist in CSS and JavaScript | `styles.css`, `settings.ts` | xterm consumes a JS theme | Keep `terminalTheme()` verbatim with `--term-*` |
