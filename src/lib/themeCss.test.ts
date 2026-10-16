@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeThemeValue, parseThemeBlocks, parseThemeValue, resolveEntry, ThemeValueError } from "./themeCss.ts";
-import { SHADOW_GEOMETRY } from "./themes.ts";
+import { SHADOW_GEOMETRY, SUPPORTED_ENTRIES } from "./themes.ts";
 import baseline from "./themes.legacy-baseline.json";
 
 const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
@@ -16,17 +16,19 @@ it("spells a theme value one way: collapsed spaces, lowercase hex, rgba() with s
 });
 
 describe("CSS theme table", () => {
-  it("enumerates exactly the six legacy entries", () => {
-    expect(Object.keys(blocks).sort()).toEqual(Object.keys(baseline.combos).sort());
+  it("enumerates exactly the supported entries, including every frozen legacy row", () => {
+    expect(Object.keys(blocks).sort()).toEqual(SUPPORTED_ENTRIES.map(({ id, mode }) => `${id}/${mode}`).sort());
+    for (const entry of Object.keys(baseline.combos)) expect(blocks[entry]).toBeDefined();
   });
 
   it("preserves every frozen declared and resolved value through the shared normalizer", () => {
-    for (const [entry, block] of Object.entries(blocks)) {
+    for (const [entry, frozen] of Object.entries(baseline.combos)) {
+      const block = blocks[entry];
+      expect(block).toBeDefined();
+      if (!block) throw new Error(`Missing frozen entry ${entry}`);
       const actual = resolveEntry(css, block.id, block.mode);
-      const frozen = Object.entries(baseline.combos).find(([key]) => key === entry)?.[1];
-      expect(frozen).toBeDefined();
       for (const kind of ["declared", "resolved"] as const) {
-        for (const [role, value] of Object.entries(frozen?.[kind] ?? {})) {
+        for (const [role, value] of Object.entries(frozen[kind])) {
           expect({ entry, kind, role, value: actual[kind][role] }).toEqual({ entry, kind, role, value: normalizeThemeValue(value) });
         }
       }
@@ -44,7 +46,7 @@ describe("CSS theme table", () => {
     }
   });
 
-  it("parses every legacy shadow into fixed geometry and colors", () => {
+  it("parses every supported shadow into fixed geometry and colors", () => {
     for (const [entry, block] of Object.entries(blocks)) {
       const { declared } = resolveEntry(css, block.id, block.mode);
       for (const [role, geometry] of Object.entries(SHADOW_GEOMETRY[block.mode])) {
