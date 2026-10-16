@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
@@ -107,6 +107,70 @@ try {
         }, mobile);
       }
       console.log("PASS a pane's plan opens from the composer's chip, as a list of steps, on a desktop and a phone");
+
+      // A repository pin hoists only its own row; its worktrees stay outside the card and fixed.
+      for (const mobile of [false, true]) {
+        await withPage(browser, {}, async (page) => {
+          if (mobile) await page.locator('button[aria-controls="workspace-drawer"]').tap();
+          const head = page.locator(`.workspace-select[data-pane="${panes.api}"]`);
+          const headId = await head.evaluate((row) => row.closest(".workspace-group")?.getAttribute("data-workspace"));
+          assert.ok(headId);
+          const worktrees = await page.evaluate(async (workspaceId) => {
+            const made: { workspace_id: string; pane_id: string }[] = [];
+            for (const branch of ["pin-first", "pin-second"]) {
+              const response = await fetch("/api/worktree/create", {
+                method: "POST", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ workspace_id: workspaceId, branch }),
+              });
+              if (!response.ok) throw new Error(`worktree fixture: ${response.status}`);
+              made.push(await response.json());
+            }
+            return made;
+          }, headId);
+          for (const { pane_id } of worktrees) await page.locator(`.workspace-select[data-pane="${pane_id}"]`).waitFor();
+          const titles = () => page.locator(".machine-workspaces .workspace-name").allTextContents();
+          const groupedOrder = await titles();
+          const headName = await head.locator(".workspace-name").textContent();
+          const setPin = async (pin: boolean) => {
+            if (mobile) await page.locator(`.workspace-group[data-workspace="${headId}"] > .workspace-header .row-menu-toggle`).tap();
+            else await head.click({ button: "right" });
+            const label = pin ? "Pin workspace" : "Unpin workspace";
+            const panel = page.getByRole(mobile ? "dialog" : "menu");
+            if (mobile) await panel.getByRole("button", { name: label, exact: true }).tap();
+            else await panel.getByRole("menuitem", { name: label, exact: true }).click();
+            await panel.waitFor({ state: "detached" });
+          };
+          await setPin(true);
+          const card = page.locator(".machine-workspaces .sidebar-pinned");
+          await card.waitFor();
+          assert.deepEqual(await card.locator(".workspace-name").allTextContents(), [headName], "pinning a repository pins only its own row, not its worktrees");
+          assert.deepEqual(await titles(), [headName, ...groupedOrder.filter((name) => name !== headName)], "worktrees keep the repository's position and their order");
+          const evidence = process.env["UI_EVIDENCE_DIR"];
+          if (evidence) {
+            mkdirSync(evidence, { recursive: true });
+            // Let the compositor present the menu's removal before taking the optional capture.
+            await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            await page.screenshot({ path: join(evidence, `pin-repository-${mobile ? "phone" : "desktop"}.png`) });
+          }
+          for (const { workspace_id, pane_id } of worktrees) {
+            const row = page.locator(`.workspace-select[data-pane="${pane_id}"]`);
+            assert.equal(await row.evaluate((element) => element.closest(".sidebar-pinned, .worktree-children") === null), true, "an unpinned worktree is a standalone row outside the card");
+            assert.equal(await row.getAttribute("draggable"), "false", "an orphaned worktree cannot be dragged");
+            assert.equal(await row.getAttribute("aria-keyshortcuts"), null, "an orphaned worktree offers no reorder shortcut");
+            await row.focus();
+            await page.keyboard.press("Alt+ArrowDown");
+            assert.deepEqual(await titles(), [headName, ...groupedOrder.filter((name) => name !== headName)], "Alt+Down does not move an orphaned worktree");
+            assert.equal(await page.locator(`.workspace-group[data-workspace="${workspace_id}"]`).count(), 1, "each worktree appears once");
+          }
+          await setPin(false);
+          await card.waitFor({ state: "detached" });
+          assert.deepEqual(await titles(), groupedOrder, "unpinning restores the repository group and order");
+          for (const { pane_id } of worktrees) {
+            assert.equal(await page.locator(`.worktree-children .workspace-select[data-pane="${pane_id}"]`).count(), 1, "unpinning nests the worktree under its repository again");
+          }
+        }, mobile);
+      }
+      console.log("PASS a repository pin keeps only its row in the card; its worktrees stay outside, fixed and ordered, and regroup on unpin, on desktop and phone");
 
       // herdr's order before and after a finish; a right-click pins an agent, an opened DONE keeps herdr's dot
       await withPage(browser, {}, async (page) => {

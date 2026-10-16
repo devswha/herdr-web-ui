@@ -54,7 +54,7 @@ describe("sidebar agent pins", () => {
     expect(pruneWorkspacePins(keys, "pc-a", new Set(["w1"]))).toEqual(["pc-a:workspace:w1", "pc-b:workspace:gone", "pc-a:p1"]);
   });
 
-  it("hoists a pinned repository with its worktrees and a pinned worktree alone", () => {
+  it("hoists only pinned rows and leaves a pinned head's worktrees in their group position", () => {
     const groups = [
       { workspace: "repo", children: ["wt1", "wt2"] },
       { workspace: "solo", children: [] },
@@ -67,9 +67,22 @@ describe("sidebar agent pins", () => {
       rest: [{ workspace: "repo", children: ["wt1"] }, { workspace: "solo", children: [] }],
     });
     expect(split(["repo", "wt1", "missing"])).toEqual({
-      pinned: [{ workspace: "repo", children: ["wt2"] }, { workspace: "wt1", children: [] }],
-      rest: [{ workspace: "solo", children: [] }, { workspace: "other", children: [] }],
+      pinned: [{ workspace: "repo", children: [] }, { workspace: "wt1", children: [] }],
+      rest: [{ workspace: "wt2", children: [] }, { workspace: "solo", children: [] }, { workspace: "other", children: [] }],
     });
+  });
+
+  it("keeps unpinned worktrees in order between the groups around their pinned head", () => {
+    const groups = [
+      { workspace: "before", children: [] },
+      { workspace: "repo", children: ["wt1", "wt2"] },
+      { workspace: "after", children: [] },
+    ];
+    expect(splitPinnedGroups(groups, ["repo"], (id) => id)).toEqual({
+      pinned: [{ workspace: "repo", children: [] }],
+      rest: [{ workspace: "before", children: [] }, { workspace: "wt1", children: [] }, { workspace: "wt2", children: [] }, { workspace: "after", children: [] }],
+    });
+    expect(splitPinnedGroups(groups, [], (id) => id)).toEqual({ pinned: [], rest: groups });
   });
 
   it("holds a pinned repository's worktrees in place with it", () => {
@@ -77,9 +90,10 @@ describe("sidebar agent pins", () => {
       { workspace: "repo", children: ["wt1", "wt2"] },
       { workspace: "solo", children: [] },
     ];
-    const { pinned } = splitPinnedGroups(groups, ["repo"], (id) => id);
-    expect([...pinnedGroupIds(pinned, (id) => id)]).toEqual(["repo", "wt1", "wt2"]);
-    expect(pinnedGroupIds([], (id: string) => id).size).toBe(0);
+    expect([...pinnedGroupIds(groups, ["repo"], (id) => id)]).toEqual(["repo", "wt1", "wt2"]);
+    expect([...pinnedGroupIds(groups, ["wt2"], (id) => id)]).toEqual(["wt2"]);
+    expect(pinnedGroupIds(groups, [], (id) => id).size).toBe(0);
+    expect(pinnedGroupIds([], ["missing"], (id: string) => id).size).toBe(0);
   });
 
   it("starts with no pins when storage denies the read", () => {

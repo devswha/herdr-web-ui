@@ -100,27 +100,33 @@ export interface WorkspaceGroup<W> { workspace: W; children: W[] }
 
 /**
  * The workspace list's groups split by pins, as Paseo hoists a pinned chat out of its project: the
- * pinned ones first, in pin order, a pinned repository's workspace with its worktrees and a pinned
- * worktree alone; the rest in the source order. A pinned worktree leaves its group, which stays.
+ * pinned rows first, in pin order; the rest in the source order. A pinned worktree leaves its
+ * group, which stays. A pinned head leaves its unpinned worktrees as standalone rows in its place.
  */
 export function splitPinnedGroups<W>(groups: readonly WorkspaceGroup<W>[], pinnedIds: readonly string[], idOf: (workspace: W) => string): { pinned: WorkspaceGroup<W>[]; rest: WorkspaceGroup<W>[] } {
   const pinnedSet = new Set(pinnedIds);
   const strip = (group: WorkspaceGroup<W>): WorkspaceGroup<W> => ({ workspace: group.workspace, children: group.children.filter((child) => !pinnedSet.has(idOf(child))) });
   const byId = new Map<string, WorkspaceGroup<W>>();
   for (const group of groups) {
-    byId.set(idOf(group.workspace), strip(group));
+    byId.set(idOf(group.workspace), { workspace: group.workspace, children: [] });
     for (const child of group.children) byId.set(idOf(child), { workspace: child, children: [] });
   }
   const pinned = [...pinnedSet].flatMap((id) => {
     const group = byId.get(id);
     return group === undefined ? [] : [group];
   });
-  return { pinned, rest: groups.filter((group) => !pinnedSet.has(idOf(group.workspace))).map(strip) };
+  const rest = groups.flatMap((group) => pinnedSet.has(idOf(group.workspace))
+    ? strip(group).children.map((workspace) => ({ workspace, children: [] }))
+    : [strip(group)]);
+  return { pinned, rest };
 }
 
-/** The rows of the pinned groups, a pinned repository's worktrees too: none of them is reordered. */
-export function pinnedGroupIds<W>(pinned: readonly WorkspaceGroup<W>[], idOf: (workspace: W) => string): Set<string> {
-  return new Set(pinned.flatMap((group) => [group.workspace, ...group.children].map(idOf)));
+/** Pinned rows and a pinned head's worktrees, from the original groups: none is reordered. */
+export function pinnedGroupIds<W>(groups: readonly WorkspaceGroup<W>[], pinnedIds: readonly string[], idOf: (workspace: W) => string): Set<string> {
+  const pinnedSet = new Set(pinnedIds);
+  return new Set(groups.flatMap((group) => pinnedSet.has(idOf(group.workspace))
+    ? [group.workspace, ...group.children].map(idOf)
+    : group.children.map(idOf).filter((id) => pinnedSet.has(id))));
 }
 
 /** Pinned rows in their saved order, and the other rows in the source roster order. */
