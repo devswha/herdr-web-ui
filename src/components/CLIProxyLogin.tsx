@@ -17,6 +17,8 @@ export function CLIProxyAccountLogin({ provider, active, onStarted, onAccountsCh
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
   const [error, setError] = useState<string | null>(null);
   const lifetime = useRef<AbortController | null>(null);
   const onChanged = useRef(onAccountsChanged);
@@ -32,8 +34,12 @@ export function CLIProxyAccountLogin({ provider, active, onStarted, onAccountsCh
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
-    return () => controller.abort();
-  }, [t]);
+    return () => {
+      controller.abort();
+      const current = pendingRef.current;
+      if (current) void cliProxyRequest(`/login?state=${encodeURIComponent(current.state)}`, { method: "DELETE" }).catch(() => undefined);
+    };
+  }, []);
 
   useEffect(() => {
     if (!pending) return;
@@ -51,7 +57,7 @@ export function CLIProxyAccountLogin({ provider, active, onStarted, onAccountsCh
         if (controller.signal.aborted) return;
         switch (status.status) {
           case "wait": timer = setTimeout(() => void poll(), 1500); break;
-          case "ok": setPending(null); onChanged.current(); break;
+          case "ok": pendingRef.current = null; setPending(null); onChanged.current(); break;
           case "error": setPending(null); setError(t("Hub request failed")); break;
           default: { const unexpected: never = status.status; throw new Error(String(unexpected)); }
         }
@@ -71,8 +77,13 @@ export function CLIProxyAccountLogin({ provider, active, onStarted, onAccountsCh
     onStarted();
     setBusy(true); setError(null);
     void cliProxyRequest<CLIProxyLogin>("/login", json("POST", { provider })).then((login) => {
-      if (lifetime.current?.signal.aborted) { popup.close(); return; }
+      if (lifetime.current?.signal.aborted) {
+        popup.close();
+        void cliProxyRequest(`/login?state=${encodeURIComponent(login.state)}`, { method: "DELETE" }).catch(() => undefined);
+        return;
+      }
       popup.location.href = login.url;
+      pendingRef.current = { ...login, provider };
       setPending({ ...login, provider });
     }).catch((cause: unknown) => {
       popup.close();

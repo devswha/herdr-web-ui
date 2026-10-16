@@ -1469,7 +1469,8 @@ One set for both themes: the card is island black wherever it shows.
   supply plan limits. Local sign-in uses a new native terminal tab on the connection server's local PC
   without moving native focus. It uses in-app pane selection and the existing canonical link writer,
   not a page reload, even when another PC was selected. Hub OAuth
-  keeps the synchronous popup, bounded waiting, Cancel and redirect-paste form. The hub connection
+  keeps the synchronous popup, bounded waiting, Cancel and redirect-paste form. Closing account setup
+  cancels a pending hub sign-in; changing the UI language does not cancel it. The hub connection
   step has a labeled URL and DOM-only password, Connect, then Connected and Done; an account count
   is fetched only when plan limits are enabled. Connection save/edit/remove never requests usage
   while that opt-in is off.

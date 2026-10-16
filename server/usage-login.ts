@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { UsageProviderId } from "../shared/protocol.ts";
@@ -60,6 +60,7 @@ export class UsageLoginService {
     // POSIX exec lets herdr's pane-ended event identify completion, without a second watcher.
     const executable = executableFor(id);
     if (!executable) return conflictResponse("cli_unavailable", "Install the official CLI on this PC before signing in");
+    let unusedCredentialHome: string | null = null;
     try {
       if (!separate && body["replace"] !== true && (await provider.signIns(this.context)).length > 0) {
         return conflictResponse("account_confirmation_required", "Confirm before signing in again to this provider");
@@ -81,6 +82,7 @@ export class UsageLoginService {
           if (error instanceof Error && "code" in error && error.code === "EEXIST") return conflictResponse("account_exists", "That account name already has a credential home. Choose another name.");
           throw error;
         }
+        unusedCredentialHome = credentialHome;
         env[id === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = credentialHome;
       }
       if (id === "copilot") env["XDG_CONFIG_HOME"] = this.env["XDG_CONFIG_HOME"] || join(this.home, ".config");
@@ -101,13 +103,27 @@ export class UsageLoginService {
         const shell = paneShell(info?.foreground_processes?.[0]?.argv?.[0] ?? "powershell.exe");
         const command = shellCommandLine(shell, executable, args);
         await paneSendText(paneId, `${command}${shell === "cmd" ? " & exit" : "; exit $LASTEXITCODE"}`);
+        unusedCredentialHome = null;
         await paneSendKeys(paneId, ["Enter"]);
       } else {
         await paneSendText(paneId, `${manual ? "printf 'Type /login in Claude to sign in.\\n'; " : ""}exec ${shellCommandLine("posix", executable, args)}\n`);
+        unusedCredentialHome = null;
       }
       return jsonResponse({
         pane_id: paneId, workspace_id: created.tab.workspace_id, manual, device_auth: device,
       } satisfies UsageLoginStarted);
-    } catch (error) { return errorResponse(error); }
+    } catch (error) {
+      if (unusedCredentialHome) {
+        try { rmdirSync(unusedCredentialHome); }
+        catch (cleanupError) {
+          // A CLI may already have written credentials; never remove a nonempty home.
+          if (!(cleanupError instanceof Error && "code" in cleanupError
+            && ["ENOTEMPTY", "EEXIST", "ENOENT"].includes(String(cleanupError.code)))) {
+            console.warn("Could not remove unused sign-in credential home", cleanupError);
+          }
+        }
+      }
+      return errorResponse(error);
+    }
   }
 }

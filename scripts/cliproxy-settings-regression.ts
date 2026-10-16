@@ -162,6 +162,33 @@ return (u.pathname==='/api/usage'||u.pathname==='/api/cliproxy'||u.pathname.star
   await second.close();
   await modal.getByRole("button", { name: "Close", exact: true }).click();
   await page.waitForFunction(() => document.activeElement === document.querySelector(".usage-accounts-header .btn"));
+
+  // Given: a hub session is still waiting when its dialog is dismissed.
+  await add.click();
+  await modal.getByRole("button", { name: /^Claude/ }).click();
+  const dismissedReady = page.waitForEvent("popup");
+  await modal.getByRole("button", { name: /^Through the hub/ }).click();
+  const dismissed = await dismissedReady;
+  await dismissed.waitForURL(/\/authorize\?state=/);
+  await modal.getByText("Waiting for sign-in…", { exact: true }).waitFor();
+  const dismissedState = new URL(dismissed.url()).searchParams.get("state");
+  assert.ok(dismissedState);
+  assert.equal(fake.sessions.has(dismissedState), true);
+  const dismissedCancel = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/cliproxy/login" && url.searchParams.get("state") === dismissedState
+      && response.request().method() === "DELETE";
+  }, { timeout: 5000 });
+  // When: Escape unmounts the account dialog, rather than pressing Cancel.
+  await modal.getByRole("button", { name: "Close", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await modal.waitFor({ state: "hidden" });
+  // Then: cancellation reaches the backend and releases that exact fixture session.
+  assert.equal((await dismissedCancel).status(), 200);
+  assert.equal(fake.sessions.has(dismissedState), false);
+  await dismissed.close();
+  await page.locator(".settings-dialog").waitFor();
+  console.log("PASS: Escape cancels the pending hub state and removes its session");
   const config: { url: string } = await (await page.request.get(`${origin}/api/cliproxy`)).json();
   const connection = page.locator('[data-section="usage-connection"]');
   await page.getByRole("switch", { name: "Show plan limits", exact: true }).click();

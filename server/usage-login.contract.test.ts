@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, expect, it, spyOn } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UsageLoginStarted } from "../shared/usage-login.ts";
 import { createServer } from "./index.ts";
 import { paneClose, workspaceClose, workspaceCreate } from "./herdr/client.ts";
+import * as herdr from "./herdr/client.ts";
 import { isJsonObject } from "./http.ts";
 import { UsageLoginService } from "./usage-login.ts";
 import { UsageService, USAGE_PROVIDERS, type UsageContext } from "./usage.ts";
@@ -127,6 +128,50 @@ it("rejects an existing credential home when its name is reused", async () => {
   const response = await start({ provider: "claude", name: "existing" });
   // Then
   expect(response.status).toBe(409);
+});
+
+for (const provider of ["claude", "codex"] as const) {
+  it(`allows retrying ${provider} with the same name when creating the sign-in tab fails`, async () => {
+    // Given: the official CLI is a fake and the credential home is disposable.
+    const home = mkdtempSync(join(root, "retry-"));
+    const local = new UsageLoginService(home, { PATH: bin }, { ...ctx, home });
+    const request = () => new Request("http://localhost/api/usage/login", {
+      method: "POST", body: JSON.stringify({ provider, name: "retry" }),
+    });
+    const create = spyOn(herdr, "tabCreate").mockRejectedValueOnce(new Error("fixture tab creation failed"));
+    let failed: Response;
+    try {
+      // When
+      failed = await local.handle(request());
+    } finally { create.mockRestore(); }
+    // Then: the failed launch does not reserve the name.
+    expect(failed.status).toBe(500);
+    expect(existsSync(join(home, `.${provider}-retry`))).toBe(false);
+    const retried = await local.handle(request());
+    expect(retried.status).toBe(200);
+    const opened: UsageLoginStarted = await retried.json();
+    openedPanes.push(opened.pane_id);
+  });
+}
+
+it("preserves credentials written before a sign-in launch fails", async () => {
+  // Given
+  const home = mkdtempSync(join(root, "preserve-"));
+  const credentials = join(home, ".claude-preserve", ".credentials.json");
+  const local = new UsageLoginService(home, { PATH: bin }, { ...ctx, home });
+  const create = spyOn(herdr, "tabCreate").mockImplementationOnce(async () => {
+    writeFileSync(credentials, "fixture-existing-credentials");
+    throw new Error("fixture tab creation failed after credentials were written");
+  });
+  try {
+    // When
+    const response = await local.handle(new Request("http://localhost/api/usage/login", {
+      method: "POST", body: JSON.stringify({ provider: "claude", name: "preserve" }),
+    }));
+    // Then: cleanup must not delete a nonempty home or replace the launch error.
+    expect(response.status).toBe(500);
+    expect(readFileSync(credentials, "utf8")).toBe("fixture-existing-credentials");
+  } finally { create.mockRestore(); }
 });
 
 for (const [provider, cli, argv] of [
