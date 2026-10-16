@@ -75,6 +75,20 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Terminal/foreground | `--term-fg` | `#d8d0c3` | `#2a251f` |
 | Terminal/cursor | `--term-cursor` | `#f0a830` | `#8c5000` |
 | Terminal/selection | `--term-selection` | `#4a3d26` | `#f0d9ae` |
+| Syntax/keyword | `--syntax-keyword` | `#e8875f` | `#a33a17` |
+| Syntax/string | `--syntax-string` | `#a8c17c` | `#4b6b18` |
+| Syntax/number | `--syntax-number` | `#d6a0c9` | `#8a3f7a` |
+| Syntax/type | `--syntax-type` | `#6cb8d6` | `#155a72` |
+| Syntax/variable | `--syntax-variable` | `#e0c08f` | `#7a5418` |
+| Syntax/meta | `--syntax-meta` | `#b49dd6` | `#5d4791` |
+| Alert/background | `--droplet-bg` | `#000` | `#000` |
+| Alert/text | `--droplet-text` | `#f5f5f7` | `#f5f5f7` |
+| Alert/dim text | `--droplet-text-dim` | `rgba(245, 245, 247, 0.62)` | `rgba(245, 245, 247, 0.62)` |
+| Alert/blocked | `--droplet-blocked` | `#ff8a80` | `#ff8a80` |
+| Alert/done | `--droplet-done` | `#9fd47a` | `#9fd47a` |
+| Alert/mark background | `--droplet-mark-bg` | `rgba(255, 255, 255, 0.1)` | `rgba(255, 255, 255, 0.1)` |
+| Alert/ring | `--droplet-ring` | `rgba(255, 255, 255, 0.1)` | `rgba(255, 255, 255, 0.1)` |
+| Alert/shadow | `--droplet-shadow` | `rgba(0, 0, 0, 0.35)` | `rgba(0, 0, 0, 0.35)` |
 <!-- END GENERATED THEMES -->
 
 The glass tokens are expressions over the palette above, not colors of their own:
@@ -345,10 +359,8 @@ palette: `--syntax-comment` is `--text-dim`, `--syntax-function` is `--accent`,
 (each at least 4.5:1 on `--bg-panel` and `--bg-elevated`). Catppuccin follows Catppuccin's own mapping: keywords are mauve, so `--syntax-function` is
 blue there instead of `--accent`, and Latte's colors are darkened to stay readable.
 
-| Block | keyword | string | number | type | variable | meta |
-|-------|---------|--------|--------|------|----------|------|
-| Dark amber | `#e8875f` | `#a8c17c` | `#d6a0c9` | `#6cb8d6` | `#e0c08f` | `#b49dd6` |
-| Light amber | `#a33a17` | `#4b6b18` | `#8a3f7a` | `#155a72` | `#7a5418` | `#5d4791` |
+The amber values of `--syntax-keyword`, `--syntax-string`, `--syntax-number`, `--syntax-type`,
+`--syntax-variable` and `--syntax-meta` are generated in the Syntax rows of the table above.
 
 Charcoal and Catppuccin set their own six (and Catppuccin its `--syntax-function`) in their
 blocks of `src/styles.css`.
@@ -358,7 +370,7 @@ blocks of `src/styles.css`.
 - `--notice` colors a note that the view is partial (a file cut short, code too long to color): the
   size in the header's meta line becomes `256 KB of 1.3 MB`, always beside a warning icon so the
   color is not the only sign. It is a warning yellow, at least 4.5:1 on
-  `--bg`, `--bg-panel` and `--bg-elevated`: amber `#e8c55c` / `#7a5a00`. Charcoal and Catppuccin
+  `--bg`, `--bg-panel` and `--bg-elevated` (see `--notice` in the generated table). Charcoal and Catppuccin
   (its yellow) set theirs in their blocks of `src/styles.css`.
 - `--line-number` colors the line numbers beside code: tertiary text, quieter than the code. It is
   `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha uses
@@ -583,18 +595,19 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 
 ### In-app alert
 
-One set for both themes: the card is island black wherever it shows.
+One set for both themes: the card is island black wherever it shows. Values are generated in the
+Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--droplet-bg` | `#000` | Drop, anchor and card |
-| `--droplet-text` | `#f5f5f7` | Pane name |
-| `--droplet-text-dim` | `rgba(245, 245, 247, 0.62)` | Ended detail, blank mark |
-| `--droplet-blocked` | `#ff8a80` | Needs-input detail and dot |
-| `--droplet-done` | `#9fd47a` | Finished detail and dot |
-| `--droplet-mark-bg` | `rgba(255, 255, 255, 0.1)` | Agent mark disc |
-| `--droplet-ring` | `rgba(255, 255, 255, 0.1)` | Card hairline |
-| `--droplet-shadow` | `rgba(0, 0, 0, 0.35)` | Drop shadow under the liquid |
+| Token | Usage |
+|-------|-------|
+| `--droplet-bg` | Drop, anchor and card |
+| `--droplet-text` | Pane name |
+| `--droplet-text-dim` | Ended detail, blank mark |
+| `--droplet-blocked` | Needs-input detail and dot |
+| `--droplet-done` | Finished detail and dot |
+| `--droplet-mark-bg` | Agent mark disc |
+| `--droplet-ring` | Card hairline |
+| `--droplet-shadow` | Drop shadow under the liquid |
 
 ### Shell
 - `.app` is a full-viewport column: `.app-header` over `.app-body`; the body is sidebar plus

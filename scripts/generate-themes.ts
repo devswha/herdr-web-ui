@@ -80,6 +80,20 @@ const DESIGN_ROWS: readonly (readonly [label: string, token: string])[] = [
   ["Terminal/foreground", "--term-fg"],
   ["Terminal/cursor", "--term-cursor"],
   ["Terminal/selection", "--term-selection"],
+  ["Syntax/keyword", "--syntax-keyword"],
+  ["Syntax/string", "--syntax-string"],
+  ["Syntax/number", "--syntax-number"],
+  ["Syntax/type", "--syntax-type"],
+  ["Syntax/variable", "--syntax-variable"],
+  ["Syntax/meta", "--syntax-meta"],
+  ["Alert/background", "--droplet-bg"],
+  ["Alert/text", "--droplet-text"],
+  ["Alert/dim text", "--droplet-text-dim"],
+  ["Alert/blocked", "--droplet-blocked"],
+  ["Alert/done", "--droplet-done"],
+  ["Alert/mark background", "--droplet-mark-bg"],
+  ["Alert/ring", "--droplet-ring"],
+  ["Alert/shadow", "--droplet-shadow"],
 ];
 
 function resolveAmber(blocks: ReturnType<typeof parseThemeBlocks>) {
