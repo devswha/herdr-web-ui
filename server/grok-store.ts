@@ -3,21 +3,22 @@ import { opendirSync, readFileSync, readlinkSync, realpathSync, statSync } from 
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { HerdrPane } from "../shared/protocol.ts";
 import { paneProcessInfo } from "./herdr/client.ts";
-import { runsAgent } from "./gjc-runtime.ts";
 
 const SESSION = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const MAX_GROUPS = 4096;
 /** Linux appends this to `/proc/<pid>/exe` after the inode is unlinked. */
 const DELETED_SUFFIX = " (deleted)";
-/** Packaging only. A version such as `grok-1.0.52` keeps its dots. Longer suffixes first,
- * because `grok.cjs` also ends in `.js`. */
+/** Packaging only. A version such as `grok-1.0.52` keeps its dots. */
 const EXECUTABLE_SUFFIXES = [".cjs", ".mjs", ".exe", ".js"];
 
 export interface GrokProcessInfo { foreground_processes?: { pid: number; argv?: string[] | null }[] }
-/** Foreground discovery only. The exe gate is `isGrokExecutable`, which accepts every build. */
-const GROK_EXECUTABLE = /(^|[\\/])grok(?:-\d[^\\/]*)?(?:\.exe|\.[cm]?js)?$/i;
+/** Discover native or bun/node-launched Grok using the same names as the exe gate. */
 export function grokPaneProcesses(info: GrokProcessInfo): { pid: number }[] {
-  return (info.foreground_processes ?? []).filter((p) => runsAgent(p.argv ?? [], GROK_EXECUTABLE));
+  return (info.foreground_processes ?? []).filter((p) => {
+    const argv = p.argv ?? [];
+    return isGrokExecutable(argv[0] ?? "") ||
+      (/(^|[\\/])(?:bun|node)(?:\.exe)?$/i.test(argv[0] ?? "") && isGrokExecutable(argv[1] ?? ""));
+  });
 }
 
 /** True when this path's file name is Grok: `grok`, or `grok-` plus anything else
@@ -102,6 +103,7 @@ export function grokHeldSession(pid: number, home: string): string | null {
   } catch { return null; }
 }
 
+/** Bind a Linux Grok pane only when its sole held session agrees with Herdr's exact ID. */
 export async function resolveGrokStore(pane: HerdrPane, configuredHome?: string): Promise<string | null> {
   const session = pane.agent_session;
   if (pane.agent !== "grok" || session?.agent !== "grok" || session.kind !== "id" || session.source !== "herdr:grok" || !SESSION.test(session.value)) return null;

@@ -7,11 +7,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-### Fixed
-- Grok chat on Linux follows any Grok executable named `grok` or `grok-…`, including builds
-  newer than 1.0.50, when that process holds one `events.jsonl` for the session Herdr
-  reported. macOS and Windows still show the terminal view.
-
 ## [0.4.10] - 2026-10-16
 
 ### Changed

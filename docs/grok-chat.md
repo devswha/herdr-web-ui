@@ -19,8 +19,9 @@ turn or rewind replaces it. Unavailable native history is explicitly marked in C
 ## Finding the active session
 
 The bridge reads the foreground Grok process's environment for `GROK_HOME`, or
-`HOME/.grok` when unset. The pane's Grok process is found in Herdr's foreground list. Its
-executable has to be named `grok` or `grok-…`; the build number is not part of the check.
+`HOME/.grok` when unset. The pane's Grok process is found in Herdr's foreground list.
+Foreground discovery and the executable check both accept `grok` or `grok-…`, with
+packaging suffixes removed; neither requires a particular build number or a numeric suffix.
 A reported ID is looked up exactly, including hashed directory names for long paths;
 directory or modification time never chooses a conversation.
 
@@ -65,7 +66,8 @@ bun run check fast
 ```
 
 The contract test uses an isolated real Herdr and a disposable stand-in process named
-`grok-1.0.50-linux-x86_64`; it verifies HTTP identity and cursor behavior, not the native TUI.
+`grok-1.0.52-linux-x86_64`; it also unlinks the running binary to cover Linux's ` (deleted)`
+marker. It verifies HTTP identity and cursor behavior, not the native TUI.
 Native fictional captures separately establish replay equivalence after nested rewinds.
 The browser test runs the real built client against fictional files and checks retained
 expanded output after updates, shrink and rewind. It never opens the user's browser session.

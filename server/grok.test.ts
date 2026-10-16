@@ -193,7 +193,7 @@ describe("exact store lookup", () => {
     expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: ["/usr/local/bin/grok"] }, { pid: 12, argv: ["/bin/sh"] }] }).map((p) => p.pid)).toEqual([11]);
     expect(grokPaneProcesses({})).toEqual([]);
   });
-  test("every Grok executable name can hold the session", () => {
+  test("discovery and the exe gate accept the same Grok names without a version pin", () => {
     const accepted = [
       "grok",
       "/usr/local/bin/grok",
@@ -210,11 +210,29 @@ describe("exact store lookup", () => {
       "grok.mjs",
       "grok.js.exe",
       "grok-2.0.0-darwin-arm64",
-      "grok-statusline",
+      "grok-statusline", // Synthetic nonnumeric suffix; not a claim about a shipped build.
     ];
-    for (const exe of accepted) expect(isGrokExecutable(exe)).toBe(true);
+    for (const exe of accepted) {
+      expect(isGrokExecutable(exe)).toBe(true);
+      expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: [exe] }] })).toHaveLength(1);
+    }
     const rejected = ["/bin/sleep", "sleep", "grokker", "notgrok", "grok_cli", "grok.bak", "/opt/grok/bin/sleep", ""];
-    for (const exe of rejected) expect(isGrokExecutable(exe)).toBe(false);
+    for (const exe of rejected) {
+      expect(isGrokExecutable(exe)).toBe(false);
+      expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: [exe] }] })).toEqual([]);
+    }
+  });
+  test("discovery checks a script only behind bun or node, never arbitrary arguments", () => {
+    const processes = [
+      { pid: 11, argv: ["/usr/bin/node", "/opt/grok/grok.js"] },
+      { pid: 12, argv: ["bun", "/opt/grok/grok-statusline.mjs"] },
+      { pid: 13, argv: ["C:\\bin\\node.exe", "C:\\bin\\grok.cjs"] },
+      { pid: 14, argv: ["/bin/sh", "grok"] },
+      { pid: 15, argv: ["node", "unrelated.js", "grok"] },
+      { pid: 16, argv: ["node"] },
+      { pid: 17, argv: null },
+    ];
+    expect(grokPaneProcesses({ foreground_processes: processes }).map((p) => p.pid)).toEqual([11, 12, 13]);
   });
   test("custom home and hashed cwd names need no newest-file guess", () => {
     const hashed = join(root, "sessions", "long-slug-abc123", session, "updates.jsonl");
