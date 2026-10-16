@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { DEFAULT_SETTINGS, sharedSettings, type Settings } from "./settings.ts";
+import { DEFAULT_SETTINGS, sanitizeSettings, sharedSettings, type Settings } from "./settings.ts";
 import { preferencesChange, takePreferences, type Baseline } from "./preferencesSync.ts";
 
 const base = (settings: Settings, pins: readonly string[] | null): Baseline => ({ settings: sharedSettings(settings), pins });
@@ -22,10 +22,10 @@ describe("preferences sync", () => {
 
   it("takes the shared settings the server holds and leaves the device's own", () => {
     const mine: Settings = { ...light, terminalFontSize: 20, alertsOn: false, wrapCode: true, markdownWidth: "full" };
-    const taken = takePreferences(base(mine, null), { settings: mine, pins: [] }, { revision: 3, settings: { theme: "dark", palette: "catppuccin" } }, null);
-    expect(taken.patch).toEqual({ theme: "dark", palette: "catppuccin" });
+    const taken = takePreferences(base(mine, null), { settings: mine, pins: [] }, { revision: 3, settings: { theme: "dark", palette: "catppuccin", darkTheme: "catppuccin" } }, null);
+    expect(taken.patch).toEqual({ theme: "dark", palette: "catppuccin", darkTheme: "catppuccin" });
     expect(taken.pins).toBeNull();
-    expect(taken.base).toEqual({ settings: { ...sharedSettings(mine), theme: "dark", palette: "catppuccin" }, pins: null });
+    expect(taken.base).toEqual({ settings: { ...sharedSettings(mine), theme: "dark", palette: "catppuccin", darkTheme: "catppuccin" }, pins: null });
     // nothing to send once taken
     expect(preferencesChange(taken.base, { settings: { ...mine, ...taken.patch }, pins: [] })).toBeNull();
   });
@@ -49,9 +49,9 @@ describe("preferences sync", () => {
   });
 
   it("leaves a value this browser cannot read, and does not send its own back", () => {
-    const taken = takePreferences(base(DEFAULT_SETTINGS, null), { settings: DEFAULT_SETTINGS, pins: [] }, { revision: 1, settings: { theme: "purple", agentMarks: "yes", palette: "catppuccin" } }, null);
-    expect(taken.patch).toEqual({ palette: "catppuccin" });
-    expect(preferencesChange(taken.base, { settings: { ...DEFAULT_SETTINGS, palette: "catppuccin" }, pins: [] })).toBeNull();
+    const taken = takePreferences(base(DEFAULT_SETTINGS, null), { settings: DEFAULT_SETTINGS, pins: [] }, { revision: 1, settings: { theme: "purple", agentMarks: "yes", palette: "catppuccin", darkTheme: "catppuccin", lightTheme: "future-theme" } }, null);
+    expect(taken.patch).toEqual({ palette: "catppuccin", darkTheme: "catppuccin" });
+    expect(preferencesChange(taken.base, { settings: sanitizeSettings({ ...DEFAULT_SETTINGS, ...taken.patch }), pins: [] })).toBeNull();
   });
 
   it("joins this browser's pins to the first the server holds, then follows the last write", () => {

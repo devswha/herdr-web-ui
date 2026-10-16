@@ -167,7 +167,7 @@ function Brand() {
 export function App() {
   const t = useT();
   const apple = /Mac|iPhone|iPad/.test(navigator.platform);
-  const { settings, resolvedTheme, resolvedPalette, update: updateSettings } = useSettings();
+  const { settings, resolvedTheme, resolvedEntry, update: updateSettings } = useSettings();
   // this device's alert choices: sent with its push subscription, and applied to tab alerts here
   const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
   const alertsRef = useRef(alerts);
@@ -1700,8 +1700,8 @@ export function App() {
                         split={herdrSplit || splitOn}
                         terminalWheelSpeed={settings.terminalWheelSpeed}
                         terminalFontFamily={settings.terminalFontFamily}
-                        theme={resolvedTheme}
-                        palette={resolvedPalette}
+                        theme={resolvedEntry.mode}
+                        palette={resolvedEntry.id}
                         onConnectionChange={active && itemActive ? (next) => { setConnected(next); if (next) setOutputStopped(false); } : undefined}
                         onServerMessage={active && itemActive ? handleServerMessage : undefined}
                       />

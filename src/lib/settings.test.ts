@@ -1,15 +1,122 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseThemeBlocks, parseThemeValue, resolveEntry, ThemeValueError } from "./themeCss.ts";
 import baseline from "./themes.legacy-baseline.json";
-import { ROLES, SHADOW_GEOMETRY, SUPPORTED_ENTRIES, themeColor as tableThemeColor } from "./themes.ts";
+import { ROLES, SHADOW_GEOMETRY, SUPPORTED_ENTRIES, THEME_IDS, themeColor as tableThemeColor } from "./themes.ts";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
 import { SHARED_SETTING_KEYS } from "../../shared/preferences.ts";
-import { NOTICE_VERSION, TELEMETRY_SETTINGS_KEYS, telemetrySettings } from "../../shared/telemetry.ts";
+import { NOTICE_VERSION, TELEMETRY_SETTINGS_KEYS, TELEMETRY_THEME_SIDE_KEYS, telemetrySettings } from "../../shared/telemetry.ts";
 import { SETTING_SCOPE, telemetrySettingsSnapshot, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
+import { applyToDocument, loadSettings, saveSettings } from "./settings.ts";
+import { sanitizeSettings as oldSanitizeSettings, saveSettings as oldSaveSettings } from "./settings.legacy-fixture.ts";
+import { themeFor } from "./themeFor.ts";
+
+describe("saved theme migration", () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  let records: Map<string, string>;
+  beforeEach(() => {
+    records = new Map();
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: {
+      getItem: (key: string) => records.get(key) ?? null,
+      setItem: (key: string, value: string) => records.set(key, value),
+    } } });
+  });
+  afterEach(() => {
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+    if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+    else Reflect.deleteProperty(globalThis, "document");
+  });
+  const main = "herdr-web-ui:settings";
+  const protectedThemes = "herdr-web-ui:themes";
+  const putOld = (record: object) => records.set(main, JSON.stringify(record));
+  const readOld = () => oldSanitizeSettings(JSON.parse(records.get(main) ?? "{}"));
+
+  it.each([
+    [{ theme: "dark", palette: "catppuccin" }, "catppuccin", "catppuccin"],
+    [{ theme: "system", palette: "amber", paletteLight: "catppuccin", paletteDark: "charcoal" }, "charcoal", "catppuccin"],
+    [{ theme: "dark", palette: "catppuccin", paletteDark: "charcoal" }, "catppuccin", "catppuccin"],
+    [{ theme: "dark", palette: "amber", paletteDark: "charcoal" }, "amber", "amber"],
+  ] as const)("loads the pinned legacy appearance %j (a, b, c, F3)", (raw, dark, light) => {
+    putOld(raw);
+    const settings = loadSettings();
+    expect(themeFor(settings, "dark").id).toBe(dark);
+    expect(themeFor(settings, "light").id).toBe(light);
+  });
+
+  it("keeps every legacy look readable by the pinned old sanitizer (e)", () => {
+    for (const palette of ["amber", "charcoal", "catppuccin"] as const) {
+      for (const theme of ["dark", "light", "system"] as const) {
+        const settings = sanitizeSettings({ theme, darkTheme: palette, lightTheme: palette });
+        saveSettings(settings);
+        const old = readOld();
+        expect(old.palette).toBe(palette);
+        expect(old.paletteDark).toBe(palette);
+        expect(old.paletteLight).toBe(palette);
+        expect(old).not.toHaveProperty("darkTheme");
+      }
+    }
+    saveSettings(sanitizeSettings({ darkTheme: "tokyo-night" }));
+    expect(readOld().palette).toBe("amber");
+  });
+
+  it("survives an old sanitizer and whole-record unrelated save (f)", () => {
+    saveSettings(sanitizeSettings({ darkTheme: "tokyo-night" }));
+    const old = readOld();
+    oldSaveSettings({ ...old, terminalFontSize: 18 });
+    expect(loadSettings().darkTheme).toBe("tokyo-night");
+    expect(loadSettings().terminalFontSize).toBe(18);
+  });
+
+  it("survives repeated stale saves from an already-open old tab (f1)", () => {
+    putOld({ theme: "dark", palette: "charcoal" });
+    const stale = readOld();
+    saveSettings(sanitizeSettings({ darkTheme: "tokyo-night" }));
+    for (const terminalFontSize of [14, 15, 16]) {
+      oldSaveSettings({ ...stale, terminalFontSize });
+      expect(loadSettings().darkTheme).toBe("tokyo-night");
+      expect(loadSettings().terminalFontSize).toBe(terminalFontSize);
+    }
+  });
+
+  it.each(["amber", "charcoal"] as const)("documents that an outdated tab's explicit %s pick cannot reach new code without sync (f2, f3)", (palette) => {
+    saveSettings(sanitizeSettings({ darkTheme: "tokyo-night" }));
+    oldSaveSettings({ ...readOld(), palette });
+    expect(loadSettings().darkTheme).toBe("tokyo-night");
+  });
+
+  it("loads and saves idempotently with a separate protected mirror (g)", () => {
+    putOld({ theme: "system", palette: "amber", paletteDark: "charcoal", paletteLight: "catppuccin" });
+    const first = loadSettings();
+    saveSettings(first);
+    expect(loadSettings()).toEqual(first);
+    saveSettings(loadSettings());
+    expect(loadSettings()).toEqual(first);
+    expect(JSON.parse(records.get(protectedThemes) ?? "{}")).toEqual({
+      darkTheme: "charcoal", lightTheme: "catppuccin",
+      mirror: { palette: "charcoal", paletteDark: "charcoal", paletteLight: "catppuccin" },
+    });
+  });
+
+  it("writes the row's actual mode, palette, meta and color scheme on either side (k)", () => {
+    const root = { lang: "", dataset: {}, style: { colorScheme: "", setProperty() {}, removeProperty() {} } };
+    let meta = "";
+    Object.defineProperty(globalThis, "document", { configurable: true, value: {
+      documentElement: root, querySelector: () => ({ setAttribute: (_name: string, value: string) => { meta = value; } }),
+    } });
+    const settings = sanitizeSettings({ theme: "light", lightTheme: "tokyo-night" });
+    const entry = themeFor(settings, "light");
+    applyToDocument(settings, entry, "en");
+    expect(root.dataset).toMatchObject({ theme: "dark", palette: "tokyo-night" });
+    expect(root.style.colorScheme).toBe("dark");
+    expect(meta).toBe(entry.bgPanel);
+    expect(terminalTheme(entry.mode, entry.id)).toEqual(entry.terminal);
+  });
+});
 
 it("keeps a tab's pane while out of use until this device turns the pause on", () => {
   expect(DEFAULT_SETTINGS.releasePaneAway).toBe(false);
@@ -81,8 +188,10 @@ describe("telemetry settings snapshot", () => {
       voiceLanguage: "ko-KR",
       wrapCode: true,
       markdownWidth: "full",
-      paletteLight: "charcoal",
+      paletteLight: "catppuccin",
       paletteDark: "amber",
+      darkTheme: "amber",
+      lightTheme: "catppuccin",
       uiFontSize: 18,
       diffStyle: "split",
     });
@@ -112,8 +221,10 @@ describe("telemetry settings snapshot", () => {
       voiceLanguage: "ko-KR",
       wrapCode: true,
       markdownWidth: "full",
-      paletteLight: "charcoal",
+      paletteLight: "catppuccin",
       paletteDark: "amber",
+      darkTheme: "amber",
+      lightTheme: "catppuccin",
       uiFontSize: 18,
       diffStyle: "split",
     });
@@ -178,11 +289,22 @@ describe("telemetry settings snapshot", () => {
   it("sends exactly the keys the Worker accepts", () => {
     const sent = Object.keys(telemetrySettingsSnapshot(DEFAULT_SETTINGS));
     expect([
-      ...sent.filter((key) => !(TELEMETRY_SETTINGS_KEYS as string[]).includes(key)).map((key) =>
+      ...sent.filter((key) => !([...TELEMETRY_SETTINGS_KEYS, ...TELEMETRY_THEME_SIDE_KEYS] as string[]).includes(key)).map((key) =>
         `${key}: the app sends it and the Worker refuses the whole snapshot. Add it to TelemetrySettings and TELEMETRY_SETTINGS_VALIDATORS in shared/telemetry.ts and to the full snapshot in telemetry/worker.test.ts, then deploy the Worker before releasing (telemetry/README.md).`),
       ...TELEMETRY_SETTINGS_KEYS.filter((key) => !sent.includes(key)).map((key) =>
         `${key}: the Worker requires it and telemetrySettingsSnapshot in src/lib/settings.ts does not send it. Send it, or remove it from shared/telemetry.ts and deploy the Worker before releasing.`),
     ]).toEqual([]);
+  });
+
+  it("reports all supported ids on either side and rejects ids outside the schema", () => {
+    for (const id of THEME_IDS) {
+      for (const side of ["darkTheme", "lightTheme"] as const) {
+        const snapshot = telemetrySettingsSnapshot(sanitizeSettings({ [side]: id }));
+        expect(snapshot[side]).toBe(id);
+        expect(telemetrySettings(snapshot)).toEqual(snapshot);
+        expect(telemetrySettings({ ...snapshot, [side]: "not-a-theme" })).toBeNull();
+      }
+    }
   });
 
   it("requires a complete, valid schema and reconstructs a clean own-key snapshot", () => {
