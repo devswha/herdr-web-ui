@@ -237,6 +237,27 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **kanagawa-lotus**: `--syntax-type` moves dE 7.57; its lightness changes to keep serialized text readable at the 4.6 target.
 - **kanagawa-lotus**: `--syntax-meta` moves dE 14.27; its lightness changes to keep serialized text readable at the 4.6 target.
 
+- **rose-pine**: `--status-working` moves dE 17.40; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine**: `--status-done` moves dE 17.40; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine**: `--status-working-tint` moves dE 17.40; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine**: `--status-done-tint` moves dE 17.40; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine**: `--syntax-function` moves dE 9.27; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine**: `--syntax-string` moves dE 9.27; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--text-dim` moves dE 8.98; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-working` moves dE 5.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-blocked` moves dE 14.03; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-done` moves dE 5.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-working-tint` moves dE 5.18; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--status-blocked-tint` moves dE 14.03; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--status-done-tint` moves dE 5.18; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--danger-tint` moves dE 14.03; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--danger-text` moves dE 14.03; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--line-number` moves dE 8.98; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--syntax-keyword` moves dE 9.20; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--syntax-number` moves dE 16.36; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--syntax-type` moves dE 23.03; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--syntax-meta` moves dE 11.64; its lightness changes to keep serialized text readable at the 4.6 target.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens

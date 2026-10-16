@@ -27,6 +27,9 @@ licenses follow. Tokyo Night Day uses folke's Apache-2.0 port, not the original 
 | kanagawa | [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/themes.lua) | MIT |
 | kanagawa-lotus | [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/themes.lua) | MIT |
 
+| rose-pine | [rose-pine/palette](https://github.com/rose-pine/palette/blob/main/palette.json) | MIT |
+| rose-pine-dawn | [rose-pine/palette](https://github.com/rose-pine/palette/blob/main/palette.json) | MIT |
+
 ## Legend List
 
 The chat timeline uses [`@legendapp/list`](https://github.com/LegendApp/legend-list) 3.3.5.
