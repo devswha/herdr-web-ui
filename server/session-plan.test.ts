@@ -3,7 +3,7 @@ import { appendFileSync, chmodSync, mkdtempSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { HerdrPane, PlanSummary } from "../shared/protocol.ts";
+import type { HerdrPane, PaneContext, PlanSummary } from "../shared/protocol.ts";
 import { paneAfterStatus } from "./machines.ts";
 import { forgetPlans, planSummary, readPlan, SessionPlans } from "./session-plan.ts";
 
@@ -181,6 +181,46 @@ describe("SessionPlans", () => {
     await plans.refresh([pane("p1", "shell"), pane("p2", "codex")]);
     expect(changes.at(-1)).toEqual(["p1", null]);
     expect(plans.summaryOf("p1")).toBeNull();
+  });
+
+  it("tells a pane's context as its requests fill it, the main session's only, and clears it with the pane", async () => {
+    const s = claude();
+    const changes: [string, PaneContext | null][] = [];
+    const plans = new SessionPlans({ claudePath: (id) => id === "p1" ? s.path : null, codexPath: async () => null, onChange: () => {}, onContext: (id, context) => changes.push([id, context]) });
+    const request = (input: number, extra: Record<string, unknown> = {}) => s.add({ type: "assistant", timestamp: at(1), ...extra, message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "ok" }], usage: { input_tokens: input, cache_creation_input_tokens: 1000, cache_read_input_tokens: 1000 } } });
+    request(240_000);
+    await plans.refresh([pane("p1", "claude")]);
+    plans.poll();
+    // past 200k a Claude model can only run in the 1M window, as the chat's ring reads it
+    expect(changes).toEqual([["p1", { used: 242_000, window: 1_000_000 }]]);
+    expect(plans.contextOf("p1")).toEqual({ used: 242_000, window: 1_000_000 });
+    // a subagent's request fills its own context, not this one's; an unchanged context is not told again
+    request(5_000, { isSidechain: true });
+    plans.poll();
+    expect(changes).toHaveLength(1);
+    request(98_000);
+    plans.poll();
+    expect(changes.at(-1)).toEqual(["p1", { used: 100_000, window: 1_000_000 }]);
+    await plans.refresh([pane("p1", "shell")]);
+    expect(changes.at(-1)).toEqual(["p1", null]);
+    expect(plans.contextOf("p1")).toBeNull();
+  });
+
+  it("reads a Codex pane's context with the window Codex states", async () => {
+    const f = file("rollout.jsonl");
+    f.add({ timestamp: at(1), type: "event_msg", payload: { type: "token_count", info: { model_context_window: 258_400, last_token_usage: { total_tokens: 64_600 } } } });
+    const plans = new SessionPlans({ claudePath: () => null, codexPath: async () => f.path, onChange: () => {} });
+    await plans.refresh([pane("p2", "codex")]);
+    plans.poll();
+    expect(plans.contextOf("p2")).toEqual({ used: 64_600, window: 258_400 });
+  });
+
+  it("keeps a remote PC's context as its frames say", () => {
+    const frame = (context?: PaneContext | null) => ({ type: "pane-status" as const, pane_id: "p1", agent_status: "idle" as const, ...(context === undefined ? {} : { context }) });
+    const filled = paneAfterStatus(pane("p1", "claude"), frame({ used: 50_000, window: 200_000 }));
+    expect(filled).toMatchObject({ context: { used: 50_000, window: 200_000 } });
+    expect(paneAfterStatus(filled, frame())).toMatchObject({ context: { used: 50_000 } });
+    expect("context" in paneAfterStatus(filled, frame(null))).toBe(false);
   });
 
   it("looks a Codex pane's rollout up again when its session changes", async () => {

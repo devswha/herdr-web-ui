@@ -493,9 +493,10 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
   100% { opacity: 1; }
 }
 
-/* background tasks still running, and a pane's plan: a number beside the state, quieter than it */
+/* background tasks still running, a pane's plan and its context left: a number beside the state, quieter than it */
 .background-count,
-.plan-count {
+.plan-count,
+.context-count {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -508,7 +509,8 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 }
 
 .background-count svg,
-.plan-count svg {
+.plan-count svg,
+.context-count svg {
   width: var(--space-3);
   height: var(--space-3);
 }
@@ -630,4 +632,24 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 
 .plan-count.is-done svg {
   color: var(--status-done);
+}
+
+/* the chat's context ring, at the badges' size: plain until a compaction is near */
+.context-count-track,
+.context-count-used {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.context-count-track {
+  stroke: var(--border-strong);
+}
+
+.context-count-used {
+  stroke: currentColor;
+  stroke-linecap: round;
+}
+
+.context-count.is-low {
+  color: var(--status-blocked);
 }

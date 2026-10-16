@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Ellipsis, Pin, PinOff, Terminal } from "luci
 
 import type { Machine } from "../../shared/machines.ts";
 import { paneStorageId } from "../../shared/machines.ts";
-import type { AgentStatus, PlanSummary } from "../../shared/protocol.ts";
+import type { AgentStatus, PaneContext, PlanSummary } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
 import { agentContext, agentTabName, paneMark, sidebarAgents, type SidebarAgent } from "../lib/sidebarAgents.ts";
 import { useSettings } from "../lib/settings.ts";
@@ -13,7 +13,7 @@ import { currentSidebarPins, pruneSidebarPins, setSidebarPins, sidebarPinKey, sp
 import { PANE_DRAG_TYPE, paneDragData } from "../lib/split.ts";
 import { AgentMark, hasAgentMark } from "./AgentMark.tsx";
 import { RowMenu } from "./RowMenu.tsx";
-import { BackgroundBadge, displayPaneTitle, onRowContextMenu, PlanBadge, StatusBadge } from "./Sidebar.tsx";
+import { BackgroundBadge, ContextBadge, displayPaneTitle, onRowContextMenu, PlanBadge, StatusBadge } from "./Sidebar.tsx";
 import "./AgentSidebar.css";
 
 interface AgentRowBodyProps {
@@ -27,6 +27,7 @@ interface AgentRowBodyProps {
   context: string;
   backgroundTasks?: number;
   plan?: PlanSummary;
+  paneContext?: PaneContext;
   status?: AgentStatus;
   /** a pinned row carries a pin after its title; its list says so to a screen reader */
   pinned?: boolean;
@@ -36,7 +37,7 @@ interface AgentRowBodyProps {
  * One agent in a list: the coding agent's mark, what it is working on, who and where it is, and
  * how it is doing.
  */
-function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, plan, status, pinned }: AgentRowBodyProps) {
+function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, plan, paneContext, status, pinned }: AgentRowBodyProps) {
   return <>
     <span className="sidebar-mark" aria-hidden="true">{mark !== null ? <AgentMark agent={mark} size={18} /> : <Terminal />}</span>
     <span className="agent-copy">
@@ -51,7 +52,7 @@ function AgentRowBody({ mark, markKind, title, name, context, backgroundTasks, p
         {context}
       </span>}
     </span>
-    <span className="agent-row-status"><BackgroundBadge count={backgroundTasks} /><PlanBadge plan={plan} /></span>
+    <span className="agent-row-status"><BackgroundBadge count={backgroundTasks} /><PlanBadge plan={plan} /><ContextBadge context={paneContext} /></span>
     {/* drawn at the row's right edge, after its ⋯, as a workspace row's state is (AgentSidebar.css) */}
     <span className="agent-row-state"><StatusBadge status={status} compact /></span>
   </>;
@@ -153,7 +154,7 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
           event.dataTransfer.setData(PANE_DRAG_TYPE, paneDragData({ machineId: machine.id, paneId: pane.pane_id }));
         }}>
         {/* a saved roster's state is not news: a PC that is away says nothing about its agents */}
-        <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} plan={online ? pane.plan : undefined} status={online ? activity.status(machine.id, pane) : undefined} pinned={pinned.includes(pinKey)} />
+        <AgentRowBody mark={mark} markKind={markKind} title={title} name={name} context={context} backgroundTasks={online ? pane.background_tasks : 0} plan={online ? pane.plan : undefined} paneContext={online ? pane.context : undefined} status={online ? activity.status(machine.id, pane) : undefined} pinned={pinned.includes(pinKey)} />
       </button>
       <div className="agent-actions">
         <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title })} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => toggleMenu(event.currentTarget)}>

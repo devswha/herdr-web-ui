@@ -1,5 +1,6 @@
-import type { HerdrPane, PlanStep, PlanSummary } from "../shared/protocol.ts";
+import type { ConversationMetadata, HerdrPane, PaneContext, PlanStep, PlanSummary } from "../shared/protocol.ts";
 import { plain, readLines, remember } from "./claude-subagents.ts";
+import { parseConversationMetadata } from "./conversation-metadata.ts";
 
 /**
  * The plan an agent keeps for its session, read back from the session's transcript, for the
@@ -17,6 +18,9 @@ import { plain, readLines, remember } from "./claude-subagents.ts";
  *
  * A transcript is read from its start, PLAN_BUDGET bytes per call, then only what was appended;
  * until the first read has reached the end, no plan is told.
+ *
+ * The same read follows how much of its context the session's last request filled, for the
+ * sidebar's ring: the lines that can say it are folded as the chat's metadata folds them.
  */
 const PLAN_BUDGET = 32 * 1024 * 1024;
 const LINE_BUDGET = 8 * 1024 * 1024;
@@ -43,6 +47,8 @@ interface Read {
   steps: Map<string, PlanStep>;
   /** Claude's task calls still waiting for their answer, by tool_use id */
   calls: Map<string, { name: string; input: Row }>;
+  /** the model and the context the lines read so far report */
+  metadata: ConversationMetadata;
 }
 const reads = new Map<string, Read>();
 
@@ -54,17 +60,18 @@ export function readPlan(source: PlanSource, path: string, budget = { left: PLAN
   return planState(source, path, budget).steps;
 }
 
-function planState(source: PlanSource, path: string, budget: { left: number }): { steps: PlanStep[] | null; behind: boolean } {
+function planState(source: PlanSource, path: string, budget: { left: number }): { steps: PlanStep[] | null; behind: boolean; context: PaneContext | null } {
   const stat = plain(path);
-  if (stat === null) return { steps: null, behind: false };
+  if (stat === null) return { steps: null, behind: false, context: null };
   const key = `${source}\0${path}`;
   let state = reads.get(key);
   if (!state || state.id !== stat.id || state.offset > stat.size) {
-    state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map() };
+    state = { id: stat.id, offset: 0, skipping: false, catching: true, behind: true, steps: new Map(), calls: new Map(), metadata: { model: null, reasoning_effort: null } };
   }
   remember(reads, key, state, MAX_FILES);
   const read = state;
-  const each = source === "claude-transcript" ? (line: string) => claudeLine(read, line) : (line: string) => codexLine(read, line);
+  const plan = source === "claude-transcript" ? (line: string) => claudeLine(read, line) : (line: string) => codexLine(read, line);
+  const each = (line: string) => { plan(line); contextLine(read, source, line); };
   read.behind = read.offset < stat.size;
   while (read.offset < stat.size && budget.left > 0) {
     const done = readLines(path, read.offset, stat.size, LINE_BUDGET, each, read.skipping);
@@ -79,7 +86,17 @@ function planState(source: PlanSource, path: string, budget: { left: number }): 
     if (consumed === 0 || !done.more) break;
   }
   if (!read.behind) read.catching = false;
-  return { steps: read.catching || read.steps.size === 0 ? null : [...read.steps.values()].map((step) => ({ ...step, blocked_by: [...step.blocked_by] })), behind: read.behind };
+  return { steps: read.catching || read.steps.size === 0 ? null : [...read.steps.values()].map((step) => ({ ...step, blocked_by: [...step.blocked_by] })), behind: read.behind, context: read.catching ? null : read.metadata.context ?? null };
+}
+
+/** The lines that can say what a request filled, or reset it: only these are parsed for the context. */
+const CONTEXT_MARKS: Record<PlanSource, readonly string[]> = {
+  "claude-transcript": ['"usage"', "/clear"],
+  "codex-transcript": ['"token_count"', '"turn_context"', '"session_meta"'],
+};
+
+function contextLine(read: Read, source: PlanSource, line: string): void {
+  if (CONTEXT_MARKS[source].some((mark) => line.includes(mark))) read.metadata = parseConversationMetadata(line, source, read.metadata);
 }
 
 /** Forgets every read (tests). */
@@ -199,6 +216,8 @@ export interface SessionPlanDeps {
   codexPath: (pane: HerdrPane) => Promise<string | null>;
   /** a pane's summary changed (null: it has no plan now) */
   onChange: (paneId: string, summary: PlanSummary | null) => void;
+  /** a pane's context changed (null: none reported now) */
+  onContext?: (paneId: string, context: PaneContext | null) => void;
   now?: () => number;
   /** how soon a Codex pane whose rollout was not found is looked up again */
   retryMs?: number;
@@ -214,6 +233,7 @@ interface Tracked {
   /** the file's size and identity when it was last read: an unchanged file is not read again */
   sig: string | null;
   summary: PlanSummary | null;
+  context: PaneContext | null;
 }
 
 /**
@@ -250,6 +270,10 @@ export class SessionPlans {
     return this.panes.get(paneId)?.summary ?? null;
   }
 
+  contextOf(paneId: string): PaneContext | null {
+    return this.panes.get(paneId)?.context ?? null;
+  }
+
   /**
    * The plan of the pane as herdr has it now (undefined: herdr did not say), as the poll last read it: null when it has
    * none, or its transcript is not known for the session it runs, or not read to its end yet.
@@ -278,6 +302,7 @@ export class SessionPlans {
       if (this.wanted.has(paneId)) continue;
       this.panes.delete(paneId);
       if (tracked.summary !== null) this.deps.onChange(paneId, null);
+      if (tracked.context !== null) this.deps.onContext?.(paneId, null);
     }
     await Promise.all(panes.map((pane) => this.ensure(pane)));
   }
@@ -312,7 +337,7 @@ export class SessionPlans {
   private track(paneId: string, key: string, where: { source: PlanSource; path: string } | null): void {
     const current = this.panes.get(paneId);
     const same = current !== undefined && current.where?.path === where?.path && current.where?.source === where?.source;
-    this.panes.set(paneId, { key, at: this.now(), where, sig: same ? current.sig : null, summary: current?.summary ?? null });
+    this.panes.set(paneId, { key, at: this.now(), where, sig: same ? current.sig : null, summary: current?.summary ?? null, context: current?.context ?? null });
   }
 
   /** Reads the transcripts that grew, PLAN_BUDGET bytes in all; a pane whose summary changed is told. */
@@ -323,6 +348,7 @@ export class SessionPlans {
     const budget = { left: PLAN_BUDGET };
     for (const [paneId, tracked] of this.panes) {
       let summary: PlanSummary | null = null;
+      let context: PaneContext | null = null;
       if (tracked.where !== null) {
         const stat = plain(tracked.where.path);
         const sig = stat === null ? null : `${stat.id}:${stat.size}`;
@@ -333,6 +359,11 @@ export class SessionPlans {
         // still on its first read: what it shows is not known yet
         if (read.steps === null && read.behind) continue;
         summary = planSummary(read.steps);
+        context = read.context;
+      }
+      if (JSON.stringify(context) !== JSON.stringify(tracked.context)) {
+        tracked.context = context;
+        this.deps.onContext?.(paneId, context);
       }
       if (JSON.stringify(summary) === JSON.stringify(tracked.summary)) continue;
       tracked.summary = summary;
