@@ -1,4 +1,5 @@
 /** The real telemetry UI and local API, with a fixture-only transport. Run after `bun run build`. */
+import "./test-herdr.ts"; // a herdr session of its own: the server never reads the user's
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
