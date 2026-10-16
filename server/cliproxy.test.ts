@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CLIProxyLogin } from "../shared/protocol.ts";
@@ -7,6 +7,7 @@ import { requiresAuth } from "./auth.ts";
 import { CLIProxyService } from "./cliproxy.ts";
 import { startFakeCLIProxy } from "./cliproxy.fake.ts";
 import { CLIProxyRoutes } from "./cliproxy-routes.ts";
+import { createServer } from "./index.ts";
 import { UsageService, type UsageContext } from "./usage.ts";
 
 const KEY = "test-management-secret-not-in-responses";
@@ -24,6 +25,49 @@ beforeEach(() => {
 afterEach(() => { fake.server.stop(true); rmSync(dir, { recursive: true, force: true }); });
 
 describe("CLIProxyAPI v8", () => {
+  it.each([
+    ["invalid JSON", `garbage ${KEY}`],
+    ["invalid fields", JSON.stringify({ url: 42, management_key: KEY })],
+    ["invalid URL", JSON.stringify({ url: "not-a-url", management_key: KEY })],
+    ["unreadable file", null],
+  ])("treats the hub as unconfigured when configuration has %s", async (_name, content) => {
+    // Given
+    const path = join(dir, "cliproxy.json");
+    if (content === null) mkdirSync(path);
+    else writeFileSync(path, content);
+    // When
+    const restored = new CLIProxyService(dir);
+    const response = await new CLIProxyRoutes(restored).handle(new Request("http://localhost/api/cliproxy"));
+    const status = await response.json();
+    // Then
+    expect(response.status).toBe(200);
+    expect(status).toMatchObject({ configured: false, ok: false, problem: expect.any(String) });
+    expect(JSON.stringify(status)).not.toContain(KEY);
+    expect(await restored.report()).toEqual([]);
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("starts the web UI and allows removal when hub configuration is corrupt", async () => {
+    // Given
+    writeFileSync(join(dir, "cliproxy.json"), "garbage");
+    // When
+    const app = createServer({
+      port: 0, hostname: "127.0.0.1", token: "", stateDir: dir,
+      machines: false, registerBridge: false, terminalAttach: false, sidecar: false,
+    });
+    // Then
+    try {
+      const origin = `http://127.0.0.1:${app.port}`;
+      expect((await fetch(`${origin}/api/health?scope=bridge`)).status).toBe(200);
+      const status = await fetch(`${origin}/api/cliproxy`);
+      expect(await status.json()).toMatchObject({ configured: false, ok: false, problem: expect.any(String) });
+      const removed = await fetch(`${origin}/api/cliproxy`, { method: "DELETE" });
+      expect(removed.status).toBe(200);
+      expect(await removed.json()).toMatchObject({ configured: false, problem: null });
+      expect(new CLIProxyService(dir).status()).toMatchObject({ configured: false, problem: null });
+    } finally { app.stop(); }
+  });
+
   it("checks saved and reloaded connections without fetching provider usage", async () => {
     await configure();
     expect(await (await call()).json()).toMatchObject({ configured: true, ok: true });

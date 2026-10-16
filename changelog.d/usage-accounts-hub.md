@@ -11,3 +11,7 @@
 - Subscription accounts show their source, plan and sign-in status in provider groups,
   with existing ordering and visibility controls. Short setup copy is available in English,
   Korean, Japanese and Chinese.
+
+### Fixed
+- A damaged or unreadable hub configuration no longer prevents the web UI from starting.
+  The hub stays unconfigured, and the server logs the problem without exposing its saved key.

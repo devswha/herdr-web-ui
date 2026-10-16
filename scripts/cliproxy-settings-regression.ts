@@ -9,6 +9,7 @@ import { CLIProxyService } from "../server/cliproxy.ts";
 import { createServer } from "../server/index.ts";
 import { USAGE_PROVIDERS, UsageService, type UsageContext } from "../server/usage.ts";
 import { buildDemoApp } from "./demo-build.ts";
+import { chromePath } from "./chrome-path.ts";
 import { openSettingsPage } from "./settings-page.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "herdr-usage-accounts-"));
@@ -66,8 +67,8 @@ return (u.pathname==='/api/usage'||u.pathname==='/api/cliproxy'||u.pathname.star
     return await file.exists() ? new Response(file) : new Response("not found", { status: 404 });
   } });
   const origin = web.url.origin;
-  browser = await chromium.launch({ executablePath: process.env["CHROME"] ?? "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox"] });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, locale: "en-US" });
   await page.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showUsage: true })));
   await page.goto(`${origin}/?settings=usage`);
   await openSettingsPage(page, "Subscription usage");

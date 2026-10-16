@@ -1479,6 +1479,8 @@ One set for both themes: the card is island black wherever it shows.
   and the danger action on the right, before deleting the saved management key. An unconfigured hub renders nothing. No dedicated Usage sources
   section, new tokens or decorative motion. References: Paseo's global account picker/provider counts
   and t3code's inline authentication metadata/compact hub row; their pixels are not copied.
+  An unreadable hub configuration leaves the hub unconfigured without blocking server startup;
+  its fixed diagnostic is logged and returned by the hub status endpoint, never its saved key.
 
 ### Terminal host, key bar and drawer
 - **Find in terminal** in the header's More menu and Mod+Shift+F opens a find bar above the

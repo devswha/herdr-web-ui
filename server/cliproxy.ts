@@ -33,8 +33,11 @@ export class CLIProxyService {
       if (!isJsonObject(value) || typeof value["url"] !== "string" || typeof value["management_key"] !== "string") throw proxyInvalid();
       this.config = { url: this.base(value["url"]), management_key: value["management_key"] };
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") this.config = null;
-      else throw new CLIProxyError("cliproxy_storage", 500, "Could not read Hub configuration");
+      this.config = null;
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        this.problem = "Could not read Hub configuration";
+        console.warn(`cliproxy: ${this.problem}`);
+      }
     }
   }
 
