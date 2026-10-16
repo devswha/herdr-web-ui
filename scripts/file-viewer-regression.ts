@@ -198,6 +198,20 @@ try {
   await preview.locator("video").waitFor();
   await page.waitForFunction(() => (document.querySelector("video")?.readyState ?? 0) >= 1);
   assert.equal(await page.evaluate(() => history.length), baseline + 1);
+  // a phone's file header is one row: the name, its actions and Close side by side, no size/folder line
+  const headerRow = await preview.locator(".file-viewer-header").evaluate((header) => {
+    const middle = (element: Element | null) => { const box = element?.getBoundingClientRect(); return box ? box.top + box.height / 2 : NaN; };
+    const meta = header.querySelector(".file-viewer-meta");
+    return {
+      title: middle(header.querySelector(".modal-title")),
+      actions: middle(header.querySelector(".file-viewer-actions")),
+      close: middle(header.querySelector(".file-viewer-close")),
+      metaShown: meta !== null && getComputedStyle(meta).display !== "none",
+    };
+  });
+  assert.ok(Math.abs(headerRow.title - headerRow.close) < 4 && Math.abs(headerRow.actions - headerRow.close) < 4,
+    `a phone's file header keeps the name, the actions and Close on one row (${JSON.stringify(headerRow)})`);
+  assert.equal(headerRow.metaShown, false, "a phone's file header leaves the size and folder out");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-video-open.png") });

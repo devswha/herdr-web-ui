@@ -947,7 +947,8 @@ One set for both themes: the card is island black wherever it shows.
   with HTML enabled; local images still pass through the file endpoint's image-size check.
   The page has an h1 and no Close or new-tab action; the dialog keeps its focus trap and sheet swipe.
   Actions use the existing header icon-button primitive, labels and focus states. On a phone the
-  name and Close occupy the first row, with actions below; a reader page has no Close.
+  header is one row: the name cut inside its stem, then the actions, then Close; the size and
+  folder are left out there unless a partial-view notice is among them. A reader page has no Close.
   Docked beside the pane (from 980px, `aside.file-panel`) the viewer is a split of the workspace on
   `--bg` behind one `--border` hairline, not a raised card, and its chrome is two thin rows on
   hairlines (t3code's file surface subheader, paseo's file panel bar): a header of
