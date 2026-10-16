@@ -56,6 +56,14 @@ describe("paneFiles", () => {
     expect(files).toContain("line\nbreak.txt");
   });
 
+  it("matches a Unicode query across normalization forms", async () => {
+    const root = fixture();
+    const name = "문서.md".normalize("NFD");
+    writeFileSync(join(root, name), "fixture");
+    clearFileCache();
+    expect(await paneFiles(root, "문서".normalize("NFC"))).toContain(name);
+  });
+
   it("honors git ignores from a nested working directory", async () => {
     const root = fixture();
     expect(Bun.spawnSync(["git", "init", "-q", root]).exitCode).toBe(0);

@@ -61,7 +61,7 @@ function subsequence(path: string, query: string): boolean {
 
 function score(path: string, query: string): number {
   if (!query) return 1;
-  const lower = path.toLowerCase();
+  const lower = /[^\x00-\x7f]/.test(path) ? path.normalize("NFC").toLowerCase() : path.toLowerCase();
   const name = lower.slice(lower.lastIndexOf("/") + 1);
   const at = lower.indexOf(query);
   if (at >= 0) return 300 - at + (name.includes(query) ? 30 : 0);
@@ -71,7 +71,7 @@ function score(path: string, query: string): number {
 }
 
 export async function paneFiles(cwd: string, query = "", limit = 20): Promise<string[]> {
-  const normalized = query.trim().toLowerCase();
+  const normalized = query.trim().normalize("NFC").toLowerCase();
   const boundedLimit = Math.min(100, Math.max(1, Math.trunc(limit) || 20));
   return (await inventory(cwd))
     .map((path) => ({ path, score: score(path, normalized) }))
