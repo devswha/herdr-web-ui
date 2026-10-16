@@ -26,6 +26,9 @@ import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
+import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
+import { FILE_PANEL_DOCK_QUERY, storedFilePanelWidth } from "./lib/filePanelWidth.ts";
+import { filePresentation, type FilePresentation } from "./lib/filePresentation.ts";
 import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
 import { focusWorkspaceListToggle } from "./lib/focus.ts";
@@ -319,6 +322,8 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => initialLink?.sidebar === "hidden");
   // the width the sidebar's edge was dragged to on this device; null is the density's own
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
+  const filePanelAvailable = useMediaQuery(FILE_PANEL_DOCK_QUERY);
+  const [filePanelWidth, setFilePanelWidth] = useState(storedFilePanelWidth);
   const [lens, setLens] = useState<{ key: string; view: PaneView }>({ key: "", view: "terminal" });
   // Explicit lens choices stay authoritative in this page even when storage cannot be written.
   const [viewPicks, setViewPicks] = useState<ReadonlyMap<string, PaneView>>(() => new Map());
@@ -374,12 +379,37 @@ export function App() {
   const paneActionsRef = useRef<((target: HerdrPane) => RowMenuItem[]) | null>(null);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
-  const { viewing, openFile, closeFile } = useFileViewer();
-  const viewFile = useCallback((path: string) => {
-    openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
-  }, [openFile, selectedPaneId, selectedMachineId]);
+  const { viewing, openFile, closeFile, setPresentation } = useFileViewer();
   // a repository diff from the Files dialog's Changes tab, an entry of its own like a file
-  const { viewing: diffViewing, openDiff, closeDiff } = useRepoDiffViewer();
+  const { viewing: diffViewing, openDiff, closeDiff, releaseDiff } = useRepoDiffViewer();
+  const presentation = viewing?.presentation ?? filePresentation(viewing?.path ?? "");
+  const fileDocked = filePanelAvailable && presentation === "panel";
+  useEffect(() => {
+    if (viewing !== null && fileDocked) setFilesOpen(false);
+  }, [viewing, fileDocked]);
+  const presentFile = useCallback((next: FilePresentation) => {
+    if (next === "panel" && filePanelAvailable && diffViewing !== null && viewing !== null) {
+      // Collapse the stacked diff and popup to one panel entry. Pushing from their opener
+      // also discards the old forward entries, so Forward cannot resurrect the popup or diff.
+      const preview = { ...viewing, presentation: next };
+      window.addEventListener("popstate", () => {
+        releaseDiff();
+        openFile(preview);
+      }, { once: true });
+      window.history.go(-2);
+    } else setPresentation(next);
+  }, [filePanelAvailable, diffViewing, viewing, releaseDiff, openFile, setPresentation]);
+  const reportFileKind = useCallback((presentation: FilePresentation) => {
+    if (viewing !== null && viewing.presentation === undefined && presentation !== filePresentation(viewing.path)) presentFile(presentation);
+  }, [viewing, presentFile]);
+  const toggleFilePresentation = filePanelAvailable && viewing !== null
+    ? () => presentFile(fileDocked ? "popup" : "panel")
+    : undefined;
+  const viewFile = useCallback((path: string) => {
+    // the Files dialog would cover the docked panel the file opens in
+    if (filePanelAvailable && filePresentation(path) === "panel") setFilesOpen(false);
+    openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
+  }, [openFile, selectedPaneId, selectedMachineId, filePanelAvailable]);
   // a link to Settings opens it on its page, for that first opening alone
   const [settingsOpen, setSettingsOpen] = useState(() => initialLink?.settings != null);
   const [settingsLinkPage, setSettingsLinkPage] = useState<string | null>(() => initialLink?.settings ?? null);
@@ -1361,7 +1391,10 @@ export function App() {
   if (locked) return <AccessGate reason={lockReason} initialCode={pairCode} onUnlocked={unlock} />;
 
   return (
-    <MachineSessionsProvider machineIds={machines.map((machine) => machine.id)}><MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`} style={sidebarWidth === null ? undefined : { "--sidebar-user-w": `${sidebarWidth}px` } as CSSProperties}>
+    <MachineSessionsProvider machineIds={machines.map((machine) => machine.id)}><MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`} style={sidebarWidth === null && filePanelWidth === null ? undefined : {
+      ...(sidebarWidth === null ? {} : { "--sidebar-user-w": `${sidebarWidth}px` }),
+      ...(filePanelWidth === null ? {} : { "--file-panel-user-w": `${filePanelWidth}px` }),
+    } as CSSProperties}>
       <header className={`app-header is-zoned${chatShown ? " is-chat" : ""}`}>
         {/* is-zoned tells this header from the connecting shell's, which has no zones to draw.
             .header-side is the sidebar's own top row from 769px (styles.css); below that its
@@ -1638,6 +1671,10 @@ export function App() {
         </div>
         </div>
         </OpenFileContext.Provider>
+        {/* last in the row: the file beside the pane (from 980px), the pane column shrinks and its terminal refits */}
+        {viewing !== null && fileDocked && <MachineContext.Provider value={viewing.machineId}>
+          <FileViewer key={viewing.path} docked panelStart={<FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} />} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path, presentation })} onKind={reportFileKind} onTogglePresentation={toggleFilePresentation} keyboardActive={!settingsOpen} />
+        </MachineContext.Provider>}
       </div>
 
       <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
@@ -1665,18 +1702,25 @@ export function App() {
         setFilesOpen(false);
         selectTargetRef.current(machineId, paneId);
       }} />
-      <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} overPreview={viewing !== null || diffViewing !== null} />
+      <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} overPreview={(viewing !== null && !fileDocked) || diffViewing !== null} />
       {filesOpen && selectedPane && (
-        <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} paneId={selectedPane.pane_id} viewing={viewing !== null || diffViewing !== null} onOpenFile={viewFile}
+        <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} paneId={selectedPane.pane_id} viewing={(viewing !== null && !fileDocked) || diffViewing !== null} onOpenFile={viewFile}
           onOpenDiff={(comparison, file) => openDiff({ machineId: selectedMachineId, paneId: selectedPane.pane_id, directory: selectedPane.foreground_cwd ?? selectedPane.cwd ?? null, ...comparison, path: file.path, oldPath: file.old_path })}
           onBrowseFolders={(path) => actions.openPalette(folderQueryFor(path, null))}
           onClose={() => setFilesOpen(false)} />
       )}
       {diffViewing !== null && <MachineContext.Provider value={diffViewing.machineId}>
-        <RepoDiffViewer key={`${diffViewing.scope}:${diffViewing.path}`} target={diffViewing} onClose={closeDiff} onOpenFile={(path) => openFile({ path, paneId: diffViewing.paneId, machineId: diffViewing.machineId })} keyboardActive={!settingsOpen && viewing === null} />
+        <RepoDiffViewer key={`${diffViewing.scope}:${diffViewing.path}`} target={diffViewing} onClose={closeDiff} onOpenFile={(path) => {
+          const docked = filePanelAvailable && filePresentation(path) === "panel";
+          if (docked) {
+            setFilesOpen(false);
+            releaseDiff();
+          }
+          openFile({ path, paneId: diffViewing.paneId, machineId: diffViewing.machineId }, docked);
+        }} keyboardActive={!settingsOpen && (viewing === null || fileDocked)} />
       </MachineContext.Provider>}
-      {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
-        <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} keyboardActive={!settingsOpen} />
+      {viewing !== null && !fileDocked && <MachineContext.Provider value={viewing.machineId}>
+        <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path, presentation })} onKind={reportFileKind} onTogglePresentation={toggleFilePresentation} keyboardActive={!settingsOpen} />
       </MachineContext.Provider>}
       <CommandPalette key={selectedMachineId} machines={machines} onSelect={selectTarget} open={paletteOpen} initialQuery={paletteQuery} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId} view={view} actions={actions} />
     </div></MachineContext.Provider></MachineSessionsProvider>

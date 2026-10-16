@@ -945,6 +945,20 @@ One set for both themes: the card is island black wherever it shows.
   The page has an h1 and no Close or new-tab action; the dialog keeps its focus trap and sheet swipe.
   Actions use the existing header icon-button primitive, labels and focus states. On a phone the
   name and Close occupy the first row, with actions below; a reader page has no Close.
+  Docked beside the pane (from 980px, `aside.file-panel`) the viewer is a split of the workspace on
+  `--bg` behind one `--border` hairline, not a raised card, and its chrome is two thin rows on
+  hairlines (t3code's file surface subheader, paseo's file panel bar): a header of
+  `--control-h` + `--space-2` with the file's glyph (`FileGlyph`), its name at `--fs-sm`
+  `--fw-medium` cut inside its stem, then the actions as `--control-h` − 6px ghost buttons in one
+  run (popup, new tab, raw, download, copy, Close), never stacked; and a toolbar of `--control-h` −
+  `--space-1` carrying the meta line (size or partial-view notice, folder) and, at its end, the
+  file's view modes as a compact segmented control (**Preview | Source** for Markdown in place of
+  Show source, **Page | Source** for HTML) whose chosen segment is the row's one `--bg-hover` fill.
+  The content fills the panel edge to edge (no inset, radius or frame around a page, PDF or
+  video; code and Markdown keep their `--space-3` inset). The panel's left edge is an unseen
+  `--space-2` grip that draws a 2px `--accent` seam under the pointer, while held and on focus.
+  Under 300px (a 980px window with the sidebar at its widest) the header keeps the name, the
+  popup toggle and Close alone.
   A link keeps `--accent` and a file chip reads in `--text-strong` with a dotted underline; both
   underlines are `--text-dim` at rest and both take the accent on hover and focus-visible.
   Code blocks are `--radius-lg` and never scroll inside: one longer than 30 lines opens at its

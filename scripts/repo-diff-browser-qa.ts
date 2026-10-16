@@ -614,6 +614,7 @@ try {
     await openChange(page, "src/lib/idempotency.ts");
     assert.equal(await note(page), "No lines changed.", "a pure rename has no lines");
     await closeDiff(page);
+
     assert.deepEqual(missing, [], `no missing route in the demo: ${missing.join(", ")}`);
     await context.close();
     console.log("PASS the static demo lists its fixture's changes and draws a diff with no missing route");

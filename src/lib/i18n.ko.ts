@@ -228,6 +228,9 @@ export const KO: Record<string, string> = {
   "Symbols": "기호",
   "Drag to reorder · Alt+↑/↓": "끌어서 순서 바꾸기 · Alt+↑/↓",
   "Resize sidebar": "사이드바 너비 조절",
+  "Resize file panel": "파일 패널 너비 조절",
+  "Show beside the pane": "창 옆에 표시",
+  "Show as a popup": "팝업으로 표시",
   "Pane name": "패널 이름",
   "Rename pane": "패널 이름 바꾸기",
   "Move failed: {reason}": "이동 실패: {reason}",
@@ -410,7 +413,9 @@ export const KO: Record<string, string> = {
   "This preview can't be shown.": "이 미리보기는 표시할 수 없습니다.",
   "Open {path}": "{path} 열기",
   "Show the HTML file as": "HTML 파일 보기 방식",
+  "Show the Markdown file as": "Markdown 파일 보기 방식",
   "Page": "페이지",
+  "Preview": "미리보기",
   "Source": "소스",
 
   // ---- PC dialog ----

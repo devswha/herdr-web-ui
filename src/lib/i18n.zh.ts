@@ -232,6 +232,9 @@ export const ZH: Record<string, string> = {
   "Symbols": "符号",
   "Drag to reorder · Alt+↑/↓": "拖动以调整顺序 · Alt+↑/↓",
   "Resize sidebar": "调整侧边栏宽度",
+  "Resize file panel": "调整文件面板宽度",
+  "Show beside the pane": "在窗格旁显示",
+  "Show as a popup": "以弹窗显示",
   "Pane name": "窗格名称",
   "Rename pane": "重命名窗格",
   "Move failed: {reason}": "移动失败：{reason}",
@@ -414,7 +417,9 @@ export const ZH: Record<string, string> = {
   "This preview can't be shown.": "无法显示此预览。",
   "Open {path}": "打开 {path}",
   "Show the HTML file as": "HTML 文件显示方式",
+  "Show the Markdown file as": "Markdown 文件显示方式",
   "Page": "页面",
+  "Preview": "预览",
   "Source": "源代码",
 
   // ---- PC dialog ----

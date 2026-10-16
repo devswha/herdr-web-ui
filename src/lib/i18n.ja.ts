@@ -230,6 +230,9 @@ export const JA: Record<string, string> = {
   "Symbols": "記号",
   "Drag to reorder · Alt+↑/↓": "ドラッグで並べ替え · Alt+↑/↓",
   "Resize sidebar": "サイドバーの幅を変更",
+  "Resize file panel": "ファイルパネルの幅を変更",
+  "Show beside the pane": "ペインの横に表示",
+  "Show as a popup": "ポップアップで表示",
   "Pane name": "ペイン名",
   "Rename pane": "ペインの名前を変更",
   "Move failed: {reason}": "移動できませんでした: {reason}",
@@ -412,7 +415,9 @@ export const JA: Record<string, string> = {
   "This preview can't be shown.": "このプレビューは表示できません。",
   "Open {path}": "{path} を開く",
   "Show the HTML file as": "HTML ファイルの表示",
+  "Show the Markdown file as": "Markdown ファイルの表示",
   "Page": "ページ",
+  "Preview": "プレビュー",
   "Source": "ソース",
 
   // ---- PC dialog ----

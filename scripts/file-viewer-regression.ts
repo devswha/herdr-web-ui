@@ -10,9 +10,16 @@ import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { openSettingsPage } from "./settings-page.ts";
 import { sheetsSettled } from "./sheets-settled.ts";
+import { runMoreItem } from "./header-more.ts";
 import type { Machine } from "../shared/protocol.ts";
 import { FAVICON_CANDIDATES } from "../src/lib/projectFavicon.ts";
 import { chromePath } from "./chrome-path.ts";
+
+const openFiles = async (page: import("playwright-core").Page) => {
+  const headerButton = page.locator(".header-files-button");
+  if (await headerButton.isVisible()) await headerButton.click();
+  else await runMoreItem(page, "Browse files");
+};
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-file-back-"));
 const codexHome = join(root, "codex-home");
@@ -35,6 +42,7 @@ writeFileSync(transcript, [
   { type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: "shoot", arguments: JSON.stringify({ cmd: "python3 shoot.py --out shots/report.html" }) } },
   { type: "response_item", payload: { type: "function_call_output", call_id: "shoot", output: `${join(root, "shots", "t00000.png")} (1600, 1000) -> (1255, 960)\nsaved shots/report.html\ndisplay image 1: [image/png]` } },
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Shots:\n\n\`\`\`\n${join(root, "shots", "t00000.png")} (1600, 1000) -> (1255, 960)\n\`\`\`` }] } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "Kinds: [extensionless](./README), [unknown text](./notes.custom), [dotted folder](./folder.txt)." }] } },
 ].map((row) => JSON.stringify(row)).join("\n"));
 const db = new Database(join(codexHome, "state_5.sqlite"));
 db.exec("CREATE TABLE threads (id TEXT, rollout_path TEXT, cwd TEXT, archived INTEGER, agent_role TEXT, created_at INTEGER, updated_at INTEGER, source TEXT, first_user_message TEXT)");
@@ -45,6 +53,10 @@ writeFileSync(standIn, "#!/bin/sh\nsleep 600\n");
 chmodSync(standIn, 0o755);
 copyFileSync(join(import.meta.dir, "fixtures", "file-preview.webm"), join(root, "preview.webm"));
 writeFileSync(join(root, "notes.txt"), "File preview history regression\n");
+writeFileSync(join(root, "README"), "Extensionless text\n");
+writeFileSync(join(root, "notes.custom"), "Unknown extension text\n");
+mkdirSync(join(root, "folder.txt"));
+writeFileSync(join(root, "folder.txt", "inside.txt"), "Chosen inside the popup\n");
 const targetSource = Array.from({ length: 80 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join("\n") + "\n\n";
 writeFileSync(join(root, "target.ts"), targetSource);
 // in a subfolder, so a link is resolved from the file's folder (../notes.txt), not the pane's
@@ -94,6 +106,10 @@ let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
 try {
+  // An unborn repository is enough for Changes to show the untracked file; no fixture commit.
+  const init = Bun.spawn(["git", "init", "-q", "-b", "main", root], { stdout: "pipe", stderr: "pipe" });
+  assert.equal(await init.exited, 0, await new Response(init.stderr).text());
+  writeFileSync(join(root, ".gitignore"), "*\n!notes.txt\n!preview.webm\n");
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-file-back" });
   workspace = created.workspace.workspace_id;
   const pane = created.root_pane.pane_id;
@@ -174,7 +190,8 @@ try {
     (window as unknown as { testDocument: string }).testDocument = "same-document";
   });
   const baseline = await page.evaluate(() => history.length);
-  const preview = page.getByRole("dialog", { name: "preview.webm", exact: true });
+  // a dialog below 980px, a panel beside the pane (role complementary) from there
+  const preview = page.getByRole("dialog", { name: "preview.webm", exact: true }).or(page.getByRole("complementary", { name: "preview.webm", exact: true }));
   await videoLink.click();
   await preview.locator("video").waitFor();
   await page.waitForFunction(() => (document.querySelector("video")?.readyState ?? 0) >= 1);
@@ -208,10 +225,9 @@ try {
   await preview.waitFor();
   // A press on the backdrop itself closes the viewer. On a touch device the viewer fills the
   // scrim edge to edge, so the press is sent to the scrim rather than aimed at an exposed pixel.
-  await page.setViewportSize({ width: 1280, height: 800 });
+  // (From 980px the file is a panel beside the pane, with no scrim: see the docked block below.)
   await page.locator(".file-viewer-scrim").evaluate((scrim) => scrim.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
   await preview.waitFor({ state: "hidden" });
-  await page.setViewportSize({ width: 390, height: 844 });
   console.log("PASS Forward restores the viewer; X, Escape and scrim close consume its entry");
 
   // The Settings shortcut must open a visible dialog above the preview. Its history entries
@@ -362,6 +378,259 @@ try {
   await preview.getByRole("button", { name: "Close file", exact: true }).click();
   await preview.waitFor({ state: "hidden" });
   console.log("PASS the command palette opens above Settings over a preview; Escape closes the palette, then Settings, then X the file");
+
+  // Wide windows choose by kind, and an explicit move replaces only the preview's entry.
+  const notesLink = page.getByRole("button", { name: "notes", exact: true });
+  const textPopup = page.getByRole("dialog", { name: "notes.txt", exact: true });
+  const panel = page.locator("aside.file-panel");
+  const beforePlacement = await page.evaluate(() => history.state);
+  await videoLink.click();
+  await page.locator(".modal.file-viewer video").waitFor();
+  assert.equal(await panel.count(), 0, "video starts in the popup at 1280px");
+  const videoHistoryLength = await page.evaluate(() => history.length);
+  await preview.getByRole("button", { name: "Show beside the pane", exact: true }).click();
+  await panel.locator("video").waitFor();
+  assert.equal(await page.evaluate(() => history.length), videoHistoryLength, "moving a video adds no entry");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "video-moved-to-panel-1280.png") });
+  await panel.getByRole("button", { name: "Close file", exact: true }).click();
+  await panel.waitFor({ state: "detached" });
+  assert.deepEqual(await page.evaluate(() => history.state), beforePlacement, "one Close consumes the moved video's entry");
+  await notesLink.click();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  const textHistoryLength = await page.evaluate(() => history.length);
+  await panel.getByRole("button", { name: "Show as a popup", exact: true }).click();
+  await textPopup.waitFor();
+  assert.equal(await panel.count(), 0, "moving text removes its panel");
+  await page.reload();
+  await textPopup.getByText("File preview history regression", { exact: true }).waitFor();
+  assert.equal(await panel.count(), 0, "reload keeps the explicit popup choice");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "text-moved-to-popup-1280.png") });
+  await page.goBack();
+  await textPopup.waitFor({ state: "detached" });
+  assert.deepEqual(await page.evaluate(() => history.state), beforePlacement, "one Back consumes the moved text entry");
+  await page.goForward();
+  await textPopup.waitFor();
+  await textPopup.getByRole("button", { name: "Show beside the pane", exact: true }).click();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => history.length), textHistoryLength, "reload, Forward and moves add no entry");
+  await panel.getByRole("button", { name: "Close file", exact: true }).click();
+  await panel.waitFor({ state: "detached" });
+  console.log("PASS video defaults to popup, text defaults to panel, both move, reload and Forward keep the choice, and Close/Back consume one entry");
+
+  // From 980px a text file opens in a panel beside the pane, not a dialog over it: no scrim, the pane
+  // keeps its clicks, the panel's left edge drags its width (kept on this device across a reload),
+  // Escape closes it only from inside it, and Close file takes the panel and its entry away.
+  const panelWidth = () => panel.evaluate((element) => element.getBoundingClientRect().width);
+  await notesLink.click();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  assert.equal(await page.locator(".modal-scrim, .file-viewer-scrim, .modal.file-viewer, [aria-modal='true']").count(), 0, "a docked file has no scrim and no dialog");
+  const paneBox = await page.locator(".app-body > .pane-column").boundingBox();
+  const panelBox = await panel.boundingBox();
+  assert.ok(paneBox && panelBox && paneBox.x + paneBox.width <= panelBox.x + 1, `the pane ends where the panel starts: ${JSON.stringify({ paneBox, panelBox })}`);
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "file-panel-docked-1280.png") });
+  // a click on the pane lands in it (Playwright refuses a click a layer would take), and the panel stays
+  await composer.click();
+  assert.equal(await composer.evaluate((input) => document.activeElement === input), true, "the pane beside the panel takes a click");
+  assert.equal(await panel.count(), 1, "a click in the pane leaves the panel open");
+  assert.equal(await composer.inputValue(), "Keep my mobile draft");
+  // Escape from inside the panel closes it and takes its entry off
+  await panel.locator(".file-panel-resizer").focus();
+  await page.keyboard.press("Escape");
+  await panel.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "Escape in the panel consumes the preview entry");
+  // the left edge dragged 100px to the left widens the panel by as much, and the width is stored
+  await notesLink.click();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  const before = await panelWidth();
+  const grip = await panel.locator(".file-panel-resizer").boundingBox();
+  assert.ok(grip, "the panel's edge is laid out");
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 - 100, grip.y + grip.height / 2, { steps: 5 });
+  await page.mouse.up();
+  const stored = Number(await (await page.waitForFunction(() => localStorage.getItem("herdr-web-ui:file-panel-width"))).jsonValue());
+  assert.ok(Math.abs(stored - (before + 100)) <= 2, `dragging the edge 100px widens the panel 100px: ${before} -> ${stored}`);
+  await page.waitForFunction((want) => Math.abs((document.querySelector("aside.file-panel")?.getBoundingClientRect().width ?? 0) - want) <= 1, stored);
+  // a reload restores the file from its entry, at the stored width
+  await page.reload();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  assert.ok(Math.abs(await panelWidth() - stored) <= 1, `a reload keeps the dragged width: ${await panelWidth()} vs ${stored}`);
+  // a double-click on the edge puts the default width back and forgets the stored one, so the
+  // steps after this one see the panel as a fresh device does
+  await panel.locator(".file-panel-resizer").dblclick();
+  await page.waitForFunction(() => localStorage.getItem("herdr-web-ui:file-panel-width") === null);
+  await page.waitForFunction((want) => Math.abs((document.querySelector("aside.file-panel")?.getBoundingClientRect().width ?? 0) - want) <= 1, before);
+  await panel.getByRole("button", { name: "Close file", exact: true }).click();
+  await panel.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "Close file consumes the preview entry");
+  console.log("PASS from 980px a file is a panel beside the pane: no scrim, the pane takes clicks, its edge drags and keeps its width, Escape inside and Close file close it");
+  // a file chosen in the Files dialog opens in the panel, and the dialog, which would cover it, closes
+  await openFiles(page);
+  const filesDialog = page.getByRole("dialog", { name: "Files", exact: true });
+  await filesDialog.getByRole("button", { name: /preview\.webm/ }).click();
+  await page.locator(".modal.file-viewer video").waitFor();
+  assert.equal(await filesDialog.count(), 1, "a media popup stacks over Files");
+  await preview.getByRole("button", { name: "Close file", exact: true }).click();
+  await preview.waitFor({ state: "detached" });
+  await filesDialog.waitFor();
+  await filesDialog.getByRole("button", { name: /notes\.txt/ }).click();
+  await filesDialog.waitFor({ state: "detached" });
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  await panel.getByRole("button", { name: "Close file", exact: true }).click();
+  await panel.waitFor({ state: "detached" });
+  assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "Close file consumes the entry of a file opened from Files");
+  console.log("PASS from 980px a file opened from the Files dialog shows in the panel and the dialog closes");
+
+  for (const [label, content] of [["extensionless", "Extensionless text"], ["unknown text", "Unknown extension text"]] as const) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await panel.getByText(content, { exact: true }).waitFor();
+    assert.equal(await page.locator(".modal.file-viewer").count(), 0, "real text metadata corrects an unknown-extension popup guess");
+    await panel.getByRole("button", { name: "Close file", exact: true }).click();
+    await panel.waitFor({ state: "detached" });
+  }
+  await page.getByRole("button", { name: "dotted folder", exact: true }).click();
+  const folderPopup = page.locator(".modal.file-viewer");
+  await folderPopup.getByRole("button", { name: /inside\.txt/ }).waitFor();
+  assert.equal(await panel.count(), 0, "a 404 directory listing corrects a text-extension panel guess");
+  await folderPopup.getByRole("button", { name: /inside\.txt/ }).click();
+  const insidePopup = page.getByRole("dialog", { name: "inside.txt", exact: true });
+  await insidePopup.getByText("Chosen inside the popup", { exact: true }).waitFor();
+  await page.reload();
+  await insidePopup.getByText("Chosen inside the popup", { exact: true }).waitFor();
+  assert.equal(await panel.count(), 0, "choosing text inside a popup keeps the popup across reload");
+  await insidePopup.getByRole("button", { name: "Close file", exact: true }).click();
+  await insidePopup.waitFor({ state: "detached" });
+  console.log("PASS late metadata corrects extensionless text and a dotted directory; choosing a file inside keeps the presentation");
+
+  // Remembered maxima must yield to the pane, both after reload and a viewport reduction.
+  await notesLink.click();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  await page.evaluate(() => {
+    localStorage.setItem("herdr-web-ui:sidebar-width", "520");
+    localStorage.setItem("herdr-web-ui:file-panel-width", "900");
+  });
+  await page.reload();
+  await panel.getByText("File preview history regression", { exact: true }).waitFor();
+  const showSidebar = page.getByRole("button", { name: "Show workspace list", exact: true });
+  if (await showSidebar.count()) await showSidebar.click();
+  for (const width of [1280, 981, 980]) {
+    await page.setViewportSize({ width, height: 800 });
+    if (width === 980) {
+      await page.reload();
+      await panel.getByText("File preview history regression", { exact: true }).waitFor();
+    }
+    const geometry = await page.evaluate(() => ({
+      pane: document.querySelector(".pane-column")?.getBoundingClientRect().width ?? 0,
+      panelRight: document.querySelector(".file-panel")?.getBoundingClientRect().right ?? Infinity,
+      sidebar: document.querySelector(".sidebar")?.getBoundingClientRect().width ?? 0,
+      viewport: window.innerWidth,
+    }));
+    assert.equal(geometry.sidebar, Math.min(520, width / 2), "the sidebar is expanded at its maximum");
+    assert.ok(geometry.pane >= 320, `a maximum sidebar and panel leave a 320px pane: ${JSON.stringify(geometry)}`);
+    assert.ok(geometry.panelRight <= geometry.viewport, `the panel stays inside the viewport: ${JSON.stringify(geometry)}`);
+    const separator = panel.getByRole("separator", { name: "Resize file panel", exact: true });
+    await separator.focus();
+    await page.keyboard.press("End");
+    await page.waitForFunction(() => {
+      const panel = document.querySelector(".file-panel");
+      const edge = panel?.querySelector("[role='separator']");
+      return edge?.getAttribute("aria-valuemax") === String(Math.floor(panel?.getBoundingClientRect().width ?? 0));
+    });
+    assert.equal(Number(await separator.getAttribute("aria-valuemin")), Math.min(320, Math.floor(width - geometry.sidebar - 320)));
+    assert.ok(Number(await separator.getAttribute("aria-valuenow")) <= Number(await separator.getAttribute("aria-valuemax")), "fractional layout widths never exceed the integer ARIA maximum");
+    if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `file-panel-maxima-${width}.png`) });
+  }
+  await panel.getByRole("button", { name: "Close file", exact: true }).click();
+  await panel.waitFor({ state: "detached" });
+  await page.evaluate(() => {
+    localStorage.removeItem("herdr-web-ui:sidebar-width");
+    localStorage.removeItem("herdr-web-ui:file-panel-width");
+  });
+  await page.reload();
+  await videoLink.waitFor();
+  console.log("PASS remembered width maxima at 1280px and 980px preserve a 320px pane, keep the panel onscreen, and match the resizer limits");
+
+  await openFiles(page);
+  await filesDialog.getByRole("button", { name: "Changes", exact: true }).click();
+  const beforeMediaDiff = await page.evaluate(() => history.state);
+  await filesDialog.locator(".repo-change").filter({ hasText: "preview.webm" }).click();
+  const mediaDiff = page.locator(".repo-diff-viewer");
+  await mediaDiff.waitFor();
+  await mediaDiff.getByRole("button", { name: "Open file", exact: true }).click();
+  await page.locator(".modal.file-viewer video").waitFor();
+  assert.equal(await mediaDiff.count(), 1, "wide media popup keeps the diff beneath it");
+  assert.equal(await panel.count(), 0, "wide media handoff does not dock");
+  await preview.getByRole("button", { name: "Close file", exact: true }).click();
+  await preview.waitFor({ state: "detached" });
+  await mediaDiff.getByRole("button", { name: "Open file", exact: true }).click();
+  await page.locator(".modal.file-viewer video").waitFor();
+  await preview.getByRole("button", { name: "Show beside the pane", exact: true }).click();
+  await panel.locator("video").waitFor();
+  await mediaDiff.waitFor({ state: "detached" });
+  await filesDialog.waitFor({ state: "detached" });
+  await panel.getByRole("button", { name: "Close file", exact: true }).click();
+  await panel.waitFor({ state: "detached" });
+  assert.deepEqual(await page.evaluate(() => history.state), beforeMediaDiff, "moving a stacked popup to the panel hands off the diff entry; one Close returns to its opener");
+  await openFiles(page);
+  await filesDialog.getByRole("button", { name: "Changes", exact: true }).click();
+  await filesDialog.locator(".repo-change").filter({ hasText: "preview.webm" }).click();
+  await mediaDiff.waitFor();
+  await mediaDiff.getByRole("button", { name: "Close diff", exact: true }).click();
+  await mediaDiff.waitFor({ state: "detached" });
+  await filesDialog.getByRole("button", { name: "Close files", exact: true }).click();
+  await filesDialog.waitFor({ state: "detached" });
+  console.log("PASS a wide video handoff stacks above the diff and Close file returns to the diff");
+
+  // The actual App and server, with a readable file in the owned pane's repository.
+  for (const width of [1280, 980, 979]) {
+    await page.setViewportSize({ width, height: 800 });
+    await openFiles(page);
+    await filesDialog.getByRole("button", { name: "Changes", exact: true }).click();
+    const beforeDiff = await page.evaluate(() => ({ state: history.state, url: location.href }));
+    await filesDialog.locator(".repo-change").filter({ hasText: "notes.txt" }).click();
+    const diff = page.locator(".repo-diff-viewer");
+    await diff.waitFor();
+    const diffLength = await page.evaluate(() => history.length);
+    await diff.getByRole("button", { name: "Open file", exact: true }).click();
+    if (width < 980) {
+      const modal = page.getByRole("dialog", { name: "notes.txt", exact: true });
+      await modal.getByText("File preview history regression", { exact: true }).waitFor();
+      assert.equal(await diff.count(), 1, "below 980px the modal file keeps the diff beneath it");
+      await modal.getByRole("button", { name: "Close file", exact: true }).click();
+      await modal.waitFor({ state: "detached" });
+      await diff.waitFor();
+      await diff.getByRole("button", { name: "Close diff", exact: true }).click();
+      await diff.waitFor({ state: "detached" });
+      await filesDialog.getByRole("button", { name: "Close files", exact: true }).click();
+      await filesDialog.waitFor({ state: "detached" });
+      console.log("PASS real App below 980px keeps the modal file above the diff; Close file returns to the diff");
+      continue;
+    }
+    await panel.getByText("File preview history regression", { exact: true }).waitFor();
+    await diff.waitFor({ state: "detached" });
+    await filesDialog.waitFor({ state: "detached" });
+    assert.equal(await page.evaluate(() => history.length), diffLength, "the file replaces rather than pushes over the diff");
+    assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:repo-diff"]), undefined, "no stale diff target remains in the file entry");
+    const close = panel.getByRole("button", { name: "Close file", exact: true });
+    assert.equal(await close.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    }), true, "Close file is hit-testable in the interactive panel");
+    if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `file-panel-diff-to-file-${width}.png`) });
+    await close.click();
+    await panel.waitFor({ state: "detached" });
+    assert.equal(await diff.count(), 0, "one Close file does not uncover the diff");
+    assert.deepEqual(await page.evaluate(() => ({ state: history.state, url: location.href })), beforeDiff, "one Close file returns to where the diff opened");
+    await page.goForward();
+    await panel.getByText("File preview history regression", { exact: true }).waitFor();
+    await page.reload();
+    await panel.getByText("File preview history regression", { exact: true }).waitFor();
+    assert.equal(await page.locator(".repo-diff-scrim, .files-dialog").count(), 0, "reload restores only the file panel");
+    await page.goBack();
+    await panel.waitFor({ state: "detached" });
+    assert.deepEqual(await page.evaluate(() => ({ state: history.state, url: location.href })), beforeDiff, "one Back consumes the handed-off entry after reload");
+    console.log(`PASS real App ${width}px diff -> readable file closes both dialogs, exposes Close file, replaces history, reloads, and consumes one Close/Back without a stale diff`);
+  }
   await page.setViewportSize({ width: 390, height: 844 });
 
   await page.getByRole("button", { name: "notes", exact: true }).click();
@@ -431,19 +700,22 @@ try {
   assert.ok(Math.abs(Number.parseFloat(previewText.headingSize ?? "") - 18 * 17 / 14) < 0.05, `its headings scale with it: ${previewText.headingSize}`);
   assert.equal(await page.locator(".file-viewer-markdown").evaluate((element) => getComputedStyle(element).maxWidth), "820px", "Default is the chat's Default lane");
   // on a wide screen the Default lane follows the pane (71.43% of it, up to 60rem): the preview
-  // follows with it, as wide as the chat beside it, not the 820px floor
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.waitForFunction(() => {
+  // follows with it, as wide as the chat beside it, not the 820px floor. The file is a panel beside
+  // the pane at this width, so the window is wide enough for the pane to reach the 60rem cap beside it
+  await page.setViewportSize({ width: 2560, height: 1080 });
+  const maxWidth = await page.waitForFunction(() => {
     const preview = document.querySelector(".file-viewer-markdown");
     const chat = document.querySelector(".chat-transcript");
-    return preview !== null && chat !== null && getComputedStyle(preview).maxWidth === `${chat.getBoundingClientRect().width}px`;
+    const maxWidth = preview === null ? "" : getComputedStyle(preview).maxWidth;
+    return chat !== null && maxWidth === `${chat.getBoundingClientRect().width}px` && maxWidth === "960px" ? maxWidth : false;
   });
-  assert.equal(await page.locator(".file-viewer-markdown").evaluate((element) => getComputedStyle(element).maxWidth), "960px", "Default is as wide as the chat's lane");
+  assert.equal(await maxWidth.jsonValue(), "960px", "Default is as wide as the chat's lane");
   // the lane is the opening pane's, written on the viewer: one length on the document would be
   // shared, and overwritten, by two panes side by side
   assert.deepEqual(await page.evaluate(() => ({
     root: document.documentElement.style.getPropertyValue("--chat-w"),
-    viewer: document.querySelector<HTMLElement>(".file-viewer")?.style.getPropertyValue("--chat-w") !== "",
+    // docked (this width), the viewer's surface is its panel
+    viewer: (document.querySelector<HTMLElement>("aside.file-panel") ?? document.querySelector<HTMLElement>(".file-viewer"))?.style.getPropertyValue("--chat-w") !== "",
   })), { root: "", viewer: true }, "the viewer carries the lane, not the document");
   await page.setViewportSize({ width: 390, height: 844 });
   assert.match(await guide.locator(".file-viewer-markdown pre, .file-viewer-markdown .hl-code").first().evaluate((element) => getComputedStyle(element).fontFamily), /monospace/, "its code stays monospace");
