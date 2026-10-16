@@ -38,7 +38,7 @@ import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { createDirectory, listDirectories } from "./directories.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
-import { fileResponse, locateFile, locateFileInFolder, crossSiteFileRead } from "./file-view.ts";
+import { fileResponse, findFile, crossSiteFileRead } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
   agentManifests,
@@ -2083,12 +2083,7 @@ export function createServer(
           try { cwd = (await paneContext(paneId)).cwd; } catch { /* an absolute path still opens */ }
         }
         const path = url.searchParams.get("path") ?? "";
-        let found = locateFile(path, cwd);
-        // a Claude Code pane names the files it keeps outside the project (`scratchpad/…`) relative to its session's temp folder
-        if (found === null && paneId && cwd !== null && !isAbsolute(path.trim()) && !path.trim().startsWith("~")) {
-          const folder = await claudeTempFolder(paneId);
-          if (folder !== null) found = locateFileInFolder(path, folder);
-        }
+        const found = await findFile(path, cwd, () => paneId ? claudeTempFolder(paneId) : Promise.resolve(null));
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
         // several files end in that name: the viewer lists them to choose from
         if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);
