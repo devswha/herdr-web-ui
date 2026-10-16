@@ -1188,7 +1188,7 @@ export function Composer({
                       aria-selected={index === selectedIndex}
                       data-brief={brief ? "" : undefined}
                       data-origin={command.origin}
-                      title={brief && description !== command.description.trim() ? command.description : undefined}
+                      title={brief && command.description.trim() !== "" ? command.description : undefined}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectCompletion(command, trigger)}
                     >
