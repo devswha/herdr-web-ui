@@ -1,12 +1,72 @@
 import { describe, expect, it } from "bun:test";
 
-import { installHelp } from "./install.ts";
+import { installedState, installHelp, type InstalledStateInput } from "./install.ts";
 
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 const IPAD = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36";
 const CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
 const FIREFOX = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0";
+
+function detect(modes: string[], rest: Partial<Omit<InstalledStateInput, "matches">> = {}): boolean {
+  return installedState({
+    matches: (query) => modes.some((mode) => query === `(display-mode: ${mode})`),
+    iosStandalone: false,
+    installedByEvent: false,
+    relatedInstalled: false,
+    previous: false,
+    ...rest,
+  });
+}
+
+describe("installedState", () => {
+  it("standalone -> installed", () => {
+    expect(detect(["standalone"])).toBe(true);
+  });
+
+  it("minimal-ui -> installed", () => {
+    expect(detect(["minimal-ui"])).toBe(true);
+  });
+
+  it("window-controls-overlay -> installed", () => {
+    expect(detect(["window-controls-overlay"])).toBe(true);
+  });
+
+  it("tabbed -> installed", () => {
+    expect(detect(["tabbed"])).toBe(true);
+  });
+
+  it("unframed -> installed", () => {
+    expect(detect(["unframed"])).toBe(true);
+  });
+
+  it("app window in fullscreen keeps the previous verdict", () => {
+    expect(detect(["fullscreen"], { previous: true })).toBe(true);
+  });
+
+  it("tab in F11 fullscreen is not installed", () => {
+    expect(detect(["fullscreen"], { previous: false })).toBe(false);
+  });
+
+  it("browser -> not installed", () => {
+    expect(detect(["browser"])).toBe(false);
+  });
+
+  it("no matching display mode -> not installed", () => {
+    expect(detect([])).toBe(false);
+  });
+
+  it("iosStandalone -> installed, also while fullscreen", () => {
+    expect(detect([], { iosStandalone: true })).toBe(true);
+    expect(detect(["fullscreen"], { iosStandalone: true })).toBe(true);
+  });
+
+  it("relatedInstalled or installedByEvent -> installed in a browser tab and in fullscreen", () => {
+    expect(detect(["browser"], { relatedInstalled: true })).toBe(true);
+    expect(detect(["fullscreen"], { relatedInstalled: true })).toBe(true);
+    expect(detect(["browser"], { installedByEvent: true })).toBe(true);
+  });
+});
 
 describe("installHelp", () => {
   it("points iPhones and iPads (which report a Mac) at Add to Home Screen", () => {

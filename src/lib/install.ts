@@ -15,6 +15,8 @@ type Listener = () => void;
 
 let pendingPrompt: BeforeInstallPromptEvent | null = null;
 let installedByEvent = false;
+let relatedInstalled = false;
+let lastInstalled = false;
 let revision = 0;
 const listeners = new Set<Listener>();
 
@@ -32,13 +34,38 @@ function snapshot(): number {
   return revision;
 }
 
-// an installed desktop app whose title bar is folded away reports window-controls-overlay, not standalone
-const INSTALLED_DISPLAY = "(display-mode: standalone), (display-mode: window-controls-overlay)";
+// every display mode an installed app can run in; browser and unknown modes are a plain tab
+const INSTALLED_DISPLAY_MODES = ["standalone", "minimal-ui", "window-controls-overlay", "tabbed", "unframed"].map((mode) => `(display-mode: ${mode})`);
+const FULLSCREEN_DISPLAY = "(display-mode: fullscreen)";
+
+export interface InstalledStateInput {
+  matches(query: string): boolean;
+  iosStandalone: boolean;
+  installedByEvent: boolean;
+  relatedInstalled: boolean;
+  /** the verdict last returned, kept while fullscreen hides which window this is */
+  previous: boolean;
+}
+
+/** Whether this page runs as an installed app. Fullscreen (F11, the macOS green button) reports no
+ * window mode of its own, so it keeps the previous verdict instead of guessing from the display mode. */
+export function installedState(input: InstalledStateInput): boolean {
+  const signalled = input.iosStandalone || input.installedByEvent || input.relatedInstalled;
+  if (input.matches(FULLSCREEN_DISPLAY)) return input.previous || signalled;
+  return signalled || INSTALLED_DISPLAY_MODES.some((query) => input.matches(query));
+}
 
 function isStandalone(): boolean {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   const iosNavigator = navigator as Navigator & { standalone?: boolean };
-  return installedByEvent || iosNavigator.standalone === true || window.matchMedia?.(INSTALLED_DISPLAY).matches === true;
+  lastInstalled = installedState({
+    matches: (query) => window.matchMedia?.(query).matches === true,
+    iosStandalone: iosNavigator.standalone === true,
+    installedByEvent,
+    relatedInstalled,
+    previous: lastInstalled,
+  });
+  return lastInstalled;
 }
 
 if (typeof window !== "undefined") {
@@ -52,8 +79,19 @@ if (typeof window !== "undefined") {
     pendingPrompt = null;
     emitChange();
   });
-  const displayMode = window.matchMedia?.(INSTALLED_DISPLAY);
-  displayMode?.addEventListener("change", emitChange);
+  for (const query of [...INSTALLED_DISPLAY_MODES, FULLSCREEN_DISPLAY]) window.matchMedia?.(query).addEventListener("change", emitChange);
+  // Chrome and Edge 140+ tell a tab of the same origin that the app is installed
+  if (window.top === window) {
+    const related = (navigator as Navigator & { getInstalledRelatedApps?: () => Promise<{ platform?: string }[]> }).getInstalledRelatedApps;
+    related?.call(navigator).then(
+      (apps) => {
+        if (!apps.some((app) => app.platform === "webapp")) return;
+        relatedInstalled = true;
+        emitChange();
+      },
+      () => {},
+    );
+  }
 }
 
 export interface InstallEnvironment {
