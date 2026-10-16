@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type CDPSession, type Page } from "playwright-core";
@@ -93,7 +93,11 @@ async function checkPinned(page: Page, cdp?: CDPSession): Promise<void> {
   assert.deepEqual(await pinnedRows(page), expected, "dropping onto the repository's own worktree cannot cross the card edge");
   assert.deepEqual(await restRows(), restBefore, "cross-card drops leave the rest list unchanged");
   assert.deepEqual(await serverOrder(page), serverBefore, "pinned drags never move herdr workspaces");
-  await page.screenshot({ path: `/tmp/pinned-reorder-${cdp ? "phone" : "desktop"}.png` });
+  const evidence = process.env["UI_EVIDENCE_DIR"];
+  if (evidence) {
+    mkdirSync(evidence, { recursive: true });
+    await page.screenshot({ path: join(evidence, `pinned-reorder-${cdp ? "phone" : "desktop"}.png`) });
+  }
   await page.reload();
   await page.locator(".conn-live").waitFor({ state: "attached" });
   const toggle = page.locator('button[aria-controls="workspace-drawer"]');
