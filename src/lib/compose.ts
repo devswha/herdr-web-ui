@@ -259,6 +259,27 @@ export function commandsForTrigger(commands: readonly SlashCommand[], agent: str
   });
 }
 
+/**
+ * A menu row's description down to its first sentence: a skill's goes on to say when to use it
+ * and when not, which is for the agent, and on a phone it ran to five lines a row. A full stop
+ * ends a sentence only before a capital (or a letter with no case) or as `\u3002`, so `e.g. foo`
+ * and `v1.2` keep their text.
+ */
+export function briefDescription(description: string): string {
+  const text = description.trim();
+  const end = /[.!?](?=\s+[\p{Lu}\p{Lo}"'(])|\u3002/u.exec(text);
+  return (end ? text.slice(0, end.index) : text).replace(/(?<!\.)[.\u3002]$/u, "");
+}
+
+/** Where a bare `/` or `$` lists a command: an omo skill under whose it is, yours before omo's. */
+export const COMMAND_GROUPS = ["builtin", "user", "project", "skill-user", "skill", "skill-bundled", "plugin"] as const;
+export type CommandGroup = (typeof COMMAND_GROUPS)[number];
+
+export function commandGroup(command: SlashCommand): CommandGroup {
+  if (command.source === "skill" && command.origin !== undefined) return command.origin === "user" ? "skill-user" : "skill-bundled";
+  return command.source;
+}
+
 /** omo's inline skills use the typed `$`, while other agents use the command's wire trigger. */
 export function slashCommandReplacement(command: SlashCommand, agent: string | null, trigger: ActiveTrigger): string {
   const prefix = agent === "omo" ? trigger.prefix ?? "/" : command.trigger ?? "/";

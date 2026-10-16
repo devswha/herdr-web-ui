@@ -1,8 +1,30 @@
 import { describe, expect, it } from "bun:test";
 
 import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage } from "./compose.ts";
-import { commandsForTrigger, slashCommandReplacement } from "./compose.ts";
+import { briefDescription, commandGroup, commandsForTrigger, slashCommandReplacement } from "./compose.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "./mentions.ts";
+
+describe("menu rows", () => {
+  it("keeps a description's first sentence, without its full stop", () => {
+    expect(briefDescription("Drives a real browser through omowright. Use for any interactive browser task; not for a plain search.")).toBe("Drives a real browser through omowright");
+    expect(briefDescription("Explains any senpi tip in depth, including Tip: lines in the TUI. Use when the user asks about a tip.")).toBe("Explains any senpi tip in depth, including Tip: lines in the TUI");
+    expect(briefDescription("Set thinking level")).toBe("Set thinking level");
+    expect(briefDescription("Show changelog entries.")).toBe("Show changelog entries");
+    // a stop before a lowercase word, inside a version or in an ellipsis ends no sentence
+    expect(briefDescription("Fetch docs, e.g. for react. Then stop.")).toBe("Fetch docs, e.g. for react");
+    expect(briefDescription("Upgrade to v1.2 now")).toBe("Upgrade to v1.2 now");
+    expect(briefDescription("Loading...")).toBe("Loading...");
+    expect(briefDescription("\uC2A4\uD0AC\uC744 \uCC3E\uB294\uB2E4. \uADF8\uB9AC\uACE0 \uC124\uCE58\uD55C\uB2E4.")).toBe("\uC2A4\uD0AC\uC744 \uCC3E\uB294\uB2E4");
+    expect(briefDescription("\u30B9\u30AD\u30EB\u3092\u63A2\u3059\u3002\u6B21\u306B\u5165\u308C\u308B\u3002")).toBe("\u30B9\u30AD\u30EB\u3092\u63A2\u3059");
+  });
+
+  it("groups an omo skill by whose it is, and anything else by its source", () => {
+    expect(commandGroup({ name: "skill:mine", description: "", source: "skill", origin: "user" })).toBe("skill-user");
+    expect(commandGroup({ name: "skill:mass-ulw", description: "", source: "skill", origin: "bundled" })).toBe("skill-bundled");
+    expect(commandGroup({ name: "review", description: "", source: "skill" })).toBe("skill");
+    expect(commandGroup({ name: "model", description: "", source: "builtin" })).toBe("builtin");
+  });
+});
 
 describe("omo command completion", () => {
   const builtin = { name: "model", description: "", source: "builtin" as const };

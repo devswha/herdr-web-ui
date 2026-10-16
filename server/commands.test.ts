@@ -34,6 +34,9 @@ describe("omo's loaded commands", () => {
     expect(builtins).toEqual(["changelog", "clone", "compact", "copy", "exit", "export", "favorite-models", "fork", "hotkeys", "import", "login", "logout", "model", "name", "new", "quit", "reload", "rename", "resume", "scoped-models", "session", "sessions", "settings", "share", "thinking", "trust"]);
     expect(commands.filter((command) => command.source === "skill").map((command) => command.name)).toEqual(["skill:root-0", "skill:root-1", "skill:root-2", "skill:shared"]);
     expect(commands.find((command) => command.name === "skill:shared")?.description).toBe(`From ${join(agentDir, "skills")}`);
+    // the person's own roots, then omo's bundled one; a name both hold is the person's
+    expect(commands.filter((command) => command.source === "skill").map((command) => [command.name, command.origin])).toEqual([["skill:root-0", "user"], ["skill:root-1", "user"], ["skill:root-2", "bundled"], ["skill:shared", "user"]]);
+    expect(paneCommands("claude", null, home).some((command) => command.origin !== undefined)).toBe(false);
   });
 
   it("uses default roots without a plugin and excludes untrusted project skills", () => {
@@ -68,8 +71,8 @@ describe("omo's loaded commands", () => {
     }
     const commands = paneCommands("omo", null, home, { agentDir, pluginDir });
     expect(commands.filter((command) => command.source === "skill")).toEqual([
-      { name: "skill:group", description: "Nested markdown", source: "skill" },
-      { name: "skill:skills", description: "Root markdown", source: "skill" },
+      { name: "skill:group", description: "Nested markdown", source: "skill", origin: "user" },
+      { name: "skill:skills", description: "Root markdown", source: "skill", origin: "user" },
     ]);
   });
 
@@ -86,7 +89,7 @@ describe("omo's loaded commands", () => {
     const description = "한".repeat(3000);
     put(join(agentDir, "skills", "long", "SKILL.md"), `---\ndescription: ${description}\n---\nname: body-is-not-metadata\n`);
     expect(paneCommands("omo", null, home, { agentDir }).filter((command) => command.source === "skill")).toEqual([
-      { name: "skill:long", description, source: "skill" },
+      { name: "skill:long", description, source: "skill", origin: "user" },
     ]);
   });
 

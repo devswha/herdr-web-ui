@@ -999,6 +999,8 @@ export interface SlashCommand {
   source: "builtin" | "user" | "project" | "skill" | "plugin";
   /** `$`: typed as `$name` (Codex skills); otherwise `/name` */
   trigger?: "$";
+  /** an omo skill's: `bundled` ships with omo, `user` is the person's own (omo's agent directory or ~/.agents/skills) */
+  origin?: "bundled" | "user";
 }
 
 /**

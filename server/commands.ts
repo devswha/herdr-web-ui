@@ -96,7 +96,7 @@ function skills(root: string, source: SlashCommand["source"], options: { prefix?
 }
 
 /** omo's loaded roots have different loose-markdown rules, but share one ignore walk. */
-function omoSkills(root: string, mode: "pi" | "agents"): SlashCommand[] {
+function omoSkills(root: string, mode: "pi" | "agents", origin: NonNullable<SlashCommand["origin"]>): SlashCommand[] {
   const result: SlashCommand[] = [];
   const ignore = new SkillIgnore();
   const ancestors = new Set<string>();
@@ -120,7 +120,7 @@ function omoSkills(root: string, mode: "pi" | "agents"): SlashCommand[] {
       const fields: unknown = Bun.YAML.parse(header);
       if (typeof fields !== "object" || fields === null || !("description" in fields) || typeof fields.description !== "string" || !fields.description.trim()) return;
       const name = "name" in fields && typeof fields.name === "string" && fields.name ? fields.name : basename(dirname(path));
-      result.push({ name: `skill:${name}`, description: fields.description, source: "skill" });
+      result.push({ name: `skill:${name}`, description: fields.description, source: "skill", origin });
     } catch { return; /* missing, unreadable or malformed skills are not loaded */ }
   };
   const visit = (directory: string): void => {
@@ -240,9 +240,9 @@ export function paneCommands(agent: string | null | undefined, cwd: string | nul
   const commands: SlashCommand[] = (BUILTINS[agent] ?? []).map((name) => ({ name, description: (agent === "omo" ? OMO_DESCRIPTIONS[name] : agent === "pi" ? PI_DESCRIPTIONS[name] : undefined) ?? DESCRIPTIONS[name] ?? `Run /${name}`, source: "builtin" }));
   if (agent === "omo") {
     const loaded = [
-      ...omoSkills(join(omo.agentDir ?? join(home, ".omo", "agent"), "skills"), "pi"),
-      ...omoSkills(join(home, ".agents", "skills"), "agents"),
-      ...(omo.pluginDir ? omoSkills(join(omo.pluginDir, "skills"), "pi") : []),
+      ...omoSkills(join(omo.agentDir ?? join(home, ".omo", "agent"), "skills"), "pi", "user"),
+      ...omoSkills(join(home, ".agents", "skills"), "agents", "user"),
+      ...(omo.pluginDir ? omoSkills(join(omo.pluginDir, "skills"), "pi", "bundled") : []),
     ];
     const names = new Set<string>();
     for (const skill of loaded) {
