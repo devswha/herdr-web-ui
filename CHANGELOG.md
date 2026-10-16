@@ -7,10 +7,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-### Fixed
-- Claude's plan card shows the whole plan and **View plan** again with Claude Code 2.1.301, whose
-  large `api-request` transcript lines hid the session's plan file.
-
 ## [0.4.10] - 2026-10-16
 
 ### Changed
