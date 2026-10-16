@@ -12,6 +12,14 @@ const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option
 const omoPendingFixture = (name: string) => readFileSync(new URL(`./fixtures/omo-pending-5.1.30-${name}`, import.meta.url), "utf8");
 const omoExtensionTail = omoPendingFixture("extension-tail.txt");
 const withOmoExtensionTail = (screen: string) => screen.replace(/(❯\n─+\n)/, `$1${omoExtensionTail}`);
+// OmO's omo-task widget rows under the input box, as a live pane shows them: a live row wrapped onto a
+// second line, a live row, a finished row and the `+N more` line
+const omoTaskRows = ` ⠦ AdversarialVerify todo 2... · agent:omo-native-gate-reviewer(openai/gpt-6-astra:high) · turn 10 (47 tools) · $3.2103 · 26779 tok/s · running · 6m
+ 0s
+ ⠋ Map the implementation surface · category:quick · running · 41s
+ Review diff|agent:explore background completed
+ +2 more
+`;
 const CLAUDE_BACKGROUND_APPROVAL_FOOTER = "Esc to cancel · ctrl+x ctrl+k twice to stop background agents";
 const claudeBackgroundApproval = (selected: number, footer = CLAUDE_BACKGROUND_APPROVAL_FOOTER) => {
   const row = (index: number, label: string) => `${index === selected ? " ❯ " : "   "}${index + 1}. ${label}`;
@@ -1909,6 +1917,37 @@ ${rule60}
     });
   }
 
+  for (const count of ["one", "two"]) for (const width of ["wide", "narrow"]) {
+    test(`reads the real 5.1.30 ${count}-question ${width} widget with task rows below the box`, () => {
+      const open = openOmoAsks(omoPendingFixture(`${count}.jsonl`));
+      const screen = omoPendingFixture(`${count}-${width}.txt`).replace(/(❯\n─+\n)/, `$1${omoTaskRows}`);
+      expect(screen).toContain(omoTaskRows);
+      expect(parseInteractivePrompt("pi", screen, null, false, open)).toMatchObject({ agent: "omo", kind: "question" });
+      expect(parseInteractivePrompt("pi", `${screen}$ echo after\n`, null, false, open)).toBeNull();
+      expect(parseInteractivePrompt("pi", screen.replace(omoTaskRows, `${omoTaskRows}${" ordinary output\n".repeat(4)}`), null, false, open)).toBeNull();
+    });
+  }
+
+  test("keeps a form dead under output that only looks like OmO task rows", () => {
+    const open = openOmoAsks(omoPendingFixture("one.jsonl"));
+    const screen = omoPendingFixture("one-wide.txt");
+    const under = (rows: string) => parseInteractivePrompt("pi", screen.replace(/(❯\n─+\n)/, `$1${rows}`), null, false, open);
+    const liveRow = omoTaskRows.split("\n")[0]!;
+    expect(under(omoTaskRows)).not.toBeNull();
+    // a spinner line without a task route is another program's output
+    expect(under(" ⠦ compiling…\n")).toBeNull();
+    // a shell prompt is never a task row, whatever follows it
+    expect(under(" $ echo x|agent:explore background completed\n")).toBeNull();
+    // two unknown lines and the native footer overflow the footer budget
+    expect(under(`${liveRow}\n${" ordinary output\n".repeat(2)}`)).toBeNull();
+    expect(under(`${liveRow}\n $ echo after\n`)).toBeNull();
+  });
+
+  test("reads an OmO waiting form with task rows under its rule", () => {
+    const extended = first.replace(footer, footer.replace(`${rule}\n`, `${rule}\n${omoTaskRows}`));
+    expect(parseInteractivePrompt("pi", extended)).toMatchObject({ agent: "omo", kind: "question", title: "Question 1 of 2" });
+  });
+
   test("reads an OmO waiting form with extension status under its rule", () => {
     const extended = first.replace(footer, footer.replace(`${rule}\n`, `${rule}\n${omoExtensionTail}`));
     expect(parseInteractivePrompt("pi", extended)).toMatchObject({ agent: "omo", kind: "question", title: "Question 1 of 2" });
@@ -1942,6 +1981,10 @@ ${rule60}
       const extended = screen.replace(footer, footer.replace(`${rule}\n`, `${rule}\n${omoExtensionTail}`));
       expect(parseInteractivePrompt("pi", extended)).toEqual(expected);
       expect(parseInteractivePrompt("pi", `${extended}$ `)).toBeNull();
+      // the same forms with OmO's task rows under the rule
+      const withTasks = screen.replace(footer, footer.replace(`${rule}\n`, `${rule}\n${omoTaskRows}`));
+      expect(parseInteractivePrompt("pi", withTasks)).toEqual(expected);
+      expect(parseInteractivePrompt("pi", `${withTasks}$ `)).toBeNull();
     }
   });
 
@@ -3715,6 +3758,16 @@ ${omoRule}
       pane.agent = "pi";
       pane.status = "blocked";
       expect(await card()).toMatchObject({ agent: "omo", kind: "question", multi_select: true });
+    });
+  });
+
+  test.skipIf(process.platform !== "linux")("discovers a pending question with task rows below the input box", async () => {
+    await withOmo(async (pane) => {
+      appendFileSync(pane.omo!.path, JSON.stringify({ type: "custom", customType: "ask-user:settlement", data: { requestId: "q1" } }) + "\n" + omoPendingFixture("one.jsonl"));
+      pane.screen = omoPendingFixture("one-wide.txt").replace(/(❯\n─+\n)/, `$1${omoTaskRows}`);
+      pane.agent = "pi";
+      pane.status = "blocked";
+      expect(await card()).toMatchObject({ agent: "omo", kind: "question" });
     });
   });
 

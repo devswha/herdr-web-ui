@@ -5,10 +5,20 @@ import { Database } from "bun:sqlite";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright-core";
+import { chromium, type Locator, type Page } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { openSettingsPage } from "./settings-page.ts";
+
+/** a file action: its button in the header, or up to 600px the item in the header's More menu */
+async function fileAction(scope: Locator | Page, name: string): Promise<Locator> {
+  const link = scope.getByRole("link", { name, exact: true });
+  if (await link.isVisible()) return link;
+  const item = scope.getByRole("menuitem", { name, exact: true });
+  if (!(await item.isVisible())) await scope.getByRole("button", { name: "More", exact: true }).click();
+  await item.waitFor();
+  return item;
+}
 import { sheetsSettled } from "./sheets-settled.ts";
 import { runMoreItem } from "./header-more.ts";
 import type { Machine } from "../shared/protocol.ts";
@@ -198,6 +208,20 @@ try {
   await preview.locator("video").waitFor();
   await page.waitForFunction(() => (document.querySelector("video")?.readyState ?? 0) >= 1);
   assert.equal(await page.evaluate(() => history.length), baseline + 1);
+  // a phone's file header is one row: the name, its actions and Close side by side, no size/folder line
+  const headerRow = await preview.locator(".file-viewer-header").evaluate((header) => {
+    const middle = (element: Element | null) => { const box = element?.getBoundingClientRect(); return box ? box.top + box.height / 2 : NaN; };
+    const meta = header.querySelector(".file-viewer-meta");
+    return {
+      title: middle(header.querySelector(".modal-title")),
+      actions: middle(header.querySelector(".file-viewer-actions")),
+      close: middle(header.querySelector(".file-viewer-close")),
+      metaShown: meta !== null && getComputedStyle(meta).display !== "none",
+    };
+  });
+  assert.ok(Math.abs(headerRow.title - headerRow.close) < 4 && Math.abs(headerRow.actions - headerRow.close) < 4,
+    `a phone's file header keeps the name, the actions and Close on one row (${JSON.stringify(headerRow)})`);
+  assert.equal(headerRow.metaShown, false, "a phone's file header leaves the size and folder out");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-video-open.png") });
@@ -231,6 +255,36 @@ try {
   await page.locator(".file-viewer-scrim").evaluate((scrim) => scrim.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
   await preview.waitFor({ state: "hidden" });
   console.log("PASS Forward restores the viewer; X, Escape and scrim close consume its entry");
+
+  // the one-row header's worst case, a Markdown dialog at 320px: Show source, Copy, More and Close
+  // leave the name room, and More holds new tab, raw and download
+  await page.setViewportSize({ width: 320, height: 700 });
+  const narrowGuide = page.getByRole("dialog", { name: "guide.md", exact: true });
+  await page.getByRole("button", { name: "guide", exact: true }).click();
+  await narrowGuide.locator(".file-viewer-header .file-viewer-close").waitFor();
+  const narrowRow = await narrowGuide.locator(".file-viewer-header").evaluate((header) => {
+    const box = (selector: string) => header.querySelector(selector)?.getBoundingClientRect();
+    const title = box(".modal-title"), close = box(".file-viewer-close"), actions = box(".file-viewer-actions");
+    return { titleWidth: title?.width ?? 0, titleMiddle: title ? title.top + title.height / 2 : NaN, closeMiddle: close ? close.top + close.height / 2 : NaN, actionsRight: actions?.right ?? NaN, closeLeft: close?.left ?? NaN };
+  });
+  assert.ok(Math.abs(narrowRow.titleMiddle - narrowRow.closeMiddle) < 4 && narrowRow.actionsRight <= narrowRow.closeLeft + 1,
+    `a 320px Markdown header stays one row (${JSON.stringify(narrowRow)})`);
+  assert.ok(narrowRow.titleWidth >= 64, `a 320px Markdown header leaves the name room (${narrowRow.titleWidth}px)`);
+  await narrowGuide.getByRole("button", { name: "More", exact: true }).click();
+  assert.deepEqual((await narrowGuide.getByRole("menuitem").allTextContents()).map((item) => item.trim()), ["Open in a new tab", "Open raw file", "Download"]);
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Open in a new tab", "More's menu takes the focus on its first item");
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Open raw file", "Down moves to the next item");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-markdown-more-320.png") });
+  await page.keyboard.press("Escape");
+  await narrowGuide.getByRole("menu").waitFor({ state: "detached" });
+  assert.equal(await narrowGuide.count(), 1, "Escape closes the More menu, not the file");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "More", "and gives the focus back to More");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-markdown-320.png") });
+  await page.goBack();
+  await narrowGuide.waitFor({ state: "hidden" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  console.log("PASS a phone's Markdown header stays one row at 320px and keeps new tab, raw and download in More");
 
   // The Settings shortcut must open a visible dialog above the preview. Its history entries
   // retain the file beneath it, so only Settings may handle Escape until those entries land.
@@ -744,7 +798,7 @@ try {
   await guide.locator(".hl-keyword", { hasText: "const" }).waitFor();
   assert.equal(await guide.getByRole("button", { name: "Show source", exact: true }).getAttribute("aria-pressed"), "false");
   // a new tab is an in-app view in an installed app on a phone, where saving is not always offered
-  const download = guide.getByRole("link", { name: "Download", exact: true });
+  const download = guide.getByRole("link", { name: "Download", exact: true, includeHidden: true });
   assert.equal(await download.getAttribute("download"), "guide.md", "the file can be saved from the viewer");
   assert.match(await download.getAttribute("href") ?? "", /\/api\/fs\/file\?.*download=1/);
   assert.equal(await guide.getByRole("button", { name: "Wrap long lines", exact: true }).count(), 0, "Wrap is for code, not the rendered Markdown");
@@ -802,7 +856,7 @@ try {
   assert.doesNotMatch(await guide.locator(".file-viewer-text").innerText(), /^1/);
   if (process.env.UI_EVIDENCE_DIR) await guide.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "code-line-numbers.png") });
   console.log("PASS Code shows the Markdown source, one numbered line each");
-  const raw = guide.getByRole("link", { name: "Open raw file", exact: true });
+  const raw = guide.getByRole("link", { name: "Open raw file", exact: true, includeHidden: true });
   assert.equal(await raw.getAttribute("target"), "_blank");
   assert.match(await raw.getAttribute("href") ?? "", /\/api\/fs\/file/);
   await guide.getByRole("button", { name: "Copy file", exact: true }).waitFor();
@@ -924,7 +978,7 @@ try {
   await anchored.locator(".hl-line.is-marked[data-line='6']").waitFor();
   assert.equal(await anchored.getByRole("button", { name: "Show source", exact: true }).getAttribute("aria-pressed"), "true");
   const popupOpened = page.waitForEvent("popup");
-  await anchored.getByRole("link", { name: "Open in a new tab", exact: true }).click();
+  await (await fileAction(anchored, "Open in a new tab")).click();
   const anchoredTab = await popupOpened;
   await anchoredTab.locator(".file-reader .hl-line.is-marked[data-line='6']").waitFor();
   assert.ok(new URL(anchoredTab.url()).searchParams.get("read")?.endsWith("guide.md#L6"));
@@ -1012,7 +1066,7 @@ try {
       await sheetsSettled(page);
       if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `markdown-inline-${width}-${theme}.png`) });
       const popupReady = context.waitForEvent("page");
-      await page.getByRole("link", { name: "Open in a new tab", exact: true }).click();
+      await (await fileAction(page.locator(".file-viewer"), "Open in a new tab")).click();
       const popup = await popupReady;
       popup.setDefaultTimeout(10_000);
       await popup.setViewportSize({ width, height: 900 });
@@ -1033,10 +1087,10 @@ try {
         return image?.complete && image.naturalWidth === 240;
       });
       await rendered.locator(".markdown-mermaid svg").waitFor();
-      const raw = await popup.getByRole("link", { name: "Open raw file", exact: true }).getAttribute("href");
+      const raw = await popup.getByRole("link", { name: "Open raw file", exact: true, includeHidden: true }).getAttribute("href");
       assert.ok(raw);
       assert.equal(await (await context.request.get(`${origin}${raw}`)).text(), markdownSource);
-      const download = await popup.getByRole("link", { name: "Download", exact: true }).getAttribute("href");
+      const download = await popup.getByRole("link", { name: "Download", exact: true, includeHidden: true }).getAttribute("href");
       assert.ok(download);
       const saved = await context.request.get(`${origin}${download}`);
       assert.match(saved.headers()["content-disposition"] ?? "", /attachment/);
@@ -1124,7 +1178,7 @@ try {
       const prefix = target === "local" ? "/api/fs/" : "/api/machines/remote-fixture/fs/";
       assert.ok(fileRequests.length >= 2 && fileRequests.every((path) => path.startsWith(prefix)), fileRequests.join(", "));
       await ownerPage.waitForFunction((path) => new URLSearchParams(location.search).get("file") === path, markdownPath);
-      const link = await ownerPage.getByRole("link", { name: "Open in a new tab", exact: true }).getAttribute("href");
+      const link = await ownerPage.getByRole("link", { name: "Open in a new tab", exact: true, includeHidden: true }).getAttribute("href");
       assert.ok(link);
       assert.equal(new URL(link, origin).searchParams.get("machine") ?? "local", target);
       // the document's own tab reads the file from that PC too
@@ -1234,16 +1288,16 @@ try {
   assert.equal(await report.locator(".file-viewer-page").getAttribute("sandbox"), "allow-scripts");
   assert.equal(await report.getByRole("button", { name: "Show source", exact: true }).count(), 0, "HTML uses only Page | Source");
   assert.equal(await report.getByRole("button", { name: "Page", exact: true }).getAttribute("aria-pressed"), "true");
-  assert.equal(await report.getByRole("link", { name: "Open in a new tab" }).getAttribute("href").then((href) => href?.includes("render=1")), true, "the page opens as the page");
+  assert.equal(await report.getByRole("link", { name: "Open in a new tab", includeHidden: true }).getAttribute("href").then((href) => href?.includes("render=1")), true, "the page opens as the page");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "tool-output-html-page.png") });
   await report.getByRole("button", { name: "Source", exact: true }).click();
   await report.locator(".file-viewer-text[data-line-numbers] .hl-line").first().waitFor();
   await report.locator(".file-viewer-text .hl-string").first().waitFor();
   assert.equal(await report.locator(".file-viewer-text button").count(), 0, "file source paths remain text");
   await report.getByRole("button", { name: "Copy file", exact: true }).waitFor();
-  assert.equal(await report.getByRole("link", { name: "Download", exact: true }).getAttribute("download"), "report.html");
+  assert.equal(await report.getByRole("link", { name: "Download", exact: true, includeHidden: true }).getAttribute("download"), "report.html");
   assert.match(await report.locator(".file-viewer-text").innerText(), /<h1 id="ran">static<\/h1>/);
-  assert.equal(await report.getByRole("link", { name: "Open in a new tab" }).getAttribute("href").then((href) => href?.includes("render=1")), false, "the source opens as the source");
+  assert.equal(await report.getByRole("link", { name: "Open in a new tab", includeHidden: true }).getAttribute("href").then((href) => href?.includes("render=1")), false, "the source opens as the source");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "tool-output-html-source.png") });
   await report.getByRole("button", { name: "Page", exact: true }).click();
   await frame.getByText("script ran", { exact: true }).waitFor();

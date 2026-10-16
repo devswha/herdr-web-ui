@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Braces, Check, Code, Copy, Download, ExternalLink, Maximize2, PanelRight, TriangleAlert, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Braces, Check, Code, Copy, Download, Ellipsis, ExternalLink, Maximize2, PanelRight, TriangleAlert, X } from "lucide-react";
 
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -135,6 +135,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const [candidates, setCandidates] = useState<string[] | null>(null);
   // an HTML page shows as the page, or as its source when asked
   const [source, setSource] = useState(false);
+  // a phone's one-row header keeps new tab, raw and download in a "More" menu of its own
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   // Escape closes it, Tab stays in it, and the focus goes back to the row that opened it
   // (docked beside the pane, the rest of the page stays reachable: no trap)
   const surface = useFocusTrap<HTMLElement>(!page && !docked);
@@ -231,6 +234,46 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, keyboardActive, page, docked]);
+
+  // the More menu: it takes the focus on its first item; a press outside it, Escape (before the
+  // viewer's own) or a wider screen (where More is gone) closes it alone; Escape and a chosen item
+  // give the focus back to More
+  const closeMore = useCallback((refocus: boolean) => {
+    setMoreOpen(false);
+    if (refocus) moreRef.current?.querySelector<HTMLElement>(".file-viewer-action")?.focus();
+  }, []);
+  useEffect(() => {
+    if (!moreOpen) return;
+    moreRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    const onPointer = (event: PointerEvent): void => {
+      if (!moreRef.current?.contains(event.target as Node)) closeMore(false);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.stopPropagation();
+      closeMore(true);
+    };
+    const wide = window.matchMedia("(min-width: 601px)");
+    const onWide = (): void => { if (wide.matches) closeMore(false); };
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey, true);
+    wide.addEventListener("change", onWide);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey, true);
+      wide.removeEventListener("change", onWide);
+    };
+  }, [moreOpen, closeMore]);
+  /** Up and Down (Home, End) move among the menu's items, as a menu's do. */
+  const moveInMore = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]")];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const to = event.key === "ArrowDown" ? (at + 1) % items.length : event.key === "ArrowUp" ? (at - 1 + items.length) % items.length
+      : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
+    if (to === null) return;
+    event.preventDefault();
+    items[to]?.focus();
+  };
 
   // the file found (a bare name may have been found deeper in the folder), else as asked
   const url = fileUrl(info?.path ?? target.path, paneId);
@@ -359,14 +402,25 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     {folder !== "" && <span className="file-viewer-path"><span dir="ltr">{info && <span className="file-viewer-dot" aria-hidden="true">·</span>}{folder}</span></span>}
   </p>;
   // the file itself: a Markdown tab is the reader; raw and download keep the original bytes
+  const newTabHref = htmlPage && !source ? pageUrl : markdown ? previewUrl : url;
+  const downloadHref = fileUrl(shownPath, paneId, true);
   const fileActions = <>
     {!page && onTogglePresentation && <button type="button" className="icon-button file-viewer-action" aria-label={docked ? t("Show as a popup") : t("Show beside the pane")} title={docked ? t("Show as a popup") : t("Show beside the pane")} onClick={onTogglePresentation}>
       {docked ? <Maximize2 aria-hidden="true" /> : <PanelRight aria-hidden="true" />}
     </button>}
-    {!page && <a className="icon-button file-viewer-action" href={htmlPage && !source ? pageUrl : markdown ? previewUrl : url} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>}
-    {(page || markdown) && <a className="icon-button file-viewer-action" href={url} target="_blank" rel="noopener" aria-label={t("Open raw file")} title={t("Open raw file")}><Code aria-hidden="true" /></a>}
-    <a className="icon-button file-viewer-action" href={fileUrl(shownPath, paneId, true)} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
+    {/* new tab, raw and download: buttons in the row, and on a phone in the More menu after Copy */}
+    {!page && <a className="icon-button file-viewer-action file-viewer-wide" href={newTabHref} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>}
+    {(page || markdown) && <a className="icon-button file-viewer-action file-viewer-wide" href={url} target="_blank" rel="noopener" aria-label={t("Open raw file")} title={t("Open raw file")}><Code aria-hidden="true" /></a>}
+    <a className="icon-button file-viewer-action file-viewer-wide" href={downloadHref} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
     {copyable && <CopyFileButton text={loaded.text} sourceRef={sourceRef} onShowSource={showSourceToSelect} />}
+    {!docked && <div className="file-viewer-more" ref={moreRef}>
+      <button type="button" className="icon-button file-viewer-action" aria-label={t("More")} title={t("More")} aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><Ellipsis aria-hidden="true" /></button>
+      {moreOpen && <div className="file-viewer-more-menu" role="menu" aria-label={t("More")} onKeyDown={moveInMore}>
+        {!page && <a role="menuitem" className="file-viewer-more-item" href={newTabHref} target="_blank" rel="noopener" onClick={() => closeMore(true)}><ExternalLink aria-hidden="true" />{t("Open in a new tab")}</a>}
+        {(page || markdown) && <a role="menuitem" className="file-viewer-more-item" href={url} target="_blank" rel="noopener" onClick={() => closeMore(true)}><Code aria-hidden="true" />{t("Open raw file")}</a>}
+        <a role="menuitem" className="file-viewer-more-item" href={downloadHref} download={info?.name ?? true} onClick={() => closeMore(true)}><Download aria-hidden="true" />{t("Download")}</a>
+      </div>}
+    </div>}
   </>;
   const closeButton = !page && <button type="button" className="icon-button file-viewer-action file-viewer-close" aria-label={t("Close file")} title={t("Close file")} onClick={onClose}><X aria-hidden="true" /></button>;
   // Docked, the header is one row (the file's glyph and name, then its actions) and the toolbar

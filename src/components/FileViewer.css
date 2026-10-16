@@ -114,6 +114,52 @@
 
 .file-viewer-group { gap: var(--space-1); }
 
+/* a phone's More menu (new tab, raw, download): a small list under its button, inside the viewer */
+.file-viewer-more {
+  display: none;
+  position: relative;
+}
+
+.file-viewer-more-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+}
+
+.file-viewer-more-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-target);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+
+.file-viewer-more-item:focus-visible { background: var(--bg-hover); }
+
+@media (hover: hover) {
+  .file-viewer-more-item:hover { background: var(--bg-hover); }
+}
+
+.file-viewer-more-item svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
 /* an "on" toggle (Show source) carries the accent on its glyph */
 .file-viewer-action[aria-pressed="true"] {
   background: var(--bg-hover);
@@ -245,28 +291,30 @@
 .file-viewer-markdown-readable { max-width: var(--chat-w); }
 
 /*
- * On a narrow screen two or more actions leave the name and its notes no room. The name and Close
- * keep the first row, so Close stays in its corner for every file; the actions take the second,
- * under Close, where they are on a wider screen.
+ * On a narrow screen the header is one row, so the file keeps the screen: the name (cut inside its
+ * stem) gives way to the actions and Close beside it. The size and folder are left out there; a
+ * partial-view notice is not, since it says the file is not all shown.
  */
 @media (max-width: 600px) {
   .file-viewer-header-stacked {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "title close" "actions actions";
-    row-gap: var(--space-2);
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "title actions close";
+    align-items: center;
+    column-gap: var(--space-1);
   }
 
   .file-viewer-header-stacked .file-viewer-title { grid-area: title; }
-  /* in the corner, however many lines the name's block takes */
-  .file-viewer-header-stacked .file-viewer-close {
-    grid-area: close;
-    align-self: start;
-  }
+  .file-viewer-header-stacked .file-viewer-meta:not(:has(.file-viewer-notice)) { display: none; }
+  .file-viewer-header-stacked .file-viewer-close { grid-area: close; }
   .file-viewer-header-stacked .file-viewer-actions {
     grid-area: actions;
-    justify-content: flex-end;
+    gap: 0;
   }
+  .file-viewer-header-stacked .file-viewer-group { gap: 0; }
+  /* new tab, raw and download move into More, so the name keeps room beside Show source and Copy */
+  .file-viewer-header-stacked .file-viewer-wide { display: none; }
+  .file-viewer-header-stacked .file-viewer-more { display: block; }
 
   /* the reader's page: a reload line (ChunkFailureNotice) above the document when a part failed to load */
 .file-reader-frame {
@@ -283,7 +331,8 @@
 }
 
 .file-reader-header {
-    grid-template-areas: "title title" "actions actions";
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title actions";
   }
 }
 

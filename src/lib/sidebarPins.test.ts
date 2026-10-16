@@ -1,7 +1,21 @@
 import { describe, expect, it } from "bun:test";
-import { isWorkspacePinKey, loadSidebarPins, pinnedGroupIds, pinnedWorkspaceIds, pruneSidebarPins, pruneWorkspacePins, sidebarPinKey, splitPinnedGroups, splitPinnedRows, toggleSidebarPin, workspacePinKey } from "./sidebarPins.ts";
+import { isWorkspacePinKey, loadSidebarPins, pinnedGroupIds, pinnedWorkspaceIds, pruneSidebarPins, pruneWorkspacePins, reorderWorkspacePins, sidebarPinKey, splitPinnedGroups, splitPinnedRows, toggleSidebarPin, workspacePinKey } from "./sidebarPins.ts";
 
 describe("sidebar agent pins", () => {
+  it("moves workspace pins in both directions without moving other pin slots", () => {
+    const pins = ["pc:workspace:a", "pc:p1", "other:workspace:a", "pc:workspace:b", "pc:workspace:c"];
+    expect(reorderWorkspacePins(pins, "pc", "a", "c")).toEqual(["pc:workspace:b", "pc:p1", "other:workspace:a", "pc:workspace:c", "pc:workspace:a"]);
+    expect(reorderWorkspacePins(pins, "pc", "c", "a")).toEqual(["pc:workspace:c", "pc:p1", "other:workspace:a", "pc:workspace:a", "pc:workspace:b"]);
+    expect(pins[0]).toBe("pc:workspace:a");
+  });
+
+  it("leaves pins alone for self drops and either unpinned endpoint", () => {
+    const pins = ["pc:workspace:a", "pc:workspace:b"];
+    for (const [source, target] of [["a", "a"], ["missing", "b"], ["a", "missing"]]) {
+      expect(reorderWorkspacePins(pins, "pc", source!, target!)).toEqual(pins);
+    }
+  });
+
   it("keys a pin by PC and pane", () => {
     expect(sidebarPinKey("pc-a", "pane-1")).toBe("pc-a:pane-1");
     expect(sidebarPinKey("pc-b", "pane-1")).not.toBe(sidebarPinKey("pc-a", "pane-1"));
@@ -85,7 +99,7 @@ describe("sidebar agent pins", () => {
     expect(splitPinnedGroups(groups, [], (id) => id)).toEqual({ pinned: [], rest: groups });
   });
 
-  it("holds a pinned repository's worktrees in place with it", () => {
+  it("identifies a pinned repository's unpinned worktrees to keep fixed outside the card", () => {
     const groups = [
       { workspace: "repo", children: ["wt1", "wt2"] },
       { workspace: "solo", children: [] },
@@ -94,6 +108,29 @@ describe("sidebar agent pins", () => {
     expect([...pinnedGroupIds(groups, ["wt2"], (id) => id)]).toEqual(["wt2"]);
     expect(pinnedGroupIds(groups, [], (id) => id).size).toBe(0);
     expect(pinnedGroupIds([], ["missing"], (id: string) => id).size).toBe(0);
+  });
+
+  it("reorders pinned rows without moving their unpinned worktrees from the rest list", () => {
+    const groups = [
+      { workspace: "before", children: [] },
+      { workspace: "repo", children: ["wt1", "wt2"] },
+      { workspace: "after", children: [] },
+    ];
+    const pins = ["pc:workspace:repo", "pc:workspace:wt2", "pc:workspace:after"];
+    const reordered = reorderWorkspacePins(pins, "pc", "repo", "after");
+    const ids = pinnedWorkspaceIds(reordered, "pc");
+    const shown = splitPinnedGroups(groups, ids, (id) => id);
+    expect(shown.pinned).toEqual([
+      { workspace: "wt2", children: [] },
+      { workspace: "after", children: [] },
+      { workspace: "repo", children: [] },
+    ]);
+    expect(shown.rest).toEqual([{ workspace: "before", children: [] }, { workspace: "wt1", children: [] }]);
+    expect([...pinnedGroupIds(groups, ids, (id) => id)].filter((id) => !ids.includes(id))).toEqual(["wt1"]);
+    expect(splitPinnedGroups(groups, ["wt2", "after"], (id) => id).rest).toEqual([
+      { workspace: "before", children: [] },
+      { workspace: "repo", children: ["wt1"] },
+    ]);
   });
 
   it("starts with no pins when storage denies the read", () => {

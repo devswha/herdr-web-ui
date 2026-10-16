@@ -657,8 +657,10 @@ One set for both themes: the card is island black wherever it shows.
   of their own either. A pinned repository's workspace stands alone in the card; its unpinned
   worktrees stay as standalone rows at the group's position, in their order. They are not dragged
   or moved away from their repository; unpinning the head restores the group. A pinned worktree
-  leaves its repository's group, which stays. Pinned rows are not dragged and `Alt+↑/↓`
-  does not move them; the rest reorder among their movable rows. The pins are the Agents list's
+  leaves its repository's group, which stays. Dragging, touch long-press and `Alt+↑/↓` reorder
+  pinned rows inside their card by changing pin order, not herdr's workspace order or the position
+  of their unpinned worktrees. Neither list accepts a drop from the other; the rest reorder
+  through herdr among their movable rows. The pins are the Agents list's
   shared list (a workspace's key is `machine:workspace:id`), so other browsers of the server see them.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
@@ -949,7 +951,9 @@ One set for both themes: the card is island black wherever it shows.
   with HTML enabled; local images still pass through the file endpoint's image-size check.
   The page has an h1 and no Close or new-tab action; the dialog keeps its focus trap and sheet swipe.
   Actions use the existing header icon-button primitive, labels and focus states. On a phone the
-  name and Close occupy the first row, with actions below; a reader page has no Close.
+  header is one row: the name cut inside its stem, Show source and Copy, a **More** (Ellipsis)
+  menu holding new tab, raw and download, then Close; the size and folder are left out there unless
+  a partial-view notice is among them. A reader page has no Close.
   Docked beside the pane (from 980px, `aside.file-panel`) the viewer is a split of the workspace on
   `--bg` behind one `--border` hairline, not a raised card, and its chrome is two thin rows on
   hairlines (t3code's file surface subheader, paseo's file panel bar): a header of

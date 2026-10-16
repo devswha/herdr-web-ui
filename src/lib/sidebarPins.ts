@@ -4,6 +4,8 @@
  * old PC's pin; a workspace's key marks itself as one, after the PC.
  */
 
+import { placeBlock } from "./workspaceOrder.ts";
+
 const STORAGE_KEY = "herdr-web-ui:sidebar-agent-pins";
 
 export function sidebarPinKey(machineId: string, paneId: string): string {
@@ -26,6 +28,17 @@ export function isWorkspacePinKey(key: string): boolean {
 export function pinnedWorkspaceIds(keys: readonly string[], machineId: string): string[] {
   const prefix = workspacePinKey(machineId, "");
   return keys.flatMap((key) => key.startsWith(prefix) && key.length > prefix.length ? [key.slice(prefix.length)] : []);
+}
+
+/** Reorders only this PC's workspace pin slots, leaving agent and other PC pins where they were. */
+export function reorderWorkspacePins(keys: readonly string[], machineId: string, sourceId: string, targetId: string): string[] {
+  const ids = pinnedWorkspaceIds(keys, machineId);
+  if (sourceId === targetId || !ids.includes(sourceId) || !ids.includes(targetId)) return [...keys];
+  const order = placeBlock(ids, [sourceId], [targetId], ids.indexOf(sourceId) < ids.indexOf(targetId) ? "after" : "before");
+  const replacements = order.map((id) => workspacePinKey(machineId, id));
+  const own = new Set(ids.map((id) => workspacePinKey(machineId, id)));
+  let index = 0;
+  return keys.map((key) => own.has(key) ? replacements[index++]! : key);
 }
 
 /** This PC's workspace pins whose workspace is gone leave with a change of the user's; every other pin stays. */
@@ -121,7 +134,7 @@ export function splitPinnedGroups<W>(groups: readonly WorkspaceGroup<W>[], pinne
   return { pinned, rest };
 }
 
-/** Pinned rows and a pinned head's worktrees, from the original groups: none is reordered. */
+/** Pinned rows and their repository worktrees; only the unpinned worktrees stay fixed. */
 export function pinnedGroupIds<W>(groups: readonly WorkspaceGroup<W>[], pinnedIds: readonly string[], idOf: (workspace: W) => string): Set<string> {
   const pinnedSet = new Set(pinnedIds);
   return new Set(groups.flatMap((group) => pinnedSet.has(idOf(group.workspace))
