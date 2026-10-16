@@ -24,6 +24,9 @@ licenses follow. Tokyo Night Day uses folke's Apache-2.0 port, not the original 
 | solarized | [altercation/solarized](https://github.com/altercation/solarized/blob/master/README.md) | MIT |
 | solarized-light | [altercation/solarized](https://github.com/altercation/solarized/blob/master/README.md) | MIT |
 
+| kanagawa | [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/themes.lua) | MIT |
+| kanagawa-lotus | [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/themes.lua) | MIT |
+
 ## Legend List
 
 The chat timeline uses [`@legendapp/list`](https://github.com/LegendApp/legend-list) 3.3.5.

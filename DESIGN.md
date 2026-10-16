@@ -215,6 +215,28 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **solarized-light**: `--shadow-pop` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
 - **solarized-light**: `--shadow-card` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
 
+- **kanagawa**: `--status-working` moves dE 9.73; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa**: `--status-blocked` moves dE 24.67; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa**: `--status-done` moves dE 14.97; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa**: `--status-working-tint` moves dE 9.73; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--status-blocked-tint` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--status-done-tint` moves dE 14.97; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--danger-tint` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--danger-text` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--status-working` moves dE 10.49; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--status-blocked` moves dE 14.57; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--status-done` moves dE 18.90; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--status-working-tint` moves dE 10.49; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--status-blocked-tint` moves dE 14.57; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--status-done-tint` moves dE 18.90; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--danger-tint` moves dE 14.57; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--danger-text` moves dE 14.57; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--syntax-function` moves dE 5.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-string` moves dE 13.23; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-number` moves dE 15.26; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-type` moves dE 7.57; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-meta` moves dE 14.27; its lightness changes to keep serialized text readable at the 4.6 target.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens
