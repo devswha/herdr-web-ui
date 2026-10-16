@@ -63,7 +63,7 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
   useEffect(() => {
     window.requestAnimationFrame(() => {
       (first.current ?? surface.current?.querySelector<HTMLElement>(".worktree-row, .btn"))?.focus();
-      // the suggested branch is selected, so typing a branch replaces it
+      // the name is selected, so typing a name replaces the one the branch gave it
       first.current?.select();
     });
   }, [mode, entries]);
@@ -172,19 +172,19 @@ export function WorktreeDialog({ mode, workspace, onClose, onOpened }: Props) {
             <>
               <p className="worktree-lead">{t("A git worktree of this repository, checked out under herdr's worktree folder and opened as a workspace next to this one.")}</p>
               <label className="field">
+                <span className="field-label">{t("Name")}</span>
+                <input ref={first} className="input" value={label} maxLength={MAX_LABEL_CHARS} disabled={locked} autoComplete="off" onChange={(event) => setTypedLabel(event.target.value)} />
+                <span className="field-hint">{t("Workspace label; follows the branch until you change it")}</span>
+              </label>
+              <label className="field">
                 <span className="field-label">{t("Branch")}</span>
-                <input ref={first} className="input" value={branch} disabled={locked} required autoComplete="off" spellCheck={false} onChange={(event) => setBranch(event.target.value)} />
+                <input className="input" value={branch} disabled={locked} required autoComplete="off" spellCheck={false} onChange={(event) => setBranch(event.target.value)} />
                 <span className="field-hint">{t("A new branch, or an existing one to check out")}</span>
               </label>
               <label className="field">
                 <span className="field-label">{t("Start from")}</span>
                 <input className="input" value={base} disabled={locked} autoComplete="off" spellCheck={false} placeholder="HEAD" onChange={(event) => setBase(event.target.value)} />
                 <span className="field-hint">{t("A branch, tag or commit; HEAD when empty. Ignored when the branch exists.")}</span>
-              </label>
-              <label className="field">
-                <span className="field-label">{t("Name")}</span>
-                <input className="input" value={label} maxLength={MAX_LABEL_CHARS} disabled={locked} autoComplete="off" onChange={(event) => setTypedLabel(event.target.value)} />
-                <span className="field-hint">{t("Workspace label; follows the branch until you change it")}</span>
               </label>
               <div className="field">
                 <span className="field-label" id={`${id}-agent`}>{t("Agent")}</span>
