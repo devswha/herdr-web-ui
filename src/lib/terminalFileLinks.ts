@@ -26,6 +26,15 @@ export function isWebLink(uri: string): boolean {
   return /^https?:\/\//i.test(uri);
 }
 
+/**
+ * Opens an http(s) address in a new tab. Any features string (even "noopener") makes Chrome open a
+ * popup window instead of a tab, so none is passed; the new page's opener is cut instead.
+ */
+export function openWebLink(uri: string): void {
+  const opened = window.open(uri, "_blank");
+  if (opened) opened.opener = null;
+}
+
 /** Local file URIs are read by the existing server-side file viewer. */
 export function fileUriPath(uri: string): string | null {
   // a control character belongs to no path, and URL drops a trailing one before it can be seen

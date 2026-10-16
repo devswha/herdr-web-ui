@@ -236,9 +236,9 @@ try {
 
     // a link opens and is not clicked in the program as well
     await s.page.evaluate(() => {
-      const opened: string[] = [];
-      (window as unknown as { opened: string[] }).opened = opened;
-      window.open = (url) => { opened.push(String(url)); return null; };
+      const opened: unknown[] = [];
+      (window as unknown as { opened: unknown[] }).opened = opened;
+      window.open = (url, target, features) => { opened.push([String(url), target, features]); return null; };
     });
     const link = await s.point(40, 6);
     await s.page.mouse.move(link.x, link.y);
@@ -246,7 +246,8 @@ try {
     await s.page.mouse.click(link.x, link.y);
     await Bun.sleep(NO_SEND_WAIT_MS);
     assert.doesNotMatch(s.received(), /\x1b\[<0;/, "a click on a link sends the program no button");
-    assert.deepEqual(await s.page.evaluate(() => (window as unknown as { opened: string[] }).opened), ["https://example.test/621"], "and opens the link once");
+    // in a new tab: any features string ("noopener" too) would make Chrome open a popup window
+    assert.deepEqual(await s.page.evaluate(() => (window as unknown as { opened: unknown[] }).opened), [["https://example.test/621", "_blank", undefined]], "and opens the link once, in a new tab");
 
     // the keys held with a click go with it: Ctrl adds 16 to the button
     await s.page.keyboard.down("Control");
