@@ -83,10 +83,17 @@ try {
 } finally {
   // the checkout the run made goes with it: herdr removes the checkout, then its workspace. The
   // roster says what was made, so a create whose answer never arrived is removed too.
-  const snapshot = await sessionSnapshot().catch(() => null);
+  // A checkout left behind fails the run after the rest is cleaned up, without hiding an earlier error.
+  const leftovers: unknown[] = [];
+  const snapshot = await sessionSnapshot().catch((error: unknown) => { leftovers.push(error); return null; });
   for (const workspace of snapshot?.workspaces ?? []) {
     if (!workspace.worktree?.is_linked_worktree || workspace.worktree.repo_root !== repo) continue;
-    await herdrRpc("worktree.remove", { workspace_id: workspace.workspace_id, force: true }).catch(() => undefined);
+    try {
+      await herdrRpc("worktree.remove", { workspace_id: workspace.workspace_id, force: true });
+    } catch (error) {
+      leftovers.push(error);
+      continue;
+    }
     await workspaceClose(workspace.workspace_id).catch(() => undefined);
   }
   // herdr keeps the repository's folder under its worktree directory once the checkout is gone: only an empty one is ours to drop
@@ -94,4 +101,8 @@ try {
   for (const id of owned.reverse()) await workspaceClose(id).catch(() => {});
   server.stop();
   rmSync(root, { recursive: true, force: true });
+  if (leftovers.length > 0) {
+    console.error("FAIL the run's worktree checkout may remain under ~/.herdr/worktrees:", ...leftovers);
+    process.exitCode = 1;
+  }
 }
