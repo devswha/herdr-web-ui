@@ -784,16 +784,16 @@ One set for both themes: the card is island black wherever it shows.
   a plain Ctrl/Alt chord is taken only after the user records it and confirms Save anyway.
 
 ### Worktree dialog (`.worktree-modal`)
-- From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for a name (first,
-  as the field most often changed), the branch (required) and where to start from (HEAD when
-  empty, ignored for a branch that exists), then checks the branch out under herdr's worktree folder and opens it as a
+- From a workspace row's menu, as herdr's prefix+shift+g: **New worktree** asks for the branch
+  (required), where to start from (HEAD when empty, ignored for a branch that exists) and a
+  name, then checks the branch out under herdr's worktree folder and opens it as a
   workspace grouped with the repository's; its pane is selected. **Open worktree…** lists the
   repository's other checkouts as rows (branch, mono path, an **Already open** pill), and a row
   opens or returns to that workspace. herdr's own words explain a refusal, inside the dialog.
 - The branch arrives filled in as herdr's own form fills it (`worktree/brave-valley-07f8`:
-  adjective, noun, four hex digits). The name is the branch with its slashes as dashes and
-  follows the branch until it is typed over; it is focused and selected, so typing replaces it.
-- **Agent** is the New workspace dialog's picker, last: the agent last started, Shell
+  adjective, noun, four hex digits) and selected, so typing replaces it. The name is the branch
+  with its slashes as dashes and follows the branch until it is typed over.
+- **Agent** is the New workspace dialog's picker, under the name: the agent last started, Shell
   for none. It starts in the checkout's pane once the checkout is made. One that fails to start
   leaves the worktree there: the dialog says why, locks its fields, and its button reads **Open**.
 - The browser demo answers the same list/create/open/remove worktree APIs with fictional
