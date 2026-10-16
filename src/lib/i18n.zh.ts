@@ -1110,6 +1110,8 @@ export const ZH: Record<string, string> = {
   "{count} characters of the paste did not fit: a message holds {max}.": "粘贴的内容中有 {count} 个字符放不下：一条消息最多 {max} 个字符。",
   "Message limit reached: {max} characters. Nothing more can be added.": "已达到消息长度上限：{max} 个字符。无法再添加。",
   "Compact context": "压缩上下文",
+  "Change model": "更改模型",
+  "Change reasoning effort": "更改推理强度",
   "Quote in message": "引用到消息",
   "Added to the message draft": "已添加到消息草稿",
   "Too long for the message draft": "内容过长，无法加入消息草稿",

@@ -1106,6 +1106,8 @@ export const KO: Record<string, string> = {
   "{count} characters of the paste did not fit: a message holds {max}.": "붙여넣은 내용 중 {count}자가 들어가지 않았습니다. 메시지는 {max}자까지 담을 수 있습니다.",
   "Message limit reached: {max} characters. Nothing more can be added.": "메시지 길이 한도에 도달했습니다: {max}자. 더 추가할 수 없습니다.",
   "Compact context": "컨텍스트 압축",
+  "Change model": "모델 변경",
+  "Change reasoning effort": "추론 수준 변경",
   "Quote in message": "메시지에 인용",
   "Added to the message draft": "메시지 초안에 추가했습니다",
   "Too long for the message draft": "메시지 초안에 넣기에는 너무 깁니다",

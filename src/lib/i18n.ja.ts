@@ -1108,6 +1108,8 @@ export const JA: Record<string, string> = {
   "{count} characters of the paste did not fit: a message holds {max}.": "貼り付けた内容のうち {count} 文字が収まりませんでした。メッセージは {max} 文字までです。",
   "Message limit reached: {max} characters. Nothing more can be added.": "メッセージの文字数上限に達しました({max} 文字)。これ以上追加できません。",
   "Compact context": "コンテキストを圧縮",
+  "Change model": "モデルを変更",
+  "Change reasoning effort": "推論レベルを変更",
   "Quote in message": "メッセージに引用",
   "Added to the message draft": "メッセージの下書きに追加しました",
   "Too long for the message draft": "メッセージの下書きには長すぎます",

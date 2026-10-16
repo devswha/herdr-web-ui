@@ -38,7 +38,7 @@ import {
   submitNote,
   terminalOnlyCommand,
 } from "../lib/compose.ts";
-import { compactCommandText } from "../lib/compactContext.ts";
+import { compactCommandText, pickCommandText } from "../lib/compactContext.ts";
 import { composerStrip } from "../lib/composerStrip.ts";
 import { composerLabelDraw } from "../lib/composerLabelFit.ts";
 import { composerFull, formatChars, pasteOverflow } from "../lib/composerLength.ts";
@@ -491,6 +491,9 @@ export function Composer({
         modelFloor: parseFloat(getComputedStyle(model).minWidth) || 0,
       });
       if (draw !== first) status.setAttribute("data-model", draw);
+      // a label that stepped out is read, not drawn: its button leaves the Tab order with it
+      status.querySelector("button.composer-model")?.setAttribute("tabindex", draw === "out" ? "-1" : "0");
+      status.querySelector("button.composer-reasoning")?.setAttribute("tabindex", draw === "full" ? "0" : "-1");
       const hint = hintRef.current;
       if (!hint) return;
       // with the label stepped out and no ring, the row beside the sentence draws nothing: it gives
@@ -1063,7 +1066,15 @@ export function Composer({
   const isWorking = agentStatus === "working";
   // an explicit click sends /compact the way a typed message goes; only where the agent lists it, never while it works
   const compactText = compactCommandText(commands);
-  const compactNow = compactText !== null && connected && !sending && !isWorking && agentStatus !== "blocked" ? () => sendQuick(compactText) : undefined;
+  const quickReady = connected && !sending && !isWorking && agentStatus !== "blocked";
+  const compactNow = compactText !== null && quickReady ? () => sendQuick(compactText) : undefined;
+  // a tap on the model or the level sends the agent's own /model or /effort, whose card the chat already
+  // shows. Where there is a card the label is a button, disabled when Compact would not show; elsewhere it
+  // stays a label
+  const modelPickText = pickCommandText(agent, commands, "model");
+  const effortPickText = pickCommandText(agent, commands, "effort");
+  const pickModel = modelPickText === null ? undefined : () => sendQuick(modelPickText);
+  const pickEffort = effortPickText === null ? undefined : () => sendQuick(effortPickText);
   // what the status line says; what may be sent, queued or stopped goes by the agent's own status
   const shownStatus = paneStatus({ agent_status: agentStatus, ...(backgroundWait ? { background_wait: true as const } : {}) });
   const statusCompact = composerStatusCompact(cardWidth);
@@ -1071,6 +1082,18 @@ export function Composer({
   const hint = composerStatusHint({ uploading, connected, text, noRoom: roomless !== undefined });
   const model = metadata?.model ? modelLabel(metadata.model) : null;
   const modelShown = Boolean(metadata?.model || metadata?.reasoning_effort);
+  const modelClass = `composer-model${model ? model.named ? "" : " is-id" : " is-none"}`;
+  const modelTitle = metadata?.model ?? t("Model not available");
+  const modelText = model?.text ?? t("Model —");
+  const reasoningClass = `composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`;
+  const reasoningTitle = metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available");
+  const reasoningLevel = <>
+    <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
+    {metadata?.reasoning_effort && <>
+      <span className="composer-reasoning-dot" aria-hidden="true">·</span>
+      <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
+    </>}
+  </>;
   const usageDetail = usageWindows.map((window) => {
     const reset = formatResetIn(window.resets_at, Date.now());
     return `${windowLabel(window)} ${meterText(window, settings.usageCount)}${reset ? ` · ${t("Resets in {time}", { time: reset })}` : ""}`;
@@ -1089,7 +1112,7 @@ export function Composer({
   useLayoutEffect(fitStatus, [fitStatus, agent, metadata?.model, metadata?.reasoning_effort,
     metadata?.context?.window, contextShown && !mobile && metadata?.context ? contextLeftPercent(metadata.context) : null,
     contextShown, mobile, usageCaption, usage?.problem, hintText, dictation.shown, backgroundTasks,
-    plan?.done, plan?.total, statusCompact, compactNow !== undefined, facesLoaded, t]);
+    plan?.done, plan?.total, statusCompact, compactNow !== undefined, pickModel !== undefined, pickEffort !== undefined, facesLoaded, t]);
   const menuId = `composer-menu-${paneId}`;
   // the arrow keys move the selection, not the focus (it stays in the box), so the browser does not scroll to it
   useEffect(() => {
@@ -1323,24 +1346,24 @@ export function Composer({
             <span className="composer-agent-label visually-hidden">{agentLabel}</span>
             <span className="composer-status-separator visually-hidden" aria-hidden="true">·</span>
             <strong className="visually-hidden">{t(composerStatusWord(shownStatus))}</strong>
-            {/* the mark, the model, the level and the context ring as one quiet pill. It only shows: no role,
-                no focus, nothing to press but the ring inside it. A pane that names no model draws no pill
-                (.is-bare): the mark, a level if it has one, and the ring stand in the row as they are */}
+            {/* the mark, the model, the level and the context ring as one quiet pill. The model and the level
+                are buttons only where a tap opens their card (pickModel, pickEffort), and the ring is one on a
+                desktop. A pane that names no model draws no pill (.is-bare): the mark, a level if it has one,
+                and the ring stand in the row as they are */}
             <span className={`composer-pill${metadata?.model ? "" : " is-bare"}`}>
               {agent && <AgentMark agent={agent} size={14} />}
               {modelShown && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
                 {/* a name only for an id modelLabel can name for certain; any other id is drawn as received, in the identifier face */}
-                <span className={`composer-model${model ? model.named ? "" : " is-id" : " is-none"}`} title={metadata?.model ?? t("Model not available")}>{model?.text ?? t("Model —")}</span>
+                {pickModel
+                  ? <button type="button" className={modelClass} title={`${modelTitle}\n${t("Change model")}`} disabled={!quickReady} onClick={pickModel}>{modelText}</button>
+                  : <span className={modelClass} title={modelTitle}>{modelText}</span>}
                 {/* behind a name the id as received is still read; a touch cannot reach the title */}
                 {model?.named && <span className="composer-model-id visually-hidden">{metadata?.model}</span>}
                 {/* no level recorded: nothing is drawn for it, no dot and no dash; the sentence is still read */}
-                <span className={`composer-reasoning${metadata?.reasoning_effort ? "" : " visually-hidden"}`} title={metadata?.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
-                  <span className="composer-reasoning-full visually-hidden">{t("Reasoning {effort}", { effort: metadata?.reasoning_effort ?? "—" })}</span>
-                  {metadata?.reasoning_effort && <>
-                    <span className="composer-reasoning-dot" aria-hidden="true">·</span>
-                    <span className="composer-reasoning-short" aria-hidden="true">{metadata.reasoning_effort}</span>
-                  </>}
-                </span>
+                {/* no level drawn, nothing to tap: a hidden button would be a stop the eye cannot see */}
+                {pickEffort && metadata?.reasoning_effort
+                  ? <button type="button" className={reasoningClass} title={`${reasoningTitle}\n${t("Change reasoning effort")}`} disabled={!quickReady} onClick={pickEffort}>{reasoningLevel}</button>
+                  : <span className={reasoningClass} title={reasoningTitle}>{reasoningLevel}</span>}
               </span>}
               {metadata?.context && <ContextRing context={metadata.context} shown={contextShown} readOnly={mobile} onToggle={() => setContextShown((open) => !open)} onCompact={compactNow} />}
               {usage !== undefined && usage.problem === null && usageLimit !== undefined && <span

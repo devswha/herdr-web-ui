@@ -331,6 +331,34 @@
   text-transform: uppercase;
 }
 
+/* where a tap opens the model or effort card (Claude Code, Codex), the name and the level are
+   buttons that look as the label does; hover and focus say they can be pressed */
+button.composer-model,
+button.composer-reasoning {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+button.composer-reasoning {
+  color: inherit;
+}
+
+button.composer-model:hover:not(:disabled),
+button.composer-reasoning:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+button.composer-model:disabled,
+button.composer-reasoning:disabled {
+  cursor: default;
+}
+
 /* what is left of the context: plain until a compaction is near */
 /* Context left: desktop can reveal its number; mobile keeps an inert ring. */
 .composer-context {
