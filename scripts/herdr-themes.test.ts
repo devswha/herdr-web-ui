@@ -94,8 +94,8 @@ describe("executable provenance policy", () => {
 
   it("rejects a changed role in a temporary CSS row rather than reporting a vacuous pass", () => {
     const changed = fixture.replace("--bg: #1a1b26;", "--bg: #123456;");
-    expect(provenanceFailures(fixture, entry)).toEqual([]);
-    expect(provenanceFailures(changed, entry)).toEqual([
+    expect(provenanceFailures(fixture, entry, [])).toEqual([]);
+    expect(provenanceFailures(changed, entry, [])).toEqual([
       "tokyo-night/dark bg: #123456 differs from mapped #1a1b26 without override",
     ]);
   });
@@ -107,9 +107,9 @@ describe("executable provenance policy", () => {
   });
 
   it("rejects missing own declarations, malformed CSS and wrong-kind entries", () => {
-    expect(provenanceFailures(fixture.replace("--bg: #1a1b26;", ""), entry).join("\n")).toContain("tokyo-night/dark bg: (missing)");
-    expect(() => provenanceFailures(fixture.replace("--bg: #1a1b26;", "--bg: hsl(0 0% 0%);"), entry)).toThrow("tokyo-night/dark bg");
-    expect(provenanceFailures(fixture, [{ id: "tokyo-night", mode: "light" }])).toEqual(["tokyo-night/light: no pinned herdr palette of this kind"]);
+    expect(provenanceFailures(fixture.replace("--bg: #1a1b26;", ""), entry, []).join("\n")).toContain("tokyo-night/dark bg: (missing)");
+    expect(() => provenanceFailures(fixture.replace("--bg: #1a1b26;", "--bg: hsl(0 0% 0%);"), entry, [])).toThrow("tokyo-night/dark bg");
+    expect(provenanceFailures(fixture, [{ id: "tokyo-night", mode: "light" }], [])).toEqual(["tokyo-night/light: no pinned herdr palette of this kind"]);
   });
 
   it("rejects stale, duplicate, redundant and undocumented override records by entry and role", () => {

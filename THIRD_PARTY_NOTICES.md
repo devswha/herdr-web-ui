@@ -6,11 +6,14 @@ herdr web ui includes material from the projects below, under their own licenses
 
 The CSS theme colors adapt herdr's pinned palettes, with readability adjustments recorded in
 `scripts/herdr-theme-overrides.ts`. Catppuccin Latte also names the unchanged legacy light row.
-The upstream MIT license text is printed below; individual theme sources and licenses follow.
+The MIT and Apache-2.0 license texts are already printed below; individual theme sources and
+licenses follow. Tokyo Night Day uses folke's Apache-2.0 port, not the original MIT theme.
 
 | Theme | Upstream source | License |
 | --- | --- | --- |
 | Catppuccin Mocha and Latte | [catppuccin/palette](https://github.com/catppuccin/palette/blob/main/palette.json) | MIT |
+| tokyo-night | [enkia/tokyo-night-vscode-theme](https://github.com/enkia/tokyo-night-vscode-theme/blob/master/themes/tokyo-night-color-theme.json) | MIT |
+| tokyo-night-day | [folke/tokyonight.nvim](https://github.com/folke/tokyonight.nvim/blob/main/extras/ghostty/tokyonight_day) | Apache-2.0 |
 
 ## Legend List
 

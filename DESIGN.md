@@ -124,6 +124,30 @@ another color table. Catppuccin Latte is a second selector on the existing legac
 Its proposal is deliberately not applied: the permanent legacy oracle takes precedence over the
 herdr mapping, including existing surface, accent, cursor, status and syntax choices.
 
+- **tokyo-night-day**: `--text` moves dE 6.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--text-dim` moves dE 11.81; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--text-strong` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--status-working` moves dE 18.99; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--status-blocked` moves dE 23.41; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--status-done` moves dE 12.85; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--status-working-tint` moves dE 18.99; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--status-blocked-tint` moves dE 23.41; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--status-done-tint` moves dE 12.85; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--danger-tint` moves dE 23.41; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--danger-text` moves dE 23.41; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--scrim` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--line-number` moves dE 11.81; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--syntax-function` moves dE 14.94; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-keyword` moves dE 5.15; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-string` moves dE 8.95; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-number` moves dE 11.25; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-type` moves dE 10.85; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-variable` moves dE 6.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-meta` moves dE 14.24; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--shadow-drawer` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--shadow-pop` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--shadow-card` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens
