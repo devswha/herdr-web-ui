@@ -60,13 +60,12 @@ describe("generate-themes", () => {
   it("counts a second target in any formatting as a duplicate", async () => {
     const html = read(ROOT, OUTPUTS.index);
     const tag = /<meta name="theme-color"[^>]*>/.exec(html)![0];
-    for (const extra of ['<meta name="theme-color" content="#abcdef">', "<META content='#abcdef' NAME='theme-color'/>", "<meta  name=theme-color content=#abcdef>"]) {
+    for (const extra of ['<meta name="theme-color" content="#abcdef">', "<META content='#abcdef' NAME='theme-color'/>", "<meta  name=theme-color content=#abcdef>", '<meta content="a>b" name="theme&#45;color">']) {
       expect(() => renderIndex(css, html.replace(tag, `${extra}\n    ${tag}`)), extra).toThrow("found 2 times");
     }
-    expect(() => renderIndex(css, html.replace(tag, `<meta name="theme-color-x" content="#abcdef">\n    ${tag}`))).not.toThrow();
     const manifest = read(ROOT, OUTPUTS.manifest);
-    for (const extra of ['"theme_color":"#abcdef",', '"background_color" :  "#abcdef",']) {
-      const key = extra.slice(1, extra.indexOf('"', 1));
+    for (const extra of ['"theme_color":"#abcdef",', '"background_color" :  "#abcdef",', '"theme\\u005fcolor": "#abcdef",']) {
+      const key = extra.includes("background") ? "background_color" : "theme_color";
       expect(() => renderManifest(css, manifest.replace('"theme_color": ', `${extra}\n  "theme_color": `)), extra).toThrow(`"${key}" found 2 times`);
     }
 
@@ -80,6 +79,42 @@ describe("generate-themes", () => {
     const json = await run(["--check", "--root", root]);
     expect(json.exitCode).toBe(1);
     expect(json.output).toContain('public/manifest.webmanifest: marker "theme_color" found 2 times');
+  });
+
+  it("counts only a real theme-color tag and real top-level manifest keys", async () => {
+    const html = read(ROOT, OUTPUTS.index);
+    const tag = /<meta name="theme-color"[^>]*>/.exec(html)![0];
+    const lookalikes = [
+      '<meta data-name="theme-color" content="#abcdef">',
+      '<meta itemprop="name" content="theme-color">',
+      '<meta name="theme-color-x" content="#abcdef">',
+      '<meta content=" name=theme-color">',
+      '<meta name="description" name="theme-color">',
+      '<!-- <meta name="theme-color" content="#abcdef"> -->',
+      '<script>const s = \'<meta name="theme-color">\';</script>',
+    ];
+    for (const lookalike of lookalikes) {
+      expect(renderIndex(css, html.replace(tag, `${lookalike}\n    ${tag}`)), lookalike).toContain(lookalike);
+      expect(() => renderIndex(css, html.replace(tag, lookalike)), lookalike).toThrow('index.html: marker <meta name="theme-color"> found 0 times');
+    }
+    const manifest = read(ROOT, OUTPUTS.manifest);
+    for (const lookalike of ['"x_theme_color": "#abcdef",', '"note": "\\"theme_color\\": \\"#abcdef\\"",', '"extra": { "theme_color": "#abcdef" },', '"list": [{ "background_color": "#abcdef" }],']) {
+      const rendered = renderManifest(css, manifest.replace('"theme_color": ', `${lookalike}\n  "theme_color": `));
+      expect(rendered, lookalike).toContain(lookalike);
+      expect(JSON.parse(rendered).theme_color).toBe("#181613");
+    }
+    expect(() => renderManifest(css, manifest.replace('"theme_color"', '"x_theme_color"'))).toThrow('"theme_color" found 0 times');
+
+    // a look-alike alone is a missing target in both modes, and nothing is written
+    for (const mode of [["--check"], []]) {
+      const root = copyRoot();
+      const broken = html.replace(tag, '<meta data-name="theme-color" content="#abcdef">');
+      writeFileSync(join(root, OUTPUTS.index), broken);
+      const before = Object.values(OUTPUTS).map((file) => read(root, file));
+      const result = await run([...mode, "--root", root]);
+      expect([result.exitCode, result.output.trim()]).toEqual([1, 'generate-themes: index.html: marker <meta name="theme-color"> found 0 times, expected exactly once']);
+      expect(Object.values(OUTPUTS).map((file) => read(root, file))).toEqual(before);
+    }
   });
 
   it("changes nothing outside the DESIGN.md region", () => {

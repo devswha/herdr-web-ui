@@ -136,29 +136,86 @@ export function renderDesign(css: string, design: string): string {
   return `${design.slice(0, begin + DESIGN_BEGIN.length)}\n${table}\n${design.slice(end)}`;
 }
 
-// Any spelling of the tag counts toward "exactly once" (quotes, case, spacing, self-closing or not), so a
-// second tag in another form cannot hide next to the one the generator writes.
-const META_THEME_COLOR = /<meta\b[^>]*?\bname\s*=\s*(["']?)theme-color\1(?=[\s/>])[^>]*>/gi;
+// Text a browser never reads as tags: comments and the contents of raw-text elements. They are blanked
+// (same length, so offsets hold) before meta tags are looked for.
+const NOT_TAGS = /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title)(?=[\s/>])[\s\S]*?(?:<\/\1\s*>|$)/gi;
+const META_TAG = /<meta(?=[\s/>])((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+const ATTRIBUTE = /([^\s"'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+
+function decodeNumericEntities(value: string): string {
+  return value.replace(/&#(x[0-9a-f]+|\d+);?/gi, (_, code: string) => {
+    const point = code[0] === "x" || code[0] === "X" ? Number.parseInt(code.slice(1), 16) : Number(code);
+    return point <= 0x10ffff ? String.fromCodePoint(point) : "\ufffd";
+  });
+}
+
+/** The spans of every tag a browser reads as `<meta name="theme-color">`: its first `name` attribute, by HTML's rules. */
+function themeColorTags(html: string): { start: number; end: number }[] {
+  const visible = html.replace(NOT_TAGS, (text) => " ".repeat(text.length));
+  return [...visible.matchAll(META_TAG)].filter((tag) => {
+    const name = [...(tag[1] ?? "").matchAll(ATTRIBUTE)].find((attribute) => attribute[1]?.toLowerCase() === "name");
+    return decodeNumericEntities(name?.[2] ?? name?.[3] ?? name?.[4] ?? "").toLowerCase() === "theme-color";
+  }).map((tag) => ({ start: tag.index, end: tag.index + tag[0].length }));
+}
 
 export function renderIndex(css: string, html: string): string {
-  const count = html.match(META_THEME_COLOR)?.length ?? 0;
-  if (count !== 1) throw new Error(`${OUTPUTS.index}: marker <meta name="theme-color"> found ${count} times, expected exactly once`);
-  return html.replace(META_THEME_COLOR, `<meta name="theme-color" content="${amberColor(css, "--bg-panel", "dark", "resolved")}" />`);
+  const tags = themeColorTags(html);
+  if (tags.length !== 1) throw new Error(`${OUTPUTS.index}: marker <meta name="theme-color"> found ${tags.length} times, expected exactly once`);
+  const [{ start, end }] = tags as [{ start: number; end: number }];
+  return `${html.slice(0, start)}<meta name="theme-color" content="${amberColor(css, "--bg-panel", "dark", "resolved")}" />${html.slice(end)}`;
+}
+
+/** The keys of the top-level object of valid JSON, decoded, with the span of each value that is a string. */
+function topLevelKeys(json: string): { key: string; value: { start: number; end: number } | null }[] {
+  const stringEnd = (at: number): number => {
+    let index = at + 1;
+    while (json[index] !== '"') index += json[index] === "\\" ? 2 : 1;
+    return index + 1;
+  };
+  const skipSpace = (at: number): number => {
+    let index = at;
+    while (/\s/.test(json[index] ?? "")) index++;
+    return index;
+  };
+  const keys: { key: string; value: { start: number; end: number } | null }[] = [];
+  const open: string[] = [];
+  for (let index = 0; index < json.length;) {
+    const char = json[index]!;
+    if (char !== '"') {
+      if (char === "{" || char === "[") open.push(char);
+      else if (char === "}" || char === "]") open.pop();
+      index++;
+      continue;
+    }
+    const end = stringEnd(index);
+    const colon = skipSpace(end);
+    if (open.length === 1 && open[0] === "{" && json[colon] === ":") {
+      const start = skipSpace(colon + 1);
+      const value = json[start] === '"' ? { start, end: stringEnd(start) } : null;
+      keys.push({ key: JSON.parse(json.slice(index, end)) as string, value });
+      index = value?.end ?? start;
+    } else {
+      index = end;
+    }
+  }
+  return keys;
 }
 
 export function renderManifest(css: string, json: string): string {
   const values = { theme_color: amberColor(css, "--bg-panel", "dark", "resolved"), background_color: amberColor(css, "--bg", "dark", "resolved") };
-  let text = json;
-  for (const [key, value] of Object.entries(values)) {
-    // JSON.parse keeps only the last of duplicate keys, so the raw text is counted with any spacing
-    const count = text.match(new RegExp(`"${key}"\\s*:`, "g"))?.length ?? 0;
-    if (count !== 1) throw new Error(`${OUTPUTS.manifest}: marker "${key}" found ${count} times, expected exactly once`);
-    const pattern = new RegExp(`"${key}"\\s*:\\s*"[^"]*"`);
-    if (!pattern.test(text)) throw new Error(`${OUTPUTS.manifest}: marker "${key}" has no string value`);
-    text = text.replace(pattern, `"${key}": ${JSON.stringify(value)}`);
-  }
-  // the targeted edit must leave valid JSON whose other keys are untouched
   const before = JSON.parse(json) as Record<string, unknown>;
+  // JSON.parse keeps only the last of duplicate keys, so the keys are counted in the text itself
+  const keys = topLevelKeys(json);
+  const edits = Object.entries(values).map(([key, value]) => {
+    const found = keys.filter((entry) => entry.key === key);
+    if (found.length !== 1) throw new Error(`${OUTPUTS.manifest}: marker "${key}" found ${found.length} times, expected exactly once`);
+    const span = found[0]!.value;
+    if (!span) throw new Error(`${OUTPUTS.manifest}: marker "${key}" has no string value`);
+    return { ...span, value: JSON.stringify(value) };
+  });
+  let text = json;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) text = `${text.slice(0, edit.start)}${edit.value}${text.slice(edit.end)}`;
+  // the targeted edit must leave valid JSON whose other keys are untouched
   const after = JSON.parse(text) as Record<string, unknown>;
   if (JSON.stringify({ ...before, ...values }) !== JSON.stringify(after)) {
     throw new Error(`${OUTPUTS.manifest}: the theme color edit changed more than theme_color and background_color`);
