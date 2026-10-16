@@ -8,7 +8,7 @@
 import type { TelemetrySettings } from "../../shared/telemetry.ts";
 import { SHARED_SETTING_KEYS, type SharedSettingKey } from "../../shared/preferences.ts";
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { terminalColors, themeColor as themeTableColor, type TerminalColors } from "./themes.ts";
+import { terminalColors, themeColor as themeTableColor } from "./themes.ts";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
@@ -503,8 +503,10 @@ export function resolveTheme(setting: ThemeSetting): ResolvedTheme {
   return typeof window !== "undefined" && window.matchMedia?.(DARK_QUERY).matches === false ? "light" : "dark";
 }
 
+type TerminalColors = { background: string; foreground: string; cursor: string; selectionBackground: string };
+
 export function terminalTheme(theme: ResolvedTheme, palette: Palette = "amber"): TerminalColors {
-  return terminalColors(palette, theme);
+  return { ...terminalColors(palette, theme) };
 }
 
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
