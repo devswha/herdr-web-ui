@@ -355,6 +355,14 @@ describe("daily active message", () => {
     await older.telemetry.active(["claude"]);
     expect(older.actives).toEqual([]);
 
+    // a visit made while off is not kept: turning the switch on again sends nothing for it
+    off.telemetry.change({ enabled: true });
+    await settled();
+    expect(off.actives).toEqual([]);
+    expect(savedFile(off.stateDir).active ?? []).toEqual([]);
+    expect(off.telemetry.counting()).toBe(true);
+    expect(blocked.telemetry.counting()).toBe(false);
+
     const grace = setup({ grace: 600_000 });
     seen(grace.telemetry);
     await grace.telemetry.active(["claude"]);

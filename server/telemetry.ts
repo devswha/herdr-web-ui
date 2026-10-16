@@ -283,6 +283,13 @@ export class Telemetry {
     return this.status();
   }
 
+  /** Whether a browser visit is recorded at all: never while the switch is off or the environment forbids sending. */
+  counting(): boolean {
+    if (!this.writable) return false;
+    this.refresh();
+    return this.saved.enabled && !this.blocked();
+  }
+
   start(): void { this.schedule(START_DELAY_MS); }
   stop(): void { clearTimeout(this.timer); this.abort?.abort(); this.activeTimer?.clear(); this.activeAbort?.abort(); }
 
@@ -292,9 +299,12 @@ export class Telemetry {
    * pane read that fails still counts the visit with the kinds known so far.
    */
   active(agents: readonly (string | null | undefined)[] | Promise<readonly (string | null | undefined)[]>): Promise<void> {
-    if (!this.writable) return Promise.resolve();
+    // a visit made while off is not kept for when the switch is turned on again
+    if (!this.counting()) {
+      Promise.resolve(agents).catch(() => {});
+      return Promise.resolve();
+    }
     const day = utcDay(this.now());
-    this.refresh();
     const pruned = this.prune();
     let appended = false;
     if (!this.saved.active.some((entry) => entry.day === day)) {

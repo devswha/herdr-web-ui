@@ -124,6 +124,8 @@ const MAX_REPLAY_BYTES = 128 * 1024;
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
 const PLUGIN_ACTION_WAIT_MS = 5_000;
+/** a focus or reconnect re-reads the panes for the daily active message at most this often */
+const VISIT_READ_MS = 10 * 60_000;
 const livePaneIds = async (timeoutMs?: number): Promise<string[]> => (await sessionSnapshot(undefined, timeoutMs)).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
@@ -1188,10 +1190,22 @@ export function createServer(
       }),
     };
   };
-  /** A browser visit for the daily active message: the call is made now so the visit's day is the trigger's, the panes are read after. */
-  function countVisit(): void {
-    if (!options.telemetry) return;
-    void options.telemetry.active(clientSnapshot().then((snapshot) => snapshot.panes.map((pane) => pane.agent ?? pane.agent_session?.agent ?? null)))
+  /**
+   * A browser visit for the daily active message: the call is made now so the visit's day is the
+   * trigger's, the panes are read after. Nothing is read while telemetry cannot send; a socket open
+   * passes the snapshot it fetches anyway, and other visits read the panes at most every
+   * VISIT_READ_MS (in between they still count the day, with the kinds already known).
+   */
+  let visitReadAt = -Infinity;
+  function countVisit(snapshot?: ReturnType<typeof clientSnapshot>): void {
+    const telemetry = options.telemetry;
+    if (!telemetry?.counting()) return;
+    let agents: Promise<(string | null)[]> | (string | null)[] = [];
+    if (snapshot || Date.now() - visitReadAt >= VISIT_READ_MS) {
+      visitReadAt = Date.now();
+      agents = (snapshot ?? clientSnapshot()).then((read) => read.panes.map((pane) => pane.agent ?? pane.agent_session?.agent ?? null));
+    }
+    void telemetry.active(agents)
       .catch((error) => console.error(`telemetry: the visit was not counted (${error instanceof Error ? error.message : String(error)})`));
   }
   /** A pane's status frame: every one says whether the pane waits on its turn's background work. */
@@ -2899,9 +2913,10 @@ export function createServer(
         }
         if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
         clients.add(client);
-        countVisit();
+        const snapshot = clientSnapshot();
+        countVisit(snapshot);
         try {
-          send(client, { type: "snapshot", snapshot: await clientSnapshot(), features: SERVER_FEATURES });
+          send(client, { type: "snapshot", snapshot: await snapshot, features: SERVER_FEATURES });
         } catch (error) {
           const code = error instanceof HerdrError ? error.code : "snapshot_failed";
           send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error) });
