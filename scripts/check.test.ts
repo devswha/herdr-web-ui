@@ -474,6 +474,7 @@ describe("check CLI", () => {
       name: "check-cli-fixture",
       scripts: {
         "generate:types": noOp,
+        "generate:themes": noOp,
         typecheck: noOp,
         build: fixtureBuild,
         "test:unit": noOp,
@@ -518,6 +519,7 @@ describe("check CLI", () => {
       name: "check-cli-fixture",
       scripts: {
         "generate:types": noOp,
+        "generate:themes": noOp,
         typecheck: noOp,
         build: fixtureBuild,
         "test:unit": "git init -q nested && node -e \"require('node:fs').writeFileSync('nested/source.txt','fixture')\"",
@@ -548,7 +550,7 @@ describe("check CLI", () => {
     rmSync(join(cwd, "dist"), { recursive: true });
     writeFileSync(join(cwd, "package.json"), JSON.stringify({
       name: "check-cli-fixture",
-      scripts: { "generate:types": noOp, typecheck: noOp, build: noOp, "test:unit": noOp },
+      scripts: { "generate:types": noOp, "generate:themes": noOp, typecheck: noOp, build: noOp, "test:unit": noOp },
     }));
     const missingBuild = runCheck();
     expect(missingBuild.status).toBe(1);
