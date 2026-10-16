@@ -108,11 +108,12 @@ try {
       }
       console.log("PASS a pane's plan opens from the composer's chip, as a list of steps, on a desktop and a phone");
 
-      // A repository pin hoists only its own row; its worktrees stay outside the card and fixed.
-      for (const mobile of [false, true]) {
-        await withPage(browser, {}, async (page) => {
+      // A favorite adds a shortcut; the complete repository tree stays in place.
+      for (const [theme, mobile] of [["dark", false], ["dark", true], ["light", false], ["light", true]] as const) {
+        await withPage(browser, { theme }, async (page) => {
           if (mobile) await page.locator('button[aria-controls="workspace-drawer"]').tap();
-          const head = page.locator(`.workspace-select[data-pane="${panes.api}"]`);
+          const tree = page.locator(".machine-workspaces .sidebar-list > .workspace-list:not(.sidebar-pinned)");
+          const head = tree.locator(`.workspace-select[data-pane="${panes.api}"]`);
           const headId = await head.evaluate((row) => row.closest(".workspace-group")?.getAttribute("data-workspace"));
           assert.ok(headId);
           const worktrees = await page.evaluate(async (workspaceId) => {
@@ -128,11 +129,12 @@ try {
             return made;
           }, headId);
           for (const { pane_id } of worktrees) await page.locator(`.workspace-select[data-pane="${pane_id}"]`).waitFor();
-          const titles = () => page.locator(".machine-workspaces .workspace-name").allTextContents();
+          const titles = () => tree.locator(".workspace-name").allTextContents();
           const groupedOrder = await titles();
           const headName = await head.locator(".workspace-name").textContent();
           const setPin = async (pin: boolean) => {
-            if (mobile) await page.locator(`.workspace-group[data-workspace="${headId}"] > .workspace-header .row-menu-toggle`).tap();
+            await head.focus();
+            if (mobile) await tree.locator(`.workspace-group[data-workspace="${headId}"] > .workspace-header .row-menu-toggle`).tap();
             else await head.click({ button: "right" });
             const label = pin ? "Pin workspace" : "Unpin workspace";
             const panel = page.getByRole(mobile ? "dialog" : "menu");
@@ -144,25 +146,73 @@ try {
           const card = page.locator(".machine-workspaces .sidebar-pinned");
           await card.waitFor();
           assert.deepEqual(await card.locator(".workspace-name").allTextContents(), [headName], "pinning a repository pins only its own row, not its worktrees");
+          assert.deepEqual(await titles(), groupedOrder, "favorites keep the complete repository tree unchanged");
+          assert.equal(await head.evaluate((row) => document.activeElement === row), true, "pinning from the tree restores focus to the tree row");
+          const shortcut = card.locator(`.workspace-select[data-pane="${panes.api}"]`);
+          assert.notEqual(await shortcut.evaluate((row) => row.closest(".workspace-group")?.id), await head.evaluate((row) => row.closest(".workspace-group")?.id), "shortcut and tree row have distinct element ids");
           assert.equal(await head.getAttribute("aria-keyshortcuts"), "Alt+ArrowUp Alt+ArrowDown", "the pinned repository keeps its within-card reorder shortcuts");
           assert.equal(await head.getAttribute("draggable"), mobile ? "false" : "true", "the pinned repository supports desktop drag while touch uses long-press");
-          assert.deepEqual(await titles(), [headName, ...groupedOrder.filter((name) => name !== headName)], "worktrees keep the repository's position and their order");
+          for (const { workspace_id, pane_id } of worktrees) {
+            const row = page.locator(`.workspace-select[data-pane="${pane_id}"]`);
+            assert.equal(await row.evaluate((element) => element.closest(".worktree-children") !== null), true, "worktrees stay nested below their favorite repository");
+            assert.equal(await row.getAttribute("draggable"), mobile ? "false" : "true", "tree worktrees keep normal drag behavior");
+            assert.equal(await row.getAttribute("aria-keyshortcuts"), "Alt+ArrowUp Alt+ArrowDown", "tree worktrees keep reorder shortcuts");
+            assert.equal(await page.locator(`.workspace-group[data-workspace="${workspace_id}"]`).count(), 1, "each worktree appears once");
+          }
+          // A favorite worktree stays available even when its repository is collapsed.
+          const firstTree = tree.locator(`.workspace-select[data-pane="${worktrees[0]!.pane_id}"]`);
+          await firstTree.focus();
+          if (mobile) await firstTree.locator("..").locator(".row-menu-toggle").tap();
+          else await page.keyboard.press("Shift+F10");
+          const worktreePanel = page.getByRole(mobile ? "dialog" : "menu");
+          await worktreePanel.getByRole(mobile ? "button" : "menuitem", { name: "Pin workspace", exact: true }).click();
+          await worktreePanel.waitFor({ state: "detached" });
+          const worktreeShortcut = card.locator(`.workspace-select[data-pane="${worktrees[0]!.pane_id}"]`);
+          await worktreeShortcut.waitFor();
+          assert.deepEqual(await titles(), groupedOrder, "pinning a worktree preserves its tree position");
+          await worktreeShortcut.focus();
+          await page.keyboard.press("Alt+ArrowUp");
+          assert.deepEqual(await card.locator(".workspace-name").allTextContents(), ["pin-first", headName], "a worktree shortcut reorders independently of the tree");
+          assert.deepEqual(await titles(), groupedOrder, "shortcut reordering does not move tree worktrees");
+          const fold = tree.getByRole("button", { name: `Collapse worktrees of ${headName}`, exact: true });
+          await fold.click();
+          assert.equal(await firstTree.count(), 0, "collapsing hides the unselected tree worktree");
+          assert.equal(await worktreeShortcut.isVisible(), true, "collapsing never hides its favorite shortcut");
+          await worktreeShortcut.click();
+          await page.waitForFunction((paneId) => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "{}").pane_id === paneId, worktrees[0]!.pane_id);
+          if (mobile) await page.locator('button[aria-controls="workspace-drawer"]').tap();
+          assert.equal(await worktreeShortcut.getAttribute("aria-current"), "true", "shortcut reflects the selected workspace");
+          assert.equal(await firstTree.getAttribute("aria-current"), "true", "its tree row reflects the same selected workspace");
+          await worktreeShortcut.focus();
+          if (mobile) await worktreeShortcut.locator("..").locator(".row-menu-toggle").tap();
+          else await page.keyboard.press("Shift+F10");
+          await worktreePanel.getByRole(mobile ? "button" : "menuitem", { name: "Unpin workspace", exact: true }).click();
+          await worktreePanel.waitFor({ state: "detached" });
+          assert.equal(await worktreeShortcut.count(), 0, "unpin removes only the shortcut");
+          assert.equal(await firstTree.evaluate((row) => document.activeElement === row), true, "unpinning a shortcut returns focus to its tree row");
+          assert.deepEqual(await titles(), groupedOrder, "unpinning a worktree leaves the full tree intact");
+          await firstTree.focus();
+          await page.keyboard.press("Alt+ArrowDown");
+          const reordered = [...groupedOrder];
+          const firstAt = reordered.indexOf("pin-first");
+          assert.ok(firstAt >= 0);
+          [reordered[firstAt], reordered[firstAt + 1]] = [reordered[firstAt + 1]!, reordered[firstAt]!];
+          assert.deepEqual(await titles(), reordered, "tree worktrees reorder normally under a favorite repository");
+          await page.keyboard.press("Alt+ArrowUp");
+          assert.deepEqual(await titles(), groupedOrder, "tree worktree order can be restored independently of favorites");
+          await shortcut.focus();
+          if (mobile) await shortcut.locator("..").locator(".row-menu-toggle").tap();
+          else await page.keyboard.press("Shift+F10");
+          const renamePanel = page.getByRole(mobile ? "dialog" : "menu");
+          await renamePanel.getByRole(mobile ? "button" : "menuitem", { name: "Rename workspace", exact: true }).click();
+          await renamePanel.waitFor({ state: "detached" });
+          assert.equal(await card.locator(".workspace-rename-input").count(), 1, "rename edits only the shortcut used");
+          assert.equal(await tree.locator(".workspace-rename-input").count(), 0, "rename does not open a duplicate tree editor");
+          await card.locator(".workspace-rename-input").press("Enter");
           const evidence = process.env["UI_EVIDENCE_DIR"];
           if (evidence) {
             mkdirSync(evidence, { recursive: true });
-            // Let the compositor present the menu's removal before taking the optional capture.
-            await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-            await page.screenshot({ path: join(evidence, `pin-repository-${mobile ? "phone" : "desktop"}.png`) });
-          }
-          for (const { workspace_id, pane_id } of worktrees) {
-            const row = page.locator(`.workspace-select[data-pane="${pane_id}"]`);
-            assert.equal(await row.evaluate((element) => element.closest(".sidebar-pinned, .worktree-children") === null), true, "an unpinned worktree is a standalone row outside the card");
-            assert.equal(await row.getAttribute("draggable"), "false", "an orphaned worktree cannot be dragged");
-            assert.equal(await row.getAttribute("aria-keyshortcuts"), null, "an orphaned worktree offers no reorder shortcut");
-            await row.focus();
-            await page.keyboard.press("Alt+ArrowDown");
-            assert.deepEqual(await titles(), [headName, ...groupedOrder.filter((name) => name !== headName)], "Alt+Down does not move an orphaned worktree");
-            assert.equal(await page.locator(`.workspace-group[data-workspace="${workspace_id}"]`).count(), 1, "each worktree appears once");
+            await page.screenshot({ path: join(evidence, `pin-repository-${mobile ? "phone" : "desktop"}-${theme}.png`), animations: "disabled" });
           }
           await setPin(false);
           await card.waitFor({ state: "detached" });
@@ -172,7 +222,7 @@ try {
           }
         }, mobile);
       }
-      console.log("PASS a repository pin keeps only its row in the card; its worktrees stay outside, fixed and ordered, and regroup on unpin, on desktop and phone");
+      console.log("PASS repository favorites add only a shortcut and preserve the full movable tree on desktop and phone");
 
       // herdr's order before and after a finish; a right-click pins an agent, an opened DONE keeps herdr's dot
       await withPage(browser, {}, async (page) => {
@@ -195,10 +245,10 @@ try {
         assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), ["Pin workspace", "Rename workspace", "Close workspace", "New worktree", "Open worktree…"], "the context-menu key and right-click have identical items");
         await page.keyboard.press("Escape");
         const pins = () => page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:sidebar-agent-pins") ?? "[]") as string[]);
-        // a pinned workspace leaves its place for a card at the top of its PC's list, and returns unpinned
+        // A workspace favorite adds a shortcut without removing its normal tree row.
         const workspaceTitles = () => page.locator(".machine-workspaces .workspace-name").allTextContents();
         const herdrOrder = await workspaceTitles();
-        const infraWorkspace = page.locator(`.workspace-select[data-pane="${panes.infra}"]`);
+        const infraWorkspace = page.locator(`.workspace-list:not(.sidebar-pinned) > .workspace-group > .workspace-header .workspace-select[data-pane="${panes.infra}"]`);
         await infraWorkspace.click({ button: "right" });
         const infraMenu = page.getByRole("menu");
         await infraMenu.getByRole("menuitem", { name: "Pin workspace", exact: true }).click();
@@ -206,7 +256,7 @@ try {
         await pinnedWorkspaces.waitFor();
         const infraName = await infraWorkspace.locator(".workspace-name").textContent();
         assert.deepEqual(await pinnedWorkspaces.locator(".workspace-name").allTextContents(), [infraName], "the pinned workspace stands in the card");
-        assert.deepEqual(await workspaceTitles(), [infraName, ...herdrOrder.filter((title) => title !== infraName)], "the rest keep herdr's order");
+        assert.deepEqual(await workspaceTitles(), [infraName, ...herdrOrder], "the favorite duplicates the row without changing herdr's tree");
         // it is moved within its card (the pin order), not out of it: workspace-touch-reorder-demo-regression.ts
         assert.equal(await infraWorkspace.getAttribute("draggable"), "true", "a pinned workspace can be dragged within its card");
         assert.ok((await pins()).includes(`local:workspace:${await infraWorkspace.evaluate((row) => row.closest(".workspace-group")?.getAttribute("data-workspace"))}`), "the pin is saved with the agents'");

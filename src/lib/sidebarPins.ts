@@ -112,13 +112,10 @@ export function pruneSidebarPins(keys: readonly string[], liveKeys: ReadonlySet<
 export interface WorkspaceGroup<W> { workspace: W; children: W[] }
 
 /**
- * The workspace list's groups split by pins, as Paseo hoists a pinned chat out of its project: the
- * pinned rows first, in pin order; the rest in the source order. A pinned worktree leaves its
- * group, which stays. A pinned head leaves its unpinned worktrees as standalone rows in its place.
+ * Favorites are childless shortcuts in pin order. The workspace tree stays intact in source order.
  */
 export function splitPinnedGroups<W>(groups: readonly WorkspaceGroup<W>[], pinnedIds: readonly string[], idOf: (workspace: W) => string): { pinned: WorkspaceGroup<W>[]; rest: WorkspaceGroup<W>[] } {
   const pinnedSet = new Set(pinnedIds);
-  const strip = (group: WorkspaceGroup<W>): WorkspaceGroup<W> => ({ workspace: group.workspace, children: group.children.filter((child) => !pinnedSet.has(idOf(child))) });
   const byId = new Map<string, WorkspaceGroup<W>>();
   for (const group of groups) {
     byId.set(idOf(group.workspace), { workspace: group.workspace, children: [] });
@@ -128,18 +125,7 @@ export function splitPinnedGroups<W>(groups: readonly WorkspaceGroup<W>[], pinne
     const group = byId.get(id);
     return group === undefined ? [] : [group];
   });
-  const rest = groups.flatMap((group) => pinnedSet.has(idOf(group.workspace))
-    ? strip(group).children.map((workspace) => ({ workspace, children: [] }))
-    : [strip(group)]);
-  return { pinned, rest };
-}
-
-/** Pinned rows and their repository worktrees; only the unpinned worktrees stay fixed. */
-export function pinnedGroupIds<W>(groups: readonly WorkspaceGroup<W>[], pinnedIds: readonly string[], idOf: (workspace: W) => string): Set<string> {
-  const pinnedSet = new Set(pinnedIds);
-  return new Set(groups.flatMap((group) => pinnedSet.has(idOf(group.workspace))
-    ? [group.workspace, ...group.children].map(idOf)
-    : group.children.map(idOf).filter((id) => pinnedSet.has(id))));
+  return { pinned, rest: [...groups] };
 }
 
 /** Pinned rows in their saved order, and the other rows in the source roster order. */

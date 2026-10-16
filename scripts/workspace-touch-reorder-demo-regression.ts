@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type CDPSession, type Page } from "playwright-core";
@@ -13,8 +13,14 @@ import { chromePath } from "./chrome-path.ts";
 // All files and HTTP traffic stay in this disposable, loopback-only app; no herdr session is opened.
 const app = mkdtempSync(join(tmpdir(), "herdr-touch-reorder-demo-"));
 
+/** waits until herdr's order is (or, with `equal` false, is no longer) `expected`: the sidebar redraws before a move's request answers */
+const serverOrderReaches = (page: Page, expected: string[], equal: boolean) => page.waitForFunction(async ({ expected, equal }) => {
+  const order = ((await (await fetch("/api/session")).json()).snapshot as { workspaces: { workspace_id: string }[] }).workspaces.map((workspace) => workspace.workspace_id);
+  return (order.join() === expected.join()) === equal;
+}, { expected, equal }, { timeout: 10_000 });
+
 /** the top-level rows, in the order the sidebar draws them */
-const topRows = (page: Page) => page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".machine-workspaces .sidebar-list > .workspace-list > .workspace-group")].map((row) => row.dataset.workspace ?? ""));
+const topRows = (page: Page) => page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".machine-workspaces .sidebar-list > .workspace-list:not(.sidebar-pinned) > .workspace-group")].map((row) => row.dataset.workspace ?? ""));
 const serverOrder = (page: Page) => page.evaluate(async () => ((await (await fetch("/api/session")).json()).snapshot as { workspaces: { workspace_id: string }[] }).workspaces.map((workspace) => workspace.workspace_id));
 const centerOf = async (page: Page, id: string) => {
   const box = await page.locator(`.workspace-group[data-workspace="${id}"] > .workspace-header .workspace-select`).boundingBox();
@@ -37,7 +43,7 @@ async function stroke(page: Page, cdp: CDPSession, from: { x: number; y: number 
   await touch(cdp, "touchEnd");
 }
 
-const pinnedRows = (page: Page) => page.locator(".workspace-list-pinned > .workspace-group").evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.workspace));
+const pinnedRows = (page: Page) => page.locator(".workspace-list-pinned > .workspace-group").evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.workspaceId ?? (row as HTMLElement).dataset.workspace));
 
 /** Both input methods change saved pins, never the transport's workspace roster. */
 async function checkPinned(page: Page, cdp?: CDPSession): Promise<void> {
@@ -63,44 +69,62 @@ async function checkPinned(page: Page, cdp?: CDPSession): Promise<void> {
   assert.deepEqual(await pinnedRows(page), ids);
   const restRows = () => page.locator(".machine-workspaces .sidebar-list > .workspace-list:not(.workspace-list-pinned) > .workspace-group").evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.workspace));
   const restBefore = await restRows();
+  assert.deepEqual(restBefore, before, "favorites keep every repository head in the normal tree");
+  const cardRow = (id: string) => page.locator(`.sidebar-pinned .workspace-group[data-workspace="pinned:${id}"] > .workspace-header .workspace-select`);
   const drag = async (source: string, target: string) => {
     if (cdp) await stroke(page, cdp, await centerOf(page, source), await centerOf(page, target), 1);
     else await row(source).dragTo(row(target));
   };
-  await drag(ids[0]!, ids[1]!);
+  await drag(`pinned:${ids[0]}`, `pinned:${ids[1]}`);
   const expected = [ids[1], ids[0]];
   assert.deepEqual(await pinnedRows(page), expected, "drag changes the pinned card order");
   assert.equal(await page.locator(".workspace-list-pinned .worktree-children").count(), 0, "pinned repository rows do not carry their worktrees into the card");
   const childRow = row(child);
-  assert.equal(await childRow.evaluate((element) => element.closest(".sidebar-pinned, .worktree-children") === null), true, "the unpinned worktree stands alone outside the card");
-  assert.equal(await childRow.getAttribute("draggable"), "false", "the unpinned worktree stays fixed");
+  assert.equal(await childRow.evaluate((element) => element.closest(".worktree-children") !== null), true, "the worktree stays nested in its repository");
+  assert.equal(await childRow.getAttribute("draggable"), cdp ? "false" : "true", "the tree worktree keeps normal drag behavior");
   assert.deepEqual(await restRows(), restBefore, "reordering the pinned repository leaves its worktree at the original rest-list position");
-  await row(ids[0]!).focus();
+  await cardRow(ids[0]!).focus();
   await page.keyboard.press("Alt+ArrowUp");
   assert.deepEqual(await pinnedRows(page), ids, "Alt+Up reorders pinned rows within the card");
   await page.keyboard.press("Alt+ArrowDown");
   assert.deepEqual(await pinnedRows(page), expected, "Alt+Down restores the pinned order");
   await childRow.focus();
   await page.keyboard.press("Alt+ArrowDown");
-  assert.deepEqual(await restRows(), restBefore, "Alt+Down cannot move the repository's unpinned worktree");
+  assert.deepEqual(await restRows(), restBefore, "a single worktree has no next sibling");
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:sidebar-agent-pins") ?? "[]") as string[]);
   assert.deepEqual(stored.filter((key) => key.includes(":workspace:")).map((key) => key.split(":workspace:")[1]), expected, "the pin list holds the new order");
   const unpinned = before[2]!;
-  await drag(ids[0]!, unpinned);
-  await drag(unpinned, ids[0]!);
+  await drag(`pinned:${ids[0]}`, unpinned);
+  await drag(unpinned, `pinned:${ids[0]}`);
   assert.deepEqual(await pinnedRows(page), expected, "neither direction crosses the pin boundary");
-  await drag(ids[0]!, child);
+  await drag(`pinned:${ids[0]}`, child);
   assert.deepEqual(await pinnedRows(page), expected, "dropping onto the repository's own worktree cannot cross the card edge");
   assert.deepEqual(await restRows(), restBefore, "cross-card drops leave the rest list unchanged");
   assert.deepEqual(await serverOrder(page), serverBefore, "pinned drags never move herdr workspaces");
-  await page.screenshot({ path: `/tmp/pinned-reorder-${cdp ? "phone" : "desktop"}.png` });
+  const evidence = process.env["UI_EVIDENCE_DIR"] ?? join(app, "evidence");
+  mkdirSync(evidence, { recursive: true });
+  await page.screenshot({ path: join(evidence, `pinned-reorder-${cdp ? "phone" : "desktop"}.png`) });
+  await row(ids[0]!).focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  const treeMoved = [...before];
+  [treeMoved[0], treeMoved[1]] = [treeMoved[1]!, treeMoved[0]!];
+  assert.deepEqual(await restRows(), treeMoved, "a favorite repository reorders normally in the tree");
+  await serverOrderReaches(page, serverBefore, false);
+  assert.notDeepEqual(await serverOrder(page), serverBefore, "tree reordering reaches herdr even for a favorite");
+  assert.deepEqual(await pinnedRows(page), expected, "tree reordering leaves shortcut order untouched");
+  await page.keyboard.press("Alt+ArrowUp");
+  const regrouped = serverBefore.filter((id) => id !== child);
+  regrouped.splice(regrouped.indexOf(ids[0]!) + 1, 0, child);
+  await serverOrderReaches(page, regrouped, true);
+  assert.deepEqual(await serverOrder(page), regrouped, "moving a favorite repository carries its worktree with it in herdr's order");
+  assert.deepEqual(await restRows(), before, "moving the tree row back restores the original group order");
   await page.reload();
   await page.locator(".conn-live").waitFor({ state: "attached" });
   const toggle = page.locator('button[aria-controls="workspace-drawer"]');
   if (cdp && await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
   await page.locator(".workspace-list-pinned").waitFor();
   assert.deepEqual(await pinnedRows(page), expected, "pin order survives reload");
-  console.log(`PASS ${cdp ? "touch long press" : "desktop drag"} and Alt+Up/Down reorder saved pins within the card, keep unpinned worktrees fixed outside, preserve herdr order and survive reload`);
+  console.log(`PASS ${cdp ? "touch long press" : "desktop drag"} and Alt+Up/Down reorder favorites within the card, preserve the complete tree and herdr order, and survive reload`);
 }
 
 try {

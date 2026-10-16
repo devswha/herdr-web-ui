@@ -197,7 +197,7 @@ try {
   await page.getByRole("tab", { name: "Tab 1", exact: true }).click({ button: "right" });
   const tabMenu = page.getByRole("menu", { name: "Tab 1", exact: true });
   await tabMenu.waitFor();
-  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["New tab", "Rename tab", "Close tab"]);
+  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["New tab with agent…", "Rename tab", "Close tab"]);
   await page.keyboard.press("Escape");
   await tabMenu.waitFor({ state: "detached" });
   assert.equal(await page.locator(".pane-frame:visible").count(), 2, "both split panes are visible");

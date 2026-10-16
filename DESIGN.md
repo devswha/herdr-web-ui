@@ -474,6 +474,8 @@ One set for both themes: the card is island black wherever it shows.
   whole screen, so a sheet and its text field sit above the keyboard, and the sheet drops its
   safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
+  Initial focus is placed in the opening commit, before paint, so a menu restoring the terminal
+  cannot leave the first Escape or typed key going to the pane beneath the dialog.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
   and a failure shows inside it. A no gives the focus back to what opened it. A refusal the owner
@@ -517,10 +519,9 @@ One set for both themes: the card is island black wherever it shows.
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
   confirmed close, focus lands on the header's workspace-list toggle.
-- Tab and pane menus follow herdr's target scopes. A tab's menu contains New tab, Rename tab
-  and Close tab, plus Move tab left/right when a neighbouring position exists and no move is pending.
-  The `⋯` that touch and narrow layouts draw beside the selected tab leaves New tab out (the
-  strip's `+` sits beside it) and also carries the open pane's actions, less Split and Zoom: a
+- Tab and pane menus follow herdr's target scopes. A tab's menu contains New tab with agent…, Rename
+  tab and Close tab, plus Move tab left/right when a neighbouring position exists and no move is pending.
+  The `⋯` that touch and narrow layouts draw beside the selected tab holds the same tab actions and also carries the open pane's actions, less Split and Zoom: a
   phone shows one pane at a time. The pane's own context menu carries pane actions; it opens at the pointer
   without changing which pane is focused. The pane header's ellipsis opens the same menu on touch.
 
@@ -651,16 +652,16 @@ One set for both themes: the card is island black wherever it shows.
   open; always on touch; not drawn on a desktop, where a right-click opens the menu). Inline server failures
   stay beside their workspace. A repository's workspace moves past the
   next or previous group with its worktrees, and a worktree moves among its siblings only.
-- A workspace is pinned from its row menu (**Pin workspace** / **Unpin workspace**, first in the
-  menu), as Paseo pins a chat: pinned workspaces leave their place and stand first in their PC's
-  list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`), with no mark
-  of their own either. A pinned repository's workspace stands alone in the card; its unpinned
-  worktrees stay as standalone rows at the group's position, in their order. They are not dragged
-  or moved away from their repository; unpinning the head restores the group. A pinned worktree
-  leaves its repository's group, which stays. Dragging, touch long-press and `Alt+↑/↓` reorder
-  pinned rows inside their card by changing pin order, not herdr's workspace order or the position
-  of their unpinned worktrees. Neither list accepts a drop from the other; the rest reorder
-  through herdr among their movable rows. The pins are the Agents list's
+- A workspace pin is a favorite, set from its row menu (**Pin workspace** / **Unpin workspace**,
+  first in the menu). It adds a shortcut in pin order to its PC's card (`.sidebar-pinned`), with
+  no extra pin mark. A repository shortcut has no children. The complete workspace tree below
+  stays in herdr's order, with every repository head and its nested worktrees, favorites included.
+  Tree rows select, open menus and reorder normally; no row is fixed because it is a favorite.
+  Collapsing a repository never hides its favorite shortcuts. Dragging, touch long-press and
+  `Alt+↑/↓` reorder shortcuts inside the card by changing pin order, not herdr's workspace order.
+  Neither list accepts a drop from the other. Unpinning removes only the shortcut; focus stays
+  on the row used, or returns to its tree row when the shortcut disappears. Card and tree rows
+  have distinct element and reorder identities, but select the same workspace. The pins are the Agents list's
   shared list (a workspace's key is `machine:workspace:id`), so other browsers of the server see them.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
@@ -719,22 +720,24 @@ One set for both themes: the card is island black wherever it shows.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
-- As **New tab** (from a row's `⋯` menu, the strip's `+` or the palette),
+- As **New tab** (from a row's `⋯` menu, the tab menu's New tab with agent… or the palette),
   the same dialog is titled `New tab · <workspace>`, shows the workspace's folder as a fact in a
   dashed box (`.new-session-folder`: a worktree's checkout, else the folder of the pane in front)
   instead of asking for one, and its name is the tab's (optional; the placeholder is the number
   herdr gives it). Submit calls `POST /api/tab/create` with the same agent launch.
 
 ### Tab strip and pane canvas
-- The tab strip is shown even for one pane, as herdr's TUI shows its single tab and `+`.
+- The tab strip is shown even for one pane, as herdr's TUI shows its single tab and `+`. The `+`
+  is herdr's own new tab: it calls `POST /api/tab/create` with no agent at once, in the workspace's
+  folder, and opens the new shell pane unless another pane was opened meanwhile; a refusal shows
+  in the strip. An agent tab comes from the tab menu's New tab with agent…, which opens the dialog.
   Tabs retain their names, status dots, active underline, keyboard navigation, rename field and
   close confirmation. A right-click opens tab actions at the pointer, including Move tab left/right
   when a neighbouring position exists. Desktop tabs have no close or dropdown buttons. Touch and narrow layouts show a `⋯` beside
   the selected tab for a trimmed menu; Shift+F10 or the menu key opens the full tab menu from a focused tab.
   Pane actions are not tab actions. Up to 768px, where a split tab shows one pane at a time, the
   tab's menu lists the tab's panes first, the open one marked current, over a hairline.
-  Its touch menu omits New tab (the strip's `+` opens it). Only at these narrow widths does it
-  omit Split and Zoom pane; Unzoom pane stays available whenever the tab is zoomed.
+  Only at these narrow widths does it omit Split and Zoom pane; Unzoom pane stays available whenever the tab is zoomed.
 - Mouse dragging previews an accent insertion line, with edge scrolling for an overflowing strip.
   The snapshot's tab order is authoritative: a tab's stable `number` is not its place. A drop calls
   `tab.move` with an insertion boundary before removal, within that workspace and PC. The visible
