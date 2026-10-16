@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SessionSnapshot, WorktreeOpened } from "../../shared/protocol.ts";
+import { ApiError } from "./api.ts";
 import { useMachineApi, useMachineId } from "./machineContext.tsx";
 import { publishBranches } from "./paneBranch.ts";
 import { usePageVisible } from "./visibility.ts";
@@ -56,7 +57,10 @@ export function useWorktreeBranches(snapshot: SessionSnapshot | null, online: bo
           try {
             const listing = await listWorktrees(workspaceId);
             if (!stopped) changed = owner.cache.applyUnmarked(workspaceId, listing, generation) || changed;
-          } catch { /* the last known branch stays until an answer replaces it */ }
+          } catch (error) {
+            // a refusal (4xx) says it is no checkout now; a failure to ask keeps the last known branch
+            if (!stopped && error instanceof ApiError && error.status < 500) changed = owner.cache.forgetUnmarked(workspaceId, generation) || changed;
+          }
         }
         if (!stopped && changed) publish((value) => value + 1);
       })();

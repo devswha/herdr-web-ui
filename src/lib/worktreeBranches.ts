@@ -131,6 +131,11 @@ export class WorkspaceBranchCache {
     return before?.branch !== branch.branch || before.isDetached !== branch.isDetached || before.checkoutPath !== branch.checkoutPath;
   }
 
+  /** git refused an unmarked workspace (a 4xx): it is no checkout now, so its branch goes. */
+  forgetUnmarked(workspaceId: string, generation: number): boolean {
+    return generation === this.revision && this.unmarked.delete(workspaceId);
+  }
+
   /**
    * Filter against this render's snapshot as well, before the reconciliation effect runs.
    * `unmarked`: the git workspaces herdr has not marked that are still known as such.

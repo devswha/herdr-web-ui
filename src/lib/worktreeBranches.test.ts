@@ -57,6 +57,18 @@ describe("worktree branch metadata", () => {
     expect(cache.branchesFor([unmarked], new Set(["plain"])).has("plain")).toBe(false);
   });
 
+  it("forgets an unmarked workspace's branch once git refuses it, but not from a stale read", () => {
+    const unmarked = { ...workspace("plain"), worktree: null };
+    const cache = new WorkspaceBranchCache();
+    cache.reconcile([unmarked]);
+    cache.applyUnmarked("plain", listing([entry(null, "/repo", "main", { is_linked_worktree: false })]), cache.generation);
+    expect(cache.forgetUnmarked("plain", cache.generation - 1)).toBe(false);
+    expect(cache.branchesFor([unmarked], new Set(["plain"])).has("plain")).toBe(true);
+    expect(cache.forgetUnmarked("plain", cache.generation)).toBe(true);
+    expect(cache.branchesFor([unmarked], new Set(["plain"])).has("plain")).toBe(false);
+    expect(cache.forgetUnmarked("plain", cache.generation)).toBe(false);
+  });
+
   it("ignores status, names and order but changes its signature for checkout identity", () => {
     const first = workspace("first");
     const second = workspace("second");
