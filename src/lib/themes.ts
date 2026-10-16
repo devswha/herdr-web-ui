@@ -36,6 +36,22 @@ export function terminalColors(id: string, mode: Mode): TerminalColors {
   return rowFor(id, mode).terminal;
 }
 
+const SIBLING_PAIRS = [
+  ["catppuccin", "catppuccin-latte"],
+  ["tokyo-night", "tokyo-night-day"],
+  ["gruvbox", "gruvbox-light"],
+  ["one-dark", "one-light"],
+  ["solarized", "solarized-light"],
+  ["kanagawa", "kanagawa-lotus"],
+  ["rose-pine", "rose-pine-dawn"],
+] as const;
+
+/** Only a known pair's opposite side is pre-filled; same-side picks have no sibling. */
+export function siblingFor(id: string, targetSide: Mode): string | undefined {
+  const pair = SIBLING_PAIRS.find(([dark, light]) => targetSide === "light" ? id === dark : id === light);
+  return pair?.[targetSide === "light" ? 1 : 0];
+}
+
 export const ROLES = {
   bg: "color",
   "bg-panel": "color",
