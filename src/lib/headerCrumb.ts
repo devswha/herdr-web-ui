@@ -1,8 +1,8 @@
 /**
  * Where the selected pane is, as the header says it on its one line: PC › workspace › folder.
  * The folder shows as its last name, and only when nothing beside it already says that name (the
- * title, the PC, the workspace): it is what tells two worktrees of one workspace apart, and
- * "api › api" told nobody anything. The full path is not lost: it is in the header's tooltip and
+ * title, the PC when the line names it, the workspace): it is what tells two worktrees of one
+ * workspace apart, and "api › api" told nobody anything. The full path is not lost: it is in the header's tooltip and
  * the first thing in its More menu, which is where a touch screen reads it.
  */
 import { folderName } from "./paneName.ts";
