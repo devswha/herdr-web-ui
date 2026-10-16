@@ -11,7 +11,7 @@
  *
  * - src/lib/themes.generated.ts is written whole: the supported (theme, mode) entries, each with its
  *   declared roles, xterm colors and panel color, so runtime code never parses CSS.
- * - DESIGN.md: only the amber palette table between `<!-- BEGIN GENERATED THEMES -->` and
+ * - DESIGN.md: only the amber palette and terminal rows between `<!-- BEGIN GENERATED THEMES -->` and
  *   `<!-- END GENERATED THEMES -->`. Everything outside the markers stays handwritten.
  * - index.html `<meta name="theme-color">` and the manifest's theme_color and background_color:
  *   one targeted replacement each, so the rest of those files keeps its bytes.
@@ -76,6 +76,10 @@ const DESIGN_ROWS: readonly (readonly [label: string, token: string])[] = [
   ["Popover shadow", "--shadow-pop"],
   ["Card shadow", "--shadow-card"],
   ["Document surface", "--pdf-page"],
+  ["Terminal/background", "--term-bg"],
+  ["Terminal/foreground", "--term-fg"],
+  ["Terminal/cursor", "--term-cursor"],
+  ["Terminal/selection", "--term-selection"],
 ];
 
 function resolveAmber(blocks: ReturnType<typeof parseThemeBlocks>) {

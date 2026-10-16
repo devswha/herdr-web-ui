@@ -166,4 +166,21 @@ describe("generate-themes", () => {
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain(`marker ${DESIGN_BEGIN} found 2 times`);
   });
+
+  it("generates terminal rows from CSS and detects a stale terminal copy", async () => {
+    const root = copyRoot();
+    const source = read(root, SOURCE).replace("--term-bg: #181613;", "--term-bg: #1a1714;");
+    expect(source).not.toBe(css);
+    writeFileSync(join(root, SOURCE), source);
+
+    expect((await run(["--root", root])).exitCode).toBe(0);
+    const design = read(root, OUTPUTS.design);
+    expect(design).toContain("| Terminal/background | `--term-bg` | `#1a1714` |");
+    expect((await run(["--check", "--root", root])).exitCode).toBe(0);
+
+    writeFileSync(join(root, OUTPUTS.design), design.replace("| Terminal/background | `--term-bg` | `#1a1714` |", "| Terminal/background | `--term-bg` | `#000000` |"));
+    const stale = await run(["--check", "--root", root]);
+    expect(stale.exitCode).toBe(1);
+    expect(stale.output).toContain("STALE DESIGN.md");
+  });
 });

@@ -71,6 +71,10 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
 | Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
 | Document surface | `--pdf-page` | `#ffffff` | `#ffffff` |
+| Terminal/background | `--term-bg` | `#181613` | `#faf8f3` |
+| Terminal/foreground | `--term-fg` | `#d8d0c3` | `#2a251f` |
+| Terminal/cursor | `--term-cursor` | `#f0a830` | `#8c5000` |
+| Terminal/selection | `--term-selection` | `#4a3d26` | `#f0d9ae` |
 <!-- END GENERATED THEMES -->
 
 The glass tokens are expressions over the palette above, not colors of their own:
@@ -322,12 +326,10 @@ xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies 
 of every supported entry into `src/lib/themes.generated.ts`, and `terminalTheme()` hands them to
 xterm (`settings.test.ts` checks the match).
 
-| Role | Token | Dark | Light | xterm key |
-|------|-------|------|-------|-----------|
-| Background | `--term-bg` | `#181613` | `#faf8f3` | `background` |
-| Foreground | `--term-fg` | `#d8d0c3` | `#2a251f` | `foreground` |
-| Cursor | `--term-cursor` | `#f0a830` | `#8c5000` | `cursor` |
-| Selection | `--term-selection` | `#4a3d26` | `#f0d9ae` | `selectionBackground` |
+The amber dark and light values are generated in the Terminal rows of the table above.
+
+The xterm keys are `background` for `--term-bg`, `foreground` for `--term-fg`, `cursor` for
+`--term-cursor` and `selectionBackground` for `--term-selection`.
 
 Programs pick their own colors for one background, so xterm keeps a cell's text at 4.5:1 or more
 against the cell's background (`minimumContrastRatio`, WCAG AA): a foreground below it moves toward
