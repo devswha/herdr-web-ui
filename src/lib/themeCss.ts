@@ -120,11 +120,11 @@ export function parseThemeBlocks(css: string): Record<string, ThemeBlock> {
 }
 
 /** Resolve the same entry -> light -> root cascade as the legacy settings tests. */
-export function resolveEntry(css: string, id: string, mode: Mode): {
+export function resolveEntry(css: string | Readonly<Record<string, ThemeBlock>>, id: string, mode: Mode): {
   declared: Record<string, string>;
   resolved: Record<string, string>;
 } {
-  const blocks = parseThemeBlocks(css);
+  const blocks = typeof css === "string" ? parseThemeBlocks(css) : css;
   const entry = `${id}/${mode}`;
   const block = blocks[entry];
   if (!block) throw new ThemeValueError(entry, "block", "(missing)", "missing block");

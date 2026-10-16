@@ -46,6 +46,12 @@ describe("CSS theme table", () => {
     }
   });
 
+  it("resolves parsed blocks identically to CSS text", () => {
+    for (const { id, mode } of Object.values(blocks)) {
+      expect(resolveEntry(blocks, id, mode)).toEqual(resolveEntry(css, id, mode));
+    }
+  });
+
   it("parses every supported shadow into fixed geometry and colors", () => {
     for (const [entry, block] of Object.entries(blocks)) {
       const { declared } = resolveEntry(css, block.id, block.mode);
