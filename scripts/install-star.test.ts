@@ -60,7 +60,7 @@ class Pc {
     const bin = join(this.scratch, "bin");
     mkdirSync(bin);
     mkdirSync(join(this.scratch, "plugin", "scripts"), { recursive: true });
-    writeFileSync(join(this.scratch, "plugin", "scripts", "plugin.ts"), `import { existsSync } from "node:fs";\nif (process.argv[2] === "phone") console.log("the phone step");\nif (process.argv[2] === "status" && existsSync(process.env.SCRATCH + "/running")) console.log("running http://127.0.0.1:7317");\n`);
+    writeFileSync(join(this.scratch, "plugin", "scripts", "plugin.ts"), `import { existsSync } from "node:fs";\nif (process.argv[2] === "phone") console.log("the phone step");\nif (process.argv[2] === "status" && existsSync(process.env.SCRATCH + "/running")) console.log("running http://127.0.0.1:7317 (pid 1234)");\n`);
     for (const tool of ["sh", "bash", "cat", "uname", "ldd", "grep", "curl", "git", "tar", "awk", "sed", "mktemp", "rm", "sleep", "perl", "mv"]) {
       if (tool === "perl" && options.perl === false) continue;
       const real = Bun.which(tool);
@@ -161,6 +161,18 @@ class Pc {
 }
 const pcs: string[] = [];
 afterAll(() => { for (const scratch of pcs) rmSync(scratch, { recursive: true, force: true }); });
+
+it("extracts only the URL from a PID-bearing Windows status line", () => {
+  // Exercise the installer's actual pattern, whose regex syntax is shared by .NET and JavaScript.
+  const installer = readFileSync(join(ROOT, "install.ps1"), "utf8");
+  const assignment = installer.split("\n").find((line) => line.trimStart().startsWith("$origin = "));
+  const pattern = /, '([^']+)'\)\.Groups\[1\]\.Value$/.exec(assignment ?? "")?.[1];
+  if (pattern === undefined) throw new Error("Windows installer origin pattern not found");
+
+  const origin = new RegExp(pattern).exec("running http://127.0.0.1:7317 (pid 1234)")?.[1];
+
+  expect(origin).toBe("http://127.0.0.1:7317");
+});
 
 // install.sh is the Linux and macOS installer: Windows has install.ps1 and scripts/windows-install.test.ps1
 describe.skipIf(platform() === "win32")("install.sh without a terminal", () => {

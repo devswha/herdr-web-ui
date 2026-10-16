@@ -28,7 +28,7 @@ function git {
 function bun {
     $global:LASTEXITCODE = 0
     if ($args[0] -eq '--version') { $state.bunVersion }
-    elseif ($args[-1] -eq 'status') { 'running http://127.0.0.1:7317'; 'config: none' }
+    elseif ($args[-1] -eq 'status') { 'running http://127.0.0.1:7317 (pid 1234)'; 'config: none' }
     else { throw "Unexpected Bun command: $args" }
 }
 function herdr {

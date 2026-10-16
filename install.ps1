@@ -113,7 +113,7 @@ if ($server.running) {
         throw "The app did not start within 25 seconds.$why`nSee: herdr plugin log list"
     }
     Write-Host ($status | Where-Object { $_ -match '^running ' })
-    $origin = [regex]::Match(($status | Where-Object { $_ -match '^running ' } | Select-Object -First 1), '^running (.+)$').Groups[1].Value
+    $origin = [regex]::Match(($status | Where-Object { $_ -match '^running ' } | Select-Object -First 1), '^running (\S+)').Groups[1].Value
     $opened = $false
     if ($newInstall -and $origin -match '^https?://(127\.0\.0\.1|localhost)(:\d+)?(?:/|$)' -and
         -not $env:CI -and -not $env:HERDR_WEB_NO_OPEN -and -not $env:SSH_CONNECTION -and
