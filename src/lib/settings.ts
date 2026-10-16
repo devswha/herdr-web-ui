@@ -531,6 +531,10 @@ const THEME_COLOR: Record<Palette, Record<ResolvedTheme, string>> = {
   catppuccin: { dark: "#181825", light: "#e6e9ef" },
 };
 
+export function themeColor(theme: ResolvedTheme, palette: Palette = "amber"): string {
+  return THEME_COLOR[palette][theme];
+}
+
 function applyToDocument(settings: Settings, resolved: ResolvedTheme, palette: Palette, language: Language): void {
   const root = document.documentElement;
   root.lang = LOCALE_TAGS[language];
@@ -551,7 +555,7 @@ function applyToDocument(settings: Settings, resolved: ResolvedTheme, palette: P
   if (chatFont === null) root.style.removeProperty("--font-chat");
   else root.style.setProperty("--font-chat", chatFont);
   root.style.colorScheme = resolved;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[palette][resolved]);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor(resolved, palette));
 }
 
 interface SettingsContextValue {

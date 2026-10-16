@@ -11,6 +11,8 @@ import { KO } from "../src/lib/i18n.ko.ts";
 import { JA } from "../src/lib/i18n.ja.ts";
 import { ZH } from "../src/lib/i18n.zh.ts";
 import { terminalTheme } from "../src/lib/settings.ts";
+import baseline from "../src/lib/themes.legacy-baseline.json";
+import { comboKey, LEGACY_COMBOS } from "./theme-baseline.ts";
 
 // Settings on the unmodified app over the demo's fixture transport: every page fits a phone, and
 // the browser's Back button steps out of the dialog instead of out of the app. All files and
@@ -142,26 +144,50 @@ try {
               assert.equal(await page.evaluate(() => navigator.clipboard.readText()), install("codex"));
             }
             if (name === "Appearance" && language === "en") {
-              // an opt-in palette is written to the document and saved, and its block of styles.css
-              // reaches the page: its --term-* tokens read back as the theme xterm is given
+              // each legacy palette-mode is written to the document and saved, and its blocks of styles.css
+              // reach the page: every color token computes to the frozen baseline's used value
+              // (src/lib/themes.legacy-baseline.json), and the --term-* tokens to the theme xterm is given.
+              // The build minifies colors (rgba() to #rrggbbaa), so both sides are compared as the browser
+              // computes them on a probe: a color, a box-shadow, or a border for `2px solid <color>`
+              const themes = page.getByRole("group", { name: "Theme", exact: true });
               const palette = page.getByLabel("Colors", { exact: true });
-              await palette.selectOption("catppuccin");
-              await page.waitForFunction(() => document.documentElement.dataset.palette === "catppuccin");
-              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).palette), "catppuccin");
-              const colors = await page.evaluate(() => {
-                const root = getComputedStyle(document.documentElement);
-                return {
-                  background: root.getPropertyValue("--term-bg").trim(),
-                  foreground: root.getPropertyValue("--term-fg").trim(),
-                  cursor: root.getPropertyValue("--term-cursor").trim(),
-                  selectionBackground: root.getPropertyValue("--term-selection").trim(),
-                };
-              });
-              assert.deepEqual(colors, terminalTheme("dark", "catppuccin"), "Catppuccin's --term-* tokens reach the page as the theme xterm is given");
-              if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `catppuccin-palette-${width}.png`), fullPage: true });
+              const combos: Record<string, { resolved: Record<string, string> }> = baseline.combos;
+              for (const { palette: id, mode } of LEGACY_COMBOS) {
+                const key = comboKey(id, mode);
+                await themes.getByRole("button", { name: mode === "dark" ? "Dark" : "Light", exact: true }).tap();
+                await palette.selectOption(id);
+                await page.waitForFunction(([mode, id]) => document.documentElement.dataset.theme === mode && document.documentElement.dataset.palette === id, [mode, id]);
+                assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).palette), id);
+                const xterm = terminalTheme(mode, id);
+                const expected = [
+                  ...Object.entries(combos[key]!.resolved),
+                  ...([["--term-bg", xterm.background], ["--term-fg", xterm.foreground], ["--term-cursor", xterm.cursor], ["--term-selection", xterm.selectionBackground]] as const).map(([name, value]) => [`xterm ${name}`, value] as const),
+                ];
+                const drift = await page.evaluate((expected) => {
+                  const root = getComputedStyle(document.documentElement);
+                  const probe = document.body.appendChild(document.createElement("div"));
+                  const used = (value: string): string => {
+                    const kind = /\bsolid\b/.test(value) ? "border" : /\dpx\b/.test(value) ? "boxShadow" : "color";
+                    probe.removeAttribute("style");
+                    probe.style[kind] = value;
+                    if (probe.style[kind] === "") return `invalid ${kind}: ${value}`;
+                    const style = getComputedStyle(probe);
+                    return kind === "border" ? `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}` : style[kind];
+                  };
+                  const out = expected.flatMap(([name, value]) => {
+                    const [want, got] = [used(value), used(root.getPropertyValue(name.replace(/^xterm /, "")))];
+                    return want === got ? [] : [`${name}: ${want} -> ${got}`];
+                  });
+                  probe.remove();
+                  return out;
+                }, expected);
+                assert.deepEqual(drift, [], `${key}: the page computes the frozen colors, and --term-* as the theme xterm is given`);
+                if (key === "catppuccin/dark" && process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `catppuccin-palette-${width}.png`), fullPage: true });
+              }
               // the pages after this one are checked on the default palette
+              await themes.getByRole("button", { name: "Dark", exact: true }).tap();
               await palette.selectOption("amber");
-              await page.waitForFunction(() => document.documentElement.dataset.palette === "amber");
+              await page.waitForFunction(() => document.documentElement.dataset.theme === "dark" && document.documentElement.dataset.palette === "amber");
             }
             assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }
