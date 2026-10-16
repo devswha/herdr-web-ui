@@ -41,7 +41,9 @@ import { descendantProcesses, windowsArgv, windowsProcessTable } from "../server
  */
 const ENV_FILES = ["env", ".env"];
 const ROOT = resolve(process.env["HERDR_PLUGIN_ROOT"] ?? join(import.meta.dir, ".."));
-const STATE_DIR = process.env["HERDR_PLUGIN_STATE_DIR"] ?? join(homedir(), ".local", "state", "herdr-web-ui");
+const DEFAULT_STATE_DIR = join(homedir(), ".local", "state", "herdr-web-ui");
+const MANAGED_STATE_DIR = join(process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"), "herdr", "plugins", "devswha.herdr-web-ui");
+const STATE_DIR = process.env["HERDR_PLUGIN_STATE_DIR"] ?? (existsSync(join(DEFAULT_STATE_DIR, "server.pid")) ? DEFAULT_STATE_DIR : MANAGED_STATE_DIR);
 const CONFIG_DIR = process.env["HERDR_PLUGIN_CONFIG_DIR"] ?? herdrConfigDir() ?? join(homedir(), ".config", "herdr-web-ui");
 const PID_FILE = join(STATE_DIR, "server.pid");
 const LOG_FILE = join(STATE_DIR, "server.log");

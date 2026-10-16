@@ -17,11 +17,12 @@ async function status(): Promise<{ out: string; err: string; exitCode: number }>
   return run("status");
 }
 
-async function run(command: string, extra: Record<string, string> = {}): Promise<{ out: string; err: string; exitCode: number }> {
+async function run(command: string, extra: Record<string, string | undefined> = {}): Promise<{ out: string; err: string; exitCode: number }> {
   const bin = join(scratch, "bin");
   const env: Record<string, string | undefined> = { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}`, HOME: scratch, HERDR_PLUGIN_STATE_DIR: join(scratch, "state") };
-  for (const key of ["HERDR_PLUGIN_CONFIG_DIR", "PORT", "HOST", "HERDR_WEB_TOKEN", "HERDR_WEB_STATE_DIR", "XDG_CONFIG_HOME"]) delete env[key];
+  for (const key of ["HERDR_PLUGIN_CONFIG_DIR", "PORT", "HOST", "HERDR_WEB_TOKEN", "HERDR_WEB_STATE_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]) delete env[key];
   Object.assign(env, extra);
+  for (const [key, value] of Object.entries(extra)) if (value === undefined) delete env[key];
   const child = Bun.spawn(["bun", "scripts/plugin.ts", command], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
   const [out, err, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { out, err, exitCode };
@@ -40,6 +41,17 @@ beforeEach(() => {
 afterEach(() => rmSync(scratch, { recursive: true, force: true }));
 
 describe("plugin settings files", () => {
+  it("uses herdr's plugin state when run by hand without its injected state env", async () => {
+    const defaultStateDir = join(scratch, ".local", "state", "herdr-web-ui");
+    const stateDir = join(scratch, "state-home", "herdr", "plugins", "devswha.herdr-web-ui");
+    mkdirSync(defaultStateDir, { recursive: true });
+    writeFileSync(join(defaultStateDir, "server.log"), "old shell state\n");
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(join(stateDir, "server.pid"), `${process.pid}\n`);
+    const result = await run("status", { HERDR_PLUGIN_STATE_DIR: undefined, XDG_STATE_HOME: join(scratch, "state-home"), PORT: "1" });
+    expect(result.out).toContain(`down http://127.0.0.1:1 (pid ${process.pid})`);
+  });
+
   it("finds the config dir through herdr and reads .env", async () => {
     writeFileSync(join(configDir, ".env"), "PORT=1\n");
     const run = await status();
