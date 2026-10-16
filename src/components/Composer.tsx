@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Minimize2, Plus, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, FileText, Folder, FolderGit2, GitBranch, LoaderCircle, Minimize2, Package, Plus, Square, TriangleAlert, UserRound, X } from "lucide-react";
 
 import "./Composer.css";
 
@@ -23,6 +23,9 @@ import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
+  briefDescription,
+  COMMAND_GROUPS,
+  commandGroup,
   commandsForTrigger,
   composerModelDraw,
   composerSendShown,
@@ -118,7 +121,6 @@ const RESIZE_SLACK = { mouse: 3, touch: 10 } as const;
 const DOUBLE_TAP_MS = 350;
 /** How long a Send tapped mid-composition waits for the keyboard to commit the word (as in TerminalInput). */
 const COMMIT_WAIT_MS = 300;
-const COMMAND_SOURCES = ["builtin", "user", "project", "skill", "plugin"] as const;
 export const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
   builtin: "Built in",
   user: "User",
@@ -621,7 +623,7 @@ export function Composer({
   // the source then rides on each row. Only a bare `/` or `$` lists by group.
   const groupedBySource = trigger?.kind === "slash" && trigger.query === "";
   const orderedCommands = useMemo(
-    () => groupedBySource ? COMMAND_SOURCES.flatMap((source) => filteredCommands.filter((command) => command.source === source)) : filteredCommands,
+    () => groupedBySource ? COMMAND_GROUPS.flatMap((group) => filteredCommands.filter((command) => commandGroup(command) === group)) : filteredCommands,
     [filteredCommands, groupedBySource],
   );
   const choices: readonly (SlashCommand | string)[] = trigger?.kind === "slash" ? orderedCommands : files;
@@ -1166,8 +1168,16 @@ export function Composer({
           <div id={menuId} className="menu composer-menu" role="listbox" aria-label={t(trigger.kind === "slash" ? "Slash commands" : "Files")}>
             {trigger.kind === "slash" ? (
               (() => {
+                // omo's rows say what a command does in one sentence (the full text is the row's
+                // tooltip), and an omo skill's icon says whose it is: one that came with omo, or yours
+                const brief = agent === "omo";
+                const groupLabel = (group: ReturnType<typeof commandGroup>): string =>
+                  group === "skill-user" ? t("Your skills") : group === "skill-bundled" ? t("Built-in skills") : t(SOURCE_LABEL[group]);
                 const row = (command: SlashCommand, withSource: boolean) => {
                   const index = orderedCommands.indexOf(command);
+                  const description = brief ? briefDescription(command.description) : command.description;
+                  const owner = command.origin === undefined ? null : command.origin === "user" ? t("Your skill") : t("Built-in skill");
+                  const Owner = command.origin === "user" ? UserRound : Package;
                   return (
                     <button
                       id={`${menuId}-${index}`}
@@ -1176,22 +1186,27 @@ export function Composer({
                       className="menu-item"
                       role="option"
                       aria-selected={index === selectedIndex}
+                      data-brief={brief ? "" : undefined}
+                      data-origin={command.origin}
+                      title={brief && command.description.trim() !== "" ? command.description : undefined}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectCompletion(command, trigger)}
                     >
+                      {owner !== null && <Owner aria-hidden="true" />}
                       <span className="menu-item-main">{agent === "omo" && trigger.prefix === "$" ? "$" : command.trigger ?? "/"}{command.name}</span>
-                      <span className="menu-item-hint">{withSource ? `${t(SOURCE_LABEL[command.source])}${command.description ? " · " : ""}` : ""}{command.description}</span>
+                      {owner !== null && <span className="visually-hidden">{owner}</span>}
+                      <span className="menu-item-hint">{withSource && owner === null ? `${t(SOURCE_LABEL[command.source])}${description ? " · " : ""}` : ""}{description}</span>
                     </button>
                   );
                 };
                 if (!groupedBySource) return <div className="composer-menu-group">{orderedCommands.map((command) => row(command, true))}</div>;
-                return COMMAND_SOURCES.map((source) => {
-                  const group = filteredCommands.filter((command) => command.source === source);
-                  if (group.length === 0) return null;
+                return COMMAND_GROUPS.map((group) => {
+                  const rows = orderedCommands.filter((command) => commandGroup(command) === group);
+                  if (rows.length === 0) return null;
                   return (
-                    <div className="composer-menu-group" key={source}>
-                      <div className="menu-heading">{t(SOURCE_LABEL[source])}</div>
-                      {group.map((command) => row(command, false))}
+                    <div className="composer-menu-group" key={group}>
+                      <div className="menu-heading">{groupLabel(group)}</div>
+                      {rows.map((command) => row(command, false))}
                     </div>
                   );
                 });

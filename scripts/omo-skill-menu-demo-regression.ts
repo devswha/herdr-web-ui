@@ -24,15 +24,42 @@ const home = mkdtempSync(join(tmpdir(), "herdr-omo-skill-menu-home-"));
 const evidence = join(repo, "evidence", "omo-skill-menu");
 const TARGET = panes.docs;
 const WIDTHS = [1280, 390] as const;
-const SKILLS: Record<string, string> = {
-  "ulw-plan": "Write a decision-complete work plan before coding",
-  "mass-ulw": "Run dependency-ordered child work in waves",
-  "review-work": "Gate review of completed work before a handoff",
+/** omo's own descriptions, as long as omo 5.1.34 ships them, and one of the person's own skills */
+const SKILLS: Record<string, { description: string; origin: "bundled" | "user" }> = {
+  "ulw-plan": { origin: "bundled", description: "Explore-first planning consultant that writes one decision-complete work plan before coding. Use only on an explicit user request for the ulw-plan workflow or a plan before implementation; it never self-activates on a bare ulw run." },
+  "mass-ulw": { origin: "bundled", description: "Drives dependency-ordered child work through the native workflow tool, each phase's stages defined up front in one run, with retry/amend/send recovery. Use when the user asks for mass-ulw, a DAG of tasks, or fan-out work where some tasks must wait on others." },
+  "review-work": { origin: "bundled", description: "Post-implementation gate review: run manual QA on the real surface yourself, then launch ONE gate reviewer (never a panel) to audit goal, constraints, code quality, security, missed context, and QA evidence. Use before a PR handoff or when the user explicitly asks to review completed work." },
+  "docs-release": { origin: "user", description: "Writes the docs site's release notes from merged PRs. Use when cutting a docs release; never for the app's own changelog." },
+  // one sentence with no full stop, too long for the row: nothing is cut from the text, the row cuts it, and the tooltip still holds it
+  "preview-deploy": { origin: "user", description: "Builds the docs site, deploys it to a throwaway preview host and posts the address on the pull request it was asked from, then tears the host down once that pull request closes" },
 };
 const COMMANDS: SlashCommand[] = [
   ...paneCommands("omo", "/home/demo/docs-site", home, {}),
-  ...Object.entries(SKILLS).map(([name, description]) => ({ name: `skill:${name}`, description, source: "skill" as const })),
+  ...Object.entries(SKILLS).map(([name, { description, origin }]) => ({ name: `skill:${name}`, description, source: "skill" as const, origin })),
 ];
+/** each omo row's description: one line, no second sentence, the whole text in its tooltip */
+const rowDescriptions = (page: Page) => page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".composer-menu .menu-item")].map((row) => {
+  const hint = row.querySelector<HTMLElement>(".menu-item-hint")!;
+  return {
+    name: row.querySelector<HTMLElement>(".menu-item-main")!.textContent,
+    hint: hint.textContent ?? "",
+    lines: Math.round(hint.getBoundingClientRect().height / parseFloat(getComputedStyle(hint).lineHeight || "16")),
+    title: row.getAttribute("title"),
+    origin: row.getAttribute("data-origin"),
+    icon: row.querySelector(":scope > svg") !== null,
+  };
+}));
+const rowsBrief = async (page: Page, what: string): Promise<void> => {
+  for (const row of await rowDescriptions(page)) {
+    assert.ok(row.lines <= 1, `${what}: ${row.name}'s description takes one line: ${JSON.stringify(row)}`);
+    assert.ok(!/[.!?]\s+[A-Z]/u.test(row.hint), `${what}: ${row.name}'s description is one sentence: ${JSON.stringify(row)}`);
+    const skill = SKILLS[row.name.replace(/^[/$]skill:/u, "")];
+    if (skill === undefined) continue;
+    assert.equal(row.origin, skill.origin, `${what}: ${row.name} says whose it is`);
+    assert.ok(row.icon, `${what}: ${row.name} has its origin's icon`);
+    assert.equal(row.title, skill.description, `${what}: ${row.name}'s whole description is its tooltip`);
+  }
+};
 /** the user turn the omo chat ends with: one skill typed inline, one recorded by omo as its placeholder */
 const TURN_TEXT = "please run $skill:mass-ulw now, then [skill: ulw-plan] for what is left";
 const CHIPS = ["$skill:mass-ulw", "[skill: ulw-plan]"];
@@ -203,8 +230,11 @@ try {
           assert.ok(rows.includes("skill:mass-ulw") && rows.includes("compact"), `the menu lists skill:mass-ulw and compact: ${rows.join(" ")}`);
           assert.ok(!rows.includes("tree"), `the menu does not list tree: ${rows.join(" ")}`);
           assert.deepEqual([...rows].sort(), COMMANDS.map((command) => command.name).sort(), "every omo command is offered, once");
-          assert.ok((await menu(page).locator(".menu-heading").allTextContents()).includes("Skills"), "the skills stand under the Skills heading");
+          const headings = await menu(page).locator(".menu-heading").allTextContents();
+          assert.ok(headings.includes("Your skills") && headings.includes("Built-in skills") && !headings.includes("Skills"), `yours and omo's stand under their own headings: ${headings.join(" | ")}`);
+          assert.ok(headings.indexOf("Your skills") < headings.indexOf("Built-in skills"), "yours first");
           await menuFits(page, "A");
+          await rowsBrief(page, "A");
           // the skills end the list: the capture shows their heading and rows after the last builtins
           await menu(page).evaluate((node) => { node.scrollTop = node.scrollHeight; });
           await capture();
@@ -220,6 +250,7 @@ try {
           assert.equal((await rowLabels(page))[0], "/skill:ulw-plan", "drawn with the typed /");
           assert.equal((await menuGeometry(page)).selected, 0, "and it is the highlighted one");
           await menuFits(page, "B");
+          await rowsBrief(page, "B");
           await capture();
           await box.press("Enter");
           assert.equal(await box.inputValue(), "/skill:ulw-plan ");
@@ -236,6 +267,7 @@ try {
           const labels = await rowLabels(page);
           assert.ok(labels.every((label) => label.startsWith("$skill:")), `drawn with the typed $, as Enter will write them: ${labels.join(" ")}`);
           await menuFits(page, "C");
+          await rowsBrief(page, "C");
           await capture();
           await box.press("Enter");
           assert.equal(await box.inputValue(), "run with $skill:mass-ulw ");
