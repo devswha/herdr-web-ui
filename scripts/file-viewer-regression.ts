@@ -272,10 +272,14 @@ try {
   assert.ok(narrowRow.titleWidth >= 64, `a 320px Markdown header leaves the name room (${narrowRow.titleWidth}px)`);
   await narrowGuide.getByRole("button", { name: "More", exact: true }).click();
   assert.deepEqual((await narrowGuide.getByRole("menuitem").allTextContents()).map((item) => item.trim()), ["Open in a new tab", "Open raw file", "Download"]);
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Open in a new tab", "More's menu takes the focus on its first item");
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Open raw file", "Down moves to the next item");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-markdown-more-320.png") });
   await page.keyboard.press("Escape");
   await narrowGuide.getByRole("menu").waitFor({ state: "detached" });
   assert.equal(await narrowGuide.count(), 1, "Escape closes the More menu, not the file");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "More", "and gives the focus back to More");
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-markdown-320.png") });
   await page.goBack();
   await narrowGuide.waitFor({ state: "hidden" });
