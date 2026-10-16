@@ -141,7 +141,8 @@ try {
         const infraName = await infraWorkspace.locator(".workspace-name").textContent();
         assert.deepEqual(await pinnedWorkspaces.locator(".workspace-name").allTextContents(), [infraName], "the pinned workspace stands in the card");
         assert.deepEqual(await workspaceTitles(), [infraName, ...herdrOrder.filter((title) => title !== infraName)], "the rest keep herdr's order");
-        assert.equal(await infraWorkspace.getAttribute("draggable"), "false", "a pinned workspace is not dragged");
+        // it is moved within its card (the pin order), not out of it: workspace-touch-reorder-demo-regression.ts
+        assert.equal(await infraWorkspace.getAttribute("draggable"), "true", "a pinned workspace can be dragged within its card");
         assert.ok((await pins()).includes(`local:workspace:${await infraWorkspace.evaluate((row) => row.closest(".workspace-group")?.getAttribute("data-workspace"))}`), "the pin is saved with the agents'");
         await infraWorkspace.click({ button: "right" });
         await infraMenu.getByRole("menuitem", { name: "Unpin workspace", exact: true }).click();
