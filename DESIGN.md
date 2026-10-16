@@ -258,6 +258,32 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **rose-pine-dawn**: `--syntax-type` moves dE 23.03; its lightness changes to keep serialized text readable at the 4.6 target.
 - **rose-pine-dawn**: `--syntax-meta` moves dE 11.64; its lightness changes to keep serialized text readable at the 4.6 target.
 
+### Herdr dark-only theme notes
+
+Dracula, Nord and Vesper keep their single dark row on either settings side, with no sibling
+pre-fill. The CSS blocks remain the color source; explicit repairs are recorded in the override list.
+
+- **dracula**: `--border` moves dE 16.44; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
+- **dracula**: `--status-blocked` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
+- **dracula**: `--syntax-keyword` moves dE 6.69; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
+- **dracula**: `--danger-text` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
+- **dracula**: `--status-blocked-tint` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
+- **dracula**: `--danger-tint` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
+- **nord**: `--border` moves dE 7.34; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
+- **nord**: `--status-working` moves dE 19.85; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--status-blocked` moves dE 30.16; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--status-done` moves dE 11.92; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--syntax-keyword` moves dE 7.04; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--syntax-number` moves dE 7.32; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--syntax-function` moves dE 5.70; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--danger-text` moves dE 30.16; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--status-working-tint` moves dE 19.85; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--status-blocked-tint` moves dE 30.16; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--status-done-tint` moves dE 11.92; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **nord**: `--danger-tint` moves dE 30.16; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
+- **vesper**: `--border` moves dE 21.86; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
+- **vesper**: `--border-strong` moves dE 19.79; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens

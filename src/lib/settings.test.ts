@@ -108,10 +108,10 @@ describe("saved theme migration", () => {
     Object.defineProperty(globalThis, "document", { configurable: true, value: {
       documentElement: root, querySelector: () => ({ setAttribute: (_name: string, value: string) => { meta = value; } }),
     } });
-    const settings = sanitizeSettings({ theme: "light", lightTheme: "tokyo-night" });
+    const settings = sanitizeSettings({ theme: "light", lightTheme: "dracula" });
     const entry = themeFor(settings, "light");
     applyToDocument(settings, entry, "en");
-    expect(root.dataset).toMatchObject({ theme: "dark", palette: "tokyo-night" });
+    expect(root.dataset).toMatchObject({ theme: "dark", palette: "dracula" });
     expect(root.style.colorScheme).toBe("dark");
     expect(meta).toBe(entry.bgPanel);
     expect(terminalTheme(entry.mode, entry.id)).toEqual(entry.terminal);

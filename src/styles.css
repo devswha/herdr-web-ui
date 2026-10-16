@@ -1023,6 +1023,147 @@
   --shadow-card: 0 4px 16px rgba(70, 66, 97, 0.07);
 }
 
+/* dracula: pinned herdr mapping with reviewed AA and border overrides. */
+[data-theme="dark"][data-palette="dracula"] {
+  --bg: #282a36;
+  --bg-panel: #282a36;
+  --bg-elevated: #44475a;
+  --bg-hover: #373c52;
+  --bg-input: #44475a;
+  --border: #6272a4;
+  --border-strong: #6272a4;
+  --text: #f8f8f2;
+  --text-dim: #d2d2dc;
+  --text-strong: #f8f8f2;
+  --accent: #bd93f9;
+  --accent-tint: rgba(189, 147, 249, 0.13);
+  --primary: #bd93f9;
+  --primary-hover: #d796ea;
+  --primary-text: #282a36;
+  --primary-tint: rgba(189, 147, 249, 0.16);
+  --status-idle: #828cb4;
+  --status-working: #8be9fd;
+  --status-blocked: #ffc8c8;
+  --status-done: #50fa7b;
+  --status-working-tint: rgba(139, 233, 253, 0.14);
+  --status-blocked-tint: rgba(255, 200, 200, 0.14);
+  --status-done-tint: rgba(80, 250, 123, 0.14);
+  --danger-tint: rgba(255, 200, 200, 0.12);
+  --notice: #f1fa8c;
+  --danger-text: #ffc8c8;
+  --scrim: rgba(40, 42, 54, 0.5);
+  --term-bg: #282a36;
+  --term-fg: #f8f8f2;
+  --term-cursor: #f8f8f2;
+  --term-selection: #463f5d;
+  --line-number: #d2d2dc;
+  --syntax-function: #8be9fd;
+  --syntax-keyword: #ff99d1;
+  --syntax-string: #50fa7b;
+  --syntax-number: #ffb86c;
+  --syntax-type: #f1fa8c;
+  --syntax-variable: #f8f8f2;
+  --syntax-meta: #8be9fd;
+  --bubble-border: var(--border);
+  --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* nord: pinned herdr mapping with reviewed AA and border overrides. */
+[data-theme="dark"][data-palette="nord"] {
+  --bg: #2e3440;
+  --bg-panel: #2e3440;
+  --bg-elevated: #3b4252;
+  --bg-hover: #434c5e;
+  --bg-input: #3b4252;
+  --border: #4c566a;
+  --border-strong: #4c566a;
+  --text: #eceff4;
+  --text-dim: #d8dee9;
+  --text-strong: #eceff4;
+  --accent: #88c0d0;
+  --accent-tint: rgba(136, 192, 208, 0.13);
+  --primary: #88c0d0;
+  --primary-hover: #93c4d6;
+  --primary-text: #2e3440;
+  --primary-tint: rgba(136, 192, 208, 0.16);
+  --status-idle: #646e82;
+  --status-working: #bfe1ff;
+  --status-blocked: #ffd0d7;
+  --status-done: #c8e5b1;
+  --status-working-tint: rgba(191, 225, 255, 0.14);
+  --status-blocked-tint: rgba(255, 208, 215, 0.14);
+  --status-done-tint: rgba(200, 229, 177, 0.14);
+  --danger-tint: rgba(255, 208, 215, 0.12);
+  --notice: #ebcb8b;
+  --danger-text: #ffd0d7;
+  --scrim: rgba(46, 52, 64, 0.5);
+  --term-bg: #2e3440;
+  --term-fg: #eceff4;
+  --term-cursor: #eceff4;
+  --term-selection: #40505d;
+  --line-number: #d8dee9;
+  --syntax-function: #92b3d3;
+  --syntax-keyword: #caa4c3;
+  --syntax-string: #a3be8c;
+  --syntax-number: #e89e86;
+  --syntax-type: #ebcb8b;
+  --syntax-variable: #eceff4;
+  --syntax-meta: #8fbcbb;
+  --bubble-border: var(--border);
+  --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* vesper: pinned herdr mapping with reviewed AA and border overrides. */
+[data-theme="dark"][data-palette="vesper"] {
+  --bg: #101010;
+  --bg-panel: #1a1a1a;
+  --bg-elevated: #232323;
+  --bg-hover: #101010;
+  --bg-input: #232323;
+  --border: #5c5c5c;
+  --border-strong: #5c5c5c;
+  --text: #ffffff;
+  --text-dim: #a0a0a0;
+  --text-strong: #ffffff;
+  --accent: #ffc799;
+  --accent-tint: rgba(255, 199, 153, 0.13);
+  --primary: #ffc799;
+  --primary-hover: #fecea2;
+  --primary-text: #1a1a1a;
+  --primary-tint: rgba(255, 199, 153, 0.16);
+  --status-idle: #7e7e7e;
+  --status-working: #b0b0b0;
+  --status-blocked: #ff8080;
+  --status-done: #99ffe4;
+  --status-working-tint: rgba(176, 176, 176, 0.14);
+  --status-blocked-tint: rgba(255, 128, 128, 0.14);
+  --status-done-tint: rgba(153, 255, 228, 0.14);
+  --danger-tint: rgba(255, 128, 128, 0.12);
+  --notice: #ffc799;
+  --danger-text: #ff8080;
+  --scrim: rgba(16, 16, 16, 0.5);
+  --term-bg: #101010;
+  --term-fg: #ffffff;
+  --term-cursor: #ffffff;
+  --term-selection: #232323;
+  --line-number: #a0a0a0;
+  --syntax-function: #b0b0b0;
+  --syntax-keyword: #ffd1a8;
+  --syntax-string: #99ffe4;
+  --syntax-number: #ffc799;
+  --syntax-type: #ffc799;
+  --syntax-variable: #ffffff;
+  --syntax-meta: #66ddcc;
+  --bubble-border: var(--border);
+  --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
 [data-chat-width="narrow"] {
   --chat-w: var(--content-w);
 }

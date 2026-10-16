@@ -156,6 +156,7 @@ try {
               for (const side of ["dark", "light"] as const) {
                 const listed = await pickers[side].locator("option").evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
                 assert.deepEqual([...listed].sort(), [...THEME_IDS].sort(), `the ${side} picker lists every theme once`);
+                assert.ok(listed.includes("dracula"), `the ${side} picker offers Dracula`);
                 assert.deepEqual(await pickers[side].locator("optgroup").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("label"))), side === "dark" ? ["Dark", "Light"] : ["Light", "Dark"]);
               }
               const drawn = (mode: string, id: string): Promise<unknown> => page.waitForFunction(([mode, id]) => document.documentElement.dataset.theme === mode && document.documentElement.dataset.palette === id && getComputedStyle(document.documentElement).colorScheme === mode, [mode, id]);
@@ -440,12 +441,51 @@ try {
 
       const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
       try {
-        await desktop.addInitScript((settings) => localStorage.setItem("herdr-web-ui:settings", settings), JSON.stringify(SETTINGS));
+        await desktop.addInitScript((settings) => {
+          if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", settings);
+        }, JSON.stringify(SETTINGS));
         const page = await desktop.newPage();
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(url);
         await page.locator(".conn-live").waitFor({ state: "attached" });
+        for (const id of ["dracula", "nord", "vesper"]) {
+          await openSettings(page);
+          await openSettingsPage(page, "Appearance");
+          await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Dark", exact: true }).click();
+          await page.locator("#settings-theme-dark").selectOption(id);
+          await page.waitForFunction((id) => document.documentElement.dataset.palette === id && document.documentElement.dataset.theme === "dark", id);
+          assert.equal(await page.locator("#settings-theme-light").inputValue(), "amber", `${id} has no sibling pre-fill`);
+          const surfaces = await page.evaluate(() => {
+            const style = getComputedStyle(document.documentElement);
+            return ["--border", "--bg-elevated", "--bg-input"].map((role) => style.getPropertyValue(role).trim());
+          });
+          assert.notEqual(surfaces[0], surfaces[1], `${id} border differs from elevated surface`);
+          assert.notEqual(surfaces[0], surfaces[2], `${id} border differs from input surface`);
+          if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `${id}-appearance-1280.png`), animations: "disabled" });
+          await page.keyboard.press("Escape");
+          await page.locator(".settings-dialog").waitFor({ state: "detached" });
+          await page.locator(".composer textarea").waitFor();
+          if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `${id}-chat-1280.png`), animations: "disabled" });
+        }
+        await openSettings(page);
+        await openSettingsPage(page, "Appearance");
+        await page.locator("#settings-theme-light").selectOption("dracula");
+        await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Light", exact: true }).click();
+        await page.waitForFunction(() => document.documentElement.dataset.palette === "dracula" && document.documentElement.dataset.theme === "dark" && getComputedStyle(document.documentElement).colorScheme === "dark");
+        assert.equal(await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Light", exact: true }).getAttribute("aria-pressed"), "true");
+        assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).theme), "light");
+        if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "dracula-light-side-1280.png"), animations: "disabled" });
+        await page.evaluate(() => {
+          const settings = JSON.parse(localStorage.getItem("herdr-web-ui:settings")!);
+          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ ...settings, theme: "light", lightTheme: "not-a-theme" }));
+          localStorage.setItem("herdr-web-ui:themes", JSON.stringify({ darkTheme: "vesper", lightTheme: "not-a-theme" }));
+        });
+        await page.reload();
+        await page.locator(".conn-live").waitFor({ state: "attached" });
+        await page.waitForFunction(() => document.documentElement.dataset.palette === "amber" && document.documentElement.dataset.theme === "light" && getComputedStyle(document.documentElement).colorScheme === "light");
+        if (process.env.UI_EVIDENCE_DIR) writeFileSync(join(process.env.UI_EVIDENCE_DIR, "any-side.txt"), "PASS Light mode with lightTheme=dracula draws data-theme=dark, data-palette=dracula, color-scheme=dark.\nPASS injected lightTheme=not-a-theme reloads amber light.\nPASS Dracula, Nord and Vesper do not pre-fill a sibling.\n");
+        console.log("PASS dark-only themes on either side, distinct borders, no siblings, and unknown-id reload");
         await openSettings(page);
         // beside the list, turning pages is one step however many are turned
         for (const name of ["Chat", "Shortcuts", "About"]) await openSettingsPage(page, name);
@@ -515,10 +555,13 @@ try {
       }
     } finally {
       await browser.close();
+      console.log("CLEANUP browser closed");
     }
   } finally {
     server.stop(true);
+    console.log("CLEANUP loopback demo server stopped");
   }
 } finally {
   rmSync(app, { recursive: true, force: true });
+  console.log("CLEANUP disposable demo app removed");
 }

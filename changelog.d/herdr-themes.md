@@ -1,4 +1,5 @@
 ### Added
+- Dracula, Nord and Vesper are available on either theme side, with readable status and code colors.
 - Herdr's seven light/dark theme pairs now have CSS theme rows with readable text, agent
   states and code colors, plus upstream source and license attribution.
 - Settings → Appearance picks a dark theme and a light theme from every theme, as herdr does:

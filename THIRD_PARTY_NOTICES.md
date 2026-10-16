@@ -24,6 +24,9 @@ licenses follow. Tokyo Night Day uses folke's Apache-2.0 port, not the original 
 | kanagawa-lotus | [rebelot/kanagawa.nvim](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/themes.lua) | MIT |
 | rose-pine | [rose-pine/palette](https://github.com/rose-pine/palette/blob/main/palette.json) | MIT |
 | rose-pine-dawn | [rose-pine/palette](https://github.com/rose-pine/palette/blob/main/palette.json) | MIT |
+| dracula | [dracula/dracula-theme](https://github.com/dracula/dracula-theme/blob/master/README.md) | MIT |
+| nord | [nordtheme/nord](https://github.com/nordtheme/nord/blob/develop/src/nord.css) | MIT |
+| vesper | [raunofreiberg/vesper](https://github.com/raunofreiberg/vesper/blob/main/themes/Vesper-dark-color-theme.json) | MIT |
 
 ## Legend List
 

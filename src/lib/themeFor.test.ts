@@ -42,7 +42,9 @@ describe("themeFor", () => {
         expect(terminalTheme(drawn.mode, drawn.id)).toEqual(drawn.terminal);
       }
     }
-    expect(themeFor(sanitizeSettings({ theme: "light", lightTheme: "tokyo-night" }), "light").mode).toBe("dark");
+    const dracula = themeFor(sanitizeSettings({ theme: "light", lightTheme: "dracula" }), "light");
+    expect(dracula).toBe(rowFor("dracula", "dark"));
+    expect(terminalTheme(dracula.mode, dracula.id)).toEqual(rowFor("dracula", "dark").terminal);
     expect(themeFor(sanitizeSettings({ theme: "light", lightTheme: "nope" }), "light")).toBe(rowFor("amber", "light"));
   });
 });

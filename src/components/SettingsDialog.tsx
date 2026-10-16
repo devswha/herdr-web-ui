@@ -252,6 +252,9 @@ const THEME_NAMES: Record<ThemeId, string> = {
   "kanagawa-lotus": "Kanagawa Lotus",
   "rose-pine": "Rosé Pine",
   "rose-pine-dawn": "Rosé Pine Dawn",
+  dracula: "Dracula",
+  nord: "Nord",
+  vesper: "Vesper",
 };
 
 /**
