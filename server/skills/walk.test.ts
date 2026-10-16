@@ -78,7 +78,14 @@ describe("shared skill walk", () => {
     for (const agent of ["omo", "claude", "codex", "pi", "omp", "grok"]) {
       expect(paneCommands(agent, home, home).every(({ source }) => source === "builtin")).toBeTrue();
     }
-    for (const agent of ["gjc", "opencode", "devin", "hermes", "agy"]) expect(paneCommands(agent, home, home)).toEqual([]);
+    const opencode = paneCommands("opencode", home, home);
+    expect(opencode.filter(({ source }) => source === "builtin").map(({ name }) => name)).toEqual([
+      "debug", "diff", "exit", "help", "init", "mcps", "models", "move", "new", "review", "status", "variants",
+    ]);
+    expect(opencode.filter(({ source }) => source !== "builtin").map(({ name, source, origin }) => ({ name, source, origin }))).toEqual([
+      { name: "customize-opencode", source: "skill", origin: "bundled" },
+    ]);
+    for (const agent of ["gjc", "devin", "hermes", "agy"]) expect(paneCommands(agent, home, home)).toEqual([]);
   });
 });
 
