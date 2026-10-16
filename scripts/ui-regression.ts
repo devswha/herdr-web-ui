@@ -823,8 +823,20 @@ try {
   console.log("PASS an update answer that arrives while the page is hidden releases the buttons");
 
   // the More menu's Alerts item turns this device's alerts on, and off again (it stayed disabled once on)
-  // the header has no button of its own for it, for New tab or for the file browser any more
-  assert.equal(await page.locator(".app-header .bell-button, .app-header .new-tab-button, .app-header .files-button").count(), 0, "the three actions are the More menu's items");
+  // the header has no button of its own for it or for New tab; from 769px Files is the header's own
+  // button and leaves the menu, a phone keeps it there (deep-link-demo-regression)
+  assert.equal(await page.locator(".app-header .bell-button, .app-header .new-tab-button").count(), 0, "Alerts and New tab are not header buttons");
+  const filesButton = page.locator(".app-header .header-files-button");
+  assert.equal(await filesButton.getAttribute("aria-label"), "Browse files", "a computer's header has its own Files button");
+  await page.locator(".header-more-button").click();
+  await page.locator('.row-menu [role="menuitem"]').first().waitFor();
+  assert.equal(await page.locator('.row-menu [role="menuitem"]', { hasText: "Browse files" }).count(), 0, "Files left the More menu on a computer");
+  await page.keyboard.press("Escape");
+  await page.locator(".row-menu").waitFor({ state: "detached" });
+  await filesButton.click();
+  await page.getByRole("dialog", { name: "Files", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close files", exact: true }).click();
+  await page.getByRole("dialog", { name: "Files", exact: true }).waitFor({ state: "detached" });
   // before the permission question is answered the item already reads as on: in-app alerts show
   assert.equal(await alertsState(page), "On in the app");
   assert.equal(await alertsOffMarked(page), false, "alerts that are on leave the More button unmarked");

@@ -154,6 +154,8 @@
   --sidebar-w: 320px;
   --control-h: 34px;
   --touch-target: 40px;
+  /* the phone header's controls: the bar (--header-h) holds them */
+  --touch-target-header: 44px;
   --keybar-h: 48px;
   --row-h: 56px;
   --chip-h: 20px;
@@ -823,6 +825,27 @@ button {
 /* the switch keeps its size; the pane title (.context) is the header's one flexible item */
 .view-switch {
   flex: 0 0 auto;
+}
+
+/* From 769px the lens switch is its two words and nothing around them: no track, no glyphs, the
+   chosen lens on the hover fill. Files follows it as an action of its own, after a hairline. */
+@media (min-width: 769px) {
+  .app-header .view-switch {
+    padding: 0;
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .app-header .view-switch > button svg {
+    display: none;
+  }
+}
+
+.header-divider {
+  flex: 0 0 auto;
+  width: var(--hairline);
+  height: var(--chip-h);
+  background: var(--border);
 }
 
 /* the workspace-list toggle and the palette: in the bar below 769px and beside a collapsed
@@ -1642,6 +1665,24 @@ button {
 /* just above phone width the lens labels would squeeze the pane title to a glyph: icons only */
 @media (max-width: 560px) {
   .view-switch .header-desktop-only { display: none; }
+}
+
+/* phones: every header control is a full thumb target, the lens buttons too (the track loses
+   its inset so the bar still holds them) */
+@media (max-width: 768px) {
+  .app-header .icon-button {
+    width: var(--touch-target-header);
+    height: var(--touch-target-header);
+  }
+
+  .app-header .view-switch {
+    padding: 0;
+  }
+
+  .app-header .view-switch > button {
+    min-width: var(--touch-target-header);
+    height: var(--touch-target-header);
+  }
 }
 
 /* ---------- phone: an app, not a page ---------- */

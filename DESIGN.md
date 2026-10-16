@@ -340,6 +340,7 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--sidebar-w` | `320px` | `300px` | Sidebar/drawer; the default while the user has not dragged the sidebar's edge |
 | `--control-h` | `34px` | `32px` | Buttons and fields |
 | `--touch-target` | `40px` | — | Coarse-pointer minimum |
+| `--touch-target-header` | `44px` | — | The phone header's controls (`<=768px`) |
 | `--keybar-h` | `48px` | — | Terminal key bar |
 | `--row-h` | `56px` | `44px` | Palette, worktree, device and background-task list rows; chat and composer list height caps |
 | `--chip-h` | `20px` | `18px` | Badge/pill height |
@@ -394,7 +395,8 @@ One set for both themes: the card is island black wherever it shows.
   iPhone home screen app reports a visual viewport shorter than the screen without a keyboard.
 - The header is one line at every width. Anatomy, left to right: mobile drawer toggle / desktop
   sidebar toggle and the command palette (`.header-side`); the flexible context, agent mark and
-  title then the PC › workspace › folder crumb; segmented Chat/Terminal switch; the connection
+  title then the PC › workspace › folder crumb; segmented Chat/Terminal switch; from `769px` a
+  hairline and the Files button (`.header-files-button`); the connection
   chip while the bridge is not live (herdr version in its tooltip), the offline pill, sign out and
   the More menu (`⋯`). Theme lives in Settings and the palette; the herdr version is also read
   in Settings.
@@ -448,6 +450,8 @@ One set for both themes: the card is island black wherever it shows.
 - One `aria-pressed="true"` option receives hover fill and strong text; the group itself is an
   elevated, bordered `--radius-md` track.
 - Used for Chat/Terminal, theme and density. It is not a generic tab list.
+- The header's Chat/Terminal switch from `769px` drops the track and the glyphs: two words, the
+  chosen one on the hover fill. At `<=768px` it keeps the track; at `<=560px` it is glyphs only.
 
 ### Keyboard hint (`.kbd`)
 - An inline mono keycap: `18px` high, strong bottom edge, `--radius-sm`, `--fs-2xs`.
@@ -851,14 +855,16 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Header context and connection
 - A selected pane shows agent mark + title (`--fs-md`), then on the same line the crumb
-  PC › workspace › folder (`--fs-xs`, `--text-dim`). The folder shows as its last name, and only
+  PC › workspace › folder (`--fs-xs`, `--text-dim`); with one PC registered the PC is left out, as
+  the sidebar leaves it out. The folder shows as its last name, and only
   when the title, the PC or the workspace does not already say it (`lib/headerCrumb.ts`). The
   title may shorten with an ellipsis; the crumb never does: when it does not fit whole beside the
   whole title it is not drawn, and the title has the row. The full path is in the context's
   tooltip and at the top of the More menu. With no selection, the brand fills the context slot.
 - The More menu (`.header-more-button`, the `RowMenu` popover, a bottom sheet at `<=640px`) opens
   with the location on two lines, "PC › workspace" then the full path in mono, and holds
-  **Browse files** and **Alerts**, each under the condition its own button had. New tab stays
+  **Find in terminal**, **Browse files** (at `<=768px` only: from `769px` Files is the header's own
+  button), **Copy link** and **Alerts**, each under the condition its own button had. New tab stays
   on the tab strip's `+`; Command palette is not in More. The Alerts item says
   this device's state in words after its label ("On in the app", "On in this tab", "On, pushed to
   this device", "Off on this device") and switches it: it is a `menuitemcheckbox` with
@@ -866,6 +872,9 @@ One set for both themes: the card is island black wherever it shows.
   More button carries a `--dot-size` `--accent` dot and its name says "alerts are off": the dot
   marks the state that needs a look, never "on".
 - The segmented Chat/Terminal view switch lives in the header. There is no floating view-toggle pill.
+  Files is an action, not a third lens: it opens the Files dialog and never joins the switch.
+- At `<=768px` the drawer toggle, the lens buttons and More are `--touch-target-header` squares
+  (the switch's track loses its inset so the `--header-h` bar holds them).
 - Connection is one quiet chip, drawn only while the bridge is not live: a pulsing dot plus the
   written reconnecting/disconnected state. Below `900px` it keeps only its dot; the word stays as
   its accessible text and in its tooltip. While live the chip takes no room and stays in the

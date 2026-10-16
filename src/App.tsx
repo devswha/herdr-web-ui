@@ -1321,7 +1321,8 @@ export function App() {
 
   const moreItems: RowMenuItem[] = [
     ...(selectedPane && !selectedPane.restore_error ? [{ id: "find", label: t("Find in terminal"), icon: Search, run: actions.openFind }] : []),
-    ...(selectedPane ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
+    // from 769px Files has its own button beside the lens switch; a phone keeps it here
+    ...(selectedPane && !wideScreen ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
     // the address says where the app is (lib/deepLink.ts); a phone has no address bar to copy it from
     { id: "copy-link", label: t("Copy link"), icon: Link, run: () => void copyText(window.location.href).then((ok) => { if (ok) setHeaderNote("copied"); }) },
     ...(bellVisible ? [{ id: "alerts", label: t("Alerts"), hint: bell.state, checked: bell.on, title: bell.title, icon: Bell, run: () => void bell.run() }] : []),
@@ -1403,7 +1404,8 @@ export function App() {
               <span className="context-title-text">{selectedTitle}</span>
             </div>
             <div className="context-sub">
-              <span className="machine-context-name">{crumb.machine}</span><span className="context-sep" aria-hidden="true">›</span>
+              {/* one PC needs no name: the sidebar leaves it out too, and More still says it */}
+              {machines.length > 1 && <><span className="machine-context-name">{crumb.machine}</span><span className="context-sep" aria-hidden="true">›</span></>}
               <span>{crumb.workspace}</span>
               {crumb.folder !== null && (
                 <>
@@ -1428,6 +1430,15 @@ export function App() {
               {!terminalAttach && <span className="pill pill-soon">{t("soon")}</span>}
             </button>
           </div>
+        )}
+        {selectedPane && wideScreen && (
+          <>
+            {/* opens Files, it is no third lens: set apart from the switch by a hairline */}
+            <span className="header-divider" aria-hidden="true" />
+            <button type="button" className="icon-button header-files-button" aria-label={t("Browse files")} title={t("Browse files")} onClick={() => setFilesOpen(true)}>
+              <FolderOpen />
+            </button>
+          </>
         )}
         <div className="header-meta">
           {/* speaks only while the bridge is not live; live, it stays in the document for a screen
