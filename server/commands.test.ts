@@ -218,8 +218,8 @@ describe("skills and plugins", () => {
     process.env["PI_CODING_AGENT_DIR"] = join(home, ".pi", "agent");
     try {
       expect(paneCommands("pi", null, home).filter((command) => command.source !== "builtin")).toEqual([
-        { name: "skill:linked", description: "Shared skill", source: "skill" },
-        { name: "skill:linked", description: "Shared skill", source: "skill" },
+        { name: "skill:linked", description: "Shared skill", source: "skill", origin: "user" },
+        { name: "skill:linked", description: "Shared skill", source: "skill", origin: "user" },
       ]);
     } finally {
       if (previousPiAgentDir === undefined) delete process.env["PI_CODING_AGENT_DIR"];
@@ -328,8 +328,8 @@ describe("pi's slash commands", () => {
       { name: "plain", description: "First line wins when there is no frontmatter", source: "user" },
       { name: "review", description: "Review staged git changes", source: "user" },
       // a skill is a command under skill:, which is how pi names it and how it must be typed
-      { name: "skill:from-agents", description: "Found under ~/.agents", source: "skill" },
-      { name: "skill:pdf-tools", description: "Extract text from PDFs", source: "skill" },
+      { name: "skill:from-agents", description: "Found under ~/.agents", source: "skill", origin: "user" },
+      { name: "skill:pdf-tools", description: "Extract text from PDFs", source: "skill", origin: "user" },
     ]);
   });
 
