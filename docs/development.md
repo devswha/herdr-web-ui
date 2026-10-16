@@ -52,6 +52,10 @@ generated-types and generated-themes checks (`bun run generate:types --check`,
 `scripts/generate-protocol-types.test.ts`, which rewrites the generated file while it runs. Fast
 checks and the browser lane also build into `dist/`; avoid overlapping runs that write to the same
 checkout. (`check run` runs only its named command unless `--build` is supplied.)
+Theme colors are edited only in the theme blocks of `src/styles.css`. Never edit the generated
+copies (`src/lib/themes.generated.ts`, the DESIGN.md region between the `GENERATED THEMES`
+markers, the `theme-color` tag in `index.html`, the colors in `public/manifest.webmanifest`); run
+`bun run generate:themes` after a color change.
 Admission is serialized briefly on port 41745. After taking a candidate slot, the run checks all
 eight slots again for its checkout and counts every active holder against its requested limit,
 including holders above its candidate range. A busy admission port refuses rather than waits.

@@ -157,12 +157,12 @@ blocks of `src/styles.css`.
 - `--notice` colors a note that the view is partial (a file cut short, code too long to color): the
   size in the header's meta line becomes `256 KB of 1.3 MB`, always beside a warning icon so the
   color is not the only sign. It is a warning yellow, at least 4.5:1 on
-  `--bg`, `--bg-panel` and `--bg-elevated`: amber `#e8c55c` / `#7a5a00`, light
-  charcoal `#8a5300`, dark charcoal `#d9b26a`, Catppuccin Mocha `#f9e2af` (yellow), Latte
-  `#8a5710`.
+  `--bg`, `--bg-panel` and `--bg-elevated`: amber `#e8c55c` / `#7a5a00`. Charcoal and Catppuccin
+  (its yellow) set theirs in their blocks of `src/styles.css`.
 - `--line-number` colors the line numbers beside code: tertiary text, quieter than the code. It is
-  `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha
-  overlay2 `#9399b2` (5.8:1), Latte `#64677d` (subtext0 darkened to 4.9:1 on `--bg`).
+  `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha uses
+  overlay2 and Latte subtext0 darkened to stay AA on `--bg`, as set in its blocks of
+  `src/styles.css`.
 
 ### Rules
 - Amber is the one chrome color. Accent (selected, focused, informational) and primary (the user's
