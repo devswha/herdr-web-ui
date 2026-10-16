@@ -259,7 +259,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcutOverrides: {},
   theme: "dark",
   density: "comfortable",
-  sidebarRows: "two",
+  sidebarRows: "one",
   agentOrder: "workspace",
   agentMarks: "color",
   statusIndicators: "classic",

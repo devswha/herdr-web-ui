@@ -36,11 +36,11 @@ it("keeps the suggestion chip off until this device turns it on, whatever an old
   expect(sanitizeSettings({ suggestionChip: "true" }).suggestionChip).toBe(false);
 });
 
-it("keeps sidebar rows on two lines unless one line was chosen", () => {
-  expect(sanitizeSettings({}).sidebarRows).toBe("two");
-  expect(sanitizeSettings({ sidebarRows: "one" }).sidebarRows).toBe("one");
+it("keeps sidebar rows on one line unless two lines were chosen", () => {
+  expect(sanitizeSettings({}).sidebarRows).toBe("one");
+  expect(sanitizeSettings({ sidebarRows: "two" }).sidebarRows).toBe("two");
   for (const sidebarRows of [null, true, "three", 2]) {
-    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("two");
+    expect(sanitizeSettings({ sidebarRows }).sidebarRows).toBe("one");
   }
 });
 

@@ -240,7 +240,7 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
 - `palette`: `amber`, `charcoal` or `catppuccin`; default `amber`. A removed palette (`report`,
   `lilac`, `forest`) loads as `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
-- `sidebarRows`: `one` or `two`; default `two`.
+- `sidebarRows`: `one` or `two`; default `one`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
   During a two-finger pinch the font follows the fingers live and a badge above the grid shows the
   size in pixels; the grid refits locally and the shared pty resizes once when a finger lifts.
@@ -620,8 +620,9 @@ One set for both themes: the card is island black wherever it shows.
   with no mark of their own (the card says so); the rest follow `--space-2` below in the
   chosen order. The Agents head is the only head (the pinned list is labelled **Pinned** for screen
   readers); without pins there is no card. Pins are shared with the other browsers of the server.
-- Appearance's **Sidebar rows** is **Two lines** by default; on **One line** a workspace row is
-  its name. Two lines draws the row as the roster did before it was one line, on an agent row's
+- Appearance's **Sidebar rows** is **One line** by default: a workspace row is its name, and an
+  agent row is one line on a workspace row's height, its dim place after the title (the title
+  keeps its width first, the place takes what is left with an ellipsis). Two lines draws the row as the roster did before it was one line, on an agent row's
   height and type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
   "workspace · folder" with no name said twice (`taskRowLines`, lib/paneName.ts). A shell titled
   by its folder leads with the workspace instead; a linked worktree is placed by its branch,

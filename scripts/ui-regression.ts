@@ -761,18 +761,20 @@ try {
   assert.deepEqual(await sidebarWidths(), defaultWidths, "a double-click goes back to the default width and forgets the stored one");
   console.log("PASS the sidebar's edge drags, steps from the keyboard, remembers its width and resets on a double-click");
 
-  // Sidebar rows: a workspace row says what its pane is doing over its place, on a taller row,
-  // until Settings → Sidebar rows → One line gives the workspace its name back
-  const twoLineHeight = await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height);
-  assert.ok(await page.locator(".workspace-copy.is-two-line").count() > 0, "rows are two lines until one is chosen");
+  // Sidebar rows: a workspace row is its name until Settings → Sidebar rows → Two lines says
+  // what its pane is doing over its place, on a taller row
+  const oneLineHeight = await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height);
+  const oneLineAgentHeight = await page.locator(".agents-sidebar .agent-row").first().evaluate((row) => row.getBoundingClientRect().height);
+  assert.equal(await page.locator(".workspace-copy.is-two-line").count(), 0, "rows are one line until two are chosen");
+  assert.equal(await page.locator(".agents-sidebar.is-one-line").count(), 1, "agent rows follow the one-line choice");
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
   const rowsSetting = page.locator('.settings-dialog .segmented[aria-label="Sidebar rows"]');
-  await rowsSetting.getByRole("button", { name: "One line", exact: true }).click();
-  await page.locator(".workspace-copy.is-two-line").first().waitFor({ state: "detached" });
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "one");
-  assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) < twoLineHeight, "a one-line row is shorter");
   await rowsSetting.getByRole("button", { name: "Two lines", exact: true }).click();
   await page.locator(".workspace-copy.is-two-line").first().waitFor();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "two");
+  assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) > oneLineHeight, "a two-line row is taller");
+  await page.locator(".agents-sidebar.is-one-line").waitFor({ state: "detached" });
+  assert.ok(await page.locator(".agents-sidebar .agent-row").first().evaluate((row) => row.getBoundingClientRect().height) > oneLineAgentHeight, "a two-line agent row is taller");
   await rowsSetting.getByRole("button", { name: "One line", exact: true }).click();
   await page.locator(".workspace-copy.is-two-line").first().waitFor({ state: "detached" });
   await page.getByRole("button", { name: "Close settings", exact: true }).click();

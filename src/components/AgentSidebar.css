@@ -192,6 +192,23 @@
   font-family: var(--font-mono);
 }
 
+/* Settings -> Sidebar rows -> One line: a workspace row's height, the place dim after the title.
+   The title keeps its width first; the place takes what is left and gives way with an ellipsis. */
+.agents-sidebar.is-one-line .agent-row { min-height: var(--side-row); }
+
+.agents-sidebar.is-one-line .agent-copy {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.agents-sidebar.is-one-line .agent-title-line { flex: 0 1 auto; }
+
+.agents-sidebar.is-one-line .agent-context {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .agent-row-status {
   display: inline-flex;
   flex: 0 0 auto;
