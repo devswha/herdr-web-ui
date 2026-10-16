@@ -1,6 +1,62 @@
 import { describe, expect, it } from "bun:test";
 
 import { agentDisplayLabel, composerDelivery, composerMessage, terminalOnlyCommand, composerSendShown, composerPayload, composerModelDraw, composerStatusCompact, composerStatusHint, composerStatusWord, COMPOSER_STATUS_COMPACT_BELOW, contextLeftPercent, formatTokens, imageMention, insertLeadingMention, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, rankSlashCommands, submitNote, submitNotTyped, submitRefusal, sameMessage } from "./compose.ts";
+import { commandsForTrigger, slashCommandReplacement } from "./compose.ts";
+import { activeTrigger, applyCompletion, type ActiveTrigger } from "./mentions.ts";
+
+describe("omo command completion", () => {
+  const builtin = { name: "model", description: "", source: "builtin" as const };
+  const skill = { name: "skill:mass-ulw", description: "", source: "skill" as const };
+  const commands = [builtin, skill];
+  const slash: ActiveTrigger = { kind: "slash", query: "", start: 0, end: 1 };
+  const dollar: ActiveTrigger = { ...slash, prefix: "$" };
+
+  it("offers only skills for dollar triggers at the start or inside a message", () => {
+    expect(commandsForTrigger(commands, "omo", dollar)).toEqual([skill]);
+    expect(commandsForTrigger(commands, "omo", { ...dollar, start: 4, end: 5 })).toEqual([skill]);
+  });
+
+  it("offers commands and skills for leading slash triggers but nothing inline", () => {
+    expect(commandsForTrigger(commands, "omo", slash)).toEqual(commands);
+    expect(commandsForTrigger(commands, "omo", { ...slash, start: 4, end: 5 })).toEqual([]);
+  });
+
+  it("matches skills by a bare name or a namespaced prefix", () => {
+    for (const query of ["mas", "skill:mas"]) {
+      expect(rankSlashCommands(commandsForTrigger(commands, "omo", dollar), query, {}, true)).toEqual([skill]);
+    }
+  });
+
+  it("inserts omo slash and dollar skills with their namespace and trailing space", () => {
+    for (const text of ["/skill:mas", "$skill:mas", "use $skill:mas"]) {
+      const trigger = activeTrigger(text, text.length, { skills: true, namespaced: true });
+      if (trigger === null) throw new Error("Expected omo skill trigger");
+      const replacement = slashCommandReplacement(skill, "omo", trigger);
+      const completed = applyCompletion(text, trigger, replacement);
+      const expected = text.replace("skill:mas", "skill:mass-ulw ");
+      expect(completed).toEqual({ text: expected, caret: expected.length });
+    }
+    expect(slashCommandReplacement(builtin, "omo", slash)).toBe("/model ");
+  });
+
+  it("keeps Claude, Codex and pi filtering and insertion unchanged", () => {
+    const claudeSkill = { name: "delegate", description: "", source: "skill" as const };
+    const codexSkill = { ...claudeSkill, trigger: "$" as const };
+    const inline = { ...slash, start: 4, end: 5 };
+    expect(commandsForTrigger([builtin, claudeSkill], "claude", slash)).toEqual([builtin, claudeSkill]);
+    expect(commandsForTrigger([builtin, claudeSkill], "claude", inline)).toEqual([claudeSkill]);
+    expect(commandsForTrigger([builtin, codexSkill], "codex", slash)).toEqual([builtin]);
+    expect(commandsForTrigger([builtin, codexSkill], "codex", dollar)).toEqual([codexSkill]);
+    expect(commandsForTrigger([builtin, codexSkill], "codex", inline)).toEqual([codexSkill]);
+    expect(commandsForTrigger([builtin, codexSkill], "codex", { ...inline, prefix: "$" })).toEqual([codexSkill]);
+    expect(commandsForTrigger(commands, "pi", slash)).toEqual(commands);
+    expect(commandsForTrigger(commands, "pi", inline)).toEqual([]);
+    expect(activeTrigger("$", 1)).toBeNull();
+    expect(slashCommandReplacement(claudeSkill, "claude", inline)).toBe("/delegate ");
+    expect(slashCommandReplacement(codexSkill, "codex", inline)).toBe("$delegate ");
+    expect(slashCommandReplacement(skill, "pi", slash)).toBe("/skill:mass-ulw ");
+  });
+});
 
 describe("composerMessage and submitNote", () => {
   it("keeps the message as written for agent.prompt: inner newlines stay, the composer's own trailing ones go", () => {

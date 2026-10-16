@@ -43,7 +43,7 @@ import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, cod
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
-import { omoProcessIdentity, omoSessionForPane } from "./omo.ts";
+import { omoAgentDir, omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
@@ -1126,6 +1126,49 @@ export async function paneRunsOmo(paneId: string): Promise<boolean> {
       cwd: typeof process.cwd === "string" && process.cwd ? process.cwd : undefined,
     }, "", home) !== null,
   );
+}
+
+/** Loaded skill roots belong to the pane's omo process, not herdr's changing label. */
+export async function paneOmoRoots(paneId: string): Promise<{ agentDir: string | null; pluginDir: string | null } | null> {
+  const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown; argv?: unknown; cwd?: unknown }[] } }>(
+    "pane.process_info", { pane_id: paneId },
+  ).catch(() => null);
+  const home = process.env["HOME"] ?? "";
+  const directory = (path: string | null): string | null => {
+    try { return path && statSync(path).isDirectory() ? path : null; } catch { return null; }
+  };
+  for (const candidate of info?.process_info?.foreground_processes ?? []) {
+    const process = {
+      pid: typeof candidate.pid === "number" ? candidate.pid : -1,
+      argv: Array.isArray(candidate.argv) ? candidate.argv.map(String) : [],
+      cwd: typeof candidate.cwd === "string" ? candidate.cwd : "",
+    };
+    const identity = omoProcessIdentity(process, "", home);
+    if (!identity) continue;
+    const agentDir = directory(omoAgentDir(processEnviron(process.pid), home, process.cwd));
+    const argv = process.argv.map((word) => word.replace(/\\/g, "/"));
+    const extension = argv.find((word, index) => argv[index - 1] === "--extension" && /\/omo-ai\/plugin\/?$/.test(word));
+    let pluginDir = directory(extension ? nodePath.resolve(process.cwd, extension) : null);
+    if (!pluginDir) {
+      const word = argv.find((word) => word.includes("/omo-ai/"));
+      if (word) {
+        try {
+          const canonical = realpathSync(nodePath.resolve(process.cwd, word));
+          const at = canonical.indexOf("/omo-ai/");
+          if (at !== -1) pluginDir = directory(nodePath.join(canonical.slice(0, at + "/omo-ai".length), "plugin"));
+        } catch { /* launcher may have gone away; try the installed executable */ }
+      }
+    }
+    if (!pluginDir) {
+      const executable = Bun.which("omo");
+      if (executable) {
+        try { pluginDir = directory(nodePath.join(nodePath.dirname(nodePath.dirname(realpathSync(executable))), "plugin")); }
+        catch { /* no readable installed plugin */ }
+      }
+    }
+    return { agentDir, pluginDir };
+  }
+  return null;
 }
 
 /**

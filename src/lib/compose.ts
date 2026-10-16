@@ -12,6 +12,7 @@
 import type { AgentStatus, SlashCommand } from "../../shared/protocol.ts";
 import { knownStatus, STATUS_WORD } from "./status.ts";
 import { t } from "./i18n.ts";
+import type { ActiveTrigger } from "./mentions.ts";
 
 /** This cap keeps one composer message inside a single WS frame. */
 export const MAX_COMPOSER_CHARS = 20_000;
@@ -242,6 +243,26 @@ function slashMatchTier(command: SlashCommand, needle: string, prefixOnly: boole
     if (at === needle.length) return 3;
   }
   return needle.length >= 2 && command.description.toLocaleLowerCase().includes(needle) ? 4 : null;
+}
+
+/** Commands the agent can invoke at this position, before query ranking. */
+export function commandsForTrigger(commands: readonly SlashCommand[], agent: string | null, trigger: ActiveTrigger): SlashCommand[] {
+  return commands.filter((command) => {
+    if (agent === "omo") {
+      return trigger.prefix === "$" ? command.source === "skill" : trigger.start === 0;
+    }
+    const prefix = command.trigger ?? "/";
+    if (trigger.start === 0) return prefix === (trigger.prefix ?? "/");
+    // Claude honours a skill mention as permission to invoke it; Codex names skills with `$`.
+    // pi expands /skill:name only at message start, and builtins are whole-message commands.
+    return command.source === "skill" && (agent === "claude" ? prefix === "/" : agent === "codex" && prefix === "$");
+  });
+}
+
+/** omo's inline skills use the typed `$`, while other agents use the command's wire trigger. */
+export function slashCommandReplacement(command: SlashCommand, agent: string | null, trigger: ActiveTrigger): string {
+  const prefix = agent === "omo" ? trigger.prefix ?? "/" : command.trigger ?? "/";
+  return `${prefix}${command.name} `;
 }
 
 /**

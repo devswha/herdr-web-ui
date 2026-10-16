@@ -23,6 +23,7 @@ import { composerDrafts } from "../lib/composerDraft.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
+  commandsForTrigger,
   composerModelDraw,
   composerSendShown,
   composerStatusCompact,
@@ -35,6 +36,7 @@ import {
   insertLeadingMention,
   MAX_COMPOSER_CHARS,
   rankSlashCommands,
+  slashCommandReplacement,
   submitNote,
   terminalOnlyCommand,
 } from "../lib/compose.ts";
@@ -325,8 +327,8 @@ export function Composer({
   attachmentsRef.current = attachments;
   textRef.current = text;
   caretRef.current = caret;
-  // Codex names its skills with `$`: only there does a `$` open a menu
-  const trigger = useMemo(() => activeTrigger(text, caret, { skills: agent === "codex" }), [agent, caret, text]);
+  // Codex uses `$name`; omo also accepts `$skill:name` anywhere a word starts.
+  const trigger = useMemo(() => activeTrigger(text, caret, { skills: agent === "codex" || agent === "omo", namespaced: agent === "omo" }), [agent, caret, text]);
   /** a command the agent runs but the chat cannot finish, while it is what the box holds */
   const terminalOnly = useMemo(() => terminalOnlyCommand(agent, text), [agent, text]);
   const uploading = attachments.some((attachment) => attachment.state === "uploading");
@@ -610,19 +612,13 @@ export function Composer({
 
   const filteredCommands = useMemo(
     () => (trigger?.kind === "slash"
-      ? rankSlashCommands(commands.filter((command) => {
-        const prefix = command.trigger ?? "/";
-        if (trigger.start === 0) return prefix === (trigger.prefix ?? "/");
-        // Claude honours a skill mention as permission to invoke it; Codex names skills with `$`.
-        // pi expands /skill:name only at message start, and builtins are whole-message commands.
-        return command.source === "skill" && (agent === "claude" ? prefix === "/" : agent === "codex" && prefix === "$");
-      }), trigger.query, slashUsage, trigger.start > 0 && text[trigger.start - 1] !== "\n")
+      ? rankSlashCommands(commandsForTrigger(commands, agent, trigger), trigger.query, slashUsage, trigger.start > 0 && text[trigger.start - 1] !== "\n")
       : []),
     [agent, commands, slashUsage, text, trigger],
   );
   // a typed query lists the matches in rank order, whatever their source (a plugin command whose
   // word starts with it must not sit under a built-in that only has its letters scattered);
-  // the source then rides on each row. Only the bare `/` lists by group.
+  // the source then rides on each row. Only a bare `/` or `$` lists by group.
   const groupedBySource = trigger?.kind === "slash" && trigger.query === "";
   const orderedCommands = useMemo(
     () => groupedBySource ? COMMAND_SOURCES.flatMap((source) => filteredCommands.filter((command) => command.source === source)) : filteredCommands,
@@ -760,7 +756,7 @@ export function Composer({
 
   const selectCompletion = useCallback(
     (choice: SlashCommand | string, currentTrigger: ActiveTrigger) => {
-      const replacement = currentTrigger.kind === "slash" ? `${(choice as SlashCommand).trigger ?? "/"}${(choice as SlashCommand).name} ` : `@${choice as string} `;
+      const replacement = currentTrigger.kind === "slash" ? slashCommandReplacement(choice as SlashCommand, agent, currentTrigger) : `@${choice as string} `;
       const completed = applyCompletion(text, currentTrigger, replacement);
       setTextAndCaret(completed.text, completed.caret);
       setMenuDismissed(true);
@@ -777,7 +773,7 @@ export function Composer({
         });
       }
     },
-    [setTextAndCaret, text],
+    [agent, setTextAndCaret, text],
   );
 
   const pumpUploads = useCallback(() => {
@@ -1183,7 +1179,7 @@ export function Composer({
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectCompletion(command, trigger)}
                     >
-                      <span className="menu-item-main">{command.trigger ?? "/"}{command.name}</span>
+                      <span className="menu-item-main">{agent === "omo" && trigger.prefix === "$" ? "$" : command.trigger ?? "/"}{command.name}</span>
                       <span className="menu-item-hint">{withSource ? `${t(SOURCE_LABEL[command.source])}${command.description ? " · " : ""}` : ""}{command.description}</span>
                     </button>
                   );

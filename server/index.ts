@@ -20,7 +20,7 @@ import { serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
-import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
+import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneOmoRoots, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import { ConversationMonitor } from "./conversation-monitor.ts";
@@ -2507,9 +2507,9 @@ export function createServer(
         try {
           const context = await paneContext(paneId);
           if (pathname === "/api/pane/commands") {
-            // herdr names an omo pane `pi` while omo waits: pi's commands and templates are not omo's
-            const agent = context.agent === "pi" && await paneRunsOmo(paneId) ? "omo" : context.agent;
-            return jsonResponse({ commands: paneCommands(agent, context.cwd) });
+            const omo = await paneOmoRoots(paneId);
+            const agent = omo ? "omo" : context.agent;
+            return jsonResponse({ commands: paneCommands(agent, context.cwd, undefined, omo ?? {}) });
           }
           const limitRaw = url.searchParams.get("limit");
           const limit = limitRaw === null ? 20 : Number(limitRaw);
