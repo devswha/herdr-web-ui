@@ -3,7 +3,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { SlashCommand } from "../../shared/protocol.ts";
 import type { AgentCommandContext, AgentCommandSource } from "./index.ts";
 import { SkillIgnore } from "../skill-ignore.ts";
-import { description, environRecord, plainObject, readFrontmatter, walkSkills } from "./walk.ts";
+import { description, environRecord, plainObject, readFrontmatter, readSkillText, walkSkills } from "./walk.ts";
 
 /**
  * omp 18.8.7: discovery/{builtin,omp-plugins,claude,agent-plugins,claude-plugins,
@@ -219,7 +219,8 @@ function discover(ctx: AgentCommandContext): SlashCommand[] {
     for (const directory of directories) for (const path of files(directory, scope.provider === "claude")) {
       const fields = readFrontmatter(path);
       const name = (scope.provider === "codex" || scope.provider === "opencode") && typeof fields?.name === "string" ? fields.name : basename(path, ".md");
-      const text = readFileSync(path, "utf8");
+      let text: string;
+      try { text = readSkillText(path); } catch { continue; /* unreadable command file */ }
       const fallback = description(text);
       const desc = typeof fields?.description === "string" ? fields.description.trim() : fallback.length > 60 ? `${fallback.slice(0, 60)}...` : fallback;
       const command = { name: scope.plugin ? `${scope.plugin}:${name}` : name, description: desc, source: scope.level };
@@ -235,7 +236,9 @@ function discover(ctx: AgentCommandContext): SlashCommand[] {
       const subdir = dirname(relative(directory, path)).split(sep).join(":");
       const suffix = `(${scope.level}${subdir === "." ? "" : `:${subdir}`})`;
       const fields = readFrontmatter(path);
-      const fallback = description(readFileSync(path, "utf8"));
+      let markdown: string;
+      try { markdown = readSkillText(path); } catch { continue; /* unreadable prompt file */ }
+      const fallback = description(markdown);
       const desc = typeof fields?.description === "string" ? fields.description : fallback.length > 60 ? `${fallback.slice(0, 60)}...` : fallback;
       const name = (scope.provider === "github" || scope.provider === "codex") && typeof fields?.name === "string" ? fields.name : basename(path, scope.provider === "github" ? ".prompt.md" : ".md");
       addCommand({ name, description: desc ? `${desc} ${suffix}` : suffix, source: scope.level });

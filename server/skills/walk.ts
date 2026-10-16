@@ -29,20 +29,39 @@ function parseFrontmatter(markdown: string): Readonly<Record<string, unknown>> |
   } catch { return null; /* malformed YAML */ }
 }
 
+// Discovery runs on the server's one thread for every menu: a skill file is read only up to this
+// much, and only when it is a regular file (a link to /dev/zero or a huge file would stall it).
+const MAX_SKILL_BYTES = 64 * 1024;
+
+/** The first MAX_SKILL_BYTES of a regular file; throws when `path` is no regular file. */
+export function readSkillText(path: string): string {
+  if (!statSync(path).isFile()) throw new Error(`not a regular file: ${path}`);
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.alloc(MAX_SKILL_BYTES);
+    let length = 0;
+    for (let count = 1; count > 0 && length < buffer.length; length += count) count = readSync(fd, buffer, length, buffer.length - length, null);
+    return buffer.subarray(0, length).toString("utf8");
+  } finally { closeSync(fd); }
+}
+
 /** Reads only through the closing frontmatter delimiter, without reading the skill body. */
 export function readFrontmatter(path: string): Readonly<Record<string, unknown>> | null {
   try {
+    if (!statSync(path).isFile()) return null;
     const fd = openSync(path, "r");
     let markdown = "";
     try {
-      const chunks: Buffer[] = [];
-      for (;;) {
-        const chunk = Buffer.alloc(8192);
-        const count = readSync(fd, chunk, 0, chunk.length, null);
-        chunks.push(chunk.subarray(0, count));
-        markdown = Buffer.concat(chunks).toString("utf8");
+      // one buffer, bounded: a header longer than MAX_SKILL_BYTES is no frontmatter
+      const buffer = Buffer.alloc(MAX_SKILL_BYTES);
+      let length = 0;
+      while (length < buffer.length) {
+        const count = readSync(fd, buffer, length, Math.min(8192, buffer.length - length), null);
+        if (count === 0) break;
+        length += count;
+        markdown = buffer.subarray(0, length).toString("utf8");
         if (!markdown.startsWith("---") && !markdown.startsWith("\uFEFF---")) return null;
-        if (/\r?\n---(?:\s*\r?\n|$)/.test(markdown) || count < chunk.length) break;
+        if (/\r?\n---(?:\s*\r?\n|$)/.test(markdown)) break;
       }
     } finally { closeSync(fd); }
     return parseFrontmatter(markdown);
@@ -85,7 +104,7 @@ export function walkSkills(root: string, rules: WalkRules): WalkedSkill[] {
     if (rules.requireDescription && (typeof fields.description !== "string" || !fields.description.trim())) return;
     try {
       // The original one-level loaders use their permissive name parser and short body fallback.
-      const markdown = rules.requireDescription ? "" : readFileSync(path, "utf8");
+      const markdown = rules.requireDescription ? "" : readSkillText(path);
       const name = rules.requireDescription
         ? typeof fields.name === "string" && fields.name ? fields.name : basename(dirname(path))
         : skillName(markdown, basename(dirname(path)));
@@ -219,9 +238,7 @@ export function piTemplates(root: string, source: SlashCommand["source"]): Slash
       // and is skipped, as pi skips it, and a link to a folder fails isFile however it is named.
       // One path for links and plain files alike — the stat costs less than the read that follows
       // and keeps the two from being judged by different rules
-      const target = join(root, entry.name);
-      if (!statSync(target).isFile()) continue;
-      markdown = readFileSync(target, "utf8");
+      markdown = readSkillText(join(root, entry.name));
     } catch {
       continue;
     }

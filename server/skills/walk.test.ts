@@ -73,6 +73,20 @@ describe("shared skill walk", () => {
     expect(readFrontmatter(join(root, "absent.md"))).toBeNull();
   });
 
+  it("reads a bounded prefix of regular files only, so a huge or device skill cannot stall discovery", () => {
+    const root = temp();
+    put(join(root, "huge", "SKILL.md"), `---\ndescription: huge\n${"x: y\n".repeat(100_000)}---\nbody`);
+    put(join(root, "small", "SKILL.md"), "---\ndescription: small\n---\nbody");
+    if (process.platform !== "win32") {
+      mkdirSync(join(root, "device"));
+      symlinkSync("/dev/zero", join(root, "device", "SKILL.md"));
+      expect(readFrontmatter(join(root, "device", "SKILL.md"))).toBeNull();
+    }
+    expect(readFrontmatter(join(root, "huge", "SKILL.md"))).toBeNull();
+    expect(walkSkills(root, { ...one, requireDescription: true }).map((skill) => skill.name)).toEqual(["small"]);
+    expect(walkSkills(root, one).map((skill) => skill.name).sort()).toEqual(["huge", "small"]);
+  });
+
   it("leaves empty homes at builtins and unimplemented sources empty", () => {
     const home = temp();
     for (const agent of ["omo", "claude", "codex", "pi", "omp", "grok", "agy", "devin", "hermes"]) {
