@@ -559,7 +559,7 @@ One set for both themes: the card is island black wherever it shows.
 - Every row sits on one grid, built from existing tokens as `--side-*` aliases on `.sidebar-shell`:
   a `--control-h` leading cell, the title, and a `--control-h` trailing status cell, the same two
   columns as the header zone's buttons above the list. One-line rows and section heads are
-  `--control-h` tall, agent rows `--control-h` + `--space-3`; fills use `--radius-md`.
+  `--control-h` tall, two-line agent rows `--control-h` + `--space-3`; fills use `--radius-md`.
   Hover is `color-mix(in srgb, var(--bg-hover) 50%, var(--bg-panel))`, only where a pointer hovers;
   selection is `--bg-hover`; keyboard focus draws the ring inside the row and no fill. No rule
   separates sections: `--space-4` and a dim `--fs-sm` head do.
@@ -621,14 +621,15 @@ One set for both themes: the card is island black wherever it shows.
   chosen order. The Agents head is the only head (the pinned list is labelled **Pinned** for screen
   readers); without pins there is no card. Pins are shared with the other browsers of the server.
 - Appearance's **Sidebar rows** is **One line** by default: a workspace row is its name, and an
-  agent row is one line on a workspace row's height, its dim place after the title (the title
-  keeps its width first, the place takes what is left with an ellipsis). Two lines draws the row as the roster did before it was one line, on an agent row's
-  height and type: the title of the pane the row opens, and under it in `--text-dim` `--fs-xs` the place,
-  "workspace · folder" with no name said twice (`taskRowLines`, lib/paneName.ts). A shell titled
-  by its folder leads with the workspace instead; a linked worktree is placed by its branch,
-  then its own workspace name. The folder, the mark, the status cell, the menu and the fold
-  count stay where they are, and the menu and rename still act on the workspace. The choice
-  is per device and applies at once.
+  agent row is one line on a workspace row's height, its dim place after the title (the title keeps
+  its width first, the place takes what is left with an ellipsis). Two lines draws the row as the
+  roster did before it was one line, on an agent row's height and type: the title of the pane the
+  row opens, and under it in `--text-dim` `--fs-xs` the place, "workspace · folder" with no name
+  said twice (`taskRowLines`, lib/paneName.ts). A shell titled by its folder leads with the
+  workspace instead; a linked worktree is placed by its branch, then its own workspace name. The
+  folder, the mark, the status cell, the menu and the fold count stay where they are, and the menu
+  and rename still act on the workspace. The choice is shared with the other browsers of the server
+  and applies at once.
 - Appearance's **Agents order** is **Workspaces** by default: the Agents list in herdr's
   workspace, tab and pane order. **Activity** pins a blocked agent on top and orders the rest by
   their most recent state change (herdr's `state_change_seq`, read from the snapshot's `agents`),
