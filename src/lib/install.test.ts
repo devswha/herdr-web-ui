@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { installedState, installHelp, type InstalledStateInput } from "./install.ts";
 
@@ -66,6 +68,52 @@ describe("installedState", () => {
     expect(detect(["fullscreen"], { relatedInstalled: true })).toBe(true);
     expect(detect(["browser"], { installedByEvent: true })).toBe(true);
   });
+});
+
+describe("related app refresh", () => {
+  for (const trigger of ["focus", "visibilitychange"]) {
+    for (const byEvent of [false, true]) {
+      it(`detects uninstall on ${trigger} with appinstalled=${byEvent}`, async () => {
+        const originals = Object.getOwnPropertyDescriptors(globalThis);
+        const page = new EventTarget();
+        const document = Object.assign(new EventTarget(), { visibilityState: "visible" });
+        let apps = [{ platform: "webapp" }];
+        let query = Promise.resolve(apps);
+        Object.assign(page, {
+          top: page,
+          matchMedia: () => Object.assign(new EventTarget(), { matches: false }),
+        });
+        Object.defineProperties(globalThis, {
+          window: { configurable: true, value: page },
+          document: { configurable: true, value: document },
+          navigator: {
+            configurable: true,
+            value: { userAgent: CHROME, getInstalledRelatedApps: () => (query = Promise.resolve(apps)) },
+          },
+        });
+        try {
+          const modulePath = `./install.ts?refresh=${trigger}-${byEvent}`;
+          const { useInstallPrompt } = await import(modulePath);
+          await query;
+          const State = () => String(useInstallPrompt().installed);
+          expect(renderToStaticMarkup(createElement(State))).toBe("true");
+          if (byEvent) page.dispatchEvent(new Event("appinstalled"));
+          apps = [];
+
+          (trigger === "focus" ? page : document).dispatchEvent(new Event(trigger));
+          await query;
+
+          expect(renderToStaticMarkup(createElement(State))).toBe("false");
+        } finally {
+          for (const key of ["window", "document", "navigator"]) {
+            const original = originals[key];
+            if (original) Object.defineProperty(globalThis, key, original);
+            else Reflect.deleteProperty(globalThis, key);
+          }
+        }
+      });
+    }
+  }
 });
 
 describe("installHelp", () => {

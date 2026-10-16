@@ -83,14 +83,21 @@ if (typeof window !== "undefined") {
   // Chrome and Edge 140+ tell a tab of the same origin that the app is installed
   if (window.top === window) {
     const related = (navigator as Navigator & { getInstalledRelatedApps?: () => Promise<{ platform?: string }[]> }).getInstalledRelatedApps;
-    related?.call(navigator).then(
-      (apps) => {
-        if (!apps.some((app) => app.platform === "webapp")) return;
-        relatedInstalled = true;
-        emitChange();
-      },
-      () => {},
-    );
+    const refreshRelated = () => {
+      related?.call(navigator).then(
+        (apps) => {
+          relatedInstalled = apps.some((app) => app.platform === "webapp");
+          if (!relatedInstalled) installedByEvent = false;
+          emitChange();
+        },
+        () => {},
+      );
+    };
+    refreshRelated();
+    window.addEventListener("focus", refreshRelated);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refreshRelated();
+    });
   }
 }
 
