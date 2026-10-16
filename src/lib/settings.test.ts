@@ -730,6 +730,21 @@ describe("palette", () => {
     expect(failures).toEqual([]);
   });
 
+  it("parts every entry's control edges from its surfaces: --border differs from --bg-elevated, --bg-input and --border-strong", () => {
+    // the herdr mapping sets --bg-elevated, --bg-input and --border from one token, which hid select wells and row
+    // dividers; every legacy entry already differs, so no entry is excepted here
+    const failures: string[] = [];
+    for (const { id, mode, key } of entries) {
+      checked(failures, () => {
+        const { resolved } = resolveEntry(css, id, mode);
+        for (const role of ["bg-elevated", "bg-input", "border-strong"]) {
+          if (resolved[`--${role}`] === resolved["--border"]) failures.push(`${key} ${role}: equals --border ${resolved["--border"]}`);
+        }
+      });
+    }
+    expect(failures).toEqual([]);
+  });
+
   it("mirrors every entry's --term-* tokens of styles.css for xterm and its --bg-panel for the title bar", () => {
     const failures: string[] = [];
     for (const { id, mode, key } of entries) {

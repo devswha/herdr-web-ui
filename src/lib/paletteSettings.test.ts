@@ -32,9 +32,10 @@ describe("rankByTitle", () => {
 });
 
 describe("settings entries", () => {
-  it("lets a user reach a page by theme or font", () => {
+  it("lets a user reach a page by theme, palette or font", () => {
     const pages = settingsPageEntries(identity).map((entry) => ({ item: entry.id, title: entry.label, aliases: entry.aliases }));
     expect(rankByTitle("theme", pages)).toEqual(["appearance"]);
+    expect(rankByTitle("palette", pages)).toEqual(["appearance"]);
     expect(rankByTitle("font", pages)).toEqual(["chat", "terminal"]);
   });
 

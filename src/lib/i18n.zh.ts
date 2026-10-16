@@ -1209,7 +1209,7 @@ export const ZH: Record<string, string> = {
   "Copy path": "复制路径",
   "Path copied": "已复制路径",
   "Path": "路径",
-  "theme themes dark light mode colors density language sidebar logos": "主题 深色 浅色 模式 颜色 密度 语言 侧边栏 徽标",
+  "theme themes palette dark light mode colors density language sidebar logos": "主题 调色板 深色 浅色 模式 颜色 密度 语言 侧边栏 徽标",
   "chat font size message width composer enter send thinking code": "聊天 字体 字号 消息 宽度 输入框 回车 发送 思考 代码",
   "terminal font size key bar keyboard clipboard": "终端 字体 字号 按键栏 键盘 剪贴板",
   "notifications sound push bell needs input finished": "通知 声音 推送 铃 需要输入 完成",

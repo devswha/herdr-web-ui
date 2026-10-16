@@ -135,6 +135,8 @@ another color table. Catppuccin Latte is a second selector on the existing legac
 Its proposal is deliberately not applied: the permanent legacy oracle takes precedence over the
 herdr mapping, including existing surface, accent, cursor, status and syntax choices.
 
+- **tokyo-night**: `--border` moves dE 12.89; herdr surface1 replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible.
+- **tokyo-night**: `--border-strong` moves dE 8.72; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 - **tokyo-night-day**: `--text` moves dE 6.18; its lightness changes to keep serialized text readable at the 4.6 target.
 - **tokyo-night-day**: `--text-dim` moves dE 11.81; its lightness changes to keep serialized text readable at the 4.6 target.
 - **tokyo-night-day**: `--text-strong` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
@@ -158,6 +160,8 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **tokyo-night-day**: `--shadow-drawer` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
 - **tokyo-night-day**: `--shadow-pop` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
 - **tokyo-night-day**: `--shadow-card` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--border` moves dE 8.13; herdr surface1 replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible.
+- **tokyo-night-day**: `--border-strong` moves dE 9.61; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 
 - **gruvbox**: `--status-working` moves dE 9.80; its lightness changes to keep serialized text readable at the 4.6 target.
 - **gruvbox**: `--status-blocked` moves dE 18.18; its lightness changes to keep serialized text readable at the 4.6 target.
@@ -165,16 +169,22 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **gruvbox**: `--status-blocked-tint` moves dE 18.18; it follows the repaired foreground so its derived color stays consistent.
 - **gruvbox**: `--danger-tint` moves dE 18.18; it follows the repaired foreground so its derived color stays consistent.
 - **gruvbox**: `--danger-text` moves dE 18.18; it follows the repaired foreground so its derived color stays consistent.
+- **gruvbox**: `--border` moves dE 6.71; herdr surface1 replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible.
+- **gruvbox**: `--border-strong` moves dE 20.90; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 - **gruvbox-light**: `--status-done` moves dE 9.96; its lightness changes to keep serialized text readable at the 4.6 target.
 - **gruvbox-light**: `--status-done-tint` moves dE 9.96; it follows the repaired foreground so its derived color stays consistent.
 - **gruvbox-light**: `--syntax-string` moves dE 6.17; its lightness changes to keep serialized text readable at the 4.6 target.
 - **gruvbox-light**: `--syntax-type` moves dE 12.38; its lightness changes to keep serialized text readable at the 4.6 target.
 - **gruvbox-light**: `--syntax-meta` moves dE 5.51; its lightness changes to keep serialized text readable at the 4.6 target.
+- **gruvbox-light**: `--border` moves dE 6.90; herdr surface1 replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible.
+- **gruvbox-light**: `--border-strong` moves dE 20.78; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 
 - **one-dark**: `--status-blocked` moves dE 12.35; its lightness changes to keep serialized text readable at the 4.6 target.
 - **one-dark**: `--status-blocked-tint` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
 - **one-dark**: `--danger-tint` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
 - **one-dark**: `--danger-text` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
+- **one-dark**: `--border` moves dE 7.45; herdr surface1 replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible.
+- **one-dark**: `--border-strong` moves dE 11.20; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 - **one-light**: `--status-working` moves dE 14.64; its lightness changes to keep serialized text readable at the 4.6 target.
 - **one-light**: `--status-blocked` moves dE 17.89; its lightness changes to keep serialized text readable at the 4.6 target.
 - **one-light**: `--status-done` moves dE 20.75; its lightness changes to keep serialized text readable at the 4.6 target.
@@ -187,6 +197,7 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **one-light**: `--syntax-string` moves dE 12.04; its lightness changes to keep serialized text readable at the 4.6 target.
 - **one-light**: `--syntax-type` moves dE 12.40; its lightness changes to keep serialized text readable at the 4.6 target.
 - **one-light**: `--syntax-meta` moves dE 5.55; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--border-strong` moves dE 21.23; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 
 - **solarized**: `--text` moves dE 6.75; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized**: `--text-dim` moves dE 11.25; its lightness changes to keep serialized text readable at the 4.6 target.
@@ -203,6 +214,7 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **solarized**: `--syntax-function` moves dE 6.94; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized**: `--syntax-keyword` moves dE 11.95; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized**: `--syntax-number` moves dE 12.29; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--border` moves dE 7.51; herdr active_row_bg replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible; surface1 is already `--border-strong`.
 - **solarized-light**: `--text` moves dE 5.80; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized-light**: `--text-dim` moves dE 14.20; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized-light**: `--text-strong` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
@@ -225,6 +237,7 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **solarized-light**: `--shadow-drawer` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
 - **solarized-light**: `--shadow-pop` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
 - **solarized-light**: `--shadow-card` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--border` moves dE 6.34; herdr selection_bg replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible; surface1 is already `--border-strong`.
 
 - **kanagawa**: `--status-working` moves dE 9.73; its lightness changes to keep serialized text readable at the 4.6 target.
 - **kanagawa**: `--status-blocked` moves dE 24.67; its lightness changes to keep serialized text readable at the 4.6 target.
@@ -234,6 +247,7 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **kanagawa**: `--status-done-tint` moves dE 14.97; it follows the repaired foreground so its derived color stays consistent.
 - **kanagawa**: `--danger-tint` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
 - **kanagawa**: `--danger-text` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--border-strong` moves dE 21.13; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 - **kanagawa-lotus**: `--status-working` moves dE 10.49; its lightness changes to keep serialized text readable at the 4.6 target.
 - **kanagawa-lotus**: `--status-blocked` moves dE 14.57; its lightness changes to keep serialized text readable at the 4.6 target.
 - **kanagawa-lotus**: `--status-done` moves dE 18.90; its lightness changes to keep serialized text readable at the 4.6 target.
@@ -247,6 +261,8 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **kanagawa-lotus**: `--syntax-number` moves dE 15.26; its lightness changes to keep serialized text readable at the 4.6 target.
 - **kanagawa-lotus**: `--syntax-type` moves dE 7.57; its lightness changes to keep serialized text readable at the 4.6 target.
 - **kanagawa-lotus**: `--syntax-meta` moves dE 14.27; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--border` moves dE 6.84; herdr surface1 replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible.
+- **kanagawa-lotus**: `--border-strong` moves dE 14.20; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 
 - **rose-pine**: `--status-working` moves dE 17.40; its lightness changes to keep serialized text readable at the 4.6 target.
 - **rose-pine**: `--status-done` moves dE 17.40; its lightness changes to keep serialized text readable at the 4.6 target.
@@ -254,6 +270,8 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **rose-pine**: `--status-done-tint` moves dE 17.40; it follows the repaired foreground so its derived color stays consistent.
 - **rose-pine**: `--syntax-function` moves dE 9.27; its lightness changes to keep serialized text readable at the 4.6 target.
 - **rose-pine**: `--syntax-string` moves dE 9.27; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine**: `--border` moves dE 10.15; herdr selection_bg replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible; surface1 would be 1.09:1 against the elevated card.
+- **rose-pine**: `--border-strong` moves dE 26.75; herdr overlay0 replaces surface1, so it stays one step above the moved `--border`.
 - **rose-pine-dawn**: `--text-dim` moves dE 8.98; its lightness changes to keep serialized text readable at the 4.6 target.
 - **rose-pine-dawn**: `--status-working` moves dE 5.18; its lightness changes to keep serialized text readable at the 4.6 target.
 - **rose-pine-dawn**: `--status-blocked` moves dE 14.03; its lightness changes to keep serialized text readable at the 4.6 target.
@@ -268,6 +286,7 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **rose-pine-dawn**: `--syntax-number` moves dE 16.36; its lightness changes to keep serialized text readable at the 4.6 target.
 - **rose-pine-dawn**: `--syntax-type` moves dE 23.03; its lightness changes to keep serialized text readable at the 4.6 target.
 - **rose-pine-dawn**: `--syntax-meta` moves dE 11.64; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--border-strong` moves dE 31.57; herdr overlay0 replaces surface1, which is lighter than the panel, so it stays one step above the moved `--border`.
 
 ### Herdr dark-only theme notes
 
@@ -275,12 +294,14 @@ Dracula, Nord and Vesper keep their single dark row on either settings side, wit
 pre-fill. The CSS blocks remain the color source; explicit repairs are recorded in the override list.
 
 - **dracula**: `--border` moves dE 16.44; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
+- **dracula**: `--border-strong` moves dE 8.91; herdr overlay1 keeps it one step above `--border`, since surface1 and overlay0 are the same color as `--border`.
 - **dracula**: `--status-blocked` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
 - **dracula**: `--syntax-keyword` moves dE 6.69; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
 - **dracula**: `--danger-text` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
 - **dracula**: `--status-blocked-tint` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
 - **dracula**: `--danger-tint` moves dE 24.57; reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow.
 - **nord**: `--border` moves dE 7.34; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
+- **nord**: `--border-strong` moves dE 12.14; herdr overlay1 keeps it one step above `--border`, since overlay0 is already `--border`.
 - **nord**: `--status-working` moves dE 19.85; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
 - **nord**: `--status-blocked` moves dE 30.16; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
 - **nord**: `--status-done` moves dE 11.92; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
@@ -293,7 +314,7 @@ pre-fill. The CSS blocks remain the color source; explicit repairs are recorded 
 - **nord**: `--status-done-tint` moves dE 11.92; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
 - **nord**: `--danger-tint` moves dE 30.16; AA lightness repair on serialized hex (target 4.6); dependent defaults follow repaired foreground.
 - **vesper**: `--border` moves dE 21.86; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
-- **vesper**: `--border-strong` moves dE 19.79; reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces.
+- **vesper**: `--border-strong` moves dE 31.63; herdr overlay1 keeps it one step above `--border`, since overlay0 is already `--border`.
 
 ### Terminal theme
 

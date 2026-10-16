@@ -1205,7 +1205,7 @@ export const KO: Record<string, string> = {
   "Copy path": "경로 복사",
   "Path copied": "경로를 복사했습니다",
   "Path": "경로",
-  "theme themes dark light mode colors density language sidebar logos": "테마 다크 라이트 모드 색상 밀도 언어 사이드바 로고",
+  "theme themes palette dark light mode colors density language sidebar logos": "테마 팔레트 다크 라이트 모드 색상 밀도 언어 사이드바 로고",
   "chat font size message width composer enter send thinking code": "채팅 글꼴 글자 크기 메시지 너비 입력창 엔터 보내기 생각 코드",
   "terminal font size key bar keyboard clipboard": "터미널 글꼴 글자 크기 키 바 키보드 클립보드",
   "notifications sound push bell needs input finished": "알림 소리 푸시 벨 입력 필요 완료",

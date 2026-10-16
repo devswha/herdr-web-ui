@@ -1207,7 +1207,7 @@ export const JA: Record<string, string> = {
   "Copy path": "パスをコピー",
   "Path copied": "パスをコピーしました",
   "Path": "パス",
-  "theme themes dark light mode colors density language sidebar logos": "テーマ ダーク ライト モード 色 密度 言語 サイドバー ロゴ",
+  "theme themes palette dark light mode colors density language sidebar logos": "テーマ パレット ダーク ライト モード 色 密度 言語 サイドバー ロゴ",
   "chat font size message width composer enter send thinking code": "チャット フォント 文字サイズ メッセージ 幅 入力欄 エンター 送信 思考 コード",
   "terminal font size key bar keyboard clipboard": "ターミナル フォント 文字サイズ キーバー キーボード クリップボード",
   "notifications sound push bell needs input finished": "通知 サウンド プッシュ ベル 入力待ち 完了",

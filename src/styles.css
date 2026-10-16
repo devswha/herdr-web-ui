@@ -459,15 +459,15 @@
   --syntax-function: #0b59f4;
 }
 
-/* tokyo-night: pinned herdr mapping with reviewed AA repairs. */
+/* tokyo-night: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="dark"][data-palette="tokyo-night"] {
   --bg: #1a1b26;
   --bg-panel: #1a1b26;
   --bg-elevated: #24283b;
   --bg-hover: #232636;
   --bg-input: #24283b;
-  --border: #24283b;
-  --border-strong: #414868;
+  --border: #414868;
+  --border-strong: #565f89;
   --text: #c0caf5;
   --text-dim: #a9b1d6;
   --text-strong: #c0caf5;
@@ -506,15 +506,15 @@
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* tokyo-night-day: pinned herdr mapping with reviewed AA repairs. */
+/* tokyo-night-day: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="light"][data-palette="tokyo-night-day"] {
   --bg: #e1e2e7;
   --bg-panel: #e1e2e7;
   --bg-elevated: #c4c8da;
   --bg-hover: #d2d3da;
   --bg-input: #c4c8da;
-  --border: #c4c8da;
-  --border-strong: #a8aecb;
+  --border: #a8aecb;
+  --border-strong: #8990b3;
   --text: #274dab;
   --text-dim: #41508a;
   --text-strong: #274dab;
@@ -553,15 +553,15 @@
   --shadow-card: 0 4px 16px rgba(39, 77, 171, 0.07);
 }
 
-/* gruvbox: pinned herdr mapping with reviewed AA repairs. */
+/* gruvbox: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="dark"][data-palette="gruvbox"] {
   --bg: #282828;
   --bg-panel: #282828;
   --bg-elevated: #3c3836;
   --bg-hover: #323130;
   --bg-input: #3c3836;
-  --border: #3c3836;
-  --border-strong: #504945;
+  --border: #504945;
+  --border-strong: #928374;
   --text: #ebdbb2;
   --text-dim: #d5c4a1;
   --text-strong: #ebdbb2;
@@ -600,15 +600,15 @@
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* gruvbox-light: pinned herdr mapping with reviewed AA repairs. */
+/* gruvbox-light: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="light"][data-palette="gruvbox-light"] {
   --bg: #fbf1c7;
   --bg-panel: #fbf1c7;
   --bg-elevated: #ebdbb2;
   --bg-hover: #f2e5bc;
   --bg-input: #ebdbb2;
-  --border: #ebdbb2;
-  --border-strong: #d5c4a1;
+  --border: #d5c4a1;
+  --border-strong: #928374;
   --text: #3c3836;
   --text-dim: #504945;
   --text-strong: #3c3836;
@@ -647,15 +647,15 @@
   --shadow-card: 0 4px 16px rgba(60, 56, 54, 0.07);
 }
 
-/* one-dark: pinned herdr mapping with reviewed AA repairs. */
+/* one-dark: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="dark"][data-palette="one-dark"] {
   --bg: #282c34;
   --bg-panel: #282c34;
   --bg-elevated: #2c313a;
   --bg-hover: #313640;
   --bg-input: #2c313a;
-  --border: #2c313a;
-  --border-strong: #3e4451;
+  --border: #3e4451;
+  --border-strong: #5c6370;
   --text: #abb2bf;
   --text-dim: #99a0ac;
   --text-strong: #abb2bf;
@@ -694,15 +694,15 @@
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* one-light: pinned herdr mapping with reviewed AA repairs. */
+/* one-light: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="light"][data-palette="one-light"] {
   --bg: #fafafa;
   --bg-panel: #fafafa;
   --bg-elevated: #f0f0f1;
   --bg-hover: #d8dbe2;
   --bg-input: #f0f0f1;
-  --border: #f0f0f1;
-  --border-strong: #e5e5e6;
+  --border: #e5e5e6;
+  --border-strong: #a0a1a7;
   --text: #383a42;
   --text-dim: #5c5e6a;
   --text-strong: #383a42;
@@ -741,14 +741,14 @@
   --shadow-card: 0 4px 16px rgba(56, 58, 66, 0.07);
 }
 
-/* solarized: pinned herdr mapping with reviewed AA repairs. */
+/* solarized: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="dark"][data-palette="solarized"] {
   --bg: #002b36;
   --bg-panel: #002b36;
   --bg-elevated: #073642;
   --bg-hover: #164b57;
   --bg-input: #073642;
-  --border: #073642;
+  --border: #164b57;
   --border-strong: #586e75;
   --text: #a8b6b6;
   --text-dim: #a5b7b9;
@@ -788,14 +788,14 @@
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* solarized-light: pinned herdr mapping with reviewed AA repairs. */
+/* solarized-light: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="light"][data-palette="solarized-light"] {
   --bg: #fdf6e3;
   --bg-panel: #fdf6e3;
   --bg-elevated: #eee8d5;
   --bg-hover: #eee8d5;
   --bg-input: #eee8d5;
-  --border: #eee8d5;
+  --border: #c9dcdf;
   --border-strong: #93a1a1;
   --text: #556a72;
   --text-dim: #5a6a6c;
@@ -835,15 +835,15 @@
   --shadow-card: 0 4px 16px rgba(85, 106, 114, 0.07);
 }
 
-/* kanagawa: pinned herdr mapping with reviewed AA repairs. */
+/* kanagawa: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="dark"][data-palette="kanagawa"] {
   --bg: #1f1f28;
   --bg-panel: #1f1f28;
   --bg-elevated: #2a2a37;
   --bg-hover: #363646;
   --bg-input: #2a2a37;
-  --border: #2a2a37;
-  --border-strong: #363646;
+  --border: #363646;
+  --border-strong: #727169;
   --text: #dcd7ba;
   --text-dim: #c8c3aa;
   --text-strong: #dcd7ba;
@@ -882,15 +882,15 @@
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* kanagawa-lotus: pinned herdr mapping with reviewed AA repairs. */
+/* kanagawa-lotus: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="light"][data-palette="kanagawa-lotus"] {
   --bg: #f2ecbc;
   --bg-panel: #f2ecbc;
   --bg-elevated: #dcd5ac;
   --bg-hover: #d5cea3;
   --bg-input: #dcd5ac;
-  --border: #dcd5ac;
-  --border-strong: #c9cbd1;
+  --border: #c9cbd1;
+  --border-strong: #a09cac;
   --text: #545464;
   --text-dim: #43436c;
   --text-strong: #545464;
@@ -929,15 +929,15 @@
   --shadow-card: 0 4px 16px rgba(84, 84, 100, 0.07);
 }
 
-/* rose-pine: pinned herdr mapping with reviewed AA repairs. */
+/* rose-pine: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="dark"][data-palette="rose-pine"] {
   --bg: #191724;
   --bg-panel: #191724;
   --bg-elevated: #1f1d2e;
   --bg-hover: #26233a;
   --bg-input: #1f1d2e;
-  --border: #1f1d2e;
-  --border-strong: #26233a;
+  --border: #3b344b;
+  --border-strong: #6e6a86;
   --text: #e0def4;
   --text-dim: #c8c5dc;
   --text-strong: #e0def4;
@@ -976,15 +976,15 @@
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* rose-pine-dawn: pinned herdr mapping with reviewed AA repairs. */
+/* rose-pine-dawn: pinned herdr mapping with reviewed repairs (scripts/herdr-theme-overrides.ts). */
 [data-theme="light"][data-palette="rose-pine-dawn"] {
   --bg: #faf4ed;
   --bg-panel: #faf4ed;
   --bg-elevated: #f2e9e1;
   --bg-hover: #e3d9cf;
   --bg-input: #f2e9e1;
-  --border: #f2e9e1;
-  --border-strong: #fffaf3;
+  --border: #e3d9cf;
+  --border-strong: #9893a5;
   --text: #464261;
   --text-dim: #605b78;
   --text-strong: #464261;
@@ -1031,7 +1031,7 @@
   --bg-hover: #373c52;
   --bg-input: #44475a;
   --border: #6272a4;
-  --border-strong: #6272a4;
+  --border-strong: #828cb4;
   --text: #f8f8f2;
   --text-dim: #d2d2dc;
   --text-strong: #f8f8f2;
@@ -1078,7 +1078,7 @@
   --bg-hover: #434c5e;
   --bg-input: #3b4252;
   --border: #4c566a;
-  --border-strong: #4c566a;
+  --border-strong: #646e82;
   --text: #eceff4;
   --text-dim: #d8dee9;
   --text-strong: #eceff4;
@@ -1125,7 +1125,7 @@
   --bg-hover: #101010;
   --bg-input: #232323;
   --border: #5c5c5c;
-  --border-strong: #5c5c5c;
+  --border-strong: #7e7e7e;
   --text: #ffffff;
   --text-dim: #a0a0a0;
   --text-strong: #ffffff;
