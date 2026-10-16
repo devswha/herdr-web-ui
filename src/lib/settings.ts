@@ -8,6 +8,7 @@
 import type { TelemetrySettings } from "../../shared/telemetry.ts";
 import { SHARED_SETTING_KEYS, type SharedSettingKey } from "../../shared/preferences.ts";
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { terminalColors, themeColor as themeTableColor, type TerminalColors } from "./themes.ts";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
@@ -502,37 +503,13 @@ export function resolveTheme(setting: ThemeSetting): ResolvedTheme {
   return typeof window !== "undefined" && window.matchMedia?.(DARK_QUERY).matches === false ? "light" : "dark";
 }
 
-type TerminalColors = { background: string; foreground: string; cursor: string; selectionBackground: string };
-
-/** The xterm theme for a resolved theme and palette: the `--term-*` tokens of src/styles.css, verbatim. */
-const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = {
-  amber: {
-    light: { background: "#faf8f3", foreground: "#2a251f", cursor: "#8c5000", selectionBackground: "#f0d9ae" },
-    dark: { background: "#181613", foreground: "#d8d0c3", cursor: "#f0a830", selectionBackground: "#4a3d26" },
-  },
-  charcoal: {
-    light: { background: "#fafaf9", foreground: "#242424", cursor: "#242424", selectionBackground: "#dedad3" },
-    dark: { background: "#171717", foreground: "#cbc7c0", cursor: "#cbc7c0", selectionBackground: "#49443d" },
-  },
-  catppuccin: {
-    light: { background: "#eff1f5", foreground: "#4c4f69", cursor: "#dc8a78", selectionBackground: "#d2d4dc" },
-    dark: { background: "#1e1e2e", foreground: "#cdd6f4", cursor: "#f5e0dc", selectionBackground: "#3b3d4f" },
-  },
-};
-
 export function terminalTheme(theme: ResolvedTheme, palette: Palette = "amber"): TerminalColors {
-  return TERMINAL_THEMES[palette][theme];
+  return terminalColors(palette, theme);
 }
 
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
-const THEME_COLOR: Record<Palette, Record<ResolvedTheme, string>> = {
-  amber: { dark: "#181613", light: "#faf8f3" },
-  charcoal: { dark: "#171717", light: "#fafaf9" },
-  catppuccin: { dark: "#181825", light: "#e6e9ef" },
-};
-
 export function themeColor(theme: ResolvedTheme, palette: Palette = "amber"): string {
-  return THEME_COLOR[palette][theme];
+  return themeTableColor(palette, theme);
 }
 
 function applyToDocument(settings: Settings, resolved: ResolvedTheme, palette: Palette, language: Language): void {
