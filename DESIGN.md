@@ -177,6 +177,44 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **one-light**: `--syntax-type` moves dE 12.40; its lightness changes to keep serialized text readable at the 4.6 target.
 - **one-light**: `--syntax-meta` moves dE 5.55; its lightness changes to keep serialized text readable at the 4.6 target.
 
+- **solarized**: `--text` moves dE 6.75; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--text-dim` moves dE 11.25; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--text-strong` moves dE 6.75; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--status-working` moves dE 24.14; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--status-blocked` moves dE 29.43; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--status-done` moves dE 19.69; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--status-working-tint` moves dE 24.14; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--status-blocked-tint` moves dE 29.43; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--status-done-tint` moves dE 19.69; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--danger-tint` moves dE 29.43; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--danger-text` moves dE 29.43; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--line-number` moves dE 11.25; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--syntax-function` moves dE 6.94; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--syntax-keyword` moves dE 11.95; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--syntax-number` moves dE 12.29; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--text` moves dE 5.80; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--text-dim` moves dE 14.20; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--text-strong` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--status-working` moves dE 14.20; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--status-blocked` moves dE 9.89; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--status-done` moves dE 17.94; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--status-working-tint` moves dE 14.20; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--status-blocked-tint` moves dE 9.89; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--status-done-tint` moves dE 17.94; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--danger-tint` moves dE 9.89; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--danger-text` moves dE 9.89; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--scrim` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--line-number` moves dE 14.20; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--syntax-function` moves dE 10.19; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-keyword` moves dE 5.11; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-string` moves dE 14.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-type` moves dE 13.99; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-variable` moves dE 5.80; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-meta` moves dE 14.09; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--shadow-drawer` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--shadow-pop` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--shadow-card` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens

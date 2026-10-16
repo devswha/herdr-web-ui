@@ -21,6 +21,9 @@ licenses follow. Tokyo Night Day uses folke's Apache-2.0 port, not the original 
 | one-dark | [atom/one-dark-syntax](https://github.com/atom/one-dark-syntax/blob/master/styles/colors.less) | MIT |
 | one-light | [atom/one-light-syntax](https://github.com/atom/one-light-syntax/blob/master/styles/colors.less) | MIT |
 
+| solarized | [altercation/solarized](https://github.com/altercation/solarized/blob/master/README.md) | MIT |
+| solarized-light | [altercation/solarized](https://github.com/altercation/solarized/blob/master/README.md) | MIT |
+
 ## Legend List
 
 The chat timeline uses [`@legendapp/list`](https://github.com/LegendApp/legend-list) 3.3.5.
