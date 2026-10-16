@@ -72,6 +72,17 @@ const OMO_OWN_ANSWER = "Type your own answer...";
 const OMO_HINT_LINES = 5;
 /** lines of OmO's footer under the form's rule, at most: cwd and context, then model (one may wrap) */
 const OMO_FOOTER_LINES = 3;
+/**
+ * A row of OmO's omo-task widget under the input box (omo-ai plugin/extensions/omo-task.js): a live row
+ * `<spinner> <task> · <route> · <state>[ · <elapsed>]` with the route `agent:X`, `category:X` or `task`,
+ * a finished row `<task>|<route> <mode> <status>`, or the `+N more` line after five rows.
+ */
+const OMO_TASK_ROW_RE = /^(?:[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏‖] .+? · (?:agent:|category:|task(?: ·|$))|[^|]+\|(?:agent:|category:|task\b)|\+\d+ more$)/u;
+/** a spinner row with no task route: another program's output, never the widget */
+const OMO_SPINNER_ROW_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏‖] /u;
+/** a narrow pane wraps a task row's last fields (ending in the elapsed time) onto one more short line */
+const OMO_TASK_TAIL_RE = /^(?:[^\u00b7]+ \u00b7 )*\d+[hms](?: \d+[hms])*$/u;
+const OMO_TASK_WRAP_MAX = 32;
 /** where each of the form's hints ends, however a narrow pane wraps it */
 const OMO_HINT_END_RE = /\besc (?:cancel|back|discard)$/;
 /** never a line of OmO's footer: an input box (`>`, `❯`) or a shell's prompt */
@@ -2022,8 +2033,10 @@ function omoFooterIsActive(lines: string[]): boolean {
   let rules = 0;
   let footer = 0;
   let widget = false;
+  let tail = false;
   for (const line of lines) {
     if (!line) continue;
+    if (OMO_SPINNER_ROW_RE.test(line) && !OMO_TASK_ROW_RE.test(line)) return false;
     if (SOLID_RULE_RE.test(line)) {
       if (rules > 0 || footer > 0) return false;
       rules = 1;
@@ -2031,9 +2044,16 @@ function omoFooterIsActive(lines: string[]): boolean {
       /^(?:[▶◌✗✓] .*\bcategory:|▶ .* \bwave \d+\/\d+\b)/.test(line)
       || (widget && /^(?:\d+[hms]\s*)+$/.test(line))
     )) {
+      tail = false;
       // A duration may wrap off the task row. Only these status rows precede the native footer;
       // arbitrary output, a second rule, or another program's input still invalidates the form.
       widget = true;
+    } else if (rules > 0 && footer === 0 && !OMO_NOT_FOOTER_RE.test(line) && (
+      OMO_TASK_ROW_RE.test(line)
+      || (tail && line.length <= OMO_TASK_WRAP_MAX && OMO_TASK_TAIL_RE.test(line))
+    )) {
+      // a task row, or the one short line it wrapped onto
+      tail = OMO_TASK_ROW_RE.test(line);
     } else if (rules === 0 || ++footer > OMO_FOOTER_LINES || OMO_NOT_FOOTER_RE.test(line)) return false;
   }
   return rules === 1;
