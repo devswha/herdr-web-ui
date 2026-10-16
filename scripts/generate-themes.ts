@@ -136,7 +136,9 @@ export function renderDesign(css: string, design: string): string {
   return `${design.slice(0, begin + DESIGN_BEGIN.length)}\n${table}\n${design.slice(end)}`;
 }
 
-const META_THEME_COLOR = /<meta name="theme-color" content="[^"]*" \/>/g;
+// Any spelling of the tag counts toward "exactly once" (quotes, case, spacing, self-closing or not), so a
+// second tag in another form cannot hide next to the one the generator writes.
+const META_THEME_COLOR = /<meta\b[^>]*?\bname\s*=\s*(["']?)theme-color\1(?=[\s/>])[^>]*>/gi;
 
 export function renderIndex(css: string, html: string): string {
   const count = html.match(META_THEME_COLOR)?.length ?? 0;
@@ -148,9 +150,11 @@ export function renderManifest(css: string, json: string): string {
   const values = { theme_color: amberColor(css, "--bg-panel", "dark", "resolved"), background_color: amberColor(css, "--bg", "dark", "resolved") };
   let text = json;
   for (const [key, value] of Object.entries(values)) {
-    const pattern = new RegExp(`"${key}": "[^"]*"`, "g");
-    const count = text.match(pattern)?.length ?? 0;
+    // JSON.parse keeps only the last of duplicate keys, so the raw text is counted with any spacing
+    const count = text.match(new RegExp(`"${key}"\\s*:`, "g"))?.length ?? 0;
     if (count !== 1) throw new Error(`${OUTPUTS.manifest}: marker "${key}" found ${count} times, expected exactly once`);
+    const pattern = new RegExp(`"${key}"\\s*:\\s*"[^"]*"`);
+    if (!pattern.test(text)) throw new Error(`${OUTPUTS.manifest}: marker "${key}" has no string value`);
     text = text.replace(pattern, `"${key}": ${JSON.stringify(value)}`);
   }
   // the targeted edit must leave valid JSON whose other keys are untouched

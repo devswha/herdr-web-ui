@@ -57,6 +57,31 @@ describe("generate-themes", () => {
     expect(() => renderManifest(css, manifest.replace(/"theme_color": "[^"]*",\n/, ""))).toThrow('"theme_color" found 0 times');
   });
 
+  it("counts a second target in any formatting as a duplicate", async () => {
+    const html = read(ROOT, OUTPUTS.index);
+    const tag = /<meta name="theme-color"[^>]*>/.exec(html)![0];
+    for (const extra of ['<meta name="theme-color" content="#abcdef">', "<META content='#abcdef' NAME='theme-color'/>", "<meta  name=theme-color content=#abcdef>"]) {
+      expect(() => renderIndex(css, html.replace(tag, `${extra}\n    ${tag}`)), extra).toThrow("found 2 times");
+    }
+    expect(() => renderIndex(css, html.replace(tag, `<meta name="theme-color-x" content="#abcdef">\n    ${tag}`))).not.toThrow();
+    const manifest = read(ROOT, OUTPUTS.manifest);
+    for (const extra of ['"theme_color":"#abcdef",', '"background_color" :  "#abcdef",']) {
+      const key = extra.slice(1, extra.indexOf('"', 1));
+      expect(() => renderManifest(css, manifest.replace('"theme_color": ', `${extra}\n  "theme_color": `)), extra).toThrow(`"${key}" found 2 times`);
+    }
+
+    const root = copyRoot();
+    writeFileSync(join(root, OUTPUTS.index), html.replace(tag, `<meta name="theme-color" content="#abcdef">\n    ${tag}`));
+    const index = await run(["--check", "--root", root]);
+    expect(index.exitCode).toBe(1);
+    expect(index.output).toContain('index.html: marker <meta name="theme-color"> found 2 times');
+    writeFileSync(join(root, OUTPUTS.index), html);
+    writeFileSync(join(root, OUTPUTS.manifest), manifest.replace('"theme_color": ', '"theme_color":"#abcdef",\n  "theme_color": '));
+    const json = await run(["--check", "--root", root]);
+    expect(json.exitCode).toBe(1);
+    expect(json.output).toContain('public/manifest.webmanifest: marker "theme_color" found 2 times');
+  });
+
   it("changes nothing outside the DESIGN.md region", () => {
     const design = read(ROOT, OUTPUTS.design);
     const edited = design.replace(/(\| Surface\/base \| `--bg` \| `)#[0-9a-f]{6}/, "$1#000000");
