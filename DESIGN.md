@@ -650,16 +650,16 @@ One set for both themes: the card is island black wherever it shows.
   open; always on touch; not drawn on a desktop, where a right-click opens the menu). Inline server failures
   stay beside their workspace. A repository's workspace moves past the
   next or previous group with its worktrees, and a worktree moves among its siblings only.
-- A workspace is pinned from its row menu (**Pin workspace** / **Unpin workspace**, first in the
-  menu), as Paseo pins a chat: pinned workspaces leave their place and stand first in their PC's
-  list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`), with no mark
-  of their own either. A pinned repository's workspace stands alone in the card; its unpinned
-  worktrees stay as standalone rows at the group's position, in their order. They are not dragged
-  or moved away from their repository; unpinning the head restores the group. A pinned worktree
-  leaves its repository's group, which stays. Dragging, touch long-press and `Alt+↑/↓` reorder
-  pinned rows inside their card by changing pin order, not herdr's workspace order or the position
-  of their unpinned worktrees. Neither list accepts a drop from the other; the rest reorder
-  through herdr among their movable rows. The pins are the Agents list's
+- A workspace pin is a favorite, set from its row menu (**Pin workspace** / **Unpin workspace**,
+  first in the menu). It adds a shortcut in pin order to its PC's card (`.sidebar-pinned`), with
+  no extra pin mark. A repository shortcut has no children. The complete workspace tree below
+  stays in herdr's order, with every repository head and its nested worktrees, favorites included.
+  Tree rows select, open menus and reorder normally; no row is fixed because it is a favorite.
+  Collapsing a repository never hides its favorite shortcuts. Dragging, touch long-press and
+  `Alt+↑/↓` reorder shortcuts inside the card by changing pin order, not herdr's workspace order.
+  Neither list accepts a drop from the other. Unpinning removes only the shortcut; focus stays
+  on the row used, or returns to its tree row when the shortcut disappears. Card and tree rows
+  have distinct element and reorder identities, but select the same workspace. The pins are the Agents list's
   shared list (a workspace's key is `machine:workspace:id`), so other browsers of the server see them.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
