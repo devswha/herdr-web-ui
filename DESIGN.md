@@ -1443,12 +1443,42 @@ One set for both themes: the card is island black wherever it shows.
   **herdr** section opens with
   **Running herdr X.Y.Z**; where herdr cannot be updated from here (Windows, an older server) the
   section is that line alone, from the health check.
-- Subscription usage: the on switch with one description, then (when on) Used / Remaining,
-  Weekly / Session and, under an **Accounts** caption, one card of accounts (`.usage-accounts`):
-  one `--touch-target` row per account
-  (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
-  a move that cannot happen keeps its column but is not shown). A hidden account's row fades and
-  its eye closes; it stays listed so it can be shown again.
+- Subscription usage keeps its meter preferences first, then an **Accounts** header with a dim total
+  count and one **Add account** button (Plus + label). With meters off, one note follows it without
+  provider placeholders; the configured hub connection remains available. With meters on, provider cards are ordered Claude,
+  Codex, then the remaining reported providers; headings show mark, name and dim account count.
+  Each row has email/name, then dim source (**This PC** or **Hub**), known plan and written
+  sign-in status with an existing status-token dot, without badge pills. Within-provider reorder
+  and visibility controls stay in fixed columns; hidden rows remain listed but fade. Empty lists
+  show one dim sentence.
+- The global Add opens the shared `.modal` (a bottom sheet at 640px and below), with the existing
+  focus trap, Escape/close and return focus. Its small stepper leads through provider (Claude, Codex,
+  Cursor, GitHub Copilot, Grok, Antigravity, OpenCode, then Hub, in server discovery order),
+  method, and authentication; Back preserves the provider context. The provider step uses two equal
+  columns above 640px to fit eight choices without expanding the existing modal width, and a single
+  column on phones. The existing bounded `.modal-body` alone scrolls inside the sheet; its header
+  and Back/Close remain fixed. No grid reordering: keyboard and reading order match the server.
+  Use **Hub** in labels and source metadata; name CLIProxyAPI only in the picker description,
+  **Import accounts from CLIProxyAPI**. Descriptions stay short across all four languages.
+  Only Claude/Codex offer the hub method and a named credential home. Other providers have no
+  name field or disabled hub choice. PATH discovery replaces unavailable local actions with a
+  named CLI installation hint. Single-home sign-in reads local account metadata without querying
+  upstream usage, warns about an existing account and requires Continue; the POST independently
+  refuses an unconfirmed replacement. Antigravity offers app sign-in guidance
+  instead of an unverified standalone login command. OpenCode explains which subscriptions
+  supply plan limits. Local sign-in uses a new native terminal tab on the connection server's local PC
+  without moving native focus. It uses in-app pane selection and the existing canonical link writer,
+  not a page reload, even when another PC was selected. Hub OAuth
+  keeps the synchronous popup, bounded waiting, Cancel and redirect-paste form. The hub connection
+  step has a labeled URL and DOM-only password, Connect, then Connected and Done; an account count
+  is fetched only when plan limits are enabled. Connection save/edit/remove never requests usage
+  while that opt-in is off.
+- A configured hub is one compact connection row below Accounts, including with meters off: network
+  icon, Hub label, dim URL/status and ghost Edit/Remove actions. Editing reopens the hub step
+  with its URL filled and key blank. Remove uses `.confirm-dialog`, with Cancel initially focused
+  and the danger action on the right, before deleting the saved management key. An unconfigured hub renders nothing. No dedicated Usage sources
+  section, new tokens or decorative motion. References: Paseo's global account picker/provider counts
+  and t3code's inline authentication metadata/compact hub row; their pixels are not copied.
 
 ### Terminal host, key bar and drawer
 - **Find in terminal** in the header's More menu and Mod+Shift+F opens a find bar above the
