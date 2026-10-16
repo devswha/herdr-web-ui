@@ -145,7 +145,7 @@ describe("paneCommands", () => {
     const goal = paneCommands("claude", null, temp("commands-home-")).find((command) => command.name === "goal");
     expect(goal?.source).toBe("builtin");
     expect(goal?.description.startsWith("[condition|clear] — ")).toBeTrue();
-    expect(paneCommands("codex", null, temp("commands-home-")).some((command) => command.name === "goal")).toBeFalse();
+    expect(paneCommands("codex", null, temp("commands-home-")).some((command) => command.name === "goal")).toBeTrue();
   });
 
   it("loads user and nested project Claude commands with descriptions", () => {
@@ -204,11 +204,7 @@ describe("skills and plugins", () => {
       { name: "tools:team:check", description: "Shared check", source: "plugin" },
     ]);
     expect(paneCommands("codex", cwd, home).filter((command) => command.source !== "builtin")).toEqual([
-      { name: "linked", description: "Shared skill", source: "skill", trigger: "$" },
-      { name: "linked", description: "Shared skill", source: "skill", trigger: "$" },
-      { name: "prompts:alias:check", description: "Shared check", source: "user" },
       { name: "prompts:review", description: "Shared review", source: "user" },
-      { name: "prompts:team:check", description: "Shared check", source: "user" },
     ]);
     const previousPiAgentDir = process.env["PI_CODING_AGENT_DIR"];
     process.env["PI_CODING_AGENT_DIR"] = join(home, ".pi", "agent");
@@ -287,7 +283,7 @@ describe("skills and plugins", () => {
     write(join(home, ".codex", "skills", "deepinit", "SKILL.md"), "---\nname: deepinit\ndescription: Deep codebase initialization\n---\n");
     const extra = paneCommands("codex", null, home).filter((command) => command.source !== "builtin");
     expect(extra).toEqual([
-      { name: "deepinit", description: "Deep codebase initialization", source: "skill", trigger: "$" },
+      { name: "deepinit", description: "Deep codebase initialization", source: "skill", trigger: "$", origin: "user" },
       { name: "prompts:review", description: "Review the diff", source: "user" },
     ]);
   });

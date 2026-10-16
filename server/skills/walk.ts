@@ -145,12 +145,6 @@ export function walkSkills(root: string, rules: WalkRules): WalkedSkill[] {
 }
 
 /** Existing one-level command mapping, kept separate from each agent's root selection. */
-export function skills(root: string, source: SlashCommand["source"], options: { prefix?: string; trigger?: "$" } = {}): SlashCommand[] {
-  return walkSkills(root, { depth: "one", looseMarkdown: "none", ignoreFiles: false, requireDescription: false }).map(({ name, description }) => ({
-    name: options.prefix ? `${options.prefix}:${name}` : name, description, source, ...(options.trigger ? { trigger: options.trigger } : {}),
-  }));
-}
-
 /** A process environ block (`NAME=value` lines) as a record; entries without `=` are skipped. */
 export function environRecord(env: readonly string[] | null | undefined): Record<string, string> {
   const result: Record<string, string> = {};
