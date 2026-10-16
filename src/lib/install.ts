@@ -32,10 +32,13 @@ function snapshot(): number {
   return revision;
 }
 
+// an installed desktop app whose title bar is folded away reports window-controls-overlay, not standalone
+const INSTALLED_DISPLAY = "(display-mode: standalone), (display-mode: window-controls-overlay)";
+
 function isStandalone(): boolean {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   const iosNavigator = navigator as Navigator & { standalone?: boolean };
-  return installedByEvent || iosNavigator.standalone === true || window.matchMedia?.("(display-mode: standalone)").matches === true;
+  return installedByEvent || iosNavigator.standalone === true || window.matchMedia?.(INSTALLED_DISPLAY).matches === true;
 }
 
 if (typeof window !== "undefined") {
@@ -49,7 +52,7 @@ if (typeof window !== "undefined") {
     pendingPrompt = null;
     emitChange();
   });
-  const displayMode = window.matchMedia?.("(display-mode: standalone)");
+  const displayMode = window.matchMedia?.(INSTALLED_DISPLAY);
   displayMode?.addEventListener("change", emitChange);
 }
 
