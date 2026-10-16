@@ -60,7 +60,7 @@ describe("generate-themes", () => {
   it("counts a second target in any formatting as a duplicate", async () => {
     const html = read(ROOT, OUTPUTS.index);
     const tag = /<meta name="theme-color"[^>]*>/.exec(html)![0];
-    for (const extra of ['<meta name="theme-color" content="#abcdef">', "<META content='#abcdef' NAME='theme-color'/>", "<meta  name=theme-color content=#abcdef>", '<meta content="a>b" name="theme&#45;color">']) {
+    for (const extra of ['<meta name="theme-color" content="#abcdef">', "<META content='#abcdef' NAME='theme-color'/>", "<meta  name=theme-color content=#abcdef>", '<meta content="a>b" name="theme&#45;color">', '<meta name="description" content="<!--">\n    <meta name="theme-color" content="#abcdef">\n    <!-- -->']) {
       expect(() => renderIndex(css, html.replace(tag, `${extra}\n    ${tag}`)), extra).toThrow("found 2 times");
     }
     const manifest = read(ROOT, OUTPUTS.manifest);
@@ -104,6 +104,16 @@ describe("generate-themes", () => {
       expect(JSON.parse(rendered).theme_color).toBe("#181613");
     }
     expect(() => renderManifest(css, manifest.replace('"theme_color"', '"x_theme_color"'))).toThrow('"theme_color" found 0 times');
+
+    // a duplicate hidden after '<!--' inside a quoted attribute is still found, in both modes, and nothing is written
+    for (const mode of [["--check"], []]) {
+      const root = copyRoot();
+      writeFileSync(join(root, OUTPUTS.index), html.replace(tag, `<meta name="description" content="<!--">\n    <meta name="theme-color" content="#abcdef">\n    <!-- -->\n    ${tag}`));
+      const before = Object.values(OUTPUTS).map((file) => read(root, file));
+      const result = await run([...mode, "--root", root]);
+      expect([result.exitCode, result.output.trim()]).toEqual([1, 'generate-themes: index.html: marker <meta name="theme-color"> found 2 times, expected exactly once']);
+      expect(Object.values(OUTPUTS).map((file) => read(root, file))).toEqual(before);
+    }
 
     // a look-alike alone is a missing target in both modes, and nothing is written
     for (const mode of [["--check"], []]) {

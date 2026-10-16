@@ -136,12 +136,6 @@ export function renderDesign(css: string, design: string): string {
   return `${design.slice(0, begin + DESIGN_BEGIN.length)}\n${table}\n${design.slice(end)}`;
 }
 
-// Text a browser never reads as tags: comments and the contents of raw-text elements. They are blanked
-// (same length, so offsets hold) before meta tags are looked for.
-const NOT_TAGS = /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title)(?=[\s/>])[\s\S]*?(?:<\/\1\s*>|$)/gi;
-const META_TAG = /<meta(?=[\s/>])((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
-const ATTRIBUTE = /([^\s"'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-
 function decodeNumericEntities(value: string): string {
   return value.replace(/&#(x[0-9a-f]+|\d+);?/gi, (_, code: string) => {
     const point = code[0] === "x" || code[0] === "X" ? Number.parseInt(code.slice(1), 16) : Number(code);
@@ -149,20 +143,23 @@ function decodeNumericEntities(value: string): string {
   });
 }
 
-/** The spans of every tag a browser reads as `<meta name="theme-color">`: its first `name` attribute, by HTML's rules. */
-function themeColorTags(html: string): { start: number; end: number }[] {
-  const visible = html.replace(NOT_TAGS, (text) => " ".repeat(text.length));
-  return [...visible.matchAll(META_TAG)].filter((tag) => {
-    const name = [...(tag[1] ?? "").matchAll(ATTRIBUTE)].find((attribute) => attribute[1]?.toLowerCase() === "name");
-    return decodeNumericEntities(name?.[2] ?? name?.[3] ?? name?.[4] ?? "").toLowerCase() === "theme-color";
-  }).map((tag) => ({ start: tag.index, end: tag.index + tag[0].length }));
-}
-
+/**
+ * Bun's HTMLRewriter (lol-html) parses the page, so comments, quoted attributes and raw-text elements are
+ * read as a browser reads them, and only the matched tag's content attribute is re-serialized. Its
+ * getAttribute returns the first `name` undecoded, so numeric references are decoded here as a browser would.
+ */
 export function renderIndex(css: string, html: string): string {
-  const tags = themeColorTags(html);
-  if (tags.length !== 1) throw new Error(`${OUTPUTS.index}: marker <meta name="theme-color"> found ${tags.length} times, expected exactly once`);
-  const [{ start, end }] = tags as [{ start: number; end: number }];
-  return `${html.slice(0, start)}<meta name="theme-color" content="${amberColor(css, "--bg-panel", "dark", "resolved")}" />${html.slice(end)}`;
+  const color = amberColor(css, "--bg-panel", "dark", "resolved");
+  let count = 0;
+  const output = new HTMLRewriter().on("meta", {
+    element(element) {
+      if (decodeNumericEntities(element.getAttribute("name") ?? "").toLowerCase() !== "theme-color") return;
+      count++;
+      element.setAttribute("content", color);
+    },
+  }).transform(html);
+  if (count !== 1) throw new Error(`${OUTPUTS.index}: marker <meta name="theme-color"> found ${count} times, expected exactly once`);
+  return output;
 }
 
 /** The keys of the top-level object of valid JSON, decoded, with the span of each value that is a string. */
