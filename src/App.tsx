@@ -394,6 +394,8 @@ export function App() {
   // a collapse (below) whose two steps back have not landed: a second click on Show beside the
   // pane, or the kind correction in the same moment, must not queue two steps more and the file twice
   const collapsing = useRef(false);
+  // a collapse whose step back never lands must not lock the toggle once the file and diff are gone
+  useEffect(() => { if (viewing === null && diffViewing === null) collapsing.current = false; }, [viewing, diffViewing]);
   const presentFile = useCallback((next: FilePresentation) => {
     if (collapsing.current) return;
     if (next === "panel" && filePanelAvailable && diffViewing !== null && viewing !== null) {

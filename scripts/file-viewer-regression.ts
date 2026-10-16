@@ -571,6 +571,8 @@ try {
   const openLength = await page.evaluate(() => history.length);
   await rowOf(otherPane).click();
   await page.waitForFunction((paneId) => new URLSearchParams(location.search).get("pane") === paneId, otherPane);
+  // the panel unmounts on the render after the address moves: wait for that, bounded, then judge
+  await panel.waitFor({ state: "detached", timeout: 5_000 }).catch(() => {});
   assert.equal(await panel.count(), 0, "selecting another pane closes the file open beside the first");
   assert.equal(await page.evaluate(() => history.length), openLength, "the move takes the file's entry over: no entry is pushed");
   assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "the other pane's entry holds no file");

@@ -5,3 +5,5 @@
   that choice across reload and Forward.
   Drag the panel's left edge to resize it (double-click resets); the width is remembered on this
   device. Phones keep the full-screen viewer.
+- Selecting another pane or PC closes a file opened from the previous one, beside the pane or in
+  the popup, and Back returns to that pane without the file.
