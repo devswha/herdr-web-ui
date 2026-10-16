@@ -37,7 +37,8 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
 
 ## Maintainer workflow
 - A session that changes code, in any harness, stops at an open PR: only the maintainer's merge
-  pass merges. One session that edits files per worktree; read-only sessions may share it.
+  pass merges, unless the maintainer asks that session to merge. One session that edits files per
+  worktree; read-only sessions may share it.
 - Everything written to git and GitHub (commits, branches, PRs, reviews, issues, changelog
   fragments) is in English.
 - Never push a `v*` tag by hand: installed updaters act on tags alone.
