@@ -13,6 +13,12 @@ import { chromePath } from "./chrome-path.ts";
 // All files and HTTP traffic stay in this disposable, loopback-only app; no herdr session is opened.
 const app = mkdtempSync(join(tmpdir(), "herdr-touch-reorder-demo-"));
 
+/** waits until herdr's order is (or, with `equal` false, is no longer) `expected`: the sidebar redraws before a move's request answers */
+const serverOrderReaches = (page: Page, expected: string[], equal: boolean) => page.waitForFunction(async ({ expected, equal }) => {
+  const order = ((await (await fetch("/api/session")).json()).snapshot as { workspaces: { workspace_id: string }[] }).workspaces.map((workspace) => workspace.workspace_id);
+  return (order.join() === expected.join()) === equal;
+}, { expected, equal }, { timeout: 10_000 });
+
 /** the top-level rows, in the order the sidebar draws them */
 const topRows = (page: Page) => page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".machine-workspaces .sidebar-list > .workspace-list:not(.sidebar-pinned) > .workspace-group")].map((row) => row.dataset.workspace ?? ""));
 const serverOrder = (page: Page) => page.evaluate(async () => ((await (await fetch("/api/session")).json()).snapshot as { workspaces: { workspace_id: string }[] }).workspaces.map((workspace) => workspace.workspace_id));
@@ -103,11 +109,13 @@ async function checkPinned(page: Page, cdp?: CDPSession): Promise<void> {
   const treeMoved = [...before];
   [treeMoved[0], treeMoved[1]] = [treeMoved[1]!, treeMoved[0]!];
   assert.deepEqual(await restRows(), treeMoved, "a favorite repository reorders normally in the tree");
+  await serverOrderReaches(page, serverBefore, false);
   assert.notDeepEqual(await serverOrder(page), serverBefore, "tree reordering reaches herdr even for a favorite");
   assert.deepEqual(await pinnedRows(page), expected, "tree reordering leaves shortcut order untouched");
   await page.keyboard.press("Alt+ArrowUp");
   const regrouped = serverBefore.filter((id) => id !== child);
   regrouped.splice(regrouped.indexOf(ids[0]!) + 1, 0, child);
+  await serverOrderReaches(page, regrouped, true);
   assert.deepEqual(await serverOrder(page), regrouped, "moving a favorite repository carries its worktree with it in herdr's order");
   assert.deepEqual(await restRows(), before, "moving the tree row back restores the original group order");
   await page.reload();

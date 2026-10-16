@@ -595,7 +595,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     if (!touchDrag?.over || touchDrag.over === touchDrag.source) return null;
     const pinnedTarget = pinnedDropTarget(touchDrag.source, touchDrag.over);
     if (pinnedTarget) {
-      const down = pinnedRowIds.indexOf(touchDrag.source) < pinnedIds.indexOf(pinnedTarget.workspace.workspace_id);
+      const down = pinnedRowIds.indexOf(touchDrag.source) < pinnedRowIds.indexOf(`pinned:${pinnedTarget.workspace.workspace_id}`);
       return { id: `pinned:${pinnedTarget.workspace.workspace_id}`, side: down ? "after" : "before", children: false };
     }
     if (dropOrder(touchDrag.source, touchDrag.over) === null) return null;
