@@ -96,9 +96,13 @@ running terminals: see [development](docs/development.md#checks).
   new ones. Every language has to translate each later string, so a PR that adds a language is
   closed.
 - **UI:** component CSS uses the tokens in `src/styles.css` (see [DESIGN.md](DESIGN.md)).
-- **Color palettes:** the app keeps three (Amber, Charcoal, Catppuccin) and does not take new ones.
-  Every palette is a light and a dark block that each later token change has to fill in, so a PR
-  that adds a palette is closed.
+- **Themes:** besides the app's own Amber, Charcoal and Catppuccin, a theme is added only when
+  herdr ships it as a built-in; a PR with any other theme is closed. Each theme is a complete block
+  in `src/styles.css`, the one place its colors are written. Start from
+  `bun scripts/herdr-theme-proposal.ts`, write the block by hand, and record every value that
+  differs from the proposal in `scripts/herdr-theme-overrides.ts` with its dE and a reason. Every
+  entry has to pass the AA contrast test on the committed hex. Then run `bun run generate:themes`;
+  never edit `src/lib/themes.generated.ts` or the other generated copies.
 - **The browser demo:** the [demo](https://herdrweb.dev/demo/) redeploys on every
   merge to `main`. A feature meant to show there needs an answer in `site/demo/transport.ts`; anything
   else gets its 404.

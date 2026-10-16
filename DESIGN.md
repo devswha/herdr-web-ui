@@ -12,8 +12,9 @@ chrome color, amber: focus, the chosen lens, the terminal cursor and the user's 
 buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture. A neutral charcoal look and Catppuccin are
-opt-in palettes (Settings → Appearance → Colors); amber stays the default and the look before settings load.
+changing information architecture. A neutral charcoal look, Catppuccin and herdr's built-in themes
+are opt-in (Settings → Appearance → Dark theme and Light theme); amber stays the default and the
+look before settings load.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
 mark, else the place's own glyph), a title, and a trailing cell that says how it is. Workspaces
@@ -84,11 +85,15 @@ The glass tokens are expressions over the palette above, not colors of their own
 paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the theme. It is named in
 `src/styles.css` under the same note and no theme or palette block overrides it.
 
-### Opt-in palettes
+### Themes
 
-`settings.palette` (`amber` default, `charcoal`, `catppuccin`) is written as `data-palette`. The
-tables above are amber, the base blocks; the two opt-in palettes override them in
-`[data-theme][data-palette]` blocks of `src/styles.css`.
+`settings.darkTheme` and `settings.lightTheme` (both `amber` by default) name the theme each mode
+draws. The resolved entry is written as `data-theme` (its mode) and `data-palette` (its id). Any
+theme can be picked on either side: picking one half of a herdr pair fills the other side with its
+sibling until that side is chosen by hand, and a dark theme picked for light mode still draws dark.
+The themes are amber, charcoal and catppuccin plus herdr's built-ins; herdr's `terminal` theme is
+not offered. The tables above are amber, the base blocks; every other theme overrides them in a
+`[data-theme][data-palette]` block of `src/styles.css`.
 
 The theme blocks of `src/styles.css` are the theme table and the one place a theme color is
 edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
@@ -97,7 +102,10 @@ edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
 (the supported entries with their roles, xterm colors and panel color), the amber table above
 between its `GENERATED THEMES` markers, the `theme-color` tag in `index.html` and the manifest's
 `theme_color` and `background_color`. Never edit those copies by hand; `--check` fails when one
-is stale. Only amber has a hex table here; read another palette's values in its blocks.
+is stale. Only amber has a hex table here; read another theme's values in its block. A herdr theme
+starts from `bun scripts/herdr-theme-proposal.ts`, and each value that differs from the proposal is
+listed in `scripts/herdr-theme-overrides.ts` with its dE and reason; every entry passes AA on its
+committed hex.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
 alone parts the bubble from `--bg`: dark amber and dark charcoal. It is `var(--border)`
@@ -1579,7 +1587,7 @@ One set for both themes: the card is island black wherever it shows.
   an edge swipe) takes one step out and never leaves the app from inside Settings; the Back
   control, the X, Escape and the scrim take the same entries off. Beside the list, turning pages
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
-- Pages, in order: **Appearance** (theme, colors, density, language, sidebar rows), **Chat**
+- Pages, in order: **Appearance** (theme, dark theme, light theme, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family; then
   **Composer**: Enter sends, send queued messages automatically, and on a touch screen the suggestion
   chip (off by default); then **Quick replies**; then **File viewer**: wrap long
