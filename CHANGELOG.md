@@ -7,10 +7,6 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
-### Fixed
-- `/effort` in a Claude Code chat shows its card again with Claude Code 2.1.301, whose slider
-  describes the level between the level names and the hint.
-
 ## [0.4.10] - 2026-10-16
 
 ### Changed
