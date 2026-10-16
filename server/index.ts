@@ -8,7 +8,7 @@ import type { ServerWebSocket } from "bun";
 import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, DirectoryCreated, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanSummary, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
-import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
+import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
 import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
@@ -2027,7 +2027,7 @@ export function createServer(
 
       if (pathname === "/api/health") {
         const auth: HealthAuth = access.level === "full"
-          ? { required: false, authenticated: true, via: access.via, role: access.role }
+          ? { required: false, authenticated: true, via: access.via, role: access.role, ...(access.via === "token" && bearerMatches(request, token) ? { bearer: true as const } : {}) }
           : { required: true, authenticated, ...(authenticated ? {} : { reason: access.reason }) };
         // this server is open to the network with no token and nothing paired, told to a client
         // that got in and to nobody else: naming it to an anonymous caller would be

@@ -353,6 +353,8 @@ export interface HealthAuth {
   readonly required: boolean;
   readonly authenticated: boolean;
   readonly via?: AccessVia;
+  /** with `via: "token"`: the token came in an `Authorization` header (a proxy sends it), so signing out of this browser would change nothing */
+  readonly bearer?: true;
   readonly role?: DeviceRole;
   readonly reason?: AccessRefusal;
 }

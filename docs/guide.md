@@ -416,7 +416,23 @@ The `map` block goes in the `http` section. `proxy_read_timeout` keeps an idle t
 
 Both examples drop a `Tailscale-User-Login` header a visitor sends. That header is how `tailscale serve` names your own login, and on a PC that runs Tailscale the server trusts it from any proxy on this PC, so a public proxy must not pass a visitor's copy on. With a token set the server asks for the token whatever that header says, so a proxy that does pass it on gives a visitor nothing.
 
-To check it, open `https://herdr.example.com/api/session` from another device without signing in: it must answer 401.
+**If the proxy already signs people in** (basic auth, Authelia, oauth2-proxy, Cloudflare Access and the like), let it hand the app the token, so nobody signs in twice and Settings stops warning that this address is open. Set `HERDR_WEB_TOKEN`, then have the proxy send it on every request it lets through, the terminal's `/ws` connection included. In Caddy, inside `reverse_proxy`:
+
+```caddyfile
+		header_up Authorization "Bearer {env.HERDR_WEB_TOKEN}"
+```
+
+In nginx, inside `location /`:
+
+```nginx
+        proxy_set_header Authorization "Bearer <your token>";
+```
+
+The proxy's own sign-in is then the only one: anyone it lets through gets in, and nobody needs to pair a device. Settings then offers no **Sign out**: the proxy would send the token again with the next request, so signing out is done at the proxy. Keep the app's port closed to everything but the proxy, as `HOST=127.0.0.1` does.
+
+To check the app's gate, request its `/api/session` directly without a token: it must answer 401.
+If the proxy signs people in, also check that a signed-out visitor cannot reach the app through
+the public address.
 
 [Portal](https://github.com/gosuda/portal-tunnel) gives this PC a public HTTPS address with no account and no domain of your own. From v2.6.1, its `--http-route` does all four things and can drop a header a visitor sends; the plain `portal expose 7317` sends no `X-Forwarded-Proto`, so the app's own requests are refused (`invalid_origin`).
 
