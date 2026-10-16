@@ -60,6 +60,7 @@ import { parseConversationMetadata } from "./conversation-metadata.ts";
 import { forgetHermesTranscriptState, hermesConversationPage, hermesToolOutput, hermesTranscriptForPane } from "./hermes.ts";
 
 import { invokedSkill } from "./skill-activity.ts";
+import { claudeCommandEcho } from "./skill-invocations/claude.ts";
 import { agentTaskResult, claudePeerId, claudePeerNotice, isContextClear, MAX_TURNS, parseOmpTranscript, piImageBlock, piMessage, piResults, toolSummary } from "./transcript-records.ts";
 import { forgetSubagents, lineNotifications, subagentDetails, taskNotification, type SubagentDetail } from "./claude-subagents.ts";
 import { launchedAgents } from "./launched-agents.ts";
@@ -90,6 +91,7 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 /** Slash-command and bookkeeping entries Claude logs as user turns — not conversations. */
 function isCommandEntry(text: string): boolean {
+  if (claudeCommandEcho(text)) return false;
   return text.startsWith("<command-") || text.startsWith("<local-command") || text.startsWith("<task-");
 }
 
@@ -374,17 +376,28 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
 
     if (entry.type === "user" && typeof content === "string") {
       if (notified(content, entry.timestamp ?? null)) continue;
+      const invocation = claudeCommandEcho(content);
+      if (invocation) {
+        pushPrompt({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: invocation.text }, { kind: "skill", skill: invocation.skill }] }, entry);
+        continue;
+      }
       if (isCommandEntry(content)) continue;
       pushPrompt({ role: "user", ts: entry.timestamp ?? null, parts: [{ kind: "text", text: unwrapPastes(content) }] }, entry);
       continue;
     }
 
     if (entry.type === "user" && Array.isArray(content)) {
+      const invocations: ConversationPart[] = [];
       const prompt = content.flatMap((block: unknown) => {
         if (block === null || typeof block !== "object") return [];
         const part = block as { type?: string; text?: unknown };
         // a notice can share an entry with a tool's result
         if (part.type === "text" && typeof part.text === "string" && notified(part.text, entry.timestamp ?? null)) return [];
+        const invocation = part.type === "text" && typeof part.text === "string" ? claudeCommandEcho(part.text) : null;
+        if (invocation) {
+          invocations.push({ kind: "skill", skill: invocation.skill });
+          return [invocation.text];
+        }
         return part.type === "text" && typeof part.text === "string" && !isCommandEntry(part.text.trim()) ? [part.text] : [];
       }).join("\n");
       for (const block of content) {
@@ -404,7 +417,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, option
         if (image?.type !== "image" || image.source?.type !== "base64" || typeof image.source.media_type !== "string" || !IMAGE_TYPES.has(image.source.media_type)) return [];
         return [{ kind: "image" as const, media_type: image.source.media_type, ref: `${entry.uuid}:${index}` }];
       });
-      if (prompt.trim() || images.length > 0) pushPrompt({ role: "user", ts: entry.timestamp ?? null, parts: [...images, ...(prompt.trim() ? [{ kind: "text" as const, text: unwrapPastes(prompt) }] : [])] }, entry);
+      if (prompt.trim() || images.length > 0) pushPrompt({ role: "user", ts: entry.timestamp ?? null, parts: [...images, ...(prompt.trim() ? [{ kind: "text" as const, text: unwrapPastes(prompt) }] : []), ...invocations] }, entry);
       continue;
     }
 

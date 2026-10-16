@@ -289,6 +289,16 @@ const lines = [
 ].join("\n");
 
 describe("parseClaudeTranscript", () => {
+  it("restores the recorded explicit skill invocation while hiding its meta body and compact echo", async () => {
+    const fixture = await Bun.file(join(import.meta.dir, "fixtures/skill-invocations/claude.jsonl")).text();
+    const compact = JSON.stringify({ type: "user", message: { content: "<command-message>compact</command-message>\n<command-name>/compact</command-name>\n<command-args></command-args>" } });
+    const users = parseClaudeTranscript(`${fixture}\n${compact}`).filter(({ role }) => role === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0]?.parts).toEqual([
+      { kind: "text", text: "/probe-skill hello" },
+      { kind: "skill", skill: { name: "probe-skill", evidence: "invocation", status: "requested" } },
+    ]);
+  });
   it("builds user and merged assistant turns with folded tool results", () => {
     const turns = parseClaudeTranscript(lines);
     expect(turns).toEqual([

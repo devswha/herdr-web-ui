@@ -194,16 +194,12 @@ describe("skills and plugins", () => {
     write(join(home, ".claude", "settings.json"), JSON.stringify({ enabledPlugins: { "tools@market": true } }));
 
     expect(paneCommands("claude", cwd, home).filter((command) => command.source !== "builtin")).toEqual([
-      { name: "alias:check", description: "Shared check", source: "project" },
       { name: "alias:check", description: "Shared check", source: "user" },
-      { name: "linked", description: "Shared skill", source: "skill" },
-      { name: "linked", description: "Shared skill", source: "skill" },
-      { name: "review", description: "Shared review", source: "project" },
+      { name: "linked", description: "Shared skill", source: "skill", origin: "user" },
       { name: "review", description: "Shared review", source: "user" },
-      { name: "team:check", description: "Shared check", source: "project" },
       { name: "team:check", description: "Shared check", source: "user" },
       { name: "tools:alias:check", description: "Shared check", source: "plugin" },
-      { name: "tools:linked", description: "Shared skill", source: "plugin" },
+      { name: "tools:linked", description: "Shared skill", source: "skill", origin: "plugin" },
       { name: "tools:review", description: "Shared review", source: "plugin" },
       { name: "tools:team:check", description: "Shared check", source: "plugin" },
     ]);
@@ -242,10 +238,10 @@ describe("skills and plugins", () => {
     write(join(home, ".claude", "settings.json"), JSON.stringify({ enabledPlugins: { "hud@market": true, "off@market": false } }));
     const extra = paneCommands("claude", cwd, home).filter((command) => command.source === "skill" || command.source === "plugin");
     expect(extra).toEqual([
-      { name: "deploy", description: "Ship it", source: "skill" },
+      { name: "deploy", description: "Ship it", source: "skill", origin: "project" },
       { name: "hud:configure", description: "Configure options", source: "plugin" },
-      { name: "hud:setup", description: "Configure the HUD", source: "plugin" },
-      { name: "patina", description: "Rewrite AI prose", source: "skill" },
+      { name: "hud:setup", description: "Configure the HUD", source: "skill", origin: "plugin" },
+      { name: "patina", description: "Rewrite AI prose", source: "skill", origin: "user" },
     ]);
   });
 
