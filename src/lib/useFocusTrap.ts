@@ -74,11 +74,13 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const node = surface.current;
     if (node && !nativeModalOver(node) && !node.contains(document.activeElement)) {
-      // a surface that already placed the focus inside itself (Settings focuses its page's tab in
-      // a layout effect after this one) keeps that placement: containment and return are ours to
-      // add, not the start
+      // AutoFocus or a child's layout effect may already have placed focus inside the surface.
+      // Otherwise try the preferred control, then a tab stop, then the surface: a connected
+      // control can still refuse focus (disabled, hidden or inside a disabled fieldset).
       const wanted = latest.current.initialFocus?.current;
-      (wanted && wanted.isConnected ? wanted : tabStops(node)[0] ?? node).focus({ preventScroll: true });
+      wanted?.focus({ preventScroll: true });
+      if (!node.contains(document.activeElement)) tabStops(node)[0]?.focus({ preventScroll: true });
+      if (!node.contains(document.activeElement)) node.focus({ preventScroll: true });
     }
     return () => {
       // a dialog the owner unmounts on its own deed (ConfirmDialog's "done") has nowhere to go back to

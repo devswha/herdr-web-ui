@@ -1770,6 +1770,41 @@ try {
   assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");
   await tabDialog.waitFor({ state: "hidden" });
+  // A failed launch leaves its created pane available through Open. Closing instead must
+  // not leave the next opening's agent picker disabled, with focus back in the terminal.
+  await page.route("**/api/agents", (route) => route.fulfill({ json: { agents: [{ kind: "claude", label: "Claude", installed: true }] } }));
+  await page.route("**/api/tab/create", (route) => route.fulfill({ json: {
+    workspace_id: created.workspace_id, pane_id: created.pane_id, agent_started: false,
+    error: { code: "agent_start_failed", message: "Agent could not start" },
+  } satisfies WorkspaceCreated }));
+  await openAgentTab();
+  await tabDialog.getByRole("combobox", { name: "Agent", exact: true }).click();
+  await tabDialog.getByRole("option").filter({ hasText: "Claude" }).click();
+  await tabDialog.getByRole("button", { name: "Start", exact: true }).click();
+  await tabDialog.getByRole("button", { name: "Open", exact: true }).waitFor();
+  assert.equal(await tabDialog.getByRole("combobox", { name: "Agent", exact: true }).isDisabled(), true, "a failed launch keeps its created pane available, not a second Start");
+  await page.keyboard.press("Escape");
+  await tabDialog.waitFor({ state: "hidden" });
+  await page.locator(".pane-frame.is-current .xterm-helper-textarea").focus();
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      const dialog = document.querySelector(".new-session-modal");
+      if (!dialog) return;
+      dialog.setAttribute("data-focus-at-open", String(dialog.contains(document.activeElement)));
+      observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+  await openAgentTab();
+  await tabDialog.waitFor();
+  assert.equal(await tabDialog.getAttribute("data-focus-at-open"), "true", "reopening after an agent start failure owns focus before paint");
+  assert.equal(await tabDialog.getByRole("combobox", { name: "Agent", exact: true }).isDisabled(), false, "reopening after a failed launch enables the agent picker");
+  await page.keyboard.press("Escape");
+  await tabDialog.waitFor({ state: "hidden" });
+  await page.unroute("**/api/tab/create");
+  await page.unroute("**/api/agents");
+  await page.evaluate(() => localStorage.removeItem("herdr-web-ui:new-session-agent"));
+  console.log("PASS reopening after a failed agent start owns focus before paint, enables its fields and closes with Escape");
   // the PC's + is New workspace again, not a tab in the workspace the last dialog was for
   await page.getByRole("button", { name: /^New workspace on / }).click();
   await page.getByRole("dialog", { name: /^New workspace/ }).waitFor();
