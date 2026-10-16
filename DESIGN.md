@@ -235,7 +235,7 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **solarized**: `--border` moves dE 7.51; herdr active_row_bg replaces surface0, which equals `--bg-elevated` and `--bg-input`, so control edges stay visible; surface1 is already `--border-strong`.
 - **solarized-light**: `--text` moves dE 5.80; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized-light**: `--text-dim` moves dE 14.20; its lightness changes to keep serialized text readable at the 4.6 target.
-- **solarized-light**: `--text-strong` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--text-strong` moves dE 26.00; herdr solarized surface0 (base02) replaces the repaired `--text`, which sits 1.01:1 from `--text-dim` while `--bg-hover` equals `--bg-elevated`, so strong text and the chosen segment part from quiet text.
 - **solarized-light**: `--status-working` moves dE 14.20; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized-light**: `--status-blocked` moves dE 9.89; its lightness changes to keep serialized text readable at the 4.6 target.
 - **solarized-light**: `--status-done` moves dE 17.94; its lightness changes to keep serialized text readable at the 4.6 target.

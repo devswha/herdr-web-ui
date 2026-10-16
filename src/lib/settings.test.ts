@@ -745,6 +745,40 @@ describe("palette", () => {
     expect(failures).toEqual([]);
   });
 
+  type Rgb = [number, number, number];
+  const luminance = (rgb: Rgb): number => {
+    const [r, g, b] = rgb.map((c) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4)) as Rgb;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: Rgb, b: Rgb): number => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it("shows every entry's chosen segment: --bg-hover parts from its track (--bg-elevated, --bg-input in Settings) or --text-strong from --text-dim", () => {
+    // a segmented control fills the chosen option with --bg-hover on a track of --bg-elevated (--bg-input in Settings) and
+    // writes its label in --text-strong beside --text-dim labels; the herdr mapping and the AA repair collapsed both pairs in
+    // solarized-light, so no option looked chosen. The weakest pairs that still read set the floors: tokyo-night's label
+    // 1.31:1 on a 1.03:1 fill, tokyo-night-day's fill 1.11:1 under a 1.00:1 label
+    const failures: string[] = [];
+    for (const { id, mode, key } of entries) {
+      checked(failures, () => {
+        const { resolved } = resolveEntry(css, id, mode);
+        const hex = (role: string): Rgb => {
+          const raw = resolved[`--${role}`] ?? "(missing)";
+          const parsed = parseThemeValue(key, role, raw);
+          const match = parsed.kind === "color" ? /^#([0-9a-f]{6})$/.exec(parsed.value) : null;
+          if (!match?.[1]) throw new ThemeValueError(key, role, raw, "not an opaque color");
+          return [0, 2, 4].map((i) => parseInt(match[1]!.slice(i, i + 2), 16)) as Rgb;
+        };
+        const fill = Math.min(ratio(hex("bg-hover"), hex("bg-elevated")), ratio(hex("bg-hover"), hex("bg-input")));
+        const label = ratio(hex("text-strong"), hex("text-dim"));
+        if (fill < 1.05 && label < 1.25) failures.push(`${key}: pressed fill ${fill.toFixed(2)}:1 on its track, pressed label ${label.toFixed(2)}:1 beside quiet labels`);
+      });
+    }
+    expect(failures).toEqual([]);
+  });
+
   it("mirrors every entry's --term-* tokens of styles.css for xterm and its --bg-panel for the title bar", () => {
     const failures: string[] = [];
     for (const { id, mode, key } of entries) {
@@ -775,16 +809,7 @@ describe("palette", () => {
   });
 
   it("keeps text, agent states and code readable (WCAG AA 4.5:1) on every surface of every entry", () => {
-    type Rgb = [number, number, number];
     const over = ([rgb, alpha]: [Rgb, number], under: Rgb): Rgb => rgb.map((c, i) => c * alpha + under[i]! * (1 - alpha)) as Rgb;
-    const luminance = (rgb: Rgb): number => {
-      const [r, g, b] = rgb.map((c) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4)) as Rgb;
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const ratio = (a: Rgb, b: Rgb): number => {
-      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
-      return (hi + 0.05) / (lo + 0.05);
-    };
     const failures: string[] = [];
     for (const { id, mode, key } of entries) {
       checked(failures, () => {

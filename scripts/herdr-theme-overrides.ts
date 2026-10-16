@@ -145,7 +145,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"solarized-light","mode":"light","role":"border","value":"#c9dcdf","dE":6.343279395405989,"reason":"Visible control edges: herdr selection_bg, since surface0 equals --bg-elevated and --bg-input and surface1 (base1) is already --border-strong"},
   {"theme":"solarized-light","mode":"light","role":"text","value":"#556a72","dE":5.802622044631877,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized-light","mode":"light","role":"text-dim","value":"#5a6a6c","dE":14.19835083286903,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
-  {"theme":"solarized-light","mode":"light","role":"text-strong","value":"#556a72","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"text-strong","value":"#073642","dE":26.00042461262185,"reason":"Visible chosen segment and strong text: herdr solarized surface0 (base02), since the AA-repaired --text sits 1.01:1 from --text-dim and --bg-hover equals --bg-elevated"},
   {"theme":"solarized-light","mode":"light","role":"primary-hover","value":"#2989c7","dE":0.6262503613551821,"reason":"Recomputed default from AA-repaired foreground"},
   {"theme":"solarized-light","mode":"light","role":"status-working","value":"#005ea2","dE":14.198182249999606,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized-light","mode":"light","role":"status-blocked","value":"#b60006","dE":9.890630890934576,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
