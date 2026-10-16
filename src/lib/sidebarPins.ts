@@ -4,6 +4,8 @@
  * old PC's pin; a workspace's key marks itself as one, after the PC.
  */
 
+import { placeBlock } from "./workspaceOrder.ts";
+
 const STORAGE_KEY = "herdr-web-ui:sidebar-agent-pins";
 
 export function sidebarPinKey(machineId: string, paneId: string): string {
@@ -26,6 +28,17 @@ export function isWorkspacePinKey(key: string): boolean {
 export function pinnedWorkspaceIds(keys: readonly string[], machineId: string): string[] {
   const prefix = workspacePinKey(machineId, "");
   return keys.flatMap((key) => key.startsWith(prefix) && key.length > prefix.length ? [key.slice(prefix.length)] : []);
+}
+
+/** Reorders only this PC's workspace pin slots, leaving agent and other PC pins where they were. */
+export function reorderWorkspacePins(keys: readonly string[], machineId: string, sourceId: string, targetId: string): string[] {
+  const ids = pinnedWorkspaceIds(keys, machineId);
+  if (sourceId === targetId || !ids.includes(sourceId) || !ids.includes(targetId)) return [...keys];
+  const order = placeBlock(ids, [sourceId], [targetId], ids.indexOf(sourceId) < ids.indexOf(targetId) ? "after" : "before");
+  const replacements = order.map((id) => workspacePinKey(machineId, id));
+  const own = new Set(ids.map((id) => workspacePinKey(machineId, id)));
+  let index = 0;
+  return keys.map((key) => own.has(key) ? replacements[index++]! : key);
 }
 
 /** This PC's workspace pins whose workspace is gone leave with a change of the user's; every other pin stays. */
@@ -118,7 +131,7 @@ export function splitPinnedGroups<W>(groups: readonly WorkspaceGroup<W>[], pinne
   return { pinned, rest: groups.filter((group) => !pinnedSet.has(idOf(group.workspace))).map(strip) };
 }
 
-/** The rows of the pinned groups, a pinned repository's worktrees too: none of them is reordered. */
+/** The rows of the pinned groups, a pinned repository's worktrees too. */
 export function pinnedGroupIds<W>(pinned: readonly WorkspaceGroup<W>[], idOf: (workspace: W) => string): Set<string> {
   return new Set(pinned.flatMap((group) => [group.workspace, ...group.children].map(idOf)));
 }

@@ -1,7 +1,21 @@
 import { describe, expect, it } from "bun:test";
-import { isWorkspacePinKey, loadSidebarPins, pinnedGroupIds, pinnedWorkspaceIds, pruneSidebarPins, pruneWorkspacePins, sidebarPinKey, splitPinnedGroups, splitPinnedRows, toggleSidebarPin, workspacePinKey } from "./sidebarPins.ts";
+import { isWorkspacePinKey, loadSidebarPins, pinnedGroupIds, pinnedWorkspaceIds, pruneSidebarPins, pruneWorkspacePins, reorderWorkspacePins, sidebarPinKey, splitPinnedGroups, splitPinnedRows, toggleSidebarPin, workspacePinKey } from "./sidebarPins.ts";
 
 describe("sidebar agent pins", () => {
+  it("moves workspace pins in both directions without moving other pin slots", () => {
+    const pins = ["pc:workspace:a", "pc:p1", "other:workspace:a", "pc:workspace:b", "pc:workspace:c"];
+    expect(reorderWorkspacePins(pins, "pc", "a", "c")).toEqual(["pc:workspace:b", "pc:p1", "other:workspace:a", "pc:workspace:c", "pc:workspace:a"]);
+    expect(reorderWorkspacePins(pins, "pc", "c", "a")).toEqual(["pc:workspace:c", "pc:p1", "other:workspace:a", "pc:workspace:a", "pc:workspace:b"]);
+    expect(pins[0]).toBe("pc:workspace:a");
+  });
+
+  it("leaves pins alone for self drops and either unpinned endpoint", () => {
+    const pins = ["pc:workspace:a", "pc:workspace:b"];
+    for (const [source, target] of [["a", "a"], ["missing", "b"], ["a", "missing"]]) {
+      expect(reorderWorkspacePins(pins, "pc", source!, target!)).toEqual(pins);
+    }
+  });
+
   it("keys a pin by PC and pane", () => {
     expect(sidebarPinKey("pc-a", "pane-1")).toBe("pc-a:pane-1");
     expect(sidebarPinKey("pc-b", "pane-1")).not.toBe(sidebarPinKey("pc-a", "pane-1"));
