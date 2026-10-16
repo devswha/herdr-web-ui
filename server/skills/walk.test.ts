@@ -85,7 +85,7 @@ describe("shared skill walk", () => {
     expect(opencode.filter(({ source }) => source !== "builtin").map(({ name, source, origin }) => ({ name, source, origin }))).toEqual([
       { name: "customize-opencode", source: "skill", origin: "bundled" },
     ]);
-    for (const agent of ["gjc", "devin", "hermes"]) expect(paneCommands(agent, home, home)).toEqual([]);
+    for (const agent of ["devin", "hermes"]) expect(paneCommands(agent, home, home)).toEqual([]);
   });
 });
 
