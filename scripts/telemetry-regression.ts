@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext } from "playwright-core";
-import { NOTICE_VERSION, type TelemetryActive, type TelemetryChange, type TelemetryEvent, type TelemetryStatus } from "../shared/telemetry.ts";
+import { NOTICE_VERSION, type TelemetryActive, type TelemetryChange, type TelemetryEvent, type TelemetrySettings, type TelemetryStatus } from "../shared/telemetry.ts";
 import { createServer } from "../server/index.ts";
 import { Telemetry } from "../server/telemetry.ts";
 import { UsageService } from "../server/usage.ts";
@@ -173,6 +173,13 @@ export async function checkTelemetrySettings(browser: Browser): Promise<void> {
     await telemetrySection.locator("summary").click();
     const updatedPreview = JSON.parse(await preview.innerText()) as TelemetryEvent;
     assert.equal(updatedPreview.settings?.palette, "charcoal", "the preview refreshes with the server's updated snapshot");
+    // a newer app's snapshot, herdr theme ids and both theme sides, is taken as it is; an unknown id is not
+    const themed: TelemetrySettings = { ...updatedPreview.settings!, palette: "tokyo-night", darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" };
+    const postSettings = (settings: unknown) => fetch(`${origin}/api/telemetry`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify({ settings }) });
+    assert.equal((await postSettings(themed)).status, 200, "the server takes a snapshot with herdr theme ids and the theme keys");
+    assert.deepEqual((await statusAt(origin)).next?.settings, themed);
+    assert.equal((await postSettings({ ...themed, palette: "not-a-theme" })).status, 400, "the server refuses an unknown theme id");
+    assert.deepEqual((await statusAt(origin)).next?.settings, themed, "a refused snapshot leaves the last one in place");
     assert.equal(await notice.getByRole("button").count(), 2, "the line offers What is sent and Dismiss, nothing else");
     const rows = await notice.locator("span").evaluate((span) => span.getBoundingClientRect().height / parseFloat(getComputedStyle(span).lineHeight));
     assert.ok(rows < 1.5, `the sentence stays on one row (${rows} rows)`);
