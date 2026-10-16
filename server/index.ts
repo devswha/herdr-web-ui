@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanSummary, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
+import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, DirectoryCreated, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanSummary, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -36,7 +36,7 @@ import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
-import { listDirectories } from "./directories.ts";
+import { createDirectory, listDirectories } from "./directories.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
 import { fileResponse, locateFile, locateFileInFolder, crossSiteFileRead } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
@@ -2075,8 +2075,22 @@ export function createServer(
         return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1", url.searchParams.get("render") === "1");
       }
 
+      if (pathname === "/api/workspace/directories" && request.method === "POST") {
+        let payload: unknown;
+        try { payload = await request.json(); } catch { return badRequest("invalid_json", "request body must be JSON"); }
+        if (!isJsonObject(payload) || typeof payload["path"] !== "string" || typeof payload["name"] !== "string") return badRequest("invalid_body", "path and name must be strings");
+        let made;
+        try { made = createDirectory(payload["path"], payload["name"]); } catch (error) { return errorResponse(error); }
+        if ("path" in made) return jsonResponse({ path: made.path } satisfies DirectoryCreated, 201);
+        if (made.error === "folder_exists") return conflictResponse("folder_exists", "a file or folder with that name is already there");
+        if (made.error === "permission_denied") return jsonResponse({ error: { code: "permission_denied", message: "this user cannot make a folder there" } }, 403);
+        return made.error === "invalid_cwd"
+          ? badRequest("invalid_cwd", "path must be a directory this user can read")
+          : badRequest("invalid_name", "name must be one folder name: not empty, `.` or `..`, without a slash, at most 255 bytes");
+      }
+
       if (pathname === "/api/workspace/directories") {
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET or POST");
         // a folder a pane's chat names is read from that pane's folder, as a file it names is
         const paneId = url.searchParams.get("pane_id");
         let base: string | undefined;

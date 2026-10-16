@@ -124,7 +124,7 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
     const terminal = page.locator(".xterm-helper-textarea");
     await terminal.focus();
     await shell(false, "", 844);
-    const direct = page.getByRole("button", { name: "Type straight into the terminal", exact: true });
+    const direct = page.getByRole("button", { name: "Input line", exact: true });
     await direct.click();
     await page.locator("[data-direct-typing]").waitFor();
     await shell(true, "500px", 500);
