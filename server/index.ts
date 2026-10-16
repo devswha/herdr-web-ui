@@ -1188,6 +1188,12 @@ export function createServer(
       }),
     };
   };
+  /** A browser visit for the daily active message: the call is made now so the visit's day is the trigger's, the panes are read after. */
+  function countVisit(): void {
+    if (!options.telemetry) return;
+    void options.telemetry.active(clientSnapshot().then((snapshot) => snapshot.panes.map((pane) => pane.agent ?? pane.agent_session?.agent ?? null)))
+      .catch((error) => console.error(`telemetry: the visit was not counted (${error instanceof Error ? error.message : String(error)})`));
+  }
   /** A pane's status frame: every one says whether the pane waits on its turn's background work. */
   const paneStatus = (paneId: string, status: AgentStatus, about: { background_tasks?: number; plan?: PlanSummary | null } = {}): ServerMessage =>
     ({ type: "pane-status", pane_id: paneId, agent_status: status, ...about, ...(waits.waiting(paneId) ? { background_wait: true as const } : {}) });
@@ -2893,6 +2899,7 @@ export function createServer(
         }
         if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
         clients.add(client);
+        countVisit();
         try {
           send(client, { type: "snapshot", snapshot: await clientSnapshot(), features: SERVER_FEATURES });
         } catch (error) {
@@ -2905,8 +2912,10 @@ export function createServer(
         if (stopped || client.data.closing) return;
         // read here for a relayed connection too: alerts for every PC go out from this server
         const presence = presenceOf(raw);
-        if (presence === true) present.add(client);
-        else if (presence === false) present.delete(client);
+        if (presence === true) {
+          present.add(client);
+          if (!client.data.relay) countVisit();
+        } else if (presence === false) present.delete(client);
         if (client.data.relay) { client.data.relay.message(raw); return; }
         if (presence !== null) return;
         let message: ClientMessage;
