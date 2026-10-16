@@ -79,7 +79,7 @@
   list-style: none;
 }
 
-/* Pinned agents stand first in a card (Sidebar.css), each with a pin; the Agents head stays the list's only head. */
+/* Pinned agents stand first in a card (Sidebar.css); the Agents head stays the list's only head. */
 
 /* The agent row selects its pane; its ⋯ (or a right-click) opens its pin menu. */
 /* The trailing padding keeps the state cell, which the row draws at its right edge after the ⋯, as
@@ -174,7 +174,6 @@
 
 .agent-item.is-selected .agent-title { color: var(--text-strong); }
 
-/* the title gives way to its pin, which follows it as a quiet mark */
 .agent-title-line {
   display: flex;
   align-items: center;

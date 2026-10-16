@@ -107,7 +107,7 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 
 /* Pinned rows, agents and workspaces alike, stand first in a card: an edge, not a fill, so a row's
    hover and selection read inside it as anywhere else, its corner the rows' own plus its padding.
-   The list under it follows a gap below, and each pinned row carries a pin after its name. */
+   The list under it follows a gap below. */
 .sidebar-pinned {
   padding: var(--space-1);
   border: var(--hairline) solid var(--border);
@@ -115,13 +115,6 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 }
 
 .sidebar-pinned + ul { margin-top: var(--space-2); }
-
-.sidebar-pin-mark {
-  flex: none;
-  width: var(--space-3);
-  height: var(--space-3);
-  color: var(--accent);
-}
 
 .workspace {
   display: flex;
@@ -240,12 +233,6 @@ button.sidebar-section-label:focus-visible { outline-offset: calc(var(--ring-off
 
 .workspace-name { flex: 0 1 auto; }
 
-/* a workspace's pin follows its name as an agent's does, a step closer than the line's gap */
-.workspace-copy > .sidebar-pin-mark,
-.workspace-line > .sidebar-pin-mark {
-  align-self: center;
-  margin-left: calc(var(--space-1) - var(--space-2));
-}
 
 /* Settings → Sidebar rows → Two lines: a row says what its pane is doing, and where under it,
    on the height and in the type of an agent's row. */

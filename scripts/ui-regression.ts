@@ -1669,7 +1669,6 @@ try {
   const pinnedCard = page.locator(".workspace-list-pinned");
   await pinnedCard.locator(`.workspace-group[data-workspace="${worktree.workspace_id}"]`).waitFor();
   assert.equal(await page.locator(`.worktree-children .workspace-group[data-workspace="${worktree.workspace_id}"]`).count(), 0, "a pinned worktree leaves its group");
-  assert.equal(await pinnedCard.locator(".sidebar-pin-mark").count(), 1, "the pinned row carries its pin");
   await pinnedCard.locator(`.workspace-group[data-workspace="${worktree.workspace_id}"] .workspace-select`).click({ button: "right" });
   await childMenu.getByRole("menuitem", { name: "Unpin workspace", exact: true }).click();
   await pinnedCard.waitFor({ state: "detached" });

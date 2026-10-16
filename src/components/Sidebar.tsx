@@ -583,7 +583,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     moveVisible(workspaceId, event.key === "ArrowUp" ? -1 : 1);
   };
 
-  const renderWorkspaceRow = (workspace: WorkspaceInfo, children: WorkspaceInfo[] = [], nested = false, drop?: "before" | "after", pinned = false) => {
+  const renderWorkspaceRow = (workspace: WorkspaceInfo, children: WorkspaceInfo[] = [], nested = false, drop?: "before" | "after") => {
     const panes = roster.filter((pane) => pane.workspace_id === workspace.workspace_id);
     if (panes.length === 0) return null;
     const pane = currentPane(workspace, panes);
@@ -673,13 +673,11 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           /> : lines ? <span className="workspace-copy is-two-line">
             <span className="workspace-line">
               <span className="workspace-name">{lines.title}</span>
-              {pinned && <Pin className="sidebar-pin-mark" aria-hidden="true" />}
               {foldedCount > 0 && <span className="workspace-fold-count" aria-hidden="true">+{foldedCount}</span>}
             </span>
             {lines.place && <span className="workspace-place">{lines.place}</span>}
           </span> : <span className="workspace-copy">
             <span className="workspace-name">{rowTitle}</span>
-            {pinned && <Pin className="sidebar-pin-mark" aria-hidden="true" />}
             {secondaryBranch && <span className="worktree-workspace-label">{secondaryBranch}</span>}
             {foldedCount > 0 && <span className="workspace-fold-count" aria-hidden="true">+{foldedCount}</span>}
           </span>}
@@ -704,7 +702,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     // a group moved below this one lands after its worktrees, and the line says so
     const afterChildren = !pinned && dropMark?.id === workspace.workspace_id && dropMark.children;
     return <Fragment key={workspace.workspace_id}>
-      {renderWorkspaceRow(workspace, children, false, !pinned && dropMark?.id === workspace.workspace_id && (!dropMark.children || childrenHidden) ? dropMark.side : undefined, pinned)}
+      {renderWorkspaceRow(workspace, children, false, !pinned && dropMark?.id === workspace.workspace_id && (!dropMark.children || childrenHidden) ? dropMark.side : undefined)}
       {children.length > 0 && <li
         className="worktree-children"
         id={`${rosterId}-worktrees-${encodeURIComponent(workspace.worktree!.repo_key)}`}
