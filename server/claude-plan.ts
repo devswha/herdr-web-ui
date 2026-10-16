@@ -10,8 +10,8 @@ import { dirname, join } from "node:path";
  * `"slug"`. The transcript is `<config dir>/projects/<project>/<session>.jsonl`, so its config
  * dir, `CLAUDE_CONFIG_DIR` or not, is three levels up.
  *
- * The tail is 1 MB: since Claude Code 2.1.301 each request adds an `api-request` line of 70 to
- * 104 KB without the slug, and the dialog can come after several of them.
+ * The tail is 1 MB: recent Claude Code versions write request lines of 70 to 145 KB without the
+ * slug (`api-request`, `api-request-blob`), and the dialog can come after several of them.
  */
 const TAIL_BYTES = 1024 * 1024;
 const SLUG_RE = /"slug":"([^"]*)"/g;
