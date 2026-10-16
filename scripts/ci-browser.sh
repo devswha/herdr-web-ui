@@ -80,6 +80,7 @@ run_script scripts/gjc-status-browser-regression.ts
 run_script scripts/math-browser-qa.ts
 run_script scripts/file-viewer-regression.ts
 run_script scripts/pwa-update-browser-qa.ts
+run_script scripts/install-state-demo-regression.ts
 run_script scripts/file-preview-text-browser-qa.ts
 run_script scripts/virtual-source-browser-qa.ts
 run_script scripts/repo-diff-browser-qa.ts
