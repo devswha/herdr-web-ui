@@ -517,10 +517,9 @@ One set for both themes: the card is island black wherever it shows.
 - Close follows herdr's `ui.confirm_close`: a workspace close, or a pane close that takes its
   workspace with it, asks in a confirm first. A busy pane also asks before it stops. After a
   confirmed close, focus lands on the header's workspace-list toggle.
-- Tab and pane menus follow herdr's target scopes. A tab's menu contains New tab, Rename tab
-  and Close tab, plus Move tab left/right when a neighbouring position exists and no move is pending.
-  The `⋯` that touch and narrow layouts draw beside the selected tab leaves New tab out (the
-  strip's `+` sits beside it) and also carries the open pane's actions, less Split and Zoom: a
+- Tab and pane menus follow herdr's target scopes. A tab's menu contains New tab with agent…, Rename
+  tab and Close tab, plus Move tab left/right when a neighbouring position exists and no move is pending.
+  The `⋯` that touch and narrow layouts draw beside the selected tab holds the same tab actions and also carries the open pane's actions, less Split and Zoom: a
   phone shows one pane at a time. The pane's own context menu carries pane actions; it opens at the pointer
   without changing which pane is focused. The pane header's ellipsis opens the same menu on touch.
 
@@ -715,22 +714,24 @@ One set for both themes: the card is island black wherever it shows.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
-- As **New tab** (from a row's `⋯` menu, the strip's `+` or the palette),
+- As **New tab** (from a row's `⋯` menu, the tab menu's New tab with agent… or the palette),
   the same dialog is titled `New tab · <workspace>`, shows the workspace's folder as a fact in a
   dashed box (`.new-session-folder`: a worktree's checkout, else the folder of the pane in front)
   instead of asking for one, and its name is the tab's (optional; the placeholder is the number
   herdr gives it). Submit calls `POST /api/tab/create` with the same agent launch.
 
 ### Tab strip and pane canvas
-- The tab strip is shown even for one pane, as herdr's TUI shows its single tab and `+`.
+- The tab strip is shown even for one pane, as herdr's TUI shows its single tab and `+`. The `+`
+  is herdr's own new tab: it calls `POST /api/tab/create` with no agent at once, in the workspace's
+  folder, and opens the new shell pane unless another pane was opened meanwhile; a refusal shows
+  in the strip. An agent tab comes from the tab menu's New tab with agent…, which opens the dialog.
   Tabs retain their names, status dots, active underline, keyboard navigation, rename field and
   close confirmation. A right-click opens tab actions at the pointer, including Move tab left/right
   when a neighbouring position exists. Desktop tabs have no close or dropdown buttons. Touch and narrow layouts show a `⋯` beside
   the selected tab for a trimmed menu; Shift+F10 or the menu key opens the full tab menu from a focused tab.
   Pane actions are not tab actions. Up to 768px, where a split tab shows one pane at a time, the
   tab's menu lists the tab's panes first, the open one marked current, over a hairline.
-  Its touch menu omits New tab (the strip's `+` opens it). Only at these narrow widths does it
-  omit Split and Zoom pane; Unzoom pane stays available whenever the tab is zoomed.
+  Only at these narrow widths does it omit Split and Zoom pane; Unzoom pane stays available whenever the tab is zoomed.
 - Mouse dragging previews an accent insertion line, with edge scrolling for an overflowing strip.
   The snapshot's tab order is authoritative: a tab's stable `number` is not its place. A drop calls
   `tab.move` with an insertion boundary before removal, within that workspace and PC. The visible

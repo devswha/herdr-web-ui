@@ -1702,14 +1702,18 @@ try {
   worktreeWorkspaces.splice(worktreeWorkspaces.indexOf(worktree.workspace_id), 1);
   console.log("PASS a worktree row sits under its repository's row, and its menu deletes the checkout, asking twice for a dirty one");
 
-  // A second tab from the tab strip's +: the dialog is New tab, with the workspace's folder shown
+  // A second tab from the tab's menu, New tab with agent…: the dialog is New tab, with the workspace's folder shown
   // and not asked for; the new pane opens, the workspace stays one row, and a strip over the pane
   // lists both tabs from then on.
   // The new pane's terminal takes the focus once it paints, which would close a menu opened before.
   await until(() => painted.has(created.pane_id), "created pane paint");
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
   await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the created workspace is selected again");
-  await page.locator(".tab-strip-add").click();
+  const openAgentTab = async () => {
+    await page.locator(".tab-strip").getByRole("tab", { selected: true }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "New tab with agent…", exact: true }).click();
+  };
+  await openAgentTab();
   const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
   await tabDialog.waitFor();
   assert.equal(await tabDialog.locator(".new-session-folder").textContent(), join(root, "a", "made-here"), "the folder is the workspace's, shown");
@@ -1748,7 +1752,7 @@ try {
   await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab opens its pane again");
   assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "Tab 1");
   // reopened right after a creation: its fields are live and Escape puts it away at once
-  await page.locator(".tab-strip-add").click();
+  await openAgentTab();
   await tabDialog.waitFor();
   assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");
@@ -1759,6 +1763,26 @@ try {
   await page.keyboard.press("Escape");
   await page.getByRole("dialog", { name: /^New workspace/ }).waitFor({ state: "hidden" });
   console.log("PASS a second tab is made from the tab strip, listed over the pane, and opened from it");
+
+  // The strip's + is herdr's own new tab: a shell tab in the workspace's folder at once, no dialog,
+  // and its pane opens. It is closed again, so the tabs below stay the two named ones.
+  const terminalResponse = page.waitForResponse((response) => response.url().endsWith("/api/tab/create"));
+  await page.locator(".tab-strip-add").click();
+  const terminalAnswer = await terminalResponse;
+  assert.deepEqual(terminalAnswer.request().postDataJSON(), { workspace_id: created.workspace_id, cwd: join(root, "a", "made-here"), label: null, agent: null }, "the + asks for a shell tab in the workspace's folder");
+  const terminalTab = await terminalAnswer.json() as WorkspaceCreated;
+  assert.equal(terminalTab.workspace_id, created.workspace_id, "the shell tab joins the workspace");
+  assert.equal(terminalTab.agent_started, false, "no agent is started");
+  await until(async () => (await page.locator(`.pane-select[title^="${terminalTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the shell tab's pane is selected");
+  assert.equal(await page.getByRole("dialog", { name: /^New tab/ }).count(), 0, "the + opens no dialog");
+  assert.equal(await strip.getByRole("tab").count(), 3, "the strip lists the shell tab");
+  const terminalTabId = (await sessionSnapshot()).panes.find((pane) => pane.pane_id === terminalTab.pane_id)?.tab_id;
+  assert.ok(terminalTabId, "herdr has the shell tab's pane");
+  await strip.getByRole("tab", { name: "Tab 1", exact: true }).click();
+  await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab opens its pane again");
+  await herdrRpc("tab.close", { tab_id: terminalTabId });
+  await until(async () => (await strip.getByRole("tab").count()) === 2, "the shell tab is gone from the strip");
+  console.log("PASS the strip's + opens a shell tab at once, with no dialog");
 
   // A tab is renamed and closed from the strip, as herdr's prefix+shift+t and prefix+shift+x.
   const tabsInHerdr = async () => (await sessionSnapshot()).tabs.filter((tab) => tab.workspace_id === created.workspace_id).map((tab) => tab.label);
@@ -1796,7 +1820,7 @@ try {
   await tabMenu.waitFor();
   assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "first", "opening another tab's context menu does not select it");
   // The tab menu keeps native tab scope; pane operations belong to the pane or header.
-  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Move tab left", "New tab", "Rename tab", "Close tab"], "the last tab offers only a move to the left");
+  assert.deepEqual(await tabMenu.getByRole("menuitem").allTextContents(), ["Move tab left", "New tab with agent…", "Rename tab", "Close tab"], "the last tab offers only a move to the left");
   await tabMenu.getByRole("menuitem", { name: "Rename tab", exact: true }).click();
   await tabName.fill("build");
   await page.keyboard.press("Enter");
@@ -1819,7 +1843,7 @@ try {
   const tabSheet = tabPhonePage.getByRole("dialog", { name: "build", exact: true });
   await tabSheet.waitFor();
   const touchTabItems = await tabSheet.locator(".row-sheet-item").allTextContents();
-  assert.deepEqual(touchTabItems.slice(-4), ["Move tab left", "Move tab right", "Rename tab", "Close tab"], "a tab between siblings offers both adjacent moves on touch");
+  assert.deepEqual(touchTabItems.slice(-5), ["Move tab left", "Move tab right", "New tab with agent…", "Rename tab", "Close tab"], "a tab between siblings offers both adjacent moves on touch");
   assert.ok(touchTabItems.includes("Rename pane") && touchTabItems.includes("Close pane"), "the touch menu carries the open pane's actions");
   await tabSheet.getByRole("button", { name: "Cancel", exact: true }).tap();
   await tabSheet.waitFor({ state: "detached" });

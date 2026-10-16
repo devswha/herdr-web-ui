@@ -2,7 +2,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEff
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
@@ -1235,6 +1235,24 @@ export function App() {
     document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
   }, [selectedTitle]);
 
+  // A new tab's workspace: the named one, else the selected pane's. Its folder is the workspace's:
+  // a worktree's checkout, else where the pane in front (the selected one, else the one herdr has
+  // in front, else the first) is. Read from refs, so the actions keep no stale roster.
+  const newTabTarget = (target?: { machineId: string; workspaceId: string }) => {
+    const machineId = target?.machineId ?? selectionRef.current.machineId;
+    const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
+    // pane ids repeat across PCs: the selected pane counts only on the PC the tab is for
+    const selectedPaneId = selectionRef.current.machineId === machineId ? selectionRef.current.paneId : null;
+    const workspaceId = target?.workspaceId ?? roster?.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
+    const workspace = roster?.workspaces.find((candidate) => candidate.workspace_id === workspaceId);
+    if (!roster || !workspace) return null;
+    const panes = roster.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
+    const inFront = panes.find((pane) => pane.pane_id === selectedPaneId)
+      ?? panes.find((pane) => pane.pane_id === roster.layouts?.find((layout) => layout.tab_id === workspace.active_tab_id)?.focused_pane_id)
+      ?? panes[0];
+    return { machineId, workspace, cwd: workspace.worktree?.checkout_path ?? inFront?.cwd ?? null };
+  };
+
   const actions = useMemo<AppActions>(
     () => ({
       selectPane,
@@ -1257,23 +1275,22 @@ export function App() {
         setNewSessionOpen(true);
       },
       openNewTab: (target) => {
-        const machineId = target?.machineId ?? selectionRef.current.machineId;
-        const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
-        // pane ids repeat across PCs: the selected pane counts only on the PC the tab is for
-        const selectedPaneId = selectionRef.current.machineId === machineId ? selectionRef.current.paneId : null;
-        const workspaceId = target?.workspaceId ?? roster?.panes.find((pane) => pane.pane_id === selectedPaneId)?.workspace_id;
-        const workspace = roster?.workspaces.find((candidate) => candidate.workspace_id === workspaceId);
-        if (!roster || !workspace) return;
-        // the tab's folder is the workspace's: a worktree's checkout, else where the pane in
-        // front (the selected one, else the one herdr has in front, else the first) is
-        const panes = roster.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
-        const inFront = panes.find((pane) => pane.pane_id === selectedPaneId)
-          ?? panes.find((pane) => pane.pane_id === roster.layouts?.find((layout) => layout.tab_id === workspace.active_tab_id)?.focused_pane_id)
-          ?? panes[0];
+        const found = newTabTarget(target);
+        if (!found) return;
+        const { machineId, workspace, cwd } = found;
         setDrawerOpen(false);
         setNewSessionMachineId(machineId);
-        setNewTab({ workspaceId: workspace.workspace_id, workspaceLabel: workspace.label, cwd: workspace.worktree?.checkout_path ?? inFront?.cwd ?? null, number: workspace.tab_count + 1 });
+        setNewTab({ workspaceId: workspace.workspace_id, workspaceLabel: workspace.label, cwd, number: workspace.tab_count + 1 });
         setNewSessionOpen(true);
+      },
+      openTerminalTab: async (target) => {
+        const found = newTabTarget(target);
+        if (!found) return;
+        const asked = selectionRef.current;
+        const created = await createTab({ workspace_id: found.workspace.workspace_id, cwd: found.cwd, label: null, agent: null }, found.machineId);
+        void load();
+        // what the user went to while herdr answered is theirs to keep
+        if (selectionStill(asked, selectionRef.current)) selectTargetRef.current(found.machineId, created.pane_id);
       },
       openPalette,
       agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
@@ -1632,6 +1649,7 @@ export function App() {
                 {slotSnapshot && pane && workspace && (
                   <TabStrip snapshot={slotSnapshot} workspace={workspace} selectedPane={pane} panelId={slotPanelId} splitDrag={wideScreen} onSelectPane={onSelect}
                     onNewTab={() => actions.openNewTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
+                    onNewTerminal={() => actions.openTerminalTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
                     paneActions={active ? (paneId) => {
                       const target = snapshot?.panes.find((item) => item.pane_id === paneId);
                       if (!target || !paneActionsRef.current) return [];
