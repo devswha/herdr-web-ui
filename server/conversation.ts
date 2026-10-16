@@ -43,7 +43,7 @@ import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, cod
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
-import { omoProcessIdentity, omoSessionForPane } from "./omo.ts";
+import { omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
@@ -1128,8 +1128,13 @@ export async function paneRunsOmo(paneId: string): Promise<boolean> {
   );
 }
 
-/** Loaded skill roots belong to the pane's omo process, not herdr's changing label. */
-export async function paneOmoRoots(paneId: string): Promise<{ agentDir: string | null; pluginDir: string | null } | null> {
+/** Loaded roots and environment belong to the foreground agent, not the web server. */
+export async function paneProcessRoots(paneId: string, agent: string | null | undefined): Promise<{
+  omo: { agentDir: string | null; pluginDir: string | null } | null;
+  environ: string[] | null;
+  pid: number | null;
+  cwd: string | null;
+}> {
   const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown; argv?: unknown; cwd?: unknown }[] } }>(
     "pane.process_info", { pane_id: paneId },
   ).catch(() => null);
@@ -1137,12 +1142,19 @@ export async function paneOmoRoots(paneId: string): Promise<{ agentDir: string |
   const directory = (path: string | null): string | null => {
     try { return path && statSync(path).isDirectory() ? path : null; } catch { return null; }
   };
+  let matched: { pid: number; cwd: string } | null = null;
   for (const candidate of info?.process_info?.foreground_processes ?? []) {
     const process = {
       pid: typeof candidate.pid === "number" ? candidate.pid : -1,
       argv: Array.isArray(candidate.argv) ? candidate.argv.map(String) : [],
       cwd: typeof candidate.cwd === "string" ? candidate.cwd : "",
     };
+    const binary = (word: string): string => nodePath.posix.basename(word.replace(/\\/g, "/")).replace(/\.(?:exe|cmd|js|mjs|cjs)$/i, "");
+    const executable = binary(process.argv[0] ?? "");
+    const launched = ["node", "bun", "python", "python3"].includes(executable) ? binary(process.argv[1] ?? "") : executable;
+    if (!matched && agent && ["claude", "codex", "omp", "gjc", "pi", "opencode", "devin", "grok", "hermes", "agy"].includes(agent) && launched === agent) {
+      matched = process;
+    }
     const identity = omoProcessIdentity(process, "", home);
     if (!identity) continue;
     const agentDir = directory(identity.agentDir);
@@ -1171,9 +1183,9 @@ export async function paneOmoRoots(paneId: string): Promise<{ agentDir: string |
         catch { /* no readable installed plugin */ }
       }
     }
-    return { agentDir, pluginDir };
+    return { omo: { agentDir, pluginDir }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null };
   }
-  return null;
+  return { omo: null, environ: matched ? processEnviron(matched.pid) : null, pid: matched?.pid ?? null, cwd: matched?.cwd || null };
 }
 
 /**
