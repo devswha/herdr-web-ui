@@ -1752,8 +1752,21 @@ try {
   await until(async () => (await page.locator(`.pane-select[title^="${created.pane_id} —"]`).getAttribute("aria-current")) === "true", "the first tab opens its pane again");
   assert.equal(await strip.getByRole("tab", { selected: true }).textContent(), "Tab 1");
   // reopened right after a creation: its fields are live and Escape puts it away at once
+  // The menu restores this terminal on unmount. Record focus at the dialog's DOM commit,
+  // before any animation frame can rescue it: Escape may arrive before that first paint.
+  await page.locator(".pane-frame.is-current .xterm-helper-textarea").focus();
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      const dialog = document.querySelector(".new-session-modal");
+      if (!dialog) return;
+      dialog.setAttribute("data-focus-at-open", String(dialog.contains(document.activeElement)));
+      observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
   await openAgentTab();
   await tabDialog.waitFor();
+  assert.equal(await tabDialog.getAttribute("data-focus-at-open"), "true", "the dialog owns focus before its first paint, not the terminal restored by its menu");
   assert.equal(await tabDialog.getByRole("button", { name: "Start", exact: true }).isDisabled(), false, "a reopened dialog is not left pending");
   await page.keyboard.press("Escape");
   await tabDialog.waitFor({ state: "hidden" });

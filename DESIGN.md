@@ -474,6 +474,8 @@ One set for both themes: the card is island black wherever it shows.
   whole screen, so a sheet and its text field sit above the keyboard, and the sheet drops its
   safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
+  Initial focus is placed in the opening commit, before paint, so a menu restoring the terminal
+  cannot leave the first Escape or typed key going to the pane beneath the dialog.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
   and a failure shows inside it. A no gives the focus back to what opened it. A refusal the owner

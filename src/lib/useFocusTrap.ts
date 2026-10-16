@@ -67,22 +67,20 @@ export function useFocusTrap<T extends HTMLElement>(open: boolean, options: Focu
   // read in the listeners, so a dialog that changes its mind mid-life is not held to its first render
   const latest = useRef(options);
   latest.current = options;
-  // before paint: the opener is recorded before anything can move the focus away from it
+  // Own the keyboard in the opening commit: a menu can just have restored the terminal,
+  // whose Escape handler would consume a key arriving before the first animation frame.
   useLayoutEffect(() => {
     if (!open) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => {
-      const node = surface.current;
-      if (!node || nativeModalOver(node)) return;
+    const node = surface.current;
+    if (node && !nativeModalOver(node) && !node.contains(document.activeElement)) {
       // a surface that already placed the focus inside itself (Settings focuses its page's tab in
       // a layout effect after this one) keeps that placement: containment and return are ours to
       // add, not the start
-      if (node.contains(document.activeElement)) return;
       const wanted = latest.current.initialFocus?.current;
       (wanted && wanted.isConnected ? wanted : tabStops(node)[0] ?? node).focus({ preventScroll: true });
-    });
+    }
     return () => {
-      window.cancelAnimationFrame(frame);
       // a dialog the owner unmounts on its own deed (ConfirmDialog's "done") has nowhere to go back to
       if (latest.current.shouldRestore?.() !== false && opener?.isConnected && !nativeModalOver(surface.current)) opener.focus({ preventScroll: true });
     };
