@@ -15,6 +15,9 @@ licenses follow. Tokyo Night Day uses folke's Apache-2.0 port, not the original 
 | tokyo-night | [enkia/tokyo-night-vscode-theme](https://github.com/enkia/tokyo-night-vscode-theme/blob/master/themes/tokyo-night-color-theme.json) | MIT |
 | tokyo-night-day | [folke/tokyonight.nvim](https://github.com/folke/tokyonight.nvim/blob/main/extras/ghostty/tokyonight_day) | Apache-2.0 |
 
+| gruvbox | [morhetz/gruvbox](https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim) | MIT |
+| gruvbox-light | [morhetz/gruvbox](https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim) | MIT |
+
 ## Legend List
 
 The chat timeline uses [`@legendapp/list`](https://github.com/LegendApp/legend-list) 3.3.5.
