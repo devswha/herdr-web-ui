@@ -75,10 +75,10 @@ describe("shared skill walk", () => {
 
   it("leaves empty homes at builtins and unimplemented sources empty", () => {
     const home = temp();
-    for (const agent of ["omo", "claude", "codex", "pi", "omp"]) {
+    for (const agent of ["omo", "claude", "codex", "pi", "omp", "grok"]) {
       expect(paneCommands(agent, home, home).every(({ source }) => source === "builtin")).toBeTrue();
     }
-    for (const agent of ["gjc", "opencode", "devin", "grok", "hermes", "agy"]) expect(paneCommands(agent, home, home)).toEqual([]);
+    for (const agent of ["gjc", "opencode", "devin", "hermes", "agy"]) expect(paneCommands(agent, home, home)).toEqual([]);
   });
 });
 
