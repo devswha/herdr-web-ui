@@ -8,6 +8,7 @@ import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
 import { openSettingsPage } from "./settings-page.ts";
 import { chromePath } from "./chrome-path.ts";
+import { SUPPORTED_ENTRIES } from "../src/lib/themes.ts";
 
 // The model label in the input card's last row, fitted to what is measured there, on the
 // unmodified app over the demo's fixture transport. The demo's panes name no context window and
@@ -319,7 +320,8 @@ try {
         assert.equal(before.height, empty.height);
         assert.equal(await button.locator("[aria-live], [role=status]").count(), 0, "no repeated live announcement");
         const progress = button.locator(".composer-send-progress");
-        for (const palette of ["amber", "report", "charcoal", "catppuccin", "lilac", "forest"]) {
+        // every theme row of this mode, so each real block of styles.css is behind the button once
+        for (const { id: palette } of SUPPORTED_ENTRIES.filter((entry) => entry.mode === theme)) {
           await page.evaluate((palette) => { document.documentElement.dataset.palette = palette; }, palette);
           assert.equal(await progress.evaluate((node) => getComputedStyle(node).animationTimingFunction), "steps(8)");
           assert.equal(await button.evaluate((node) => getComputedStyle(node).opacity), "1");

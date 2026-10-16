@@ -120,6 +120,13 @@
   max-width: 100%;
 }
 
+/* fingers: a select is a finger-sized target, like the file viewer's controls */
+@media (pointer: coarse) {
+  .settings-select {
+    height: max(44px, var(--touch-target));
+  }
+}
+
 .settings-font-input {
   flex: 0 1 16rem;
   min-width: 0;

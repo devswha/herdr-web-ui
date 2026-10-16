@@ -73,8 +73,8 @@ describe("pinned herdr palettes", () => {
       ["catppuccin", "catppuccin-latte"], ["tokyo-night", "tokyo-night-day"],
       ["gruvbox", "gruvbox-light"], ["one-dark", "one-light"],
       ["solarized", "solarized-light"], ["kanagawa", "kanagawa-lotus"], ["rose-pine", "rose-pine-dawn"],
-    ];
-    for (const [dark = "", light = ""] of pairs) {
+    ] as const;
+    for (const [dark, light] of pairs) {
       expect(siblingFor(dark, "light")).toBe(light);
       expect(siblingFor(light, "dark")).toBe(dark);
       expect(siblingFor(dark, "dark")).toBeUndefined();

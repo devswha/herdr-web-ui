@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isThemeId, rowFor, SUPPORTED_ENTRIES, terminalColors, THEME_IDS, themeColor } from "./themes.ts";
+import { isThemeId, pickTheme, rowFor, SUPPORTED_ENTRIES, terminalColors, THEME_IDS, themeColor } from "./themes.ts";
 
 describe("theme lookups", () => {
   it("knows the ids of the generated table and nothing else", () => {
@@ -28,5 +28,20 @@ describe("theme lookups", () => {
     }
     expect(themeColor("amber", "dark")).toBe("#181613");
     expect(terminalColors("catppuccin", "light").background).toBe("#eff1f5");
+  });
+});
+
+describe("picking a theme", () => {
+  it("fills the other side with the sibling while that side is the default or the previous pick's sibling", () => {
+    expect(pickTheme({ darkTheme: "amber", lightTheme: "amber" }, "dark", "tokyo-night")).toEqual({ darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" });
+    expect(pickTheme({ darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" }, "dark", "gruvbox")).toEqual({ darkTheme: "gruvbox", lightTheme: "gruvbox-light" });
+    expect(pickTheme({ darkTheme: "amber", lightTheme: "amber" }, "light", "catppuccin-latte")).toEqual({ darkTheme: "catppuccin", lightTheme: "catppuccin-latte" });
+  });
+
+  it("keeps a side the user chose, and fills nothing for a theme without a pair or picked for its own kind's other side", () => {
+    expect(pickTheme({ darkTheme: "tokyo-night", lightTheme: "charcoal" }, "dark", "gruvbox")).toEqual({ darkTheme: "gruvbox" });
+    expect(pickTheme({ darkTheme: "amber", lightTheme: "tokyo-night-day" }, "dark", "gruvbox")).toEqual({ darkTheme: "gruvbox" });
+    expect(pickTheme({ darkTheme: "amber", lightTheme: "amber" }, "dark", "charcoal")).toEqual({ darkTheme: "charcoal" });
+    expect(pickTheme({ darkTheme: "amber", lightTheme: "amber" }, "light", "tokyo-night")).toEqual({ lightTheme: "tokyo-night" });
   });
 });

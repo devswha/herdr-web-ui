@@ -11,6 +11,7 @@ import { KO } from "../src/lib/i18n.ko.ts";
 import { JA } from "../src/lib/i18n.ja.ts";
 import { ZH } from "../src/lib/i18n.zh.ts";
 import { terminalTheme } from "../src/lib/settings.ts";
+import { THEME_IDS, type ThemeId } from "../src/lib/themes.ts";
 import baseline from "../src/lib/themes.legacy-baseline.json";
 import { comboKey, LEGACY_COMBOS } from "./theme-baseline.ts";
 
@@ -150,44 +151,80 @@ try {
               // The build minifies colors (rgba() to #rrggbbaa), so both sides are compared as the browser
               // computes them on a probe: a color, a box-shadow, or a border for `2px solid <color>`
               const themes = page.getByRole("group", { name: "Theme", exact: true });
-              const palette = page.getByLabel("Colors", { exact: true });
+              const pickers = { dark: page.locator("#settings-theme-dark"), light: page.locator("#settings-theme-light") };
+              // both pickers offer every theme, grouped by kind with the side's own kind first (Q1: any theme on either side)
+              for (const side of ["dark", "light"] as const) {
+                const listed = await pickers[side].locator("option").evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
+                assert.deepEqual([...listed].sort(), [...THEME_IDS].sort(), `the ${side} picker lists every theme once`);
+                assert.deepEqual(await pickers[side].locator("optgroup").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("label"))), side === "dark" ? ["Dark", "Light"] : ["Light", "Dark"]);
+              }
+              const drawn = (mode: string, id: string): Promise<unknown> => page.waitForFunction(([mode, id]) => document.documentElement.dataset.theme === mode && document.documentElement.dataset.palette === id && getComputedStyle(document.documentElement).colorScheme === mode, [mode, id]);
+              /** The theme keys of the saved record and of the second key old code never touches. */
+              const stored = () => page.evaluate(() => {
+                const record = JSON.parse(localStorage.getItem("herdr-web-ui:settings")!) as Record<string, string>;
+                const themes = JSON.parse(localStorage.getItem("herdr-web-ui:themes")!) as Record<string, string>;
+                return { palette: record["palette"], darkTheme: record["darkTheme"], lightTheme: record["lightTheme"], second: { darkTheme: themes["darkTheme"], lightTheme: themes["lightTheme"] } };
+              });
+              const xtermTokens = (mode: "dark" | "light", id: ThemeId): (readonly [string, string])[] => {
+                const xterm = terminalTheme(mode, id);
+                return ([["--term-bg", xterm.background], ["--term-fg", xterm.foreground], ["--term-cursor", xterm.cursor], ["--term-selection", xterm.selectionBackground]] as const).map(([name, value]) => [`xterm ${name}`, value] as const);
+              };
+              /** The expected tokens the page computes differently, as `name: want -> got`. */
+              const drift = (expected: (readonly [string, string])[]): Promise<string[]> => page.evaluate((expected) => {
+                const root = getComputedStyle(document.documentElement);
+                const probe = document.body.appendChild(document.createElement("div"));
+                const used = (value: string): string => {
+                  const kind = /\bsolid\b/.test(value) ? "border" : /\dpx\b/.test(value) ? "boxShadow" : "color";
+                  probe.removeAttribute("style");
+                  probe.style[kind] = value;
+                  if (probe.style[kind] === "") return `invalid ${kind}: ${value}`;
+                  const style = getComputedStyle(probe);
+                  return kind === "border" ? `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}` : style[kind];
+                };
+                const out = expected.flatMap(([name, value]) => {
+                  const [want, got] = [used(value), used(root.getPropertyValue(name.replace(/^xterm /, "")))];
+                  return want === got ? [] : [`${name}: ${want} -> ${got}`];
+                });
+                probe.remove();
+                return out;
+              }, expected);
               const combos: Record<string, { resolved: Record<string, string> }> = baseline.combos;
               for (const { palette: id, mode } of LEGACY_COMBOS) {
                 const key = comboKey(id, mode);
                 await themes.getByRole("button", { name: mode === "dark" ? "Dark" : "Light", exact: true }).tap();
-                await palette.selectOption(id);
-                await page.waitForFunction(([mode, id]) => document.documentElement.dataset.theme === mode && document.documentElement.dataset.palette === id, [mode, id]);
-                assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).palette), id);
-                const xterm = terminalTheme(mode, id);
-                const expected = [
-                  ...Object.entries(combos[key]!.resolved),
-                  ...([["--term-bg", xterm.background], ["--term-fg", xterm.foreground], ["--term-cursor", xterm.cursor], ["--term-selection", xterm.selectionBackground]] as const).map(([name, value]) => [`xterm ${name}`, value] as const),
-                ];
-                const drift = await page.evaluate((expected) => {
-                  const root = getComputedStyle(document.documentElement);
-                  const probe = document.body.appendChild(document.createElement("div"));
-                  const used = (value: string): string => {
-                    const kind = /\bsolid\b/.test(value) ? "border" : /\dpx\b/.test(value) ? "boxShadow" : "color";
-                    probe.removeAttribute("style");
-                    probe.style[kind] = value;
-                    if (probe.style[kind] === "") return `invalid ${kind}: ${value}`;
-                    const style = getComputedStyle(probe);
-                    return kind === "border" ? `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}` : style[kind];
-                  };
-                  const out = expected.flatMap(([name, value]) => {
-                    const [want, got] = [used(value), used(root.getPropertyValue(name.replace(/^xterm /, "")))];
-                    return want === got ? [] : [`${name}: ${want} -> ${got}`];
-                  });
-                  probe.remove();
-                  return out;
-                }, expected);
-                assert.deepEqual(drift, [], `${key}: the page computes the frozen colors, and --term-* as the theme xterm is given`);
+                await pickers[mode].selectOption(id);
+                await drawn(mode, id);
+                assert.equal((await stored()).palette, id);
+                assert.deepEqual(await drift([...Object.entries(combos[key]!.resolved), ...xtermTokens(mode, id)]), [], `${key}: the page computes the frozen colors, and --term-* as the theme xterm is given`);
                 if (key === "catppuccin/dark" && process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, `catppuccin-palette-${width}.png`), fullPage: true });
               }
-              // the pages after this one are checked on the default palette
+              // a herdr pair: Tokyo Night on the dark side fills the untouched light side with Tokyo Night Day, each
+              // side draws its own row with its xterm colors, and the look follows the mode toggle
               await themes.getByRole("button", { name: "Dark", exact: true }).tap();
-              await palette.selectOption("amber");
-              await page.waitForFunction(() => document.documentElement.dataset.theme === "dark" && document.documentElement.dataset.palette === "amber");
+              await pickers.light.selectOption("amber");
+              await pickers.dark.selectOption("tokyo-night");
+              await drawn("dark", "tokyo-night");
+              assert.deepEqual(await stored(), { palette: "tokyo-night", darkTheme: "tokyo-night", lightTheme: "tokyo-night-day", second: { darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" } }, "a paired dark theme fills the light side still at its default with its sibling");
+              assert.equal(await pickers.light.inputValue(), "tokyo-night-day");
+              assert.deepEqual(await drift(xtermTokens("dark", "tokyo-night")), [], "tokyo-night/dark: --term-* as the theme xterm is given");
+              await themes.getByRole("button", { name: "Light", exact: true }).tap();
+              await drawn("light", "tokyo-night-day");
+              assert.equal((await stored()).palette, "tokyo-night-day", "the legacy palette mirrors the side the mode draws");
+              assert.deepEqual(await drift(xtermTokens("light", "tokyo-night-day")), [], "tokyo-night-day/light: --term-* as the theme xterm is given");
+              // any theme on either side (Q1): a dark theme picked for the light side draws dark in Light mode
+              await pickers.light.selectOption("tokyo-night");
+              await drawn("dark", "tokyo-night");
+              assert.deepEqual(await stored(), { palette: "tokyo-night", darkTheme: "tokyo-night", lightTheme: "tokyo-night", second: { darkTheme: "tokyo-night", lightTheme: "tokyo-night" } }, "a dark theme on the light side is kept as chosen");
+              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).theme), "light", "the mode stays Light while the row drawn is dark");
+              // a side chosen by hand keeps its theme when the other side picks a pair
+              await themes.getByRole("button", { name: "Dark", exact: true }).tap();
+              await pickers.dark.selectOption("gruvbox");
+              await drawn("dark", "gruvbox");
+              assert.deepEqual(await stored(), { palette: "gruvbox", darkTheme: "gruvbox", lightTheme: "tokyo-night", second: { darkTheme: "gruvbox", lightTheme: "tokyo-night" } }, "a light side chosen by hand is not filled with the pair's sibling");
+              // the pages after this one are checked on the default theme
+              await pickers.dark.selectOption("amber");
+              await pickers.light.selectOption("amber");
+              await drawn("dark", "amber");
             }
             assert.deepEqual(await cutOff(page), [], `${name} fits a ${width}px phone (${language})`);
           }

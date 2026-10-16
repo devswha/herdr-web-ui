@@ -36,7 +36,7 @@ export function terminalColors(id: string, mode: Mode): TerminalColors {
   return rowFor(id, mode).terminal;
 }
 
-const SIBLING_PAIRS = [
+const SIBLING_PAIRS: readonly (readonly [dark: ThemeId, light: ThemeId])[] = [
   ["catppuccin", "catppuccin-latte"],
   ["tokyo-night", "tokyo-night-day"],
   ["gruvbox", "gruvbox-light"],
@@ -44,12 +44,29 @@ const SIBLING_PAIRS = [
   ["solarized", "solarized-light"],
   ["kanagawa", "kanagawa-lotus"],
   ["rose-pine", "rose-pine-dawn"],
-] as const;
+];
 
 /** Only a known pair's opposite side is pre-filled; same-side picks have no sibling. */
-export function siblingFor(id: string, targetSide: Mode): string | undefined {
+export function siblingFor(id: string, targetSide: Mode): ThemeId | undefined {
   const pair = SIBLING_PAIRS.find(([dark, light]) => targetSide === "light" ? id === dark : id === light);
   return pair?.[targetSide === "light" ? 1 : 0];
+}
+
+/** The theme either side starts from, and falls back to for an unknown id. */
+export const DEFAULT_THEME: ThemeId = "amber";
+
+const SIDE_KEY = { dark: "darkTheme", light: "lightTheme" } as const;
+
+/**
+ * What picking `id` for `side` changes: that side, and the other side too when `id` has a
+ * sibling and the other side was never chosen on its own - still the default, or the sibling the
+ * previous pick put there. A side the user chose keeps its theme.
+ */
+export function pickTheme(current: { readonly darkTheme: string; readonly lightTheme: string }, side: Mode, id: ThemeId): Partial<Record<"darkTheme" | "lightTheme", ThemeId>> {
+  const other: Mode = side === "dark" ? "light" : "dark";
+  const sibling = siblingFor(id, other);
+  const untouched = current[SIDE_KEY[other]] === DEFAULT_THEME || current[SIDE_KEY[other]] === siblingFor(current[SIDE_KEY[side]], other);
+  return sibling !== undefined && untouched ? { [SIDE_KEY[side]]: id, [SIDE_KEY[other]]: sibling } : { [SIDE_KEY[side]]: id };
 }
 
 export const ROLES = {

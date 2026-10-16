@@ -158,7 +158,8 @@ export async function checkTelemetrySettings(browser: Browser): Promise<void> {
     assert.ok(Array.isArray(active.harnesses), "the active preview carries a harnesses array");
 
     await openSettingsPage(page, "Appearance");
-    const palette = page.locator("#settings-palette");
+    // the fixture's mode is dark, so the dark side carries its palette and the legacy mirror follows a pick there
+    const palette = page.locator("#settings-theme-dark");
     assert.equal(await palette.inputValue(), "catppuccin");
     await palette.selectOption("charcoal");
     await until(async () => {
