@@ -27,12 +27,15 @@ export function isWebLink(uri: string): boolean {
 }
 
 /**
- * Opens an http(s) address in a new tab. Any features string (even "noopener") makes Chrome open a
- * popup window instead of a tab, so none is passed; the new page's opener is cut instead.
+ * Opens an http(s) address in a new tab, as a chat link does: a link's own click, with no opener
+ * and no referrer. window.open with a features string (even "noopener") opens a popup window instead.
  */
 export function openWebLink(uri: string): void {
-  const opened = window.open(uri, "_blank");
-  if (opened) opened.opener = null;
+  const link = document.createElement("a");
+  link.href = uri;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.click();
 }
 
 /** Local file URIs are read by the existing server-side file viewer. */
