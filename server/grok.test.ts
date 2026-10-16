@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { forgetTranscriptState, HistoryChanged, transcriptPage } from "./conversation.ts";
 import { grokToolOutput, grokProjection, GrokUnavailable, parseGrokTranscript } from "./grok.ts";
-import { grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath } from "./grok-store.ts";
+import { grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath, isGrokExecutable } from "./grok-store.ts";
 import type { ConversationPart } from "../shared/protocol.ts";
 
 const session = "fictional-session";
@@ -192,6 +192,29 @@ describe("exact store lookup", () => {
   test("discovery takes Grok's own executable from the foreground processes", () => {
     expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: ["/usr/local/bin/grok"] }, { pid: 12, argv: ["/bin/sh"] }] }).map((p) => p.pid)).toEqual([11]);
     expect(grokPaneProcesses({})).toEqual([]);
+  });
+  test("every Grok executable name can hold the session", () => {
+    const accepted = [
+      "grok",
+      "/usr/local/bin/grok",
+      "/usr/local/bin/grok (deleted)",
+      "grok.exe",
+      "GROK.EXE",
+      "C:\\Grok\\grok.exe",
+      "grok-1.0.50-linux-x86_64",
+      "/home/user/.grok/downloads/grok-1.0.52-linux-x86_64",
+      "/home/user/.grok/downloads/grok-1.0.52-linux-x86_64 (deleted)",
+      "grok-1.0.52.exe",
+      "grok.js",
+      "grok.cjs",
+      "grok.mjs",
+      "grok.js.exe",
+      "grok-2.0.0-darwin-arm64",
+      "grok-statusline",
+    ];
+    for (const exe of accepted) expect(isGrokExecutable(exe)).toBe(true);
+    const rejected = ["/bin/sleep", "sleep", "grokker", "notgrok", "grok_cli", "grok.bak", "/opt/grok/bin/sleep", ""];
+    for (const exe of rejected) expect(isGrokExecutable(exe)).toBe(false);
   });
   test("custom home and hashed cwd names need no newest-file guess", () => {
     const hashed = join(root, "sessions", "long-slug-abc123", session, "updates.jsonl");
