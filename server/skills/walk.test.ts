@@ -75,7 +75,7 @@ describe("shared skill walk", () => {
 
   it("leaves empty homes at builtins and unimplemented sources empty", () => {
     const home = temp();
-    for (const agent of ["omo", "claude", "codex", "pi", "omp", "grok", "agy"]) {
+    for (const agent of ["omo", "claude", "codex", "pi", "omp", "grok", "agy", "devin"]) {
       expect(paneCommands(agent, home, home).every(({ source }) => source === "builtin")).toBeTrue();
     }
     const opencode = paneCommands("opencode", home, home);
@@ -85,7 +85,7 @@ describe("shared skill walk", () => {
     expect(opencode.filter(({ source }) => source !== "builtin").map(({ name, source, origin }) => ({ name, source, origin }))).toEqual([
       { name: "customize-opencode", source: "skill", origin: "bundled" },
     ]);
-    for (const agent of ["devin", "hermes"]) expect(paneCommands(agent, home, home)).toEqual([]);
+    for (const agent of ["hermes"]) expect(paneCommands(agent, home, home)).toEqual([]);
   });
 });
 
