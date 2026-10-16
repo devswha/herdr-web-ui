@@ -476,6 +476,20 @@ describe("daily active message", () => {
     expect(telemetry.status().active).toMatchObject({ day: "2026-10-09", harnesses: [] });
   });
 
+  test("(p) agents read after the switch was turned off are not kept or sent", async () => {
+    const { telemetry, actives, stateDir } = setup();
+    seen(telemetry);
+    const agents = Promise.withResolvers<string[]>();
+    const visit = telemetry.active(agents.promise);
+    telemetry.change({ enabled: false });
+    agents.resolve(["codex"]);
+    await visit;
+    expect(savedFile(stateDir).active).toEqual([{ day: "2026-10-08", harnesses: [], sent: null }]);
+    telemetry.change({ enabled: true });
+    await settled();
+    expect(actives.map((active) => [active.day, active.harnesses])).toEqual([["2026-10-08", []]]);
+  });
+
   test("(o) a pane read that fails still counts the visit", async () => {
     const { telemetry, actives, stateDir } = setup();
     seen(telemetry);

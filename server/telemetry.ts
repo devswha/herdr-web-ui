@@ -323,7 +323,8 @@ export class Telemetry {
         console.error(`telemetry: the panes could not be read (${message(error)})`);
         found = [];
       }
-      this.refresh();
+      // turned off while the panes were read: the visit stays recorded, what was read is not kept
+      if (!this.counting()) return;
       const entry = this.saved.active.find((known) => known.day === day);
       if (entry) {
         const merged = [...new Set([...entry.harnesses, ...found.map(harnessOf).filter((harness) => harness !== null)])].sort();
