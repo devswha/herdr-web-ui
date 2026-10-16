@@ -567,7 +567,7 @@ describe("palette", () => {
   // Every check below iterates the supported entries of src/lib/themes.generated.ts and reads each value from
   // src/styles.css through the theme parser, never from generated data, so a new theme is checked with no edit here.
   const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
-  const legacy = new Set(Object.keys(baseline.combos));
+  const legacy = new Set([...Object.keys(baseline.combos), "catppuccin-latte/light"]);
   const entries = SUPPORTED_ENTRIES.map(({ id, mode }) => ({ id, mode, key: `${id}/${mode}` }));
   /** Runs one entry's checks; an unreadable theme value becomes a failure naming entry and role, not a crash. */
   const checked = (failures: string[], check: () => void): void => {

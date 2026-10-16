@@ -117,6 +117,13 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
   accents are under 4.5:1 on these surfaces, so each keeps its hue and is darkened until it passes
   AA. It keeps amber's rounded corners.
 
+### Herdr theme pair notes
+
+Theme colors remain authored only in `src/styles.css`; the notes here describe deviations, not
+another color table. Catppuccin Latte is a second selector on the existing legacy light block.
+Its proposal is deliberately not applied: the permanent legacy oracle takes precedence over the
+herdr mapping, including existing surface, accent, cursor, status and syntax choices.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens

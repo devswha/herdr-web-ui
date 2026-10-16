@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { comboKey, LEGACY_COMBOS, legacyCascade } from "../../scripts/theme-baseline.ts";
 import { terminalTheme, themeColor } from "./settings.ts";
 import baseline from "./themes.legacy-baseline.json";
+import { resolveEntry } from "./themeCss.ts";
 
 // The permanent parity oracle (#1121): amber, charcoal and catppuccin in dark and light look as they
 // did at baseline.source.commit, frozen before the theme table refactor. The json is never
@@ -21,6 +22,12 @@ function drift(kind: "declared" | "resolved"): string[] {
 }
 
 describe("legacy palette parity", () => {
+  it("resolves the canonical Latte id to the unchanged legacy Catppuccin light row", () => {
+    const latte = resolveEntry(css, "catppuccin-latte", "light").resolved;
+    expect(latte).toEqual(resolveEntry(css, "catppuccin", "light").resolved);
+    expect(latte).toMatchObject(frozen["catppuccin/light"]!.resolved);
+  });
+
   it("freezes exactly the six legacy combos", () => {
     expect(Object.keys(frozen).sort()).toEqual(LEGACY_COMBOS.map(({ palette, mode }) => comboKey(palette, mode)).sort());
   });

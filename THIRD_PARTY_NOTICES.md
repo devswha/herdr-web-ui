@@ -2,6 +2,16 @@
 
 herdr web ui includes material from the projects below, under their own licenses.
 
+## Theme palettes
+
+The CSS theme colors adapt herdr's pinned palettes, with readability adjustments recorded in
+`scripts/herdr-theme-overrides.ts`. Catppuccin Latte also names the unchanged legacy light row.
+The upstream MIT license text is printed below; individual theme sources and licenses follow.
+
+| Theme | Upstream source | License |
+| --- | --- | --- |
+| Catppuccin Mocha and Latte | [catppuccin/palette](https://github.com/catppuccin/palette/blob/main/palette.json) | MIT |
+
 ## Legend List
 
 The chat timeline uses [`@legendapp/list`](https://github.com/LegendApp/legend-list) 3.3.5.

@@ -412,7 +412,8 @@
   --syntax-function: #89b4fa;
 }
 
-[data-theme="light"][data-palette="catppuccin"] {
+[data-theme="light"][data-palette="catppuccin"],
+[data-theme="light"][data-palette="catppuccin-latte"] {
   --notice: #8a5710;
   /* subtext0, darkened to 4.5:1 on --bg */
   --line-number: #64677d;
