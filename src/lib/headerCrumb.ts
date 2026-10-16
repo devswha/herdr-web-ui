@@ -9,6 +9,8 @@ import { folderName } from "./paneName.ts";
 
 export interface HeaderCrumb {
   machine: string;
+  /** whether the line names the PC: one PC needs no name (the sidebar leaves it out too) */
+  showMachine: boolean;
   workspace: string;
   /** the folder's last name, or null when another part already says it (or there is no folder) */
   folder: string | null;
@@ -20,16 +22,19 @@ export interface HeaderCrumb {
   tooltip: string;
 }
 
-export function headerCrumb(input: { machine: string; workspace: string; title: string; cwd: string | null | undefined }): HeaderCrumb {
+export function headerCrumb(input: { machine: string; machineCount: number; workspace: string; title: string; cwd: string | null | undefined }): HeaderCrumb {
   const machine = input.machine.trim();
   const workspace = input.workspace.trim();
   const title = input.title.trim();
   // trimmed only to tell an absent folder: a name may end in a space, and is shown as it is
   const path = input.cwd?.trim() ? input.cwd : null;
   const name = path === null ? null : folderName(path);
-  const said = name === null || [title, machine, workspace].includes(name);
+  // only a name the line shows can have said the folder's: a hidden PC name says nothing
+  const showMachine = input.machineCount > 1;
+  const said = name === null || [title, showMachine ? machine : null, workspace].includes(name);
   return {
     machine,
+    showMachine,
     workspace,
     folder: said ? null : name,
     place: `${machine} › ${workspace}`,

@@ -859,7 +859,8 @@ One set for both themes: the card is island black wherever it shows.
 - A selected pane shows agent mark + title (`--fs-md`), then on the same line the crumb
   PC › workspace › folder (`--fs-xs`, `--text-dim`); with one PC registered the PC is left out, as
   the sidebar leaves it out. The folder shows as its last name, and only
-  when the title, the PC or the workspace does not already say it (`lib/headerCrumb.ts`). The
+  when the title, the workspace or the PC name shown on the line does not already say it
+  (`lib/headerCrumb.ts`, which also owns the one-PC rule). The
   title may shorten with an ellipsis; the crumb never does: when it does not fit whole beside the
   whole title it is not drawn, and the title has the row. The full path is in the context's
   tooltip and at the top of the More menu. With no selection, the brand fills the context slot.

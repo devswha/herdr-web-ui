@@ -1206,7 +1206,7 @@ export function App() {
   const alertsOffDot = bellVisible && !bell.on;
   const connWord = t(connected ? "live" : outputStopped ? "disconnected" : "reconnecting");
   const crumb = selectedPane && selectedTitle !== null
-    ? headerCrumb({ machine: selectedMachine?.name ?? selectedMachineId, workspace: selectedWorkspace?.label ?? selectedPane.workspace_id, title: selectedTitle, cwd: selectedPane.cwd })
+    ? headerCrumb({ machine: selectedMachine?.name ?? selectedMachineId, machineCount: machines.length, workspace: selectedWorkspace?.label ?? selectedPane.workspace_id, title: selectedTitle, cwd: selectedPane.cwd })
     : null;
 
   useEffect(() => {
@@ -1438,7 +1438,7 @@ export function App() {
             </div>
             <div className="context-sub">
               {/* one PC needs no name: the sidebar leaves it out too, and More still says it */}
-              {machines.length > 1 && <><span className="machine-context-name">{crumb.machine}</span><span className="context-sep" aria-hidden="true">›</span></>}
+              {crumb.showMachine && <><span className="machine-context-name">{crumb.machine}</span><span className="context-sep" aria-hidden="true">›</span></>}
               <span>{crumb.workspace}</span>
               {crumb.folder !== null && (
                 <>
