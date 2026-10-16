@@ -31,6 +31,7 @@ describe("preferences sync real send path", () => {
   });
   interface Client {
     settings: Settings;
+    rendered: { id: string; mode: string };
     update: (patch: Partial<Settings>) => void;
     receive: (doc: SharedPreferences) => void;
   }
@@ -93,10 +94,11 @@ describe("preferences sync real send path", () => {
   async function open(raw: object = DEFAULT_SETTINGS): Promise<Client> {
     records.clear();
     records.set("herdr-web-ui:settings", JSON.stringify(raw));
-    const client: Client = { settings: sanitizeSettings(raw), update: () => { throw new Error("not mounted"); }, receive: () => { throw new Error("not mounted"); } };
+    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: () => { throw new Error("not mounted"); }, receive: () => { throw new Error("not mounted"); } };
     function Probe() {
       const context = useSettings();
       client.settings = context.settings;
+      client.rendered = context.resolvedEntry;
       client.update = context.update;
       client.receive = usePreferencesSync(true);
       return null;
@@ -123,6 +125,28 @@ describe("preferences sync real send path", () => {
     await act(async () => { jest.advanceTimersByTime(600); await answered; });
   }
   const seed = { theme: "dark", palette: "tokyo-night", darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" };
+
+  it.each(["dark", "light"] as const)("takes a restarted legacy-only %s palette in a fresh client without corrective PUTs", async (theme) => {
+    // Create valid old-format bytes without normalizing a new-format write, then restart.
+    store.set({ settings: { palette: "catppuccin" } });
+    store.set({ settings: { theme } });
+    store = new PreferenceStore(dir);
+    expect(store.get()).toEqual({ revision: 2, settings: { palette: "catppuccin", theme } });
+    revisions.length = 0;
+    store.subscribe((doc) => {
+      revisions.push(doc.revision);
+      for (const client of clients) client.receive(doc);
+    });
+    const client = await open({});
+    expect(client.settings.palette).toBe("catppuccin");
+    expect(client.settings[theme === "dark" ? "darkTheme" : "lightTheme"]).toBe("catppuccin");
+    expect(client.rendered).toMatchObject({ id: "catppuccin", mode: theme });
+    expect(document.documentElement.dataset["palette"]).toBe("catppuccin");
+    await windows(3);
+    expect(store.get().revision).toBe(2);
+    expect(revisions).toEqual([]);
+    expect(answers).toBe(0);
+  });
 
   it("keeps a migrated device-local System pair on upgrade without a correcting PUT (h3)", async () => {
     store.set({ settings: { theme: "system", palette: "amber" } });

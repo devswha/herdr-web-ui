@@ -59,9 +59,18 @@ export interface Taken {
 export function takePreferences(base: Baseline, local: Local, remote: SharedPreferences, inFlight: PreferencesChange | null, force = false): Taken {
   const settings: Shared = { ...base.settings };
   const patch: Record<string, unknown> = {};
+  const incoming = { ...remote.settings };
+  // Read an old document's fixed-mode appearance into its active side. System's palette
+  // was unused, so it must not replace this device's migrated pair. This is passive
+  // migration only: the derived side advances the baseline too, never a correcting PUT.
+  if (!("darkTheme" in incoming) && !("lightTheme" in incoming) && "palette" in incoming) {
+    const mode = incoming.theme ?? base.settings.theme;
+    if (mode === "dark") incoming.darkTheme = incoming.palette;
+    if (mode === "light") incoming.lightTheme = incoming.palette;
+  }
   for (const key of SHARED_SETTING_KEYS) {
-    if (!(key in remote.settings)) continue;
-    const value = remote.settings[key];
+    if (!(key in incoming)) continue;
+    const value = incoming[key];
     if (!same(sanitizeSettings({ [key]: value })[key], value)) continue;
     const sent = inFlight !== null && key in inFlight.settings && same(inFlight.settings[key], local.settings[key]);
     const edited = !same(local.settings[key], base.settings[key]) && !sent;

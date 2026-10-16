@@ -22,7 +22,7 @@ describe("preferences sync", () => {
 
   it("takes the shared settings the server holds and leaves the device's own", () => {
     const mine: Settings = { ...light, terminalFontSize: 20, alertsOn: false, wrapCode: true, markdownWidth: "full" };
-    const taken = takePreferences(base(mine, null), { settings: mine, pins: [] }, { revision: 3, settings: { theme: "dark", palette: "catppuccin", darkTheme: "catppuccin" } }, null);
+    const taken = takePreferences(base(mine, null), { settings: mine, pins: [] }, { revision: 3, settings: { theme: "dark", palette: "catppuccin" } }, null);
     expect(taken.patch).toEqual({ theme: "dark", palette: "catppuccin", darkTheme: "catppuccin" });
     expect(taken.pins).toBeNull();
     expect(taken.base).toEqual({ settings: { ...sharedSettings(mine), theme: "dark", palette: "catppuccin", darkTheme: "catppuccin" }, pins: null });
@@ -42,7 +42,7 @@ describe("preferences sync", () => {
     // light is on its way; meanwhile another browser set the palette, and then the theme back to dark
     const inFlight = { settings: { theme: "light" } };
     const concurrent = takePreferences(base(DEFAULT_SETTINGS, []), { settings: light, pins: [] }, { revision: 2, settings: { theme: "light", palette: "catppuccin" }, pins: [] }, inFlight);
-    expect(concurrent.patch).toEqual({ theme: "light", palette: "catppuccin" });
+    expect(concurrent.patch).toEqual({ theme: "light", palette: "catppuccin", lightTheme: "catppuccin" });
     const overtaken = takePreferences(base(DEFAULT_SETTINGS, []), { settings: light, pins: [] }, { revision: 3, settings: { theme: "dark" }, pins: [] }, inFlight);
     expect(overtaken.patch).toEqual({ theme: "dark" });
     expect(preferencesChange(overtaken.base, { settings: { ...light, theme: "dark" }, pins: [] })).toBeNull();
@@ -52,6 +52,16 @@ describe("preferences sync", () => {
     const taken = takePreferences(base(DEFAULT_SETTINGS, null), { settings: DEFAULT_SETTINGS, pins: [] }, { revision: 1, settings: { theme: "purple", agentMarks: "yes", palette: "catppuccin", darkTheme: "catppuccin", lightTheme: "future-theme" } }, null);
     expect(taken.patch).toEqual({ palette: "catppuccin", darkTheme: "catppuccin" });
     expect(preferencesChange(taken.base, { settings: sanitizeSettings({ ...DEFAULT_SETTINGS, ...taken.patch }), pins: [] })).toBeNull();
+  });
+
+  it("keeps an unsent side edit over a legacy-only fixed-mode document", () => {
+    const local = sanitizeSettings({ darkTheme: "tokyo-night" });
+    const taken = takePreferences(base(DEFAULT_SETTINGS, []), { settings: local, pins: [] }, { revision: 2, settings: { theme: "dark", palette: "catppuccin" } }, null);
+    expect(taken.patch).toEqual({ theme: "dark" });
+    expect(taken.base.settings.darkTheme).toBe("catppuccin");
+    expect(preferencesChange(taken.base, { settings: sanitizeSettings({ ...local, ...taken.patch }), pins: [] })).toEqual({
+      settings: { palette: "tokyo-night", darkTheme: "tokyo-night" },
+    });
   });
 
   it("joins this browser's pins to the first the server holds, then follows the last write", () => {
