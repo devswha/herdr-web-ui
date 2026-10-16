@@ -160,6 +160,23 @@ herdr mapping, including existing surface, accent, cursor, status and syntax cho
 - **gruvbox-light**: `--syntax-type` moves dE 12.38; its lightness changes to keep serialized text readable at the 4.6 target.
 - **gruvbox-light**: `--syntax-meta` moves dE 5.51; its lightness changes to keep serialized text readable at the 4.6 target.
 
+- **one-dark**: `--status-blocked` moves dE 12.35; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-dark**: `--status-blocked-tint` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
+- **one-dark**: `--danger-tint` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
+- **one-dark**: `--danger-text` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--status-working` moves dE 14.64; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--status-blocked` moves dE 17.89; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--status-done` moves dE 20.75; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--status-working-tint` moves dE 14.64; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--status-blocked-tint` moves dE 17.89; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--status-done-tint` moves dE 20.75; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--danger-tint` moves dE 17.89; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--danger-text` moves dE 17.89; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--syntax-function` moves dE 6.19; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--syntax-string` moves dE 12.04; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--syntax-type` moves dE 12.40; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--syntax-meta` moves dE 5.55; its lightness changes to keep serialized text readable at the 4.6 target.
+
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens
