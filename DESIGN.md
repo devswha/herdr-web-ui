@@ -89,8 +89,10 @@ paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the them
 
 `settings.darkTheme` and `settings.lightTheme` (both `amber` by default) name the theme each mode
 draws. The resolved entry is written as `data-theme` (its mode) and `data-palette` (its id). Any
-theme can be picked on either side: picking one half of a herdr pair fills the other side with its
-sibling until that side is chosen by hand, and a dark theme picked for light mode still draws dark.
+theme can be picked on either side. Picking one half of a herdr pair also sets the other side to
+its sibling, but only while that side still holds `amber` (the default, even if picked by hand) or
+the sibling of the previous pick; any other value is kept. A dark theme picked for light mode still
+draws dark.
 The themes are amber, charcoal and catppuccin plus herdr's built-ins; herdr's `terminal` theme is
 not offered. The tables above are amber, the base blocks; every other theme overrides them in a
 `[data-theme][data-palette]` block of `src/styles.css`.
@@ -103,8 +105,9 @@ edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
 between its `GENERATED THEMES` markers, the `theme-color` tag in `index.html` and the manifest's
 `theme_color` and `background_color`. Never edit those copies by hand; `--check` fails when one
 is stale. Only amber has a hex table here; read another theme's values in its block. A herdr theme
-starts from `bun scripts/herdr-theme-proposal.ts`, and each value that differs from the proposal is
-listed in `scripts/herdr-theme-overrides.ts` with its dE and reason; every entry passes AA on its
+starts from `bun scripts/herdr-theme-proposal.ts`. Every role whose value differs from the raw
+herdr mapping (`mapTheme`), including repairs the proposal tool already made, is listed in
+`scripts/herdr-theme-overrides.ts` with its dE and reason; every entry passes AA on its
 committed hex.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
