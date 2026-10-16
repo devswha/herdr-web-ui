@@ -2,6 +2,9 @@ import { describe, expect, it } from "bun:test";
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseThemeBlocks, parseThemeValue, resolveEntry, ThemeValueError } from "./themeCss.ts";
+import baseline from "./themes.legacy-baseline.json";
+import { ROLES, SHADOW_GEOMETRY, SUPPORTED_ENTRIES, themeColor as tableThemeColor } from "./themes.ts";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
 import { SHARED_SETTING_KEYS } from "../../shared/preferences.ts";
@@ -561,43 +564,82 @@ describe("palette", () => {
     expect(sanitizeSettings({ ...reloaded, theme: "light" }).palette).toBe("catppuccin");
   });
 
+  // Every check below iterates the supported entries of src/lib/themes.generated.ts and reads each value from
+  // src/styles.css through the theme parser, never from generated data, so a new theme is checked with no edit here.
   const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
-  const block = (selector: string): string => {
-    const start = css.indexOf(`${selector} {`);
-    expect(start).toBeGreaterThanOrEqual(0);
-    return css.slice(start, css.indexOf("}", start));
-  };
-  // each case lists its blocks from the most specific to the base; the first one naming a token wins
-  const cases = [
-    { theme: "dark", palette: "amber", layers: [":root"] },
-    { theme: "light", palette: "amber", layers: ['[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "charcoal", layers: ['[data-theme="dark"][data-palette="charcoal"]', ":root"] },
-    { theme: "light", palette: "charcoal", layers: ['[data-theme="light"][data-palette="charcoal"]', '[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "catppuccin", layers: ['[data-theme="dark"][data-palette="catppuccin"]', ":root"] },
-    { theme: "light", palette: "catppuccin", layers: ['[data-theme="light"][data-palette="catppuccin"]', '[data-theme="light"]', ":root"] },
-  ] as const;
-  const tokens = (layers: readonly string[]) => (name: string): string =>
-    layers.map((selector) => block(selector).match(new RegExp(`--${name}: ([^;]+);`))?.[1]).find((value) => value !== undefined)!;
-
-  it("mirrors each palette's --term-* tokens of styles.css for xterm", () => {
-    for (const { theme, palette, layers } of cases) {
-      const read = tokens(layers);
-      expect(terminalTheme(theme, palette)).toEqual({ background: read("term-bg"), foreground: read("term-fg"), cursor: read("term-cursor"), selectionBackground: read("term-selection") });
+  const legacy = new Set(Object.keys(baseline.combos));
+  const entries = SUPPORTED_ENTRIES.map(({ id, mode }) => ({ id, mode, key: `${id}/${mode}` }));
+  /** Runs one entry's checks; an unreadable theme value becomes a failure naming entry and role, not a crash. */
+  const checked = (failures: string[], check: () => void): void => {
+    try {
+      check();
+    } catch (error) {
+      if (!(error instanceof ThemeValueError)) throw error;
+      failures.push(error.message);
     }
+  };
+
+  it("checks exactly the theme entries src/styles.css declares", () => {
+    expect(entries.map(({ key }) => key).sort()).toEqual(Object.keys(parseThemeBlocks(css)).sort());
   });
 
-  it("keeps text and agent states readable (WCAG AA 4.5:1) on every surface of every palette", () => {
+  it("gives every entry every theme role, declared in its own block for a new theme, with the mode's shadow geometry", () => {
+    const failures: string[] = [];
+    for (const { id, mode, key } of entries) {
+      checked(failures, () => {
+        const own = parseThemeBlocks(css)[key]?.declared ?? {};
+        const { declared, resolved } = resolveEntry(css, id, mode);
+        for (const [role, kind] of Object.entries(ROLES)) {
+          if (resolved[`--${role}`] === undefined) failures.push(`${key} ${role}: missing`);
+          // the legacy entries inherit from the amber blocks as they always did; a new theme falls through to nothing
+          else if (!legacy.has(key) && own[`--${role}`] === undefined) failures.push(`${key} ${role}: not declared in its own block`);
+          if (kind !== "shadow" || resolved[`--${role}`] === undefined) continue;
+          // a whole-value alias names another shadow; any other target is not one
+          let value = declared[`--${role}`] ?? "";
+          for (let alias = /^var\((--[\w-]+)\)$/.exec(value); alias?.[1]; alias = /^var\((--[\w-]+)\)$/.exec(value)) value = declared[alias[1]] ?? "";
+          const shadow = parseThemeValue(key, role, value);
+          if (shadow.kind !== "shadow") throw new ThemeValueError(key, role, value, "not a shadow");
+          const geometry = shadow.layers.map((layer) => layer.geometry);
+          const fixed: readonly string[] = SHADOW_GEOMETRY[mode][role as keyof (typeof SHADOW_GEOMETRY)[typeof mode]];
+          if (geometry.join(", ") !== fixed.join(", ")) failures.push(`${key} ${role}: geometry ${geometry.join(", ")} is not ${mode}'s ${fixed.join(", ")}`);
+        }
+      });
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("mirrors every entry's --term-* tokens of styles.css for xterm and its --bg-panel for the title bar", () => {
+    const failures: string[] = [];
+    for (const { id, mode, key } of entries) {
+      checked(failures, () => {
+        const { resolved } = resolveEntry(css, id, mode);
+        const expected = { background: resolved["--term-bg"], foreground: resolved["--term-fg"], cursor: resolved["--term-cursor"], selectionBackground: resolved["--term-selection"] };
+        let terminal: unknown;
+        try {
+          terminal = terminalTheme(mode, id as Parameters<typeof terminalTheme>[1]);
+        } catch (error) {
+          terminal = String(error);
+        }
+        if (JSON.stringify(terminal) !== JSON.stringify(expected)) failures.push(`${key} terminal: ${JSON.stringify(terminal)} is not ${JSON.stringify(expected)}`);
+        if (tableThemeColor(id, mode) !== resolved["--bg-panel"]) failures.push(`${key} theme-color: ${tableThemeColor(id, mode)} is not ${resolved["--bg-panel"]}`);
+      });
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("gives index.html and the web manifest amber dark's panel and page colors", () => {
+    const { resolved } = resolveEntry(css, "amber", "dark");
+    const metas: string[] = [];
+    new HTMLRewriter().on('meta[name="theme-color"]', { element: (meta) => void metas.push(meta.getAttribute("content") ?? "") })
+      .transform(readFileSync(join(import.meta.dir, "..", "..", "index.html"), "utf8"));
+    expect(metas).toEqual([resolved["--bg-panel"]!]);
+    const manifest = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "public", "manifest.webmanifest"), "utf8"));
+    expect({ theme_color: manifest.theme_color, background_color: manifest.background_color }).toEqual({ theme_color: resolved["--bg-panel"], background_color: resolved["--bg"] });
+  });
+
+  it("keeps text, agent states and code readable (WCAG AA 4.5:1) on every surface of every entry", () => {
     type Rgb = [number, number, number];
-    const rgba = (value: string): [Rgb, number] => {
-      const hex = value.match(/^#([0-9a-f]{6})$/);
-      if (hex) return [[0, 2, 4].map((i) => parseInt(hex[1]!.slice(i, i + 2), 16)) as Rgb, 1];
-      const parts = value.match(/^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/)!;
-      return [[Number(parts[1]), Number(parts[2]), Number(parts[3])], Number(parts[4])];
-    };
-    const over = (top: string, under: Rgb): Rgb => {
-      const [rgb, alpha] = rgba(top);
-      return rgb.map((c, i) => c * alpha + under[i]! * (1 - alpha)) as Rgb;
-    };
+    const over = ([rgb, alpha]: [Rgb, number], under: Rgb): Rgb => rgb.map((c, i) => c * alpha + under[i]! * (1 - alpha)) as Rgb;
     const luminance = (rgb: Rgb): number => {
       const [r, g, b] = rgb.map((c) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4)) as Rgb;
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -607,19 +649,40 @@ describe("palette", () => {
       return (hi + 0.05) / (lo + 0.05);
     };
     const failures: string[] = [];
-    for (const { theme, palette, layers } of cases) {
-      const read = tokens(layers);
-      const color = (name: string): Rgb => rgba(read(name))[0];
-      for (const surface of ["bg", "bg-panel", "bg-elevated", "bg-hover"]) {
-        for (const text of ["text", "text-dim"]) {
-          if (ratio(color(text), color(surface)) < 4.5) failures.push(`${theme}/${palette} ${text} on ${surface}`);
+    for (const { id, mode, key } of entries) {
+      checked(failures, () => {
+        const { resolved } = resolveEntry(css, id, mode);
+        // the committed value through the theme value parser: an unexpected form is named, never a null match
+        const rgba = (role: string): [Rgb, number] => {
+          const raw = resolved[`--${role}`] ?? "(missing)";
+          const parsed = parseThemeValue(key, role, raw);
+          const value = parsed.kind === "color" ? parsed.value : "";
+          const hex = /^#([0-9a-f]{6})$/.exec(value);
+          if (hex?.[1]) return [[0, 2, 4].map((i) => parseInt(hex[1]!.slice(i, i + 2), 16)) as Rgb, 1];
+          const parts = /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(value);
+          if (!parts) throw new ThemeValueError(key, role, raw);
+          return [[Number(parts[1]), Number(parts[2]), Number(parts[3])], Number(parts[4])];
+        };
+        const color = (role: string, under: Rgb = [0, 0, 0]): Rgb => over(rgba(role), under);
+        for (const surface of ["bg", "bg-panel", "bg-elevated", "bg-hover"]) {
+          const ground = color(surface);
+          for (const text of ["text", "text-dim"]) {
+            if (ratio(color(text, ground), ground) < 4.5) failures.push(`${key} ${text} on ${surface}`);
+          }
+          // a status badge: its color on its tint, over a (hovered or selected) row
+          for (const state of ["working", "blocked", "done"]) {
+            const backdrop = over(rgba(`status-${state}-tint`), ground);
+            if (ratio(color(`status-${state}`, backdrop), backdrop) < 4.5) failures.push(`${key} ${state} badge on ${surface}`);
+          }
         }
-        // a status badge: its color on its tint, over a (hovered or selected) row
-        for (const state of ["working", "blocked", "done"]) {
-          const backdrop = over(read(`status-${state}-tint`), color(surface));
-          if (ratio(color(`status-${state}`), backdrop) < 4.5) failures.push(`${theme}/${palette} ${state} badge on ${surface}`);
+        // highlighted code sits on the panel (a file preview) or an elevated card (a chat code block)
+        for (const surface of ["bg-panel", "bg-elevated"]) {
+          const ground = color(surface);
+          for (const token of ["function", "keyword", "string", "number", "type", "variable", "meta"]) {
+            if (ratio(color(`syntax-${token}`, ground), ground) < 4.5) failures.push(`${key} syntax-${token} on ${surface}`);
+          }
         }
-      }
+      });
     }
     expect(failures).toEqual([]);
   });
