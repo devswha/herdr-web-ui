@@ -185,7 +185,7 @@ try {
       {
         const { page, close } = await open(browser, `${pane}&file=README.md&crash=settings`);
         await page.locator("aside.file-panel .file-viewer").waitFor();
-        await page.keyboard.press("Control+Shift+Comma");
+        await page.keyboard.press("ControlOrMeta+Shift+Comma");
         const dialog = page.getByRole("dialog", { name: "Settings" });
         await dialog.getByRole("alert").filter({ hasText: "Settings can't be shown." }).waitFor();
         const closeButton = dialog.getByRole("button", { name: "Close", exact: true });
