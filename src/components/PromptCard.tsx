@@ -160,6 +160,23 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
         </p>
       )}
       {/* the reference text (a command, a plan, a diff) is the one part that gives way when the card is short */}
+      {/* a review's answers (Claude, omp): each question over what was picked for it, read as prose */}
+      {prompt.answers && (
+        <dl className="prompt-card-answers">
+          {prompt.answers.map((item, index) => {
+            const answer = item.answer === null ? null : labelOf(item.answer);
+            return (
+              <div key={index} className="prompt-card-answer">
+                {item.question !== null && <dt>{item.question}</dt>}
+                <dd className={answer === null ? "is-empty" : undefined}>
+                  {answer === null ? t("Not answered") : <>{answer.text}{answer.recommended && <> <span className="prompt-card-tag">{t("Recommended")}</span></>}</>}
+                </dd>
+                {item.note !== undefined && <dd className="prompt-card-answer-note">{t("Note: {note}", { note: item.note })}</dd>}
+              </div>
+            );
+          })}
+        </dl>
+      )}
       {prompt.body !== null && prompt.body.length > 0 && <pre className={`prompt-card-body${prompt.body.includes("\n") ? "" : " is-line"}`}>{prompt.body}</pre>}
       {hasChoices && (
         /* busy on the options alone, never on the card: a live region inside an aria-busy subtree is not

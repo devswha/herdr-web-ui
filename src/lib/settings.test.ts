@@ -647,12 +647,12 @@ describe("quick replies row", () => {
     expect(DEFAULT_SETTINGS.showUsage).toBe(false);
     expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
     expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
-    expect(DEFAULT_SETTINGS.usageCount).toBe("used");
-    expect(sanitizeSettings({ usageCount: "left" }).usageCount).toBe("left");
-    expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("used");
-    expect(DEFAULT_SETTINGS.usageGlance).toBe("week");
-    expect(sanitizeSettings({ usageGlance: "session" }).usageGlance).toBe("session");
-    expect(sanitizeSettings({ usageGlance: "nearest" }).usageGlance).toBe("week");
+    expect(DEFAULT_SETTINGS.usageCount).toBe("left");
+    expect(sanitizeSettings({ usageCount: "used" }).usageCount).toBe("used");
+    expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("left");
+    expect(DEFAULT_SETTINGS.usageGlance).toBe("session");
+    expect(sanitizeSettings({ usageGlance: "week" }).usageGlance).toBe("week");
+    expect(sanitizeSettings({ usageGlance: "nearest" }).usageGlance).toBe("session");
     expect(sanitizeSettings({ usageOrder: ["codex:a", 3, "codex:a", "", "claude:b"] }).usageOrder).toEqual(["codex:a", "claude:b"]);
     expect(sanitizeSettings({ usageHidden: Array.from({ length: 100 }, (_, index) => `k${index}`) }).usageHidden).toHaveLength(64);
     expect(sanitizeSettings({ usageHidden: "codex:a" }).usageHidden).toEqual([]);
@@ -960,6 +960,20 @@ it("keeps the Markdown preview's width to readable or full, readable by default"
   expect(DEFAULT_SETTINGS.markdownWidth).toBe("readable");
   for (const width of MARKDOWN_WIDTHS) expect(sanitizeSettings({ markdownWidth: width }).markdownWidth).toBe(width);
   for (const bad of ["narrow", "medium", "wide", "", null, 80]) expect(sanitizeSettings({ markdownWidth: bad }).markdownWidth).toBe("readable");
+});
+
+it("keeps where web links open to a tab or the panel, a tab by default", () => {
+  expect(DEFAULT_SETTINGS.webLinks).toBe("tab");
+  expect(sanitizeSettings({ webLinks: "panel" }).webLinks).toBe("panel");
+  for (const bad of ["popup", "", null, true]) expect(sanitizeSettings({ webLinks: bad }).webLinks).toBe("tab");
+  // an agent's start mode never widens by accident: anything unknown starts it with no flag
+  expect(DEFAULT_SETTINGS.claudeLaunchMode).toBe("default");
+  expect(DEFAULT_SETTINGS.codexLaunchMode).toBe("default");
+  expect(sanitizeSettings({ claudeLaunchMode: "plan", codexLaunchMode: "readOnly" })).toMatchObject({ claudeLaunchMode: "plan", codexLaunchMode: "readOnly" });
+  for (const bad of ["bypass", "BypassPermissions", "full-access", "", null, 1, ["auto"]]) {
+    expect(sanitizeSettings({ claudeLaunchMode: bad }).claudeLaunchMode).toBe("default");
+    expect(sanitizeSettings({ codexLaunchMode: bad }).codexLaunchMode).toBe("default");
+  }
 });
 
 describe("shared settings", () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
-import { Braces, Check, Code, Copy, Download, Ellipsis, ExternalLink, Maximize2, PanelRight, TriangleAlert, X } from "lucide-react";
+import { Braces, Check, Code, Copy, Download, Ellipsis, ExternalLink, Link2, Maximize2, PanelRight, TriangleAlert, X } from "lucide-react";
 
 import "./FileViewer.css";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -23,6 +23,7 @@ import { useLocale, useT } from "../lib/i18n.ts";
 import { useAnnouncedText } from "../lib/useAnnouncedText.ts";
 import { MAX_INLINE_IMAGE_BYTES, markdownImagePreview } from "../lib/markdownImages.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
+import { useAppWindow } from "../lib/install.ts";
 import type { MarkdownBlock } from "../lib/markdown.ts";
 import { knownPreview, parsePreviewOffThread } from "../lib/markdownPreview.ts";
 import { hasPreview, type TextViewMode } from "../lib/textPreview.ts";
@@ -109,6 +110,30 @@ function CopyFileButton({ text, sourceRef, onShowSource }: { text: string; sourc
   </button>;
 }
 
+/**
+ * In the installed app's window, where a new tab of this origin would open another app window,
+ * the address is copied instead, to paste into a browser. As a menu item it closes the menu.
+ */
+function CopyLinkButton({ href, menuItem = false, onDone }: { href: string; menuItem?: boolean; onDone?: () => void }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  const label = copied ? t("Link copied") : t("Copy link");
+  const copy = async (): Promise<void> => {
+    if (await copyText(new URL(href, window.location.href).href)) setCopied(true);
+    onDone?.();
+  };
+  return menuItem
+    ? <button type="button" role="menuitem" className="file-viewer-more-item" onClick={() => void copy()}><Link2 aria-hidden="true" />{label}</button>
+    : <button type="button" className="icon-button file-viewer-action file-viewer-wide" aria-label={label} title={label} onClick={() => void copy()}>
+      {copied ? <Check aria-hidden="true" /> : <Link2 aria-hidden="true" />}
+    </button>;
+}
+
 /** Selects a source element for a copy by hand: a text box selects its value, anything else its contents. */
 function selectSource(element: HTMLElement): void {
   if (element instanceof HTMLTextAreaElement) { element.focus(); element.select(); }
@@ -141,7 +166,12 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const moreRef = useRef<HTMLDivElement>(null);
   // Escape closes it, Tab stays in it, and the focus goes back to the row that opened it
   // (docked beside the pane, the rest of the page stays reachable: no trap)
-  const surface = useFocusTrap<HTMLElement>(!page && !docked);
+  // the popup opens with the focus on its content, not its first button: Space then plays a video or
+  // scrolls the text, where on the first button (Show beside the pane) it would press it
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const mediaRef = useRef<HTMLMediaElement>(null);
+  const surface = useFocusTrap<HTMLElement>(!page && !docked, { initialFocus: bodyRef });
+  const appWindow = useAppWindow();
   // Settings → Chat width, Default: the Preview is as wide as the chat of the pane that opened it
   useOpeningPaneLane(surface, paneId === null ? null : paneStorageId(machineId, paneId));
   // a kind, not a message: it is said in the language of the moment it shows
@@ -220,6 +250,14 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     reportedKind.current = path;
     onKind?.(info?.kind === "text" ? "panel" : "popup");
   }, [info, directory, path, onKind]);
+
+  // a video or a sound arrives after the popup opened: the focus, still on the content, moves to its
+  // player, so Space plays it. A focus the user moved elsewhere stays where it is.
+  const mediaKind = info?.kind === "video" || info?.kind === "audio" ? info.kind : null;
+  useEffect(() => {
+    if (page || docked || mediaKind === null) return;
+    if (document.activeElement === bodyRef.current) mediaRef.current?.focus({ preventScroll: true });
+  }, [mediaKind, page, docked]);
 
   useEffect(() => {
     if (!keyboardActive || page) return;
@@ -364,9 +402,9 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
           ? <p className="file-viewer-note">{t("This image is {size}; download it to view.", { size: formatBytes(info.size) })}</p>
           : <img className="file-viewer-media" src={url} alt={info.name} />;
       case "video":
-        return <video className="file-viewer-media" src={url} controls playsInline preload="metadata" />;
+        return <video ref={(node) => { mediaRef.current = node; }} className="file-viewer-media" src={url} controls playsInline preload="metadata" />;
       case "audio":
-        return <audio className="file-viewer-audio" src={url} controls preload="metadata" />;
+        return <audio ref={(node) => { mediaRef.current = node; }} className="file-viewer-audio" src={url} controls preload="metadata" />;
       case "pdf":
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "text":
@@ -417,15 +455,18 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       {docked ? <Maximize2 aria-hidden="true" /> : <PanelRight aria-hidden="true" />}
     </button>}
     {/* new tab, raw and download: buttons in the row, and on a phone in the More menu after Copy */}
-    {!page && <a className="icon-button file-viewer-action file-viewer-wide" href={newTabHref} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>}
-    {(page || markdown) && <a className="icon-button file-viewer-action file-viewer-wide" href={url} target="_blank" rel="noopener" aria-label={t("Open raw file")} title={t("Open raw file")}><Code aria-hidden="true" /></a>}
+    {/* in the installed app's window a new tab would be another app window: Copy link takes their place */}
+    {!page && !appWindow && <a className="icon-button file-viewer-action file-viewer-wide" href={newTabHref} target="_blank" rel="noopener" aria-label={t("Open in a new tab")} title={t("Open in a new tab")}><ExternalLink aria-hidden="true" /></a>}
+    {(page || markdown) && !appWindow && <a className="icon-button file-viewer-action file-viewer-wide" href={url} target="_blank" rel="noopener" aria-label={t("Open raw file")} title={t("Open raw file")}><Code aria-hidden="true" /></a>}
+    {!page && appWindow && <CopyLinkButton href={newTabHref} />}
     <a className="icon-button file-viewer-action file-viewer-wide" href={downloadHref} download={info?.name ?? true} aria-label={t("Download")} title={t("Download")}><Download aria-hidden="true" /></a>
     {copyable && <CopyFileButton text={loaded.text} sourceRef={sourceRef} onShowSource={showSourceToSelect} />}
     {!docked && <div className="file-viewer-more" ref={moreRef}>
       <button type="button" className="icon-button file-viewer-action" aria-label={t("More")} title={t("More")} aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><Ellipsis aria-hidden="true" /></button>
       {moreOpen && <div className="file-viewer-more-menu" role="menu" aria-label={t("More")} onKeyDown={moveInMore}>
-        {!page && <a role="menuitem" className="file-viewer-more-item" href={newTabHref} target="_blank" rel="noopener" onClick={() => closeMore(true)}><ExternalLink aria-hidden="true" />{t("Open in a new tab")}</a>}
-        {(page || markdown) && <a role="menuitem" className="file-viewer-more-item" href={url} target="_blank" rel="noopener" onClick={() => closeMore(true)}><Code aria-hidden="true" />{t("Open raw file")}</a>}
+        {!page && !appWindow && <a role="menuitem" className="file-viewer-more-item" href={newTabHref} target="_blank" rel="noopener" onClick={() => closeMore(true)}><ExternalLink aria-hidden="true" />{t("Open in a new tab")}</a>}
+        {(page || markdown) && !appWindow && <a role="menuitem" className="file-viewer-more-item" href={url} target="_blank" rel="noopener" onClick={() => closeMore(true)}><Code aria-hidden="true" />{t("Open raw file")}</a>}
+        {!page && appWindow && <CopyLinkButton href={newTabHref} menuItem onDone={() => closeMore(true)} />}
         <a role="menuitem" className="file-viewer-more-item" href={downloadHref} download={info?.name ?? true} onClick={() => closeMore(true)}><Download aria-hidden="true" />{t("Download")}</a>
       </div>}
     </div>}
@@ -493,7 +534,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     <div className="modal-scrim file-viewer-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className={virtual !== null && view === "code" ? "modal file-viewer file-viewer-virtual" : "modal file-viewer"} role="dialog" aria-modal="true" aria-label={info?.name ?? path} ref={surface} tabIndex={-1}>
         {header}
-        <div className={bodyClass}>{body}{openingNote}</div>
+        {/* the focus starts here (a scroll box takes Space and the arrows), and moves on to a player */}
+        <div ref={bodyRef} className={bodyClass} tabIndex={-1}>{body}{openingNote}</div>
       </section>
     </div>
   );

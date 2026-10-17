@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { forgetTranscriptState } from "./conversation.ts";
 import { gjcPidUnderShell, gjcSessionFile, gjcTranscriptForPane, isGjcProcess, parseGjcPs, recentProcessTable, storeRelative, terminalBreadcrumb, validateGjcSdkTranscript } from "./gjc-runtime.ts";
+import { GjcSdkLookupError } from "./gjc-sdk.ts";
 
 // Session paths come back canonical and the store root is passed in canonical; macOS's tmpdir is a symlink into /private.
 const tempDir = (prefix: string) => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -256,6 +257,39 @@ it("shares one SDK lookup between overlapping reads of a pane", async () => {
     lookups = 0;
     expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBe(realpathSync(path));
     expect(lookups).toBe(1);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+it.each(["timeout", "unavailable"] as const)("propagates SDK %s without retaining an old transcript or a failed lookup", async (reason) => {
+  const home = tempDir("gjc-sdk-failure-");
+  try {
+    const cwd = join(home, "work"), agentDir = join(home, ".gjc", "agent");
+    const project = join(agentDir, "sessions", "project"), path = join(project, "main.jsonl");
+    mkdirSync(cwd); mkdirSync(project, { recursive: true });
+    const sessionId = "sdk-session-failure";
+    writeFileSync(path, JSON.stringify({ type: "session", id: sessionId, cwd }) + "\n");
+    const binding = { sessionId, pid: 200, path, hostIncarnation: "host", endpointGeneration: 1 };
+    const failure = new GjcSdkLookupError(reason);
+    let lookups = 0;
+    const options = {
+      platform: "linux",
+      processInfo: async () => ({ process_info: { foreground_processes: [{ pid: 200, argv: ["gjc"] }] } }),
+      processBirth: () => 1000,
+      sdkTranscript: async () => {
+        lookups += 1;
+        if (lookups === 2) throw failure;
+        return lookups === 3 ? null : binding;
+      },
+    };
+    expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBe(path);
+    const failed = gjcTranscriptForPane("pane", cwd, home, options);
+    const overlapping = gjcTranscriptForPane("pane", cwd, home, options);
+    expect(overlapping).toBe(failed);
+    await expect(failed).rejects.toBe(failure);
+    await expect(overlapping).rejects.toBe(failure);
+    expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBeNull();
+    expect(await gjcTranscriptForPane("pane", cwd, home, options)).toBe(path);
+    expect(lookups).toBe(4);
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 

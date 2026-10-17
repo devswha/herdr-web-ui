@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
 import nodePath, { join, type PlatformPath } from "node:path";
 
-import { gjcSdkTranscript } from "./gjc-sdk.ts";
+import { GjcSdkLookupError, gjcSdkTranscript } from "./gjc-sdk.ts";
 import { herdrRpc } from "./herdr/client.ts";
 import { processStartedAt } from "./process-start.ts";
 import { descendantArgv, windowsProcessTable, type ProcessRow } from "./windows-processes.ts";
@@ -95,14 +95,17 @@ export function storeRelative(root: string, file: string, paths: PlatformPath = 
   return parts[0] === ".." ? null : parts;
 }
 
-/** GJC's native terminal-sessions key, not the most recently written cwd session. */
-export function gjcTerminal(pid: number): GjcTerminal | null {
+/**
+ * GJC's native terminal-sessions key, not the most recently written cwd session. `environ`, when
+ * given (null: unreadable), stands in for /proc/<pid>/environ, which is then never read here.
+ */
+export function gjcTerminal(pid: number, environ?: readonly string[] | null): GjcTerminal | null {
   if (!Number.isSafeInteger(pid) || pid <= 0) return null;
   try {
     if (process.platform === "linux") {
       const startedAt = processStartedAt(pid);
       if (startedAt === null) return null;
-      const env = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
+      const env = environ === undefined ? readFileSync(`/proc/${pid}/environ`, "utf8").split("\0") : environ ?? [];
       const tmux = env.find((word) => word.startsWith("TMUX="))?.slice(5);
       const pane = env.find((word) => word.startsWith("TMUX_PANE="))?.slice(10);
       if (tmux && pane && /^%\d+$/.test(pane)) return { id: `tmux-${pane}`, startedAt };
@@ -193,16 +196,17 @@ export function terminalBreadcrumb(agentDir: string, cwd: string, terminalId: st
  * theirs out alike): an exact open transcript first, then the terminal-scoped breadcrumb written
  * during the process's lifetime. A directory descriptor or cwd proves only the store, not the
  * active session; never infer ownership from cwd or session recency. `path` is null unless
- * exactly one transcript qualifies; `found` says how many did.
+ * exactly one transcript qualifies; `found` says how many did. `environOf` supplies a process's
+ * environment already read elsewhere, so none is read here; undefined for a pid reads it.
  */
-export function heldTranscript(agentDir: string, cwd: string, pids: readonly number[]): { path: string | null; found: number } {
+export function heldTranscript(agentDir: string, cwd: string, pids: readonly number[], environOf?: (pid: number) => readonly string[] | null | undefined): { path: string | null; found: number } {
   let root: string;
   try { root = realpathSync(join(agentDir, "sessions")); }
   catch { return { path: null, found: 0 }; }
   const open = new Set<string>();
   const breadcrumbs = new Set<string>();
   for (const pid of pids) {
-    const terminal = gjcTerminal(pid);
+    const terminal = gjcTerminal(pid, environOf?.(pid));
     if (terminal) {
       const path = terminalBreadcrumb(agentDir, cwd, terminal.id, terminal.startedAt);
       if (path) breadcrumbs.add(path);
@@ -367,5 +371,8 @@ async function lookupGjcTranscript(
     if (!finalInfo) return null;
     const final = await processes(finalInfo, true);
     return final?.some((process) => process.pid === owner.pid && sameBirth(process.birth, owner.birth)) ? path : null;
-  } catch { return null; }
+  } catch (error) {
+    if (error instanceof GjcSdkLookupError) throw error;
+    return null;
+  }
 }

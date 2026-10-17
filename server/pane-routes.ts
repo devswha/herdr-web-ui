@@ -11,6 +11,7 @@ import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jso
 import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { DevinHistoryChanged } from "./devin.ts";
+import { GjcSdkLookupError } from "./gjc-sdk.ts";
 import { agentRename, HerdrError, layoutSetSplitRatio, paneClear, paneClose, paneFind, paneFocus, paneGet, paneRead, paneRename, paneResize, paneScroll, paneScrollInfo, paneSelectionRead, paneSendKeys, paneSendText, paneSplit, paneSwap, paneSwapWith, paneZoom } from "./herdr/client.ts";
 import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 
@@ -235,6 +236,9 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
       return jsonResponse(conversation, 200, headers);
     } catch (error) {
       if (error instanceof HistoryChanged || error instanceof DevinHistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
+      if (error instanceof GjcSdkLookupError) {
+        return jsonResponse({ error: { code: `gjc_sdk_${error.reason}`, message: error.message } }, error.reason === "timeout" ? 504 : 503, { "cache-control": "no-store" });
+      }
       // an unrecognized pane is not an error: the client falls back to the
       // scrollback transcript, exactly like chatmux's terminal fallback
       if (error instanceof ConversationUnavailable) return jsonResponse({ source: "scrollback", turns: [] });

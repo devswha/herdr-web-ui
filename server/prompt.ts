@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import type { HerdrPane, InteractivePrompt, PromptAnswer } from "../shared/protocol.ts";
+import type { HerdrPane, InteractivePrompt, InteractivePromptAnswer, PromptAnswer } from "../shared/protocol.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
@@ -303,6 +303,27 @@ function ompTabRowText(rawLine: string): string {
   return rawLine.replace(ANSI_RE, "").replace(/^\s*│/, "").replace(/│\s*$/, "");
 }
 
+const OMP_REVIEW_ROW_RE = /^\d+\.\s+(.*?):(?:\s+(.*))?$/;
+const OMP_REVIEW_NOTE_RE = /^Note:\s*(.*)$/;
+
+/**
+ * omp's review: a row per question (`1. Transport: Remote relay`), a `Note: …` under an answer
+ * given one. omp cuts a long row at the pane's edge instead of wrapping it. Null when a line is
+ * neither, so the panel is shown as drawn.
+ */
+function ompReviewAnswers(panel: string[]): InteractivePromptAnswer[] | null {
+  const answers: InteractivePromptAnswer[] = [];
+  for (const line of panel) {
+    const row = OMP_REVIEW_ROW_RE.exec(line);
+    const note = OMP_REVIEW_NOTE_RE.exec(line);
+    if (row) answers.push({ question: row[1]!.trim(), answer: row[2]?.trim() || null });
+    else if (note && answers.length > 0 && answers.at(-1)!.note === undefined) answers.at(-1)!.note = note[1]!.trim();
+    // the warning over the rows ("1 unanswered question; Enter still submits.") stays the body
+    else if (answers.length > 0) return null;
+  }
+  return answers.length > 0 ? answers : null;
+}
+
 /** The Submit tab is a separate review state: Enter submits, Esc cancels the native dialog. */
 function parseOmpSubmit(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
@@ -318,9 +339,14 @@ function parseOmpSubmit(screen: string): ParsedPrompt | null {
   });
   if (submitRows.length !== 1) return null;
   const submitRow = submitRows[0]!;
-  const body = lines.slice(heading + 1, submitRow).map(cleanLine).filter((line) => line && !isDivider(line)).join("\n");
+  const panel = lines.slice(heading + 1, submitRow).map(cleanLine).filter((line) => line && !isDivider(line));
+  const answers = ompReviewAnswers(panel);
+  // without answers read, the panel as it is drawn; with them, only what is not an answer (the
+  // unanswered-questions warning)
+  const body = (answers ? panel.filter((line) => !OMP_REVIEW_ROW_RE.test(line) && !OMP_REVIEW_NOTE_RE.test(line)) : panel).join("\n");
   return finishPrompt("omp", {
     kind: "menu", title: "Review answers", question: "Submit these answers?", body: body || null,
+    ...(answers ? { answers } : {}),
     options: [{ label: "Submit", description: null }, { label: "Cancel", description: null }],
     multi_select: false, custom_option_index: null,
   }, {
@@ -428,6 +454,7 @@ function publicPrompt(parsed: ParsedPrompt): InteractivePrompt {
     custom_option_index: parsed.custom_option_index,
     ...(parsed.queued ? { queued: parsed.queued } : {}),
     ...(parsed.steps ? { steps: parsed.steps } : {}),
+    ...(parsed.answers ? { answers: parsed.answers } : {}),
     ...(parsed.fallback ? { fallback: true as const } : {}),
   };
   parsedByPublicPrompt.set(prompt, parsed);
@@ -783,6 +810,45 @@ function claudeQuestionText(lines: string[], tabsIndex: number, firstRow: number
 }
 
 /**
+ * Claude's review lists each question (`● …`) over its answer (`→ …`), both indented and wrapped at
+ * the pane's edge: an indented line that opens neither goes on the one above. What Claude draws at
+ * the panel's edge instead (its "You have not answered all questions" warning over the list, a
+ * permission note under it) is no answer's and stays the card's text. A review cut off at the top
+ * can open on the rest of a question or answer, its start out of view.
+ */
+function claudeReviewAnswers(panel: string[], width: number): { answers: InteractivePromptAnswer[]; notes: string[] } | null {
+  const items: { question: string[]; answer: string[] | null }[] = [];
+  const notes: string[] = [];
+  // indented lines over the first marker, which a cut-off review opens on: the rest of a question
+  // (an answer follows) or of an answer (a question follows)
+  const lead: string[] = [];
+  for (const raw of panel) {
+    const line = cleanLine(raw);
+    if (!line || isDivider(line) || /^Review your answers$/i.test(line)) continue;
+    const open = items.at(-1);
+    if (/^●\s/.test(line)) {
+      if (!open && lead.length > 0) items.push({ question: [], answer: lead.splice(0) });
+      items.push({ question: [raw], answer: null });
+    } else if (/^→\s/.test(line)) {
+      if (open && open.answer === null) open.answer = [raw];
+      else items.push({ question: open ? [] : lead.splice(0), answer: [raw] });
+    } else if (!/^\s|^│/.test(raw.replace(ANSI_RE, ""))) notes.push(line);
+    else if (open) (open.answer ?? open.question).push(raw);
+    else lead.push(raw);
+  }
+  if (items.length === 0) return null;
+  // what the top cut off starts with "…": the rest of a question or answer is not all of it
+  const cut = (text: string, whole: boolean): string | null => text === "" ? null : whole ? text : `…${text}`;
+  return {
+    answers: items.map((item) => ({
+      question: cut(joinWrapped(item.question, width, /^●\s+/), /^●\s/.test(cleanLine(item.question[0] ?? ""))),
+      answer: item.answer ? cut(joinWrapped(item.answer, width, /^→\s+/), /^→\s/.test(cleanLine(item.answer[0] ?? ""))) : null,
+    })),
+    notes,
+  };
+}
+
+/**
  * After several questions Claude shows the answers and asks before sending them. The review is one
  * panel from its tabs down to its question, with no rule inside it. A review taller than the pane
  * (long answers, a phone-width pane) is cut off at the top, tabs and heading out of view: then the
@@ -799,11 +865,14 @@ function parseClaudeSubmit(screen: string): ParsedPrompt | null {
   if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
   if (tabsIndex < 0 && (!panel.some((line) => /^→\s/.test(cleanLine(line)))
     || rows.map((row) => row.label).join("\n") !== "Submit answers\nCancel")) return null;
-  const body = panel.map(cleanLine)
+  const review = claudeReviewAnswers(panel, screenWidth(lines));
+  const answers = review?.answers;
+  const body = review ? review.notes.join("\n") : panel.map(cleanLine)
     .filter((line) => line && !isDivider(line) && !/^Review your answers$/i.test(line)).join("\n");
   return finishPrompt("claude", {
     // a menu, not a question: a typed pick submits every answer at once, so it waits for Confirm
     kind: "menu", title: "Review your answers", question: cleanLine(lines[questionIndex]!), body: body || null,
+    ...(answers ? { answers } : {}),
     options: rows.map((row) => ({ label: row.label, description: null })), multi_select: false, custom_option_index: null,
   }, {
     responder: "claude-submit", menuLabels: rows.map((row) => row.label), selectedIndex: rows.findIndex((row) => row.selected),
