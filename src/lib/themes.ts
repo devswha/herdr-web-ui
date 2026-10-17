@@ -3,6 +3,7 @@ import { SUPPORTED_ENTRIES, THEME_IDS } from "./themes.generated.ts";
 import type { ThemeId } from "./themes.generated.ts";
 
 export { SUPPORTED_ENTRIES, THEME_IDS };
+export { ROLES, SHADOW_GEOMETRY } from "./themeRoles.ts";
 export type { ThemeId };
 
 export type Mode = "dark" | "light";
@@ -51,65 +52,6 @@ export function siblingFor(id: string, targetSide: Mode): string | undefined {
   const pair = SIBLING_PAIRS.find(([dark, light]) => targetSide === "light" ? id === dark : id === light);
   return pair?.[targetSide === "light" ? 1 : 0];
 }
-
-export const ROLES = {
-  bg: "color",
-  "bg-panel": "color",
-  "bg-elevated": "color",
-  "bg-hover": "color",
-  "bg-input": "color",
-  border: "color",
-  "border-strong": "color",
-  text: "color",
-  "text-dim": "color",
-  "text-strong": "color",
-  accent: "color",
-  "accent-tint": "color",
-  primary: "color",
-  "primary-hover": "color",
-  "primary-text": "color",
-  "primary-tint": "color",
-  "status-idle": "color",
-  "status-working": "color",
-  "status-blocked": "color",
-  "status-done": "color",
-  "status-working-tint": "color",
-  "status-blocked-tint": "color",
-  "status-done-tint": "color",
-  "danger-tint": "color",
-  notice: "color",
-  "danger-text": "color",
-  scrim: "color",
-  "term-bg": "color",
-  "term-fg": "color",
-  "term-cursor": "color",
-  "term-selection": "color",
-  "line-number": "color",
-  "syntax-function": "color",
-  "syntax-keyword": "color",
-  "syntax-string": "color",
-  "syntax-number": "color",
-  "syntax-type": "color",
-  "syntax-variable": "color",
-  "syntax-meta": "color",
-  "bubble-border": "color",
-  "shadow-drawer": "shadow",
-  "shadow-pop": "shadow",
-  "shadow-card": "shadow",
-} as const;
-
-export const SHADOW_GEOMETRY = {
-  dark: {
-    "shadow-drawer": ["0 0 40px"],
-    "shadow-pop": ["0 16px 48px", "0 0 0 1px"],
-    "shadow-card": ["0 4px 16px"],
-  },
-  light: {
-    "shadow-drawer": ["0 0 40px"],
-    "shadow-pop": ["0 16px 48px", "0 0 0 1px"],
-    "shadow-card": ["0 4px 16px"],
-  },
-} as const;
 
 export const HERDR_SOURCE = {
   repo: "herdrdev/herdr",
