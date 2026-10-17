@@ -7,7 +7,7 @@
 import type { AgentRenameRequest, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, ReadFormat, ReadSource } from "../shared/protocol.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
-import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse, readJsonObject } from "./http.ts";
 import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { DevinHistoryChanged } from "./devin.ts";
@@ -35,13 +35,8 @@ export async function paneContext(paneId: string): Promise<{ agent: string | nul
 export async function handlePaneRequest(request: Request, url: URL, pathname: string, options: PaneStores): Promise<Response | null> {
   if (pathname === "/api/pane/rename") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    let payload: { pane_id?: unknown; label?: unknown };
-    try {
-      payload = (await request.json()) as typeof payload;
-    } catch {
-      return badRequest("invalid_json", "request body must be JSON");
-    }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject<{ pane_id?: unknown; label?: unknown }>(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
     if (typeof payload.label !== "string") return badRequest("missing_label", "label is required");
     try {
@@ -54,13 +49,8 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
 
   if (pathname === "/api/agent/rename") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    let payload: Partial<Record<keyof AgentRenameRequest, unknown>>;
-    try {
-      payload = (await request.json()) as typeof payload;
-    } catch {
-      return badRequest("invalid_json", "request body must be JSON");
-    }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject<Partial<Record<keyof AgentRenameRequest, unknown>>>(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
     if (payload.name !== null && typeof payload.name !== "string") return badRequest("invalid_name", "name must be a string, or null to clear it");
     // the rule and the uniqueness are herdr's: its refusal comes back as it is
@@ -117,10 +107,8 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
 
   if (pathname === "/api/pane/find") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    let payload: unknown;
-    try { payload = await request.json(); }
-    catch { return badRequest("invalid_json", "request body must be JSON"); }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
     if (typeof payload.query !== "string" || payload.query.length === 0 || payload.query.length > 1024) return badRequest("invalid_query", "query must contain 1 to 1024 characters");
     if (payload.direction !== "forward" && payload.direction !== "backward") return badRequest("invalid_direction", "direction must be forward or backward");
@@ -156,13 +144,8 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
       }
     }
     if (request.method !== "POST") return badRequest("method_not_allowed", "use GET or POST");
-    let payload: { pane_id?: unknown; offset_from_bottom?: unknown };
-    try {
-      payload = (await request.json()) as typeof payload;
-    } catch {
-      return badRequest("invalid_json", "request body must be JSON");
-    }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject<{ pane_id?: unknown; offset_from_bottom?: unknown }>(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
     if (!isCount(payload.offset_from_bottom)) return badRequest("invalid_offset", "offset_from_bottom must be a non-negative integer");
     try {
@@ -248,13 +231,8 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
 
   if (pathname === "/api/pane/input" || pathname === "/api/pane/keys") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    let payload: { pane_id?: string; text?: string; keys?: string[] };
-    try {
-      payload = (await request.json()) as typeof payload;
-    } catch {
-      return badRequest("invalid_json", "request body must be JSON");
-    }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject<{ pane_id?: string; text?: string; keys?: string[] }>(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
     try {
       if (pathname === "/api/pane/input") {
@@ -272,13 +250,8 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
 
   if (pathname === "/api/pane/close") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    let payload: { pane_id?: string };
-    try {
-      payload = (await request.json()) as typeof payload;
-    } catch {
-      return badRequest("invalid_json", "request body must be JSON");
-    }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject<{ pane_id?: string }>(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
     try {
       // herdr emits pane.closed -> the collector broadcasts session-changed, so
@@ -294,10 +267,8 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
 
   if (pathname === "/api/layout/ratio") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    let payload: { tab_id?: unknown; path?: unknown; ratio?: unknown };
-    try { payload = (await request.json()) as typeof payload; }
-    catch { return badRequest("invalid_json", "request body must be JSON"); }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject<{ tab_id?: unknown; path?: unknown; ratio?: unknown }>(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.tab_id !== "string" || !payload.tab_id.trim()) return badRequest("missing_tab_id", "tab_id is required");
     if (!Array.isArray(payload.path) || !payload.path.every((step) => typeof step === "boolean")) return badRequest("invalid_path", "path must be an array of booleans");
     if (typeof payload.ratio !== "number" || !Number.isFinite(payload.ratio) || payload.ratio < 0.1 || payload.ratio > 0.9) return badRequest("invalid_ratio", "ratio must be a number from 0.1 to 0.9");
@@ -314,13 +285,8 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   // both as session-changed, the same way the TUI's own changes do.
   if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear" || pathname === "/api/pane/focus") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-    let payload: { pane_id?: unknown; direction?: unknown; target_pane_id?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
-    try {
-      payload = (await request.json()) as typeof payload;
-    } catch {
-      return badRequest("invalid_json", "request body must be JSON");
-    }
-    if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+    const payload = await readJsonObject<{ pane_id?: unknown; direction?: unknown; target_pane_id?: unknown; focus?: unknown; mode?: unknown; amount?: unknown }>(request);
+    if (payload instanceof Response) return payload;
     if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
     const paneId = payload.pane_id;
     try {

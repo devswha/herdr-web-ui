@@ -15,7 +15,7 @@ import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isSe
 import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
-import { badRequest, conflictResponse, errorResponse, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, conflictResponse, errorResponse, isJsonObject, jsonResponse, readJsonObject } from "./http.ts";
 import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { isMouseReport, sameAttachment } from "./input-guard.ts";
@@ -2097,13 +2097,8 @@ export function createServer(
       if (pathname === "/api/workspace/create" || pathname === "/api/tab/create") {
         const inWorkspace = pathname === "/api/tab/create";
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { workspace_id?: unknown; cwd?: unknown; label?: unknown; agent?: { kind?: unknown; name?: unknown; args?: unknown } | null };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const payload = await readJsonObject<{ workspace_id?: unknown; cwd?: unknown; label?: unknown; agent?: { kind?: unknown; name?: unknown; args?: unknown } | null }>(request);
+        if (payload instanceof Response) return payload;
         if (inWorkspace && (typeof payload.workspace_id !== "string" || payload.workspace_id.trim() === "")) {
           return badRequest("missing_workspace_id", "workspace_id is required");
         }
@@ -2160,13 +2155,8 @@ export function createServer(
 
       if (pathname === "/api/worktree/remove") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { workspace_id?: unknown; force?: unknown };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const payload = await readJsonObject<{ workspace_id?: unknown; force?: unknown }>(request);
+        if (payload instanceof Response) return payload;
         if (typeof payload.workspace_id !== "string" || payload.workspace_id.length === 0) {
           return badRequest("missing_workspace_id", "workspace_id is required");
         }
@@ -2185,13 +2175,8 @@ export function createServer(
 
       if (pathname === "/api/worktree/create" || pathname === "/api/worktree/open") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { workspace_id?: unknown; branch?: unknown; base?: unknown; label?: unknown; path?: unknown; agent?: AgentPayload | null };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const payload = await readJsonObject<{ workspace_id?: unknown; branch?: unknown; base?: unknown; label?: unknown; path?: unknown; agent?: AgentPayload | null }>(request);
+        if (payload instanceof Response) return payload;
         if (typeof payload.workspace_id !== "string" || payload.workspace_id.length === 0) {
           return badRequest("missing_workspace_id", "workspace_id is required");
         }
@@ -2260,13 +2245,8 @@ export function createServer(
 
       if (pathname === "/api/workspace/rename" || pathname === "/api/workspace/move" || pathname === "/api/workspace/close") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { workspace_id?: unknown; label?: unknown; insert_index?: unknown; close_group?: unknown };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const payload = await readJsonObject<{ workspace_id?: unknown; label?: unknown; insert_index?: unknown; close_group?: unknown }>(request);
+        if (payload instanceof Response) return payload;
         if (typeof payload.workspace_id !== "string" || payload.workspace_id.length === 0) {
           return badRequest("missing_workspace_id", "workspace_id is required");
         }
@@ -2299,13 +2279,8 @@ export function createServer(
       // herdr's prefix+shift+t and prefix+shift+x: a tab's name, and a tab closed with every pane in it
       if (pathname === "/api/tab/rename" || pathname === "/api/tab/close" || pathname === "/api/tab/move") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { tab_id?: unknown; label?: unknown; insert_index?: unknown };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const payload = await readJsonObject<{ tab_id?: unknown; label?: unknown; insert_index?: unknown }>(request);
+        if (payload instanceof Response) return payload;
         if (typeof payload.tab_id !== "string" || payload.tab_id.length === 0) return badRequest("missing_tab_id", "tab_id is required");
         if (pathname === "/api/tab/move" && (typeof payload.insert_index !== "number" || !Number.isSafeInteger(payload.insert_index) || payload.insert_index < 0)) {
           return badRequest("invalid_index", "insert_index must be a non-negative safe integer");
@@ -2372,13 +2347,8 @@ export function createServer(
 
       if (pathname === "/api/plugin/action") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use GET or POST");
-        let payload: { plugin_id?: unknown; action_id?: unknown; pane_id?: unknown };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        const payload = await readJsonObject<{ plugin_id?: unknown; action_id?: unknown; pane_id?: unknown }>(request);
+        if (payload instanceof Response) return payload;
         if (typeof payload.plugin_id !== "string" || payload.plugin_id.length === 0) return badRequest("missing_plugin_id", "plugin_id is required");
         if (typeof payload.action_id !== "string" || payload.action_id.length === 0) return badRequest("missing_action_id", "action_id is required");
         if (payload.pane_id !== undefined && (typeof payload.pane_id !== "string" || payload.pane_id.length === 0)) return badRequest("invalid_pane_id", "pane_id must be a pane's ID");
