@@ -137,7 +137,8 @@ try {
   const failedRow = log.getByRole("button", { name: "Ran bun test failed", exact: true });
   assert.equal(await failedRow.evaluate((node) => node.lastElementChild?.className), "work-row-failed");
   assert.equal(await failedRow.getAttribute("title"), "exec_command · bun test");
-  await row.click();
+  // the row opened while the turn ran stays open through fold and unfold: a click would close it
+  if (await row.getAttribute("aria-expanded") !== "true") await row.click();
   assert.equal(await log.locator(".work-row-detail > :first-child").innerText(), "exec_command");
   await log.getByText("git status", { exact: true }).last().waitFor();
   assert.equal(await log.locator(".chat-agent-meta").count(), 1);
