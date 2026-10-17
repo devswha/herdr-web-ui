@@ -13,8 +13,9 @@
  *   declared roles, xterm colors and panel color, so runtime code never parses CSS.
  * - DESIGN.md: only the amber palette and terminal rows between `<!-- BEGIN GENERATED THEMES -->` and
  *   `<!-- END GENERATED THEMES -->`. Everything outside the markers stays handwritten.
- * - index.html `<meta name="theme-color">` and the manifest's theme_color and background_color:
- *   one targeted replacement each, so the rest of those files keeps its bytes.
+ * - index.html `<meta name="theme-color">` and the manifest's theme_color and background_color, in the
+ *   default theme's dark colors (DEFAULT_ID, src/lib/themes.ts DEFAULT_THEME): one targeted replacement
+ *   each, so the rest of those files keeps its bytes.
  *
  * Every copy fails closed: a missing, repeated or out-of-order marker, or a target found other
  * than exactly once, stops the run with the file and marker named. Output is deterministic (CSS
@@ -33,6 +34,9 @@ export const OUTPUTS = {
   index: "index.html",
   manifest: "public/manifest.webmanifest",
 } as const;
+
+/** src/lib/themes.ts DEFAULT_THEME, kept apart so this script reads no generated module (settings.test.ts holds them equal) */
+export const DEFAULT_ID = "codex";
 
 export const DESIGN_BEGIN = "<!-- BEGIN GENERATED THEMES -->";
 export const DESIGN_END = "<!-- END GENERATED THEMES -->";
@@ -96,13 +100,17 @@ const DESIGN_ROWS: readonly (readonly [label: string, token: string])[] = [
   ["Alert/shadow", "--droplet-shadow"],
 ];
 
-function resolveAmber(blocks: ReturnType<typeof parseThemeBlocks>) {
-  return { dark: resolveEntry(blocks, "amber", "dark"), light: resolveEntry(blocks, "amber", "light") };
+function resolveTheme(blocks: ReturnType<typeof parseThemeBlocks>, id: string) {
+  return { id, dark: resolveEntry(blocks, id, "dark"), light: resolveEntry(blocks, id, "light") };
 }
 
-function amberColor(amber: ReturnType<typeof resolveAmber>, token: string, mode: "dark" | "light", kind: "declared" | "resolved"): string {
-  const value = amber[mode][kind][token];
-  if (value === undefined) throw new Error(`${SOURCE}: amber/${mode} declares no ${token}`);
+function resolveAmber(blocks: ReturnType<typeof parseThemeBlocks>) {
+  return resolveTheme(blocks, "amber");
+}
+
+function tokenColor(theme: ReturnType<typeof resolveTheme>, token: string, mode: "dark" | "light", kind: "declared" | "resolved"): string {
+  const value = theme[mode][kind][token];
+  if (value === undefined) throw new Error(`${SOURCE}: ${theme.id}/${mode} declares no ${token}`);
   return value;
 }
 
@@ -162,7 +170,7 @@ export function renderDesign(css: string, design: string, amber = resolveAmber(p
   const end = design.indexOf(DESIGN_END);
   if (end < begin) throw new Error(`${OUTPUTS.design}: marker ${DESIGN_END} comes before ${DESIGN_BEGIN}`);
   const rows = DESIGN_ROWS.map(([label, token]) =>
-    `| ${label} | \`${token}\` | \`${amberColor(amber, token, "dark", "declared")}\` | \`${amberColor(amber, token, "light", "declared")}\` |`);
+    `| ${label} | \`${token}\` | \`${tokenColor(amber, token, "dark", "declared")}\` | \`${tokenColor(amber, token, "light", "declared")}\` |`);
   const table = ["| Role | Token | Dark | Light |", "|------|-------|------|-------|", ...rows].join("\n");
   const blocks = parseThemeBlocks(css);
   const light = Object.values(blocks).filter((block) => block.mode === "light");
@@ -192,8 +200,8 @@ function decodeNumericEntities(value: string): string {
  * read as a browser reads them, and only the matched tag's content attribute is re-serialized. Its
  * getAttribute returns the first `name` undecoded, so numeric references are decoded here as a browser would.
  */
-export function renderIndex(css: string, html: string, amber = resolveAmber(parseThemeBlocks(css))): string {
-  const color = amberColor(amber, "--bg-panel", "dark", "resolved");
+export function renderIndex(css: string, html: string, theme = resolveTheme(parseThemeBlocks(css), DEFAULT_ID)): string {
+  const color = tokenColor(theme, "--bg-panel", "dark", "resolved");
   let count = 0;
   const output = new HTMLRewriter().on("meta", {
     element(element) {
@@ -242,8 +250,8 @@ function topLevelKeys(json: string): { key: string; value: { start: number; end:
   return keys;
 }
 
-export function renderManifest(css: string, json: string, amber = resolveAmber(parseThemeBlocks(css))): string {
-  const values = { theme_color: amberColor(amber, "--bg-panel", "dark", "resolved"), background_color: amberColor(amber, "--bg", "dark", "resolved") };
+export function renderManifest(css: string, json: string, theme = resolveTheme(parseThemeBlocks(css), DEFAULT_ID)): string {
+  const values = { theme_color: tokenColor(theme, "--bg-panel", "dark", "resolved"), background_color: tokenColor(theme, "--bg", "dark", "resolved") };
   const before = JSON.parse(json) as Record<string, unknown>;
   // JSON.parse keeps only the last of duplicate keys, so the keys are counted in the text itself
   const keys = topLevelKeys(json);
@@ -269,11 +277,12 @@ export function renderAll(root: string): { path: string; content: string }[] {
   const css = readFileSync(at(SOURCE), "utf8");
   const blocks = parseThemeBlocks(css);
   const amber = resolveAmber(blocks);
+  const fallback = resolveTheme(blocks, DEFAULT_ID);
   return [
     { path: OUTPUTS.module, content: renderModule(css, blocks, amber) },
     { path: OUTPUTS.design, content: renderDesign(css, readFileSync(at(OUTPUTS.design), "utf8"), amber) },
-    { path: OUTPUTS.index, content: renderIndex(css, readFileSync(at(OUTPUTS.index), "utf8"), amber) },
-    { path: OUTPUTS.manifest, content: renderManifest(css, readFileSync(at(OUTPUTS.manifest), "utf8"), amber) },
+    { path: OUTPUTS.index, content: renderIndex(css, readFileSync(at(OUTPUTS.index), "utf8"), fallback) },
+    { path: OUTPUTS.manifest, content: renderManifest(css, readFileSync(at(OUTPUTS.manifest), "utf8"), fallback) },
   ];
 }
 

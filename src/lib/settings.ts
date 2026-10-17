@@ -8,7 +8,7 @@
 import type { TelemetrySettings } from "../../shared/telemetry.ts";
 import { mirrorPalette, SHARED_SETTING_KEYS, type SharedSettingKey } from "../../shared/preferences.ts";
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { isThemeId, terminalColors, themeColor as themeTableColor, type ThemeId, type ThemeEntry } from "./themes.ts";
+import { DEFAULT_THEME, isThemeId, terminalColors, themeColor as themeTableColor, type ThemeId, type ThemeEntry } from "./themes.ts";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
@@ -30,7 +30,7 @@ export type AgentMarks = "color" | "mono";
 export type UsageCount = "used" | "left";
 /** the limit a plan meter shows: the plan's week, or its short session (5 hours on Claude and Codex) */
 export type UsageGlance = "week" | "session";
-/** amber: the herdr look (the default); charcoal: neutral Ghostty-style dark;
+/** amber: the herdr look (the default before codex); charcoal: neutral Ghostty-style dark;
  *  catppuccin: Catppuccin Mocha in dark, Latte in light. A record naming a palette that was removed
  *  (report, lilac, forest) loads as amber. */
 export type Palette = ThemeId;
@@ -279,11 +279,11 @@ export const DEFAULT_SETTINGS: Settings = {
   agentOrder: "workspace",
   agentMarks: "color",
   statusIndicators: "classic",
-  palette: "amber",
-  paletteLight: "amber",
-  paletteDark: "amber",
-  darkTheme: "amber",
-  lightTheme: "amber",
+  palette: DEFAULT_THEME,
+  paletteLight: DEFAULT_THEME,
+  paletteDark: DEFAULT_THEME,
+  darkTheme: DEFAULT_THEME,
+  lightTheme: DEFAULT_THEME,
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
@@ -431,12 +431,13 @@ export function sanitizeSettings(raw: unknown): Settings {
   const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
   const theme = record["theme"] === "dark" || record["theme"] === "light" || record["theme"] === "system" ? record["theme"] : DEFAULT_SETTINGS.theme;
   const palette = isThemeId(record["palette"]) ? record["palette"] : "amber";
-  // Absence migrates; an explicitly unknown id falls back to amber, not a stale pair.
+  // Absence migrates (a record from before themes wore amber, so it keeps amber); an explicitly
+  // unknown id falls back to the default, not a stale pair.
   const darkTheme = "darkTheme" in record
-    ? (isThemeId(record["darkTheme"]) ? record["darkTheme"] : "amber")
+    ? (isThemeId(record["darkTheme"]) ? record["darkTheme"] : DEFAULT_THEME)
     : theme === "dark" ? palette : isThemeId(record["paletteDark"]) ? record["paletteDark"] : theme === "system" && record["paletteDark"] !== undefined ? "amber" : palette;
   const lightTheme = "lightTheme" in record
-    ? (isThemeId(record["lightTheme"]) ? record["lightTheme"] : "amber")
+    ? (isThemeId(record["lightTheme"]) ? record["lightTheme"] : DEFAULT_THEME)
     : theme === "light" ? palette : isThemeId(record["paletteLight"]) ? record["paletteLight"] : theme === "system" && record["paletteLight"] !== undefined ? "amber" : palette;
   const density = record["density"];
   const font = record["terminalFontSize"];

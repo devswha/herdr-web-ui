@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { parseThemeBlocks, parseThemeValue, resolveEntry, ThemeValueError } from "./themeCss.ts";
 import { LIGHT_ANSI_ROLES } from "./themeRoles.ts";
 import baseline from "./themes.legacy-baseline.json";
-import { ROLES, SHADOW_GEOMETRY, SUPPORTED_ENTRIES, THEME_IDS, themeColor as tableThemeColor } from "./themes.ts";
+import { DEFAULT_THEME, ROLES, SHADOW_GEOMETRY, SUPPORTED_ENTRIES, THEME_IDS, themeColor as tableThemeColor } from "./themes.ts";
+import { DEFAULT_ID } from "../../scripts/generate-themes.ts";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
 import { SHARED_SETTING_KEYS } from "../../shared/preferences.ts";
@@ -667,8 +668,8 @@ describe("language", () => {
 });
 
 describe("palette", () => {
-  it("defaults to amber, the look before this setting, and keeps only a known palette", () => {
-    expect(DEFAULT_SETTINGS.palette).toBe("amber");
+  it("defaults to codex, and reads a record from before palettes as amber, the look it had", () => {
+    expect(DEFAULT_SETTINGS.palette).toBe("codex");
     // settings stored before palettes existed carry no palette key
     expect(sanitizeSettings({ theme: "light" }).palette).toBe("amber");
     expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
@@ -802,8 +803,9 @@ describe("palette", () => {
     expect(failures).toEqual([]);
   });
 
-  it("gives index.html and the web manifest amber dark's panel and page colors", () => {
-    const { resolved } = resolveEntry(css, "amber", "dark");
+  it("gives index.html and the web manifest the default theme's dark panel and page colors", () => {
+    expect(DEFAULT_ID).toBe(DEFAULT_THEME);
+    const { resolved } = resolveEntry(css, DEFAULT_THEME, "dark");
     const metas: string[] = [];
     new HTMLRewriter().on('meta[name="theme-color"]', { element: (meta) => void metas.push(meta.getAttribute("content") ?? "") })
       .transform(readFileSync(join(import.meta.dir, "..", "..", "index.html"), "utf8"));

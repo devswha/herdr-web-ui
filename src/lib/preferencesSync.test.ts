@@ -55,7 +55,7 @@ describe("preferences sync", () => {
   });
 
   it("keeps an unsent side edit over a legacy-only fixed-mode document", () => {
-    const local = sanitizeSettings({ darkTheme: "tokyo-night" });
+    const local = sanitizeSettings({ ...DEFAULT_SETTINGS, darkTheme: "tokyo-night" });
     const taken = takePreferences(base(DEFAULT_SETTINGS, []), { settings: local, pins: [] }, { revision: 2, settings: { theme: "dark", palette: "catppuccin" } }, null);
     expect(taken.patch).toEqual({ theme: "dark" });
     expect(taken.base.settings.darkTheme).toBe("catppuccin");
