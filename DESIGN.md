@@ -16,7 +16,8 @@ changing information architecture. A new browser starts on the Codex theme (dark
 draws this hierarchy in Codex's neutral surfaces and blue accent; amber, charcoal, Catppuccin and
 herdr's built-in themes are picked in Settings → Appearance → Dark theme and Light theme. Amber
 stays the base every theme block overrides, the look before settings load, and the look a browser
-keeps when its settings were saved while amber was the default.
+keeps when it saved a theme while amber was the default. Settings are saved on a user's first
+change, so a browser that never changed one moves to Codex with everyone new.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
 mark, else the place's own glyph), a title, and a trailing cell that says how it is. Workspaces
