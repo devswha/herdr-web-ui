@@ -636,6 +636,9 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
     const fixed = fixedIds.has(workspace.workspace_id);
     const menuOpen = menu?.workspace.workspace_id === workspace.workspace_id;
     const contentsId = `${rosterId}-worktrees-${encodeURIComponent(workspace.workspace_id)}`;
+    // without a project icon the folder itself says the fold's state: open while the worktrees show
+    const unfolded = children.length > 0 && repoKey !== undefined && !collapsed;
+    const face = <WorkspaceFavicon root={workspace.worktree?.checkout_path ?? pane.cwd ?? null} fallback={<span className="sidebar-mark workspace-folder" aria-hidden="true">{unfolded ? <FolderOpen /> : <Folder />}</span>} />;
     const toggleMenu = (anchor: HTMLElement, point?: { x: number; y: number }, previousFocus?: HTMLElement | null): void => setMenu(menuOpen ? null : { anchor, point, previousFocus, workspace, title: rowTitle, place: [branchNote, ...paths].filter(Boolean).join(" · ") || workspace.label });
     return <li
       className={`workspace workspace-group pane-item${selected ? " is-selected" : ""}${collapsed ? " is-collapsed" : ""}${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${touchDrag?.source === workspace.workspace_id ? " is-lifted" : ""}`}
@@ -649,7 +652,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
       <div className="workspace-header"
         onMouseDownCapture={(event) => { if ((event.button === 2 || (event.button === 0 && event.ctrlKey)) && !(event.target as HTMLElement).closest("input")) event.preventDefault(); }}
         onContextMenu={(event) => onRowContextMenu(event, toggleMenu)}>
-        {/* a workspace leads with its folder, which is the fold when linked worktrees sit under it */}
+        {/* a workspace leads with its own face, the project's icon or else a folder; when linked
+            worktrees sit under it, that face is also the fold, and turns to an open or closed folder under a pointer */}
         {nested ? null : children.length > 0 && repoKey !== undefined ? <button
           type="button"
           className="sidebar-row-action workspace-toggle"
@@ -658,7 +662,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
           aria-expanded={!collapsed}
           aria-controls={contentsId}
           onClick={() => setWorktreeCollapsed(repoKey, !collapsed)}
-        >{collapsed ? <Folder aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}</button> : <WorkspaceFavicon root={workspace.worktree?.checkout_path ?? pane.cwd ?? null} fallback={<span className="sidebar-mark workspace-folder" aria-hidden="true"><Folder /></span>} />}
+        >{face}<span className="workspace-toggle-fold" aria-hidden="true">{collapsed ? <Folder /> : <FolderOpen />}</span></button> : face}
         <div
           className="pane-select workspace-select"
           role="button"
@@ -758,7 +762,7 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
             </div>
           )}
           {shownGroups.pinned.some(({ workspace }) => roster.some((pane) => pane.workspace_id === workspace.workspace_id)) && <>
-            <p className="sidebar-pinned-label" aria-hidden="true"><Pin />{t("Pinned")}</p>
+            <p className="sidebar-pinned-label" aria-hidden="true"><span><Pin />{t("Pinned")}</span></p>
             <ul className="workspace-list workspace-list-pinned sidebar-pinned" aria-label={t("Pinned")}>{shownGroups.pinned.map(renderGroup)}</ul>
           </>}
           <ul className="workspace-list">{shownGroups.rest.map(renderGroup)}</ul>

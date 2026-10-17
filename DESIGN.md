@@ -890,12 +890,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   Clicking its name opens the
   selected pane in that workspace, else the last viewed pane, else the pane herdr has focused,
   else its first pane. Tabs are selected from the tab strip; panes are selected on the canvas or from the command palette.
-- A top-level workspace row starts with a folder glyph in the grid's leading cell, under the
-  PC's monitor; the row's mark and name follow it. For a repository workspace with linked
-  worktree workspaces that folder is the group's fold, a button (`.workspace-toggle`) in
-  `--text`: open while the worktrees show, closed while they are folded, when a dim `+N` after
-  the name counts the checkouts put away. For any other workspace it is a dim glyph and no
-  control. Worktree rows have no folder: they sit one cell in, their marks under the parent's.
+- A top-level workspace row starts with its project's icon in the grid's leading cell, under the
+  PC's monitor, or a folder glyph when its folder keeps none; the row's mark and name follow it.
+  For a repository workspace with linked worktree workspaces that cell is the group's fold, a
+  button (`.workspace-toggle`) in `--text`: the folder (no icon) is open while the worktrees show
+  and closed while they are folded, when a dim `+N` after the name counts the checkouts put away;
+  a project icon stays until a pointer hovers the row or the button takes keyboard focus, when
+  that same open or closed folder takes its place. Where nothing hovers (touch) the folder always
+  shows. For any other workspace it is a dim glyph or the icon, and no control. Worktree rows have no folder: they sit one cell in, their marks under the parent's.
   Worktree folds are remembered at
   `herdr-web-ui:worktree-group-collapsed:<machineId>:<repo_key>`; a folded group keeps the selected
   child visible, and status snapshots preserve a deliberate fold.
@@ -928,11 +930,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
 - The Agents list is flat and every row names its own place. Pinned agents (pinned from a row's
   menu) stand first, in the order they were pinned, in a card (a `--hairline` `--border` edge,
-  `--radius-lg`, `--space-1` padding, no fill, so hover and selection read inside it as elsewhere),
+  `--radius-lg`, no fill, so hover and selection read inside it as elsewhere),
   with no mark of their own (the card says so); the rest follow `--space-2` below in the
-  chosen order. A quiet caption above the card (`.sidebar-pinned-label`: a pin and **Pinned** in
-  `--fs-xs` `--text-dim`) names it at a glance; it is hidden from screen readers, where the list
-  itself is labelled **Pinned**. Without pins there is no card and no caption. Pins are shared with the other browsers of the server.
+  chosen order. The card's caption sits on its top edge, as a fieldset's legend does
+  (`.sidebar-pinned-label`: a pin and **PINNED**, centered, `--fs-2xs` semibold caps in
+  `--text-dim` on the `--bg-panel` it masks the edge with); it is hidden from screen readers,
+  where the list itself is labelled **Pinned**. Without pins there is no card and no caption. Pins are shared with the other browsers of the server.
 - Appearance's **Sidebar rows** is **One line** by default: a workspace row is its name, and an
   agent row is one line on a workspace row's height, its dim place after the title (the title keeps
   its width first, the place takes what is left with an ellipsis). Two lines draws the row as the
@@ -1005,17 +1008,21 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - Rows use only shared theme tokens in dark and light. Touch keeps row menus and folds visible,
   with `--touch-target` controls, and draws no hover fill; reduced motion removes row transitions
   and keeps the working dot's breath (opacity only).
-- Footer holds the contextual **Install app** action and Settings with the plan meters beside it,
+- Footer holds the contextual **Install app** action and Settings, its gear alone (named
+  **Settings** to screen readers and in its tooltip), with the plan meters filling the rest of its row,
   as rows on the same grid with no rule above.
   It carries no product name or version: the running versions are read in Settings.
 
 ### Plan meters (`.usage*`)
-- Beside Settings, one button holding up to four chips (three and `+N` past that), one per
-  account in the user's order: provider mark, mono `--fs-2xs` percent of the limit chosen in
-  Settings, the plan's week or its session (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
+- Right of the Settings gear, one button holding as many chips as the row has room for (judged
+  by the widest chip drawn, so the count settles), the rest folded into `+N`, one per account in
+  the user's order: provider mark, mono `--fs-2xs` percent of the limit chosen in Settings, the
+  plan's session by default or its week (what is left by default, or what is used), and a 2px bar on a `--border-strong` track
   filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
   chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
-  left out of the strip and the popover; with every account hidden, neither shows.
+  left out of the strip and the popover; with every account hidden, neither shows. The button's
+  name and tooltip add, per account, another of its limits from 80% used that the chip does not
+  show (`(Weekly 9% left)`); the chip itself does not mark it.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
   footer and scrolling when it outgrows the sidebar: per account its mark, name and plan pill with
   the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
