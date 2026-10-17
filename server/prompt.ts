@@ -3087,6 +3087,25 @@ const SUGGESTION_READ_MS = 1_500;
 const CLAUDE_TIP_RE = /^Try "/;
 
 /**
+ * Claude Code's IDE pill, drawn right after the `❯` while an editor is connected: `[⧉ 3 lines
+ * selected] ` or `[⧉ In src/foo.ts] ` (Claude Code 2.1.302 matches it as `\[⧉ [^\]\n]+\]`). It is
+ * painted in the theme's IDE color, not dim, yet it is no input: typing and Ctrl+K/Ctrl+U leave it.
+ */
+const CLAUDE_IDE_PILL_RE = /^[ \u00a0]?\[⧉ [^\]\n]+\] ?/;
+
+/** The text after the `❯` of an input row with Claude's IDE pill (CLAUDE_IDE_PILL_RE) taken out. */
+const withoutIdePill = (afterPrompt: string): string => afterPrompt.replace(CLAUDE_IDE_PILL_RE, " ");
+
+/**
+ * How many characters after the `❯` of a plain input row Claude's IDE pill takes, with the space
+ * before it: what a walk over that row skips. 0 without a pill.
+ */
+function idePillChars(afterPrompt: string): number {
+  const match = CLAUDE_IDE_PILL_RE.exec(afterPrompt);
+  return match === null ? 0 : Array.from(match[0]).length;
+}
+
+/**
  * Whether each character of an ANSI line is drawn dim (SGR 2) and inverse (SGR 7), as
  * [text, dim, inverse] runs. Only SGR sequences change the state; 38/48 colors are skipped whole,
  * so the 2 of `38;2;r;g;b` is a color mode, not dim. Other escapes are dropped.
@@ -3143,9 +3162,12 @@ function claudeGreyInput(ansi: string): string | null {
   let text = "";
   let seenPrompt = false;
   let cursor = false;
+  // Claude's IDE pill before the grey text is neither typed nor suggested
+  let pill = idePillChars(plain[index]!.slice(plain[index]!.indexOf("❯") + 1));
   for (const [run, dim, inverse] of sgrRuns(lines[index]!)) {
     for (const character of run) {
       if (!seenPrompt) { if (character === "❯") seenPrompt = true; continue; }
+      if (pill > 0) { pill--; continue; }
       const blank = character.trim() === "" || character === "\u00a0";
       // the cursor Claude draws itself sits inverse on the first grey character
       if (!dim && !blank && !(inverse && text.trim() === "" && !cursor)) return null;
@@ -3279,7 +3301,9 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
   const box = claudeInputBox(live);
   if (box === null) return false;
   if (box === "clipped" || !box.plain[0]?.startsWith("❯")) return true;
-  if (box.plain.join("\n").slice(1).replace(/\u00a0/g, " ").trim() === "") return false;
+  // Claude's IDE pill after the `❯` is no input (#1096): a box holding only it is empty
+  const afterPill = withoutIdePill(box.plain[0]!.slice(1));
+  if ([afterPill, ...box.plain.slice(1)].join("\n").replace(/\u00a0/g, " ").trim() === "") return false;
   // a paste or an image Claude folded into a placeholder is content, however it is colored
   if (/\[(?:Pasted text #\d+|Image #\d+)/.test(box.plain.join(" "))) return true;
   if (colors === null) return true;
@@ -3287,8 +3311,9 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
   if (shown === null || shown === "clipped" || shown.plain.join("\n") !== box.plain.join("\n")) return true;
   // Under NO_COLOR (#926) the tip is not dim: only its exact form as the box's whole one row, on a
   // screen drawn without any color, tells it from typed words. Typed `Try "…"` reads the same there.
-  if (box.plain.length === 1 && CLAUDE_TIP_ROW_RE.test(box.plain[0]!.slice(1).replace(/\u00a0/g, " ").trim()) && colorless(colors)) return false;
+  if (box.plain.length === 1 && CLAUDE_TIP_ROW_RE.test(afterPill.replace(/\u00a0/g, " ").trim()) && colorless(colors)) return false;
   let prompt = false;
+  let pill = idePillChars(box.plain[0]!.slice(1));
   let first = true;
   let cursor = false;
   let grey = false;
@@ -3296,6 +3321,7 @@ export function claudeInputDraft(live: string, colors: string | null): boolean {
     for (const [run, dim, inverse] of sgrRuns(row)) {
       for (const character of run) {
         if (!prompt) { prompt = character === "❯"; continue; }
+        if (pill > 0) { pill--; continue; }
         if (character.trim() === "" || character === "\u00a0") continue;
         if (dim) grey = true;
         // the cursor Claude draws itself sits inverse on the first grey character
@@ -3336,7 +3362,10 @@ export function claudeClearableDraft(live: string, colors: string | null): strin
   const row = rowText(box.raw[0]!);
   const shown = claudeInputBox(colors);
   if (shown === null || shown === "clipped" || shown.raw.length !== 1 || rowText(shown.raw[0]!) !== row) return null;
-  const draft = row.slice(1).replace(/^[ \u00a0]/, "");
+  // Claude's IDE pill is not the user's text, and the clearing keys leave it
+  const afterPrompt = row.slice(1);
+  const pill = CLAUDE_IDE_PILL_RE.exec(afterPrompt)?.[0];
+  const draft = pill === undefined ? afterPrompt.replace(/^[ \u00a0]/, "") : afterPrompt.slice(pill.length);
   return draft.trim() === "" ? null : draft;
 }
 
@@ -3402,7 +3431,7 @@ export function claudeRestoredDraft(live: string, colors: string | null, sent: s
   // each row's own words exactly (the box's U+00A0 as a space), its marker, indentation and padding
   // aside; where the terminal wrapped, a word split in two joins with nothing between, and a wrap
   // between words with one space or line break. Any other change to the spaces is the user's edit.
-  const rows = box.plain.map((row, index) => (index === 0 ? row.slice(1) : row).replace(/\u00a0/g, " ").trim());
+  const rows = box.plain.map((row, index) => (index === 0 ? withoutIdePill(row.slice(1)) : row).replace(/\u00a0/g, " ").trim());
   // walked row by row over the set of places the sent text can be at, never a regex: one built from
   // the rows backtracks exponentially over a box of blank rows
   const text = sent.replace(/\u00a0/g, " ").trim();

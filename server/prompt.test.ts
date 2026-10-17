@@ -2188,6 +2188,47 @@ describe("Claude's suggested next prompt", () => {
     expect(claudeInputDraft(strip(tip), null)).toBe(true);
   });
 
+  test("Claude's IDE pill after the ❯ is no draft and hides no suggestion (#1096)", () => {
+    // Claude Code 2.1.302, from its bundle (not a captured screen): with an editor connected the input's
+    // leading pill `[⧉ N lines selected] ` or `[⧉ In <file>] ` is painted in the theme's IDE color, not
+    // dim, before the placeholder (its first character inverse, the rest dim)
+    const strip = (ansi: string) => ansi.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+    const pill = (label: string) => `\u001b[38;2;71;130;200m[⧉ ${label}] \u001b[39m`;
+    const grey = (text: string) => `\u001b[7m${text[0]}\u001b[27m\u001b[2m${text.slice(1)}\u001b[22m`;
+    const read = (row: string) => {
+      const ansi = screen(row);
+      const live = strip(ansi);
+      return { draft: claudeInputDraft(live, ansi), empty: claudeInputEmpty(live, ansi), clearable: claudeClearableDraft(live, ansi) };
+    };
+    const empty = { draft: false, empty: true, clearable: null };
+    expect(read(`❯ ${pill("1 line selected")}${grey('Try "refactor this function"')}`)).toEqual(empty);
+    expect(read(`❯ ${pill("In src/foo.ts")}${grey('Try "refactor this function"')}`)).toEqual(empty);
+    expect(read(`❯ ${pill("1 line selected")}\u001b[7m \u001b[27m`)).toEqual(empty);
+    expect(read(`❯ ${pill("12 lines selected")}`)).toEqual(empty);
+    expect(read(`❯ ${grey('Try "refactor this function"')}`)).toEqual(empty);
+    // a pill alone needs no colors to read as empty
+    expect(claudeInputDraft(strip(screen(`❯ ${pill("12 lines selected")}`)), null)).toBe(false);
+    // typed text after the pill is a draft, offered for clearing without the pill
+    expect(read(`❯ ${pill("1 line selected")}hello there\u001b[7m \u001b[27m`)).toEqual({ draft: true, empty: false, clearable: "hello there " });
+    expect(read(`❯ ${pill("In src/foo.ts")}\u001b[7mr\u001b[27mun`)).toEqual({ draft: true, empty: false, clearable: "run" });
+    // Claude's suggestion after the pill is still offered, its tip still is not
+    expect(parseClaudeSuggestion(screen(`❯ ${pill("3 lines selected")}${grey("run the tests again")}`))).toBe("run the tests again");
+    expect(parseClaudeSuggestion(screen(`❯ ${pill("3 lines selected")}${grey('Try "refactor this function"')}`))).toBeNull();
+    expect(parseClaudeSuggestion(screen(`❯ ${pill("3 lines selected")}typed`))).toBeNull();
+    // the chat's own message restored after the pill is that message
+    const restored = screen(`❯ ${pill("1 line selected")}run the tests`);
+    expect(claudeRestoredDraft(strip(restored), restored, "run the tests")).toBe("run the tests");
+    // drawn without colors (NO_COLOR): the pill and the tip after it are no draft, typed words are
+    const plainRule = "\u2500".repeat(60);
+    const colorless = (row: string) => ["", plainRule, row, plainRule, "  \u23f5\u23f5 auto mode on (shift+tab to cycle)"].join("\r\n");
+    const tip = colorless('❯ [⧉ 1 line selected] \u001b[7mT\u001b[27mry "refactor this function"');
+    expect(claudeInputDraft(strip(tip), tip)).toBe(false);
+    expect(claudeInputEmpty(strip(tip), tip)).toBe(true);
+    const typed = colorless("❯ [⧉ 1 line selected] Try this instead");
+    expect(claudeInputDraft(strip(typed), typed)).toBe(true);
+    expect(claudeClearableDraft(strip(typed), typed)).toBe("Try this instead");
+  });
+
   test("OmO's box while it works, under a rule its status labels, is read like Claude's", () => {
     // OmO (reported by herdr as Claude) as it draws its box mid-turn: two dashes lead the label
     const rule = "\u2500".repeat(60);
