@@ -35,7 +35,7 @@ import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { createDirectory, listDirectories } from "./directories.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
-import { fileResponse, findFile, crossSiteFileRead, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
+import { fileResponse, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
   agentManifests,
@@ -1954,13 +1954,19 @@ export function createServer(
         return new Response("websocket upgrade required", { status: 426 });
       }
 
-      if (pathname === "/api/auth") return handleAuthRequest(request, token, client);
+      if (pathname === "/api/auth") {
+        // signing out also ends the page media this browser was given (by its device, else by its address)
+        if (request.method === "DELETE" && authenticated) forgetPageMedia(pairedDevice !== null ? { device: pairedDevice.id } : { client });
+        return handleAuthRequest(request, token, client);
+      }
       if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
         try {
           const response = await handleDeviceRequest(request, pathname, devices, access);
           if (request.method === "DELETE" && response.status === 204) {
             // The device registry is the delivery authority even if cleaning the push file fails.
             try { push.revokeDevice(pathname.slice("/api/devices/".length)); } catch (error) { logPushError(error); }
+            // and every page media address its renders were given
+            forgetPageMedia({ device: pathname.slice("/api/devices/".length) });
           }
           return response;
         } catch (error) { return errorResponse(error); }
@@ -2072,15 +2078,17 @@ export function createServer(
         // several files end in that name: the viewer lists them to choose from
         if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);
         // a page another PC's server asks for through its bridge is played from that server's address, which this one cannot name: it is drawn as before
-        const mediaSource = bridgeAuthorized ? null : pageMediaSource(requestHost, isSecureRequest(request));
-        return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1", url.searchParams.get("render") === "1", mediaSource);
+        const mediaSource = bridgeAuthorized ? null : pageMediaSource(requestHost, isSecureRequest(request), forwarded ? request.headers.get("x-forwarded-host") : null);
+        // its media plays only for the client address that rendered it, and ends with that device (file-view.ts)
+        const media = mediaSource === null ? null : { source: mediaSource, client, device: access.level === "full" ? access.device?.id ?? null : null };
+        return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1", url.searchParams.get("render") === "1", media);
       }
 
       // a rendered page's own video, by the address its render gave it: the page has no origin and
       // no cookie, so the address is all it holds (requiresAuth lets this path through)
       if (pathname.startsWith(PAGE_MEDIA_PATH)) {
         if (request.method !== "GET" && request.method !== "HEAD") return badRequest("method_not_allowed", "use GET");
-        const media = pageMediaResponse(pathname.slice(PAGE_MEDIA_PATH.length));
+        const media = pageMediaResponse(pathname.slice(PAGE_MEDIA_PATH.length), client);
         return media ?? jsonResponse({ error: { code: "not_found", message: "no such page media" } }, 404);
       }
 

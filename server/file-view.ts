@@ -160,7 +160,8 @@ export function fileInfo(path: string): FileInfo | null {
  * What it takes from its own folder (a screenshot beside the report, its stylesheet and script)
  * is put into the page before it is sent (`pageWithLocalFiles`), so it still asks for nothing.
  * The one exception is a video or sound too large to put into it, which plays from
- * `mediaSource` (`PAGE_MEDIA_PATH`): that path answers only the addresses this page was given.
+ * `mediaSource` (`PAGE_MEDIA_PATH`): that path answers only the addresses this render gave out,
+ * and only to the client that rendered it.
  */
 const pagePolicy = (mediaSource: string | null): string => [
   "sandbox allow-scripts",
@@ -187,63 +188,93 @@ const EMBED_REFS = 1_000;
 
 /**
  * Where a rendered page plays a video or sound too large to put into it: a random address per
- * file, handed out only by `pageWithLocalFiles` for a file that page names. The page never holds
- * the file (its script cannot read media served to another origin), and without an address this
- * server gave it, it reaches nothing here: what it can learn is only that its own video plays.
+ * file and render, handed out only by `pageWithLocalFiles` for a file that page names. The page
+ * never holds the file (its script cannot read media served to another origin), but its script
+ * can read the address from its own `<video src>` and pass it on. So an address plays only for
+ * the client address (`authClient`) that rendered the page, only for `PAGE_MEDIA_LIFETIME_MS`
+ * from the render, and no longer once that device is revoked or signs out (`forgetPageMedia`).
+ * The page's request carries no cookie (it has no origin, and the cookies are SameSite=Strict),
+ * so the client address is the one identity the render and the playing share: another device
+ * behind the same address (one NAT, one proxy that hides its visitors) shares it too, and a phone
+ * whose address changes must reload the page. The shared token is read once at startup, and
+ * these addresses live in memory only: the restart that changes the token drops them all.
  */
 export const PAGE_MEDIA_PATH = "/api/fs/page-media/";
 /** A page media address and nothing else: the one shape `requiresAuth` lets through without a cookie. */
 export const PAGE_MEDIA_ROUTE = /^\/api\/fs\/page-media\/[A-Za-z0-9_-]{32}$/;
-/** An address outlives the page by this long after its last render or play, so a page left open keeps playing. */
-const PAGE_MEDIA_TTL_MS = 12 * 60 * 60 * 1000;
-/** Addresses held at once; past this many the least recently used goes. */
+/**
+ * How long an address plays after its render, never extended. A player asks by Range for as long
+ * as it plays and seeks, not only to start, so this covers a sitting with the page; past it a
+ * reload gives a new address. It is also how long an address a page passed on keeps working.
+ */
+export const PAGE_MEDIA_LIFETIME_MS = 30 * 60 * 1000;
+/** Addresses held at once; past this many the oldest goes. */
 const PAGE_MEDIA_ADDRESSES = 4_096;
-/** What an address serves: the file as its render found it, symlinks resolved, and which file that was. */
-const pageMediaFiles = new Map<string, { file: string; mime: string; expires: number; dev: number; ino: number }>();
-const pageMediaTokens = new Map<string, string>();
+/** Files one render may play from here; past this many a page's media is left as it is, so one page cannot push out every other page's addresses. */
+export const PAGE_MEDIA_PER_RENDER = 50;
+/** Who rendered a page: the client address its media must come from, and the paired device (if any) whose revocation ends it. */
+export interface PageMediaOwner { client: string | null; device: string | null }
+/** What a page may play from here: the policy's media source and who rendered it. */
+export interface PageMedia extends PageMediaOwner { source: string }
+/** What an address serves: the file as its render found it, symlinks resolved, which file that was and in what state, and for whom. */
+interface PageMediaEntry extends PageMediaOwner { file: string; mime: string; expires: number; dev: number; ino: number; size: number; mtimeMs: number }
+/** In mint order, which with a fixed lifetime is also expiry order. */
+const pageMediaFiles = new Map<string, PageMediaEntry>();
 
-/** The address a page plays `file` (a resolved path) from, the same one while it lasts. */
-function pageMediaUrl(file: string, mime: string, now = Date.now()): string {
-  let token = pageMediaTokens.get(file);
-  const held = token === undefined ? undefined : pageMediaFiles.get(token);
-  if (token === undefined || held === undefined || held.expires <= now) token = randomBytes(24).toString("base64url");
-  const { dev, ino } = statSync(file);
-  // re-inserted, it moves to the end: the map's order is least recently used first
-  pageMediaFiles.delete(token);
-  pageMediaFiles.set(token, { file, mime, expires: now + PAGE_MEDIA_TTL_MS, dev, ino });
-  pageMediaTokens.set(file, token);
+/** A new address (its token) for `file` (a resolved path), for this render only; null when the file is gone. */
+function pageMediaUrl(file: string, mime: string, owner: PageMediaOwner, now = Date.now()): string | null {
+  let stat;
+  try { stat = statSync(file); } catch { return null; }
+  if (!stat.isFile()) return null;
   for (const [old, entry] of pageMediaFiles) {
-    if (pageMediaFiles.size <= PAGE_MEDIA_ADDRESSES) break;
+    if (entry.expires > now && pageMediaFiles.size < PAGE_MEDIA_ADDRESSES) break;
     pageMediaFiles.delete(old);
-    if (pageMediaTokens.get(entry.file) === old) pageMediaTokens.delete(entry.file);
   }
-  return PAGE_MEDIA_PATH + token;
+  const token = randomBytes(24).toString("base64url");
+  pageMediaFiles.set(token, { file, mime, expires: now + PAGE_MEDIA_LIFETIME_MS, dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, client: owner.client, device: owner.device });
+  return token;
 }
 
-/** The media source a page's policy allows, for the address the browser asked this server by; null for a Host that is not a plain host[:port]. */
-export function pageMediaSource(host: string | null, secure: boolean): string | null {
-  if (host === null || !/^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i.test(host)) return null;
-  return `${secure ? "https" : "http"}://${host}${PAGE_MEDIA_PATH}`;
+/** Drop the addresses a device was given (it was revoked or signed out), or those a client address was given. */
+export function forgetPageMedia(owner: { device: string } | { client: string | null }): void {
+  for (const [token, entry] of pageMediaFiles) {
+    if ("device" in owner ? entry.device === owner.device : entry.client === owner.client) pageMediaFiles.delete(token);
+  }
 }
 
-/** The file behind a page's media address (with Range, as any file), or null when this server never gave it out or it lapsed. */
-export function pageMediaResponse(token: string, now = Date.now()): Response | null {
+/**
+ * The media source a page's policy allows, for the address the browser asked this server by;
+ * null for a Host that is not a plain host[:port]. Behind a proxy (`cameThroughProxy`) that is
+ * the X-Forwarded-Host it passes on, as the scheme is its X-Forwarded-Proto: a proxy that rewrites
+ * Host would otherwise write a source the page's relative `<video src>` never matches.
+ */
+export function pageMediaSource(host: string | null, secure: boolean, forwardedHost: string | null = null): string | null {
+  const asked = forwardedHost?.split(",")[0]?.trim() || host;
+  if (asked === null || !/^(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i.test(asked)) return null;
+  return `${secure ? "https" : "http"}://${asked}${PAGE_MEDIA_PATH}`;
+}
+
+/**
+ * The file behind a page's media address (with Range, as any file), or null when this server
+ * never gave it out, it lapsed, another client asks for it, or the file is not the one its
+ * render checked.
+ */
+export function pageMediaResponse(token: string, client: string | null, now = Date.now()): Response | null {
   const entry = pageMediaFiles.get(token);
   if (entry === undefined) return null;
   if (entry.expires <= now) {
     pageMediaFiles.delete(token);
-    if (pageMediaTokens.get(entry.file) === token) pageMediaTokens.delete(entry.file);
     return null;
   }
-  // still the file its render checked: a folder on the way swapped for a symlink since, or the
-  // file replaced, would serve another one under the address (a new render gives a new address)
+  // an address the page passed on plays nowhere else, answered like an address that never existed
+  if (entry.client !== client) return null;
+  // still the file its render checked: a folder on the way swapped for a symlink since, the file
+  // replaced or written over in place would serve another one under the address (a new render gives a new address)
   try {
     if (realpathSync(entry.file) !== entry.file) return null;
     const stat = statSync(entry.file);
-    if (!stat.isFile() || stat.dev !== entry.dev || stat.ino !== entry.ino) return null;
+    if (!stat.isFile() || stat.dev !== entry.dev || stat.ino !== entry.ino || stat.size !== entry.size || stat.mtimeMs !== entry.mtimeMs) return null;
   } catch { return null; }
-  pageMediaFiles.delete(token);
-  pageMediaFiles.set(token, { ...entry, expires: now + PAGE_MEDIA_TTL_MS });
   // no CORS and no Cross-Origin-Resource-Policy: the page that plays it has no origin, and its script cannot read it
   return new Response(Bun.file(entry.file, { type: entry.mime }), { headers: {
     "content-disposition": "inline",
@@ -346,15 +377,18 @@ const RUNS = (type: string | null) => type === null || /^\s*(?:module|(?:text|ap
  * stylesheet's `media`): the sandbox may ask this server for nothing, and on a paired phone it
  * could not anyway (the device cookie is SameSite=Strict, and a sandboxed page has no origin).
  * Nothing outside the page's folder is read; a URL is resolved once however often it is named.
- * With `stream`, a video or sound that does not fit is given an address to play from instead
- * (`PAGE_MEDIA_PATH`), the one thing this server answers the page.
+ * With `media`, a video or sound that does not fit is given an address to play from instead
+ * (`PAGE_MEDIA_PATH`, up to `PAGE_MEDIA_PER_RENDER` files), the one thing this server answers the page.
  */
-export function pageWithLocalFiles(path: string, stream = false): string {
+export function pageWithLocalFiles(path: string, media: PageMedia | null = null): string {
   const folder = realpathSync(dirname(path));
   let left = EMBED_TOTAL_BYTES;
   const resolved = new Map<string, string | null>();
   const streamed = new Map<string, string | null>();
-  const roots = stream ? mediaRoots() : [];
+  const roots = media !== null ? mediaRoots() : [];
+  // one address per file in this render, however the page names it
+  const addresses = new Map<string, string | null>();
+  let granted = 0;
   const lookups = () => resolved.size + streamed.size;
   const take = (ref: string | null, accepts: (mime: string) => boolean): string | null => {
     if (ref === null) return null;
@@ -376,9 +410,18 @@ export function pageWithLocalFiles(path: string, stream = false): string {
       const ref = element.getAttribute(attribute);
       const file = take(ref, accepts);
       if (file !== null) element.setAttribute(attribute, `data:${mimeOf(file)};base64,${readFileSync(file).toString("base64")}`);
-      else if (stream && streams && ref !== null) {
+      else if (media !== null && streams && ref !== null) {
         const far = play(ref);
-        if (far !== null) element.setAttribute(attribute, pageMediaUrl(far, mimeOf(far)));
+        if (far === null) return;
+        if (!addresses.has(far)) {
+          // vanished since it was looked up: the src stays as the page wrote it
+          const token = granted < PAGE_MEDIA_PER_RENDER ? pageMediaUrl(far, mimeOf(far), media) : null;
+          if (token !== null) granted += 1;
+          // absolute, from the same host as the policy's media source, so the two never disagree
+          addresses.set(far, token === null ? null : media.source + token);
+        }
+        const address = addresses.get(far) ?? null;
+        if (address !== null) element.setAttribute(attribute, address);
       }
     },
   });
@@ -415,10 +458,10 @@ export function isHtmlPage(info: FileInfo): boolean {
  * The file itself. `download` asks the browser to save it. Answers are sandboxed (an HTML
  * or SVG file opened from this origin must not run script with the app's access), and
  * text is served as plain text whatever its extension says it runs as. `render` asks for an
- * HTML page as a page (`pagePolicy`); any other file ignores it. `mediaSource`
- * (`pageMediaSource`) lets that page play its videos too large to put into it.
+ * HTML page as a page (`pagePolicy`); any other file ignores it. `media`
+ * (`pageMediaSource` and who asked) lets that page play its videos too large to put into it.
  */
-export function fileResponse(info: FileInfo, download: boolean, render = false, mediaSource: string | null = null): Response {
+export function fileResponse(info: FileInfo, download: boolean, render = false, media: PageMedia | null = null): Response {
   const name = encodeURIComponent(info.name);
   const headers = new Headers({
     "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${name}`,
@@ -428,13 +471,13 @@ export function fileResponse(info: FileInfo, download: boolean, render = false, 
   const page = render && !download && isHtmlPage(info);
   // a PDF is drawn by the browser's own viewer, which refuses a sandboxed document; its
   // scripts stay inside that viewer, never on this origin
-  if (page) headers.set("content-security-policy", pagePolicy(mediaSource));
+  if (page) headers.set("content-security-policy", pagePolicy(media?.source ?? null));
   else if (info.kind !== "pdf") headers.set("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
   // text shows as text, whatever its extension says it runs as
   const type = page ? "text/html; charset=utf-8" : info.kind === "text" && info.mime !== "image/svg+xml" ? "text/plain; charset=utf-8" : info.mime;
   if (page && info.size <= EMBED_PAGE_BYTES) {
     headers.set("content-type", type);
-    return new Response(pageWithLocalFiles(info.path, mediaSource !== null), { headers });
+    return new Response(pageWithLocalFiles(info.path, media), { headers });
   }
   const file = Bun.file(info.path, { type });
   return new Response(file, { headers });
