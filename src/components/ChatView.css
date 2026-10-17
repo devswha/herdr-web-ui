@@ -1558,6 +1558,30 @@
 }
 .chat-task-result-note { margin: var(--space-2) 0 0; color: var(--text-dim); font-size: var(--fs-xs); }
 
+/* a question the agent asked: its questions numbered, the options it offered under each */
+.chat-ask-questions {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.chat-ask-question + .chat-ask-question { margin-top: var(--space-4); }
+.chat-ask-question p { margin: 0; white-space: pre-wrap; }
+.chat-ask-header, .chat-ask-meta, .chat-ask-description { color: var(--text-dim); font-size: var(--fs-xs); }
+.chat-ask-text, .chat-ask-label { font-weight: var(--fw-semibold); }
+.chat-ask-options { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
+.chat-ask-options > li + li { margin-top: var(--space-2); }
+.chat-ask-preview {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+}
+
 /* a task call's tasks: what each is for and the agent it runs as, the prompt under it */
 .chat-task-calls {
   display: flex;

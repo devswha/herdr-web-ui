@@ -630,6 +630,7 @@ export const JA: Record<string, string> = {
   "Submit": "送信",
   "Submit ({n})": "送信 ({n})",
   "Recommended": "推奨",
+  "More than one could be picked": "複数選択可",
   "Or type your own answer": "または回答を直接入力",
   "Questions": "質問一覧",
   "(answered)": "(回答済み)",

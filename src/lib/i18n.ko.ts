@@ -628,6 +628,7 @@ export const KO: Record<string, string> = {
   "Submit": "제출",
   "Submit ({n})": "제출 ({n})",
   "Recommended": "추천",
+  "More than one could be picked": "여러 개를 고를 수 있었음",
   "Or type your own answer": "또는 직접 답을 입력",
   "Questions": "질문 목록",
   "(answered)": "(답함)",

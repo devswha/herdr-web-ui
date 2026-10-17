@@ -632,6 +632,7 @@ export const ZH: Record<string, string> = {
   "Submit": "提交",
   "Submit ({n})": "提交 ({n})",
   "Recommended": "推荐",
+  "More than one could be picked": "可多选",
   "Or type your own answer": "或输入你自己的回答",
   "Questions": "问题列表",
   "(answered)": "(已回答)",
