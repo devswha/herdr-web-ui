@@ -1424,8 +1424,6 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   picked or typed, also when it asks the same question again. An answer that comes back after
   its card is gone (the next prompt is showing, or another pane is open) changes nothing on
   screen.
-- The composer keeps the resize grip's hit strip (`--composer-grip-h`) for itself under the card,
-  as it does under the held messages: the grip never lies over the card's last row.
 - A form of several questions (omo) shows a row of step chips (`.prompt-card-steps`) under the
   header: a chip per question, pill-shaped, mono number or a check once answered (`--accent`), the
   one asked now with an `--accent` border, `--accent-tint` fill and a `--primary` number. The title
@@ -1557,8 +1555,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   is no separate Queue button or send menu. The placeholder is `Message <agent>…`; message text
   uses `--fs-chat` scaled by `--chat-scale` on `--lh-code` with a fine pointer. Otherwise it
   uses that scaled size or `--fs-input`, whichever is larger, keeping the 16px floor that avoids
-  iOS zoom. Changing Chat font size or density resizes an automatic box around its existing
-  draft; a height chosen with the grip stays chosen.
+  iOS zoom. Changing Chat font size or density resizes the box around its existing draft. The
+  box's height is automatic only: it has no resize grip.
 - A local desktop composer shows the first visible account in Settings order for its agent's
   provider as a read-only usage reference inside the model pill. Plan-wide five-hour session is
   preferred, with weekly fallback; scoped, failed and unavailable limits do not substitute.
@@ -1591,11 +1589,6 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   starts, add and the round button keep their row, and the card grows by that row while the
   sentence shows. The primary control and add are disabled. With a draft, the reconnecting sentence is said instead of
   `Uploading file…`, never both: the attachment's own tile says it is uploading.
-- The resize grip is a short bar on the card's top edge. On a fine pointer (`(hover: hover) and
-  (pointer: fine) and (not (any-pointer: coarse))`) the bar is drawn while the card is hovered,
-  while it is dragged, on its own keyboard focus, and while a manual height is set; on any coarse
-  pointer it is always drawn. Its hit area lies above the card (`--composer-grip-h`), and the
-  composer keeps that strip free after the held-message list and after a prompt card.
 - The stack over the input card, on its column, is written once (PaneTerminal): held messages,
   then the prompt card (see Prompt card), then the input card. The notices are the input card's
   own: they stand inside the composer, over the card and its quick replies, so they move with it
@@ -1615,7 +1608,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the card, as t3code's composer banner stack orders them (`src/lib/composerNotices.ts`). A
   dismissal lasts while the notice stands and says the same thing; it is forgotten once the
   notice goes or changes its words, so the next one shows again, and another pane's dismissals
-  never carry over. The group keeps the grip's hit strip free under it. With no input card (view
+  never carry over. With no input card (view
   only, ended, a secret prompt) the pills stay where the terminal lens draws them, and a notice
   keeps a phone's card docked: it never floats over the transcript.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the

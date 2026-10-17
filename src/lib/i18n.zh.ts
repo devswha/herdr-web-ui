@@ -672,7 +672,6 @@ export const ZH: Record<string, string> = {
   "{max}-character limit · {count} over": "{max} 字上限 · 超出 {count} 字",
   "{max}-character limit": "{max} 字上限",
   "{count} characters left": "还剩 {count} 个字符",
-  "Resize message box": "调整输入框大小",
   "Drag to resize · double-click to reset": "拖动以调整大小 · 双击重置",
   "Slash commands": "斜杠命令",
   "Built in": "内置",

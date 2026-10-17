@@ -670,7 +670,6 @@ export const JA: Record<string, string> = {
   "{max}-character limit · {count} over": "{max} 文字の上限 · {count} 文字超過",
   "{max}-character limit": "{max} 文字の上限",
   "{count} characters left": "残り {count} 文字",
-  "Resize message box": "入力欄のサイズを変更",
   "Drag to resize · double-click to reset": "ドラッグでサイズ変更 · ダブルクリックでリセット",
   "Slash commands": "スラッシュコマンド",
   "Built in": "組み込み",

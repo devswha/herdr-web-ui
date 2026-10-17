@@ -820,10 +820,10 @@ try {
       console.log("PASS a drop while Send waits for the word withdraws it; the reconnect sends nothing");
 
       // Changing the setting in an already-open chat rewraps the existing draft: an automatic
-      // box grows and shrinks with it, while a height chosen with the grip stays chosen.
+      // box grows and shrinks with it.
       for (const width of [390, 1440]) await withCard(browser, width, { model: "claude-opus-5-5" }, async (page) => {
         const box = page.getByRole("textbox", { name: "Message", exact: true });
-        const grip = page.getByRole("separator", { name: "Resize message box", exact: true });
+        assert.equal(await page.getByRole("separator", { name: "Resize message box", exact: true }).count(), 0, "the message box has no resize grip");
         const text = "An unsent draft changes size with the transcript.\nIts second line stays visible.\nThe third line stays visible too.";
         const height = () => box.evaluate((node) => node.clientHeight);
         const chooseSize = async (size: number) => {
@@ -846,23 +846,8 @@ try {
         await chooseSize(11);
         await page.waitForFunction((before) => document.querySelector(".composer-text")!.clientHeight < before, large);
         assert.equal(await box.inputValue(), text, "shrinking keeps the draft whole");
-        assert.equal(await grip.getAttribute("aria-valuetext"), "automatic height");
-
-        await grip.press("ArrowUp");
-        const chosen = await height();
-        assert.equal(await box.evaluate((node) => node.classList.contains("is-sized")), true);
-        await chooseSize(20);
-        await page.waitForFunction(() => parseFloat(getComputedStyle(document.querySelector(".composer-text")!).fontSize) > 21);
-        assert.equal(await height(), chosen, "a font-size change preserves the chosen height");
-        assert.equal(await box.inputValue(), text, "a manual box keeps the draft whole too");
-        await grip.press("Home");
-        await page.waitForFunction(() => {
-          const box = document.querySelector<HTMLTextAreaElement>(".composer-text")!;
-          return !box.classList.contains("is-sized") && box.scrollHeight <= box.clientHeight + 1;
-        });
-        assert.equal(await box.inputValue(), text);
       });
-      console.log("PASS changing Chat font size grows and shrinks an existing draft's automatic box and preserves a chosen height");
+      console.log("PASS changing Chat font size grows and shrinks an existing draft's automatic box");
 
       // CSS layout zoom exercises fractional geometry and rewrapping; it is not native browser
       // zoom or mobile pinch zoom. Keep one draft mounted while changing each scale.
