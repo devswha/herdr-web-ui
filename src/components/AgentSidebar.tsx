@@ -185,7 +185,10 @@ export function AgentSidebar({ machines, selectedMachineId, selectedPaneId, stat
     <div className="agent-list-contents" id={listId} hidden={collapsed}>
       <p className={shownEmpty === null ? "visually-hidden" : "agent-empty"} role="status">{shownEmpty}</p>
       {rows.length > 0 && <>
-        {split.pinned.length > 0 && <ul className="agent-list agent-list-pinned sidebar-pinned" aria-label={t("Pinned")}>{split.pinned.map(agentItem)}</ul>}
+        {split.pinned.length > 0 && <>
+          <p className="sidebar-pinned-label" aria-hidden="true"><Pin />{t("Pinned")}</p>
+          <ul className="agent-list agent-list-pinned sidebar-pinned" aria-label={t("Pinned")}>{split.pinned.map(agentItem)}</ul>
+        </>}
         {split.rest.length > 0 && <ul className="agent-list">{split.rest.map(agentItem)}</ul>}
       </>}
     </div>

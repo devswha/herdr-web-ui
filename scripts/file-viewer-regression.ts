@@ -40,7 +40,7 @@ const fidelitySources = ["const last = 7;\n\n", "first\n", "first\n\nlast", "\n"
 writeFileSync(transcript, [
   { type: "session_meta", payload: { id: thread, cwd: root } },
   { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Show me the demo video." }] } },
-  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [guide](./docs/guide.md) or [big](./big.txt) or [big code](./big.ts) or [mid code](./mid.ts) or [deep quotes](./deep.md) or [empty](./empty.txt) or [slow preview](./slow.md) or [long notes](./long.md) or [many lines](./lines.txt) or [long list](./list.md) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}\n\n\`\`\`ts\nconst answer = 42;\n\nexport { answer };\n\`\`\`` }] } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [guide](./docs/guide.md) or [big](./big.txt) or [big code](./big.ts) or [mid code](./mid.ts) or [deep quotes](./deep.md) or [empty](./empty.txt) or [slow preview](./slow.md) or [long notes](./long.md) or [many lines](./lines.txt) or [long list](./list.md) or [contents page](./toc.html) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}\n\n\`\`\`ts\nconst answer = 42;\n\nexport { answer };\n\`\`\`` }] } },
   // a block the highlighter is quadratic on (a line of dashes in YAML): seconds on the page
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "References: [source column](./target.ts:60:8), [source range](./target.ts#L60-L65), [Markdown line](./docs/guide.md#L6), [past end](./notes.txt:999), [past preview](./big.txt:999999), [capped line](./lines.txt:5)." }] } },
   { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Dashes:\n\n\`\`\`yaml\n${"-".repeat(90_000)}\n\`\`\`` }] } },
@@ -106,6 +106,9 @@ document.getElementById("ran").textContent = "script ran";
 try { localStorage.length; document.getElementById("store").textContent = "storage reachable"; } catch { document.getElementById("store").textContent = "no storage"; }
 fetch("/api/health").then(() => { document.getElementById("net").textContent = "network reachable"; }, () => { document.getElementById("net").textContent = "network blocked"; });
 </script></body>`);
+// a page with a table of contents: an anchor the reader clicks inside the frame is a navigation of
+// the frame's own, an entry in the session history above the preview's (#1203)
+writeFileSync(join(root, "toc.html"), `<!doctype html><meta charset="utf-8"><title>Contents</title><body><nav><a id="toc" href="#details">Details</a></nav><p id="ran">static</p><p style="height:1200px">body</p><h2 id="details">Details</h2><script>document.getElementById("ran").textContent = "contents ran";</script></body>`);
 const markdownPath = join(root, "preview #1 & 한글.MD");
 const markdownSource = "<p align=\"center\">\n  <img src=\"./preview.svg\" alt=\"Logo\" width=\"64\">\n</p>\n\n<p align=\"center\"><a href=\"https://example.com/\">website</a> &middot; <strong>bold</strong></p>\n\n# Markdown preview\n\n한글 문서도 새 탭에서 읽을 수 있습니다.\n\n| Item | State |\n| --- | --- |\n| Preview | Ready |\n\n- [x] Rendered\n\nSee [the other notes](other.md).\n\n```ts\nconst answer = 42;\n```\n\n![Local image](./preview.svg)\n\n```mermaid\ngraph LR\n  A[Read] --> B[Preview]\n```\n";
 writeFileSync(markdownPath, markdownSource);
@@ -522,6 +525,24 @@ try {
   await panel.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, "Close file consumes the preview entry");
   console.log("PASS from 980px a file is a panel beside the pane: no scrim, the pane takes clicks, its edge drags and keeps its width, Escape inside and Close file close it");
+  // a page the reader navigates inside its frame (a click on its table of contents; a script setting
+  // location.hash once the page has loaded does the same) puts an entry of its own above the
+  // preview's in the session history: Close file and Escape must still close the panel and consume
+  // the preview's entry, not step the frame back and leave the panel there (#1203)
+  const contentsLink = page.getByRole("button", { name: "contents page", exact: true });
+  for (const close of ["Close file", "Escape"]) {
+    await contentsLink.click();
+    const framed = page.frameLocator(".file-viewer-page");
+    await framed.getByText("contents ran", { exact: true }).waitFor();
+    const opened = await page.evaluate(() => history.length);
+    await framed.locator("#toc").click();
+    await page.waitForFunction((length) => history.length === length + 1, opened);
+    if (close === "Escape") { await panel.locator(".file-panel-resizer").focus(); await page.keyboard.press("Escape"); }
+    else await panel.getByRole("button", { name: "Close file", exact: true }).click();
+    await panel.waitFor({ state: "detached" });
+    assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, `${close} consumes the preview entry under a page the reader navigated inside its frame`);
+  }
+  console.log("PASS from 980px a page the reader navigated inside its frame still closes on Close file and Escape, consuming the preview's entry");
   // a file chosen in the Files dialog opens in the panel, and the dialog, which would cover it, closes
   await openFiles(page);
   const filesDialog = page.getByRole("dialog", { name: "Files", exact: true });
@@ -1313,6 +1334,23 @@ try {
   await report.getByRole("button", { name: "Close file", exact: true }).click();
   await report.waitFor({ state: "hidden" });
   console.log("PASS An HTML file a command names opens as its page, sandboxed with no network or storage, and as its source");
+  // the same under the dialog: a page the reader navigated inside its frame still closes on Close
+  // file and on the scrim (#1203)
+  const contents = page.getByRole("dialog", { name: "toc.html", exact: true });
+  for (const close of ["Close file", "scrim"]) {
+    await contentsLink.tap();
+    await frame.getByText("contents ran", { exact: true }).waitFor();
+    // the sheet is still rising when the page shows: a click aimed into the frame meanwhile lands beside the anchor
+    await sheetsSettled(page);
+    const opened = await page.evaluate(() => history.length);
+    await frame.locator("#toc").click();
+    await page.waitForFunction((length) => history.length === length + 1, opened);
+    if (close === "scrim") await page.locator(".file-viewer-scrim").evaluate((scrim) => scrim.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    else await contents.getByRole("button", { name: "Close file", exact: true }).click();
+    await contents.waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => history.state?.["herdr-web-ui:file-preview"]), undefined, `${close} consumes the preview entry under a page the reader navigated inside its frame`);
+  }
+  console.log("PASS A page the reader navigated inside its frame still closes on Close file and the scrim, consuming the preview's entry");
   // a log in a plain code block: its paths open as well
   const log = page.locator(".markdown-code").last();
   await log.getByRole("button", { name: shotPath, exact: true }).tap();

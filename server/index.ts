@@ -1166,9 +1166,10 @@ export function createServer(
     },
     onChange: (paneId, running, turnRunning, promptAt) => claudeAgentsChanged(paneId, running, turnRunning, promptAt),
   });
-  /** the plan each Claude Code and Codex pane's agent keeps, for the sidebar's progress (server/session-plan.ts) */
+  /** the plan each Claude Code, Codex and OmO pane keeps, for the sidebar's progress (server/session-plan.ts) */
   const plans = new SessionPlans({
     claudePath: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null,
+    omoPath: (paneId) => omo.pathOf(paneId),
     // only what is certain without reading the screen: the chat's own matching stays the chat's
     codexPath: async (pane) => codexOpenRollout(pane.pane_id, pane.cwd, await paneCodexHome(pane.pane_id, options.codexHome)),
     onChange: (paneId, summary) => planChanged(paneId, summary),
@@ -2557,16 +2558,14 @@ export function createServer(
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
         // the pane as herdr has it now, for a second at most: one the background lookup has not got to yet is looked
         // up here, and so is one that runs another session than the one its transcript was found for.
-        // An OmO pane reads as `claude` in herdr's own snapshot: its plan is no Claude task list
+        // Herdr may name an OmO pane `claude`: use its resolved identity before looking up a plan.
         const seen: { pane?: HerdrPane } = {};
-        if (omo.sessionOf(paneId) === null) {
-          await within(1000, (async () => {
-            const pane = seen.pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-            if (pane === undefined || plans.known(pane)) return;
-            if (pane.agent === "claude") await claudeAgents.ensure(pane);
-            await plans.ensure(pane, true);
-          })());
-        }
+        await within(1000, (async () => {
+          const pane = seen.pane = omo.apply(await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+          if (pane === undefined || plans.known(pane)) return;
+          if (pane.agent === "claude") await claudeAgents.ensure(pane);
+          await plans.ensure(pane, true);
+        })());
         // only the pane as herdr has it now is told its plan: one herdr did not answer for in time, no longer has, or has
         // in a session not looked up yet is told none, never the plan read before (session-plan.ts planOf)
         const steps = plans.planOf(seen.pane);
