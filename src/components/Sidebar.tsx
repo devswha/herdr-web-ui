@@ -26,7 +26,7 @@ import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { useAnnouncedText } from "../lib/useAnnouncedText.ts";
 import { useWorktreeBranches } from "../lib/useWorktreeBranches.ts";
 import { watchTouchReorder } from "../lib/touchReorder.ts";
-import { placeBlock, workspaceMoves } from "../lib/workspaceOrder.ts";
+import { placeBlock, workspaceMoves, worktreeGroups as groupWorktrees } from "../lib/workspaceOrder.ts";
 import { worktreeLabel } from "../lib/worktreeName.ts";
 import { lastViewedPane, rememberViewedPane } from "../lib/lastViewedPane.ts";
 import { paneMark, sidebarAgents, workspaceAgentLabels } from "../lib/sidebarAgents.ts";
@@ -280,24 +280,8 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const agentRows = useMemo(() => sidebarAgents(snapshot), [snapshot]);
   const agentByPane = useMemo(() => new Map(agentRows.map((entry) => [entry.pane.pane_id, entry])), [agentRows]);
   const agentNames = useMemo(() => workspaceAgentLabels(agentRows), [agentRows]);
-  // herdr packs a repository's worktree workspaces under the one on its main checkout; a worktree
-  // whose repository workspace is not open stays at the top level, in its own place
-  const worktreeGroups = useMemo(() => {
-    const parentByRepo = new Map<string, WorkspaceInfo>();
-    for (const workspace of orderedWorkspaces) {
-      if (workspace.worktree && !workspace.worktree.is_linked_worktree && !parentByRepo.has(workspace.worktree.repo_key)) parentByRepo.set(workspace.worktree.repo_key, workspace);
-    }
-    const childrenOf = new Map<string, WorkspaceInfo[]>();
-    const top: WorkspaceInfo[] = [];
-    for (const workspace of orderedWorkspaces) {
-      const parent = workspace.worktree?.is_linked_worktree ? parentByRepo.get(workspace.worktree.repo_key) : undefined;
-      if (!parent) { top.push(workspace); continue; }
-      const children = childrenOf.get(parent.workspace_id) ?? [];
-      children.push(workspace);
-      childrenOf.set(parent.workspace_id, children);
-    }
-    return top.map((workspace) => ({ workspace, children: childrenOf.get(workspace.workspace_id) ?? [] }));
-  }, [orderedWorkspaces]);
+  // herdr packs a repository's worktree workspaces under one on its main checkout (lib/workspaceOrder.ts)
+  const worktreeGroups = useMemo(() => groupWorktrees(orderedWorkspaces), [orderedWorkspaces]);
   // pinned workspaces stand first, in a card, in pin order (shared with the other browsers,
   // lib/preferencesSync.ts); their moves change pins, while the rest change herdr's order
   const pins = useSyncExternalStore(subscribeSidebarPins, currentSidebarPins, currentSidebarPins);
