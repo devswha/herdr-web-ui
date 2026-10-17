@@ -1564,6 +1564,7 @@ export function PaneTerminal({
     // from a second finger until every finger lifts: the stroke is a pinch, never a scroll
     let pinchStroke = false;
     let pinchWatchPending = false;
+    let pinchStatusFrame: number | null = null;
     const spread = (a: Touch, b: Touch): number => Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
     const hidePinchBadge = (): void => {
       if (pinchBadgeRef.current) pinchBadgeRef.current.hidden = true;
@@ -1594,7 +1595,12 @@ export function PaneTerminal({
         updateSettings({ terminalFontSize: finished.size });
         // said once, for the size kept: the badge that follows the fingers is not read out
         const t = tRef.current; // the language of now, not of the attach
-        if (pinchStatusRef.current) pinchStatusRef.current.textContent = t("Terminal text size {px} px", { px: finished.size });
+        if (pinchStatusFrame !== null) cancelAnimationFrame(pinchStatusFrame);
+        if (pinchStatusRef.current) pinchStatusRef.current.textContent = "";
+        pinchStatusFrame = requestAnimationFrame(() => {
+          pinchStatusFrame = null;
+          if (pinchStatusRef.current) pinchStatusRef.current.textContent = t("Terminal text size {px} px", { px: finished.size });
+        });
       }
       hidePinchBadge();
     };
@@ -1615,6 +1621,8 @@ export function PaneTerminal({
         return;
       }
       if (event.touches.length >= 2) {
+        if (pinchStatusFrame !== null) cancelAnimationFrame(pinchStatusFrame);
+        pinchStatusFrame = null;
         tracking = false;
         pinchStroke = true;
         claimPinch(event);
@@ -1964,6 +1972,7 @@ export function PaneTerminal({
       host.removeEventListener("gesturestart", onGesture);
       host.removeEventListener("gesturechange", onGesture);
       finishPinch(false);
+      if (pinchStatusFrame !== null) cancelAnimationFrame(pinchStatusFrame);
       host.removeEventListener("mousedown", onMouseDown, { capture: true });
       window.removeEventListener("mousemove", onMouseMove, { capture: true });
       window.removeEventListener("blur", onBlur);

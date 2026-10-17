@@ -51,6 +51,8 @@ describe("isolate", () => {
     for (const name of [".bashrc", ".bash_profile", ".profile", "bash-env"]) {
       writeFileSync(join(home, name), "export TEST_STARTUP_READ=yes\n");
     }
+    const logout = join(dir, "logout-read");
+    writeFileSync(join(home, ".bash_logout"), `printf logout > '${logout}'\n`);
     const { env } = isolate({ SHELL: "/bin/zsh", HOME: home, BASH_ENV: join(home, "bash-env") }, dir);
     if (process.platform === "win32") {
       expect(env["SHELL"]).toBe("/bin/zsh");
@@ -63,10 +65,11 @@ describe("isolate", () => {
       // (a herdr pane included): the -i probes run in a session of their own, with no terminal
       const setsid = ["/usr/bin/setsid", "/bin/setsid"].find((path) => existsSync(path));
       for (const args of setsid ? [["-i"], ["-l", "-i"], []] : [[]]) {
-        const probe = [shell, ...args, "-c", 'printf "%s|%s" "${TEST_STARTUP_READ-unread}" "$1"', "test", "argument with spaces"];
+        const probe = [shell, ...args, "-c", 'printf "%s|%s" "${TEST_STARTUP_READ-unread}" "$1"; exit', "test", "argument with spaces"];
         const result = setsid ? spawnSync(setsid, probe, { env, encoding: "utf8" }) : spawnSync(probe[0]!, probe.slice(1), { env, encoding: "utf8" });
         expect(result.status).toBe(0);
         expect(result.stdout).toBe("unread|argument with spaces");
+        expect(existsSync(logout)).toBe(false);
       }
     }
   });

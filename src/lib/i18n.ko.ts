@@ -693,7 +693,6 @@ export const KO: Record<string, string> = {
   "{name} attached": "{name} 첨부됨",
   "{name} could not be attached: {reason}": "{name} 파일을 첨부하지 못했습니다: {reason}",
   "{name} could not be attached": "{name} 파일을 첨부하지 못했습니다",
-  "Couldn't attach": "첨부하지 못했습니다",
 
   // ---- chat view ----
   "Copied": "복사됨",

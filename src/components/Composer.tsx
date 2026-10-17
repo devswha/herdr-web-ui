@@ -836,12 +836,10 @@ export function Composer({
             // naming what failed and the cause it knows, the rest behind Details
             if (error instanceof AttachmentTooLargeError) {
               setNote(attachment.leftOut ? `${error.message} ${attachment.leftOut}` : error.message);
-              announce(t("{name} could not be attached: {reason}", { name: attachment.file.name, reason: error.message }));
               return;
             }
             const failure = userFailure(error);
             setNote({ attachment, failure });
-            announce(failure.cause === null ? t("{name} could not be attached", { name: attachment.file.name }) : t("{name} could not be attached: {reason}", { name: attachment.file.name, reason: failure.cause }));
           },
         )
         .finally(() => {
@@ -849,7 +847,7 @@ export function Composer({
           pumpUploads();
         });
     }
-  }, [announce, onUploadImage, placeWaitingMentions, t]);
+  }, [onUploadImage, placeWaitingMentions]);
 
   const uploadImages = useCallback(
     (incoming: readonly File[]) => {
@@ -1135,7 +1133,7 @@ export function Composer({
     : hint === "uploading" ? t("Uploading file…") : offlineSentence;
   /** an upload's failure as one line: what failed and the cause it knows, then what the pick left out */
   const noteLine = note === null ? null : typeof note === "string" ? note : "failure" in note
-    ? [note.failure.cause === null ? t("Couldn't attach") : `${t("Couldn't attach")} · ${note.failure.cause}`, note.attachment.leftOut].filter((part) => part !== null).join(" ")
+    ? [note.failure.cause === null ? t("{name} could not be attached", { name: note.attachment.file.name }) : t("{name} could not be attached: {reason}", { name: note.attachment.file.name, reason: note.failure.cause }), note.attachment.leftOut].filter((part) => part !== null).join(" ")
     : note.note;
   /** the strip under the card: the folder and the branch the caller knows; none, or a phone's screen, no strip */
   const strip = mobile ? null : composerStrip({ cwd, branch, repo: worktreeRepo });
@@ -1318,12 +1316,13 @@ export function Composer({
           <div className="menu composer-menu">
             <div className="composer-menu-group">
               <div className="menu-heading">{t("Files")}</div>
-              <p className="chat-inline-state chat-inline-error" role="status">{t("Couldn't load suggestions. Keep typing to try again.")}</p>
+              <p className="chat-inline-state chat-inline-error">{t("Couldn't load suggestions. Keep typing to try again.")}</p>
             </div>
           </div>
         )}
 
         {/* mounted before anything settles: a live region that appears with its text is not read */}
+        <p className="visually-hidden" role="alert">{filesFailedShown ? t("Couldn't load suggestions. Keep typing to try again.") : null}</p>
         <p className="visually-hidden" aria-live="polite">{announcement && <span key={announcement.id}>{announcement.text}</span>}</p>
 
         {attachments.length > 0 && (
@@ -1391,7 +1390,7 @@ export function Composer({
             setText(event.target.value);
             setCaret(event.target.selectionStart);
             setMenuDismissed(false);
-            setNote(pasteCutNote.current);
+            setNote((current) => typeof current === "object" && current !== null && "failure" in current ? current : pasteCutNote.current);
           }}
         />
 

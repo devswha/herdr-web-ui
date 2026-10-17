@@ -329,6 +329,8 @@
 
 .terminal-banner-draft .draft-actions {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: var(--space-1);
 }
 

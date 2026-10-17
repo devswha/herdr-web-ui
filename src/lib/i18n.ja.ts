@@ -695,7 +695,6 @@ export const JA: Record<string, string> = {
   "{name} attached": "{name} を添付しました",
   "{name} could not be attached: {reason}": "{name} を添付できませんでした: {reason}",
   "{name} could not be attached": "{name} を添付できませんでした",
-  "Couldn't attach": "添付できませんでした",
 
   // ---- chat view ----
   "Copied": "コピーしました",

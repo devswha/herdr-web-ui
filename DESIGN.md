@@ -1815,8 +1815,8 @@ The values are the ones in `src/styles.css`.
   Application-owned paging has its own page length; no page input is queued across disconnects.
   The plain chat page keys preserve composer draft, selection and focus, excluding modified
   keys, composition, other editable controls and modal input. They do not capture terminal keys.
-- On touch screens app actions stay in buttons and menus. The command palette and its plugin
-  actions are not available in the phone touch UI; a wider screen or keyboard is required.
+- On touch screens app actions stay in buttons and menus. More → Search panes and actions opens
+  the command palette, including its plugin actions, in the phone touch UI.
   The key bar sends terminal input only; it is not an app-action toolbar. Hardware keyboards use
   the same global bindings on phones and desktops.
 - `document.title` is `<pane title> · herdr` while selected, otherwise `herdr web ui`.

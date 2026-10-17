@@ -598,6 +598,7 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
     : activeRow?.offered.action.title ?? "";
   const footerPath = activeRow?.kind === "pane" ? panePath(activeRow.pane) : activeRow?.kind === "folder" ? activeRow.path : "";
   const browseListing = folder !== null && browse.directory === folder.directory ? browse : null;
+  const listingFailed = online && browseListing?.error === "failed";
   const emptyText = folder === null ? t("No matching panes or actions")
     : browseListing?.error === "invalid" ? t("This folder cannot be opened.")
     : browseListing?.error === "failed" || !online ? t("Folders could not be loaded.")
@@ -681,8 +682,8 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
               })}
             </div>
           ))}
-          {itemCount === 0 && <p className="palette-empty" role="status">{emptyText}</p>}
-          {itemCount === 0 && online && browseListing?.error === "failed" && (
+          {(itemCount === 0 || listingFailed) && <p className="palette-empty" role="status">{emptyText}</p>}
+          {listingFailed && (
             <p className="palette-empty">
               <button type="button" className="btn" onClick={(event) => {
                 setBrowseAttempt((attempt) => attempt + 1);

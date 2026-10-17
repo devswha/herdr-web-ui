@@ -697,7 +697,6 @@ export const ZH: Record<string, string> = {
   "{name} attached": "已附加 {name}",
   "{name} could not be attached: {reason}": "无法附加 {name}：{reason}",
   "{name} could not be attached": "无法附加 {name}",
-  "Couldn't attach": "无法附加",
 
   // ---- chat view ----
   "Copied": "已复制",
