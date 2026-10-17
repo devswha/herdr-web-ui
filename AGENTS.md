@@ -28,6 +28,9 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
 - Selecting a pane or tab in the browser never moves herdr's own focus; only an explicit action
   that needs it calls `pane.focus`.
 - Never edit `shared/herdr-api.generated.ts`; run `bun run generate:types`.
+- Theme colors are edited only in the theme blocks of `src/styles.css`. Never edit
+  `src/lib/themes.generated.ts` or the generated copies in DESIGN.md, index.html and
+  `public/manifest.webmanifest`; run `bun run generate:themes`.
 
 ## Tests and QA
 - Tests never touch the user's herdr session or real state: they use the isolated test session,

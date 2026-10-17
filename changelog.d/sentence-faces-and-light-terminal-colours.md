@@ -8,7 +8,5 @@
   invisible expander, instead of growing into a tinted badge.
 - When file suggestions could not load, the composer now says what to do next: keep typing to try
   again.
-- A light terminal has its own sixteen ANSI colours, each readable (4.5:1) on its background;
-  xterm's dark-tuned yellow read 1.7:1 on paper.
 - Every field's placeholder takes the dim text colour (4.5:1 or better); the browser's grey was 3.8:1
   on a dark field.

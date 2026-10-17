@@ -39,6 +39,7 @@ Messages say only what the person needs now, not everything the app knows:
 
 Only tokens overridden by `[data-theme="light"]` have a light value. Both columns are literal CSS.
 
+<!-- BEGIN GENERATED THEMES -->
 | Role | Token | Dark | Light |
 |------|-------|------|-------|
 | Surface/base | `--bg` | `#12100e` | `#eeeae2` |
@@ -74,13 +75,19 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Danger/text | `--danger-text` | `#ffd9d4` | `#8f1d1d` |
 | Notice | `--notice` | `#e8c55c` | `#7a5a00` |
 | Overlay/scrim | `--scrim` | `rgba(8, 6, 4, 0.55)` | `rgba(40, 32, 22, 0.35)` |
-| Glass bar | `--bar-bg` | `color-mix(in srgb, var(--bg-panel) 72%, transparent)` | same expression |
-| Glass card | `--card-glass` | `color-mix(in srgb, var(--bg-elevated) 80%, transparent)` | same expression |
-| Glass blur | `--glass-blur` | `saturate(180%) blur(20px)` | same |
 | Drawer shadow | `--shadow-drawer` | `0 0 40px rgba(0, 0, 0, 0.6)` | `0 0 40px rgba(40, 32, 22, 0.22)` |
 | Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
 | Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
 | Document surface | `--pdf-page` | `#ffffff` | `#ffffff` |
+<!-- END GENERATED THEMES -->
+
+The glass tokens are expressions over the palette above, not colors of their own:
+
+| Role | Token | Dark | Light |
+|------|-------|------|-------|
+| Glass bar | `--bar-bg` | `color-mix(in srgb, var(--bg-panel) 72%, transparent)` | same expression |
+| Glass card | `--card-glass` | `color-mix(in srgb, var(--bg-elevated) 80%, transparent)` | same expression |
+| Glass blur | `--glass-blur` | `saturate(180%) blur(20px)` | same |
 
 `--pdf-page` is the one color with the same value in both columns, on purpose: a PDF page is
 paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the theme. It is named in
@@ -90,39 +97,181 @@ paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the them
 
 `settings.palette` (`amber` default, `charcoal`, `catppuccin`) is written as `data-palette`. The
 tables above are amber, the base blocks; the two opt-in palettes override them in
-`[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
+`[data-theme][data-palette]` blocks of `src/styles.css`.
+
+The theme blocks of `src/styles.css` are the theme table and the one place a theme color is
+edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
+`[data-theme="<mode>"][data-palette="<id>"]` is every other entry. `bun run generate:themes`
+(`scripts/generate-themes.ts`) reads them and writes the copies: `src/lib/themes.generated.ts`
+(the supported entries with their roles, xterm colors and panel color), the amber table above
+between its `GENERATED THEMES` markers, the `theme-color` tag in `index.html` and the manifest's
+`theme_color` and `background_color`. Never edit those copies by hand; `--check` fails when one
+is stale. Only amber has a hex table here; read another palette's values in its blocks.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
 alone parts the bubble from `--bg`: dark amber and dark charcoal. It is `var(--border)`
 where the two surfaces sit close: every light theme (the `[data-theme="light"]` block sets it for
 all palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
 
-- **Charcoal** is a neutral Ghostty-style dark: `--bg` `#0f0f0f`, panel and terminal `#171717`, text
-  `#cbc7c0` / `#918c85` / `#f5f2ec`, accent and primary near-white `#e8e4dc` with `#171717` text,
-  muted states (working `#c2a2af`, input `#e0877f`, done `#a7b789`, idle `#9a958e`), terminal cursor
-  `#cbc7c0`, selection `#49443d`. It keeps amber's rounded corners and card shadow.
-  In light it is plain paper (`--bg` `#f2f2f0`, panel `#fafaf9`, text `#242424`, primary ink
-  `#242424` with `#fafaf9` text) with an ink accent and cursor `#242424`, selection `#dedad3`.
+- **Charcoal** is a neutral Ghostty-style dark: near-black canvas, a slightly lighter panel and
+  terminal, a near-white accent and primary, and muted agent states. It keeps amber's rounded
+  corners and card shadow. In light it's plain paper with an ink accent and cursor.
 - **Catppuccin** follows [catppuccin.com/palette](https://catppuccin.com/palette/), its style guide
   and its Zed port: Mocha in dark, Latte in light. In both the content (chat canvas `--bg`,
   terminal) is Base, the chrome (`--bg-panel`: sidebar, the header over it and on a phone, tabs) and elevated surfaces Mantle,
-  dimmed text Subtext1, selection Overlay2 at 25% over Base. Dark uses palette
-  colors (only the primary hover `#d3b3f8`, Mauve lightened, and the tints are derived): Base
-  `#1e1e2e`, Mantle `#181825`, input Crust, hover Surface0, text Text `#cdd6f4` / Subtext1 `#bac2de`,
-  accent and primary Mauve `#cba6f7` with Crust text, states Blue / Maroon / Green, idle Subtext0
-  (Maroon, not Red, keeps input AA on a hovered row), cursor `#f5e0dc`, selection `#3b3d4f`. Light
-  keeps Latte's surfaces and text: Base `#eff1f5` (also input), Mantle `#e6e9ef`, hover Crust
-  `#dce0e8` (the darkest surface Subtext1 stays AA on), idle Subtext1, cursor Maroon `#e64553`
-  (Rosewater, the dark cursor, reads 2.3:1 on Base; a cursor block is a shape, so it keeps 3:1 -
-  `settings.test.ts` checks every palette's), selection
-  `#d2d4dc`. Latte's accents are under 4.5:1 on these surfaces, so each keeps its hue and is darkened
-  until it passes AA: Mauve `#712fc6` (primary hover is plain Latte Mauve `#8839ef`), Blue `#1750bf`,
-  Red `#ac0c2f`, Green `#28651b`. It keeps amber's rounded corners.
+  dimmed text Subtext1, cursor Rosewater, selection Overlay2 at 25% over Base. Dark uses palette
+  colors, with only the primary hover (Mauve lightened) and the tints derived; its states are
+  Blue / Maroon / Green (Maroon, not Red, keeps input AA on a hovered row). Light keeps Latte's
+  surfaces and text, with Crust as the hover, the darkest surface Subtext1 stays AA on. Latte's
+  accents are under 4.5:1 on these surfaces, so each keeps its hue and is darkened until it passes
+  AA. It keeps amber's rounded corners.
+
+### Herdr theme pair notes
+
+Theme colors remain authored only in `src/styles.css`; the notes here describe deviations, not
+another color table. Catppuccin Latte is a second selector on the existing legacy light block.
+Its proposal is deliberately not applied: the permanent legacy oracle takes precedence over the
+herdr mapping, including existing surface, accent, cursor, status and syntax choices.
+
+- **tokyo-night-day**: `--text` moves dE 6.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--text-dim` moves dE 11.81; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--text-strong` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--status-working` moves dE 18.99; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--status-blocked` moves dE 23.41; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--status-done` moves dE 12.85; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--status-working-tint` moves dE 18.99; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--status-blocked-tint` moves dE 23.41; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--status-done-tint` moves dE 12.85; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--danger-tint` moves dE 23.41; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--danger-text` moves dE 23.41; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--scrim` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--line-number` moves dE 11.81; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--syntax-function` moves dE 14.94; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-keyword` moves dE 5.15; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-string` moves dE 8.95; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-number` moves dE 11.25; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-type` moves dE 10.85; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-variable` moves dE 6.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--syntax-meta` moves dE 14.24; its lightness changes to keep serialized text readable at the 4.6 target.
+- **tokyo-night-day**: `--shadow-drawer` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--shadow-pop` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+- **tokyo-night-day**: `--shadow-card` moves dE 6.18; it follows the repaired foreground so its derived color stays consistent.
+
+- **gruvbox**: `--status-working` moves dE 9.80; its lightness changes to keep serialized text readable at the 4.6 target.
+- **gruvbox**: `--status-blocked` moves dE 18.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **gruvbox**: `--status-working-tint` moves dE 9.80; it follows the repaired foreground so its derived color stays consistent.
+- **gruvbox**: `--status-blocked-tint` moves dE 18.18; it follows the repaired foreground so its derived color stays consistent.
+- **gruvbox**: `--danger-tint` moves dE 18.18; it follows the repaired foreground so its derived color stays consistent.
+- **gruvbox**: `--danger-text` moves dE 18.18; it follows the repaired foreground so its derived color stays consistent.
+- **gruvbox-light**: `--status-done` moves dE 9.96; its lightness changes to keep serialized text readable at the 4.6 target.
+- **gruvbox-light**: `--status-done-tint` moves dE 9.96; it follows the repaired foreground so its derived color stays consistent.
+- **gruvbox-light**: `--syntax-string` moves dE 6.17; its lightness changes to keep serialized text readable at the 4.6 target.
+- **gruvbox-light**: `--syntax-type` moves dE 12.38; its lightness changes to keep serialized text readable at the 4.6 target.
+- **gruvbox-light**: `--syntax-meta` moves dE 5.51; its lightness changes to keep serialized text readable at the 4.6 target.
+
+- **one-dark**: `--status-blocked` moves dE 12.35; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-dark**: `--status-blocked-tint` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
+- **one-dark**: `--danger-tint` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
+- **one-dark**: `--danger-text` moves dE 12.35; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--status-working` moves dE 14.64; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--status-blocked` moves dE 17.89; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--status-done` moves dE 20.75; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--status-working-tint` moves dE 14.64; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--status-blocked-tint` moves dE 17.89; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--status-done-tint` moves dE 20.75; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--danger-tint` moves dE 17.89; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--danger-text` moves dE 17.89; it follows the repaired foreground so its derived color stays consistent.
+- **one-light**: `--syntax-function` moves dE 6.19; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--syntax-string` moves dE 12.04; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--syntax-type` moves dE 12.40; its lightness changes to keep serialized text readable at the 4.6 target.
+- **one-light**: `--syntax-meta` moves dE 5.55; its lightness changes to keep serialized text readable at the 4.6 target.
+
+- **solarized**: `--text` moves dE 6.75; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--text-dim` moves dE 11.25; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--text-strong` moves dE 6.75; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--status-working` moves dE 24.14; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--status-blocked` moves dE 29.43; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--status-done` moves dE 19.69; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--status-working-tint` moves dE 24.14; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--status-blocked-tint` moves dE 29.43; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--status-done-tint` moves dE 19.69; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--danger-tint` moves dE 29.43; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--danger-text` moves dE 29.43; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--line-number` moves dE 11.25; it follows the repaired foreground so its derived color stays consistent.
+- **solarized**: `--syntax-function` moves dE 6.94; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--syntax-keyword` moves dE 11.95; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized**: `--syntax-number` moves dE 12.29; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--text` moves dE 5.80; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--text-dim` moves dE 14.20; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--text-strong` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--status-working` moves dE 14.20; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--status-blocked` moves dE 9.89; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--status-done` moves dE 17.94; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--status-working-tint` moves dE 14.20; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--status-blocked-tint` moves dE 9.89; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--status-done-tint` moves dE 17.94; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--danger-tint` moves dE 9.89; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--danger-text` moves dE 9.89; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--scrim` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--line-number` moves dE 14.20; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--syntax-function` moves dE 10.19; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-keyword` moves dE 5.11; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-string` moves dE 14.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-type` moves dE 13.99; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-variable` moves dE 5.80; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--syntax-meta` moves dE 14.09; its lightness changes to keep serialized text readable at the 4.6 target.
+- **solarized-light**: `--shadow-drawer` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--shadow-pop` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+- **solarized-light**: `--shadow-card` moves dE 5.80; it follows the repaired foreground so its derived color stays consistent.
+
+- **kanagawa**: `--status-working` moves dE 9.73; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa**: `--status-blocked` moves dE 24.67; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa**: `--status-done` moves dE 14.97; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa**: `--status-working-tint` moves dE 9.73; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--status-blocked-tint` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--status-done-tint` moves dE 14.97; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--danger-tint` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa**: `--danger-text` moves dE 24.67; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--status-working` moves dE 10.49; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--status-blocked` moves dE 14.57; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--status-done` moves dE 18.90; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--status-working-tint` moves dE 10.49; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--status-blocked-tint` moves dE 14.57; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--status-done-tint` moves dE 18.90; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--danger-tint` moves dE 14.57; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--danger-text` moves dE 14.57; it follows the repaired foreground so its derived color stays consistent.
+- **kanagawa-lotus**: `--syntax-function` moves dE 5.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-string` moves dE 13.23; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-number` moves dE 15.26; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-type` moves dE 7.57; its lightness changes to keep serialized text readable at the 4.6 target.
+- **kanagawa-lotus**: `--syntax-meta` moves dE 14.27; its lightness changes to keep serialized text readable at the 4.6 target.
+
+- **rose-pine**: `--status-working` moves dE 17.40; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine**: `--status-done` moves dE 17.40; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine**: `--status-working-tint` moves dE 17.40; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine**: `--status-done-tint` moves dE 17.40; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine**: `--syntax-function` moves dE 9.27; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine**: `--syntax-string` moves dE 9.27; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--text-dim` moves dE 8.98; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-working` moves dE 5.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-blocked` moves dE 14.03; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-done` moves dE 5.18; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--status-working-tint` moves dE 5.18; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--status-blocked-tint` moves dE 14.03; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--status-done-tint` moves dE 5.18; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--danger-tint` moves dE 14.03; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--danger-text` moves dE 14.03; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--line-number` moves dE 8.98; it follows the repaired foreground so its derived color stays consistent.
+- **rose-pine-dawn**: `--syntax-keyword` moves dE 9.20; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--syntax-number` moves dE 16.36; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--syntax-type` moves dE 23.03; its lightness changes to keep serialized text readable at the 4.6 target.
+- **rose-pine-dawn**: `--syntax-meta` moves dE 11.64; its lightness changes to keep serialized text readable at the 4.6 target.
 
 ### Terminal theme
 
-xterm.js reads a JavaScript theme, so `src/lib/settings.ts` `terminalTheme()` mirrors these four
-CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` checks the match).
+xterm.js reads a JavaScript theme, not CSS, so `bun run generate:themes` copies these four tokens
+of every supported entry into `src/lib/themes.generated.ts`, and `terminalTheme()` hands them to
+xterm (`settings.test.ts` checks the match).
 
 | Role | Token | Dark | Light | xterm key |
 |------|-------|------|-------|-----------|
@@ -137,30 +286,6 @@ black or white. Dim text needs half that ratio, and box-drawing, block and power
 program's color so borders and bars still meet the background. Claude Code's default dark theme draws its question titles in `#ffffff`,
 which a light palette's terminal shows at 1.04 to 1.13:1.
 
-xterm's sixteen ANSI colours are tuned for a dark background (its yellow reads 2.4:1 on paper), so a
-light terminal names its own, each at least 4.5:1 on its palette's `--term-bg` and taken from that
-palette's light tokens (`terminalTheme()`, checked by `settings.test.ts`; dark terminals keep xterm's
-defaults).
-
-| ANSI | xterm key | amber | charcoal | catppuccin |
-|------|-----------|-------|----------|------------|
-| 0 | `black` | `#2a251f` | `#242424` | `#4c4f69` |
-| 1 | `red` | `#a82323` | `#b3261e` | `#ac0c2f` |
-| 2 | `green` | `#2f6317` | `#22743a` | `#28651b` |
-| 3 | `yellow` | `#8c5000` | `#8a5300` | `#8a5710` |
-| 4 | `blue` | `#155a72` | `#0b6e8a` | `#1750bf` |
-| 5 | `magenta` | `#8a3f7a` | `#6f42c1` | `#712fc6` |
-| 6 | `cyan` | `#0f6b6f` | `#0f6f74` | `#0e6b70` |
-| 7 | `white` | `#685e52` | `#5f5b56` | `#5c5f77` |
-| 8 | `brightBlack` | `#5a5045` | `#4e4b47` | `#64677d` |
-| 9 | `brightRed` | `#c42b2b` | `#c92d24` | `#c41545` |
-| 10 | `brightGreen` | `#3b741c` | `#277d3f` | `#2f7620` |
-| 11 | `brightYellow` | `#9d5a00` | `#9f6100` | `#905c13` |
-| 12 | `brightBlue` | `#1d6f8c` | `#1a7391` | `#0b59f4` |
-| 13 | `brightMagenta` | `#a24b90` | `#7f52d1` | `#8839ef` |
-| 14 | `brightCyan` | `#117676` | `#13767e` | `#13737a` |
-| 15 | `brightWhite` | `#16120d` | `#111111` | `#4c4f69` |
-
 ### Syntax highlighting
 
 Code in the chat and in the file viewer is colored by `--syntax-*` tokens. Four follow the
@@ -173,29 +298,26 @@ blue there instead of `--accent`, and Latte's colors are darkened to stay readab
 |-------|---------|--------|--------|------|----------|------|
 | Dark amber | `#e8875f` | `#a8c17c` | `#d6a0c9` | `#6cb8d6` | `#e0c08f` | `#b49dd6` |
 | Light amber | `#a33a17` | `#4b6b18` | `#8a3f7a` | `#155a72` | `#7a5418` | `#5d4791` |
-| Light charcoal | `#b3261e` | `#22743a` | `#8a5300` | `#0b6e8a` | `#3b3b3b` | `#6f42c1` |
-| Dark charcoal | `#d7a08a` | `#a7b789` | `#c2a2af` | `#9fb4c2` | `#dcd8d0` | `#b8a5c9` |
-| Catppuccin Mocha | `#cba6f7` | `#a6e3a1` | `#fab387` | `#f9e2af` | `#f5e0dc` | `#f5c2e7` |
-| Catppuccin Latte | `#712fc6` | `#2f7620` | `#b44201` | `#905c13` | `#4c4f69` | `#bc1d91` |
 
-`--syntax-function` in Catppuccin: Mocha `#89b4fa`, Latte `#0b59f4`.
+Charcoal and Catppuccin set their own six (and Catppuccin its `--syntax-function`) in their
+blocks of `src/styles.css`.
 
 ### File viewer
 
 - `--notice` colors a note that the view is partial (a file cut short, code too long to color): the
   size in the header's meta line becomes `256 KB of 1.3 MB`, always beside a warning icon so the
   color is not the only sign. It is a warning yellow, at least 4.5:1 on
-  `--bg`, `--bg-panel` and `--bg-elevated`: amber `#e8c55c` / `#7a5a00`, light
-  charcoal `#8a5300`, dark charcoal `#d9b26a`, Catppuccin Mocha `#f9e2af` (yellow), Latte
-  `#8a5710`.
+  `--bg`, `--bg-panel` and `--bg-elevated`: amber `#e8c55c` / `#7a5a00`. Charcoal and Catppuccin
+  (its yellow) set theirs in their blocks of `src/styles.css`.
 - The header's meta line (size, folder) is `--fs-xs`. A file that cannot be previewed says so in
   one sentence ("This file can't be previewed here. Download it to open it.") over its type and
   size as a dim mono `--fs-xs` line; "Opening…" is a `role="status"` note that is in the document from
   the viewer's first render, clipped and empty (`.visually-hidden`, never `display: none`), and gets its
   words a frame later: a live region that appears together with its content is not announced.
 - `--line-number` colors the line numbers beside code: tertiary text, quieter than the code. It is
-  `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha
-  overlay2 `#9399b2` (5.8:1), Latte `#64677d` (subtext0 darkened to 4.9:1 on `--bg`).
+  `--text-dim`, except in Catppuccin, whose `--text-dim` (subtext1) is nearly `--text`: Mocha uses
+  overlay2 and Latte subtext0 darkened to stay AA on `--bg`, as set in its blocks of
+  `src/styles.css`.
 
 ### Rules
 - Amber is the one chrome color. Accent (selected, focused, informational) and primary (the user's
@@ -1828,4 +1950,3 @@ The values are the ones in `src/styles.css`.
 | Terminal content accessibility relies on xterm defaults | `PaneTerminal.tsx` | Screen-reader mode changes terminal DOM and input behavior | Decide with herdr TUI owners |
 | Drawer has no focus trap | `.sidebar.is-open` | Closed state leaves the tab order, but open-state trapping is not implemented | Add a shared focus utility |
 | Modal focus is initialized, not fully trapped | Dialog components | Escape/scrim/close work; tab containment is not shared | Add the same focus utility |
-| Terminal colors exist in CSS and JavaScript | `styles.css`, `settings.ts` | xterm consumes a JS theme | Keep `terminalTheme()` verbatim with `--term-*` |

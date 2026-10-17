@@ -1,0 +1,224 @@
+/** Explicit reviewed deviations from mapTheme. Add alongside the CSS edit, never generate. */
+import { normalizeThemeValue, parseThemeBlocks } from "../src/lib/themeCss.ts";
+import { ROLES, SUPPORTED_ENTRIES } from "../src/lib/themes.ts";
+import type { Mode } from "../src/lib/themes.ts";
+import baseline from "../src/lib/themes.legacy-baseline.json";
+import { isHerdrThemeId, KIND } from "./herdr-themes.ts";
+import type { HerdrThemeId } from "./herdr-themes.ts";
+import { mapTheme } from "./herdr-theme-proposal.ts";
+import type { Role } from "./herdr-theme-proposal.ts";
+
+export type ThemeOverride = {
+  readonly theme: HerdrThemeId;
+  readonly mode: Mode;
+  readonly role: Role;
+  readonly value: string;
+  readonly dE: number;
+  readonly reason: string;
+};
+
+export const OVERRIDES: readonly ThemeOverride[] = [
+  {"theme":"tokyo-night","mode":"dark","role":"status-blocked","value":"#fc7a92","dE":1.3369569501082346,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night","mode":"dark","role":"status-blocked-tint","value":"rgba(252, 122, 146, 0.14)","dE":1.3369569501082346,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night","mode":"dark","role":"danger-tint","value":"rgba(252, 122, 146, 0.12)","dE":1.3369569501082346,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night","mode":"dark","role":"danger-text","value":"#fc7a92","dE":1.3369569501082346,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"text","value":"#274dab","dE":6.184709819612932,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"text-dim","value":"#41508a","dE":11.806672082387482,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"text-strong","value":"#274dab","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"primary-hover","value":"#2e78e3","dE":0.6197819267758081,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"status-working","value":"#0040a7","dE":18.99253368509796,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"status-blocked","value":"#90001b","dE":23.409147285585878,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"status-done","value":"#365013","dE":12.849764438778635,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"status-working-tint","value":"rgba(0, 64, 167, 0.12)","dE":18.99253368509796,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"status-blocked-tint","value":"rgba(144, 0, 27, 0.12)","dE":23.409147285585878,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"status-done-tint","value":"rgba(54, 80, 19, 0.12)","dE":12.849764438778635,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"danger-tint","value":"rgba(144, 0, 27, 0.1)","dE":23.409147285585878,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"danger-text","value":"#90001b","dE":23.409147285585878,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"scrim","value":"rgba(39, 77, 171, 0.35)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"line-number","value":"#41508a","dE":11.806672082387482,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"syntax-function","value":"#004db6","dE":14.938859565334011,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"syntax-keyword","value":"#6937ac","dE":5.152763893804094,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"syntax-string","value":"#405b1f","dE":8.95277181503446,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"syntax-number","value":"#8c3b00","dE":11.25049081276345,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"syntax-type","value":"#6c4d1f","dE":10.845273221210743,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"syntax-variable","value":"#274dab","dE":6.184709819612932,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"syntax-meta","value":"#005f4a","dE":14.235514439126485,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"shadow-drawer","value":"0 0 40px rgba(39, 77, 171, 0.22)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"shadow-pop","value":"0 16px 48px rgba(39, 77, 171, 0.16), 0 0 0 1px var(--border)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"shadow-card","value":"0 4px 16px rgba(39, 77, 171, 0.07)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"primary","value":"#1561ca","dE":8.784095421190207,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
+  {"theme":"gruvbox","mode":"dark","role":"status-working","value":"#a1c4b6","dE":9.79703994081216,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox","mode":"dark","role":"status-blocked","value":"#ffa68a","dE":18.17712327071657,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox","mode":"dark","role":"status-done","value":"#bfc332","dE":2.4075362740652717,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox","mode":"dark","role":"status-working-tint","value":"rgba(161, 196, 182, 0.14)","dE":9.79703994081216,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"gruvbox","mode":"dark","role":"status-blocked-tint","value":"rgba(255, 166, 138, 0.14)","dE":18.17712327071657,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"gruvbox","mode":"dark","role":"status-done-tint","value":"rgba(191, 195, 50, 0.14)","dE":2.4075362740652717,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"gruvbox","mode":"dark","role":"danger-tint","value":"rgba(255, 166, 138, 0.12)","dE":18.17712327071657,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"gruvbox","mode":"dark","role":"danger-text","value":"#ffa68a","dE":18.17712327071657,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"gruvbox","mode":"dark","role":"syntax-function","value":"#88ab9d","dE":1.8505505617346503,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox","mode":"dark","role":"syntax-keyword","value":"#db8da2","dE":2.3230531845654294,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox-light","mode":"light","role":"status-working","value":"#005d6e","dE":3.0239757896382065,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox-light","mode":"light","role":"status-done","value":"#5d5700","dE":9.963004567967678,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox-light","mode":"light","role":"status-working-tint","value":"rgba(0, 93, 110, 0.12)","dE":3.0239757896382065,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"gruvbox-light","mode":"light","role":"status-done-tint","value":"rgba(93, 87, 0, 0.12)","dE":9.963004567967678,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"gruvbox-light","mode":"light","role":"syntax-string","value":"#676200","dE":6.17406254566607,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox-light","mode":"light","role":"syntax-number","value":"#ac3800","dE":0.7716749030604363,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox-light","mode":"light","role":"syntax-type","value":"#8e5100","dE":12.377797637617999,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"gruvbox-light","mode":"light","role":"syntax-meta","value":"#316b48","dE":5.51264156150833,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-dark","mode":"dark","role":"text-dim","value":"#99a0ac","dE":1.2267436693128952,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-dark","mode":"dark","role":"status-working","value":"#70bfff","dE":4.897144940734517,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-dark","mode":"dark","role":"status-blocked","value":"#ff9aa1","dE":12.3450801669294,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-dark","mode":"dark","role":"status-working-tint","value":"rgba(112, 191, 255, 0.14)","dE":4.897144940734517,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-dark","mode":"dark","role":"status-blocked-tint","value":"rgba(255, 154, 161, 0.14)","dE":12.3450801669294,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-dark","mode":"dark","role":"danger-tint","value":"rgba(255, 154, 161, 0.12)","dE":12.3450801669294,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-dark","mode":"dark","role":"danger-text","value":"#ff9aa1","dE":12.3450801669294,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-dark","mode":"dark","role":"line-number","value":"#99a0ac","dE":1.2267436693128952,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-dark","mode":"dark","role":"syntax-keyword","value":"#c97be1","dE":0.9917171201800242,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"text-dim","value":"#5c5e6a","dE":4.493236569018806,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"status-working","value":"#1749c0","dE":14.63683259216638,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"status-blocked","value":"#a51110","dE":17.888520463646834,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"status-done","value":"#01620b","dE":20.750920945945246,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"status-working-tint","value":"rgba(23, 73, 192, 0.12)","dE":14.63683259216638,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-light","mode":"light","role":"status-blocked-tint","value":"rgba(165, 17, 16, 0.12)","dE":17.888520463646834,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-light","mode":"light","role":"status-done-tint","value":"rgba(1, 98, 11, 0.12)","dE":20.750920945945246,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-light","mode":"light","role":"danger-tint","value":"rgba(165, 17, 16, 0.1)","dE":17.888520463646834,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-light","mode":"light","role":"danger-text","value":"#a51110","dE":17.888520463646834,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-light","mode":"light","role":"line-number","value":"#5c5e6a","dE":4.493236569018806,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"one-light","mode":"light","role":"syntax-function","value":"#2f64dd","dE":6.1867911582869555,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"syntax-string","value":"#287c2a","dE":12.040698311143663,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"syntax-number","value":"#926300","dE":1.7897606579750265,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"syntax-type","value":"#995f00","dE":12.399888342058368,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"syntax-meta","value":"#0072a9","dE":5.549879353239865,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"primary","value":"#2d6af1","dE":4.018355387990014,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
+  {"theme":"solarized","mode":"dark","role":"text","value":"#a8b6b6","dE":6.747616310298808,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"text-dim","value":"#a5b7b9","dE":11.252034762400418,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"text-strong","value":"#a8b6b6","dE":6.747616310298808,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"primary-hover","value":"#2d92ce","dE":0.7080674914974618,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"status-working","value":"#7fdcff","dE":24.13600639025011,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"status-blocked","value":"#ffbcaa","dE":29.433408381573535,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"status-done","value":"#c2d85d","dE":19.693302618684015,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"status-working-tint","value":"rgba(127, 220, 255, 0.14)","dE":24.13600639025011,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"status-blocked-tint","value":"rgba(255, 188, 170, 0.14)","dE":29.433408381573535,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"status-done-tint","value":"rgba(194, 216, 93, 0.14)","dE":19.693302618684015,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"danger-tint","value":"rgba(255, 188, 170, 0.12)","dE":29.433408381573535,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"danger-text","value":"#ffbcaa","dE":29.433408381573535,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"line-number","value":"#a5b7b9","dE":11.252034762400418,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized","mode":"dark","role":"syntax-function","value":"#40a1e9","dE":6.94139648729528,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"syntax-keyword","value":"#fe60a6","dE":11.95099939896156,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"syntax-string","value":"#8fa41c","dE":3.475330495332397,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"syntax-number","value":"#f67344","dE":12.293953581181366,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"syntax-type","value":"#c0931c","dE":3.3127672128241343,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"syntax-meta","value":"#37aba1","dE":3.137301262011203,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"primary","value":"#2f93d9","dE":2.449418792249408,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
+  {"theme":"solarized-light","mode":"light","role":"text","value":"#556a72","dE":5.802622044631877,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"text-dim","value":"#5a6a6c","dE":14.19835083286903,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"text-strong","value":"#556a72","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"primary-hover","value":"#2989c7","dE":0.6262503613551821,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"status-working","value":"#005ea2","dE":14.198182249999606,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"status-blocked","value":"#b60006","dE":9.890630890934576,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"status-done","value":"#536300","dE":17.93692311888366,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"status-working-tint","value":"rgba(0, 94, 162, 0.12)","dE":14.198182249999606,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"status-blocked-tint","value":"rgba(182, 0, 6, 0.12)","dE":9.890630890934576,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"status-done-tint","value":"rgba(83, 99, 0, 0.12)","dE":17.93692311888366,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"danger-tint","value":"rgba(182, 0, 6, 0.1)","dE":9.890630890934576,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"danger-text","value":"#b60006","dE":9.890630890934576,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"scrim","value":"rgba(85, 106, 114, 0.35)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"line-number","value":"#5a6a6c","dE":14.19835083286903,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"syntax-function","value":"#006baf","dE":10.18732135937955,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"syntax-keyword","value":"#c12073","dE":5.113887756838551,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"syntax-string","value":"#5d6e00","dE":14.176956742490573,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"syntax-number","value":"#ba3b00","dE":4.836156804020296,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"syntax-type","value":"#8a5f00","dE":13.9920560144617,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"syntax-variable","value":"#556a72","dE":5.802622044631877,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"syntax-meta","value":"#00746d","dE":14.09111223437805,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized-light","mode":"light","role":"shadow-drawer","value":"0 0 40px rgba(85, 106, 114, 0.22)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"shadow-pop","value":"0 16px 48px rgba(85, 106, 114, 0.16), 0 0 0 1px var(--border)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"shadow-card","value":"0 4px 16px rgba(85, 106, 114, 0.07)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"primary","value":"#2076b3","dE":7.026635480894113,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
+  {"theme":"kanagawa","mode":"dark","role":"status-working","value":"#9bbbf8","dE":9.730310119232739,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa","mode":"dark","role":"status-blocked","value":"#ffa09b","dE":24.67494947559212,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa","mode":"dark","role":"status-done","value":"#a3c397","dE":14.967443534111302,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa","mode":"dark","role":"status-working-tint","value":"rgba(155, 187, 248, 0.14)","dE":9.730310119232739,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa","mode":"dark","role":"status-blocked-tint","value":"rgba(255, 160, 155, 0.14)","dE":24.67494947559212,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa","mode":"dark","role":"status-done-tint","value":"rgba(163, 195, 151, 0.14)","dE":14.967443534111302,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa","mode":"dark","role":"danger-tint","value":"rgba(255, 160, 155, 0.12)","dE":24.67494947559212,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa","mode":"dark","role":"danger-text","value":"#ffa09b","dE":24.67494947559212,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa","mode":"dark","role":"syntax-keyword","value":"#9f89c2","dE":3.2777732061818963,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa","mode":"dark","role":"syntax-string","value":"#7d9c71","dE":2.5452142528834023,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"status-working","value":"#314b7b","dE":10.488754914102875,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"status-blocked","value":"#95002b","dE":14.567451353971705,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"status-done","value":"#3b5217","dE":18.897881730095897,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"status-working-tint","value":"rgba(49, 75, 123, 0.12)","dE":10.488754914102875,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"status-blocked-tint","value":"rgba(149, 0, 43, 0.12)","dE":14.567451353971705,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"status-done-tint","value":"rgba(59, 82, 23, 0.12)","dE":18.897881730095897,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"danger-tint","value":"rgba(149, 0, 43, 0.1)","dE":14.567451353971705,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"danger-text","value":"#95002b","dE":14.567451353971705,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"syntax-function","value":"#3f5a8b","dE":5.184568299448392,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"syntax-string","value":"#4a6228","dE":13.23490272462029,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"syntax-number","value":"#993f00","dE":15.257169121016728,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"syntax-type","value":"#625b2a","dE":7.566603805796815,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"syntax-meta","value":"#216276","dE":14.27447851566873,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine","mode":"dark","role":"status-working","value":"#67a9c6","dE":17.39598652631114,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine","mode":"dark","role":"status-blocked","value":"#f5779a","dE":2.6915072305791305,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine","mode":"dark","role":"status-done","value":"#67a9c6","dE":17.39598652631114,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine","mode":"dark","role":"status-working-tint","value":"rgba(103, 169, 198, 0.14)","dE":17.39598652631114,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine","mode":"dark","role":"status-blocked-tint","value":"rgba(245, 119, 154, 0.14)","dE":2.6915072305791305,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine","mode":"dark","role":"status-done-tint","value":"rgba(103, 169, 198, 0.14)","dE":17.39598652631114,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine","mode":"dark","role":"danger-tint","value":"rgba(245, 119, 154, 0.12)","dE":2.6915072305791305,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine","mode":"dark","role":"danger-text","value":"#f5779a","dE":2.6915072305791305,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine","mode":"dark","role":"syntax-function","value":"#4e90ab","dE":9.273052512914933,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine","mode":"dark","role":"syntax-string","value":"#4e90ab","dE":9.273052512914933,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"text-dim","value":"#605b78","dE":8.97740548444078,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"status-working","value":"#165a74","dE":5.181708159995955,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"status-blocked","value":"#873a52","dE":14.033648431352011,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"status-done","value":"#165a74","dE":5.181708159995955,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"status-working-tint","value":"rgba(22, 90, 116, 0.12)","dE":5.181708159995955,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"status-blocked-tint","value":"rgba(135, 58, 82, 0.12)","dE":14.033648431352011,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"status-done-tint","value":"rgba(22, 90, 116, 0.12)","dE":5.181708159995955,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"danger-tint","value":"rgba(135, 58, 82, 0.1)","dE":14.033648431352011,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"danger-text","value":"#873a52","dE":14.033648431352011,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"line-number","value":"#605b78","dE":8.97740548444078,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"syntax-keyword","value":"#755f8d","dE":9.19699929059282,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"syntax-number","value":"#a1514f","dE":16.358058359984508,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"syntax-type","value":"#9e5600","dE":23.02522815963855,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"syntax-meta","value":"#33717c","dE":11.64373069428541,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"primary","value":"#7e659b","dE":6.5855528356763084,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
+];
+
+/** Pure policy used by the test and by temporary-copy QA. A diagnostic always names entry/role. */
+export function provenanceFailures(
+  css: string,
+  entries: readonly { readonly id: string; readonly mode: Mode }[] = SUPPORTED_ENTRIES,
+  overrides: readonly ThemeOverride[] = OVERRIDES,
+): string[] {
+  const blocks = parseThemeBlocks(css), failures: string[] = [];
+  const legacy = new Set([...Object.keys(baseline.combos), "catppuccin-latte/light"]);
+  for (const { id, mode } of entries) {
+    const key = `${id}/${mode}`;
+    if (legacy.has(key)) continue;
+    if (!isHerdrThemeId(id) || KIND[id] !== mode) {
+      failures.push(`${key}: no pinned herdr palette of this kind`);
+      continue;
+    }
+    const mapped = mapTheme(id);
+    for (const role of Object.keys(ROLES)) {
+      const expected = mapped[role as Role], actual = blocks[key]?.declared[`--${role}`];
+      const override = overrides.find((item) => item.theme === id && item.mode === mode && item.role === role);
+      if (actual === undefined || (actual !== normalizeThemeValue(expected) && !override)) {
+        failures.push(`${key} ${role}: ${actual ?? "(missing)"} differs from mapped ${expected} without override`);
+      }
+    }
+  }
+  const seen = new Set<string>();
+  for (const item of overrides) {
+    const key = `${item.theme}/${item.mode}`, label = `${key} ${item.role}`;
+    const actual = blocks[key]?.declared[`--${item.role}`];
+    if (seen.has(label)) failures.push(`${label}: duplicate override`);
+    seen.add(label);
+    if (!entries.some((entry) => entry.id === item.theme && entry.mode === item.mode) || legacy.has(key)
+      || actual === undefined || actual !== normalizeThemeValue(item.value)) failures.push(`${label}: stale override`);
+    if (!Number.isFinite(item.dE) || item.dE < 0 || !item.reason.trim()) failures.push(`${label}: override needs finite dE and reason`);
+    if (normalizeThemeValue(item.value) === normalizeThemeValue(mapTheme(item.theme)[item.role])) failures.push(`${label}: redundant override`);
+  }
+  return failures;
+}

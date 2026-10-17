@@ -3,8 +3,6 @@
   beside its name no longer lands on the strip or on its ⋯ button.
 - Screen readers now hear "Sending your answer…", the file viewer's "Opening…" and the header's
   "Opening link…": each status line is in the page before its words arrive, so the change is read.
-- The light Catppuccin terminal's cursor block is Maroon, 3.5:1 on its background, instead of a
-  Rosewater block at 2.3:1.
 - The New workspace dialog's Directory field shows the end of a long path, where the folder's name
   is, when the path is set for you or the field is left.
 - Korean: the sentences for an agent that did not start, a tool's image and a provider's rate limit
