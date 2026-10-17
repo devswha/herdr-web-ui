@@ -1135,8 +1135,6 @@ export const JA: Record<string, string> = {
   "Split down": "下に分割",
   "Zoom pane": "ペインをズーム",
   "Unzoom pane": "ズームを解除",
-  "Pane layout": "ペインの配置",
-  "{pane} (zoomed)": "{pane}（ズーム中）",
   "Layout change failed: {reason}": "配置を変更できませんでした: {reason}",
   "This PC's bridge does not offer this yet": "このPCのブリッジはまだこの機能に対応していません。",
   "Split pane right": "ペインを右に分割",

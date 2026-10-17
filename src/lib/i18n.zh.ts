@@ -1137,8 +1137,6 @@ export const ZH: Record<string, string> = {
   "Split down": "向下拆分",
   "Zoom pane": "放大窗格",
   "Unzoom pane": "取消放大",
-  "Pane layout": "窗格布局",
-  "{pane} (zoomed)": "{pane}（已放大）",
   "Layout change failed: {reason}": "布局更改失败：{reason}",
   "This PC's bridge does not offer this yet": "此电脑的桥接尚未提供此功能。",
   "Split pane right": "向右拆分窗格",

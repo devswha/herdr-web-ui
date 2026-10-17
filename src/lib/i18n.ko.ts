@@ -1133,8 +1133,6 @@ export const KO: Record<string, string> = {
   "Split down": "아래로 분할",
   "Zoom pane": "패널 확대",
   "Unzoom pane": "패널 확대 해제",
-  "Pane layout": "패널 배치",
-  "{pane} (zoomed)": "{pane} (확대됨)",
   "Layout change failed: {reason}": "배치 변경 실패: {reason}",
   "This PC's bridge does not offer this yet": "이 PC의 브리지는 아직 이 기능을 제공하지 않습니다.",
   "Split pane right": "패널을 오른쪽으로 분할",
