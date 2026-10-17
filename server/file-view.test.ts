@@ -387,6 +387,15 @@ describe("locateFile", () => {
     expect(locateFile("demo.mp4", root)).toMatchObject({ info: { path: join(root, "recordings/demo.mp4") } });
   });
 
+  it("walks the subfolders of a folder holding thousands of files outside a repository", () => {
+    const root = temp();
+    for (let index = 0; index < 1_500; index += 1) writeFileSync(join(root, `page-${index}.txt`), "");
+    mkdirSync(join(root, "docs"));
+    writeFileSync(join(root, "docs/notes.md"), "notes");
+    clearFileCache();
+    expect(locateFile("notes.md", root)).toMatchObject({ info: { path: join(root, "docs/notes.md") } });
+  });
+
   it("finds a file past a folder too large to walk outside a repository", () => {
     const root = temp();
     bigFolder(root);

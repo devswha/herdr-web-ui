@@ -5,7 +5,7 @@ const CACHE_MS = 5_000;
 const MAX_ENTRIES = 5_000;
 /** git lists paths cheaply, so a tracked data set of thousands of files does not hide the rest */
 const MAX_GIT_ENTRIES = 100_000;
-/** one folder's share of the walk, so a folder of thousands of files leaves room for its siblings */
+/** one folder's share of files, so a folder of thousands leaves room for its siblings; its subfolders are always walked */
 const MAX_FOLDER_ENTRIES = 1_000;
 const MAX_DEPTH = 6;
 const SKIP: Record<string, true> = { ".git": true, node_modules: true, dist: true, target: true, ".venv": true };
@@ -43,13 +43,17 @@ function walkFiles(cwd: string): string[] {
       entries.sort((left, right) => Number(left.isDirectory()) - Number(right.isDirectory()) || left.name.localeCompare(right.name));
       let taken = 0;
       for (const entry of entries) {
-        if (visited >= MAX_ENTRIES || taken >= MAX_FOLDER_ENTRIES) break;
+        if (visited >= MAX_ENTRIES) break;
         if (SKIP[entry.name]) continue;
-        visited += 1;
-        taken += 1;
         const path = join(directory, entry.name);
-        if (entry.isDirectory()) next.push(path);
-        else if (entry.isFile()) files.push(relative(cwd, path).split(sep).join("/"));
+        if (entry.isDirectory()) {
+          visited += 1;
+          next.push(path);
+        } else if (entry.isFile() && taken < MAX_FOLDER_ENTRIES) {
+          visited += 1;
+          taken += 1;
+          files.push(relative(cwd, path).split(sep).join("/"));
+        }
       }
     }
     level = next;
