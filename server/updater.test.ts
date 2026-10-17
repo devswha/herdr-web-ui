@@ -152,7 +152,7 @@ class OfflineUnshallow extends Updater {
   readonly timeouts: number[] = [];
   leaves: string[] = [];
   succeeds = false;
-  protected async unshallowFetch(timeout: number): Promise<string> {
+  protected async unshallowFetch(timeout: number, _run?: typeof runCommand): Promise<string> {
     this.fetches++;
     this.timeouts.push(timeout);
     const packDir = join(this.options.root, ".git", "objects", "pack");
@@ -163,6 +163,28 @@ class OfflineUnshallow extends Updater {
     }
     if (this.succeeds) return "unshallow fixture done";
     throw new Error("unshallow fixture offline");
+  }
+  /** The real fetch method (past this class's stand-in) with a stand-in runner, for a test
+   * that checks what it hands on. */
+  realUnshallowFetch(timeout: number, run: typeof runCommand): Promise<string> {
+    return super.unshallowFetch(timeout, run);
+  }
+}
+/**
+ * Stands in for the tag fetch of a check: writes the half-written `tmp_pack_*` a failed fetch
+ * leaves behind however it ends and then does not finish, ending the way a cancelled or timed-out
+ * one does (#1252). Every other git command runs for real.
+ */
+class CancelledTagFetch extends Updater {
+  fetches = 0;
+  protected async git(...args: string[]): Promise<string> {
+    if (args[0] !== "fetch" || args.at(-1) !== "+refs/tags/v*:refs/tags/v*") return super.git(...args);
+    this.fetches++;
+    const packDir = join(this.options.root, ".git", "objects", "pack");
+    writeFileSync(join(packDir, `tmp_pack_${this.fetches}`), "half-written");
+    return new Promise<string>((_, reject) => {
+      this.controller.signal.addEventListener("abort", () => reject(new Error("Update cancelled")), { once: true });
+    });
   }
 }
 /** An updater on the shallow plugin fixture whose unshallow fetch never succeeds. */
@@ -425,6 +447,84 @@ describe("managed source updates with real Git repositories and builds", () => {
     managed.stop();
   });
 
+  it("tries the unshallow fetch again for a user's own request, without waiting the backoff out", async () => {
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.fetches).toBe(1);
+    // the backoff holds the 5-minute cycle off, not a user's own request: asked for, the
+    // history fetch runs again at once, the way Update retries a revision automatic install
+    // gave up on. After a failed check the API refuses an install (nothing is available):
+    // the user's way out is Check, so it is a user's Check that must not be held off
+    await managed.request("check", true);
+    expect(managed.fetches).toBe(2);
+    // what it tells is the fetch's own failure, not the backoff's "next attempt is at …"
+    expect(managed.status.error).toContain("unshallow fixture offline");
+    managed.stop();
+  });
+
+  it("marks the bridge's update commands as the user's own, not the timer's", async () => {
+    // The supervisor's IPC is the only road a browser's Check or Update travels to the updater,
+    // and runSupervisor builds that updater itself, in its own process: a stand-in child swaps a
+    // recording updater in and reports what the IPC handler handed it. Without the flag, a
+    // manual Check would wait a failed unshallow fetch's backoff out with the 5-minute timer
+    // (#1252).
+    const root = mkdtempSync(join(directory, "supervisor-root-"));
+    const stateDir = mkdtempSync(join(directory, "supervisor-state-"));
+    const record = join(directory, "supervisor-record.json");
+    const script = join(directory, "supervisor-stand-in.ts");
+    writeFileSync(script, `
+      import { mock } from "bun:test";
+      import { writeFileSync } from "node:fs";
+      const supervisor = ${JSON.stringify(join(import.meta.dir, "supervisor.ts"))};
+      const updater = ${JSON.stringify(join(import.meta.dir, "updater.ts"))};
+      const root = ${JSON.stringify(root)};
+      const record = ${JSON.stringify(record)};
+      const calls: Array<[string, boolean | undefined]> = [];
+      let recorded: () => void = () => {};
+      const onRequest = new Promise<void>((resolve) => { recorded = resolve; });
+      const { Updater } = await import(updater);
+      class Recording extends Updater {
+        override async initialize() { return { directory: root, revision: "0".repeat(40), source_revision: "0".repeat(40) }; }
+        override start() { /* this stand-in has no 5-minute timer to run */ }
+        override async request(command: string, byUser?: boolean) { calls.push([command, byUser]); recorded(); }
+      }
+      mock.module(updater, () => ({ Updater: Recording }));
+      // the bridge without a bridge: the supervisor's health check is answered, its IPC captured
+      let ipc: (message: unknown) => void = () => {};
+      let bootId = "";
+      const realSpawn = Bun.spawn, realFetch = globalThis.fetch;
+      Bun.spawn = ((_argv: string[], options: { env: Record<string, string>; ipc: (message: unknown) => void }) => {
+        bootId = options.env["HERDR_WEB_BOOT_ID"]!;
+        ipc = options.ipc;
+        return { exitCode: null, kill() {}, exited: Promise.resolve(0), send() {} };
+      }) as unknown as typeof Bun.spawn;
+      globalThis.fetch = (async () => ({ ok: true, json: async () => ({ web_ui: { boot_id: bootId } }) })) as unknown as typeof fetch;
+      const { runSupervisor } = await import(supervisor);
+      await runSupervisor(root);
+      ipc({ type: "update-command", command: "check" });
+      await Promise.race([onRequest, Bun.sleep(5_000)]); // fixed wait: nothing else ever arrives
+      writeFileSync(record, JSON.stringify(calls));
+      Bun.spawn = realSpawn;
+      globalThis.fetch = realFetch;
+      process.exit(0);
+    `);
+    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, PORT: "59999", HOST: "127.0.0.1",
+      HERDR_WEB_STATE_DIR: stateDir, HERDR_WEB_AUTO_UPDATE: "0" }, stdout: "pipe", stderr: "pipe" });
+    const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000); // a wedged stand-in must not hang the run
+    try {
+      expect(await child.exited).toBe(0);
+      const told = existsSync(record) ? readFileSync(record, "utf8") : `no record was written; the stand-in printed:\n${(await output).join("\n")}`;
+      expect(told).toBe('[["check",true]]');
+    } finally {
+      clearTimeout(timer);
+    }
+  }, 20_000);
+
   it("tries the unshallow fetch again once the backoff is over", async () => {
     await git(upstream, "tag", "v0.1.0", "HEAD");
     await commit("unreleased");
@@ -453,12 +553,47 @@ describe("managed source updates with real Git repositories and builds", () => {
     await managed.initialize();
     await managed.request("check");
     expect(managed.timeouts).toEqual([10 * 60_000]);
+    // and the real fetch method hands that timeout to its command runner, not only to the
+    // stand-in above: what it runs, and with which bound, is checked where it is given
+    const runs: Array<{ argv: string[]; timeout?: number }> = [];
+    await managed.realUnshallowFetch(10 * 60_000, (_cwd, argv, _signal, timeout) => {
+      runs.push({ argv, timeout });
+      return Promise.resolve("fixture run");
+    });
+    expect(runs).toEqual([{ argv: ["git", "fetch", "--no-tags", "--unshallow", "origin"], timeout: 10 * 60_000 }]);
+    managed.stop();
+  });
+
+  it("removes the tmp_pack_* a failed tag fetch left behind", async () => {
+    // The tag fetch of every check is the same leak the unshallow one was: a failed fetch
+    // leaves its half-written tmp_pack_* behind however it ends — a timeout, a cancellation,
+    // or git's own exit on a dropped connection (measured on git 2.54; #1252) — and every
+    // 5-minute check added another. Its own checkout, so a failure here colors no other test.
+    const own = join(directory, "tag-fetch-checkout");
+    await git(directory, "clone", "-q", upstream, own);
+    const managed = new CancelledTagFetch({ root: own, stateDir: join(directory, "tag-fetch-state"),
+      autoUpdate: false, publish() {}, activate: async (_next, persist) => persist() });
+    await managed.initialize();
+    const packDir = join(own, ".git", "objects", "pack");
+    const checking = managed.request("check");
+    const leftover = join(packDir, "tmp_pack_1");
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(leftover)) {
+      if (Date.now() > deadline) throw new Error("the tag fetch never wrote its tmp_pack_*");
+      await Bun.sleep(25);
+    }
+    managed.controller.abort();
+    await checking;
+    expect(managed.fetches).toBe(1);
+    expect(managed.status.error).toContain("Update cancelled");
+    expect(readdirSync(packDir).filter((name) => name.startsWith("tmp_pack_"))).toHaveLength(0);
     managed.stop();
   });
 
   it("removes the tmp_pack_* a failed unshallow fetch left behind", async () => {
-    // Windows cannot deliver SIGTERM to a process group, and any kill path can leave git's
-    // half-written pack behind: the failed fetch is cleaned up after (#1252).
+    // a failed fetch leaves its half-written pack behind however it ends, on any OS (measured on
+    // git 2.54: SIGTERM, SIGINT, SIGKILL, and git's own exit after the connection dropped): the
+    // failed fetch is cleaned up after (#1252).
     await git(upstream, "tag", "v0.1.0", "HEAD");
     await commit("unreleased");
     const plugin = await shallowPlugin();
@@ -723,8 +858,9 @@ describe("managed source updates with real Git repositories and builds", () => {
 });
 
 describe("a command that times out or is cancelled", () => {
-  // git removes its half-written tmp_pack_* files when it sees SIGTERM; the SIGKILL a slow unshallow
-  // fetch used to get left them all behind (#1252)
+  // on SIGTERM git releases the lock files it holds (.git/shallow.lock among them) but leaves its
+  // half-written tmp_pack_* files behind, and a SIGKILL leaves both (measured on git 2.54): asking
+  // first is for the locks, and the updater sweeps the packs after a failed fetch (#1252)
 
   /** A child script that handles (or ignores) SIGTERM; `started` is written once the handler is in
    * place, so a signal sent after it appears cannot race the child's startup. */
@@ -761,10 +897,19 @@ setInterval(() => {}, 1000);`);
     const script = signalChild("ignoring.ts", "", join(directory, "ignoring-started"),
       `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`);
     const running = runCommand(directory, [process.execPath, script], undefined, 1_000, 300);
+    running.catch(() => {}); // a leftover child must not turn its rejection into an unhandled one
     await awaitFile(join(directory, "ignoring-started"));
-    await expect(running).rejects.toThrow("timed out");
-    // dead by the SIGKILL that follows the grace period, not merely asked to die
-    expect(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0)).toThrow();
+    try {
+      // only the SIGKILL that follows the grace period can end it, so the wait is bounded: a
+      // runCommand without that kill fails here instead of hanging the whole run on the child
+      const ended = await Promise.race([running.then(() => "ended", (error) => error.message), Bun.sleep(3_000).then(() => null)]);
+      expect(ended).toContain("timed out");
+      // dead by the SIGKILL that follows the grace period, not merely asked to die
+      expect(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0)).toThrow();
+    } finally {
+      // the child ignores SIGTERM: whatever happened above, it only ever ends by its own pid
+      if (existsSync(pidFile)) { try { process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL"); } catch { /* already dead */ } }
+    }
   });
 
   it("asks a cancelled command to end with SIGTERM too", async () => {
