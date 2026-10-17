@@ -1,7 +1,7 @@
 /** Build in a private checkout. The source tree and the serving build stay intact. */
 import { spawn } from "node:child_process";
 import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { CHECKOUT_CHANGED_REASON, noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
 import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
 
@@ -95,6 +95,23 @@ const UNSHALLOW_TIMEOUT_MS = 10 * 60_000;
 /** After a failed unshallow fetch, the next attempt waits this long: retried on every 5-minute
  * check, the same history was re-downloaded for days on slow links (#1252). */
 const UNSHALLOW_RETRY_MS = 6 * 60 * 60_000;
+
+/** The `tmp_pack_*` files a pack directory holds right now; none when there is no directory. */
+function tmpPacks(packDir: string | null): Set<string> {
+  if (packDir === null) return new Set();
+  try { return new Set(readdirSync(packDir).filter((name) => name.startsWith("tmp_pack_"))); }
+  catch { return new Set(); }
+}
+
+/** Removes the `tmp_pack_*` files that were not there before the fetch: the ones it wrote before
+ * failing, never the ones that were already there and none of the directory's other files. A
+ * removal that fails is swallowed, not to replace the fetch's own error. */
+function cleanTmpPacks(packDir: string | null, before: Set<string>): void {
+  if (packDir === null) return;
+  for (const name of tmpPacks(packDir)) {
+    if (!before.has(name)) { try { rmSync(join(packDir, name), { force: true }); } catch { /* the fetch's error is the one to tell */ } }
+  }
+}
 
 export class Updater {
   readonly controller = new AbortController();
@@ -275,10 +292,26 @@ export class Updater {
     if (Date.now() < this.unshallowRetryAt) {
       throw new Error(`The checkout's history is not fully fetched; the unshallow fetch failed and the next attempt is at ${new Date(this.unshallowRetryAt).toISOString()}.`);
     }
+    // Windows cannot signal a process group, so a killed git there never sees the SIGTERM grace
+    // period it cleans its temporary packs up in — and any kill path can be too late anyway:
+    // what the failed fetch added to the pack directory is removed here, on every OS (#1252).
+    const packDir = await this.packDir();
+    const held = tmpPacks(packDir);
     try { await this.unshallowFetch(UNSHALLOW_TIMEOUT_MS); }
-    catch (error) { this.unshallowRetryAt = Date.now() + UNSHALLOW_RETRY_MS; throw error; }
+    catch (error) {
+      cleanTmpPacks(packDir, held);
+      this.unshallowRetryAt = Date.now() + UNSHALLOW_RETRY_MS;
+      throw error;
+    }
     this.unshallowRetryAt = 0;
     return test();
+  }
+
+  /** The checkout's pack directory, where a killed fetch leaves its half-written packs; null
+   * when the root is not a Git checkout whose directory could be named. */
+  private async packDir(): Promise<string | null> {
+    const dir = await this.git("rev-parse", "--git-common-dir").catch(() => null);
+    return dir === null ? null : join(resolve(this.options.root, dir), "objects", "pack");
   }
 
   /** The one-off fetch of the missing history, with its own, much longer timeout (#1252). */

@@ -142,14 +142,26 @@ async function shallowPlugin() {
 /**
  * Stands in for the unshallow fetch, which the fixture's local origin would answer in
  * milliseconds: counts its calls, records the timeout it was given, and fails each time the way
- * an offline or too-slow link does (#1252).
+ * an offline or too-slow link does (#1252). `leaves` names what each attempt writes into the
+ * checkout's pack directory before it ends, the way git leaves a half-written `tmp_pack_*`
+ * behind; a name ending in "/" is a directory, whose removal then fails. `succeeds` ends the
+ * attempt without an error, the way a fetch that finishes does.
  */
 class OfflineUnshallow extends Updater {
   fetches = 0;
   readonly timeouts: number[] = [];
+  leaves: string[] = [];
+  succeeds = false;
   protected async unshallowFetch(timeout: number): Promise<string> {
     this.fetches++;
     this.timeouts.push(timeout);
+    const packDir = join(this.options.root, ".git", "objects", "pack");
+    mkdirSync(packDir, { recursive: true });
+    for (const name of this.leaves) {
+      if (name.endsWith("/")) mkdirSync(join(packDir, name));
+      else writeFileSync(join(packDir, name), "half-written");
+    }
+    if (this.succeeds) return "unshallow fixture done";
     throw new Error("unshallow fixture offline");
   }
 }
@@ -441,6 +453,83 @@ describe("managed source updates with real Git repositories and builds", () => {
     await managed.initialize();
     await managed.request("check");
     expect(managed.timeouts).toEqual([10 * 60_000]);
+    managed.stop();
+  });
+
+  it("removes the tmp_pack_* a failed unshallow fetch left behind", async () => {
+    // Windows cannot deliver SIGTERM to a process group, and any kill path can leave git's
+    // half-written pack behind: the failed fetch is cleaned up after (#1252).
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    managed.leaves = ["tmp_pack_new"];
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.status.phase).toBe("error");
+    expect(managed.status.error).toContain("unshallow fixture offline");
+    expect(readdirSync(join(plugin, ".git", "objects", "pack"))).not.toContain("tmp_pack_new");
+    managed.stop();
+  });
+
+  it("keeps a tmp_pack_* that was there before the fetch", async () => {
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const packDir = join(plugin, ".git", "objects", "pack");
+    writeFileSync(join(packDir, "tmp_pack_old"), "left by an earlier fetch");
+    const managed = offlineUpdater(plugin);
+    managed.leaves = ["tmp_pack_new"];
+    await managed.initialize();
+    await managed.request("check");
+    expect(readdirSync(packDir)).toContain("tmp_pack_old");
+    expect(readdirSync(packDir)).not.toContain("tmp_pack_new");
+    managed.stop();
+  });
+
+  it("touches no pack directory file but the fetch's own tmp_pack_*", async () => {
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const packDir = join(plugin, ".git", "objects", "pack");
+    const kept = readdirSync(packDir); // the fixture's pack-*.pack and pack-*.idx
+    const managed = offlineUpdater(plugin);
+    managed.leaves = ["tmp_pack_new", "pack-while-fetching.pack"];
+    await managed.initialize();
+    await managed.request("check");
+    // a pack that arrived during the fetch, and every file older than it, stays
+    expect(readdirSync(packDir)).toContain("pack-while-fetching.pack");
+    for (const name of kept) expect(readdirSync(packDir)).toContain(name);
+    expect(readdirSync(packDir)).not.toContain("tmp_pack_new");
+    managed.stop();
+  });
+
+  it("cleans up only after a failed fetch: a successful one keeps what it wrote", async () => {
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    managed.leaves = ["tmp_pack_new"];
+    managed.succeeds = true;
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.fetches).toBeGreaterThan(0);
+    expect(managed.status.error).toBeNull();
+    expect(readdirSync(join(plugin, ".git", "objects", "pack"))).toContain("tmp_pack_new");
+    managed.stop();
+  });
+
+  it("tells the fetch's own error even when removing a leftover fails", async () => {
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    // a directory cannot be removed as a file: the removal fails, the fetch's error is still the one told
+    managed.leaves = ["tmp_pack_new/"];
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.status.phase).toBe("error");
+    expect(managed.status.error).toContain("unshallow fixture offline");
     managed.stop();
   });
 
