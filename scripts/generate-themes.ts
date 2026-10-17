@@ -24,7 +24,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseThemeBlocks, resolveEntry } from "../src/lib/themeCss.ts";
-import { ROLES } from "../src/lib/themes.ts";
+import { ROLES } from "../src/lib/themeRoles.ts";
 
 export const SOURCE = "src/styles.css";
 export const OUTPUTS = {

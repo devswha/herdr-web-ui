@@ -46,6 +46,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"tokyo-night-day","mode":"light","role":"shadow-drawer","value":"0 0 40px rgba(39, 77, 171, 0.22)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
   {"theme":"tokyo-night-day","mode":"light","role":"shadow-pop","value":"0 16px 48px rgba(39, 77, 171, 0.16), 0 0 0 1px var(--border)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
   {"theme":"tokyo-night-day","mode":"light","role":"shadow-card","value":"0 4px 16px rgba(39, 77, 171, 0.07)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"tokyo-night-day","mode":"light","role":"primary","value":"#1561ca","dE":8.784095421190207,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"gruvbox","mode":"dark","role":"status-working","value":"#a1c4b6","dE":9.79703994081216,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"gruvbox","mode":"dark","role":"status-blocked","value":"#ffa68a","dE":18.17712327071657,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"gruvbox","mode":"dark","role":"status-done","value":"#bfc332","dE":2.4075362740652717,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
@@ -88,6 +89,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"one-light","mode":"light","role":"syntax-number","value":"#926300","dE":1.7897606579750265,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"one-light","mode":"light","role":"syntax-type","value":"#995f00","dE":12.399888342058368,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"one-light","mode":"light","role":"syntax-meta","value":"#0072a9","dE":5.549879353239865,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"one-light","mode":"light","role":"primary","value":"#2d6af1","dE":4.018355387990014,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"solarized","mode":"dark","role":"text","value":"#a8b6b6","dE":6.747616310298808,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"text-dim","value":"#a5b7b9","dE":11.252034762400418,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"text-strong","value":"#a8b6b6","dE":6.747616310298808,"reason":"Recomputed default from AA-repaired foreground"},
@@ -107,6 +109,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"solarized","mode":"dark","role":"syntax-number","value":"#f67344","dE":12.293953581181366,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"syntax-type","value":"#c0931c","dE":3.3127672128241343,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"syntax-meta","value":"#37aba1","dE":3.137301262011203,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"solarized","mode":"dark","role":"primary","value":"#2f93d9","dE":2.449418792249408,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"solarized-light","mode":"light","role":"text","value":"#556a72","dE":5.802622044631877,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized-light","mode":"light","role":"text-dim","value":"#5a6a6c","dE":14.19835083286903,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized-light","mode":"light","role":"text-strong","value":"#556a72","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
@@ -131,6 +134,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"solarized-light","mode":"light","role":"shadow-drawer","value":"0 0 40px rgba(85, 106, 114, 0.22)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
   {"theme":"solarized-light","mode":"light","role":"shadow-pop","value":"0 16px 48px rgba(85, 106, 114, 0.16), 0 0 0 1px var(--border)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
   {"theme":"solarized-light","mode":"light","role":"shadow-card","value":"0 4px 16px rgba(85, 106, 114, 0.07)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
+  {"theme":"solarized-light","mode":"light","role":"primary","value":"#2076b3","dE":7.026635480894113,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"kanagawa","mode":"dark","role":"status-working","value":"#9bbbf8","dE":9.730310119232739,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"kanagawa","mode":"dark","role":"status-blocked","value":"#ffa09b","dE":24.67494947559212,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"kanagawa","mode":"dark","role":"status-done","value":"#a3c397","dE":14.967443534111302,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
@@ -178,6 +182,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"rose-pine-dawn","mode":"light","role":"syntax-number","value":"#a1514f","dE":16.358058359984508,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"rose-pine-dawn","mode":"light","role":"syntax-type","value":"#9e5600","dE":23.02522815963855,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"rose-pine-dawn","mode":"light","role":"syntax-meta","value":"#33717c","dE":11.64373069428541,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"primary","value":"#7e659b","dE":6.5855528356763084,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
 ];
 
 /** Pure policy used by the test and by temporary-copy QA. A diagnostic always names entry/role. */
