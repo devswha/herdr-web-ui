@@ -210,10 +210,11 @@
   transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 
+/* the thumb sits 2px inside the track's edge, off and on */
 .settings-toggle-thumb {
   position: absolute;
-  top: var(--space-3);
-  left: var(--space-1);
+  top: calc(var(--space-3) + 2px);
+  left: calc(var(--space-1) + 2px);
   width: var(--space-4);
   height: var(--space-4);
   background: var(--text-dim);
@@ -228,7 +229,7 @@
 
 .settings-toggle[aria-checked="true"] .settings-toggle-thumb {
   background: var(--primary);
-  transform: translateX(var(--space-5));
+  transform: translateX(var(--space-6));
 }
 
 @media (max-width: 640px) {
