@@ -630,6 +630,8 @@ export const KO: Record<string, string> = {
   "Recommended": "추천",
   "Or type your own answer": "또는 직접 답을 입력",
   "Questions": "질문 목록",
+  "Not answered": "답하지 않음",
+  "Note: {note}": "메모: {note}",
   "(answered)": "(답함)",
   "Agent is asking": "에이전트의 질문",
   "View plan": "계획 보기",

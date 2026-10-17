@@ -432,9 +432,20 @@ ${rows.map((row) => `│ ${row.padEnd(52)}│`).join("\n")}
     expect(prompt).toMatchObject({
       kind: "menu", title: "Review answers", question: "Submit these answers?", custom_option_index: null,
     });
-    expect(prompt?.body).toContain("1. Transport: Remote relay");
-    expect(prompt?.body).toContain("2. Targets: ARM server");
+    expect(prompt?.answers).toEqual([
+      { question: "Transport", answer: "Remote relay" },
+      { question: "Targets", answer: "ARM server" },
+    ]);
+    expect(prompt?.body).toBeNull();
     expect(labels(prompt)).toEqual(["Submit", "Cancel"]);
+    const noted = parseInteractivePrompt("omp", screen
+      .replace("│ 1. Transport: Remote relay                                      │\n", "│ 1 unanswered question; Enter still submits.                     │\n│                                                                 │\n│ 1. Transport: Remote relay                                      │\n│    Note: keep the old relay                                     │\n")
+      .replace("2. Targets: ARM server        ", "2. Targets:                    "));
+    expect(noted?.answers).toEqual([
+      { question: "Transport", answer: "Remote relay", note: "keep the old relay" },
+      { question: "Targets", answer: null },
+    ]);
+    expect(noted?.body).toBe("1 unanswered question; Enter still submits.");
     expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
     expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["esc"] }]);
     expect(() => answerKeys(prompt!, { custom_text: "submit now" })).toThrow();
@@ -618,7 +629,11 @@ Ready to submit your answers?
 `);
     // a menu: a typed pick submits every answer at once, so the chat asks for Confirm
     expect(review).toMatchObject({ kind: "menu", title: "Review your answers", question: "Ready to submit your answers?", custom_option_index: null });
-    expect(review?.body).toContain("→ Repo owner");
+    expect(review?.answers).toEqual([
+      { question: "Which way should the PR go?", answer: "Log in as owner" },
+      { question: "Who should author the commits?", answer: "Repo owner" },
+    ]);
+    expect(review?.body).toBeNull();
     expect(labels(review)).toEqual(["Submit answers", "Cancel"]);
 
     const bash = parseInteractivePrompt("claude", `
@@ -1422,16 +1437,77 @@ ${rule}
       const card = parseInteractivePrompt("claude", withRule(rows));
       expect(card).toMatchObject({ kind: "menu", title: "Review your answers", question: "Ready to submit your answers?", custom_option_index: null });
       expect(labels(card)).toEqual(["Submit answers", "Cancel"]);
-      expect(card?.body).toContain("→ Repo owner");
+      expect(card?.answers?.map((item) => item.question)).toEqual([
+        "Which way should the PR go?", "Who should author the commits?", "What should the release notes say?",
+      ]);
+      expect(card?.answers?.[1]).toEqual({ question: "Who should author the commits?", answer: "Repo owner" });
       expect(answerKeys(card!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
     }
+  });
+
+  test("reads a question the pane wrapped as one line, not as the terminal broke it", () => {
+    const card = parseInteractivePrompt("claude", `
+←  ☒ Names  ☒ Replay  ✔ Submit  →
+
+Review your answers
+
+ ● What should the two top-level rows be called?
+   → Fictional repo names (Recommended)
+ ● The demo's terminal replay (git log, bun test, the pretend shell) lives in the 'release' shell workspace. What
+ happens to it?
+   → Second tab in a repo (Recommended)
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+`);
+    expect(card?.answers).toEqual([
+      { question: "What should the two top-level rows be called?", answer: "Fictional repo names (Recommended)" },
+      { question: "The demo's terminal replay (git log, bun test, the pretend shell) lives in the 'release' shell workspace. What happens to it?", answer: "Second tab in a repo (Recommended)" },
+    ]);
+    expect(card?.body).toBeNull();
+  });
+
+  test("keeps Claude's own warning out of the answers, and marks what the top cut off", () => {
+    // Claude Code 2.1.302 draws the warning at the panel's edge, the answers indented
+    const card = parseInteractivePrompt("claude", `
+←  ☐ Names  ☒ Replay  ✔ Submit  →
+
+Review your answers
+
+⚠ You have not answered all questions
+
+ ● The demo's terminal replay lives in the 'release' shell workspace. What happens to it?
+   → Second tab in a repo
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+`);
+    expect(card?.answers).toEqual([{ question: "The demo's terminal replay lives in the 'release' shell workspace. What happens to it?", answer: "Second tab in a repo" }]);
+    expect(card?.body).toBe("⚠ You have not answered all questions");
+
+    // the pane's top cut an answer: its rest is shown as a rest, not as a question
+    const cut = parseInteractivePrompt("claude", tall.replace(/^[\s\S]*?(?=   the chat my own words typed in the chat\n)/, "\n"));
+    expect(cut?.answers?.[0]).toEqual({ question: null, answer: "…the chat my own words typed in the chat" });
+    expect(cut?.answers?.[1]?.answer).toBe("Once a day");
   });
 
   test("reads a review cut off at the top of the pane, its tabs and heading out of view", () => {
     const card = parseInteractivePrompt("claude", tall);
     expect(card).toMatchObject({ kind: "menu", title: "Review your answers", question: "Ready to submit your answers?" });
     expect(labels(card)).toEqual(["Submit answers", "Cancel"]);
-    expect(card?.body).toContain("→ Once a day");
+    // the wrapped lines of a question and of an answer read as one line each
+    expect(card?.answers).toEqual([
+      {
+        question: "The PC splits traffic between the main server and the reserve almost evenly, because both servers sit in the same city and answer equally fast. Which way should we go?",
+        answer: "my own words typed in the chat ".repeat(5).trim(),
+      },
+      { question: "After every subscription update the client restarts the tunnel. How often should the subscription be updated?", answer: "Once a day" },
+      { question: "The client has no leak protection. What should we do?", answer: `${"my own words typed in the chat ".repeat(3)}my own words typed in my own words typed in the chat my o` },
+    ]);
   });
 
   test("does not take an answered review above later output and the session's rule for an open one", () => {
