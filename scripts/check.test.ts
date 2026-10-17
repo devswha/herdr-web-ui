@@ -525,6 +525,10 @@ describe("check CLI", () => {
     delete env["CHECK_REPORT"];
     delete env["GITHUB_EVENT_NAME"];
     delete env["GITHUB_EVENT_PATH"];
+    // CHECK_DIR makes the nested run take the PC-wide admission port, which the self-hosted
+    // runners share with every lane of the PC that is waiting for a slot: without a wait, a
+    // moment's overlap refuses the run before it writes its report (#1225).
+    env["CHECK_WAIT_SECONDS"] = "20";
     const runCheck = () => spawnSync(process.execPath, [fileURLToPath(new URL("./check.ts", import.meta.url)), "fast"], {
       cwd,
       env,

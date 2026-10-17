@@ -156,12 +156,12 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **Claude Code** | Native transcript, resolved through herdr | ✓ approvals, questions, plan and menu picks, and the `/model` list (picked for the session) |
 | **Codex** | Native rollout, with tool results and commentary/final phases | ✓ approvals and questions, including queued ones, and the `/model` lists (picked for the session) |
 | **omp** | Native session file | ✓ |
-| **omo** | Native session file, found through the pane's process tree | — use Terminal |
+| **omo** | Native session file, found through the pane's process tree | ✓ the `/model` list (picked for the session); other menus — use Terminal |
 | **gjc** | Native session file identified by GJC's SDK broker and the pane's process | — use Terminal |
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
 | **OpenCode** | Native session in OpenCode 2's own database, resolved through herdr: `~/.local/share/opencode/opencode.db` (`%USERPROFILE%\.local\share\opencode\opencode.db` on Windows), or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it | — use Terminal |
 | **Devin CLI** | Native SQLite session, showing the active branch when herdr or the live process explicitly identifies the session; otherwise terminal text | — use Terminal |
-| **Grok** | Linux native update log with exact process/session evidence, on the `grok-1.0.50-linux-x86_64` build only; other builds use Terminal. See [Grok setup and limits](grok-chat.md). | — use Terminal |
+| **Grok** | Linux native update log. Any Grok executable named `grok` or `grok-…` whose one held session matches Herdr; macOS, Windows, and an ambiguous hold use Terminal. See [Grok setup and limits](grok-chat.md). | — use Terminal |
 | **Hermes** | Native SQLite session store | — use Terminal |
 | **Antigravity (agy)** | **Experimental; macOS untested.** Native ledger, selected by the running process’s held conversation lock. Linux native-tested; Windows uses terminal text. See [Agy behavior and limits](agy-chat.md). | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |
