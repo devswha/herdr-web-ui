@@ -935,13 +935,35 @@ describe("claudeSubagents, an agent's own turn", () => {
     expect(ids(s.path).sort()).toEqual(["by-id:cancelled", "woken-after-stop:running"]);
   });
 
+  it("reads a teammate stopped by its id, sent a message, then stopped by its name as cancelled at the second stop", () => {
+    const s = session();
+    const file = teammate(s, "restopped");
+    assistant(file, 2, "tool_use", "tool_use");
+    stop(s, 3, "restopped", "t1");
+    entry(file, { type: "user", timestamp: at(5), message: { role: "user", content: "go on" } });
+    stop(s, 6, "local-harness-map", "t2");
+    expect(claudeSubagents(s.path, true, NOW).map((task) => `${task.id}:${task.status}:${task.ended_at?.slice(14, 16) ?? "-"}`)).toEqual(["restopped:cancelled:06"]);
+  });
+
   it("does not stop a teammate by a failed TaskStop", () => {
     const s = session();
     const file = teammate(s, "kept");
     assistant(file, 2, "tool_use", "tool_use");
     s.parent({ type: "assistant", timestamp: at(3), message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_failed", name: "TaskStop", input: { task_id: "local-harness-map" } }] } });
-    s.parent({ type: "user", timestamp: at(3), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_failed", is_error: true, content: "No task found" }] } });
+    // an answer that names a task id still stops nothing when it is an error
+    s.parent({ type: "user", timestamp: at(3), message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_failed", is_error: true, content: "No task found" }] }, toolUseResult: { task_id: "kept" } });
     expect(ids(s.path)).toEqual(["kept:running"]);
+  });
+
+  it("does not stop a teammate under a stopped name before its file is read", () => {
+    const s = session();
+    const old = teammate(s, "old-holder");
+    assistant(old, 2, "tool_use", "tool_use");
+    stop(s, 3, "local-harness-map", "t1");
+    // a new teammate under the same name, its file not written yet
+    const fresh = teammate(s, "fresh-holder");
+    writeFileSync(fresh, "");
+    expect(ids(s.path).filter((task) => task.startsWith("fresh-holder"))).not.toContain("fresh-holder:cancelled");
   });
 
   it("reads a teammate whose shutdown answer is no approval as still running", () => {

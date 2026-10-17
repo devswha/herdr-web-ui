@@ -631,8 +631,11 @@ export function claudeSubagentState(parentPath: string, live: boolean, now = Dat
     // its own file can say it stopped (a teammate gets no notification, and a notice may not be written yet)
     const stopped = view.turnEndedAt !== null ? { at: view.turnEndedAt, status: "completed" as const, turn: true } : null;
     // TaskStop stopped it: by its id, or a teammate by its name, unless it was started or sent a message after
-    const stopAt = parent?.stops.get(id) ?? (meta.name !== null ? parent?.stops.get(meta.name) : undefined);
-    const halted = stopAt !== undefined && (firstAt === null || firstAt <= stopAt) && Math.max(tail.dispatchAt ?? 0, work.dispatchAt ?? 0) <= stopAt
+    // the newer of a stop by its id and one by its name: a stop, a message and a second stop leave it stopped
+    const stopsAt = [parent?.stops.get(id), meta.name !== null ? parent?.stops.get(meta.name) : undefined].filter((at) => at !== undefined);
+    const stopAt = stopsAt.length > 0 ? Math.max(...stopsAt) : undefined;
+    // only once its start and its whole file are read: a teammate not read yet may be a new one or resumed
+    const halted = stopAt !== undefined && firstAt !== null && firstAt <= stopAt && !work.behind && Math.max(tail.dispatchAt ?? 0, work.dispatchAt ?? 0) <= stopAt
       ? { at: stopAt, status: "cancelled" as const, turn: true } : null;
     const end = ([told, stopped, halted] as ({ at: number; status: OmoTask["status"]; turn: boolean } | null)[])
       .reduce((newest, next) => next !== null && (newest === null || next.at >= newest.at) ? next : newest, null);
