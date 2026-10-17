@@ -26,11 +26,11 @@ export type TelemetryEventName = "install" | "update";
 export const NOTICE_VERSION = 4;
 
 /**
- * Every theme id a snapshot may name: the three original palettes and herdr's canonical theme
- * names. A literal list, not an import, so the Worker's copy only changes with a deploy.
+ * Every theme id a snapshot may name: the three original palettes, the app's Codex theme and
+ * herdr's canonical theme names. A literal list, not an import, so the Worker's copy only changes with a deploy.
  */
 export const TELEMETRY_THEME_IDS = [
-  "amber", "charcoal", "catppuccin", "catppuccin-latte", "tokyo-night", "tokyo-night-day", "dracula", "nord",
+  "amber", "charcoal", "codex", "catppuccin", "catppuccin-latte", "tokyo-night", "tokyo-night-day", "dracula", "nord",
   "gruvbox", "gruvbox-light", "one-dark", "one-light", "solarized", "solarized-light", "kanagawa",
   "kanagawa-lotus", "rose-pine", "rose-pine-dawn", "vesper",
 ] as const;

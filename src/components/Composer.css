@@ -10,17 +10,6 @@
      and still clear it, and the full inset left a band of nothing under the box */
   padding: 0 var(--space-4) max(var(--space-4), calc(env(safe-area-inset-bottom, 0px) - var(--space-4)));
   background: var(--bg-panel);
-  /* how far the resize grip's hit area rises above the box */
-  --composer-grip-h: 12px;
-}
-
-/* The held-message list ends in things to press (a message's own box, Send now, Discard), and the
-   grip's hit area would lie over the bottom centre of its last row. After the list the composer
-   keeps that strip for itself. So it does after a prompt card, whose last row is an option, the
-   custom answer's Send or Confirm */
-.composer-queue ~ .composer,
-.prompt-dock:not(:empty) ~ .composer {
-  padding-top: var(--composer-grip-h);
 }
 
 /* The prompt card's place (PaneTerminal.tsx): over the input card and under the held messages,
@@ -493,71 +482,6 @@
   box-shadow: 0 0 0 var(--hairline) var(--accent);
 }
 
-/* the resize grip: a short bar on the box's top edge. Its hit area rises from the border and
-   never reaches into the box, so a tap at the box's top still lands on the text and a remove
-   button in the attachment strip stays reachable. The composer has no space of its own above the
-   box, so the area (48 by 12px, 64 by 20px on touch) lies over the bottom centre of what comes
-   before it: the conversation's bottom padding, or the quick-reply row. Nothing to press belongs
-   in that strip: after the held-message list the composer reserves it (above) */
-.composer-resize {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  z-index: 1;
-  display: grid;
-  place-items: end center;
-  width: 48px;
-  height: var(--composer-grip-h);
-  transform: translateX(-50%);
-  cursor: ns-resize;
-  touch-action: none;
-}
-
-/* the bar sits on the border; its half over the box is drawn, not hit */
-.composer-resize::before {
-  content: "";
-  width: var(--space-8);
-  height: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--border-strong);
-  transform: translateY(2px);
-  pointer-events: none;
-  transition: background-color var(--dur-fast) var(--ease-out);
-}
-
-.composer-resize:hover::before,
-.composer-resize:active::before,
-.composer-resize:focus-visible::before {
-  background: var(--accent);
-}
-
-/* with a mouse the bar is drawn when the card is pointed at, while it is dragged (the press
-   keeps it :active) and on its own keyboard focus; and while a height is set by hand, so the way
-   back to the automatic one stays in sight. Any coarse pointer keeps it always: a bar that is
-   not drawn and still drags would be a control nobody can find. The query is the hybrid-safe
-   one: a laptop with a touch screen counts as touch */
-@media (hover: hover) and (pointer: fine) and (not (any-pointer: coarse)) {
-  .composer-resize::before {
-    opacity: 0;
-    transition:
-      opacity var(--dur-fast) var(--ease-out),
-      background-color var(--dur-fast) var(--ease-out);
-  }
-
-  .composer-surface:hover > .composer-resize::before,
-  .composer-resize.is-sized::before,
-  .composer-resize:hover::before,
-  .composer-resize:active::before,
-  .composer-resize:focus-visible::before {
-    opacity: 1;
-  }
-}
-
-.composer-resize:focus-visible {
-  outline-offset: 0;
-  border-radius: var(--radius-sm);
-}
-
 .composer-text {
   grid-area: text;
   width: 100%;
@@ -607,13 +531,6 @@
 
 .composer-text:focus-visible {
   outline: 0;
-}
-
-/* a height set with the grip: the grip's own limits, re-applied when a keyboard or a rotation
-   shrinks the viewport, so the saved height comes back once there is room again */
-.composer-text.is-sized {
-  max-height: min(50vh, 480px);
-  max-height: min(calc(var(--app-height, 100dvh) / 2), 480px);
 }
 
 .composer-text::placeholder {
@@ -974,8 +891,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1) var(--space-2);
-  /* the resize grip's hit area rises above the box: the band stops short of it, so its button is whole */
-  margin-bottom: max(var(--space-2), var(--composer-grip-h));
+  margin-bottom: var(--space-2);
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   background: var(--danger-tint);
   border: var(--hairline) solid color-mix(in srgb, var(--status-blocked) 35%, transparent);
@@ -1126,13 +1042,6 @@
     height: var(--touch-target);
   }
 
-  .composer {
-    --composer-grip-h: 20px;
-  }
-
-  .composer-resize {
-    width: 64px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1141,8 +1050,7 @@
   }
 
   .composer-surface,
-  .composer-action::before,
-  .composer-resize::before {
+  .composer-action::before {
     transition: none;
   }
 }

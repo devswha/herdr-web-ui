@@ -100,7 +100,7 @@ const layoutOf = (page: Page): Promise<Layout> => page.evaluate(() => {
   };
 });
 
-/** What a press at the middle of an element's visible box lands on, as a class of the card or the grip. */
+/** What a press at the middle of an element's visible box lands on, as a class of the card. */
 const hitOf = (page: Page, selector: string, at: "middle" | "bottom" = "middle"): Promise<{ hit: string | null; visible: boolean }> => page.evaluate(([target, where]) => {
   const node = [...document.querySelectorAll(target!)].at(-1)!;
   const card = document.querySelector(".prompt-card")!.getBoundingClientRect();
@@ -109,7 +109,7 @@ const hitOf = (page: Page, selector: string, at: "middle" | "bottom" = "middle")
   const x = rect.left + rect.width / 2;
   const y = where === "bottom" ? rect.bottom - 2 : rect.top + rect.height / 2;
   const found = document.elementFromPoint(x, y);
-  return { hit: found?.closest(".composer-resize") ? "composer-resize" : found?.closest(target!) === node ? "self" : found === null ? null : (found as HTMLElement).className || found.tagName, visible };
+  return { hit: found?.closest(target!) === node ? "self" : found === null ? null : (found as HTMLElement).className || found.tagName, visible };
 }, [selector, at] as const);
 
 /** Scrolls the card (never the page) until the element is in its box, as a finger or a wheel would. */
@@ -318,10 +318,8 @@ try {
             // the keycap draws the number alone; the option is still named as the agent's menu shows it
             assert.deepEqual(await page.locator(".prompt-card-number > [aria-hidden]").allTextContents(), ["1", "2", "3"]);
             for (const name of ["1. Yes", "2. Yes, and don't ask again for git push", "3. No, and tell Codex what to do differently"]) assert.equal(await page.locator(".prompt-card").getByRole("button", { name, exact: true }).count(), 1, name);
-            // the grip's hit strip is the composer's own: the card's last row is pressed, not the grip
+            // the card's last row is pressed at its bottom edge
             assert.deepEqual(await hitOf(page, ".prompt-card-option", "bottom"), { hit: "self", visible: true });
-            const grip = await page.evaluate(() => { const strip = document.querySelector(".composer-resize")!.getBoundingClientRect(); return { top: strip.top, card: document.querySelector(".prompt-card")!.getBoundingClientRect().bottom }; });
-            assert.ok(grip.top >= grip.card - 0.5, `the grip's strip starts under the card (${grip.top} against ${grip.card})`);
             // the open work block says who waits: the sidebar's words, a still red dot
             const head = await page.locator(".work-block.is-live .work-block-title").evaluate((node) => ({ text: node.textContent, waiting: node.closest(".work-block")!.classList.contains("is-waiting"), dot: getComputedStyle(node, "::before").animationName }));
             assert.deepEqual(head, { text: "Needs you", waiting: true, dot: "none" });
@@ -457,7 +455,7 @@ try {
           assert.equal(layout.scrolls, true, "the form is taller than a phone with its keyboard up: the card scrolls");
           await shot("form-held-390x500");
           assert.deepEqual(await reach(page, ".prompt-card-custom .input"), { hit: "self", visible: true });
-          // the card's last row is pressed at its bottom edge, where the grip's strip would have been
+          // the card's last row is pressed at its bottom edge
           assert.deepEqual(await reach(page, ".prompt-card-custom .btn"), { hit: "self", visible: true });
           assert.deepEqual(await hitOf(page, ".prompt-card-custom .btn", "bottom"), { hit: "self", visible: true });
           await page.locator(".prompt-card-custom .input").fill("sqlite, one file");

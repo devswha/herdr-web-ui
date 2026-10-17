@@ -238,6 +238,7 @@ function shownBy(entry: SettingsLevel | null): { page: SettingsPage | null; keyB
 const THEME_NAMES: Record<ThemeId, string> = {
   amber: "Amber",
   charcoal: "Charcoal",
+  codex: "Codex",
   catppuccin: "Catppuccin",
   "catppuccin-latte": "Catppuccin Latte",
   "tokyo-night": "Tokyo Night",

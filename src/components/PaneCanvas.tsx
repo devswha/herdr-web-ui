@@ -9,7 +9,7 @@ import { PaneCachedContext, PanePresentedContext, PaneShownContext, PaneSubmitCo
 import { cachedPaneCells, visitPaneTab } from "../lib/paneTabCache.ts";
 import { routeMissing } from "../lib/api.ts";
 import { layoutCells, zoomMode } from "../lib/layoutMap.ts";
-import { layoutTopology, paneContextPress, SOLO_PANE_QUERY, soloPane, splitPath, splitRatioAt } from "../lib/paneCanvas.ts";
+import { layoutTopology, paneContextPress, paneFieldTarget, SOLO_PANE_QUERY, soloPane, splitPath, splitRatioAt } from "../lib/paneCanvas.ts";
 import { useT } from "../lib/i18n.ts";
 import { userErrorMessage, type UserError } from "../lib/userError.ts";
 import { useFocusTrap } from "../lib/useFocusTrap.ts";
@@ -135,7 +135,7 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
     const pointer = (event.nativeEvent as Partial<globalThis.PointerEvent>).pointerType;
     // Android Chrome ends a dragged text selection with a second contextmenu typed "mouse" and no
     // press of its own: only a mouse or the keyboard pressing since the touch makes it the app's
-    if (pointer === "touch" || pointer === "pen" || touchPress.current) return;
+    if (pointer === "touch" || pointer === "pen" || touchPress.current || paneFieldTarget(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -279,10 +279,10 @@ export function PaneCanvas({ snapshot, pane, selectedPaneId, onSelect, onChanged
         onDropCapture={() => { if (!active) onSelect(item.pane_id, false); }}
         onFocusCapture={(event) => { if (!active && event.currentTarget.contains(event.target)) onSelect(item.pane_id, false); }}
         onMouseDownCapture={(event) => {
-          if (paneContextPress(event, apple)) { event.preventDefault(); event.stopPropagation(); }
+          if (paneContextPress(event, apple) && !paneFieldTarget(event.target)) { event.preventDefault(); event.stopPropagation(); }
         }}
         onMouseUpCapture={(event) => {
-          if (paneContextPress(event, apple)) { event.preventDefault(); event.stopPropagation(); }
+          if (paneContextPress(event, apple) && !paneFieldTarget(event.target)) { event.preventDefault(); event.stopPropagation(); }
         }}
         onContextMenuCapture={(event) => context(event, item)}>
         <div className="pane-frame-head" draggable={onOpenInHalf !== undefined && !coarse}
