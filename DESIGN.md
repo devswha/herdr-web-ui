@@ -1442,6 +1442,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   picked or typed, also when it asks the same question again. An answer that comes back after
   its card is gone (the next prompt is showing, or another pane is open) changes nothing on
   screen.
+- A chevron at the header's end (`.prompt-card-fold`, after View plan) folds the card to its
+  header, to read the transcript under it, and opens it again (`aria-expanded`, Collapse question
+  / Expand question). The question still waits, so the card stays: a fold, never a dismiss. The
+  sending line and an error still show while folded, a typed pick's confirm row opens the card, and
+  the next prompt's card starts open. Follows T3 Code's pending-question panel, which folds per
+  question the same way; its dismiss without answering needs an answer herdr's prompts do not have.
 - A form of several questions (omo) shows a row of step chips (`.prompt-card-steps`) under the
   header: a chip per question, pill-shaped, mono number or a check once answered (`--accent`), the
   one asked now with an `--accent` border, `--accent-tint` fill and a `--primary` number. The title
@@ -1682,7 +1688,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - On a touch screen, picking a pane (drawer, palette, notification) or switching its lens never
   raises the keyboard: the user reads first, and a tap on the message box or the grid raises it.
   A desktop's picked pane takes typing at once.
-- Enter sends and Shift+Enter breaks by default; with **Enter sends** off, Mod+Enter sends. On touch screens the same device setting is shown inverted as **Return inserts a new line**, with Send and hardware Mod+Enter explained below it. IME Enter is ignored. Stop sends Escape. While the agent works and a draft shows Send in Stop's place, Escape in the box is Stop; an open completion menu takes the first Escape. Working Send schedules a pending message; its Send now action submits that same message now.
+- Enter sends and Shift+Enter breaks by default; with **Enter sends** off, Mod+Enter sends. On touch screens the same device setting is shown inverted as **Return inserts a new line**, with Send and hardware Mod+Enter explained below it. IME Enter is ignored. Stop sends Escape. While the agent works and a draft shows Send in Stop's place, Escape in the box is Stop; an open completion menu takes the first Escape, and its X in the top corner (`.composer-menu-close`, Close suggestions, sticky over the rows it scrolls; the first row leaves it room) does the same for a pointer or a phone, which has no Escape, keeping the text and the focus in the box. T3 Code's command menu closes on Escape alone. Working Send schedules a pending message; its Send now action submits that same message now.
 
 ### Voice input
 - A mic button sits beside the add button in the composer and beside Send in the terminal input line; it

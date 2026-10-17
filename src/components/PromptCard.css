@@ -69,6 +69,55 @@
   flex: none;
 }
 
+/* the fold toggle ends the header: after "View plan", or on its own at the end */
+.prompt-card-fold {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  margin-inline-start: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.prompt-card-plan-file + .prompt-card-fold {
+  margin-inline-start: 0;
+}
+
+.prompt-card-fold svg {
+  width: var(--fs-md);
+  height: var(--fs-md);
+}
+
+@media (hover: hover) {
+  .prompt-card-fold:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+}
+
+.prompt-card-fold:focus-visible {
+  outline: var(--ring);
+  outline-offset: var(--ring-offset);
+}
+
+@media (pointer: coarse) {
+  .prompt-card-fold {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+}
+
+/* folded: the header alone; a note that the answer is on its way, or failed, still shows */
+.prompt-card.is-folded > :not(.prompt-card-header, .prompt-card-status, .prompt-card-error, .visually-hidden) {
+  display: none;
+}
+
 /* a form of several questions: a chip per question, answered ones checked, the one asked now in
    the accent; the chips name the questions, so the card's title only says where this one stands */
 .prompt-card-steps {

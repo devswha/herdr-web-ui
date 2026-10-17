@@ -750,6 +750,69 @@
   display: contents;
 }
 
+/* the rows, inside the menu that scrolls them: never shrunk to its height, or nothing would scroll */
+.composer-menu-list {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* the menu's close, in its top corner over whatever row scrolls under it; the first row (or group
+   heading) leaves it room, so at rest it covers nothing */
+.composer-menu-close {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
+  align-self: flex-end;
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  margin-bottom: calc(-1 * var(--control-h));
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.composer-menu-close svg {
+  width: var(--fs-md);
+  height: var(--fs-md);
+}
+
+.composer-menu-list > .composer-menu-group:first-child > :first-child,
+.composer-menu-close + .composer-menu-group > :first-child {
+  padding-inline-end: calc(var(--control-h) + var(--space-1));
+}
+
+@media (hover: hover) {
+  .composer-menu-close:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+}
+
+.composer-menu-close:focus-visible {
+  outline: var(--ring);
+  outline-offset: calc(-1 * var(--ring-offset));
+}
+
+@media (pointer: coarse) {
+  .composer-menu-close {
+    width: var(--touch-target);
+    height: var(--touch-target);
+    margin-bottom: calc(-1 * var(--touch-target));
+  }
+
+  .composer-menu-list > .composer-menu-group:first-child > :first-child,
+  .composer-menu-close + .composer-menu-group > :first-child {
+    padding-inline-end: calc(var(--touch-target) + var(--space-1));
+  }
+}
+
 /* where a skill comes from: yours in the accent; the project's, the agent's own and a plugin's
    dimmed like any other icon */
 .composer-menu .menu-item[data-origin="user"] svg {
