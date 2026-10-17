@@ -1743,6 +1743,17 @@ button {
   white-space: nowrap;
 }
 
+/* the half's grip: the free end of its row, which drags its pane to a half (App), with its close */
+.pane-slot-grip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 var(--space-1) 0 var(--space-2);
+}
+
 .pane-slot-machine {
   flex: none;
   color: var(--text-dim);

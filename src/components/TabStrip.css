@@ -19,7 +19,8 @@
   display: none;
 }
 
-/* a split view half's row: its tabs scroll, and what it carries at the end (its close) stays put */
+/* a split view half's row: its tabs scroll, as wide as they are, and the end (App's grip and
+   close) takes the rest of the row */
 .tab-strip-row {
   display: flex;
   flex: 0 0 auto;
@@ -29,17 +30,15 @@
 }
 
 .tab-strip-row > .tab-strip {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   border-bottom: 0;
 }
 
 .tab-strip-end {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: none;
-  padding: 0 var(--space-1) 0 var(--space-2);
+  align-items: stretch;
+  flex: 1 0 auto;
   color: var(--text-dim);
   font-size: var(--fs-xs);
 }

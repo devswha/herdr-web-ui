@@ -611,6 +611,34 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
       console.log("PASS a half's lens choice holds while inactive and on activation when storage writes fail");
     }
 
+    // 9a. A half's row end, past its tabs, is its grip: its pane, dragged onto the other half, opens there too.
+    {
+      const [left, right] = await panesFor("grip-left", "grip-right") as [string, string];
+      const { page, errors } = await open([left, right], "terminal");
+      await splitRight(page, right);
+      const grip = (await half(page, "right").locator(".pane-slot-grip").boundingBox())!;
+      // the free end, left of the close
+      const x = grip.x + 8;
+      const y = grip.y + grip.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x - 8, y + 4, { steps: 2 });
+      await page.waitForFunction(() => document.querySelector(".split-drop")?.classList.contains("is-visible") === true);
+      const box = (await page.locator(".pane-split").boundingBox())!;
+      await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2, { steps: 8 });
+      await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2);
+      await page.waitForFunction(() => {
+        const guide = document.querySelector(".split-drop");
+        return guide?.classList.contains("is-visible") === true && guide.getAttribute("data-side") === "left";
+      });
+      await page.mouse.up();
+      await isActive(page, "left");
+      await half(page, "left").locator(`.pane-frame[data-layout-pane="${right}"]`).waitFor();
+      assert.equal(await page.locator(".pane-slot").count(), 2, "the split stays, both halves on the dragged pane");
+      assert.deepEqual(errors, []);
+      console.log("PASS a half's row end drags its pane into the other half");
+    }
+
     // 9b. A drop just after the node under the pointer was replaced still opens the half.
     {
       const [left, right] = await panesFor("new-target-left", "new-target-right") as [string, string];
