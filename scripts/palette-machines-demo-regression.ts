@@ -24,6 +24,12 @@ const patch = `(() => {
     machine.state = id === "offline" || (id === "remote" && offline) ? "disconnected" : "connected";
     if (id === "remote") machine.snapshot.panes.find((pane) => pane.pane_id === ${JSON.stringify(panes.api)}).label = "Remote migration";
     const workspace = machine.snapshot.workspaces[0];
+    // the first workspace keeps one tab here, so closing it is closing the last tab: the demo's release shell tab is left out
+    const shellTab = machine.snapshot.panes.find((pane) => pane.pane_id === ${JSON.stringify(panes.shell)})?.tab_id;
+    machine.snapshot.panes = machine.snapshot.panes.filter((pane) => pane.tab_id !== shellTab);
+    machine.snapshot.tabs = machine.snapshot.tabs.filter((tab) => tab.tab_id !== shellTab);
+    machine.snapshot.layouts = machine.snapshot.layouts.filter((layout) => layout.tab_id !== shellTab);
+    workspace.tab_count = machine.snapshot.tabs.filter((tab) => tab.workspace_id === workspace.workspace_id).length;
     workspace.worktree = { repo_key: "repo", repo_name: "project", repo_root: "/tmp/project", checkout_path: "/tmp/project/linked", is_linked_worktree: true };
     if (id === "remote" && missing) machine.snapshot.panes = machine.snapshot.panes.filter((pane) => pane.pane_id !== ${JSON.stringify(panes.api)});
     return machine;

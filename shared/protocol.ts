@@ -1053,6 +1053,9 @@ export interface InteractivePrompt {
   /** the questions of a form that asks several at once (omo), in order: which are answered and
    * which one the card asks now (none while the answers are reviewed). Absent for one question */
   steps?: InteractivePromptStep[];
+  /** the answers a review asks to submit (Claude, omp), each question with what was picked for it,
+   * read whole where the terminal wrapped them. A question cut off above the pane's top is null */
+  answers?: InteractivePromptAnswer[];
   /** the last-resort card for a blocked pane no reader knows: answered with its own buttons only,
    * so a message typed in the chat still goes to the agent as typed */
   fallback?: true;
@@ -1064,6 +1067,13 @@ export interface InteractivePromptStep {
   label: string;
   answered: boolean;
   current: boolean;
+}
+
+export interface InteractivePromptAnswer {
+  question: string | null;
+  answer: string | null;
+  /** the note typed with the answer (omp) */
+  note?: string;
 }
 
 export interface InteractivePromptOption {

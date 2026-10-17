@@ -178,6 +178,8 @@
   padding: var(--space-3);
   background: var(--bg);
 }
+/* the popup's opening focus: the content as a whole, the dialog itself already outlined by its frame */
+.file-viewer-body:focus { outline: none; }
 
 .file-viewer-media {
   /* auto margins: media sits in the middle of a full-height viewer, text starts at the top */

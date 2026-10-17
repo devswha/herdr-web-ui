@@ -75,7 +75,7 @@ try {
   try {
     const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
     try {
-      const pane = `?pane=${encodeURIComponent(panes.infra)}&view=terminal`;
+      const pane = `?pane=${encodeURIComponent(panes.omp)}&view=terminal`;
 
       // without the hook asked for, nothing throws: the probe is inert
       {

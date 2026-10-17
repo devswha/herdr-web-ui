@@ -1,3 +1,4 @@
+import { agentFault, agentLaunch, type AgentPayload } from "./agent-launch.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { randomBytes } from "node:crypto";
@@ -9,7 +10,7 @@ import type { ServerWebSocket } from "bun";
 import type { AgentKind, AgentStatus, ClientMessage, ClientRole, DirectoryCreated, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PlanSummary, PluginActionsResponse, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
-import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
+import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
 import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
@@ -30,17 +31,15 @@ import { BackgroundWait } from "./background-wait.ts";
 import { SessionPlans } from "./session-plan.ts";
 import { codexOpenRollout, paneCodexHome } from "./codex.ts";
 import { CompletionTracker, type OmoRest } from "./completion.ts";
-import { freeAgentName } from "./agent-name.ts";
 import { launchedAgents } from "./launched-agents.ts";
-import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
+import { SHELL_AGENTS, shellAgentExecutable } from "./shell-agent.ts";
 import { createDirectory, listDirectories } from "./directories.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
-import { fileResponse, findFile, crossSiteFileRead } from "./file-view.ts";
+import { fileResponse, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
   agentManifests,
   agentPrompt,
-  agentStart,
   HerdrError,
   herdrSocketPath,
   integrationList,
@@ -246,68 +245,6 @@ async function claudeTempFolder(paneId: string): Promise<string | null> {
     const session = await claudePaneSession(pane);
     return session === null ? null : await claudeSessionTempDir(session.path);
   } catch { return null; /* herdr busy or the pane gone: the path stays not found */ }
-}
-
-type AgentPayload = { kind?: unknown; name?: unknown; args?: unknown };
-
-/** What is wrong with a request's `agent`, in the API's words; null when it can be started. */
-function agentFault(agent: AgentPayload | undefined): string | null {
-  if (agent === undefined) return null;
-  if (typeof agent !== "object" || typeof agent.kind !== "string" || agent.kind.length === 0) return "agent.kind is required";
-  if ((agent.name !== undefined && typeof agent.name !== "string")
-    || (agent.args !== undefined && (!Array.isArray(agent.args) || !agent.args.every((arg) => typeof arg === "string")))) {
-    return "agent.name must be a string and agent.args must be an array of strings";
-  }
-  return null;
-}
-
-/**
- * Starts a checked `agent` in a pane herdr just made. A failure is answered, not thrown: the
- * workspace, tab or worktree around the pane is there either way.
- */
-async function agentLaunch(paneId: string, agent: AgentPayload): Promise<{ agent_started: true } | { agent_started: false; error: { code: string; message: string } }> {
-  try {
-    const kind = agent.kind as string;
-    const args = agent.args as string[] | undefined;
-    if (isShellAgentKind(kind)) await startShellAgent(kind, paneId, args);
-    else {
-      const given = typeof agent.name === "string" && agent.name.length > 0 ? agent.name : null;
-      // herdr refuses a name another agent holds. Two creations at once can pick the same
-      // free one: the refused one picks again. It also refuses a pane whose shell is not up
-      // yet (`agent_pane_busy`, herdr 0.9.3), which a pane made a moment ago can be.
-      const shellDeadline = Date.now() + 10_000;
-      for (let attempt = 1; ; ) {
-        try {
-          await agentStart({
-            name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((running) => running.name)),
-            kind,
-            paneId,
-            ...(args === undefined ? {} : { args }),
-            timeoutMs: 60_000,
-          });
-          break;
-        } catch (error) {
-          if (!(error instanceof HerdrError)) throw error;
-          if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
-            await Bun.sleep(100);
-            continue;
-          }
-          if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
-          attempt += 1;
-        }
-      }
-    }
-    launchedAgents.launched(paneId, kind);
-    return { agent_started: true };
-  } catch (error) {
-    return {
-      agent_started: false,
-      error: {
-        code: error instanceof HerdrError ? error.code : "agent_start_failed",
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
-  }
 }
 
 interface SocketData {
@@ -1954,13 +1891,24 @@ export function createServer(
         return new Response("websocket upgrade required", { status: 426 });
       }
 
-      if (pathname === "/api/auth") return handleAuthRequest(request, token, client);
+      if (pathname === "/api/auth") {
+        // signing out also ends the page media this browser was given (by its device, else by its address)
+        // a browser can hold the token and a device cookie at once, and its renders are then the
+        // client's: signing out ends both kinds
+        if (request.method === "DELETE" && authenticated) {
+          if (pairedDevice !== null) forgetPageMedia({ device: pairedDevice.id });
+          forgetPageMedia({ client });
+        }
+        return handleAuthRequest(request, token, client);
+      }
       if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
         try {
           const response = await handleDeviceRequest(request, pathname, devices, access);
           if (request.method === "DELETE" && response.status === 204) {
             // The device registry is the delivery authority even if cleaning the push file fails.
             try { push.revokeDevice(pathname.slice("/api/devices/".length)); } catch (error) { logPushError(error); }
+            // and every page media address its renders were given
+            forgetPageMedia({ device: pathname.slice("/api/devices/".length) });
           }
           return response;
         } catch (error) { return errorResponse(error); }
@@ -2071,7 +2019,19 @@ export function createServer(
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
         // several files end in that name: the viewer lists them to choose from
         if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);
-        return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1", url.searchParams.get("render") === "1");
+        // a page another PC's server asks for through its bridge is played from that server's address, which this one cannot name: it is drawn as before
+        const mediaSource = bridgeAuthorized ? null : pageMediaSource(requestHost, isSecureRequest(request), forwarded ? request.headers.get("x-forwarded-host") : null);
+        // its media plays only for the client address that rendered it, and ends with that device (file-view.ts)
+        const media = mediaSource === null ? null : { source: mediaSource, client, device: access.level === "full" ? access.device?.id ?? null : null };
+        return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1", url.searchParams.get("render") === "1", media);
+      }
+
+      // a rendered page's own video, by the address its render gave it: the page has no origin and
+      // no cookie, so the address is all it holds (requiresAuth lets this path through)
+      if (pathname.startsWith(PAGE_MEDIA_PATH)) {
+        if (request.method !== "GET" && request.method !== "HEAD") return badRequest("method_not_allowed", "use GET");
+        const media = pageMediaResponse(pathname.slice(PAGE_MEDIA_PATH.length), client);
+        return media ?? jsonResponse({ error: { code: "not_found", message: "no such page media" } }, 404);
       }
 
       if (pathname === "/api/workspace/directories" && request.method === "POST") {

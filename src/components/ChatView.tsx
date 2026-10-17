@@ -30,7 +30,7 @@ import { copyText } from "../lib/clipboard.ts";
 import { attachmentFileName, mentionFileName, type GalleryImage } from "../lib/imageViewer.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
-import { isLiveWorkTurn, isWaitingWorkTurn, formatWorkDuration, splitTurn, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
+import { isLiveWorkTurn, isWaitingWorkTurn, formatWorkDuration, splitTurn, visibleWorkParts, workFailed, workStartsOpen, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
@@ -462,7 +462,7 @@ function WorkBlockView({ paneId, parts, duration, live, waiting, defaultOpen, sh
   // reading or working inside the block is a choice to keep it: the fold at the end of the turn
   // must not take the rows from under the reader's focus or close the row they opened
   const keepOpen = () => { if (chosenOpen === null) setOpen(true); };
-  const visible = parts.filter((part) => part.kind !== "skill" && (showThinking || part.kind !== "thinking"));
+  const visible = visibleWorkParts(parts, showThinking);
   if (visible.length === 0) return null;
   const summary = workSummary(parts);
   const failed = workFailed(parts);
@@ -1348,9 +1348,11 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
   }, [turns, restored]);
   heldPage.current = state.turns;
   const finishedBeforeSend = sentOver !== null && sentOver.page === state.turns ? sentOver.turn : null;
-  // the last turn is an open work block, whose head already says the agent works
+  // the last turn draws an open work block, whose head already says the agent works; a turn with
+  // only an answer so far, or only hidden thinking, draws none
   const lastShownTurn = state.source === "conversation" ? shownTurns.at(-1) : undefined;
-  const workBlockLive = lastShownTurn !== undefined && isLiveWorkTurn(lastShownTurn, true, workStatus, finishedBeforeSend);
+  const workBlockLive = lastShownTurn !== undefined && isLiveWorkTurn(lastShownTurn, true, workStatus, finishedBeforeSend)
+    && visibleWorkParts(splitTurn(lastShownTurn.parts).work, settings.showThinking).length > 0;
   const empty = state.source === "conversation" ? turns.length === 0 : agent === null && state.messages.length === 0;
   const blank = !ended && chatIsBlank({ loaded, failed: error !== null, transcript: state.source === "conversation", turns: turns.length, older: typeof olderCursor === "string", abandoned: abandoned?.count ?? 0, prompt: prompt !== null, agent });
   // the scrollback standing in says nothing of the conversation: it has no history to compare
@@ -1464,10 +1466,12 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
         : <FailureLine action={t("Couldn't load the conversation")} failure={error} onRetry={retryRead} />)}
       {loaded && error === null && agent === "grok" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Grok chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
       {loaded && error === null && agent === "agy" && state.source !== "conversation" && <p className="chat-inline-state" role="status">{t("Antigravity chat is unavailable. Open Terminal to see activity and tool calls.")}</p>}
-      {/* A native turn's activity, where no open work block says it: before the turn has an assistant
-          or tool row, and while it thinks (a work block's head says Working). One Working at a time. */}
-      {state.activity !== undefined && connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && (activity === "thinking" || !workBlockLive) && <p className="chat-activity" role="status"><CircleDot aria-hidden="true" />{activity === "thinking" ? t("Thinking…") : t("Working…")}</p>}
-      {loaded && empty && error === null && prompt === null && (state.activity === undefined || activity === "idle") && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
+      {/* The agent's activity, where no open work block says it: before the turn has an assistant or
+          tool row (Claude Code's spinner writes nothing to the transcript), and while a native turn
+          thinks (a work block's head says Working). Without native activity the pane status stands
+          in. One Working at a time. */}
+      {connected && !ended && activity !== "idle" && agentStatus !== "blocked" && prompt === null && (activity === "thinking" || !workBlockLive) && <p className="chat-activity" role="status"><CircleDot aria-hidden="true" />{activity === "thinking" ? t("Thinking…") : t("Working…")}</p>}
+      {loaded && empty && error === null && prompt === null && activity === "idle" && !(greeted && blank) && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
   </>;
   const jump = newMessages ? <button type="button" className="btn chat-new-messages chat-virtual-jump" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>

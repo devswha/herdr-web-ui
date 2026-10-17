@@ -36,6 +36,17 @@ const FORM = {
   multi_select: false, custom_option_index: 3,
   steps: [{ label: "Scope", answered: true, current: false }, { label: "Store", answered: false, current: true }, { label: "Rollout", answered: false, current: false }],
 };
+/** Claude's review of several answers, as server/prompt.ts hands it over: the pane wrapped the
+ * second question, and the card reads it whole */
+const ANSWERS_REVIEW = {
+  id: "demo-review", agent: "claude", kind: "menu", title: "Review your answers", question: "Ready to submit your answers?", body: null,
+  answers: [
+    { question: "What should the two top-level rows be called?", answer: "Fictional repo names (Recommended)" },
+    { question: "The demo's terminal replay (git log, bun test, the pretend shell) lives in the 'release' shell workspace. What happens to it?", answer: "Second tab in a repo (Recommended)" },
+  ],
+  options: [{ label: "Submit answers", description: null }, { label: "Cancel", description: null }],
+  multi_select: false, custom_option_index: null,
+};
 /** the same form as a plan to approve: a typed pick waits for Confirm */
 const PLAN = { ...FORM, id: "demo-plan", kind: "plan", title: "Ready to code?", steps: undefined };
 /** the prompt that comes after one of those, while the answer to the first is still on its way */
@@ -629,6 +640,25 @@ try {
         console.log("PASS a prompt that replaces a scrolled one opens at its top");
       }
 
+      for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 700, touch: true }]) {
+        // A review of several answers reads as text, a question over its answer, not as the
+        // terminal's lines in the mono box
+        const { page, errors, shot, close } = await open({ ...size, prompt: ANSWERS_REVIEW });
+        try {
+          assert.equal(await page.locator(".prompt-card-body").count(), 0, "no mono box");
+          const read = await page.locator(".prompt-card-answer").evaluateAll((rows) => rows.map((row) => ({
+            question: row.querySelector("dt")!.textContent, answer: row.querySelector("dd")!.textContent,
+            font: getComputedStyle(row).fontFamily,
+          })));
+          assert.deepEqual(read.map(({ question }) => question), ANSWERS_REVIEW.answers.map(({ question }) => question), "each question whole");
+          assert.deepEqual(read.map(({ answer }) => answer), ["Fictional repo names Recommended", "Second tab in a repo Recommended"], "each answer, its recommendation as the tag");
+          assert.ok(read.every(({ font }) => font === read[0]!.font) && !/mono/i.test(read[0]!.font), `the card's own font (${read[0]!.font})`);
+          await shot(`review-${size.width}`);
+          assert.deepEqual(errors, []);
+        } catch (error) { await preserveFailure(page, error); } finally { await close(); }
+        console.log(`PASS a review of answers reads as a question over each answer at ${size.width}px`);
+      }
+
       {
         // An answer that comes back after the next prompt is already showing belongs to the prompt
         // it was pressed for: the one on screen stays, with its focus
@@ -734,11 +764,11 @@ try {
         // other is opened changes nothing there
         const { page, errors, close } = await open({ width: 1440, height: 900, prompt: FORM });
         try {
-          await setPanePrompt(page, panes.docs, OTHER);
+          await setPanePrompt(page, panes.hermes, OTHER);
           await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 3500; });
           await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
           await page.locator(".prompt-card-options[aria-busy=true]").waitFor();
-          await select(page, panes.docs);
+          await select(page, panes.hermes);
           await page.locator(".prompt-card").getByText(OTHER.question).waitFor();
           assert.equal(await page.locator(".prompt-card-options").getAttribute("aria-busy"), "false");
           await page.locator(".composer-text").fill("2");
@@ -752,12 +782,12 @@ try {
           assert.equal(await page.locator(".prompt-card-option.is-typed .prompt-card-option-label").textContent(), "Redis Recommended", "its typed pick still waits for Confirm");
           assert.equal(await page.evaluate(() => document.activeElement?.className.split(" ")[0]), "composer-text", "the focus is where the user was typing");
           assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-form", option_index: 0 }], "only the first pane's prompt was answered");
-          assert.equal(await page.evaluate((pane) => (window as unknown as { panePrompts: Record<string, { id: string } | undefined> }).panePrompts[pane]?.id, panes.docs), "demo-other", "the other pane's prompt is still open");
+          assert.equal(await page.evaluate((pane) => (window as unknown as { panePrompts: Record<string, { id: string } | undefined> }).panePrompts[pane]?.id, panes.hermes), "demo-other", "the other pane's prompt is still open");
           // and its own answer goes to it alone
           await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 0; });
           await page.locator(".prompt-card-confirm").getByRole("button", { name: "Confirm" }).click();
           await page.locator(".prompt-card").getByText(OTHER.question).waitFor({ state: "detached" });
-          assert.deepEqual((await answersOf(page)).at(-1), { pane_id: panes.docs, prompt_id: "demo-other", option_index: 1 });
+          assert.deepEqual((await answersOf(page)).at(-1), { pane_id: panes.hermes, prompt_id: "demo-other", option_index: 1 });
           assert.deepEqual(errors, []);
         } catch (error) { await preserveFailure(page, error); } finally { await close(); }
         console.log("PASS an answer for one pane that comes back after another pane is opened leaves that pane's prompt and typed pick alone");
