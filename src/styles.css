@@ -520,7 +520,7 @@
   --text-strong: #274dab;
   --accent: #2e7de9;
   --accent-tint: rgba(46, 125, 233, 0.1);
-  --primary: #2e7de9;
+  --primary: #1561ca;
   --primary-hover: #2e78e3;
   --primary-text: #e1e2e7;
   --primary-tint: rgba(46, 125, 233, 0.14);
@@ -708,7 +708,7 @@
   --text-strong: #383a42;
   --accent: #4078f2;
   --accent-tint: rgba(64, 120, 242, 0.1);
-  --primary: #4078f2;
+  --primary: #2d6af1;
   --primary-hover: #4371df;
   --primary-text: #fafafa;
   --primary-tint: rgba(64, 120, 242, 0.14);
@@ -755,7 +755,7 @@
   --text-strong: #a8b6b6;
   --accent: #268bd2;
   --accent-tint: rgba(38, 139, 210, 0.13);
-  --primary: #268bd2;
+  --primary: #2f93d9;
   --primary-hover: #2d92ce;
   --primary-text: #002b36;
   --primary-tint: rgba(38, 139, 210, 0.16);
@@ -802,7 +802,7 @@
   --text-strong: #556a72;
   --accent: #268bd2;
   --accent-tint: rgba(38, 139, 210, 0.1);
-  --primary: #268bd2;
+  --primary: #2076b3;
   --primary-hover: #2989c7;
   --primary-text: #fdf6e3;
   --primary-tint: rgba(38, 139, 210, 0.14);
@@ -990,7 +990,7 @@
   --text-strong: #464261;
   --accent: #907aa9;
   --accent-tint: rgba(144, 122, 169, 0.1);
-  --primary: #907aa9;
+  --primary: #7e659b;
   --primary-hover: #8874a2;
   --primary-text: #faf4ed;
   --primary-tint: rgba(144, 122, 169, 0.14);
