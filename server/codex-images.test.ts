@@ -41,6 +41,22 @@ it("strips Codex's native image envelope but keeps user-typed lookalikes", () =>
   expect(regressionUser.parts.filter((part) => part.kind === "image")).toHaveLength(1); // regression (fails on main)
   expect(JSON.stringify(regressionUser)).not.toContain("/tmp/yellow-star.gif"); // regression (fails on main)
 
+  // a pasted image's envelope has no path; two of them in one message
+  const pasted = parseCodexTranscript(jsonl({
+    type: "response_item", timestamp: "2026-09-27T00:00:00Z",
+    payload: { type: "message", role: "user", content: [
+      { type: "input_text", text: "<image name=[Image #1]>" },
+      { type: "input_image", image_url: data },
+      { type: "input_text", text: "</image>" },
+      { type: "input_text", text: "<image name=[Image #2]>" },
+      { type: "input_image", image_url: data.replace("image/png", "image/gif") },
+      { type: "input_text", text: "</image>" },
+      { type: "input_text", text: "[Image #1] [Image #2] compare these" },
+    ] },
+  }))[0]!;
+  expect(pasted.parts.filter((part) => part.kind === "text").map((part) => part.text)).toEqual(["[Image #1] [Image #2] compare these"]);
+  expect(pasted.parts.filter((part) => part.kind === "image")).toHaveLength(2);
+
   const controlTurns = parseCodexTranscript(jsonl({
     type: "response_item", timestamp: "2026-09-27T00:00:00Z",
     payload: { type: "message", role: "user", content: [{ type: "input_text", text: 'I typed <image name=x> and </image> literally.' }] },

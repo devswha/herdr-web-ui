@@ -63,7 +63,7 @@ function contentText(value: unknown, user = false): string {
     const nextType = string(record(value[index + 1]).type);
     const text = string(part.text);
     const imageEnvelope = user && part.type === "input_text"
-      && ((/^<image name=\[Image #\d+\] path="[^"\r\n]+">$/.test(text) && ["input_image", "local_image"].includes(nextType))
+      && ((/^<image name=\[Image #\d+\](?: path="[^"\r\n]+")?>$/.test(text) && ["input_image", "local_image"].includes(nextType))
         || (text === "</image>" && ["input_image", "local_image"].includes(previousType)));
     if (imageEnvelope) return [];
     return ["input_text", "output_text", "text", "summary_text"].includes(string(part.type))
