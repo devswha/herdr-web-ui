@@ -734,11 +734,11 @@ try {
         // other is opened changes nothing there
         const { page, errors, close } = await open({ width: 1440, height: 900, prompt: FORM });
         try {
-          await setPanePrompt(page, panes.docs, OTHER);
+          await setPanePrompt(page, panes.hermes, OTHER);
           await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 3500; });
           await page.locator(".prompt-card").getByRole("button", { name: /^1\. In memory/ }).click();
           await page.locator(".prompt-card-options[aria-busy=true]").waitFor();
-          await select(page, panes.docs);
+          await select(page, panes.hermes);
           await page.locator(".prompt-card").getByText(OTHER.question).waitFor();
           assert.equal(await page.locator(".prompt-card-options").getAttribute("aria-busy"), "false");
           await page.locator(".composer-text").fill("2");
@@ -752,12 +752,12 @@ try {
           assert.equal(await page.locator(".prompt-card-option.is-typed .prompt-card-option-label").textContent(), "Redis Recommended", "its typed pick still waits for Confirm");
           assert.equal(await page.evaluate(() => document.activeElement?.className.split(" ")[0]), "composer-text", "the focus is where the user was typing");
           assert.deepEqual(await answersOf(page), [{ pane_id: panes.web, prompt_id: "demo-form", option_index: 0 }], "only the first pane's prompt was answered");
-          assert.equal(await page.evaluate((pane) => (window as unknown as { panePrompts: Record<string, { id: string } | undefined> }).panePrompts[pane]?.id, panes.docs), "demo-other", "the other pane's prompt is still open");
+          assert.equal(await page.evaluate((pane) => (window as unknown as { panePrompts: Record<string, { id: string } | undefined> }).panePrompts[pane]?.id, panes.hermes), "demo-other", "the other pane's prompt is still open");
           // and its own answer goes to it alone
           await page.evaluate(() => { (window as unknown as { formDelay: number }).formDelay = 0; });
           await page.locator(".prompt-card-confirm").getByRole("button", { name: "Confirm" }).click();
           await page.locator(".prompt-card").getByText(OTHER.question).waitFor({ state: "detached" });
-          assert.deepEqual((await answersOf(page)).at(-1), { pane_id: panes.docs, prompt_id: "demo-other", option_index: 1 });
+          assert.deepEqual((await answersOf(page)).at(-1), { pane_id: panes.hermes, prompt_id: "demo-other", option_index: 1 });
           assert.deepEqual(errors, []);
         } catch (error) { await preserveFailure(page, error); } finally { await close(); }
         console.log("PASS an answer for one pane that comes back after another pane is opened leaves that pane's prompt and typed pick alone");

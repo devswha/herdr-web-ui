@@ -13,8 +13,8 @@ import { chromePath } from "./chrome-path.ts";
 // as it moves; Back and Forward walk the panes. All files and HTTP traffic stay in this
 // disposable, loopback-only app; no herdr session is opened.
 const app = mkdtempSync(join(tmpdir(), "herdr-deep-link-demo-"));
-const INFRA = panes.infra;
-const DOCS = panes.docs;
+const INFRA = panes.omp;
+const DOCS = panes.hermes;
 const wsOf = (pane: string) => pane.split(":")[0]!;
 
 const query = (page: Page) => page.evaluate(() => Object.fromEntries(new URLSearchParams(window.location.search)));
@@ -68,7 +68,7 @@ try {
         await waitSelected(page, INFRA);
         await waitQuery(page, "pane", INFRA);
         const named = await query(page);
-        assert.equal(named["ws"], `${wsOf(INFRA)}-infra`, "ws names the workspace by id and slug");
+        assert.equal(named["ws"], `${wsOf(INFRA)}-cli-tools`, "ws names the workspace by id and slug");
         assert.ok(named["view"] === "chat" || named["view"] === "terminal", JSON.stringify(named));
         assert.equal(named["machine"], undefined, "the local PC is not written");
       });
@@ -210,11 +210,11 @@ try {
       // ws carries the workspace's name as a slug; a slug another workspace has wins over a reused id
       const note = (page: Page) => page.locator(".header-note").textContent();
       await withPage(browser, `?ws=${wsOf(INFRA)}`, async (page) => {
-        await waitQuery(page, "ws", `${wsOf(INFRA)}-infra`);
+        await waitQuery(page, "ws", `${wsOf(INFRA)}-cli-tools`);
       });
-      await withPage(browser, `?ws=${wsOf(panes.api)}-infra&pane=${encodeURIComponent(panes.api)}`, async (page) => {
+      await withPage(browser, `?ws=${wsOf(panes.api)}-cli-tools&pane=${encodeURIComponent(panes.api)}`, async (page) => {
         await waitSelected(page, INFRA);
-        await waitQuery(page, "ws", `${wsOf(INFRA)}-infra`);
+        await waitQuery(page, "ws", `${wsOf(INFRA)}-cli-tools`);
         assert.equal(await note(page), "That agent has closed: its workspace is open");
       });
       await withPage(browser, `?ws=w9z-gone&pane=${encodeURIComponent("w9z:p1")}`, async (page) => {
@@ -298,7 +298,7 @@ try {
       });
       // an agent herdr does not offer is left out, and a tab link opens the dialog for the linked workspace
       await withPage(browser, `?ws=${wsOf(INFRA)}-infra&new=tab&agent=nope`, async (page) => {
-        const dialog = page.getByRole("dialog", { name: /New tab · infra/ });
+        const dialog = page.getByRole("dialog", { name: /New tab · cli-tools/ });
         await dialog.waitFor();
         await waitQuery(page, "new", "tab");
         // the dialog drops it once herdr's agents are in, and the address follows a moment later
@@ -382,7 +382,7 @@ try {
           await page.goto(`${url}?ws=${wsOf(INFRA)}&pane=${encodeURIComponent(INFRA)}&sidebar=shown`);
           await page.locator('.drawer-toggle[aria-expanded="true"]').waitFor();
           await waitQuery(page, "sidebar", null);
-          await page.goto(`${url}?ws=${wsOf(panes.api)}-infra&pane=${encodeURIComponent(panes.api)}`);
+          await page.goto(`${url}?ws=${wsOf(panes.api)}-cli-tools&pane=${encodeURIComponent(panes.api)}`);
           await page.locator(".header-note").waitFor();
           const bounds = await page.evaluate(() => {
             const header = document.querySelector(".app-header")!;
@@ -467,7 +467,7 @@ try {
         const page = await delayedContext.newPage();
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
-        await page.goto(`${url}?machine=unregistered-PC&ws=${wsOf(INFRA)}-infra&pane=${encodeURIComponent(INFRA)}&view=chat`);
+        await page.goto(`${url}?machine=unregistered-PC&ws=${wsOf(INFRA)}-cli-tools&pane=${encodeURIComponent(INFRA)}&view=chat`);
         await page.locator(".header-note").waitFor();
         await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
         assert.equal(new URL(page.url()).searchParams.get("machine"), "unregistered-PC", "the fallback cannot rewrite the link before its local roster arrives");

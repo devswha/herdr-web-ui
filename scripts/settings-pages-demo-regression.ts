@@ -530,7 +530,7 @@ try {
 
         // a link to a file and Settings opens the preview (a panel beside the pane at this width) under
         // Settings; a reload there closes Settings and keeps the file, and Back then steps out of both
-        const infra = panes.infra;
+        const infra = panes.omp;
         await page.goto(`${url}?ws=${infra.split(":")[0]}&pane=${encodeURIComponent(infra)}&file=README.md&settings=about`);
         await dialogOf(page).getByRole("tabpanel", { name: "About", exact: true }).waitFor();
         await page.locator("aside.file-panel .file-viewer").waitFor();
