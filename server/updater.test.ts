@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, setSystemTime } from "bun:test";
 import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { NOTES_FILE_LIMIT, readNotesFile, Updater, runCommand, type Release } fr
 import { spawnSync } from "node:child_process";
 import { symlinkSync } from "node:fs";
 import { HERDR_SOCKET_PATH } from "../shared/protocol.ts";
+import type { UpdateCommand } from "../shared/update.ts";
 
 let directory: string, upstream: string, root: string, stateDir: string;
 let updater: Updater;
@@ -524,6 +525,39 @@ describe("managed source updates with real Git repositories and builds", () => {
       clearTimeout(timer);
     }
   }, 20_000);
+
+  it("holds the timer off after a user's own failed unshallow fetch too", async () => {
+    // a user's Check skips the backoff, but its failure still starts one: the timer that comes
+    // next does not fetch the history again (#1252)
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    await managed.initialize();
+    await managed.request("check", true);
+    expect(managed.fetches).toBe(1);
+    await managed.request("check");
+    expect(managed.fetches).toBe(1);
+    expect(managed.status.error).toContain("not fully fetched");
+    managed.stop();
+  });
+
+  it("runs the timer's checks as the timer's, never as a user's", () => {
+    // the backoff holds only the timer (#1252): a timer that marked its checks as a user's would
+    // fetch the missing history again every 5 minutes
+    const flags: Array<boolean | undefined> = [];
+    class Timed extends Updater {
+      override async request(_command: UpdateCommand, byUser?: boolean) { flags.push(byUser); }
+    }
+    const timed = new Timed({ root, stateDir, autoUpdate: false, publish() {}, activate: async (_next, persist) => persist() });
+    jest.useFakeTimers();
+    try {
+      timed.start();
+      jest.advanceTimersByTime(10_000 + 2 * 5 * 60_000);
+    } finally { timed.stop(); jest.useRealTimers(); }
+    expect(flags).toHaveLength(3);
+    expect(flags.every((flag) => !flag)).toBe(true);
+  });
 
   it("tries the unshallow fetch again once the backoff is over", async () => {
     await git(upstream, "tag", "v0.1.0", "HEAD");

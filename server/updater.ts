@@ -245,7 +245,7 @@ export class Updater {
     clearTimeout(this.initialTimer); clearInterval(this.timer); this.controller.abort();
   }
 
-  private async discover(manual = false) {
+  private async discover(byUser = false) {
     this.patch({ phase: "checking", error: this.options.notice ?? null, available: false, blocked_reason: null });
     const reason = await this.sourceBlock();
     if (reason) { this.patch({ blocked_reason: reason, checked_at: new Date().toISOString() }); return; }
@@ -267,9 +267,9 @@ export class Updater {
     let block: string | null = null;
     let available = false;
     if (target !== current) {
-      if (await this.ancestor(current, target, manual)) available = true;
+      if (await this.ancestor(current, target, byUser)) available = true;
       // running ahead of the latest release (a development checkout) is simply up to date
-      else if (!await this.ancestor(target, current, manual)) {
+      else if (!await this.ancestor(target, current, byUser)) {
         block = "The running version is not part of the release history; automatic downgrade is disabled.";
       }
     }
@@ -293,13 +293,13 @@ export class Updater {
   }
 
   /** herdr's plugin checkout is shallow: fetch the missing history once before calling two commits unrelated. */
-  private async ancestor(older: string, newer: string, manual = false): Promise<boolean> {
+  private async ancestor(older: string, newer: string, byUser = false): Promise<boolean> {
     const test = () => this.git("merge-base", "--is-ancestor", older, newer).then(() => true, () => false);
     if (await test()) return true;
     if (await this.git("rev-parse", "--is-shallow-repository") !== "true") return false;
-    // the backoff holds the 5-minute cycle off, never a user's own Update — the same way a
+    // the backoff holds the timer off, never a user's own Check or Update — the same way a
     // revision automatic installation gave up on is still installed when asked for
-    if (!manual && Date.now() < this.unshallowRetryAt) {
+    if (!byUser && Date.now() < this.unshallowRetryAt) {
       throw new Error(`The checkout's history is not fully fetched; the unshallow fetch failed and the next attempt is at ${new Date(this.unshallowRetryAt).toISOString()}.`);
     }
     try { await this.fetchInto(() => this.unshallowFetch(UNSHALLOW_TIMEOUT_MS)); }
