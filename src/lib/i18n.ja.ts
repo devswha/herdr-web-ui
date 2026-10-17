@@ -227,6 +227,8 @@ export const JA: Record<string, string> = {
   "Show workspace list": "ワークスペース一覧を表示",
   "Hide workspace list": "ワークスペース一覧を非表示",
   "Pane closed": "ペインは閉じられました",
+  "Show the terminal": "ターミナルを表示",
+  "Show the chat": "チャットを表示",
   "Close this half": "この半分を閉じる",
   "Drop on the left": "左側にドロップ",
   "Drop on the right": "右側にドロップ",

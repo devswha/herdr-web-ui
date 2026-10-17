@@ -1647,8 +1647,12 @@ export function App() {
             // one pane's panel keeps the page's own id, whichever slot draws it
             const slotPanelId = !splitOn || slot === "a" ? PANE_TABPANEL_ID : `${PANE_TABPANEL_ID}-${slot}`;
             const slotPanelLabel = active ? tabPanelLabel : paneTabPanelLabel(slotSnapshot, pane, t);
-            // a half's own close sits at the end of its tab strip; its lens is the header's, on the active half.
-            // The row's free end is the half's grip: its pane, dropped on a half of the pane area, opens there too (dockSide)
+            const toggleSlotView = (): void => {
+              const next = slotView === "chat" ? "terminal" : "chat";
+              if (active) setView(next); else if (pane) pickView(machineId, pane.pane_id, next);
+            };
+            // a half's own lens and close sit at the end of its tab strip. The row's free end is the
+            // half's grip: its pane, dropped on a half of the pane area, opens there too (dockSide)
             const slotEnd = splitOn ? <div className="pane-slot-grip" draggable={paneId !== null}
               onDragStart={(event) => {
                 if (paneId === null) return;
@@ -1656,6 +1660,9 @@ export function App() {
                 event.dataTransfer.setData(PANE_DRAG_TYPE, paneDragData({ machineId, paneId }));
               }}>
               {machines.length > 1 && <span className="pane-slot-machine">{machine?.name ?? machineId}</span>}
+              {pane && <button type="button" className="icon-button pane-slot-action" aria-label={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} title={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} onClick={toggleSlotView}>
+                {slotView === "chat" ? <SquareTerminal /> : <MessageSquare />}
+              </button>}
               <button type="button" className="icon-button pane-slot-action" aria-label={t("Close this half")} title={t("Close this half")} onClick={() => closeSlot(slot)}>
                 <X />
               </button>
