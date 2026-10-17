@@ -64,6 +64,10 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
 - Everything written to git and GitHub (commits, branches, PRs, reviews, issues, changelog
   fragments) is in English.
 - Never push a `v*` tag by hand: installed updaters act on tags alone.
+- The merge pass cuts releases ([steps](docs/development.md#releasing)); any other session may
+  prepare the release PR but stops at it. When that PR raises `REMOTE_BUNDLE_VERSION`, the merge
+  pass merges nothing touching `server/`, `shared/`, `bun.lock` or `patches/` from its merge until
+  the Release run is done.
 - Required checks: Fast checks, Integration and browser, Native Windows install. Resolve review
   threads before merging (branch protection does not enforce it).
 - CodeRabbit's reviews are rationed per PR author, and agents open their PRs as one account:
