@@ -272,7 +272,8 @@ export function App() {
   /** the code a scanned QR brought along (`?pair=CODE`), taken off the address at once */
   const [pairCode] = useState(() => takePairCode());
   const [auth, setAuth] = useState<HealthAuth | null>(null);
-  const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
+  // a token a proxy sends with every request comes back right after signing out: signing out is the proxy's
+  const canSignOut = auth?.authenticated === true && (auth.via === "device" || (auth.via === "token" && auth.bearer !== true));
   // a device that is in only because nothing is paired yet still pairs from the QR code's address
   const pairedFromAddress = useRef(false);
   useEffect(() => {
