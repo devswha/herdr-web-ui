@@ -46,8 +46,16 @@
   overflow: auto;
 }
 
+/* Chrome's CJK typography (text-spacing-trim, text-autospace) changes how far a glyph advances
+   with what stands beside it, and a cell grid needs every glyph to advance alike. xterm's
+   WidthCache measures a glyph as 32 copies in one span, which Chrome trims to half width when
+   the glyph is fullwidth punctuation (，。（）), so xterm gave every such mark half a glyph too
+   much letter-spacing and the rest of its row drew right of its cells: OmO's side panel stood
+   in a different column on each row, moving as scrolling brought other rows beside it (#739). */
 .pane-terminal .xterm {
   padding: var(--space-2) var(--space-2) 0;
+  text-spacing-trim: space-all;
+  text-autospace: no-autospace;
 }
 
 /* the mount's own box: everything that may overlay the pty (the chat lens) is
