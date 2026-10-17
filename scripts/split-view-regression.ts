@@ -471,36 +471,30 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
       assert.equal(await half(page, "right").locator(".pane-terminal").count(), 2, "the other half draws the same tab");
       // the half that is not active draws the tab at the grid the active half gives it
       await page.waitForFunction(() => document.querySelector('.pane-slot[data-side="right"] [data-adopted-grid]') !== null);
-      // Keep the shared grid from the wider terminal while both lenses show Chat, then make
-      // only the inactive half show Terminal in a narrower viewport. No PTY resize can repair
-      // a local fit here: the active half is still in Chat and the other half stays following.
-      // a half's lens is the header's, on the active half: the right half takes Terminal while active,
-      // then the left half is made active again, still in Chat
+      // A lens is the pane's own, set from the header on the active half: both halves of one pane
+      // show the same one, so Chat in the active half is Chat in the other half too.
       await page.locator(".view-switch").getByRole("button", { name: "Chat", exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.pane-slot[data-side="right"]')?.classList.contains("is-chat") === true);
+      // Back in Terminal in a narrower window, the other half still draws at the grid the active half gives it.
       await page.setViewportSize({ width: 1000, height: 800 });
-      await settled(page);
-      await half(page, "right").locator(".terminal-host").click({ position: { x: 40, y: 40 } });
-      await isActive(page, "right");
       await page.locator(".view-switch").getByRole("button", { name: "Terminal", exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.pane-slot[data-side="right"]')?.classList.contains("is-chat") === false);
-      await half(page, "left").locator(".terminal-host").click({ position: { x: 40, y: 40 } });
       await isActive(page, "left");
-      await settled(page);
-      const grids = await page.evaluate((pane) => [...document.querySelectorAll<HTMLElement>(`[data-layout-pane="${pane}"]`)].map((frame) => {
-        const screen = frame.querySelector<HTMLElement>(".xterm-screen")!;
-        const rows = frame.querySelector<HTMLElement>(".xterm-rows")!;
-        const style = getComputedStyle(rows);
-        const canvas = document.createElement("canvas");
-        const measure = canvas.getContext("2d")!;
-        measure.font = `${style.fontSize} ${style.fontFamily}`;
-        return { cols: Math.round(parseFloat(screen.style.width) / measure.measureText("W").width), rows: rows.childElementCount };
-      }), first);
-      assert.equal(grids.length, 2);
-      assert.ok(grids[0]!.cols > 0 && grids[0]!.rows > 0, "the active half has a measurable grid");
-      assert.deepEqual(grids[1], grids[0], `the inactive Chat-to-Terminal lens keeps the active half's grid: ${JSON.stringify(grids)}`);
-      console.log(`PASS an inactive Chat-to-Terminal lens keeps the shared xterm grid ${grids[0]!.cols}x${grids[0]!.rows}`);
-      await page.locator(".view-switch").getByRole("button", { name: "Terminal", exact: true }).click();
+      // the two frames of the pane at one grid, measured until they are (the other half adopts it after the refit)
+      const grids = await (await page.waitForFunction((pane) => {
+        const measured = [...document.querySelectorAll<HTMLElement>(`[data-layout-pane="${pane}"]`)].map((frame) => {
+          const screen = frame.querySelector<HTMLElement>(".xterm-screen");
+          const rows = frame.querySelector<HTMLElement>(".xterm-rows");
+          if (!screen || !rows) return null;
+          const style = getComputedStyle(rows);
+          const measure = document.createElement("canvas").getContext("2d")!;
+          measure.font = `${style.fontSize} ${style.fontFamily}`;
+          return { cols: Math.round(parseFloat(screen.style.width) / measure.measureText("W").width), rows: rows.childElementCount };
+        });
+        const [a, b] = measured;
+        return measured.length === 2 && a && b && a.cols > 0 && a.rows > 0 && a.cols === b.cols && a.rows === b.rows ? measured : null;
+      }, first)).jsonValue() as { cols: number; rows: number }[];
+      console.log(`PASS both halves of one pane share its lens, and the other half keeps the active half's grid ${grids[0]!.cols}x${grids[0]!.rows}`);
       // the surviving terminal is still attached: a line typed into it reaches the shell
       const screen = async (): Promise<string> => (await paneRead({ paneId: first, source: "visible" })).text;
       const deadline = Date.now() + 15_000;

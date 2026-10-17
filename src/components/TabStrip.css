@@ -25,7 +25,9 @@
   display: flex;
   flex: 0 0 auto;
   min-width: 0;
-  background: var(--bg-panel);
+  /* the strip's own surface (below), so the end around the close is no band of another colour */
+  --strip-bg: var(--bg-panel);
+  background: var(--strip-bg);
   border-bottom: var(--hairline) solid var(--border);
 }
 
@@ -237,12 +239,15 @@
    or the chat's, where the header has no rule and the strip's hairline is the one line over the
    transcript. Below that the header is the panel's bar and the strip stays with it. */
 @media (min-width: 769px) {
-  .tab-strip {
+  .tab-strip,
+  .tab-strip-row {
     --strip-bg: var(--term-bg);
   }
 
   .pane-column.is-chat .tab-strip,
-  .pane-slot.is-chat .tab-strip {
+  .pane-column.is-chat .tab-strip-row,
+  .pane-slot.is-chat .tab-strip,
+  .pane-slot.is-chat .tab-strip-row {
     --strip-bg: var(--bg);
   }
 }
