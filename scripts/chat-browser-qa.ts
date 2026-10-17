@@ -177,6 +177,41 @@ try {
   assert.equal(await nativeImage.count(), 1);
   console.log("PASS native Codex image-only turn loads its pane-scoped thumbnail");
 
+  // a turn that has written nothing yet (Claude Code's spinner): the activity wears a live block's
+  // head, and the block the first tool row draws takes its place with its title where the line's was
+  await report("working");
+  const placeholder = log.locator(".chat-activity .work-block-title", { hasText: "Working…" });
+  await placeholder.waitFor();
+  const placeholderX = (await placeholder.boundingBox())!.x;
+  add({ type: "function_call", name: "exec_command", call_id: "c3", arguments: '{"cmd":"git diff"}' }, 23); persist();
+  const liveTitle = log.locator(".work-block.is-live:not(.is-pending) .work-block-title", { hasText: "Working…" });
+  await liveTitle.waitFor();
+  await placeholder.waitFor({ state: "detached" });
+  assert.ok(Math.abs((await liveTitle.boundingBox())!.x - placeholderX) < 1, "the block's title starts where the activity line's did");
+  await report("idle");
+  await log.locator(".work-block-title", { hasText: "Worked" }).last().waitFor();
+  // a running turn with only words so far draws the head over them, where its block will open
+  add(message("user", "A third request."), 24);
+  add(message("assistant", "Let me look first."), 25); persist();
+  await log.getByText("Let me look first.", { exact: true }).waitFor();
+  await report("working");
+  const pending = log.locator(".chat-turn-agent .work-block.is-pending .work-block-title", { hasText: "Working…" });
+  await pending.waitFor();
+  assert.equal(await log.locator(".chat-activity").count(), 0, "one Working at a time");
+  // measured from its turn: the follow scroll moves the whole turn as the rows arrive under it
+  const inTurn = (title: typeof pending) => title.evaluate((node) => {
+    const at = node.getBoundingClientRect(), turn = node.closest(".chat-turn-agent")!.getBoundingClientRect();
+    return { x: at.left - turn.left, y: at.top - turn.top };
+  });
+  const pendingAt = await inTurn(pending);
+  add({ type: "function_call", name: "exec_command", call_id: "c4", arguments: '{"cmd":"ls"}' }, 26); persist();
+  const opened = log.locator(".work-block.is-live:not(.is-pending) .work-block-title", { hasText: "Working…" });
+  await opened.waitFor();
+  assert.deepEqual(await inTurn(opened), pendingAt, "the block opens where its head stood");
+  await report("idle");
+  await log.locator(".work-block-title", { hasText: "Worked" }).last().waitFor();
+  console.log("PASS the activity before a turn's first row is the live head its work block takes over");
+
   const { promise: gate, resolve } = Promise.withResolvers<void>();
   release = resolve;
   let requests = 0;
