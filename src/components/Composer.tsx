@@ -1028,7 +1028,7 @@ export function Composer({
   const menuClose = (
     <button type="button" className="composer-menu-close" aria-label={t("Close suggestions")} title={t("Close suggestions")}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={() => { setMenuDismissed(true); textareaRef.current?.focus({ preventScroll: true }); }}>
+      onClick={(event) => { setMenuDismissed(true); if (event.detail === 0) textareaRef.current?.focus({ preventScroll: true }); }}>
       <X aria-hidden="true" />
     </button>
   );

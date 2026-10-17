@@ -141,7 +141,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
             <FileText aria-hidden="true" />{t("View plan")}
           </button>
         )}
-        <button type="button" className="prompt-card-fold" aria-expanded={!folded} aria-label={t(folded ? "Expand question" : "Collapse question")} title={t(folded ? "Expand question" : "Collapse question")} onClick={() => setFoldedByUser(!folded)}>
+        {/* a typed answer waiting for Confirm keeps the card open, so the fold has nothing to do then */}
+        <button type="button" className="prompt-card-fold" disabled={typedAnswer?.option_index !== undefined} aria-expanded={!folded} aria-label={t(folded ? "Expand question" : "Collapse question")} title={t(folded ? "Expand question" : "Collapse question")} onClick={() => setFoldedByUser(!folded)}>
           {folded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
         </button>
       </header>
