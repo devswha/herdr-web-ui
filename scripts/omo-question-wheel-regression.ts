@@ -141,23 +141,24 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "history " + n + "\\r
     await page.screenshot({ path: join(evidence, `${baseline ? "before" : "after"}-${omo ? "omo" : "non-omo"}.png`) });
     if (omo && !baseline) {
       assert.ok(after.offset_from_bottom > 0, "an open OmO question does not swallow the wheel");
-      assert.equal(after.offset_from_bottom, Math.trunc(240 / (bounds.height / initial.viewport_rows)) * 2,
-        "wheel travel accumulates while the first metrics read is held");
+      // two real wheel events at speed two: three lines each, twice over, as the reports would scroll
+      assert.equal(after.offset_from_bottom, 2 * 3 * 2, "wheel steps accumulate while the first metrics read is held");
       assert.equal(input, "", "no wheel report reaches OmO");
       const scrollResponse = (offset: number) => page.waitForResponse(async response =>
         response.url().endsWith("/pane/scroll") && response.request().method() === "POST"
         && (await response.json()).scroll.offset_from_bottom === offset);
-      const lineWheel = async (deltaY: number, offset: number) => {
-        console.log("line wheel", deltaY, "expects", offset);
+      // each event is one step whatever its delta, so a clamp is reached by enough events
+      const lineWheel = async (deltaY: number, offset: number, events = 1) => {
+        console.log("line wheel", deltaY, "x", events, "expects", offset);
         const moved = scrollResponse(offset);
-        await screen.dispatchEvent("wheel", { deltaY, deltaMode: 1, bubbles: true, cancelable: true });
+        for (let sent = 0; sent < events; sent += 1) await screen.dispatchEvent("wheel", { deltaY, deltaMode: 1, bubbles: true, cancelable: true });
         await moved;
         assert.equal((await paneScrollInfo(pane))?.offset_from_bottom, offset);
       };
-      // A synthetic line wheel is also the translation used by touch. Two-speed sends six rows.
-      await lineWheel(-1, after.offset_from_bottom + 6);
-      await lineWheel(-10000, after.max_offset_from_bottom);
-      await lineWheel(10000, 0);
+      // An untrusted wheel is not repeated at the wheel speed: one three-line step.
+      await lineWheel(-1, after.offset_from_bottom + 3);
+      await lineWheel(-1, after.max_offset_from_bottom, Math.ceil(after.max_offset_from_bottom / 3) + 2);
+      await lineWheel(1, 0, Math.ceil(after.max_offset_from_bottom / 3) + 2);
       // A real phone drag takes the same path; end-of-gesture rounding keeps the final partial step.
       const resizedMetrics = page.waitForResponse(async response => response.url().includes("/pane/scroll?")
         && (await response.json()).scroll?.viewport_rows !== after.viewport_rows);
@@ -177,8 +178,9 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "history " + n + "\\r
       const rowHeight = mobile.height / mobileScroll.viewport_rows;
       const travel = rowHeight * 3 * 2;
       await page.screenshot({ path: join(evidence, "mobile-before-touch.png") });
-      const touched = scrollResponse(12);
-      console.log("touch expects", 12, { mobile, rowHeight, travel });
+      // touch follows the finger: two three-line steps, never multiplied by the wheel speed
+      const touched = scrollResponse(6);
+      console.log("touch expects", 6, { mobile, rowHeight, travel });
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
       await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y + travel }] });
       await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
@@ -188,7 +190,7 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "history " + n + "\\r
       await cdp.detach();
       await page.setViewportSize({ width: 1280, height: 800 });
       console.log("PASS speed-two line wheels, maximum/bottom clamps, and phone touch history");
-      await lineWheel(10000, 0);
+      await lineWheel(1, 0, 4);
       // Closing the native question updates the existing once-attached wheel handler via its ref.
       settledPane = pane;
       appendFileSync(fixture.transcript, JSON.stringify({ type: "custom", customType: "ask-user:settlement",

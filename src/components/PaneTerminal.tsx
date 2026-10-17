@@ -691,7 +691,6 @@ export function PaneTerminal({
     attachTerminalWheel(term, wheelStateRef, {
       drag: (event) => { if (!drag) return false; dragWheel(event); return true; },
       adopted: () => adopted(),
-      cellHeight: () => cellHeight(),
       scroll: (lines) => lineScroll.current?.(lines),
     });
     termRef.current = term;
@@ -1675,7 +1674,7 @@ export function PaneTerminal({
     /** `steps` line-mode wheel reports at the finger, each one herdr scroll step in the sign's direction */
     const sendTouchWheels = (steps: number): void => {
       if (wheelStateRef.current.omoQuestion) {
-        lineScroll.current?.(-steps * HERDR_MOUSE_SCROLL_LINES * wheelStateRef.current.speed);
+        lineScroll.current?.(-steps * HERDR_MOUSE_SCROLL_LINES);
         return;
       }
       const target = term.element ?? host;
