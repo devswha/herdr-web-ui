@@ -29,7 +29,7 @@ import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
 import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
 import { FILE_PANEL_DOCK_QUERY, storedFilePanelWidth } from "./lib/filePanelWidth.ts";
-import { filePresentation, type FilePresentation } from "./lib/filePresentation.ts";
+import { openPresentation, type FilePresentation } from "./lib/filePresentation.ts";
 import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
 import { focusWorkspaceListToggle } from "./lib/focus.ts";
@@ -429,7 +429,7 @@ export function App() {
   const { viewing, openFile, closeFile, setPresentation, releaseFile } = useFileViewer();
   // a repository diff from the Files dialog's Changes tab, an entry of its own like a file
   const { viewing: diffViewing, openDiff, closeDiff, releaseDiff } = useRepoDiffViewer();
-  const presentation = viewing?.presentation ?? filePresentation(viewing?.path ?? "");
+  const presentation = viewing?.presentation ?? openPresentation(viewing?.path ?? "", settings.fileOpen);
   const fileDocked = filePanelAvailable && presentation === "panel";
   useEffect(() => {
     if (viewing !== null && fileDocked) setFilesOpen(false);
@@ -470,17 +470,19 @@ export function App() {
       window.history.go(-2);
     } else setPresentation(next);
   }, [filePanelAvailable, diffViewing, viewing, releaseDiff, openFile, setPresentation]);
-  const reportFileKind = useCallback((presentation: FilePresentation) => {
-    if (viewing !== null && viewing.presentation === undefined && presentation !== filePresentation(viewing.path)) presentFile(presentation);
-  }, [viewing, presentFile]);
+  // the kind corrects a guess from the extension; with files set to open in the popup there is no guess to correct
+  const reportFileKind = useCallback((kind: FilePresentation) => {
+    const wanted = settings.fileOpen === "panel" ? kind : "popup";
+    if (viewing !== null && viewing.presentation === undefined && wanted !== openPresentation(viewing.path, settings.fileOpen)) presentFile(wanted);
+  }, [viewing, presentFile, settings.fileOpen]);
   const toggleFilePresentation = filePanelAvailable && viewing !== null
     ? () => presentFile(fileDocked ? "popup" : "panel")
     : undefined;
   const viewFile = useCallback((path: string) => {
     // the Files dialog would cover the docked panel the file opens in
-    if (filePanelAvailable && filePresentation(path) === "panel") setFilesOpen(false);
+    if (filePanelAvailable && openPresentation(path, settings.fileOpen) === "panel") setFilesOpen(false);
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
-  }, [openFile, selectedPaneId, selectedMachineId, filePanelAvailable]);
+  }, [openFile, selectedPaneId, selectedMachineId, filePanelAvailable, settings.fileOpen]);
   // a link to Settings opens it on its page, for that first opening alone
   const [settingsOpen, setSettingsOpen] = useState(() => initialLink?.settings != null);
   const [settingsLinkPage, setSettingsLinkPage] = useState<string | null>(() => initialLink?.settings ?? null);
@@ -1814,7 +1816,7 @@ export function App() {
       )}
       {diffViewing !== null && <MachineContext.Provider value={diffViewing.machineId}>
         <RepoDiffViewer key={`${diffViewing.scope}:${diffViewing.path}`} target={diffViewing} onClose={closeDiff} onOpenFile={(path) => {
-          const docked = filePanelAvailable && filePresentation(path) === "panel";
+          const docked = filePanelAvailable && openPresentation(path, settings.fileOpen) === "panel";
           if (docked) {
             setFilesOpen(false);
             releaseDiff();

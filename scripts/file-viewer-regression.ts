@@ -147,7 +147,7 @@ try {
   await page.addInitScript(() => {
     // the app's own document only: a sandboxed HTML page the viewer frames has no storage to seed
     if (window.top !== window) return;
-    if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", chatFontSize: 17, chatFontFamily: "Georgia" }));
+    if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", chatFontSize: 17, chatFontFamily: "Georgia", fileOpen: "panel" }));
     const record = window as unknown as { longTasks: number[] };
     record.longTasks = [];
     new PerformanceObserver((list) => { for (const entry of list.getEntries()) record.longTasks.push(entry.duration); }).observe({ type: "longtask" });
@@ -442,6 +442,22 @@ try {
   const notesLink = page.getByRole("button", { name: "notes", exact: true });
   const textPopup = page.getByRole("dialog", { name: "notes.txt", exact: true });
   const panel = page.locator("aside.file-panel");
+  const setFileOpen = async (fileOpen: string | null) => {
+    await page.evaluate((fileOpen) => {
+      const { fileOpen: _, ...settings } = JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}") as Record<string, unknown>;
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify(fileOpen === null ? settings : { ...settings, fileOpen }));
+    }, fileOpen);
+    await page.reload();
+  };
+  // with Open files at its default, even text opens in the popup; Beside the pane is a choice
+  await setFileOpen(null);
+  await notesLink.click();
+  await textPopup.getByText("File preview history regression", { exact: true }).waitFor();
+  assert.equal(await panel.count(), 0, "text starts in the popup at 1280px by default");
+  await textPopup.getByRole("button", { name: "Close file", exact: true }).click();
+  await textPopup.waitFor({ state: "detached" });
+  await setFileOpen("panel");
+  console.log("PASS by default a text file opens in the popup on a wide window");
   const beforePlacement = await page.evaluate(() => history.state);
   await videoLink.click();
   await page.locator(".modal.file-viewer video").waitFor();

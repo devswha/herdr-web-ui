@@ -1301,6 +1301,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   header is one row: the name cut inside its stem, Show source and Copy, a **More** (Ellipsis)
   menu holding new tab, raw and download, then Close; the size and folder are left out there unless
   a partial-view notice is among them. A reader page has no Close.
+  A file opens in the popup unless Settings → Chat → Open files is Beside the pane (`fileOpen`,
+  per device), which docks text and code from 980px; the header button moves the open file either way.
   Docked beside the pane (from 980px, `aside.file-panel`) the viewer is a split of the workspace on
   `--bg` behind one `--border` hairline, not a raised card, and its chrome is two thin rows on
   hairlines (t3code's file surface subheader, paseo's file panel bar): a header of

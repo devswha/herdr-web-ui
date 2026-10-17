@@ -966,6 +966,9 @@ it("keeps the Markdown preview's width to readable or full, readable by default"
 
 it("keeps where web links open to a tab or the panel, a tab by default", () => {
   expect(DEFAULT_SETTINGS.webLinks).toBe("tab");
+  expect(DEFAULT_SETTINGS.fileOpen).toBe("popup");
+  expect(sanitizeSettings({ fileOpen: "panel" }).fileOpen).toBe("panel");
+  for (const bad of ["tab", "", null, true]) expect(sanitizeSettings({ fileOpen: bad }).fileOpen).toBe("popup");
   expect(sanitizeSettings({ webLinks: "panel" }).webLinks).toBe("panel");
   for (const bad of ["popup", "", null, true]) expect(sanitizeSettings({ webLinks: bad }).webLinks).toBe("tab");
   // an agent's start mode never widens by accident: anything unknown starts it with no flag
