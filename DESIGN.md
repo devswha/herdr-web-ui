@@ -1303,6 +1303,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   a partial-view notice is among them. A reader page has no Close.
   A file opens in the popup unless Settings → Chat → Open files is Beside the pane (`fileOpen`,
   per device), which docks text and code from 980px; the header button moves the open file either way.
+  This differs from t3code's and paseo's docked file panels, whose look the docked viewer keeps: a
+  file read from the chat leaves the chat its width unless the user asks for the split.
   Docked beside the pane (from 980px, `aside.file-panel`) the viewer is a split of the workspace on
   `--bg` behind one `--border` hairline, not a raised card, and its chrome is two thin rows on
   hairlines (t3code's file surface subheader, paseo's file panel bar): a header of
