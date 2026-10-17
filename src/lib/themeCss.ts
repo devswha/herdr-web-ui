@@ -3,7 +3,7 @@
  * the CSS text. Runtime code never imports this module.
  */
 
-import { ROLES } from "./themes.ts";
+import { ROLES } from "./themeRoles.ts";
 import type { Mode } from "./themes.ts";
 
 /**

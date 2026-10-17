@@ -837,6 +837,9 @@ describe("palette", () => {
             if (ratio(color(`status-${state}`, backdrop), backdrop) < 4.5) failures.push(`${key} ${state} badge on ${surface}`);
           }
         }
+        // a primary control's label on its own fill (.btn-primary)
+        const fill = color("primary");
+        if (ratio(color("primary-text", fill), fill) < 4.5) failures.push(`${key} primary-text on primary`);
         // highlighted code sits on the panel (a file preview) or an elevated card (a chat code block)
         for (const surface of ["bg-panel", "bg-elevated"]) {
           const ground = color(surface);

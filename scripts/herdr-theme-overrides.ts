@@ -74,6 +74,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"tokyo-night-day","mode":"light","role":"shadow-card","value":"0 4px 16px rgba(39, 77, 171, 0.07)","dE":6.184709819612932,"reason":"Recomputed default from AA-repaired foreground"},
   {"theme":"gruvbox","mode":"dark","role":"border","value":"#504945","dE":6.709131536268997,"reason":"Visible control edges: herdr surface1, since surface0 equals --bg-elevated and --bg-input"},
   {"theme":"gruvbox","mode":"dark","role":"border-strong","value":"#928374","dE":20.899634016393392,"reason":"Stays one step above the moved --border: herdr overlay0 instead of surface1"},
+  {"theme":"tokyo-night-day","mode":"light","role":"primary","value":"#1561ca","dE":8.784095421190207,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"gruvbox","mode":"dark","role":"status-working","value":"#a1c4b6","dE":9.79703994081216,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"gruvbox","mode":"dark","role":"status-blocked","value":"#ffa68a","dE":18.17712327071657,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"gruvbox","mode":"dark","role":"status-done","value":"#bfc332","dE":2.4075362740652717,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
@@ -123,6 +124,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"one-light","mode":"light","role":"syntax-type","value":"#995f00","dE":12.399888342058368,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"one-light","mode":"light","role":"syntax-meta","value":"#0072a9","dE":5.549879353239865,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"border","value":"#164b57","dE":7.5134410505174385,"reason":"Visible control edges: herdr active_row_bg, since surface0 equals --bg-elevated and --bg-input and surface1 (base01) is already --border-strong"},
+  {"theme":"one-light","mode":"light","role":"primary","value":"#2d6af1","dE":4.018355387990014,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"solarized","mode":"dark","role":"text","value":"#a8b6b6","dE":6.747616310298808,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"text-dim","value":"#a5b7b9","dE":11.252034762400418,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"text-strong","value":"#a8b6b6","dE":6.747616310298808,"reason":"Recomputed default from AA-repaired foreground"},
@@ -143,6 +145,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"solarized","mode":"dark","role":"syntax-type","value":"#c0931c","dE":3.3127672128241343,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized","mode":"dark","role":"syntax-meta","value":"#37aba1","dE":3.137301262011203,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized-light","mode":"light","role":"border","value":"#c9dcdf","dE":6.343279395405989,"reason":"Visible control edges: herdr selection_bg, since surface0 equals --bg-elevated and --bg-input and surface1 (base1) is already --border-strong"},
+  {"theme":"solarized","mode":"dark","role":"primary","value":"#2f93d9","dE":2.449418792249408,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"solarized-light","mode":"light","role":"text","value":"#556a72","dE":5.802622044631877,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized-light","mode":"light","role":"text-dim","value":"#5a6a6c","dE":14.19835083286903,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"solarized-light","mode":"light","role":"text-strong","value":"#073642","dE":26.00042461262185,"reason":"Visible chosen segment and strong text: herdr solarized surface0 (base02), since the AA-repaired --text sits 1.01:1 from --text-dim and --bg-hover equals --bg-elevated"},
@@ -169,6 +172,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"solarized-light","mode":"light","role":"shadow-card","value":"0 4px 16px rgba(85, 106, 114, 0.07)","dE":5.802622044631877,"reason":"Recomputed default from AA-repaired foreground"},
   {"theme":"kanagawa","mode":"dark","role":"border","value":"#363646","dE":4.911784674831553,"reason":"Visible control edges: herdr surface1, since surface0 equals --bg-elevated and --bg-input"},
   {"theme":"kanagawa","mode":"dark","role":"border-strong","value":"#727169","dE":21.126429533775877,"reason":"Stays one step above the moved --border: herdr overlay0 instead of surface1"},
+  {"theme":"solarized-light","mode":"light","role":"primary","value":"#2076b3","dE":7.026635480894113,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
   {"theme":"kanagawa","mode":"dark","role":"status-working","value":"#9bbbf8","dE":9.730310119232739,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"kanagawa","mode":"dark","role":"status-blocked","value":"#ffa09b","dE":24.67494947559212,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"kanagawa","mode":"dark","role":"status-done","value":"#a3c397","dE":14.967443534111302,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
@@ -222,6 +226,7 @@ export const OVERRIDES: readonly ThemeOverride[] = [
   {"theme":"rose-pine-dawn","mode":"light","role":"syntax-number","value":"#a1514f","dE":16.358058359984508,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"rose-pine-dawn","mode":"light","role":"syntax-type","value":"#9e5600","dE":23.02522815963855,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
   {"theme":"rose-pine-dawn","mode":"light","role":"syntax-meta","value":"#33717c","dE":11.64373069428541,"reason":"AA lightness repair on serialized hex (target 4.6; chroma reduction at most 5%)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"primary","value":"#7e659b","dE":6.5855528356763084,"reason":"AA lightness repair of the primary fill under primary-text (target 4.5)"},
 ];
 
 /** Pure policy used by the test and by temporary-copy QA. A diagnostic always names entry/role. */
