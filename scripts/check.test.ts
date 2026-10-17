@@ -59,8 +59,12 @@ describe("isolate", () => {
     } else {
       const shell = env["SHELL"];
       if (!shell) throw new Error("Missing test shell");
-      for (const args of [["-i"], ["-l", "-i"], []]) {
-        const result = spawnSync(shell, [...args, "-c", 'printf "%s|%s" "${TEST_STARTUP_READ-unread}" "$1"', "test", "argument with spaces"], { env, encoding: "utf8" });
+      // an interactive bash takes the controlling terminal, which stops a test run started from one
+      // (a herdr pane included): the -i probes run in a session of their own, with no terminal
+      const setsid = ["/usr/bin/setsid", "/bin/setsid"].find((path) => existsSync(path));
+      for (const args of setsid ? [["-i"], ["-l", "-i"], []] : [[]]) {
+        const probe = [shell, ...args, "-c", 'printf "%s|%s" "${TEST_STARTUP_READ-unread}" "$1"', "test", "argument with spaces"];
+        const result = setsid ? spawnSync(setsid, probe, { env, encoding: "utf8" }) : spawnSync(probe[0]!, probe.slice(1), { env, encoding: "utf8" });
         expect(result.status).toBe(0);
         expect(result.stdout).toBe("unread|argument with spaces");
       }
