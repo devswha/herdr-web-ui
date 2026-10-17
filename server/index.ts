@@ -1,3 +1,4 @@
+import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { randomBytes } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
@@ -5,24 +6,20 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentRenameRequest, AgentStatus, ClientMessage, ClientRole, DirectoryCreated, HealthAuth, HerdrPane, IntegrationsResponse, PaneDirection, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanSummary, PluginActionsResponse, ReadFormat, ReadSource, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ClientMessage, ClientRole, DirectoryCreated, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PlanSummary, PluginActionsResponse, ServerFeature, ServerMessage, SessionSnapshot, TabMoved } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
-import { DEVICE_COOKIE, authClient, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
+import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
 import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
-import { paneCommands } from "./commands.ts";
-import { paneFiles } from "./files.ts";
-import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
-import { serveStatic } from "./static.ts";
+import { badRequest, conflictResponse, errorResponse, isJsonObject, jsonResponse } from "./http.ts";
+import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { startStatusCollector } from "./collector.ts";
-import { claudePanePid, claudePaneSession, conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
-import { OPENCODE_TOOL_REF } from "./opencode.ts";
-import { DevinHistoryChanged } from "./devin.ts";
+import { claudePanePid, claudePaneSession, forgetPaneTranscriptState } from "./conversation.ts";
 import { ConversationMonitor } from "./conversation-monitor.ts";
 import { omoPanes } from "./omo.ts";
 import { createGjcStatus, gjcPanes, readOmoSnapshot, reconcileProviderStatus } from "./gjc-status.ts";
@@ -38,35 +35,21 @@ import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { createDirectory, listDirectories } from "./directories.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
-import { fileResponse, locateFile, locateFileInFolder, crossSiteFileRead, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
+import { fileResponse, findFile, crossSiteFileRead, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
   agentManifests,
   agentPrompt,
-  agentRename,
   agentStart,
   HerdrError,
   herdrSocketPath,
   integrationList,
-  layoutSetSplitRatio,
-  paneClear,
-  paneClose,
-  paneFocus,
   paneGet,
   paneProcessInfo,
   paneRead,
-  paneResize,
-  paneScroll,
   paneScrollInfo,
-  paneFind,
-  paneSelectionRead,
-  paneRename,
   paneSendKeys,
   paneSendText,
-  paneSplit,
-  paneSwap,
-  paneSwapWith,
-  paneZoom,
   ping,
   pluginActionInvoke,
   pluginActionList,
@@ -90,7 +73,6 @@ import {
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeInputDraft, hermesInputDraft, shownInputBox, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
-import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
 import { PaneWatch } from "./watch.ts";
 import { AttachOutputTail, AttachStartupProbes, isTakeoverExit } from "./attach-output.ts";
@@ -108,6 +90,9 @@ import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 import { handlePortalRequest, PortalService } from "./portal.ts";
 import { handleTelemetryRequest, Telemetry } from "./telemetry.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
+import { CLIProxyService } from "./cliproxy.ts";
+import { CLIProxyRoutes } from "./cliproxy-routes.ts";
+import { UsageLoginService } from "./usage-login.ts";
 import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
@@ -124,6 +109,8 @@ const MAX_REPLAY_BYTES = 128 * 1024;
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
 const PLUGIN_ACTION_WAIT_MS = 5_000;
+/** a focus or reconnect re-reads the panes for the daily active message at most this often */
+const VISIT_READ_MS = 10 * 60_000;
 const livePaneIds = async (timeoutMs?: number): Promise<string[]> => (await sessionSnapshot(undefined, timeoutMs)).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
@@ -226,11 +213,6 @@ const RESTORED_CLEAR_SETTLE_MS = 300;
 const RESTORED_CLEAR_RESERVE_MS = 2_000;
 const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch", "ping"];
 
-/** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
-const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
-/** pane.read's own enums; a read outside them is refused here rather than sent to herdr as a guess (the generated types are open-ended) */
-const READ_SOURCES = new Set<ReadSource>(["detection", "recent", "recent_unwrapped", "visible"]);
-const READ_FORMATS = new Set<ReadFormat>(["ansi", "text"]);
 
 const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -254,13 +236,6 @@ function expandedDirectory(value: string): string | null {
   } catch {
     return null;
   }
-}
-
-async function paneContext(paneId: string): Promise<{ agent: string | null; cwd: string }> {
-  const pane = await paneGet(paneId);
-  const cwd = pane.foreground_cwd ?? pane.cwd;
-  if (!cwd) throw new HerdrError("cwd_not_found", `pane ${paneId} has no working directory`);
-  return { agent: pane.agent ?? pane.agent_session?.agent ?? null, cwd };
 }
 
 /** The temp folder of the Claude Code session in a pane, or null when the pane runs none or it has none. */
@@ -468,6 +443,10 @@ export function createServer(
     telemetry?: Telemetry;
     /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
     usage?: UsageService;
+    /** Tests supply an isolated proxy service, never a user's configured instance. */
+    cliProxy?: CLIProxyService;
+    /** Tests use a disposable credential home and stand-in CLI binaries. */
+    usageLogin?: UsageLoginService;
     /** voice input's key, provider and models; tests pass one with their own env and fetch */
     voice?: VoiceService;
     machines?: boolean;
@@ -566,7 +545,10 @@ export function createServer(
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
   const preferences = new PreferenceStore(options.stateDir ?? defaultStateDir());
-  const usage = options.usage ?? new UsageService();
+  const cliProxy = options.cliProxy ?? new CLIProxyService(options.stateDir ?? defaultStateDir());
+  const cliProxyRoutes = new CLIProxyRoutes(cliProxy);
+  const usageLogin = options.usageLogin ?? new UsageLoginService();
+  const usage = options.usage ?? new UsageService(undefined, undefined, (refresh) => cliProxy.report(refresh));
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
@@ -1154,9 +1136,10 @@ export function createServer(
     },
     onChange: (paneId, running, turnRunning, promptAt) => claudeAgentsChanged(paneId, running, turnRunning, promptAt),
   });
-  /** the plan each Claude Code and Codex pane's agent keeps, for the sidebar's progress (server/session-plan.ts) */
+  /** the plan each Claude Code, Codex and OmO pane keeps, for the sidebar's progress (server/session-plan.ts) */
   const plans = new SessionPlans({
     claudePath: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null,
+    omoPath: (paneId) => omo.pathOf(paneId),
     // only what is certain without reading the screen: the chat's own matching stays the chat's
     codexPath: async (pane) => codexOpenRollout(pane.pane_id, pane.cwd, await paneCodexHome(pane.pane_id, options.codexHome)),
     onChange: (paneId, summary) => planChanged(paneId, summary),
@@ -1188,6 +1171,24 @@ export function createServer(
       }),
     };
   };
+  /**
+   * A browser visit for the daily active message: the call is made now so the visit's day is the
+   * trigger's, the panes are read after. Nothing is read while telemetry cannot send; a socket open
+   * passes the snapshot it fetches anyway, and other visits read the panes at most every
+   * VISIT_READ_MS (in between they still count the day, with the kinds already known).
+   */
+  let visitReadAt = -Infinity;
+  function countVisit(snapshot?: ReturnType<typeof clientSnapshot>): void {
+    const telemetry = options.telemetry;
+    if (!telemetry?.counting()) return;
+    let agents: Promise<(string | null)[]> | (string | null)[] = [];
+    if (snapshot || Date.now() - visitReadAt >= VISIT_READ_MS) {
+      visitReadAt = Date.now();
+      agents = (snapshot ?? clientSnapshot()).then((read) => read.panes.map((pane) => pane.agent ?? pane.agent_session?.agent ?? null));
+    }
+    void telemetry.active(agents)
+      .catch((error) => console.error(`telemetry: the visit was not counted (${error instanceof Error ? error.message : String(error)})`));
+  }
   /** A pane's status frame: every one says whether the pane waits on its turn's background work. */
   const paneStatus = (paneId: string, status: AgentStatus, about: { background_tasks?: number; plan?: PlanSummary | null } = {}): ServerMessage =>
     ({ type: "pane-status", pane_id: paneId, agent_status: status, ...about, ...(waits.waiting(paneId) ? { background_wait: true as const } : {}) });
@@ -1794,6 +1795,7 @@ export function createServer(
       push.resync(panes.map((pane) => ({ ...pane, agent_status: alertStatus(settled(pane), waits.waiting(pane.pane_id)) })), newer);
     },
     onPaneEnded: (paneId) => {
+      if (usageLogin.ended(paneId)) usage.invalidate();
       holdPendingPane(paneId, { code: "pane_not_found", message: "The pane ended; its pending messages were not sent" });
       pending.forget(paneId);
       waits.forget(paneId);
@@ -1976,6 +1978,8 @@ export function createServer(
       if (pathname === "/api/preferences") return handlePreferencesRequest(request, preferences);
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
+      if (pathname === "/api/usage/login") { bunServer.timeout(request, 30); return usageLogin.handle(request); }
+      if (pathname === "/api/cliproxy" || pathname.startsWith("/api/cliproxy/")) { bunServer.timeout(request, 60); return cliProxyRoutes.handle(request); }
       // a long clip can keep the provider silent past Bun's 10 s idle limit before the first line
       if (pathname === "/api/voice" || pathname.startsWith("/api/voice/")) { bunServer.timeout(request, 120); return handleVoiceRequest(request, pathname, voice); }
 
@@ -1994,7 +1998,7 @@ export function createServer(
 
       if (pathname === "/api/health") {
         const auth: HealthAuth = access.level === "full"
-          ? { required: false, authenticated: true, via: access.via, role: access.role }
+          ? { required: false, authenticated: true, via: access.via, role: access.role, ...(access.via === "token" && bearerMatches(request, token) ? { bearer: true as const } : {}) }
           : { required: true, authenticated, ...(authenticated ? {} : { reason: access.reason }) };
         // this server is open to the network with no token and nothing paired, told to a client
         // that got in and to nobody else: naming it to an anonymous caller would be
@@ -2063,12 +2067,7 @@ export function createServer(
           try { cwd = (await paneContext(paneId)).cwd; } catch { /* an absolute path still opens */ }
         }
         const path = url.searchParams.get("path") ?? "";
-        let found = locateFile(path, cwd);
-        // a Claude Code pane names the files it keeps outside the project (`scratchpad/…`) relative to its session's temp folder
-        if (found === null && paneId && cwd !== null && !isAbsolute(path.trim()) && !path.trim().startsWith("~")) {
-          const folder = await claudeTempFolder(paneId);
-          if (folder !== null) found = locateFileInFolder(path, folder);
-        }
+        const found = await findFile(path, cwd, () => paneId ? claudeTempFolder(paneId) : Promise.resolve(null));
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
         // several files end in that name: the viewer lists them to choose from
         if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);
@@ -2451,64 +2450,8 @@ export function createServer(
         }
       }
 
-      if (pathname === "/api/pane/rename") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: unknown; label?: unknown };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
-        if (typeof payload.label !== "string") return badRequest("missing_label", "label is required");
-        try {
-          await paneRename(payload.pane_id, payload.label.length === 0 ? null : payload.label);
-          return jsonResponse({ ok: true });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/agent/rename") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: Partial<Record<keyof AgentRenameRequest, unknown>>;
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
-        if (payload.name !== null && typeof payload.name !== "string") return badRequest("invalid_name", "name must be a string, or null to clear it");
-        // the rule and the uniqueness are herdr's: its refusal comes back as it is
-        try {
-          await agentRename(payload.pane_id, payload.name);
-          return jsonResponse({ ok: true });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/commands" || pathname === "/api/pane/files") {
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        try {
-          const context = await paneContext(paneId);
-          if (pathname === "/api/pane/commands") {
-            // herdr names an omo pane `pi` while omo waits: pi's commands and templates are not omo's
-            const agent = context.agent === "pi" && await paneRunsOmo(paneId) ? "omo" : context.agent;
-            return jsonResponse({ commands: paneCommands(agent, context.cwd) });
-          }
-          const limitRaw = url.searchParams.get("limit");
-          const limit = limitRaw === null ? 20 : Number(limitRaw);
-          if (!Number.isInteger(limit) || limit < 1) return badRequest("invalid_limit", "limit must be a positive integer");
-          return jsonResponse({ files: await paneFiles(context.cwd, url.searchParams.get("q") ?? "", Math.min(limit, 100)) });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
+      const paneResponse = await handlePaneRequest(request, url, pathname, options);
+      if (paneResponse) return paneResponse;
 
       if (pathname === "/api/pane/omo-tasks") {
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
@@ -2539,324 +2482,19 @@ export function createServer(
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
         // the pane as herdr has it now, for a second at most: one the background lookup has not got to yet is looked
         // up here, and so is one that runs another session than the one its transcript was found for.
-        // An OmO pane reads as `claude` in herdr's own snapshot: its plan is no Claude task list
+        // Herdr may name an OmO pane `claude`: use its resolved identity before looking up a plan.
         const seen: { pane?: HerdrPane } = {};
-        if (omo.sessionOf(paneId) === null) {
-          await within(1000, (async () => {
-            const pane = seen.pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-            if (pane === undefined || plans.known(pane)) return;
-            if (pane.agent === "claude") await claudeAgents.ensure(pane);
-            await plans.ensure(pane, true);
-          })());
-        }
+        await within(1000, (async () => {
+          const pane = seen.pane = omo.apply(await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+          if (pane === undefined || plans.known(pane)) return;
+          if (pane.agent === "claude") await claudeAgents.ensure(pane);
+          await plans.ensure(pane, true);
+        })());
         // only the pane as herdr has it now is told its plan: one herdr did not answer for in time, no longer has, or has
         // in a session not looked up yet is told none, never the plan read before (session-plan.ts planOf)
         const steps = plans.planOf(seen.pane);
         const answer: PanePlan = { plan: steps === null ? null : { steps }, server_time: new Date().toISOString() };
         return jsonResponse(answer);
-      }
-
-      if (pathname === "/api/pane/read") {
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        const linesRaw = url.searchParams.get("lines");
-        const lines = linesRaw === null ? undefined : Number(linesRaw);
-        if (lines !== undefined && !Number.isFinite(lines)) {
-          return badRequest("invalid_lines", "lines must be a number");
-        }
-        // herdr knows these enums and has its own answer for a wrong one, but a read this
-        // route never meant to make is refused here rather than sent on as a guess
-        const source = url.searchParams.get("source") ?? "visible";
-        if (!READ_SOURCES.has(source)) return badRequest("invalid_source", `source must be one of ${[...READ_SOURCES].join(", ")}`);
-        const format = url.searchParams.get("format") ?? "text";
-        if (!READ_FORMATS.has(format)) return badRequest("invalid_format", `format must be one of ${[...READ_FORMATS].join(", ")}`);
-        try {
-          const read = await paneRead({ paneId, source: source as ReadSource, format: format as ReadFormat, ...(lines === undefined ? {} : { lines }) });
-          return jsonResponse({ read });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/find") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: unknown;
-        try { payload = await request.json(); }
-        catch { return badRequest("invalid_json", "request body must be JSON"); }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
-        if (typeof payload.query !== "string" || payload.query.length === 0 || payload.query.length > 1024) return badRequest("invalid_query", "query must contain 1 to 1024 characters");
-        if (payload.direction !== "forward" && payload.direction !== "backward") return badRequest("invalid_direction", "direction must be forward or backward");
-        if (payload.jump !== undefined && typeof payload.jump !== "boolean") return badRequest("invalid_jump", "jump must be a boolean");
-        const point = (value: unknown): value is { row: number; col: number } =>
-          isJsonObject(value) && isCount(value.row) && value.row <= 0xffffffff && isCount(value.col) && value.col <= 0xffff;
-        const previous = payload.previous;
-        if (previous !== undefined && (!isJsonObject(previous) || !point(previous.start) || !point(previous.end) || !isCount(payload.content_revision))) {
-          return badRequest("invalid_previous", "previous requires two history cells and content_revision");
-        }
-        if (payload.content_revision !== undefined && !isCount(payload.content_revision)) return badRequest("invalid_revision", "content_revision must be a non-negative integer");
-        try {
-          return jsonResponse(await paneFind({
-            pane_id: payload.pane_id, query: payload.query, direction: payload.direction,
-            ...(payload.jump !== undefined ? { jump: payload.jump } : {}),
-            ...(isJsonObject(previous) && point(previous.start) && point(previous.end) ? { previous: { start: previous.start, end: previous.end } } : {}),
-            ...(payload.content_revision !== undefined ? { content_revision: payload.content_revision } : {}),
-          }));
-        } catch (error) {
-          if (error instanceof HerdrError && error.code === "stale_content") return conflictResponse(error.code, error.message);
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/scroll") {
-        if (request.method === "GET") {
-          const paneId = url.searchParams.get("pane_id");
-          if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-          try {
-            return jsonResponse({ scroll: await paneScrollInfo(paneId) });
-          } catch (error) {
-            return errorResponse(error);
-          }
-        }
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use GET or POST");
-        let payload: { pane_id?: unknown; offset_from_bottom?: unknown };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || payload.pane_id.length === 0) return badRequest("missing_pane_id", "pane_id is required");
-        if (!isCount(payload.offset_from_bottom)) return badRequest("invalid_offset", "offset_from_bottom must be a non-negative integer");
-        try {
-          return jsonResponse({ scroll: await paneScroll(payload.pane_id, payload.offset_from_bottom) });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/selection") {
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        const [anchorRow, anchorCol, cursorRow, cursorCol] = ["anchor_row", "anchor_col", "cursor_row", "cursor_col"]
-          .map((name) => { const raw = url.searchParams.get(name); return raw === null || raw === "" ? NaN : Number(raw); });
-        if (![anchorRow, anchorCol, cursorRow, cursorCol].every(isCount)) {
-          return badRequest("invalid_range", "anchor_row, anchor_col, cursor_row and cursor_col must be non-negative integers");
-        }
-        try {
-          const text = await paneSelectionRead(paneId, { row: anchorRow!, col: anchorCol! }, { row: cursorRow!, col: cursorCol! });
-          return jsonResponse({ text });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/conversation/tool-output") {
-        const paneId = url.searchParams.get("pane_id");
-        const ref = url.searchParams.get("ref");
-        if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
-        try {
-          const output = await toolOutput(paneId, ref, options.codexHome, options.opencodeDb, options.hermesHome, options.grokHome);
-          if (output === null) return jsonResponse({ error: { code: "output_not_found", message: "no such tool call in this pane's conversation" } }, 404);
-          // a tool call's id names its output for good; OpenCode's ref names a place in a row it rewrites in place
-          const cacheControl = (OPENCODE_TOOL_REF.test(ref) || /^grok:/.test(ref)) ? "private, no-store" : "private, max-age=86400, immutable";
-          return new Response(output, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": cacheControl, "x-content-type-options": "nosniff" } });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/conversation/image") {
-        const paneId = url.searchParams.get("pane_id");
-        const ref = url.searchParams.get("ref");
-        if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
-        try {
-          const image = await conversationImage(paneId, ref, options.codexHome, options.opencodeDb);
-          if (image === null) return jsonResponse({ error: { code: "image_not_found", message: "no such image in this pane's conversation" } }, 404);
-          // Claude embeds immutable bytes; Codex files and OpenCode tool-image ordinals can change.
-          const cacheControl = ref.startsWith("codex-") || ref.startsWith("opencode:") ? "private, no-store" : "private, max-age=86400, immutable";
-          return new Response(image.bytes, { headers: { "content-type": image.mediaType, "cache-control": cacheControl, "x-content-type-options": "nosniff" } });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/conversation") {
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        const page = {
-          before: url.searchParams.get("before") ?? undefined,
-          since: url.searchParams.get("since") ?? undefined,
-          from: url.searchParams.get("from") ?? undefined,
-        };
-        try {
-          const { version, ...conversation } = await paneConversation(paneId, options.codexHome, page, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome);
-          // no-store keeps the browser's own cache out of it, so the chat sees the 304.
-          // weak: the same answer goes out gzipped or plain (compress.ts), which are not the same bytes
-          const etag = `W/"${version}"`;
-          const headers = { etag, "cache-control": "no-store" };
-          if (request.headers.get("if-none-match")?.replace(/^W\//, "") === etag.slice(2)) return new Response(null, { status: 304, headers });
-          return jsonResponse(conversation, 200, headers);
-        } catch (error) {
-          if (error instanceof HistoryChanged || error instanceof DevinHistoryChanged) return jsonResponse({ error: { code: "history_changed", message: error.message } }, 409);
-          // an unrecognized pane is not an error: the client falls back to the
-          // scrollback transcript, exactly like chatmux's terminal fallback
-          if (error instanceof ConversationUnavailable) return jsonResponse({ source: "scrollback", turns: [] });
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/input" || pathname === "/api/pane/keys") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: string; text?: string; keys?: string[] };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
-        try {
-          if (pathname === "/api/pane/input") {
-            if (typeof payload.text !== "string") return badRequest("missing_text", "text is required");
-            await paneSendText(payload.pane_id, payload.text);
-          } else {
-            if (!Array.isArray(payload.keys) || !payload.keys.every((key) => typeof key === "string")) return badRequest("missing_keys", "keys must be an array");
-            await paneSendKeys(payload.pane_id, payload.keys);
-          }
-          return jsonResponse({ ok: true });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/close") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: string };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
-        try {
-          // herdr emits pane.closed -> the collector broadcasts session-changed, so
-          // every client refetches and the pane leaves sidebars on its own
-          await paneClose(payload.pane_id);
-          // the pane is gone: whatever its chat parsed is released with it (server/conversation.ts)
-          forgetPaneTranscriptState(payload.pane_id);
-          return jsonResponse({ ok: true });
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/layout/ratio") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { tab_id?: unknown; path?: unknown; ratio?: unknown };
-        try { payload = (await request.json()) as typeof payload; }
-        catch { return badRequest("invalid_json", "request body must be JSON"); }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.tab_id !== "string" || !payload.tab_id.trim()) return badRequest("missing_tab_id", "tab_id is required");
-        if (!Array.isArray(payload.path) || !payload.path.every((step) => typeof step === "boolean")) return badRequest("invalid_path", "path must be an array of booleans");
-        if (typeof payload.ratio !== "number" || !Number.isFinite(payload.ratio) || payload.ratio < 0.1 || payload.ratio > 0.9) return badRequest("invalid_ratio", "ratio must be a number from 0.1 to 0.9");
-        try {
-          await layoutSetSplitRatio(payload.tab_id, payload.path, payload.ratio);
-          return jsonResponse({ ok: true });
-        } catch (error) { return errorResponse(error); }
-      }
-
-      // herdr's own layout operations, as its TUI has them: prefix+v and prefix+- (split), prefix+z
-      // (zoom), prefix+shift+hjkl (swap), its resize mode, and pane clear. Each is one herdr RPC. No
-      // answer carries the layout: a new pane reaches every client through the collector's
-      // pane.created subscription and a moved border, zoom or swap through its layout.updated one,
-      // both as session-changed, the same way the TUI's own changes do.
-      if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear" || pathname === "/api/pane/focus") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: unknown; direction?: unknown; target_pane_id?: unknown; focus?: unknown; mode?: unknown; amount?: unknown };
-        try {
-          payload = (await request.json()) as typeof payload;
-        } catch {
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
-        const paneId = payload.pane_id;
-        try {
-          if (pathname === "/api/pane/focus") {
-            await paneFocus(paneId);
-            return jsonResponse({ ok: true });
-          }
-          if (pathname === "/api/pane/split") {
-            if (payload.direction !== "right" && payload.direction !== "down") return badRequest("invalid_direction", "direction must be right or down");
-            if (payload.focus !== undefined && typeof payload.focus !== "boolean") return badRequest("invalid_focus", "focus must be a boolean");
-            const pane = await paneSplit(paneId, payload.direction, payload.focus === true);
-            return jsonResponse({ ok: true, pane } satisfies PaneSplit);
-          }
-          if (pathname === "/api/pane/zoom") {
-            if (payload.mode !== undefined && payload.mode !== "toggle" && payload.mode !== "on" && payload.mode !== "off") return badRequest("invalid_mode", "mode must be toggle, on or off");
-            const zoom = await paneZoom(paneId, payload.mode ?? "toggle");
-            return jsonResponse({ ok: true, zoomed: zoom.zoomed, changed: zoom.changed, reason: zoom.reason } satisfies PaneZoomed);
-          }
-          if (pathname === "/api/pane/clear") {
-            await paneClear(paneId);
-            return jsonResponse({ ok: true });
-          }
-          if (pathname === "/api/pane/swap") {
-            if (payload.target_pane_id !== undefined && payload.direction !== undefined) return badRequest("invalid_pane_swap", "provide exactly one of direction or target_pane_id");
-            if (payload.target_pane_id !== undefined) {
-              if (typeof payload.target_pane_id !== "string" || !payload.target_pane_id.trim()) return badRequest("invalid_target_pane_id", "target_pane_id must be a non-empty string");
-            } else if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
-            const swap = typeof payload.target_pane_id === "string"
-              ? await paneSwapWith(paneId, payload.target_pane_id)
-              : await paneSwap(paneId, payload.direction as PaneDirection);
-            return jsonResponse({ ok: true, changed: swap.changed, reason: swap.reason, target_pane_id: swap.target_pane_id } satisfies PaneSwapped);
-          }
-          if (!isPaneDirection(payload.direction)) return badRequest("invalid_direction", "direction must be left, right, up or down");
-          // a share of the split the border belongs to, as herdr counts it, and no more than the
-          // half herdr would quietly cap it to (shared/protocol.ts); its own default when absent
-          if (payload.amount !== undefined && !(typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0 && payload.amount <= 0.5)) {
-            return badRequest("invalid_amount", "amount must be a number above 0 and at most 0.5");
-          }
-          const resize = await paneResize(paneId, payload.direction, payload.amount);
-          return jsonResponse({ ok: true, changed: resize.changed, reason: resize.reason } satisfies PaneResized);
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
-
-      if (pathname === "/api/pane/image") {
-        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: string; content_type?: string; data_base64?: string; name?: string };
-        try {
-          payload = JSON.parse(await readImageBody(request)) as typeof payload;
-        } catch (error) {
-          if (error instanceof PasteImageError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.status);
-          return badRequest("invalid_json", "request body must be JSON");
-        }
-        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
-        if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
-        if ((payload.content_type !== undefined && typeof payload.content_type !== "string")
-          || (payload.data_base64 !== undefined && typeof payload.data_base64 !== "string")
-          || (payload.name !== undefined && typeof payload.name !== "string")) {
-          return badRequest("invalid_image", "content_type, data_base64 and name must be strings");
-        }
-        try {
-          const path = await savePaneImage({
-            paneId: payload.pane_id,
-            contentType: payload.content_type ?? "",
-            dataBase64: payload.data_base64 ?? "",
-            name: payload.name,
-          });
-          return jsonResponse({ ok: true, path });
-        } catch (error) {
-          if (error instanceof PasteImageError) {
-            return jsonResponse({ error: { code: error.code, message: error.message } }, error.status);
-          }
-          return errorResponse(error);
-        }
       }
 
       if (pathname.startsWith("/api/pane/prompt")) {
@@ -2873,7 +2511,7 @@ export function createServer(
       }
 
       // static client - public even when the API is gated, so the login UI can load
-      return serveStatic(pathname, request.headers.get("accept-encoding"));
+      return serveStatic(pathname, request.headers.get("accept-encoding"), requestOrigin(request));
       })());
     },
 
@@ -2903,8 +2541,10 @@ export function createServer(
         }
         if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
         clients.add(client);
+        const snapshot = clientSnapshot();
+        countVisit(snapshot);
         try {
-          send(client, { type: "snapshot", snapshot: await clientSnapshot(), features: SERVER_FEATURES });
+          send(client, { type: "snapshot", snapshot: await snapshot, features: SERVER_FEATURES });
         } catch (error) {
           const code = error instanceof HerdrError ? error.code : "snapshot_failed";
           send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error) });
@@ -2915,8 +2555,10 @@ export function createServer(
         if (stopped || client.data.closing) return;
         // read here for a relayed connection too: alerts for every PC go out from this server
         const presence = presenceOf(raw);
-        if (presence === true) present.add(client);
-        else if (presence === false) present.delete(client);
+        if (presence === true) {
+          present.add(client);
+          if (!client.data.relay) countVisit();
+        } else if (presence === false) present.delete(client);
         if (client.data.relay) { client.data.relay.message(raw); return; }
         if (presence !== null) return;
         let message: ClientMessage;

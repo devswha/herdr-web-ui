@@ -75,7 +75,7 @@ try {
   page.setDefaultTimeout(10_000);
   await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(paneId)}`);
   await page.locator(".conn-live").waitFor();
-  const log = page.getByRole("log", { name: `conversation of ${paneId}` });
+  const log = page.locator(`.pane-frame[data-layout-pane="${paneId}"]`).getByRole("log");
   await log.getByText(answer, { exact: true }).waitFor();
   assert.equal(await log.locator(".chat-turn-user").count(), 1);
   assert.equal((await log.innerText()).includes("PRIVATE"), false);
@@ -137,7 +137,8 @@ try {
   const failedRow = log.getByRole("button", { name: "Ran bun test failed", exact: true });
   assert.equal(await failedRow.evaluate((node) => node.lastElementChild?.className), "work-row-failed");
   assert.equal(await failedRow.getAttribute("title"), "exec_command · bun test");
-  await row.click();
+  // the row opened while the turn ran stays open through fold and unfold: a click would close it
+  if (await row.getAttribute("aria-expanded") !== "true") await row.click();
   assert.equal(await log.locator(".work-row-detail > :first-child").innerText(), "exec_command");
   await log.getByText("git status", { exact: true }).last().waitFor();
   assert.equal(await log.locator(".chat-agent-meta").count(), 1);
@@ -226,7 +227,7 @@ try {
   await insecure.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "chat"), paneId);
   insecure.on("pageerror", (error) => errors.push(error.message));
   await insecure.goto(`http://clipboard.test:${server.port}/?pane=${encodeURIComponent(paneId)}`);
-  const insecureLog = insecure.getByRole("log", { name: `conversation of ${paneId}` });
+  const insecureLog = insecure.locator(`.pane-frame[data-layout-pane="${paneId}"]`).getByRole("log");
   await insecureLog.getByText(answer, { exact: true }).waitFor();
   assert.equal(await insecure.evaluate(() => window.isSecureContext), false);
   assert.equal(await insecure.evaluate(() => typeof navigator.clipboard), "undefined");
