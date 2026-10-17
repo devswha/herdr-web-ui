@@ -699,7 +699,7 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking, ski
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
     // a teammate's delivery is recorded as a user prompt, but nobody typed it here
     const teammateParts = teammateMessageParts(text);
-    if (teammateParts !== null) return <section className="chat-teammate-messages" aria-label={t("Claude teammate messages")}>
+    if (teammateParts !== null) return <section className="chat-turn chat-teammate-messages" aria-label={t("Claude teammate messages")}>
       {teammateParts.map((part, index) => part.kind === "teammate"
         ? <TeammateMessageRow key={index} message={part} stateKey={String(index)} />
         : <UserMessage key={index} text={part.text} skills={userSkills} />)}
