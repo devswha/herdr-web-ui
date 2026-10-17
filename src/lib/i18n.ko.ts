@@ -114,6 +114,7 @@ export const KO: Record<string, string> = {
   "Shown in dark mode": "다크 모드에서 표시됩니다",
   "Shown in light mode": "라이트 모드에서 표시됩니다",
   "Charcoal": "차콜",
+  "Codex": "Codex",
   "Amber": "앰버",
   "Catppuccin": "Catppuccin",
   "Catppuccin Latte": "Catppuccin Latte",

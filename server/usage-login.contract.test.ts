@@ -83,8 +83,13 @@ for (const provider of ["claude", "codex"] as const) {
       }
     };
     const watcher = watch(root, (_event, filename) => { if (filename === receipt) signal.resolve(); });
-    const timer = setTimeout(() => {
-      const error = new Error("login did not finish");
+    const timer = setTimeout(async () => {
+      // Say which signal never came and what the pane showed, so a CI failure tells a CLI that
+      // never started from one whose receipt or exit went unseen (#1260).
+      const screen = opened
+        ? await herdr.paneRead({ paneId: opened.pane_id, source: "visible", format: "text" }).then((read) => read.text.trimEnd(), (error: unknown) => `unreadable: ${String(error)}`)
+        : "no pane was opened";
+      const error = new Error(`login did not finish: receipt ${existsSync(join(root, receipt)) ? "written" : "missing"}, pane ${opened && exits.has(opened.pane_id) ? "exited" : "not exited"}; the pane shows:\n${screen}`);
       signal.reject(error); ended.reject(error); connected.reject(error);
     }, 10_000);
     try {

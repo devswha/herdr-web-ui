@@ -116,6 +116,7 @@ export const JA: Record<string, string> = {
   "Shown in dark mode": "ダークモードで表示されます",
   "Shown in light mode": "ライトモードで表示されます",
   "Charcoal": "チャコール",
+  "Codex": "Codex",
   "Amber": "アンバー",
   "Catppuccin": "Catppuccin",
   "Catppuccin Latte": "Catppuccin Latte",

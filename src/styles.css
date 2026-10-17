@@ -394,6 +394,120 @@
   --syntax-meta: #b8a5c9;
 }
 
+/* Codex: the Codex desktop app's default theme (its codex-theme-v1 export). Light: surface
+   #ffffff, ink #1a1c1f; dark: surface #181818, ink #ffffff; accent #3a83f7 in both. The content
+   (chat canvas, terminal) is the surface, the chrome one quiet step off it, and the primary
+   control is ink on surface as Codex's send button. Agent states and code take Codex's diff
+   and skill colors (diffAdded, diffRemoved, skill), each kept in hue and moved in lightness
+   only as far as AA needs on a hovered row. */
+[data-theme="light"][data-palette="codex"] {
+  --bg: #ffffff;
+  --bg-panel: #f9f9f9;
+  --bg-elevated: #f3f3f3;
+  --bg-hover: #ebebeb;
+  --bg-input: #ffffff;
+  --border: #e5e5e5;
+  --border-strong: #d0d0d0;
+  --text: #1a1c1f;
+  --text-dim: #5d6067;
+  --text-strong: #0d0d0d;
+  --accent: #3a83f7;
+  --accent-tint: rgba(58, 131, 247, 0.1);
+  --primary: #1a1c1f;
+  --primary-hover: #33363b;
+  --primary-text: #ffffff;
+  --primary-tint: rgba(26, 28, 31, 0.08);
+  --status-idle: #5d6067;
+  --status-working: #0855cf;
+  --status-blocked: #b12421;
+  --status-done: #006c2b;
+  --status-working-tint: rgba(8, 85, 207, 0.12);
+  --status-blocked-tint: rgba(177, 36, 33, 0.12);
+  --status-done-tint: rgba(0, 108, 43, 0.12);
+  --danger-tint: rgba(177, 36, 33, 0.1);
+  --notice: #8a5300;
+  --danger-text: #b12421;
+  --scrim: rgba(26, 28, 31, 0.35);
+  --term-bg: #ffffff;
+  --term-fg: #1a1c1f;
+  --term-cursor: #1a1c1f;
+  --term-selection: #cfe0fd;
+  --term-black: #1a1c1f;
+  --term-red: #b3261e;
+  --term-green: #22743a;
+  --term-yellow: #8a5300;
+  --term-blue: #0b6e8a;
+  --term-magenta: #6f42c1;
+  --term-cyan: #0f6f74;
+  --term-white: #5f5b56;
+  --term-bright-black: #4e4b47;
+  --term-bright-red: #c92d24;
+  --term-bright-green: #277d3f;
+  --term-bright-yellow: #9f6100;
+  --term-bright-blue: #1a7391;
+  --term-bright-magenta: #7f52d1;
+  --term-bright-cyan: #13767e;
+  --term-bright-white: #0d0d0d;
+  --line-number: #5d6067;
+  --syntax-function: #0a63f2;
+  --syntax-keyword: #b12421;
+  --syntax-string: #006c2b;
+  --syntax-number: #8a5300;
+  --syntax-type: #0b6e8a;
+  --syntax-variable: #3b3b3b;
+  --syntax-meta: #873ef6;
+  --bubble-border: var(--border);
+  --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.16);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"][data-palette="codex"] {
+  --bg: #181818;
+  --bg-panel: #1f1f1f;
+  --bg-elevated: #262626;
+  --bg-hover: #2f2f2f;
+  --bg-input: #212121;
+  --border: #2e2e2e;
+  --border-strong: #404040;
+  --text: #ececec;
+  --text-dim: #a3a3a3;
+  --text-strong: #ffffff;
+  --accent: #3a83f7;
+  --accent-tint: rgba(58, 131, 247, 0.16);
+  --primary: #ffffff;
+  --primary-hover: #e5e5e5;
+  --primary-text: #181818;
+  --primary-tint: rgba(255, 255, 255, 0.1);
+  --status-idle: #a3a3a3;
+  --status-working: #81b0fa;
+  --status-blocked: #fc8d8b;
+  --status-done: #40c977;
+  --status-working-tint: rgba(129, 176, 250, 0.14);
+  --status-blocked-tint: rgba(252, 141, 139, 0.14);
+  --status-done-tint: rgba(64, 201, 119, 0.14);
+  --danger-tint: rgba(250, 66, 62, 0.14);
+  --notice: #d9b26a;
+  --danger-text: #ffd0ce;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --term-bg: #181818;
+  --term-fg: #ececec;
+  --term-cursor: #ffffff;
+  --term-selection: #264f78;
+  --line-number: #a3a3a3;
+  --syntax-function: #81b0fa;
+  --syntax-keyword: #fc8d8b;
+  --syntax-string: #40c977;
+  --syntax-number: #e5b567;
+  --syntax-type: #9fb4c2;
+  --syntax-variable: #e6e6e6;
+  --syntax-meta: #ad7bf9;
+  --bubble-border: transparent;
+  --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
 /* Catppuccin (catppuccin.com/palette): Mocha in dark, Latte in light, mapped by the
    Catppuccin style guide and its Zed port's surfaces - the content (chat canvas, terminal)
    on Base, the chrome (sidebar, header, tabs) and popovers on Mantle, dimmed text in

@@ -104,24 +104,24 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 Each colour is at least 4.5:1 on its row's `--term-bg`. Dark rows use xterm's defaults.
 Normal and bright slots may share a colour to preserve the palette while keeping both readable.
 
-| ANSI | xterm key | amber | charcoal | catppuccin | catppuccin-latte | tokyo-night-day | gruvbox-light | one-light | solarized-light | kanagawa-lotus | rose-pine-dawn |
-|------|-----------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
-| 0 | `black` | `#2a251f` | `#242424` | `#4c4f69` | `#4c4f69` | `#3760bf` | `#3c3836` | `#383a42` | `#556a72` | `#545464` | `#464261` |
-| 1 | `red` | `#a82323` | `#b3261e` | `#ac0c2f` | `#ac0c2f` | `#90001b` | `#9d0006` | `#a51110` | `#b60006` | `#95002b` | `#873a52` |
-| 2 | `green` | `#2f6317` | `#22743a` | `#28651b` | `#28651b` | `#405b1f` | `#676200` | `#287c2a` | `#5d6e00` | `#4a6228` | `#286983` |
-| 3 | `yellow` | `#8c5000` | `#8a5300` | `#8a5710` | `#8a5710` | `#6c4d1f` | `#8e5100` | `#995f00` | `#8a5f00` | `#625b2a` | `#9e5600` |
-| 4 | `blue` | `#155a72` | `#0b6e8a` | `#1750bf` | `#1750bf` | `#004db6` | `#076678` | `#2f64dd` | `#006baf` | `#4d699b` | `#286983` |
-| 5 | `magenta` | `#8a3f7a` | `#6f42c1` | `#712fc6` | `#712fc6` | `#7847bd` | `#8f3f71` | `#a626a4` | `#c12073` | `#624c83` | `#755f8d` |
-| 6 | `cyan` | `#0f6b6f` | `#0f6f74` | `#0e6b70` | `#0e6b70` | `#005f4a` | `#316b48` | `#0072a9` | `#00746d` | `#216276` | `#33717c` |
-| 7 | `white` | `#685e52` | `#5f5b56` | `#5c5f77` | `#5c5f77` | `#41508a` | `#504945` | `#686b77` | `#5a6a6c` | `#43436c` | `#605b78` |
-| 8 | `brightBlack` | `#5a5045` | `#4e4b47` | `#64677d` | `#64677d` | `#41508a` | `#504945` | `#686b77` | `#586e75` | `#43436c` | `#605b78` |
-| 9 | `brightRed` | `#c42b2b` | `#c92d24` | `#c41545` | `#c41545` | `#90001b` | `#9d0006` | `#a51110` | `#b60006` | `#95002b` | `#873a52` |
-| 10 | `brightGreen` | `#3b741c` | `#277d3f` | `#2f7620` | `#2f7620` | `#405b1f` | `#676200` | `#287c2a` | `#5d6e00` | `#4a6228` | `#286983` |
-| 11 | `brightYellow` | `#9d5a00` | `#9f6100` | `#905c13` | `#905c13` | `#6c4d1f` | `#8e5100` | `#995f00` | `#8a5f00` | `#625b2a` | `#9e5600` |
-| 12 | `brightBlue` | `#1d6f8c` | `#1a7391` | `#0b59f4` | `#0b59f4` | `#004db6` | `#076678` | `#2f64dd` | `#006baf` | `#4d699b` | `#286983` |
-| 13 | `brightMagenta` | `#a24b90` | `#7f52d1` | `#8839ef` | `#8839ef` | `#7847bd` | `#8f3f71` | `#a626a4` | `#c12073` | `#624c83` | `#755f8d` |
-| 14 | `brightCyan` | `#117676` | `#13767e` | `#13737a` | `#13737a` | `#005f4a` | `#316b48` | `#0072a9` | `#00746d` | `#216276` | `#33717c` |
-| 15 | `brightWhite` | `#16120d` | `#111111` | `#4c4f69` | `#4c4f69` | `#3760bf` | `#3c3836` | `#383a42` | `#556a72` | `#545464` | `#464261` |
+| ANSI | xterm key | amber | charcoal | codex | catppuccin | catppuccin-latte | tokyo-night-day | gruvbox-light | one-light | solarized-light | kanagawa-lotus | rose-pine-dawn |
+|------|-----------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
+| 0 | `black` | `#2a251f` | `#242424` | `#1a1c1f` | `#4c4f69` | `#4c4f69` | `#3760bf` | `#3c3836` | `#383a42` | `#556a72` | `#545464` | `#464261` |
+| 1 | `red` | `#a82323` | `#b3261e` | `#b3261e` | `#ac0c2f` | `#ac0c2f` | `#90001b` | `#9d0006` | `#a51110` | `#b60006` | `#95002b` | `#873a52` |
+| 2 | `green` | `#2f6317` | `#22743a` | `#22743a` | `#28651b` | `#28651b` | `#405b1f` | `#676200` | `#287c2a` | `#5d6e00` | `#4a6228` | `#286983` |
+| 3 | `yellow` | `#8c5000` | `#8a5300` | `#8a5300` | `#8a5710` | `#8a5710` | `#6c4d1f` | `#8e5100` | `#995f00` | `#8a5f00` | `#625b2a` | `#9e5600` |
+| 4 | `blue` | `#155a72` | `#0b6e8a` | `#0b6e8a` | `#1750bf` | `#1750bf` | `#004db6` | `#076678` | `#2f64dd` | `#006baf` | `#4d699b` | `#286983` |
+| 5 | `magenta` | `#8a3f7a` | `#6f42c1` | `#6f42c1` | `#712fc6` | `#712fc6` | `#7847bd` | `#8f3f71` | `#a626a4` | `#c12073` | `#624c83` | `#755f8d` |
+| 6 | `cyan` | `#0f6b6f` | `#0f6f74` | `#0f6f74` | `#0e6b70` | `#0e6b70` | `#005f4a` | `#316b48` | `#0072a9` | `#00746d` | `#216276` | `#33717c` |
+| 7 | `white` | `#685e52` | `#5f5b56` | `#5f5b56` | `#5c5f77` | `#5c5f77` | `#41508a` | `#504945` | `#686b77` | `#5a6a6c` | `#43436c` | `#605b78` |
+| 8 | `brightBlack` | `#5a5045` | `#4e4b47` | `#4e4b47` | `#64677d` | `#64677d` | `#41508a` | `#504945` | `#686b77` | `#586e75` | `#43436c` | `#605b78` |
+| 9 | `brightRed` | `#c42b2b` | `#c92d24` | `#c92d24` | `#c41545` | `#c41545` | `#90001b` | `#9d0006` | `#a51110` | `#b60006` | `#95002b` | `#873a52` |
+| 10 | `brightGreen` | `#3b741c` | `#277d3f` | `#277d3f` | `#2f7620` | `#2f7620` | `#405b1f` | `#676200` | `#287c2a` | `#5d6e00` | `#4a6228` | `#286983` |
+| 11 | `brightYellow` | `#9d5a00` | `#9f6100` | `#9f6100` | `#905c13` | `#905c13` | `#6c4d1f` | `#8e5100` | `#995f00` | `#8a5f00` | `#625b2a` | `#9e5600` |
+| 12 | `brightBlue` | `#1d6f8c` | `#1a7391` | `#1a7391` | `#0b59f4` | `#0b59f4` | `#004db6` | `#076678` | `#2f64dd` | `#006baf` | `#4d699b` | `#286983` |
+| 13 | `brightMagenta` | `#a24b90` | `#7f52d1` | `#7f52d1` | `#8839ef` | `#8839ef` | `#7847bd` | `#8f3f71` | `#a626a4` | `#c12073` | `#624c83` | `#755f8d` |
+| 14 | `brightCyan` | `#117676` | `#13767e` | `#13767e` | `#13737a` | `#13737a` | `#005f4a` | `#316b48` | `#0072a9` | `#00746d` | `#216276` | `#33717c` |
+| 15 | `brightWhite` | `#16120d` | `#111111` | `#0d0d0d` | `#4c4f69` | `#4c4f69` | `#3760bf` | `#3c3836` | `#383a42` | `#556a72` | `#545464` | `#464261` |
 <!-- END GENERATED THEMES -->
 
 The glass tokens are expressions over the palette above, not colors of their own:
@@ -144,7 +144,7 @@ theme can be picked on either side. Picking one half of a herdr pair also sets t
 its sibling, but only while that side still holds `amber` (the default, even if picked by hand) or
 the sibling of the previous pick; any other value is kept. A dark theme picked for light mode still
 draws dark.
-The themes are amber, charcoal and catppuccin plus herdr's built-ins; herdr's `terminal` theme is
+The themes are amber, charcoal, codex and catppuccin plus herdr's built-ins; herdr's `terminal` theme is
 not offered. The tables above are amber, the base blocks; every other theme overrides them in a
 `[data-theme][data-palette]` block of `src/styles.css`.
 
@@ -170,6 +170,10 @@ all palettes) and dark Catppuccin, whose elevated surface is darker than its can
 - **Charcoal** is a neutral Ghostty-style dark: near-black canvas, a slightly lighter panel and
   terminal, a near-white accent and primary, and muted agent states. It keeps amber's rounded
   corners and card shadow. In light it's plain paper with an ink accent and cursor.
+- **Codex** copies the Codex desktop app's default theme export: surface `#ffffff` / `#181818`,
+  ink `#1a1c1f` / `#ffffff` and accent `#3a83f7`. The chrome sits one quiet step off the surface,
+  the primary control is ink as Codex's send button, and agent states and code take Codex's
+  diff and skill colors, moved in lightness only as far as AA needs.
 - **Catppuccin** follows [catppuccin.com/palette](https://catppuccin.com/palette/), its style guide
   and its Zed port: Mocha in dark, Latte in light. In both the content (chat canvas `--bg`,
   terminal) is Base, the chrome (`--bg-panel`: sidebar, the header over it and on a phone, tabs) and elevated surfaces Mantle,
