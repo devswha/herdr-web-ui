@@ -76,6 +76,21 @@ it("revoking a paired device ends the page media its renders were given", async 
   } finally { close(); }
 });
 
+it("signing out ends page media rendered by a browser holding both the token and a device cookie", async () => {
+  const { base, render, close } = fixture();
+  const admin = { authorization: "Bearer test-page-media", "x-herdr-machine": "1", "content-type": "application/json" };
+  try {
+    const { code } = await (await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: admin })).json() as { code: string };
+    const paired = await fetch(`${base}/api/devices/pair`, { method: "POST", headers: { "x-herdr-machine": "1", "content-type": "application/json" }, body: JSON.stringify({ code, label: "laptop" }) });
+    expect(paired.status).toBe(204);
+    const both = { authorization: "Bearer test-page-media", cookie: paired.headers.get("set-cookie")!.split(";")[0]! };
+    const { address } = await render(both);
+    expect((await fetch(`${base}${address}`, { headers: fromPage })).status).toBe(200);
+    expect((await fetch(`${base}/api/auth`, { method: "DELETE", headers: { ...both, origin: base } })).status).toBe(204);
+    expect((await fetch(`${base}${address}`, { headers: fromPage })).status).toBe(404);
+  } finally { close(); }
+});
+
 it("behind a proxy that rewrites Host, the policy and the address name the host the browser used", async () => {
   const { base, render, close } = fixture();
   try {

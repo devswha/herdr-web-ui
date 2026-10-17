@@ -1956,7 +1956,12 @@ export function createServer(
 
       if (pathname === "/api/auth") {
         // signing out also ends the page media this browser was given (by its device, else by its address)
-        if (request.method === "DELETE" && authenticated) forgetPageMedia(pairedDevice !== null ? { device: pairedDevice.id } : { client });
+        // a browser can hold the token and a device cookie at once, and its renders are then the
+        // client's: signing out ends both kinds
+        if (request.method === "DELETE" && authenticated) {
+          if (pairedDevice !== null) forgetPageMedia({ device: pairedDevice.id });
+          forgetPageMedia({ client });
+        }
         return handleAuthRequest(request, token, client);
       }
       if (pathname === "/api/devices" || pathname.startsWith("/api/devices/")) {
