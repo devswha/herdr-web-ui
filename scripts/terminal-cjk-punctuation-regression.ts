@@ -17,7 +17,7 @@ import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/clien
 import { chromePath } from "./chrome-path.ts";
 
 /** the column every row's marker is written to, whatever stands before it */
-const MARK_COLUMN = 61;
+const MARK_COLUMN = 100;
 const ROWS = [
   "plain ascii row",
   "Ask: skill 集整改并给证据。wanted: 每条判据可核验。For you 如下，Now / Next 无剩余任务。",
