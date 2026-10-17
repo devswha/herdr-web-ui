@@ -48,6 +48,26 @@ export const ROLES = {
   "shadow-card": "shadow",
 } as const;
 
+/** Light-only terminal roles, keyed by xterm's ITheme names. Dark rows use xterm defaults. */
+export const LIGHT_ANSI_ROLES = {
+  black: "term-black",
+  red: "term-red",
+  green: "term-green",
+  yellow: "term-yellow",
+  blue: "term-blue",
+  magenta: "term-magenta",
+  cyan: "term-cyan",
+  white: "term-white",
+  brightBlack: "term-bright-black",
+  brightRed: "term-bright-red",
+  brightGreen: "term-bright-green",
+  brightYellow: "term-bright-yellow",
+  brightBlue: "term-bright-blue",
+  brightMagenta: "term-bright-magenta",
+  brightCyan: "term-bright-cyan",
+  brightWhite: "term-bright-white",
+} as const;
+
 export const SHADOW_GEOMETRY = {
   dark: {
     "shadow-drawer": ["0 0 40px"],

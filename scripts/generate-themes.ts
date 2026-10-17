@@ -24,7 +24,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseThemeBlocks, resolveEntry } from "../src/lib/themeCss.ts";
-import { ROLES } from "../src/lib/themeRoles.ts";
+import { LIGHT_ANSI_ROLES, ROLES } from "../src/lib/themeRoles.ts";
 
 export const SOURCE = "src/styles.css";
 export const OUTPUTS = {
@@ -114,13 +114,22 @@ export function renderModule(css: string, blocks = parseThemeBlocks(css), amber 
       if (value === undefined) throw new Error(`${SOURCE}: ${block.id}/${block.mode} has no --${role}`);
       return JSON.stringify(value);
     };
-    const roles = Object.keys(ROLES).filter((role) => block.declared[`--${role}`] !== undefined);
+    const ansi = Object.entries(LIGHT_ANSI_ROLES).map(([name, role]) => {
+      const declared = block.declared[`--${role}`];
+      if (block.mode === "dark") {
+        if (declared !== undefined) throw new Error(`${SOURCE}: ${block.id}/dark must not declare --${role}`);
+        return "";
+      }
+      if (declared === undefined) throw new Error(`${SOURCE}: ${block.id}/light must declare --${role}`);
+      return `, ${name}: ${color(role)}`;
+    }).join("");
+    const roles = [...Object.keys(ROLES), ...Object.values(LIGHT_ANSI_ROLES)].filter((role) => block.declared[`--${role}`] !== undefined);
     return [
       "  {",
       `    id: ${JSON.stringify(block.id)},`,
       `    mode: ${JSON.stringify(block.mode)},`,
       `    roles: [${roles.map((role) => JSON.stringify(role)).join(", ")}],`,
-      `    terminal: { background: ${color("term-bg")}, foreground: ${color("term-fg")}, cursor: ${color("term-cursor")}, selectionBackground: ${color("term-selection")} },`,
+      `    terminal: { background: ${color("term-bg")}, foreground: ${color("term-fg")}, cursor: ${color("term-cursor")}, selectionBackground: ${color("term-selection")}${ansi} },`,
       `    bgPanel: ${color("bg-panel")},`,
       "  },",
     ].join("\n");
@@ -155,7 +164,20 @@ export function renderDesign(css: string, design: string, amber = resolveAmber(p
   const rows = DESIGN_ROWS.map(([label, token]) =>
     `| ${label} | \`${token}\` | \`${amberColor(amber, token, "dark", "declared")}\` | \`${amberColor(amber, token, "light", "declared")}\` |`);
   const table = ["| Role | Token | Dark | Light |", "|------|-------|------|-------|", ...rows].join("\n");
-  return `${design.slice(0, begin + DESIGN_BEGIN.length)}\n${table}\n${design.slice(end)}`;
+  const blocks = parseThemeBlocks(css);
+  const light = Object.values(blocks).filter((block) => block.mode === "light");
+  const ansi = [
+    "### Light terminal ANSI colours",
+    "",
+    "Each colour is at least 4.5:1 on its row's `--term-bg`. Dark rows use xterm's defaults.",
+    "Normal and bright slots may share a colour to preserve the palette while keeping both readable.",
+    "",
+    `| ANSI | xterm key | ${light.map(({ id }) => id).join(" | ")} |`,
+    `|------|-----------|${light.map(() => "-------|").join("")}`,
+    ...Object.entries(LIGHT_ANSI_ROLES).map(([name, role], index) =>
+      `| ${index} | \`${name}\` | ${light.map(({ id, mode }) => `\`${resolveEntry(blocks, id, mode).resolved[`--${role}`]}\``).join(" | ")} |`),
+  ].join("\n");
+  return `${design.slice(0, begin + DESIGN_BEGIN.length)}\n${table}\n\n${ansi}\n${design.slice(end)}`;
 }
 
 function decodeNumericEntities(value: string): string {

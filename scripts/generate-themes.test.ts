@@ -41,6 +41,11 @@ describe("generate-themes", () => {
     expect(renderAll(ROOT)).toEqual(renderAll(ROOT));
   });
 
+  it("rejects missing light ANSI declarations and any dark ANSI declarations", () => {
+    expect(() => renderModule(css.replace("--term-black: #2a251f;", ""))).toThrow("amber/light must declare --term-black");
+    expect(() => renderModule(css.replace(":root {", ":root { --term-black: #123456;"))).toThrow("amber/dark must not declare --term-black");
+  });
+
   it("rejects a duplicated, missing or out-of-order DESIGN.md marker, naming it", () => {
     const design = read(ROOT, OUTPUTS.design);
     expect(() => renderDesign(css, design.replace(DESIGN_BEGIN, `${DESIGN_BEGIN}\n${DESIGN_BEGIN}`))).toThrow(`DESIGN.md: marker ${DESIGN_BEGIN} found 2 times`);

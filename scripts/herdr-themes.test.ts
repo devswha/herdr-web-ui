@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeThemeValue, parseThemeBlocks, parseThemeValue } from "../src/lib/themeCss.ts";
 import { ROLES, SHADOW_GEOMETRY, siblingFor, SUPPORTED_ENTRIES } from "../src/lib/themes.ts";
-import { HERDR_SOURCE, KIND, RAW, SOURCE, TOKENS } from "./herdr-themes.ts";
-import { mapTheme, minimumContrast, proposeTheme, ROLE_DEFAULTS } from "./herdr-theme-proposal.ts";
+import { HERDR_SOURCE, KIND, mapTerminalAnsi, RAW, SOURCE, TOKENS } from "./herdr-themes.ts";
+import { deltaE, mapTheme, minimumContrast, proposeTheme, ROLE_DEFAULTS } from "./herdr-theme-proposal.ts";
 import { OVERRIDES, provenanceFailures } from "./herdr-theme-overrides.ts";
 import type { ThemeOverride } from "./herdr-theme-overrides.ts";
 
@@ -88,6 +88,27 @@ describe("pinned herdr palettes", () => {
 });
 
 describe("executable provenance policy", () => {
+  it("maps light ANSI hues from herdr and checks every recorded ANSI repair distance", () => {
+    const raw = RAW["one-light"];
+    expect(mapTerminalAnsi("one-light")["term-red"]).toBe(raw.red);
+    expect(mapTerminalAnsi("one-light", { ...raw, red: "#123456" })["term-bright-red"]).toBe("#123456");
+    for (const item of OVERRIDES) {
+      const mapped = mapTerminalAnsi(item.theme);
+      if (!(item.role in mapped)) continue;
+      expect(item.dE).toBeCloseTo(deltaE(Reflect.get(mapped, item.role), item.value), 10);
+    }
+  });
+
+  it("rejects an undocumented ANSI change, including canonical legacy Latte", () => {
+    for (const id of ["one-light", "catppuccin-latte"] as const) {
+      const own = parseThemeBlocks(css)[`${id}/light`]?.declared;
+      const value = own?.["--term-black"];
+      expect(value).toBeDefined();
+      const changed = css.replace(`--term-black: ${value};`, "--term-black: #123456;");
+      expect(provenanceFailures(changed).join("\n")).toContain(`${id}/light term-black`);
+    }
+  });
+
   it("checks every new supported entry's own CSS declarations against mapping or explicit overrides", () => {
     expect(provenanceFailures(css, SUPPORTED_ENTRIES, OVERRIDES)).toEqual([]);
   });

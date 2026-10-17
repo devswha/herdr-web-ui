@@ -43,7 +43,8 @@ describe("legacy palette parity", () => {
   it("terminal and theme-color: xterm and the <meta> color of every legacy combo are unchanged", () => {
     for (const { palette, mode } of LEGACY_COMBOS) {
       const key = comboKey(palette, mode);
-      expect({ key, terminal: terminalTheme(mode, palette), themeColor: themeColor(mode, palette) }).toEqual({ key, terminal: frozen[key]!.terminal, themeColor: frozen[key]!.themeColor });
+      // Additions (light ANSI colours) are allowed; every frozen value stays unchanged.
+      expect({ key, terminal: terminalTheme(mode, palette), themeColor: themeColor(mode, palette) }).toMatchObject({ key, terminal: frozen[key]!.terminal, themeColor: frozen[key]!.themeColor });
     }
   });
 });

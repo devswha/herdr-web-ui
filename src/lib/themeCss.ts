@@ -3,7 +3,7 @@
  * the CSS text. Runtime code never imports this module.
  */
 
-import { ROLES } from "./themeRoles.ts";
+import { LIGHT_ANSI_ROLES, ROLES } from "./themeRoles.ts";
 import type { Mode } from "./themes.ts";
 
 /**
@@ -33,6 +33,7 @@ export type ThemeValue =
 
 const ALIAS = /^var\((--[\w-]+)\)$/;
 const RGBA = /^rgba\((\d+), (\d+), (\d+), (0(?:\.\d+)?|1(?:\.0+)?)\)$/;
+const COLOR_ROLES = { ...ROLES, ...Object.fromEntries(Object.values(LIGHT_ANSI_ROLES).map((role) => [role, "color"])) };
 
 function isColor(value: string): boolean {
   if (/^#[0-9a-f]{6}$/.test(value) || value === "transparent") return true;
@@ -101,10 +102,10 @@ export function parseThemeBlocks(css: string): Record<string, ThemeBlock> {
         if (role === "bar-bg" || role === "card-glass") {
           const expected = role === "bar-bg" ? "color-mix(in srgb, var(--bg-panel) 72%, transparent)" : "color-mix(in srgb, var(--bg-elevated) 80%, transparent)";
           if (value !== expected) throw new ThemeValueError(entry, role, raw);
-        } else if (role in ROLES || /^(indicator-|droplet-|pdf-page$|syntax-(comment|inserted|deleted)$)/.test(role) || id !== "amber") {
+        } else if (role in COLOR_ROLES || /^(indicator-|droplet-|pdf-page$|syntax-(comment|inserted|deleted)$)/.test(role) || id !== "amber") {
           // The one existing shorthand is a global token, not a per-theme color.
           const parsed = parseThemeValue(entry, role, role === "droplet-bg" && value === "#000" ? "#000000" : raw);
-          const expectedKind = Object.entries(ROLES).find(([name]) => name === role)?.[1];
+          const expectedKind = Object.entries(COLOR_ROLES).find(([name]) => name === role)?.[1];
           if (expectedKind && parsed.kind !== "alias" && parsed.kind !== expectedKind) throw new ThemeValueError(entry, role, raw);
         }
         declared[name] = value;
@@ -144,7 +145,7 @@ export function resolveEntry(css: string | Readonly<Record<string, ThemeBlock>>,
   };
   for (const name of Object.keys(declared)) {
     const value = resolve(name, []);
-    if (Object.entries(ROLES).some(([role, kind]) => name === `--${role}` && kind === "color") && !isColor(value)) {
+    if (Object.entries(COLOR_ROLES).some(([role, kind]) => name === `--${role}` && kind === "color") && !isColor(value)) {
       throw new ThemeValueError(entry, name.slice(2), declared[name] ?? value);
     }
   }

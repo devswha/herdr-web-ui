@@ -6,6 +6,7 @@
  */
 export { HERDR_SOURCE } from "../src/lib/themes.ts";
 import type { Mode } from "../src/lib/themes.ts";
+import { LIGHT_ANSI_ROLES } from "../src/lib/themeRoles.ts";
 
 export const TOKENS = [
   "accent", "panel_bg", "sidebar_bg", "active_row_bg", "selection_bg", "surface0",
@@ -138,6 +139,19 @@ export const RAW = {
 } as const satisfies Record<string, RawPalette>;
 
 export type HerdrThemeId = keyof typeof RAW;
+
+export type AnsiRole = (typeof LIGHT_ANSI_ROLES)[keyof typeof LIGHT_ANSI_ROLES];
+
+/** Raw light-terminal mapping; normal and bright hues share herdr's named colour. */
+export function mapTerminalAnsi(id: HerdrThemeId, raw: RawPalette = RAW[id]): Record<AnsiRole, string> {
+  return {
+    "term-black": raw.text, "term-red": raw.red, "term-green": raw.green, "term-yellow": raw.yellow,
+    "term-blue": raw.blue, "term-magenta": raw.mauve, "term-cyan": raw.teal, "term-white": raw.subtext0,
+    "term-bright-black": raw.overlay1, "term-bright-red": raw.red, "term-bright-green": raw.green,
+    "term-bright-yellow": raw.yellow, "term-bright-blue": raw.blue, "term-bright-magenta": raw.mauve,
+    "term-bright-cyan": raw.teal, "term-bright-white": raw.text,
+  };
+}
 
 export function isHerdrThemeId(id: string): id is HerdrThemeId {
   return Object.hasOwn(RAW, id);

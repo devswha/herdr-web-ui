@@ -1,23 +1,100 @@
 /** Explicit reviewed deviations from mapTheme. Add alongside the CSS edit, never generate. */
 import { normalizeThemeValue, parseThemeBlocks } from "../src/lib/themeCss.ts";
 import { ROLES, SUPPORTED_ENTRIES } from "../src/lib/themes.ts";
+import { LIGHT_ANSI_ROLES } from "../src/lib/themeRoles.ts";
 import type { Mode } from "../src/lib/themes.ts";
 import baseline from "../src/lib/themes.legacy-baseline.json";
-import { isHerdrThemeId, KIND } from "./herdr-themes.ts";
-import type { HerdrThemeId } from "./herdr-themes.ts";
+import { isHerdrThemeId, KIND, mapTerminalAnsi } from "./herdr-themes.ts";
+import type { AnsiRole, HerdrThemeId } from "./herdr-themes.ts";
 import { mapTheme } from "./herdr-theme-proposal.ts";
 import type { Role } from "./herdr-theme-proposal.ts";
 
 export type ThemeOverride = {
   readonly theme: HerdrThemeId;
   readonly mode: Mode;
-  readonly role: Role;
+  readonly role: Role | AnsiRole;
   readonly value: string;
   readonly dE: number;
   readonly reason: string;
 };
 
 export const OVERRIDES: readonly ThemeOverride[] = [
+  {"theme":"tokyo-night-day","mode":"light","role":"term-red","value":"#90001b","dE":23.409147285585878,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-green","value":"#405b1f","dE":8.95277181503446,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-yellow","value":"#6c4d1f","dE":10.845273221210743,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-blue","value":"#004db6","dE":14.938859565334011,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-cyan","value":"#005f4a","dE":14.235514439126485,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-white","value":"#41508a","dE":11.806672082387482,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-bright-black","value":"#41508a","dE":11.240353528990973,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-bright-red","value":"#90001b","dE":23.409147285585878,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-bright-green","value":"#405b1f","dE":8.95277181503446,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-bright-yellow","value":"#6c4d1f","dE":10.845273221210743,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-bright-blue","value":"#004db6","dE":14.938859565334011,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"tokyo-night-day","mode":"light","role":"term-bright-cyan","value":"#005f4a","dE":14.235514439126485,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"gruvbox-light","mode":"light","role":"term-green","value":"#676200","dE":6.17406254566607,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"gruvbox-light","mode":"light","role":"term-yellow","value":"#8e5100","dE":12.377797637617999,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"gruvbox-light","mode":"light","role":"term-cyan","value":"#316b48","dE":5.51264156150833,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"gruvbox-light","mode":"light","role":"term-bright-black","value":"#504945","dE":14.005586354098787,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"gruvbox-light","mode":"light","role":"term-bright-green","value":"#676200","dE":6.17406254566607,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"gruvbox-light","mode":"light","role":"term-bright-yellow","value":"#8e5100","dE":12.377797637617999,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"gruvbox-light","mode":"light","role":"term-bright-cyan","value":"#316b48","dE":5.51264156150833,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-red","value":"#a51110","dE":17.888520463646834,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-green","value":"#287c2a","dE":12.040698311143663,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-yellow","value":"#995f00","dE":12.399888342058368,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-blue","value":"#2f64dd","dE":6.1867911582869555,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-cyan","value":"#0072a9","dE":5.549879353239865,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-bright-red","value":"#a51110","dE":17.888520463646834,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-bright-green","value":"#287c2a","dE":12.040698311143663,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-bright-yellow","value":"#995f00","dE":12.399888342058368,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-bright-blue","value":"#2f64dd","dE":6.1867911582869555,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"one-light","mode":"light","role":"term-bright-cyan","value":"#0072a9","dE":5.549879353239865,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-black","value":"#556a72","dE":5.802622044631877,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-red","value":"#b60006","dE":9.890630890934576,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-green","value":"#5d6e00","dE":14.176956742490573,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-yellow","value":"#8a5f00","dE":13.9920560144617,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-blue","value":"#006baf","dE":10.18732135937955,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-magenta","value":"#c12073","dE":5.113887756838551,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-cyan","value":"#00746d","dE":14.09111223437805,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-white","value":"#5a6a6c","dE":14.19835083286903,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-bright-red","value":"#b60006","dE":9.890630890934576,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-bright-green","value":"#5d6e00","dE":14.176956742490573,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-bright-yellow","value":"#8a5f00","dE":13.9920560144617,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-bright-blue","value":"#006baf","dE":10.18732135937955,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-bright-magenta","value":"#c12073","dE":5.113887756838551,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-bright-cyan","value":"#00746d","dE":14.09111223437805,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"solarized-light","mode":"light","role":"term-bright-white","value":"#556a72","dE":5.802622044631877,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-red","value":"#95002b","dE":14.567451353971705,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-green","value":"#4a6228","dE":13.23490272462029,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-yellow","value":"#625b2a","dE":7.566603805796815,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-cyan","value":"#216276","dE":14.27447851566873,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-bright-black","value":"#43436c","dE":24.062786055852442,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-bright-red","value":"#95002b","dE":14.567451353971705,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-bright-green","value":"#4a6228","dE":13.23490272462029,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-bright-yellow","value":"#625b2a","dE":7.566603805796815,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"kanagawa-lotus","mode":"light","role":"term-bright-cyan","value":"#216276","dE":14.27447851566873,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-red","value":"#873a52","dE":14.033648431352011,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-yellow","value":"#9e5600","dE":23.02522815963855,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-magenta","value":"#755f8d","dE":9.19699929059282,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-cyan","value":"#33717c","dE":11.64373069428541,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-white","value":"#605b78","dE":8.97740548444078,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-bright-black","value":"#605b78","dE":8.97740548444078,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-bright-red","value":"#873a52","dE":14.033648431352011,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-bright-yellow","value":"#9e5600","dE":23.02522815963855,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-bright-magenta","value":"#755f8d","dE":9.19699929059282,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"rose-pine-dawn","mode":"light","role":"term-bright-cyan","value":"#33717c","dE":11.64373069428541,"reason":"Reuse the existing reviewed AA foreground for this herdr hue on the terminal background (at least 4.5:1)"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-red","value":"#ac0c2f","dE":8.110310087603432,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-green","value":"#28651b","dE":18.296876649627432,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-yellow","value":"#8a5710","dE":21.640181477937936,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-blue","value":"#1750bf","dE":9.949031469084613,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-magenta","value":"#712fc6","dE":7.812059634583432,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-cyan","value":"#0e6b70","dE":12.232228095464835,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-white","value":"#5c5f77","dE":5.523098157715421,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-bright-black","value":"#64677d","dE":13.448974992985974,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-bright-red","value":"#c41545","dE":3.2207645198941752,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-bright-green","value":"#2f7620","dE":12.867835275113507,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-bright-yellow","value":"#905c13","dE":19.84279565794547,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-bright-blue","value":"#0b59f4","dE":3.2075139289449184,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
+  {"theme":"catppuccin-latte","mode":"light","role":"term-bright-cyan","value":"#13737a","dE":9.569424788241935,"reason":"Preserve the reviewed #1246 Latte ANSI colour; passes 4.5:1 on unchanged terminal background"},
   {"theme":"dracula","mode":"dark","role":"border","value":"#6272a4","dE":16.436514316328722,"reason":"Reviewed herdr overlay/surface border keeps outlines distinct from elevated and input surfaces"},
   {"theme":"dracula","mode":"dark","role":"border-strong","value":"#828cb4","dE":8.908072684335165,"reason":"Stays one step above --border: herdr overlay1, since surface1 and overlay0 are the same color as --border"},
   {"theme":"dracula","mode":"dark","role":"status-blocked","value":"#ffc8c8","dE":24.57207965447341,"reason":"Reviewed explicit lightening and chroma relaxation beyond the proposal bound; serialized foreground reaches 4.6 and dependent defaults follow"},
@@ -239,14 +316,17 @@ export function provenanceFailures(
   const legacy = new Set([...Object.keys(baseline.combos), "catppuccin-latte/light"]);
   for (const { id, mode } of entries) {
     const key = `${id}/${mode}`;
-    if (legacy.has(key)) continue;
+    // Legacy UI roles stay frozen, but Latte's newly added ANSI roles have provenance too.
+    const legacyAnsi = key === "catppuccin-latte/light";
+    if (legacy.has(key) && !legacyAnsi) continue;
     if (!isHerdrThemeId(id) || KIND[id] !== mode) {
       failures.push(`${key}: no pinned herdr palette of this kind`);
       continue;
     }
-    const mapped = mapTheme(id);
-    for (const role of Object.keys(ROLES)) {
-      const expected = mapped[role as Role], actual = blocks[key]?.declared[`--${role}`];
+    const mapped = { ...mapTheme(id), ...mapTerminalAnsi(id) };
+    const roles = [...(legacyAnsi ? [] : Object.keys(ROLES)), ...(mode === "light" ? Object.values(LIGHT_ANSI_ROLES) : [])];
+    for (const role of roles) {
+      const expected = mapped[role as Role | AnsiRole], actual = blocks[key]?.declared[`--${role}`];
       const override = overrides.find((item) => item.theme === id && item.mode === mode && item.role === role);
       if (actual === undefined || (actual !== normalizeThemeValue(expected) && !override)) {
         failures.push(`${key} ${role}: ${actual ?? "(missing)"} differs from mapped ${expected} without override`);
@@ -259,10 +339,13 @@ export function provenanceFailures(
     const actual = blocks[key]?.declared[`--${item.role}`];
     if (seen.has(label)) failures.push(`${label}: duplicate override`);
     seen.add(label);
-    if (!entries.some((entry) => entry.id === item.theme && entry.mode === item.mode) || legacy.has(key)
+    const ansi = Object.values(LIGHT_ANSI_ROLES).some((role) => role === item.role);
+    if (!entries.some((entry) => entry.id === item.theme && entry.mode === item.mode)
+      || (legacy.has(key) && !(key === "catppuccin-latte/light" && ansi)) || (ansi && item.mode !== "light")
       || actual === undefined || actual !== normalizeThemeValue(item.value)) failures.push(`${label}: stale override`);
     if (!Number.isFinite(item.dE) || item.dE < 0 || !item.reason.trim()) failures.push(`${label}: override needs finite dE and reason`);
-    if (normalizeThemeValue(item.value) === normalizeThemeValue(mapTheme(item.theme)[item.role])) failures.push(`${label}: redundant override`);
+    const mapped = { ...mapTheme(item.theme), ...mapTerminalAnsi(item.theme) };
+    if (normalizeThemeValue(item.value) === normalizeThemeValue(mapped[item.role])) failures.push(`${label}: redundant override`);
   }
   return failures;
 }
