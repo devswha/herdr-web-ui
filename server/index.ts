@@ -104,6 +104,13 @@ import { sameOrigin } from "./machine-security.ts";
 import { PLUGIN_LOG_LIMIT, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
 const MAX_REPLAY_BYTES = 128 * 1024;
+/** joins this close together share one repaint: a reconnect brings every tab back at once */
+const REPAINT_COALESCE_MS = 50;
+/**
+ * The least time between two repaints of one pane: each costs every client of it a whole screen,
+ * and a joiner in the cooldown is served by the next one instead (a flapping phone, quick switches).
+ */
+const REPAINT_MIN_INTERVAL_MS = 1000;
 /** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
@@ -319,6 +326,10 @@ interface PaneAttachment {
   takeOver?: (client: Client) => void;
   /** the next look for the terminal a pane lives on after herdr ended its attach; a closed attachment cancels it */
   relookup?: ReturnType<typeof setTimeout>;
+  /** a repaint asked of herdr for clients that joined with only the replay tail; a closed attachment cancels it */
+  repaint?: ReturnType<typeof setTimeout>;
+  /** when herdr was last asked to repaint (or redrew for a resize), for REPAINT_MIN_INTERVAL_MS */
+  repaintedAt?: number;
 }
 
 function send(client: Client, message: ServerMessage): number {
@@ -1170,6 +1181,7 @@ export function createServer(
     attachments.delete(paneId);
     clearTimeout(attachment.retry);
     clearTimeout(attachment.relookup);
+    clearTimeout(attachment.repaint);
     // its members hold nothing on this pane any more (a pty that exited leaves them on
     // the "terminal ended" screen): a stale entry would read as a live claim in
     // releaseUnclaimed and keep a later, empty pty on this pane running
@@ -1206,6 +1218,24 @@ export function createServer(
     resizePty(paneId, cols, rows);
   }
 
+  /**
+   * herdr's attach stream is a diff against the screen it last sent: what a program drew once
+   * (btop's boxes and titles) is gone from a tail that its later updates filled, and a client
+   * joining with that tail alone never saw it. Told its window changed (SIGWINCH, the size kept),
+   * `herdr terminal attach` sends the whole screen again; every client gets it, as any output.
+   */
+  function requestRepaint(paneId: string): void {
+    const attachment = attachments.get(paneId);
+    if (!attachment || attachment.mirror || attachment.repaint) return;
+    const cooldown = attachment.repaintedAt === undefined ? 0 : attachment.repaintedAt + REPAINT_MIN_INTERVAL_MS - Date.now();
+    attachment.repaint = setTimeout(() => {
+      attachment.repaint = undefined;
+      if (attachments.get(paneId) !== attachment || !attachment.ready || attachment.held || attachment.mirror) return;
+      attachment.repaintedAt = Date.now();
+      (attachment.pty as PtySession).winch();
+    }, Math.max(REPAINT_COALESCE_MS, cooldown));
+  }
+
   function resizePty(paneId: string, cols: number, rows: number): void {
     const attachment = attachments.get(paneId);
     // a mirrored pane's grid is herdr's own: no browser resizes it
@@ -1213,6 +1243,10 @@ export function createServer(
     attachment.cols = cols;
     attachment.rows = rows;
     attachment.pty.resize(cols, rows);
+    // herdr redraws the whole screen for a new size: a repaint still waiting would send it twice
+    clearTimeout(attachment.repaint);
+    attachment.repaint = undefined;
+    attachment.repaintedAt = Date.now();
     broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows });
   }
 
@@ -2589,6 +2623,8 @@ export function createServer(
               if (!alreadyAttached && replay) {
                 client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
                 sendOutput(client, message.pane_id, replay);
+                // a tail that lost the stream's start may miss what was drawn once: herdr draws it again
+                if (!attachment.mirror && attachment.ready && !attachment.held && attachment.replay.truncated) requestRepaint(message.pane_id);
               }
               // a pane waiting for another web bridge to let go says so to each newcomer, too
               if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
