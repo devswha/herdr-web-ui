@@ -72,10 +72,12 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   threads before merging (branch protection does not enforce it).
 - CodeRabbit's reviews are rationed per PR author, and agents open their PRs as one account:
   opening a PR, a push and each `@coderabbitai review` spend one, and past about 80 in a week
-  one comes back per hour. Open unfinished work as a draft, push once when it is ready, do not
-  open a stack of PRs at once, and ask for another review only after a commit that changes
-  behaviour in `server/`, `src/` or `shared/`, an HTTP/WS contract or a workflow. A rebase,
-  changelog fragment, docs, comment or test-only commit gets none.
+  one comes back per hour. Open verified work ready for review, not as a draft: the merge pass
+  reviews every PR itself and stops at a draft. A draft is only for work still unfinished; push
+  it once when it is ready. Do not open a stack of PRs at once, and ask for another review
+  only after a commit that changes behaviour in `server/`, `src/` or `shared/`, an HTTP/WS
+  contract or a workflow. A rebase, changelog fragment, docs, comment or test-only commit gets
+  none.
 - A rate-limited review still shows a passing CodeRabbit check; its "Review limit reached"
   comment means no review ran. A PR touching `--takeover`, observe permissions, queued input,
   authentication, an HTTP/WS contract or a workflow waits for a real review. Any other PR says
