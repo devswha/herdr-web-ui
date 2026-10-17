@@ -47,6 +47,15 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   (`fix/pin-order` in `herdr-web-ui-wt/fix-pin-order`); a short-lived one may stay in the run's
   temp root, and skills that name their own path keep it. Once its PR merges, remove the
   worktree and its branch.
+- After a merge, the merge pass also closes the herdr worktree workspace the PR came from (the
+  one checked out on the PR's branch, under `~/.herdr/worktrees/herdr-web-ui/`), only when all
+  hold: no pane in it has an agent `working`, `git status` there is clean, and the branch's tip
+  is the PR's head commit (`gh pr view --json headRefOid`), so nothing was added after it. Close
+  it with `herdr worktree remove --workspace <id>`, never `git worktree remove`, so the
+  workspace leaves with its checkout. herdr keeps the branch: then `git branch -D` it (a squash
+  merge leaves it unmerged to git; GitHub already deletes the remote one). A workspace that
+  fails a check stays, and the merge report names it and why. A session never removes the
+  worktree it runs in.
 - Everything written to git and GitHub (commits, branches, PRs, reviews, issues, changelog
   fragments) is in English.
 - Never push a `v*` tag by hand: installed updaters act on tags alone.
