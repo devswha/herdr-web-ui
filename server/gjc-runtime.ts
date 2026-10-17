@@ -446,7 +446,8 @@ async function lookupGjcTranscript(
     }
     return path;
   } catch (error) {
-    // a lookup that timed out keeps the proven binding, as the conversation it shows stays (#1295)
+    // a timed-out lookup reaches the route as 504, so the chat keeps what it shows (#1295); the kept
+    // binding was already dropped, since a lookup only runs once it no longer held
     if (error instanceof GjcSdkLookupError) throw error;
     return forget();
   }
