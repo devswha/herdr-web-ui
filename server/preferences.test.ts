@@ -41,6 +41,19 @@ describe("shared preferences", () => {
     expect(store.get().settings).toEqual({ theme: "light", palette: "amber" });
   });
 
+  it.each([
+    ["dark", { lightTheme: "one-light" }, { theme: "dark", palette: "charcoal", darkTheme: "charcoal", lightTheme: "one-light" }],
+    ["light", { darkTheme: "gruvbox" }, { theme: "light", palette: "charcoal", darkTheme: "gruvbox", lightTheme: "charcoal" }],
+    ["system", { lightTheme: "one-light" }, { theme: "system", palette: "charcoal", darkTheme: "charcoal", lightTheme: "one-light" }],
+  ] as const)("keeps a legacy %s document's palette on its side when a new client picks the other side", (theme, change, expected) => {
+    // a document an older server wrote: one palette and no sides
+    const dir = root();
+    writeFileSync(join(dir, "preferences.json"), JSON.stringify({ revision: 3, settings: { theme, palette: "charcoal" } }));
+    const store = new PreferenceStore(dir);
+    store.set({ settings: change });
+    expect(store.get().settings).toEqual(expected);
+  });
+
   it("starts empty, keeps only the shared names, counts each write, and survives a restart", async () => {
     const dir = root();
     const store = new PreferenceStore(dir);
