@@ -763,7 +763,6 @@ export const KO: Record<string, string> = {
   "Codex has a question open in the terminal: answer it above first": "Codex가 터미널에 질문을 열어 두었습니다. 먼저 위에서 답하세요",
   "Confirm your answer in the card above, or type another…": "위 카드에서 답을 확인하거나 다른 답을 입력하세요…",
   "Terminal ended": "터미널 종료됨",
-  "Held input discarded": "보관한 입력 버림",
   "Reconnecting to herdr web ui…": "herdr web ui에 다시 연결하는 중…",
   "Input held:": "보관한 입력:",
   "Send held input": "보관한 입력 보내기",

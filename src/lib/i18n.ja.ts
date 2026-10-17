@@ -765,7 +765,6 @@ export const JA: Record<string, string> = {
   "Codex has a question open in the terminal: answer it above first": "Codex がターミナルで質問を表示しています。先に上で回答してください",
   "Confirm your answer in the card above, or type another…": "上のカードで回答を確認するか、別の回答を入力してください…",
   "Terminal ended": "ターミナルが終了しました",
-  "Held input discarded": "保持した入力は破棄しました",
   "Reconnecting to herdr web ui…": "herdr web ui に再接続しています…",
   "Input held:": "保持した入力:",
   "Send held input": "保持した入力を送信",

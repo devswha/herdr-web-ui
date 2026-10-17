@@ -767,7 +767,6 @@ export const ZH: Record<string, string> = {
   "Codex has a question open in the terminal: answer it above first": "Codex 在终端中有一个未关闭的问题。请先在上方回答",
   "Confirm your answer in the card above, or type another…": "请在上方卡片中确认你的回答，或输入其他回答…",
   "Terminal ended": "终端已结束",
-  "Held input discarded": "已丢弃保留的输入",
   "Reconnecting to herdr web ui…": "正在重新连接 herdr web ui…",
   "Input held:": "保留的输入：",
   "Send held input": "发送保留的输入",

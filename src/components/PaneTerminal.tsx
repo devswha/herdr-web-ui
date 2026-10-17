@@ -259,8 +259,6 @@ export function PaneTerminal({
   const pendingEpochRef = useRef(0);
   const [outputReady, setOutputReady] = useState(false);
   const [ended, setEnded] = useState(false);
-  /** the pane's process ended while input was held for it: that input was let go, and the ended notice says so */
-  const [heldDiscarded, setHeldDiscarded] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   const [inputReady, setInputReady] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
@@ -1189,15 +1187,9 @@ export function PaneTerminal({
         }
       } else if (message.type === "pty-exit") {
         // an ended pane takes no input: a file dropped on it must not upload and paste either
-        if (message.pane_id === paneRef.current) {
-          // input held for the ended process has nowhere to go: it is let go here, and only then does
-          // the ended notice say so
-          const discarding = draftHeldForRef.current === message.pane_id;
-          if (discarding) setDraft(EMPTY_DRAFT);
-          setHeldDiscarded(discarding);
-          setEnded(true);
-          term.options.disableStdin = true;
-        }
+        // held input stays: the server also says pty-exit when herdr restarts or an attach fails,
+        // and the same pane comes back; only the user sends or discards it
+        if (message.pane_id === paneRef.current) { setEnded(true); term.options.disableStdin = true; }
       } else if (message.type === "role-ack") {
         // the server is the authority on the role; only after this ack may an
         // interact client reclaim the shared grid it stopped owning (a tab out of use
@@ -2169,7 +2161,6 @@ export function PaneTerminal({
     const fit = fitRef.current;
     if (!socket || !term) return;
     setEnded(false);
-    setHeldDiscarded(false);
     setInputReady(false);
     setInputError(null);
     setComposing(false);
@@ -2821,7 +2812,7 @@ export function PaneTerminal({
         {/* the chat lens says these itself (ChatView), inline; the pills are the grid's */}
         {paneId !== null && !chatView && ended && !outputError && (
           <div className="terminal-banner" role="status">
-            {t("Terminal ended")}{heldDiscarded ? ` · ${t("Held input discarded")}` : ""}
+            {t("Terminal ended")}
           </div>
         )}
         {paneId !== null && !chatView && !ended && !connected && (

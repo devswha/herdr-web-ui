@@ -1655,8 +1655,8 @@ One set for both themes: the card is island black wherever it shows.
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount hides the unused xterm scrollbar.
 - Terminal banners stack top-right for ended, reconnecting, view-only and held-input states, and
-  say only what the person needs now (section 1). Ended reads **Terminal ended**; **Held input
-  discarded** follows it only when the pane ended with input held, which is let go at that moment.
+  say only what the person needs now (section 1). Ended reads **Terminal ended**; input held for
+  the pane stays until the person sends or discards it (pty-exit also comes with a herdr restart).
   View only is the neutral pill with an eye glyph and the words **View only**: no accent, no
   sentence about the operator's grid. Held input, once the socket is back, is one row on the
   neutral elevated surface with the `--border` hairline: the command in mono (one line, cut with an
