@@ -48,17 +48,30 @@ function packageVersion(directory: string): string | null {
   } catch { return null; }
 }
 
-/** Commands use argv, bounded output/time, and a separate group for cancellation. */
-export function runCommand(cwd: string, argv: string[], signal?: AbortSignal, timeout = 30_000): Promise<string> {
+/** How long a timed-out or cancelled command has to end itself before it is killed outright. */
+const KILL_GRACE_MS = 2_000;
+
+/**
+ * Commands use argv, bounded output/time, and a separate group for cancellation. A command that
+ * times out or is cancelled is asked to end with SIGTERM and killed only once the grace period
+ * has passed: git removes its half-written tmp_pack_* files on SIGTERM but cannot on SIGKILL,
+ * which is how a slow unshallow fetch leaked 17 GiB of them in three days (#1252).
+ */
+export function runCommand(cwd: string, argv: string[], signal?: AbortSignal, timeout = 30_000, grace = KILL_GRACE_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(argv[0]!, argv.slice(1), {
       cwd, detached: true, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
     });
     let output = "", errors = "", failure: string | null = null;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+    const killGroup = (sig: "SIGTERM" | "SIGKILL") => {
+      if (child.pid) { try { process.kill(-child.pid, sig); } catch { child.kill(sig); } }
+    };
     const cancel = (reason: string) => {
       failure = reason;
-      if (child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); } }
+      killGroup("SIGTERM");
+      killTimer ??= setTimeout(() => killGroup("SIGKILL"), grace);
     };
     const abort = () => cancel("Update cancelled");
     const timer = setTimeout(() => cancel(`${argv[0]} timed out`), timeout);
@@ -66,7 +79,7 @@ export function runCommand(cwd: string, argv: string[], signal?: AbortSignal, ti
     if (signal?.aborted) abort();
     child.stdout.on("data", data => { output += data; if (output.length > 2_000_000) cancel("Command output too large"); });
     child.stderr.on("data", data => { errors = (errors + data).slice(-8000); });
-    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); };
+    const cleanup = () => { clearTimeout(timer); if (killTimer) clearTimeout(killTimer); signal?.removeEventListener("abort", abort); };
     child.on("error", error => { cleanup(); reject(error); });
     child.on("close", code => {
       cleanup();
@@ -75,6 +88,13 @@ export function runCommand(cwd: string, argv: string[], signal?: AbortSignal, ti
     });
   });
 }
+
+/** The unshallow fetch downloads the whole missing history in one go: a slow link needs minutes,
+ * not the 30 s bound of an ordinary command (#1252). */
+const UNSHALLOW_TIMEOUT_MS = 10 * 60_000;
+/** After a failed unshallow fetch, the next attempt waits this long: retried on every 5-minute
+ * check, the same history was re-downloaded for days on slow links (#1252). */
+const UNSHALLOW_RETRY_MS = 6 * 60 * 60_000;
 
 export class Updater {
   readonly controller = new AbortController();
@@ -89,6 +109,8 @@ export class Updater {
   private initialTimer?: ReturnType<typeof setTimeout>;
   private sourceRevision = "";
   private failedRevision: string | null = null;
+  /** When a failed unshallow fetch may be tried again (#1252); 0 while none is held off. */
+  private unshallowRetryAt = 0;
 
   constructor(readonly options: {
     root: string; stateDir: string; autoUpdate: boolean;
@@ -250,8 +272,18 @@ export class Updater {
     const test = () => this.git("merge-base", "--is-ancestor", older, newer).then(() => true, () => false);
     if (await test()) return true;
     if (await this.git("rev-parse", "--is-shallow-repository") !== "true") return false;
-    await this.git("fetch", "--no-tags", "--unshallow", "origin");
+    if (Date.now() < this.unshallowRetryAt) {
+      throw new Error(`The checkout's history is not fully fetched; the unshallow fetch failed and the next attempt is at ${new Date(this.unshallowRetryAt).toISOString()}.`);
+    }
+    try { await this.unshallowFetch(UNSHALLOW_TIMEOUT_MS); }
+    catch (error) { this.unshallowRetryAt = Date.now() + UNSHALLOW_RETRY_MS; throw error; }
+    this.unshallowRetryAt = 0;
     return test();
+  }
+
+  /** The one-off fetch of the missing history, with its own, much longer timeout (#1252). */
+  protected async unshallowFetch(timeout: number): Promise<string> {
+    return runCommand(this.options.root, ["git", "fetch", "--no-tags", "--unshallow", "origin"], this.controller.signal, timeout);
   }
 
   async request(command: UpdateCommand): Promise<void> {

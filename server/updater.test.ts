@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -128,6 +128,34 @@ const releaseSupervisor = (broken = false) => broken ? "process.exit(3);\n" : `
   await runSupervisor(process.env.HERDR_WEB_SOURCE_ROOT);
 `;
 const liveHerdr = existsSync(process.env["HERDR_SOCKET"] || HERDR_SOCKET_PATH);
+
+/** What `herdr plugin install` leaves behind: a depth-1 checkout of upstream's main. */
+async function shallowPlugin() {
+  const plugin = join(directory, "plugin");
+  mkdirSync(plugin);
+  await git(plugin, "init", "-q");
+  await git(plugin, "remote", "add", "origin", `file://${upstream}`);
+  await git(plugin, "fetch", "-q", "--depth", "1", "origin", "main");
+  await git(plugin, "checkout", "-q", "FETCH_HEAD");
+  return plugin;
+}
+/**
+ * Stands in for the unshallow fetch, which the fixture's local origin would answer in
+ * milliseconds: counts its calls, records the timeout it was given, and fails each time the way
+ * an offline or too-slow link does (#1252).
+ */
+class OfflineUnshallow extends Updater {
+  fetches = 0;
+  readonly timeouts: number[] = [];
+  protected async unshallowFetch(timeout: number): Promise<string> {
+    this.fetches++;
+    this.timeouts.push(timeout);
+    throw new Error("unshallow fixture offline");
+  }
+}
+/** An updater on the shallow plugin fixture whose unshallow fetch never succeeds. */
+const offlineUpdater = (plugin: string) => new OfflineUnshallow({ root: plugin, stateDir: join(directory, "plugin-state"),
+  autoUpdate: false, pluginCheckout: true, publish() {}, activate: async (_next, persist) => persist() });
 
 describe("managed source updates with real Git repositories and builds", () => {
   it("checks without installing, then builds an exact revision without changing the source", async () => {
@@ -365,6 +393,57 @@ describe("managed source updates with real Git repositories and builds", () => {
     managed.stop();
   });
 
+  it("holds a failed unshallow fetch off instead of retrying it on every check", async () => {
+    // on a slow link, each 5-minute check re-downloaded the same history and left a half-written
+    // tmp_pack_* behind: 17 GiB in three days (#1252). The plugin sits ahead of the latest
+    // release, the one checkout shape whose ancestry the shallow grafts cannot answer.
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.fetches).toBe(1);
+    // the check fails the way a failed fetch does, not with "not part of the release history"
+    expect(managed.status.phase).toBe("error");
+    expect(managed.status.blocked_reason).toBeNull();
+    await managed.request("check");
+    expect(managed.fetches).toBe(1);
+    expect(managed.status.error).toContain("not fully fetched");
+    managed.stop();
+  });
+
+  it("tries the unshallow fetch again once the backoff is over", async () => {
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.fetches).toBe(1);
+    // six hours later (the backoff), the next check downloads the history again
+    const start = Date.now();
+    try {
+      setSystemTime(start + 6 * 60 * 60_000 + 1_000);
+      await managed.request("check");
+    } finally {
+      setSystemTime();
+    }
+    expect(managed.fetches).toBe(2);
+    managed.stop();
+  });
+
+  it("gives the unshallow fetch its own, much longer timeout than an ordinary command", async () => {
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const managed = offlineUpdater(plugin);
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.timeouts).toEqual([10 * 60_000]);
+    managed.stop();
+  });
+
   it("leaves the current release intact on build failure and cleans the failed stage", async () => {
     const original = updater.release;
     await release("broken build", "v0.2.0", { failBuild: true });
@@ -552,6 +631,65 @@ describe("managed source updates with real Git repositories and builds", () => {
       await handle.exited;
     }
   }, 30_000);
+});
+
+describe("a command that times out or is cancelled", () => {
+  // git removes its half-written tmp_pack_* files when it sees SIGTERM; the SIGKILL a slow unshallow
+  // fetch used to get left them all behind (#1252)
+
+  /** A child script that handles (or ignores) SIGTERM; `started` is written once the handler is in
+   * place, so a signal sent after it appears cannot race the child's startup. */
+  const signalChild = (name: string, handler: string, started: string, extra = "") => {
+    const script = join(directory, name);
+    writeFileSync(script, `import { writeFileSync } from "node:fs";
+process.on("SIGTERM", () => { ${handler} });
+writeFileSync(${JSON.stringify(started)}, "started");
+${extra}
+setInterval(() => {}, 1000);`);
+    return script;
+  };
+  const awaitFile = async (file: string) => {
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(file)) {
+      if (Date.now() > deadline) throw new Error(`${file} never appeared`);
+      await Bun.sleep(25);
+    }
+  };
+
+  it("is asked to end with SIGTERM, not killed outright", async () => {
+    const marker = join(directory, "terminated");
+    const script = signalChild("term-handler.ts",
+      `writeFileSync(${JSON.stringify(marker)}, "ended"); process.exit(0);`,
+      join(directory, "term-started"));
+    const running = runCommand(directory, [process.execPath, script], undefined, 1_000);
+    await awaitFile(join(directory, "term-started"));
+    await expect(running).rejects.toThrow("timed out");
+    expect(existsSync(marker)).toBe(true);
+  });
+
+  it("kills a command that ignores SIGTERM once the grace period is up", async () => {
+    const pidFile = join(directory, "ignoring.pid");
+    const script = signalChild("ignoring.ts", "", join(directory, "ignoring-started"),
+      `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`);
+    const running = runCommand(directory, [process.execPath, script], undefined, 1_000, 300);
+    await awaitFile(join(directory, "ignoring-started"));
+    await expect(running).rejects.toThrow("timed out");
+    // dead by the SIGKILL that follows the grace period, not merely asked to die
+    expect(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0)).toThrow();
+  });
+
+  it("asks a cancelled command to end with SIGTERM too", async () => {
+    const marker = join(directory, "cancelled");
+    const script = signalChild("cancel-handler.ts",
+      `writeFileSync(${JSON.stringify(marker)}, "ended"); process.exit(0);`,
+      join(directory, "cancel-started"));
+    const controller = new AbortController();
+    const running = runCommand(directory, [process.execPath, script], controller.signal, 30_000);
+    await awaitFile(join(directory, "cancel-started"));
+    controller.abort();
+    await expect(running).rejects.toThrow("Update cancelled");
+    expect(existsSync(marker)).toBe(true);
+  });
 });
 
 describe("a release's notes file", () => {
