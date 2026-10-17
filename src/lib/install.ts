@@ -74,7 +74,7 @@ function isStandalone(): boolean {
  * installed. A link that opens a new tab of this origin (`target="_blank"`) lands in another app
  * window there, since the app's scope is the whole origin and no page can send it to the browser.
  */
-function isAppWindow(): boolean {
+export function isAppWindow(): boolean {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   const iosNavigator = navigator as Navigator & { standalone?: boolean };
   lastAppWindow = installedState({
