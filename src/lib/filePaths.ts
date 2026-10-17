@@ -39,12 +39,26 @@ function isCodeName(name: string): boolean {
   return !name.includes("/") && CODE_NAME.test(name);
 }
 
+// Chinese and Japanese prose writes a Latin path straight onto its words ("open src/app.ts"
+// with no spaces): where CJK letters and ASCII letters meet with nothing between them, a name
+// ends or starts, so each run between such seams is matched on its own
+const CJK = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
+const SCRIPT_SEAM = new RegExp(`(?<=[${CJK}])(?=[A-Za-z])|(?<=[A-Za-z])(?=[${CJK}])`, "u");
+
+function* pathMatches(text: string): Generator<{ index: number; 0: string; 1: string }> {
+  let start = 0;
+  for (const run of text.split(SCRIPT_SEAM)) {
+    for (const match of run.matchAll(BARE_PATH)) yield { index: start + (match.index ?? 0), 0: match[0], 1: match[1]! };
+    start += run.length;
+  }
+}
+
 /** Text split into plain runs and the file paths in it. */
 export function splitFilePaths(text: string): (string | { path: string })[] {
   const parts: (string | { path: string })[] = [];
   let offset = 0;
-  for (const match of text.matchAll(BARE_PATH)) {
-    const index = match.index ?? 0;
+  for (const match of pathMatches(text)) {
+    const index = match.index;
     // a version number or a domain is not a path: one of its segments must hold a letter
     if (!/\p{L}/u.test(match[1]!.replace(LINE_SUFFIX, "").replace(/\.[A-Za-z0-9]{1,8}$/, ""))) continue;
     if (index > offset) parts.push(text.slice(offset, index));

@@ -25,7 +25,17 @@ describe("file paths in chat text", () => {
     expect(paths("docs/a.md를 열고 src/앱.ts에서 확인")).toEqual(["docs/a.md", "src/앱.ts"]);
     expect(paths("한글/폴더/파일.txt:12")).toEqual(["한글/폴더/파일.txt:12"]);
     // a name with spaces in prose is not guessed at: only its last word would match
-    expect(paths("합치기 결과-mvck6xdy.html")).toEqual([]);
+    expect(paths("docs/합치기 결과-mvck6xdy.html")).toEqual([]);
+  });
+
+  it("takes a Latin path written straight onto Chinese, Japanese or Korean words", () => {
+    expect(paths("请打开src/app.ts文件")).toEqual(["src/app.ts"]);
+    expect(paths("まずsrc/app.tsを開いて")).toEqual(["src/app.ts"]);
+    expect(paths("파일src/a.ts를 열어")).toEqual(["src/a.ts"]);
+    expect(paths("修改了src/lib/filePaths.ts和src/a.ts")).toEqual(["src/lib/filePaths.ts", "src/a.ts"]);
+    expect(splitFilePaths("请打开src/app.ts文件")).toEqual(["请打开", { path: "src/app.ts" }, "文件"]);
+    // a digit next to a Hangul name stays part of it
+    expect(paths("docs/결과2.html")).toEqual(["docs/결과2.html"]);
   });
 
   it("leaves words, versions and bare names as text", () => {
