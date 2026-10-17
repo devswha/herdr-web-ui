@@ -355,6 +355,7 @@ export const ZH: Record<string, string> = {
   "Close workspace {name}?": "关闭工作区 {name}？",
   "{n} panes close with it, and the agents in them stop.": "窗格 {n} 个会一同关闭，其中的代理会停止。",
   "{n} pane closes with it, and the agent in it stops.": "窗格 {n} 个会一同关闭，其中的代理会停止。",
+  "The other workspaces open on this repository's main checkout close too.": "在此仓库主检出上打开的其他工作区也会一同关闭。",
   "Rename failed: {reason}": "重命名失败：{reason}",
   "A workspace needs a name.": "工作区需要一个名称。",
   "A tab needs a name.": "标签页需要一个名称。",

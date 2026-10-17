@@ -48,7 +48,7 @@ interface GroupedWorkspace {
 }
 
 /**
- * herdr's tree: a repository's worktree workspaces hang under a workspace on its main checkout. With
+ * The sidebar's tree: a repository's worktree workspaces hang under a workspace on its main checkout. With
  * more than one open on that checkout, each worktree takes the nearest one before it, else the first;
  * a worktree whose repository has none open stays at the top level, in its own place.
  */
