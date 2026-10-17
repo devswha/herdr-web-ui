@@ -229,8 +229,6 @@ export const ZH: Record<string, string> = {
   "Show workspace list": "显示工作区列表",
   "Hide workspace list": "隐藏工作区列表",
   "Pane closed": "窗格已关闭",
-  "Show the terminal": "显示终端",
-  "Show the chat": "显示聊天",
   "Close this half": "关闭这一半",
   "Drop on the left": "放到左侧",
   "Drop on the right": "放到右侧",

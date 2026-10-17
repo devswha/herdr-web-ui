@@ -8,7 +8,7 @@
  * split tab's panes one at a time (SOLO_PANE_QUERY), that menu lists them first.
  * That menu also carries the open pane's actions, so a lone pane shows no ellipsis of its own.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Bot, Ellipsis, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./TabStrip.css";
@@ -53,9 +53,11 @@ export interface TabStripProps {
   panelId?: string;
   /** a tab dragged out of the strip may open its pane in half of the pane area (lib/paneDrag.ts) */
   splitDrag?: boolean;
+  /** drawn at the row's far end, outside the scrolling tabs: a split view half's close (App) */
+  end?: ReactNode;
 }
 
-export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab, onNewTerminal, paneActions, panelId = PANE_TABPANEL_ID, splitDrag = false }: TabStripProps) {
+export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNewTab, onNewTerminal, paneActions, panelId = PANE_TABPANEL_ID, splitDrag = false, end }: TabStripProps) {
   const t = useT();
   const { settings } = useSettings();
   const machineId = useMachineId();
@@ -361,8 +363,7 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
   // only while the pane's own tab is in this snapshot (paneTabPanelLabel); the same call answers
   // here, so a tab never claims to control a panel that is not standing there as one.
   const panePanel = paneTabPanelLabel(snapshot, selectedPane, t) !== null ? panelId : undefined;
-  return (
-    <>
+  const row = (
       <div ref={strip} className="tab-strip" role="tablist" aria-label={t("Tabs of {workspace}", { workspace: workspace.label })} aria-busy={reorder.moving} onKeyDown={onKeyDown} onScroll={onScroll}
         onFocus={(event) => { if (event.target.getAttribute("role") === "tab") focusedTab.current = event.target; }}
         onBlur={(event) => { if (event.relatedTarget !== null) focusedTab.current = null; }}>
@@ -443,6 +444,10 @@ export function TabStrip({ snapshot, workspace, selectedPane, onSelectPane, onNe
         </button>
         {error && <span className="tab-strip-error" role="alert">{error}</span>}
       </div>
+  );
+  return (
+    <>
+      {end === undefined ? row : <div className="tab-strip-row">{row}<div className="tab-strip-end">{end}</div></div>}
       {picker && <RowMenu anchor={picker.anchor} point={picker.point} restoreFocusTo={picker.previousFocus}
         title={nameOf(picker.tab)} items={pickerItems(picker.tab, picker.touch)} align="start" onClose={() => setPicker(null)} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close tab")} onConfirm={async () => { await close(confirm.tab); setConfirm(null); }} onClose={() => setConfirm(null)} />}

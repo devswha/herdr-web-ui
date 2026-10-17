@@ -1699,8 +1699,9 @@ button {
   order: 1;
 }
 
-/* a half's own bar: its pane's mark and title, its lens, and its close. The active half's bar
-   carries the accent, as the pane the header, the palette and the shortcuts act on */
+/* a half's close sits at the end of its tab strip (TabStrip.css); a half with no strip (its pane
+   gone, or crashed) keeps it in a bar of its own. The active half's row carries the accent, as
+   the pane the header, the palette and the shortcuts act on */
 .pane-slot-bar {
   display: flex;
   flex: none;
@@ -1719,6 +1720,21 @@ button {
   box-shadow: inset 0 2px 0 var(--accent);
 }
 
+/* over the strip's own surface, which would paint over an inset shadow on the row */
+.pane-slot .tab-strip-row {
+  position: relative;
+}
+
+.pane-slot.is-active .tab-strip-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
 .pane-slot-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -1732,12 +1748,12 @@ button {
   color: var(--text-dim);
 }
 
-.pane-slot-bar .pane-slot-action {
+.pane-slot-action {
   width: 24px;
   height: 24px;
 }
 
-.pane-slot-bar .pane-slot-action svg {
+.pane-slot-action svg {
   width: 14px;
   height: 14px;
 }

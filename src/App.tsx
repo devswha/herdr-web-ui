@@ -78,7 +78,7 @@ import { Droplet } from "./components/Droplet.tsx";
 import { dropletAllows, endedTurn, seedStatuses, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 import { canPlayAlertSound, playAlertSound, unlockAlertSound, type AlertSoundKind } from "./lib/alertSound.ts";
 import { createAlertTurnPlayer } from "./lib/alertTurns.ts";
-import { dockPane, draggedPane, paneDragData, dropSide, otherSlot, PANE_DRAG_TYPE, sameTarget, slotSide, storedSplit, storeSplit, type SplitSide, type SplitSlot, type SplitState, type SplitTarget } from "./lib/split.ts";
+import { dockPane, draggedPane, dropSide, otherSlot, PANE_DRAG_TYPE, sameTarget, slotSide, storedSplit, storeSplit, type SplitSide, type SplitSlot, type SplitState, type SplitTarget } from "./lib/split.ts";
 import { paneDrag } from "./lib/paneDrag.ts";
 import { PaneFollowContext } from "./lib/paneSubmitContext.ts";
 import { SplitDropPreview } from "./components/SplitDropPreview.tsx";
@@ -1647,10 +1647,15 @@ export function App() {
             // one pane's panel keeps the page's own id, whichever slot draws it
             const slotPanelId = !splitOn || slot === "a" ? PANE_TABPANEL_ID : `${PANE_TABPANEL_ID}-${slot}`;
             const slotPanelLabel = active ? tabPanelLabel : paneTabPanelLabel(slotSnapshot, pane, t);
-            const toggleSlotView = (): void => {
-              const next = slotView === "chat" ? "terminal" : "chat";
-              if (active) setView(next); else if (pane) pickView(machineId, pane.pane_id, next);
-            };
+            // a half's own close sits at the end of its tab strip; its lens is the header's, on the active half
+            const slotEnd = splitOn ? <>
+              {machines.length > 1 && <span className="pane-slot-machine">{machine?.name ?? machineId}</span>}
+              <button type="button" className="icon-button pane-slot-action" aria-label={t("Close this half")} title={t("Close this half")} onClick={() => closeSlot(slot)}>
+                <X />
+              </button>
+            </> : undefined;
+            // a half with no strip to carry its close (its pane gone, or the half crashed) keeps one in a bar of its own
+            const slotBar = splitOn ? <div className="pane-slot-bar"><span className="pane-slot-title">{pane ? displayPaneTitle(pane) : t("Pane closed")}</span>{slotEnd}</div> : null;
             return (
               <MachineContext.Provider key={slot} value={machineId}><SlotSessions slot={slot} machineIds={machines.map((item) => item.id)}><PaneFollowContext.Provider value={sameTabs && !active}>
               <div
@@ -1667,31 +1672,13 @@ export function App() {
                 // text reach only the active half's terminal, so the drop makes the half active first
                 onDropCapture={active ? undefined : (event) => { if (!event.dataTransfer.types.includes(PANE_DRAG_TYPE)) activateSlot(slot); }}
               >
-                {splitOn && (
-                  <div className="pane-slot-bar" draggable={paneId !== null}
-                    // the half's own pane, dropped on a half of the pane area, opens there too (dockSide)
-                    onDragStart={(event) => {
-                      if (paneId === null) return;
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData(PANE_DRAG_TYPE, paneDragData({ machineId, paneId }));
-                    }}>
-                    {pane?.agent && <AgentMark agent={pane.agent} size={14} />}
-                    <span className="pane-slot-title" title={pane ? displayPaneTitle(pane) : undefined}>{pane ? displayPaneTitle(pane) : t("Pane closed")}</span>
-                    {machines.length > 1 && <span className="pane-slot-machine">{machine?.name ?? machineId}</span>}
-                    <button type="button" className="icon-button pane-slot-action" aria-label={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} title={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} onClick={toggleSlotView}>
-                      {slotView === "chat" ? <SquareTerminal /> : <MessageSquare />}
-                    </button>
-                    <button type="button" className="icon-button pane-slot-action" aria-label={t("Close this half")} title={t("Close this half")} onClick={() => closeSlot(slot)}>
-                      <X />
-                    </button>
-                  </div>
-                )}
                 {/* a pane this half cannot draw leaves the sidebar and the other half working; picking
                     another pane tries again */}
-                <RenderBoundary resetKey={`${machineId}:${paneId ?? ""}`} fallback={(retry) => <RegionCrash message={t("This pane can't be shown.")} retry={retry} onShown={active ? paneLost : undefined} />}>
+                <RenderBoundary resetKey={`${machineId}:${paneId ?? ""}`} fallback={(retry) => <>{slotBar}<RegionCrash message={t("This pane can't be shown.")} retry={retry} onShown={active ? paneLost : undefined} /></>}>
                 <CrashProbe region="pane" />
+                {!(slotSnapshot && pane && workspace) && slotBar}
                 {slotSnapshot && pane && workspace && (
-                  <TabStrip snapshot={slotSnapshot} workspace={workspace} selectedPane={pane} panelId={slotPanelId} splitDrag={wideScreen} onSelectPane={onSelect}
+                  <TabStrip snapshot={slotSnapshot} workspace={workspace} selectedPane={pane} panelId={slotPanelId} splitDrag={wideScreen} onSelectPane={onSelect} end={slotEnd}
                     onNewTab={() => actions.openNewTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
                     onNewTerminal={() => actions.openTerminalTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
                     paneActions={active ? (paneId) => {

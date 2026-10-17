@@ -474,13 +474,19 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
       // Keep the shared grid from the wider terminal while both lenses show Chat, then make
       // only the inactive half show Terminal in a narrower viewport. No PTY resize can repair
       // a local fit here: the active half is still in Chat and the other half stays following.
-      await half(page, "left").getByRole("button", { name: "Show the chat", exact: true }).click();
-      await half(page, "right").getByRole("button", { name: "Show the terminal", exact: true }).waitFor();
+      // a half's lens is the header's, on the active half: the right half takes Terminal while active,
+      // then the left half is made active again, still in Chat
+      await page.locator(".view-switch").getByRole("button", { name: "Chat", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('.pane-slot[data-side="right"]')?.classList.contains("is-chat") === true);
       await page.setViewportSize({ width: 1000, height: 800 });
       await settled(page);
-      await half(page, "right").getByRole("button", { name: "Show the terminal", exact: true }).click();
-      await settled(page);
+      await half(page, "right").locator(".terminal-host").click({ position: { x: 40, y: 40 } });
+      await isActive(page, "right");
+      await page.locator(".view-switch").getByRole("button", { name: "Terminal", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('.pane-slot[data-side="right"]')?.classList.contains("is-chat") === false);
+      await half(page, "left").locator(".terminal-host").click({ position: { x: 40, y: 40 } });
       await isActive(page, "left");
+      await settled(page);
       const grids = await page.evaluate((pane) => [...document.querySelectorAll<HTMLElement>(`[data-layout-pane="${pane}"]`)].map((frame) => {
         const screen = frame.querySelector<HTMLElement>(".xterm-screen")!;
         const rows = frame.querySelector<HTMLElement>(".xterm-rows")!;
@@ -494,7 +500,7 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
       assert.ok(grids[0]!.cols > 0 && grids[0]!.rows > 0, "the active half has a measurable grid");
       assert.deepEqual(grids[1], grids[0], `the inactive Chat-to-Terminal lens keeps the active half's grid: ${JSON.stringify(grids)}`);
       console.log(`PASS an inactive Chat-to-Terminal lens keeps the shared xterm grid ${grids[0]!.cols}x${grids[0]!.rows}`);
-      await half(page, "left").getByRole("button", { name: "Show the terminal", exact: true }).click();
+      await page.locator(".view-switch").getByRole("button", { name: "Terminal", exact: true }).click();
       // the surviving terminal is still attached: a line typed into it reaches the shell
       const screen = async (): Promise<string> => (await paneRead({ paneId: first, source: "visible" })).text;
       const deadline = Date.now() + 15_000;
@@ -581,15 +587,19 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
       console.log("PASS right, middle and macOS Control-click presses leave the other half active");
     }
 
-    // 9. An inactive-half lens choice is live in memory even when its storage write fails.
+    // 9. A half's lens choice is live in memory even when its storage write fails, and holds while the half is inactive.
     {
       const [left, right] = await panesFor("lens-left", "lens-right") as [string, string];
       const { page, errors } = await open([left, right], "chat", undefined, { blockViewWrites: true });
       await splitRight(page, right);
-      await half(page, "left").getByRole("button", { name: "Show the terminal", exact: true }).click();
+      await half(page, "left").locator(".terminal-host").click({ position: { x: 40, y: 40 } });
+      await isActive(page, "left");
+      await page.locator(".view-switch").getByRole("button", { name: "Terminal", exact: true }).click();
+      await half(page, "right").locator(".terminal-host").click({ position: { x: 40, y: 40 } });
+      await isActive(page, "right");
       await settled(page);
-      assert.equal(await half(page, "left").locator(".pane-slot-action").first().getAttribute("aria-label"), "Show the chat",
-        "the inactive half reflects its explicit terminal choice");
+      assert.equal(await half(page, "left").evaluate((slot) => slot.classList.contains("is-chat")), false,
+        "the inactive half keeps its terminal choice");
       assert.equal(await page.evaluate((pane) => localStorage.getItem(`herdr-web-ui:view:${pane}`), left), "chat",
         "the fixture's stored value remains unchanged after the blocked write");
       await half(page, "left").locator(".terminal-host").click({ position: { x: 40, y: 40 } });
@@ -598,7 +608,7 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
       assert.equal(await page.locator('.view-switch button[aria-pressed="true"]').innerText(), "Terminal",
         "activating the half keeps the in-memory lens choice");
       assert.deepEqual(errors, []);
-      console.log("PASS an inactive-half lens choice works and survives activation when storage writes fail");
+      console.log("PASS a half's lens choice holds while inactive and on activation when storage writes fail");
     }
 
     // 9b. A drop just after the node under the pointer was replaced still opens the half.

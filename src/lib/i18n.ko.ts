@@ -225,8 +225,6 @@ export const KO: Record<string, string> = {
   "Show workspace list": "워크스페이스 목록 보이기",
   "Hide workspace list": "워크스페이스 목록 숨기기",
   "Pane closed": "창이 닫혔습니다",
-  "Show the terminal": "터미널 보기",
-  "Show the chat": "채팅 보기",
   "Close this half": "이쪽 화면 닫기",
   "Drop on the left": "왼쪽에 놓기",
   "Drop on the right": "오른쪽에 놓기",
