@@ -65,7 +65,8 @@ export function ChatMinimap({ turns, rowKeys, scroller, onJump }: ChatMinimapPro
     };
   }, [scroller, rowKeys, turns]);
 
-  if (turns.length < MINIMAP_MIN_TURNS || !fits) return null;
+  // a rail with no height to stand on draws nothing, rather than a button per turn
+  if (turns.length < MINIMAP_MIN_TURNS || !fits || railPx <= 0) return null;
   const count = turns.length;
   const slots = minimapSlots(count, railPx);
   const currentSlot = current === null ? null : minimapTurnSlot(current, slots, count);
