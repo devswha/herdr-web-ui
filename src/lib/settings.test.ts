@@ -962,6 +962,12 @@ it("keeps the Markdown preview's width to readable or full, readable by default"
   for (const bad of ["narrow", "medium", "wide", "", null, 80]) expect(sanitizeSettings({ markdownWidth: bad }).markdownWidth).toBe("readable");
 });
 
+it("keeps where web links open to a tab or the panel, a tab by default", () => {
+  expect(DEFAULT_SETTINGS.webLinks).toBe("tab");
+  expect(sanitizeSettings({ webLinks: "panel" }).webLinks).toBe("panel");
+  for (const bad of ["popup", "", null, true]) expect(sanitizeSettings({ webLinks: bad }).webLinks).toBe("tab");
+});
+
 describe("shared settings", () => {
   it("shares exactly the settings SETTING_SCOPE marks shared", () => {
     const shared = Object.entries(SETTING_SCOPE).filter(([, scope]) => scope === "shared").map(([key]) => key).sort();

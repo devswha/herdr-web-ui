@@ -34,7 +34,7 @@ import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
 import { focusWorkspaceListToggle } from "./lib/focus.ts";
 import { headerCrumb, showsChat } from "./lib/headerCrumb.ts";
-import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
+import { LOCAL_MACHINE, paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
@@ -65,6 +65,8 @@ import { TelemetryNotice } from "./components/TelemetryControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
 import { folderQueryFor } from "./lib/paletteFolders.ts";
 import { FileViewer } from "./components/FileViewer.tsx";
+import { WebPanel } from "./components/WebPanel.tsx";
+import { panelUrl, WebPanelContext, wantsPanel } from "./lib/webPanel.ts";
 import { RepoDiffViewer } from "./components/RepoDiffViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
 import { useFileViewer } from "./lib/useFileViewer.ts";
@@ -432,6 +434,19 @@ export function App() {
   useEffect(() => {
     if (viewing !== null && fileDocked) setFilesOpen(false);
   }, [viewing, fileDocked]);
+  // a page this PC serves, beside the pane in the file panel's place: a file docked there replaces it
+  const [webPage, setWebPage] = useState<string | null>(null);
+  useEffect(() => {
+    if (viewing !== null && fileDocked) setWebPage(null);
+  }, [viewing, fileDocked]);
+  const openWebPage = useCallback((uri: string, shiftKey: boolean, machineId: string) => {
+    if (machineId !== LOCAL_MACHINE || !wantsPanel(settings.webLinks, shiftKey)) return false;
+    const url = panelUrl(uri, window.location);
+    if (url === null) return false;
+    if (viewing !== null && fileDocked) closeFile();
+    setWebPage(url);
+    return true;
+  }, [settings.webLinks, viewing, fileDocked, closeFile]);
   // the panel is no dialog, so no trap gives the focus back when it closes: what opened the file
   // (a link in the chat, a row of Files) gets it, as it does from the popup
   useFocusReturn(viewing !== null && fileDocked);
@@ -1618,6 +1633,7 @@ export function App() {
 
         {/* a file path in the chat opens in the viewer, relative to the selected pane's folder */}
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
+        <WebPanelContext.Provider value={filePanelAvailable ? openWebPage : null}>
         <div className={`pane-column${chatShown ? " is-chat" : ""}`}>
         {/* over the pane only: a bar across the window would cut the sidebar off from its top row in the header */}
         <UpdateNotice updates={updates} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
@@ -1754,11 +1770,14 @@ export function App() {
           <SplitDropPreview visible={splitDragOn && (paneDragging || tabDrag !== null)} side={dropAt} />
         </div>
         </div>
+        </WebPanelContext.Provider>
         </OpenFileContext.Provider>
         {/* last in the row: the file beside the pane (from 980px), the pane column shrinks and its terminal refits */}
         {viewing !== null && fileDocked && <MachineContext.Provider value={viewing.machineId}>
           <FileViewer key={viewing.path} docked panelStart={<FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} />} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path, presentation })} onKind={reportFileKind} onTogglePresentation={toggleFilePresentation} keyboardActive={!settingsOpen} />
         </MachineContext.Provider>}
+        {webPage !== null && filePanelAvailable && !(viewing !== null && fileDocked) &&
+          <WebPanel key={webPage} url={webPage} onClose={() => setWebPage(null)} panelStart={<FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} />} />}
       </div>
 
       <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
