@@ -124,7 +124,7 @@ export interface ChatViewProps {
   visible?: boolean;
   pageScroll?: { current: ((direction: -1 | 1) => void) | null };
   refreshKey: number;
-  /** bumped by a conversation push; coalesced at the former 2s polling cadence */
+  /** bumped by a conversation push; coalesced to at most one read a second */
   invalidationKey?: number;
   /** only a mounted, visible chat asks the bridge to watch its native conversation */
   onConversationWatch?: (paneId: string, enabled: boolean) => void;
@@ -1041,7 +1041,7 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
   useEffect(() => { conversationRefresh.setPushes(conversationPushes); }, [conversationPushes, conversationRefresh]);
 
   // A scrollback stand-in has no native file for the server to watch. Its source is the
-  // pane's own screen, so terminal output is the invalidation, under the same 2s bound.
+  // pane's own screen, so terminal output is the invalidation, under the same 1s bound.
   useEffect(() => {
     if (state.source !== "scrollback" || !visible || onTerminalOutput === undefined) return;
     onTerminalOutput(() => conversationRefresh.invalidate());

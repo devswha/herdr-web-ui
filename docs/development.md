@@ -240,7 +240,7 @@ resolves through existing provider/process evidence, checks file identity, size 
 without parsing turns, and rechecks session resolution every 5 s (2 s while a transcript is
 missing). The last interested client, failed/ended attachment and server stop release it.
 
-Newest-page refreshes are single-flight. Push-triggered reads start at least 2 s apart using
+Newest-page refreshes are single-flight. Push-triggered reads start at least 1 s apart using
 monotonic elapsed time, with one trailing refresh at a fixed deadline: continuous writes cannot
 keep postponing it. A push after idle reads immediately. Initial display, explicit sends,
 status/history repairs, reconnect and visibility return bypass that delay but not serialization.
@@ -255,7 +255,7 @@ pane or machine switch.
 A Chat showing the scrollback stand-in (no native transcript yet, or none recognized) has no
 file for the monitor to watch. While it is visible, the pane's own `pty-data` (a mirror's screen
 frames on Windows) invalidates it through the same coordinator, so continuous output rereads
-at most every 2 s and a quiet pane is not read. A Chat showing a native transcript ignores
+at most every 1 s and a quiet pane is not read. A Chat showing a native transcript ignores
 terminal output.
 
 Conversation responses are gzipped like every other text answer (`server/compress.ts`), with
@@ -289,7 +289,7 @@ to about 11.2% of its identity response; real tool output and conversations will
 
 ### Visible-Chat subscription and bounded-refresh resource measurement
 
-The current policy was compared with upstream 2 s polling on macOS in headed Chrome,
+The push policy was compared with upstream 2 s polling on macOS in headed Chrome,
 using owned native Codex fixtures initially about 60 KB each. Each row is a paired
 20 s sample, excluding initial loading, with fresh bridge processes and the same
 16 owned workspaces present for both versions. Both versions retain the existing
@@ -327,7 +327,8 @@ retained the monitor; closing the last view removed all monitors, the monitor ti
 and owned PTY children. No browser errors occurred in these samples.
 
 These resource results do not remeasure the latency or compressed payload figures
-in the historical table above.
+in the historical table above. They were taken with a 2 s push-read bound; the bound is now
+1 s, so a pane written continuously gets up to twice the REST reads shown in the last rows.
 
 ## README media
 
