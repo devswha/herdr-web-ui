@@ -10,6 +10,7 @@ import type { PendingMessage, ServerMessage } from "../shared/protocol.ts";
 import * as processStart from "./process-start.ts";
 import * as pendingInput from "./pending-input.ts";
 import { OmoStatus } from "./omo-status.ts";
+import * as claudeStore from "./claude-store.ts";
 
 type PendingUpdate = Extract<ServerMessage, { type: "pending-messages" }>;
 
@@ -267,6 +268,33 @@ describe("connection-owned pending input", () => {
         id: message.id, state: "held", error: expect.objectContaining({ code: "pending_target_changed" }),
       })); // regression: native OmO session is part of pending identity
       expect(f.bytes()).toBe(""); // regression: the new session receives nothing
+    } finally { session.mockRestore(); }
+  }, 30_000);
+
+  for (const cleared of [true, false]) it(`${cleared ? "holds" : "delivers"} a message when a hookless Claude's PID record ${cleared ? "names another session after /clear" : "keeps its session"} (${cleared ? "regression" : "control"} #540)`, async () => {
+    const f = await setup(`claude-session-${cleared ? "cleared" : "kept"}`);
+    expect((await herdrClient.paneGet(f.pane)).agent_session ?? null).toBeNull(); // control: herdr reports no session
+    let sessionId = "11111111-1111-4111-8111-111111111111";
+    // the recorder runs as `claude`; its PID record is supplied, so no real Claude store is read
+    const session = spyOn(claudeStore, "claudeForegroundSession").mockImplementation(async (processes) =>
+      processes.some((entry) => entry.name === "claude") ? sessionId : null);
+    try {
+      const message = await f.queue(545, "for the session before clear");
+      if (cleared) sessionId = "22222222-2222-4222-8222-222222222222";
+      const settled = f.socket.event((frame) => frame.messages.some((entry) => entry.id === message.id && entry.state === "held")
+        || frame.removed?.some((entry) => entry.id === message.id) === true);
+      await f.state("idle");
+      const outcome = await settled;
+      if (cleared) {
+        expect(outcome.messages).toContainEqual(expect.objectContaining({
+          id: message.id, state: "held", error: expect.objectContaining({ code: "pending_target_changed" }),
+        })); // regression: a session switched inside the same process is held
+        expect(f.bytes()).toBe(""); // regression: the new session receives nothing
+      } else {
+        expect(outcome.removed).toContainEqual({ id: message.id, outcome: "sent" }); // control
+        await f.waitBytes("\r");
+        expect(f.bytes()).toBe(`${paste(message.text)}\r`); // control: delivered once
+      }
     } finally { session.mockRestore(); }
   }, 30_000);
 

@@ -34,7 +34,7 @@ import { CompletionTracker, type OmoRest } from "./completion.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { SHELL_AGENTS, shellAgentExecutable } from "./shell-agent.ts";
 import { createDirectory, listDirectories } from "./directories.ts";
-import { claudeSessionTempDir } from "./claude-store.ts";
+import { claudeForegroundSession, claudeSessionTempDir } from "./claude-store.ts";
 import { fileResponse, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
 import { repoDiffResponse } from "./repo-diff.ts";
 import {
@@ -771,9 +771,12 @@ export function createServer(
     if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
     const info = await paneProcessInfo(paneId);
     const pid = info?.foreground_processes?.[0]?.pid ?? null;
+    const base = pendingIdentity(pane);
     const current: PendingIdentity = {
-      ...pendingIdentity(pane), processPid: pid, processBirth: pid === null ? null : processStartedAt(pid),
+      ...base, processPid: pid, processBirth: pid === null ? null : processStartedAt(pid),
       omoSession: omo.sessionOf(paneId)?.sessionId ?? null,
+      // Claude's own PID record says which session it runs, also without herdr's hook
+      claudeSession: base.agent === "claude" ? await claudeForegroundSession(info?.foreground_processes ?? []) : null,
     };
     if (identity && !samePendingIdentity(identity, current)) {
       throw new HerdrError("pending_target_changed", "The pane's terminal or agent session changed; review the message before sending it again");
@@ -784,6 +787,7 @@ export function createServer(
       identity.processPid ??= current.processPid;
       identity.processBirth ??= current.processBirth;
       identity.omoSession ??= current.omoSession;
+      identity.claudeSession ??= current.claudeSession;
     }
     // the live screen, not the viewport: a pane scrolled into its history still draws its next
     // menu or password prompt at the bottom (server/prompt.ts liveScreen)
