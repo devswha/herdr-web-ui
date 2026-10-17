@@ -358,4 +358,41 @@ describe("locateFile", () => {
     // an absolute or ~ path is taken as written, never searched for
     expect(locateFile("/nowhere/demo.mp4", root)).toBeNull();
   });
+
+  // the walk goes files first, then folders in name order, and stops at 5,000 entries
+  const bigFolder = (root: string) => {
+    mkdirSync(join(root, "a-data"));
+    for (let index = 0; index < 5_100; index += 1) writeFileSync(join(root, "a-data", `page-${index}.txt`), "");
+  };
+
+  it("finds a tracked file past an ignored folder too large to walk", () => {
+    const root = temp();
+    bigFolder(root);
+    mkdirSync(join(root, "docs/design"), { recursive: true });
+    writeFileSync(join(root, "docs/design/11_two-version-design.md"), "# design");
+    writeFileSync(join(root, ".gitignore"), "a-data/\n");
+    expect(Bun.spawnSync(["git", "init", "-q", root]).exitCode).toBe(0);
+    clearFileCache();
+    expect(locateFile("11_two-version-design.md", root)).toMatchObject({ info: { path: join(root, "docs/design/11_two-version-design.md") } });
+  });
+
+  it("finds an ignored file past an ignored folder too large to walk", () => {
+    const root = temp();
+    bigFolder(root);
+    mkdirSync(join(root, "recordings"));
+    writeFileSync(join(root, "recordings/demo.mp4"), "x");
+    writeFileSync(join(root, ".gitignore"), "a-data/\nrecordings/\n");
+    expect(Bun.spawnSync(["git", "init", "-q", root]).exitCode).toBe(0);
+    clearFileCache();
+    expect(locateFile("demo.mp4", root)).toMatchObject({ info: { path: join(root, "recordings/demo.mp4") } });
+  });
+
+  it("finds a file past a folder too large to walk outside a repository", () => {
+    const root = temp();
+    bigFolder(root);
+    mkdirSync(join(root, "docs"));
+    writeFileSync(join(root, "docs/notes.md"), "notes");
+    clearFileCache();
+    expect(locateFile("notes.md", root)).toMatchObject({ info: { path: join(root, "docs/notes.md") } });
+  });
 });
