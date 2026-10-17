@@ -4,6 +4,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { herdrStateDir } from "./plugin-state.ts";
+
 /**
  * The plugin's settings files, read by hand the way a headless PC runs `status` or `pair`:
  * no HERDR_PLUGIN_CONFIG_DIR, so the script asks herdr (a fake one here) for the config dir.
@@ -41,17 +43,6 @@ beforeEach(() => {
 afterEach(() => rmSync(scratch, { recursive: true, force: true }));
 
 describe("plugin settings files", () => {
-  it("uses herdr's plugin state when run by hand without its injected state env", async () => {
-    const defaultStateDir = join(scratch, ".local", "state", "herdr-web-ui");
-    const stateDir = join(scratch, "state-home", "herdr", "plugins", "devswha.herdr-web-ui");
-    mkdirSync(defaultStateDir, { recursive: true });
-    writeFileSync(join(defaultStateDir, "server.log"), "old shell state\n");
-    mkdirSync(stateDir, { recursive: true });
-    writeFileSync(join(stateDir, "server.pid"), `${process.pid}\n`);
-    const result = await run("status", { HERDR_PLUGIN_STATE_DIR: undefined, XDG_STATE_HOME: join(scratch, "state-home"), PORT: "1" });
-    expect(result.out).toContain(`down http://127.0.0.1:1 (pid ${process.pid})`);
-  });
-
   it("finds the config dir through herdr and reads .env", async () => {
     writeFileSync(join(configDir, ".env"), "PORT=1\n");
     const run = await status();
@@ -263,4 +254,43 @@ describe("stop", () => {
       expect(existsSync(join(scratch, "state", "server.pid"))).toBe(false);
     } finally { parent.kill("SIGKILL"); }
   }, 30_000);
+});
+
+describe("the state dir when run by hand", () => {
+  const legacy = () => join(scratch, ".local", "state", "herdr-web-ui");
+  const managed = (base = join(scratch, ".local", "state")) => join(base, "herdr", "plugins", "devswha.herdr-web-ui");
+  const pidFile = (dir: string, pid: number) => { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "server.pid"), `${pid}\n`); };
+  const byHand = (extra: Record<string, string | undefined> = {}) => run("status", { HERDR_PLUGIN_STATE_DIR: undefined, PORT: "1", ...extra });
+
+  it("reads herdr's plugin state, under XDG_STATE_HOME when it is set", async () => {
+    pidFile(managed(join(scratch, "state-home")), process.pid);
+    expect((await byHand({ XDG_STATE_HOME: join(scratch, "state-home") })).out).toContain(`down http://127.0.0.1:1 (pid ${process.pid})`);
+  });
+
+  it("skips an old checkout's pid file whose server is gone", async () => {
+    pidFile(legacy(), 999_999_999);
+    pidFile(managed(), process.pid);
+    expect((await byHand()).out).toContain(`(pid ${process.pid})`);
+  });
+
+  it("keeps a running checkout server's own dir", async () => {
+    const other = Bun.spawn(["sleep", "30"]);
+    try {
+      pidFile(legacy(), other.pid);
+      pidFile(managed(), process.pid);
+      expect((await byHand()).out).toContain(`(pid ${other.pid})`);
+    } finally { other.kill(); }
+  });
+
+  it("keeps the checkout's dir when herdr never installed the plugin", async () => {
+    pidFile(legacy(), process.pid);
+    expect((await byHand()).out).toContain(`(pid ${process.pid})`);
+  });
+
+  it("follows herdr's state dir on each platform", () => {
+    expect(herdrStateDir({ XDG_STATE_HOME: "/x" }, "linux", "/h")).toBe(join("/x", "herdr"));
+    expect(herdrStateDir({}, "darwin", "/h")).toBe(join("/h", ".local", "state", "herdr"));
+    expect(herdrStateDir({ LOCALAPPDATA: "C:/L" }, "win32", "/h")).toBe(join("C:/L", "herdr"));
+    expect(herdrStateDir({ USERPROFILE: "C:/U" }, "win32", "/h")).toBe(join("C:/U", "AppData", "Local", "herdr"));
+  });
 });
