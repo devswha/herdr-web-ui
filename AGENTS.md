@@ -42,6 +42,10 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
 - A session that changes code, in any harness, stops at an open PR: only the maintainer's merge
   pass merges, unless the maintainer asks that session to merge. One session that edits files per
   worktree; read-only sessions may share it.
+- A worktree an agent adds with `git worktree add` that outlives its session (an open PR) goes
+  under `~/.herdr/worktrees/herdr-web-ui-wt/<branch, / as ->`; a short-lived one may stay in the
+  run's temp root, and skills that name their own path keep it. Once its PR merges, remove the
+  worktree and its branch.
 - Everything written to git and GitHub (commits, branches, PRs, reviews, issues, changelog
   fragments) is in English.
 - Never push a `v*` tag by hand: installed updaters act on tags alone.
