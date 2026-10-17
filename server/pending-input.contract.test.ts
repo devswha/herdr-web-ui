@@ -303,15 +303,9 @@ describe("connection-owned pending input", () => {
     send(f.socket, 4, 1); send(other, 5, 1);
     expect(await originalResult(4)).toMatchObject({ ok: true });
     expect(await other.result(5)).toMatchObject({ ok: true });
-    const barrier = new Promise<void>((resolve, reject) => {
-      const watcher = watch(root, () => {
-        if (f.bytes().includes("retry-barrier\r")) { clearTimeout(timer); watcher.close(); resolve(); }
-      });
-      const timer = setTimeout(() => { watcher.close(); reject(new Error("recorder barrier timed out")); }, 5000);
-    });
     other.send({ type: "submit", id: 6, pane_id: f.pane, text: "retry-barrier", payload: "retry-barrier", typed: true });
     expect(await other.result(6)).toMatchObject({ ok: true });
-    await barrier;
+    await f.waitBytes("retry-barrier\r");
     expect(f.bytes().split("retry copy").length - 1).toBe(1);
   }, 30_000);
   for (const copyFirst of [false, true]) it(`regression: shares a held row's send with its saved copy (copy first=${copyFirst})`, async () => {
@@ -327,15 +321,9 @@ describe("connection-owned pending input", () => {
     else { original(); expect(await f.socket.action(3)).toMatchObject({ ok: true }); copy(); }
     expect(await other.result(2)).toMatchObject({ ok: true });
     expect(await f.socket.action(3)).toMatchObject({ ok: true });
-    const barrier = new Promise<void>((resolve, reject) => {
-      const watcher = watch(root, () => {
-        if (f.bytes().includes("barrier\r")) { clearTimeout(timer); watcher.close(); resolve(); }
-      });
-      const timer = setTimeout(() => { watcher.close(); reject(new Error("recorder barrier timed out")); }, 5000);
-    });
     other.send({ type: "submit", id: 4, pane_id: f.pane, text: "barrier", payload: "barrier", typed: true });
     expect(await other.result(4)).toMatchObject({ ok: true });
-    await barrier;
+    await f.waitBytes("barrier\r");
     expect(f.bytes().split("held cross tab").length - 1).toBe(1);
   }, 30_000);
   it("interrupts an explicit Codex Send now only after its native steering panel appears", async () => {
