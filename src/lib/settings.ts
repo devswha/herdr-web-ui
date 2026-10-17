@@ -57,6 +57,8 @@ export type DictationLanguage = "auto" | (typeof DICTATION_LANGUAGES)[number];
 export type DefaultView = "auto" | "chat" | "terminal";
 import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcutBindings.ts";
 import type { StatusIndicators } from "./status.ts";
+import { WEB_LINK_TARGETS, type WebLinkTarget } from "./webPanel.ts";
+import { CLAUDE_LAUNCH_MODES, CODEX_LAUNCH_MODES, type ClaudeLaunchMode, type CodexLaunchMode } from "./agentLaunchMode.ts";
 
 export interface Settings {
   terminalInputMode: "auto" | "line" | "direct";
@@ -156,6 +158,12 @@ export interface Settings {
   markdownWidth: MarkdownWidth;
   /** a repository diff as one column of old and new lines, or the two side by side (a phone shows one column either way) */
   diffStyle: DiffStyle;
+  /** where a click on a web address opens it: a new tab, or the panel beside the pane (lib/webPanel.ts); Shift opens the other one */
+  webLinks: WebLinkTarget;
+  /** the mode a Claude Code started from the new workspace, tab and worktree dialogs runs in (lib/agentLaunchMode.ts); default adds no flag */
+  claudeLaunchMode: ClaudeLaunchMode;
+  /** the same for Codex: a sandbox and approval preset */
+  codexLaunchMode: CodexLaunchMode;
 }
 
 export const MARKDOWN_WIDTHS = ["readable", "full"] as const;
@@ -164,10 +172,11 @@ export const DIFF_STYLES = ["unified", "split"] as const;
 export type DiffStyle = (typeof DIFF_STYLES)[number];
 
 /** Raw custom text, key combinations and account keys are never copied. Requiring every other
- * Settings field in the projection makes a new field require an explicit collection decision. */
+ * Settings field in the projection makes a new field require an explicit collection decision.
+ * webLinks and the launch modes are not collected: the telemetry schema (shared/telemetry.ts) does not carry them. */
 type TelemetrySourceSettings = Omit<Settings,
   "keyBarExtras" | "keyBarItems" | "shortcutOverrides" | "terminalFontFamily" | "chatFontFamily"
-  | "quickReplies" | "usageOrder" | "usageHidden">;
+  | "quickReplies" | "usageOrder" | "usageHidden" | "webLinks" | "claudeLaunchMode" | "codexLaunchMode">;
 
 /** Compare structured custom settings by content against this app's built-in defaults. */
 function differsFromDefault(value: unknown, defaultValue: unknown): boolean {
@@ -249,7 +258,9 @@ export const SETTING_SCOPE = {
   paletteLight: "device", paletteDark: "device", statusIndicators: "device",
   voiceInput: "device", voiceLanguage: "device", voicePolishChat: "device", voicePolishTerminal: "device",
   // Viewer layout follows this screen, as chatWidth does.
-  wrapCode: "device", markdownWidth: "device", diffStyle: "device",
+  wrapCode: "device", markdownWidth: "device", diffStyle: "device", webLinks: "device",
+  // a new agent starts the same way whichever device opened it
+  claudeLaunchMode: "shared", codexLaunchMode: "shared",
 } as const satisfies Record<keyof Settings, "shared" | "device">;
 
 /** The shared part of `settings`, by the names shared/preferences.ts lists. */
@@ -296,8 +307,8 @@ export const DEFAULT_SETTINGS: Settings = {
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
   showUsage: false,
-  usageCount: "used",
-  usageGlance: "week",
+  usageCount: "left",
+  usageGlance: "session",
   defaultView: "auto",
   usageOrder: [],
   usageHidden: [],
@@ -308,6 +319,9 @@ export const DEFAULT_SETTINGS: Settings = {
   wrapCode: false,
   markdownWidth: "readable",
   diffStyle: "unified",
+  webLinks: "tab",
+  claudeLaunchMode: "default",
+  codexLaunchMode: "default",
 };
 
 export const QUICK_REPLIES_MAX = 12;
@@ -489,6 +503,9 @@ export function sanitizeSettings(raw: unknown): Settings {
     wrapCode: typeof record["wrapCode"] === "boolean" ? record["wrapCode"] : DEFAULT_SETTINGS.wrapCode,
     markdownWidth: MARKDOWN_WIDTHS.find((width) => width === record["markdownWidth"]) ?? DEFAULT_SETTINGS.markdownWidth,
     diffStyle: DIFF_STYLES.find((style) => style === record["diffStyle"]) ?? DEFAULT_SETTINGS.diffStyle,
+    webLinks: WEB_LINK_TARGETS.find((target) => target === record["webLinks"]) ?? DEFAULT_SETTINGS.webLinks,
+    claudeLaunchMode: CLAUDE_LAUNCH_MODES.find((mode) => mode === record["claudeLaunchMode"]) ?? DEFAULT_SETTINGS.claudeLaunchMode,
+    codexLaunchMode: CODEX_LAUNCH_MODES.find((mode) => mode === record["codexLaunchMode"]) ?? DEFAULT_SETTINGS.codexLaunchMode,
   };
 }
 

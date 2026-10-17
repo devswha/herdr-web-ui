@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
 import nodePath, { join, type PlatformPath } from "node:path";
 
-import { gjcSdkTranscript } from "./gjc-sdk.ts";
+import { GjcSdkLookupError, gjcSdkTranscript } from "./gjc-sdk.ts";
 import { herdrRpc } from "./herdr/client.ts";
 import { processStartedAt } from "./process-start.ts";
 import { descendantArgv, windowsProcessTable, type ProcessRow } from "./windows-processes.ts";
@@ -371,5 +371,8 @@ async function lookupGjcTranscript(
     if (!finalInfo) return null;
     const final = await processes(finalInfo, true);
     return final?.some((process) => process.pid === owner.pid && sameBirth(process.birth, owner.birth)) ? path : null;
-  } catch { return null; }
+  } catch (error) {
+    if (error instanceof GjcSdkLookupError) throw error;
+    return null;
+  }
 }

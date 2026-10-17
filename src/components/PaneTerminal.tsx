@@ -53,6 +53,7 @@ import { isAppShortcut } from "../lib/shortcuts.ts";
 import { plainPageDirection } from "../lib/pageScroll.ts";
 import { keyboardHoldsGrid, keyboardUp } from "../lib/keyboard.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
+import { WebPanelContext } from "../lib/webPanel.ts";
 import { fileUriPath, hyperlinkFilter, isWebLink, openWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 import { terminalLabel } from "../lib/terminalLabel.ts";
@@ -189,7 +190,10 @@ export function PaneTerminal({
   const openFile = useContext(OpenFileContext);
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
+  const openWebPage = useContext(WebPanelContext);
   const machineId = useMachineId();
+  const openWebRef = useRef((uri: string, shiftKey: boolean) => openWebPage?.(uri, shiftKey, machineId) ?? false);
+  openWebRef.current = (uri, shiftKey) => openWebPage?.(uri, shiftKey, machineId) ?? false;
   const branchWord = usePaneBranch(machineId, workspaceId);
   const machineSessions = useMachineSessions();
   const sessionRef = useRef<MachineSession | null>(null);
@@ -580,7 +584,7 @@ export function PaneTerminal({
           if (!linkPressed(event)) return;
           const path = fileUriPath(uri);
           if (path !== null) openFileRef.current?.(path);
-          else if (isWebLink(uri)) openWebLink(uri);
+          else if (isWebLink(uri) && !openWebRef.current(uri, event.shiftKey)) openWebLink(uri);
         },
         allowNonHttpProtocols: true,
       },
@@ -608,7 +612,7 @@ export function PaneTerminal({
     term.loadAddon(fit);
     matchHerdrWidths(term);
     // the same policy as the linkHandler above: an http(s) address or nothing (S10)
-    term.loadAddon(new WebLinksAddon((_event, uri) => { if (isWebLink(uri)) openWebLink(uri); }));
+    term.loadAddon(new WebLinksAddon((event, uri) => { if (isWebLink(uri) && !openWebRef.current(uri, event.shiftKey)) openWebLink(uri); }));
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
     let compositionEndTimer: number | null = null;

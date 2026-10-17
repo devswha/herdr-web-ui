@@ -11,6 +11,8 @@ import { DirectoryBrowser, homeRelative } from "./DirectoryBrowser.tsx";
 import { RecentFolderChips } from "./RecentFolderChips.tsx";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
+import { useSettings } from "../lib/settings.ts";
+import { launchAgent } from "../lib/agentLaunchMode.ts";
 import { userErrorMessage, type UserError } from "../lib/userError.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
@@ -60,6 +62,7 @@ function directoryBasename(value: string): string {
 
 export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCreated, machineName, prefill = null, onDraft, worktrees = [] }: NewSessionDialogProps) {
   const t = useT();
+  const { settings } = useSettings();
   const machineId = useMachineId();
   const { createTab, createWorkspace, fetchAgentKinds } = useMachineApi();
   const [agents, setAgents] = useState<AgentKind[]>([]);
@@ -153,7 +156,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
     setError(null);
     try {
       rememberAgent(agentKind);
-      const agent = agentKind ? { kind: agentKind } : null;
+      const agent = launchAgent(agentKind, settings);
       // a tab keeps the workspace's folder, which the dialog shows and does not ask for
       const result = tab
         ? await createTab({ workspace_id: tab.workspaceId, cwd: tab.cwd, label: name.trim() || null, agent })

@@ -212,7 +212,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: touch, isMobile: touch, locale: "en-US" });
     try {
       await context.addInitScript((fitCase) => {
-        if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", voiceInput: fitCase.mic ? "on" : "off", chatFontSize: fitCase.chatFontSize ?? null, showUsage: fitCase.showUsage ?? false }));
+        if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", voiceInput: fitCase.mic ? "on" : "off", chatFontSize: fitCase.chatFontSize ?? null, showUsage: fitCase.showUsage ?? false, usageCount: "used" }));
         Object.assign(window, { fitCase });
       }, { agent: "claude", pending: true, status: "working", effort: "xhigh", mic: false, ring: true, ...state });
       const page = await context.newPage();
