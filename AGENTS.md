@@ -52,5 +52,15 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
 - Never push a `v*` tag by hand: installed updaters act on tags alone.
 - Required checks: Fast checks, Integration and browser, Native Windows install. Resolve review
   threads before merging (branch protection does not enforce it).
+- CodeRabbit's reviews are rationed per PR author, and agents open their PRs as one account:
+  opening a PR, a push and each `@coderabbitai review` spend one, and past about 80 in a week
+  one comes back per hour. Open unfinished work as a draft, push once when it is ready, do not
+  open a stack of PRs at once, and ask for another review only after a commit that changes
+  behaviour in `server/`, `src/` or `shared/`, an HTTP/WS contract or a workflow. A rebase,
+  changelog fragment, docs, comment or test-only commit gets none.
+- A rate-limited review still shows a passing CodeRabbit check; its "Review limit reached"
+  comment means no review ran. A PR touching `--takeover`, observe permissions, queued input,
+  authentication, an HTTP/WS contract or a workflow waits for a real review. Any other PR says
+  in a comment that CodeRabbit did not review it, and merges on its checks and the maintainer.
 - Changelog entries go in `changelog.d/` fragments ([format](changelog.d/README.md)), not
   CHANGELOG.md; only a release folds them in.
