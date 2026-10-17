@@ -43,8 +43,9 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   pass merges, unless the maintainer asks that session to merge. One session that edits files per
   worktree; read-only sessions may share it.
 - A worktree an agent adds with `git worktree add` that outlives its session (an open PR) goes
-  under `~/.herdr/worktrees/herdr-web-ui-wt/<branch, / as ->`; a short-lived one may stay in the
-  run's temp root, and skills that name their own path keep it. Once its PR merges, remove the
+  under `~/.herdr/worktrees/herdr-web-ui-wt/`, named after its branch with `/` as `-`
+  (`fix/pin-order` in `herdr-web-ui-wt/fix-pin-order`); a short-lived one may stay in the run's
+  temp root, and skills that name their own path keep it. Once its PR merges, remove the
   worktree and its branch.
 - Everything written to git and GitHub (commits, branches, PRs, reviews, issues, changelog
   fragments) is in English.
