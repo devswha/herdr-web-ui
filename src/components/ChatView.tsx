@@ -1236,8 +1236,12 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
         if (next !== lane) { lane = next; follow = true; }
       }
       if (follow && stickToBottom.current) {
+        // The list's scrollToEnd lands a frame later (see dropPendingListScroll), so the frame
+        // painted now would show the conversation's last lines under a composer that grew a line.
+        // This callback runs before that paint: put the view at the end here, then let the list
+        // settle its own scroll state.
+        node.scrollTop = node.scrollHeight;
         if (timeline.current) timeline.current.scrollToEnd({ animated: false });
-        else node.scrollTo({ top: node.scrollHeight, behavior: "instant" });
       }
     });
     observer.observe(node);
