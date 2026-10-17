@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isThemeId, pickTheme, rowFor, SUPPORTED_ENTRIES, terminalColors, THEME_IDS, themeColor } from "./themes.ts";
+import { DEFAULT_THEME, isThemeId, pickTheme, rowFor, SUPPORTED_ENTRIES, terminalColors, THEME_IDS, themeColor } from "./themes.ts";
 
 describe("theme lookups", () => {
   it("knows the ids of the generated table and nothing else", () => {
@@ -14,9 +14,9 @@ describe("theme lookups", () => {
     }
   });
 
-  it("falls back to amber of the same side for an unknown id", () => {
+  it("falls back to the default theme of the same side for an unknown id", () => {
     for (const side of ["dark", "light"] as const) {
-      expect(rowFor("not-a-theme", side)).toBe(rowFor("amber", side));
+      expect(rowFor("not-a-theme", side)).toBe(rowFor(DEFAULT_THEME, side));
       expect(rowFor("not-a-theme", side).mode).toBe(side);
     }
   });
@@ -34,6 +34,9 @@ describe("theme lookups", () => {
 describe("picking a theme", () => {
   it("fills the other side with the sibling while that side is the default or the previous pick's sibling", () => {
     expect(pickTheme({ darkTheme: "amber", lightTheme: "amber" }, "dark", "tokyo-night")).toEqual({ darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" });
+    // codex is the default, and amber, the default before it, is as unchosen
+    expect(pickTheme({ darkTheme: "codex", lightTheme: "codex" }, "dark", "tokyo-night")).toEqual({ darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" });
+    expect(pickTheme({ darkTheme: "codex", lightTheme: "amber" }, "light", "catppuccin-latte")).toEqual({ darkTheme: "catppuccin", lightTheme: "catppuccin-latte" });
     expect(pickTheme({ darkTheme: "tokyo-night", lightTheme: "tokyo-night-day" }, "dark", "gruvbox")).toEqual({ darkTheme: "gruvbox", lightTheme: "gruvbox-light" });
     expect(pickTheme({ darkTheme: "amber", lightTheme: "amber" }, "light", "catppuccin-latte")).toEqual({ darkTheme: "catppuccin", lightTheme: "catppuccin-latte" });
   });

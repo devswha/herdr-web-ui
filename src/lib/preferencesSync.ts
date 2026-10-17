@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { mirrorPalette, SHARED_SETTING_KEYS, type PreferencesChange, type SharedPreferences, type SharedSettingKey } from "../../shared/preferences.ts";
 import { ApiError, fetchPreferences, savePreferences } from "./api.ts";
+import { DEFAULT_THEME } from "./themes.ts";
 import { sanitizeSettings, sharedSettings, useSettings, type Settings } from "./settings.ts";
 import { currentSidebarPins, setSidebarPins, subscribeSidebarPins } from "./sidebarPins.ts";
 
@@ -79,7 +80,7 @@ export function takePreferences(base: Baseline, local: Local, remote: SharedPref
   }
   // Palette is a derived mirror, not an independent local edit. A legacy document with no
   // sides must not overwrite a device's migrated System pair or provoke a correcting PUT.
-  settings.palette = mirrorPalette(settings.theme, settings.darkTheme ?? "amber", settings.lightTheme ?? "amber");
+  settings.palette = mirrorPalette(settings.theme, settings.darkTheme ?? DEFAULT_THEME, settings.lightTheme ?? DEFAULT_THEME);
   let pins: string[] | null = null;
   if (remote.pins !== undefined) {
     if (base.pins === null && !force) pins = [...remote.pins, ...local.pins.filter((pin) => !remote.pins!.includes(pin))];

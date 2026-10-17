@@ -6,15 +6,18 @@ value. When a component needs a value that is not here, add it to both first.
 
 ## 1. Atmosphere & Identity
 
-A warm terminal: an amber-phosphor console on lamp-lit graphite (dark) or ledger paper (light),
+The herdr look (amber) is a warm terminal: an amber-phosphor console on lamp-lit graphite (dark) or ledger paper (light),
 with chat-app clarity. Tonal surfaces and hairlines keep the chrome out of the way. There is ONE
 chrome color, amber: focus, the chosen lens, the terminal cursor and the user's own action (Send, primary
 buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture. A neutral charcoal look, Catppuccin and herdr's built-in themes
-are opt-in (Settings → Appearance → Dark theme and Light theme); amber stays the default and the
-look before settings load.
+changing information architecture. A new browser starts on the Codex theme (dark and light), which
+draws this hierarchy in Codex's neutral surfaces and blue accent; amber, charcoal, Catppuccin and
+herdr's built-in themes are picked in Settings → Appearance → Dark theme and Light theme. Amber
+stays the base every theme block overrides, the look before settings load, and the look a browser
+keeps when it saved a theme while amber was the default. Settings are saved on a user's first
+change, so a browser that never changed one moves to Codex with everyone new.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
 mark, else the place's own glyph), a title, and a trailing cell that says how it is. Workspaces
@@ -138,12 +141,12 @@ paper, not UI, and the viewer (`.file-viewer-pdf`) must not tint it for the them
 
 ### Themes
 
-`settings.darkTheme` and `settings.lightTheme` (both `amber` by default) name the theme each mode
+`settings.darkTheme` and `settings.lightTheme` (both `codex` by default) name the theme each mode
 draws. The resolved entry is written as `data-theme` (its mode) and `data-palette` (its id). Any
 theme can be picked on either side. Picking one half of a herdr pair also sets the other side to
-its sibling, but only while that side still holds `amber` (the default, even if picked by hand) or
-the sibling of the previous pick; any other value is kept. A dark theme picked for light mode still
-draws dark.
+its sibling, but only while that side still holds `codex` (the default, even if picked by hand),
+`amber` (the default before it) or the sibling of the previous pick; any other value is kept. A
+dark theme picked for light mode still draws dark.
 The themes are amber, charcoal, codex and catppuccin plus herdr's built-ins; herdr's `terminal` theme is
 not offered. The tables above are amber, the base blocks; every other theme overrides them in a
 `[data-theme][data-palette]` block of `src/styles.css`.
@@ -517,8 +520,9 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
-- `palette`: `amber`, `charcoal` or `catppuccin`; default `amber`. A removed palette (`report`,
-  `lilac`, `forest`) loads as `amber`.
+- `palette`: the legacy mirror of the drawn side's theme for older app versions; default `codex`.
+  A record with no palette (saved before palettes) or a removed one (`report`, `lilac`, `forest`)
+  loads as `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - `sidebarRows`: `one` or `two`; default `one`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
