@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 
-import { minimapCurrent, minimapFits, minimapSlots, minimapSlotTurn, minimapStep, minimapTop, minimapTurnSlot, MINIMAP_MIN_TURNS, type MinimapTurn } from "../lib/chatMinimap.ts";
+import { minimapCurrent, minimapFits, minimapSlots, minimapSlotTarget, minimapStep, minimapTop, minimapTurnSlot, MINIMAP_MIN_TURNS, type MinimapTurn } from "../lib/chatMinimap.ts";
 import { useT } from "../lib/i18n.ts";
 import "./ChatMinimap.css";
 
@@ -86,7 +86,7 @@ export function ChatMinimap({ turns, rowKeys, scroller, onJump }: ChatMinimapPro
     onWheel={(event) => scroller.current?.scrollBy({ top: event.deltaY })}
   >
     {Array.from({ length: slots }, (_, index) => {
-      const turnIndex = minimapSlotTurn(index, slots, count);
+      const turnIndex = minimapSlotTarget(index, slots, count);
       const turn = turns[turnIndex]!;
       return <button
         key={turn.row}

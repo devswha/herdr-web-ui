@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ConversationTurn } from "../../shared/protocol.ts";
-import { minimapCurrent, minimapFits, minimapSlots, minimapSlotTurn, minimapStep, minimapTop, minimapTurns, minimapTurnSlot } from "./chatMinimap.ts";
+import { minimapCurrent, minimapFits, minimapSlots, minimapSlotTarget, minimapSlotTurn, minimapStep, minimapTop, minimapTurns, minimapTurnSlot } from "./chatMinimap.ts";
 
 const user = (text: string): ConversationTurn => ({ role: "user", ts: null, parts: [{ kind: "text", text }] });
 const agent: ConversationTurn = { role: "assistant", ts: null, parts: [{ kind: "text", text: "ok" }] };
@@ -32,6 +32,11 @@ describe("chatMinimap", () => {
       }
     }
     expect(minimapTurnSlot(1999, 151, 2000)).toBe(150);
+    // the bottom tick (and End) reaches the newest turn on a capped rail, as on a full one
+    for (const [count, slots] of [[2000, 151], [200, 50], [80, 20], [7, 7]] as const) {
+      expect(minimapSlotTarget(slots - 1, slots, count)).toBe(count - 1);
+      expect(minimapSlotTarget(0, slots, count)).toBe(0);
+    }
   });
 
   test("ticks spread from top to bottom", () => {

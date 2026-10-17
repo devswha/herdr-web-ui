@@ -56,6 +56,11 @@ export function minimapSlotTurn(slot: number, slots: number, count: number): num
   return slots >= count ? slot : Math.floor((slot * count) / slots);
 }
 
+/** The turn a slot's tick jumps to: its first, except the last tick, which reaches the newest turn. */
+export function minimapSlotTarget(slot: number, slots: number, count: number): number {
+  return slot === slots - 1 ? count - 1 : minimapSlotTurn(slot, slots, count);
+}
+
 /** The slot a turn falls in. */
 export function minimapTurnSlot(turn: number, slots: number, count: number): number {
   if (slots >= count) return turn;
