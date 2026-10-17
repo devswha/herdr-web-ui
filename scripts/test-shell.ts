@@ -10,7 +10,11 @@ export function testShellEnv(dir: string): Record<string, string> {
   const shell = join(dir, "test-bash");
   // Keep the long options before herdr's flags, including -l. Noninteractive bash also
   // reads BASH_ENV unless it is unset; none of the user's startup files belong in a pane.
-  writeFileSync(shell, '#!/bin/sh\nunset BASH_ENV ENV\nexec /bin/bash --noprofile --norc "$@"\n', { mode: 0o700 });
+  // Readline in a C locale (a CI container sets none) takes each byte over 0x7f for a Meta key and
+  // mangles UTF-8 typed into the pane (`\u2022`, `\u2191`, `\u203a`); keep typed bytes as they are.
+  const inputrc = join(dir, "test-inputrc");
+  writeFileSync(inputrc, "set input-meta on\nset output-meta on\nset convert-meta off\n");
+  writeFileSync(shell, `#!/bin/sh\nunset BASH_ENV ENV\nINPUTRC='${inputrc.replaceAll("'", "'\\''")}'\nexport INPUTRC\nexec /bin/bash --noprofile --norc "$@"\n`, { mode: 0o700 });
   chmodSync(shell, 0o700);
   return { SHELL: shell };
 }
