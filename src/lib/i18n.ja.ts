@@ -59,6 +59,7 @@ export const JA: Record<string, string> = {
   "Hub URL": "ハブURL",
   "Management key": "管理キー",
   "Blank keeps the saved key": "空欄なら保存済みキーを使用",
+  "Show key": "キーを表示",
   "Check the hub connection": "ハブの接続を確認してください",
   "Waiting for sign-in…": "ログインを待機中…",
   "Open sign-in again": "ログインを再度開く",

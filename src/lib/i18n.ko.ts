@@ -57,6 +57,7 @@ export const KO: Record<string, string> = {
   "Hub URL": "허브 URL",
   "Management key": "관리 키",
   "Blank keeps the saved key": "비워 두면 기존 키 유지",
+  "Show key": "키 보기",
   "Check the hub connection": "허브 연결을 확인하세요",
   "Waiting for sign-in…": "로그인 기다리는 중…",
   "Open sign-in again": "로그인 다시 열기",

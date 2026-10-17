@@ -61,6 +61,7 @@ export const ZH: Record<string, string> = {
   "Hub URL": "中心 URL",
   "Management key": "管理密钥",
   "Blank keeps the saved key": "留空保留原密钥",
+  "Show key": "显示密钥",
   "Check the hub connection": "请检查中心连接",
   "Waiting for sign-in…": "等待登录…",
   "Open sign-in again": "重新打开登录页面",
