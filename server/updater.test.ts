@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest, setSystemTime } from "bun:test";
-import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NOTES_FILE_LIMIT, readNotesFile, Updater, runCommand, type Release } from "./updater.ts";
@@ -153,6 +153,8 @@ class OfflineUnshallow extends Updater {
   readonly timeouts: number[] = [];
   leaves: string[] = [];
   succeeds = false;
+  /** the message each failed attempt ends with */
+  failure = "unshallow fixture offline";
   protected async unshallowFetch(timeout: number, _run?: typeof runCommand): Promise<string> {
     this.fetches++;
     this.timeouts.push(timeout);
@@ -163,7 +165,7 @@ class OfflineUnshallow extends Updater {
       else writeFileSync(join(packDir, name), "half-written");
     }
     if (this.succeeds) return "unshallow fixture done";
-    throw new Error("unshallow fixture offline");
+    throw new Error(this.failure);
   }
   /** The real fetch method (past this class's stand-in) with a stand-in runner, for a test
    * that checks what it hands on. */
@@ -656,6 +658,51 @@ describe("managed source updates with real Git repositories and builds", () => {
     managed.stop();
   });
 
+  it("sweeps a tmp_pack_* left an hour or more ago, keeps a fresh one", async () => {
+    // packs leaked before this cleanup existed (879 files, 17 GiB in #1252), or orphaned when the
+    // process exited before a failed fetch's cleanup ran, are swept once stale; a fresh one may
+    // still be another git's live pack (index-pack keeps touching it)
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const packDir = join(plugin, ".git", "objects", "pack");
+    const stale = join(packDir, "tmp_pack_stale");
+    writeFileSync(stale, "leaked long ago");
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000);
+    utimesSync(stale, twoHoursAgo, twoHoursAgo);
+    writeFileSync(join(packDir, "tmp_pack_fresh"), "maybe still being written");
+    const managed = offlineUpdater(plugin);
+    managed.succeeds = true;
+    await managed.initialize();
+    await managed.request("check");
+    expect(readdirSync(packDir)).not.toContain("tmp_pack_stale");
+    expect(readdirSync(packDir)).toContain("tmp_pack_fresh");
+    managed.stop();
+  });
+
+  it("leaves the pack directory alone when another git holds a lock", async () => {
+    // a developer's own git pull or an IDE's auto-fetch in the same checkout: the updater's fetch
+    // fails on the lock having downloaded nothing, and the tmp_pack_* that appeared meanwhile is
+    // the other git's, still being written
+    await git(upstream, "tag", "v0.1.0", "HEAD");
+    await commit("unreleased");
+    const plugin = await shallowPlugin();
+    const packDir = join(plugin, ".git", "objects", "pack");
+    const managed = offlineUpdater(plugin);
+    managed.leaves = ["tmp_pack_other_git"];
+    managed.failure = `git fetch --no-tags failed: fatal: Unable to create '${plugin}/.git/shallow.lock': File exists.`;
+    await managed.initialize();
+    await managed.request("check");
+    expect(managed.status.error).toContain("File exists");
+    expect(readdirSync(packDir)).toContain("tmp_pack_other_git");
+    managed.failure = "git fetch --no-tags failed: error: cannot lock ref 'refs/tags/v0.1.0': is at 1 but expected 2";
+    managed.leaves = ["tmp_pack_other_ref"];
+    await managed.request("check", true);
+    expect(managed.fetches).toBe(2);
+    expect(readdirSync(packDir)).toContain("tmp_pack_other_ref");
+    managed.stop();
+  });
+
   it("touches no pack directory file but the fetch's own tmp_pack_*", async () => {
     await git(upstream, "tag", "v0.1.0", "HEAD");
     await commit("unreleased");
@@ -907,6 +954,12 @@ ${extra}
 setInterval(() => {}, 1000);`);
     return script;
   };
+  /** A dead process, zombies included (`ps` reports them as Z until their new parent reaps them). */
+  const alive = (pid: number) => {
+    try { process.kill(pid, 0); } catch { return false; }
+    const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+    return state !== "" && !state.startsWith("Z");
+  };
   const awaitFile = async (file: string) => {
     const deadline = Date.now() + 10_000;
     while (!existsSync(file)) {
@@ -943,6 +996,37 @@ setInterval(() => {}, 1000);`);
     } finally {
       // the child ignores SIGTERM: whatever happened above, it only ever ends by its own pid
       if (existsSync(pidFile)) { try { process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL"); } catch { /* already dead */ } }
+    }
+  });
+
+  it("kills a group member that ignores SIGTERM and outlives the command", async () => {
+    // the command ends on SIGTERM, but a helper it started (same process group, none of our
+    // pipes) ignores it: closing must not leave the helper running once the grace timer is gone
+    const helperPid = join(directory, "helper.pid");
+    const helper = signalChild("helper.ts", "", join(directory, "helper-started"),
+      `writeFileSync(${JSON.stringify(helperPid)}, String(process.pid));`);
+    const parent = join(directory, "parent.ts");
+    writeFileSync(parent, `import { spawn } from "node:child_process";
+spawn(${JSON.stringify(process.execPath)}, [${JSON.stringify(helper)}], { stdio: "ignore" }).unref();
+process.on("SIGTERM", () => process.exit(0));
+setInterval(() => {}, 1000);`);
+    const controller = new AbortController();
+    const running = runCommand(directory, [process.execPath, parent], controller.signal, 30_000, 60_000);
+    running.catch(() => {});
+    await awaitFile(join(directory, "helper-started"));
+    await awaitFile(helperPid);
+    const pid = Number(readFileSync(helperPid, "utf8"));
+    try {
+      controller.abort();
+      await expect(running).rejects.toThrow("Update cancelled");
+      // the grace period is a minute: only the kill on close can end the helper this soon
+      const deadline = Date.now() + 5_000;
+      while (alive(pid)) {
+        if (Date.now() > deadline) throw new Error("the helper outlived the command");
+        await Bun.sleep(25);
+      }
+    } finally {
+      try { process.kill(pid, "SIGKILL"); } catch { /* already dead */ }
     }
   });
 

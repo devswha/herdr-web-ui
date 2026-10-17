@@ -1,6 +1,6 @@
 /** Build in a private checkout. The source tree and the serving build stay intact. */
 import { spawn } from "node:child_process";
-import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CHECKOUT_CHANGED_REASON, noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
 import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
@@ -85,6 +85,9 @@ export function runCommand(cwd: string, argv: string[], signal?: AbortSignal, ti
     const cleanup = () => { clearTimeout(timer); if (killTimer) clearTimeout(killTimer); signal?.removeEventListener("abort", abort); };
     child.on("error", error => { cleanup(); reject(error); });
     child.on("close", code => {
+      // a group member that ignores SIGTERM and holds none of our pipes outlives the child: the
+      // grace timer cleanup clears would have been its only end
+      if (failure !== null) killGroup("SIGKILL");
       cleanup();
       if (code === 0 && !failure) resolve(output.trim());
       else reject(new Error(failure ?? `${argv.slice(0, 3).join(" ")} failed: ${errors.trim() || code}`));
@@ -106,16 +109,42 @@ function tmpPacks(packDir: string | null): Set<string> {
   catch { return new Set(); }
 }
 
+/** A `tmp_pack_*` untouched this long belongs to no running fetch: index-pack keeps writing to
+ * (and so updating the mtime of) the file it fills, and the updater's longest fetch, the
+ * unshallow one, is bounded at 10 minutes. */
+const STALE_TMP_PACK_MS = 60 * 60_000;
+
 /** Removes the `tmp_pack_*` files that were not there before the fetch: the ones it wrote before
  * failing, never the ones that were already there and none of the directory's other files. A
- * removal that fails is swallowed, not to replace the fetch's own error. Assumes this updater's
- * fetches are the only git writing into the checkout: a parallel one's half-written pack would
- * be swept along. */
+ * removal that fails is swallowed, not to replace the fetch's own error. */
 function cleanTmpPacks(packDir: string | null, before: Set<string>): void {
   if (packDir === null) return;
   for (const name of tmpPacks(packDir)) {
     if (!before.has(name)) { try { rmSync(join(packDir, name), { force: true }); } catch { /* the fetch's error is the one to tell */ } }
   }
+}
+
+/** Removes every `tmp_pack_*` file older than STALE_TMP_PACK_MS, whoever left it: the packs a
+ * fetch leaked before this cleanup existed (#1252), or that a failed fetch's own cleanup never
+ * reached (the process exited first, a crash, a delete Windows refused while the file was
+ * open). Best effort and never recursive: a failure or a directory is left alone. */
+function sweepStaleTmpPacks(packDir: string | null, now = Date.now()): void {
+  if (packDir === null) return;
+  for (const name of tmpPacks(packDir)) {
+    const path = join(packDir, name);
+    try {
+      const stat = lstatSync(path);
+      if (stat.isFile() && now - stat.mtimeMs > STALE_TMP_PACK_MS) rmSync(path, { force: true });
+    } catch { /* best effort: the next check sweeps again */ }
+  }
+}
+
+/** A fetch that failed because another git holds a lock in the checkout (a developer's own
+ * `git pull` or an IDE's auto-fetch alongside `bun run start`) downloaded nothing; a
+ * `tmp_pack_*` that appeared meanwhile is that git's own, still being written. */
+function lockConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(".lock': File exists") || message.includes("cannot lock ref");
 }
 
 export class Updater {
@@ -325,9 +354,15 @@ export class Updater {
    * be too late anyway (#1252). */
   private async fetchInto(fetch: () => Promise<string>): Promise<string> {
     const packDir = await this.packDir();
+    sweepStaleTmpPacks(packDir);
     const held = tmpPacks(packDir);
     try { return await fetch(); }
-    catch (error) { cleanTmpPacks(packDir, held); throw error; }
+    catch (error) {
+      // another git's lock: its in-progress pack is not ours to remove; anything it abandons is
+      // swept once stale
+      if (!lockConflict(error)) cleanTmpPacks(packDir, held);
+      throw error;
+    }
   }
 
   /** The one-off fetch of the missing history, with its own, much longer timeout (#1252);
