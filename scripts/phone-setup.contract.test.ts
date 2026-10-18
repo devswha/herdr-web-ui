@@ -6,7 +6,7 @@ import { herdrRpc, paneRead, sessionSnapshot, workspaceClose, workspaceCreate } 
 import { testShellEnv } from "./test-shell.ts";
 
 /** Its own XDG config isolates the global plugin registry as well as the owned herdr panes. */
-it("herdr loads the Phone setup entrypoint and keeps its QR and code visible in a pane", async () => {
+it("herdr loads the Phone setup entrypoint and keeps its guidance and code visible in a pane", async () => {
   // the session socket lives under root: macOS's temp dir is too deep for a socket path (104 bytes)
   const root = mkdtempSync(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "herdr-phone-pane-"));
   const source = join(import.meta.dir, "..");
@@ -34,8 +34,7 @@ it("herdr loads the Phone setup entrypoint and keeps its QR and code visible in 
   };
   const app = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/api/health") return Response.json({ ok: true, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } });
-    if (path === "/api/access") return Response.json({ port: app.port, tailscale: { serving_url: "https://demo.example.ts.net" } });
+    if (path === "/api/health") return Response.json({ ok: true, web_ui: { distribution: "tomrutsaert/herdr-web-ui" }, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } });
     if (path === "/api/devices/pair/start") return Response.json({ code: "123456" });
     return new Response(null, { status: 404 });
   } });
@@ -63,9 +62,8 @@ it("herdr loads the Phone setup entrypoint and keeps its QR and code visible in 
       await Bun.sleep(50);
     }
     expect(text).toContain("Phone setup");
-    expect(text).toContain("https://demo.example.ts.net");
+    expect(text).toContain("HTTPS reverse proxy or an SSH tunnel");
     expect(text).toContain("123 456");
-    expect(text).toMatch(/[█▀▄]/);
     expect(text).toContain("Press Enter to finish");
   } finally {
     if (workspace) await workspaceClose(workspace, socket).catch(() => undefined);

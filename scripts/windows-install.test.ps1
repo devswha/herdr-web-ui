@@ -4,7 +4,7 @@ $installer = Join-Path $PSScriptRoot '..\install.ps1'
 $originalPath = $env:PATH
 $originalLocalAppData = $env:LOCALAPPDATA
 $originalUserProfile = $env:USERPROFILE
-$state = @{ installed = $false; installs = 0; uninstalls = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false; windowsRelease = $true }
+$state = @{ installed = $false; installs = 0; uninstalls = 0; ref = ''; running = $true; started = $false; failInstall = $false; bunVersion = '1.4.2'; failBun = $false; windowsRelease = $true; origin = 'https://github.com/tomrutsaert/herdr-web-ui.git' }
 $global:herdrInstallOpened = @()
 # gh is a stand-in .cmd, first on PATH: the installer runs gh as a process, and no real star is read or given.
 # mode.txt beside it is what it answers: starred, not, refuses (the star itself), upstream, signed-out, hangs or
@@ -20,10 +20,16 @@ function Start-Process { $global:herdrInstallOpened += ($args -join ' ') }
 # Tool boundaries only: no downloads, installed plugins, processes or user settings are changed.
 function git {
     $global:LASTEXITCODE = 0
-    "aaa`trefs/tags/v1.9.0"
-    "bbb`trefs/tags/v1.10.0"
-    "ccc`trefs/tags/v2.0.0-rc.1"
-    "ddd`trefs/tags/remote-v99"
+    if ($args[0] -eq '-C') {
+        Assert ($args[1] -eq $pluginRoot -and ($args[2..($args.Count - 1)] -join ' ') -eq 'config --local --get remote.origin.url') 'Identity must read the raw stored origin, not an expanded transport URL'
+        if ($state.realGit) { & $state.realGit @args; return }
+        $state.origin; return
+    }
+    "upstream`trefs/tags/v99.0.0"
+    "aaa`trefs/tags/fork-v1.9.0"
+    "bbb`trefs/tags/fork-v1.10.0"
+    "ccc`trefs/tags/fork-v2.0.0-rc.1"
+    "ddd`trefs/tags/fork-remote-v99"
 }
 function bun {
     $global:LASTEXITCODE = 0
@@ -49,6 +55,8 @@ function herdr {
                 $state.installed = $true; $state.installs++; $state.ref = $args[4]
                 Remove-Item -LiteralPath $pluginRoot -Recurse -Force -ErrorAction SilentlyContinue
                 New-Item -ItemType Directory -Force -Path (Split-Path $launcher) | Out-Null
+                New-Item -ItemType Directory -Force -Path (Join-Path $pluginRoot 'shared') | Out-Null
+                Set-Content -LiteralPath (Join-Path $pluginRoot 'shared\distribution.ts') -Value 'export const DISTRIBUTION_REPOSITORY = "tomrutsaert/herdr-web-ui";'
                 if ($state.windowsRelease) { Set-Content -LiteralPath $launcher -Value '' }
                 'Installed herdr web ui'
             } else { throw "Unexpected herdr command: $args" }
@@ -122,7 +130,7 @@ exit /b 1
     Set-Content -LiteralPath (Join-Path $ghStandIn 'mode.txt') -Encoding Ascii -Value 'signed-out'
 
     & $installer -Ref ''
-    Assert ($state.installed -and $state.ref -eq 'v1.10.0' -and $state.started) 'Install must choose the highest stable release and start a running server'
+    Assert ($state.installed -and $state.ref -eq 'fork-v1.10.0' -and $state.started) 'Install must choose the highest stable release and start a running server'
     & $installer -Ref ''
     Assert ($state.installs -eq 1) 'Rerun must preserve the installed plugin'
     & {
@@ -157,8 +165,52 @@ exit /b 1
     try { & $installer -Ref '' } catch { $failed = $_.Exception.Message -match 'does not support Windows yet' }
     Assert ($failed -and -not $state.started) 'A release without Windows support must not be reported as installed'
     $state.windowsRelease = $true; $installs = $state.installs
+    $failed = $false
+    try { & $installer -Ref '' } catch { $failed = $_.Exception.Message -match 'explicitly replace' }
+    Assert ($failed -and $state.uninstalls -eq 0 -and $state.installs -eq $installs) 'An existing unsupported copy must require an explicit migration, never an uninstall'
+    $state.installed = $false
     & $installer -Ref ''
-    Assert ($state.uninstalls -eq 1 -and $state.installs -eq $installs + 1 -and $state.started) 'A copy without Windows support must be replaced and started'
+    foreach ($source in @('missing-identity', 'foreign-origin')) {
+        $state.started = $false
+        if ($source -eq 'missing-identity') { Remove-Item -LiteralPath (Join-Path $pluginRoot 'shared\distribution.ts') }
+        else { $state.origin = 'https://github.com/devswha/herdr-web-ui.git' }
+        $failed = $false
+        try { & $installer -Ref '' } catch { $failed = $_.Exception.Message -match 'migration' }
+        Assert ($failed -and -not $state.started -and $state.uninstalls -eq 0) 'Upstream/unknown installed sources must not start or uninstall'
+        Set-Content -LiteralPath (Join-Path $pluginRoot 'shared\distribution.ts') -Value 'export const DISTRIBUTION_REPOSITORY = "tomrutsaert/herdr-web-ui";'
+        $state.origin = 'https://github.com/tomrutsaert/herdr-web-ui.git'
+    }
+    & $installer -Ref ''
+    Assert $state.started 'An existing verified fork must remain startable'
+    # An actual temporary repository: insteadOf rewrites transport, not distribution identity.
+    $realGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+    Assert ([bool]$realGit) 'Git for Windows is required for the raw-origin fixture'
+    & $realGit -C $pluginRoot init -q
+    $state.realGit = $realGit
+    try {
+        $mirror = (Join-Path $ghStandIn 'local-transport-only').Replace('\', '/')
+        foreach ($origin in @('https://github.com/tomrutsaert/herdr-web-ui.git', 'git@github.com:tomrutsaert/herdr-web-ui.git', 'ssh://git@github.com/tomrutsaert/herdr-web-ui.git')) {
+            & $realGit -C $pluginRoot config remote.origin.url $origin
+            & $realGit -C $pluginRoot config "url.$mirror.insteadOf" $origin
+            Assert ((& $realGit -C $pluginRoot remote get-url origin) -eq $mirror) 'Control: Git transport must be rewritten'
+            $state.started = $false
+            & $installer -Ref ''
+            Assert $state.started 'Canonical raw fork origins must stay accepted through transport rewrites'
+        }
+        & $realGit -C $pluginRoot config remote.origin.url 'https://github.com/devswha/herdr-web-ui.git'
+        & $realGit -C $pluginRoot config 'url.https://github.com/tomrutsaert/herdr-web-ui.git.insteadOf' 'https://github.com/devswha/herdr-web-ui.git'
+        Assert ((& $realGit -C $pluginRoot remote get-url origin) -eq 'https://github.com/tomrutsaert/herdr-web-ui.git') 'Control: a foreign stored origin can rewrite to the fork'
+        $state.started = $false; $failed = $false
+        try { & $installer -Ref '' } catch { $failed = $_.Exception.Message -match 'migration' }
+        Assert ($failed -and -not $state.started) 'A rewritten foreign origin must not gain fork identity'
+    } finally { $state.realGit = $null }
+    foreach ($ref in @('v99.0.0', 'remote-v99', 'fork-remote-v99')) {
+        $state.installed = $false; $state.started = $false; $installs = $state.installs
+        $failed = $false
+        try { & $installer -Ref $ref } catch { $failed = $_.Exception.Message -match 'fork-v' }
+        Assert ($failed -and $state.installs -eq $installs -and -not $state.started) 'Inherited release tags must fail before installation'
+    }
+    $state.installed = $true
     Write-Host 'PASS native installer release selection, rerun, Bun bootstrap, explicit ref, stopped herdr, install failure and a copy without Windows support'
 
     # Browser opening is covered through a stand-in; this harness never starts a real browser.
@@ -180,7 +232,7 @@ exit /b 1
             $output = & $installer -Ref 'test' 6>&1 | Out-String
             Assert ($global:herdrInstallOpened.Count -eq 0) "$gate must prevent opening"
             if ($gate -eq 'SSH_CONNECTION') {
-                Assert ($output -match 'ssh -L 7317:127\.0\.0\.1:7317' -and $output -match 'Tailscale') 'SSH guidance must include the tunnel command and Tailscale pointer'
+                Assert ($output -match 'ssh -L 7317:127\.0\.0\.1:7317') 'SSH guidance must include the tunnel command and secure access pointer'
             }
             Remove-Item "Env:$gate" -ErrorAction SilentlyContinue
         }
@@ -188,7 +240,7 @@ exit /b 1
         $stoppedOutput = & $installer -Ref 'test' 6>&1 | Out-String
         Assert ($global:herdrInstallOpened.Count -eq 0 -and $stoppedOutput -notmatch 'opened ') 'A fresh install must not open the app when herdr is stopped'
         $state.running = $true
-        Write-Host 'PASS Windows app opening: fresh install, rerun, HERDR_WEB_NO_OPEN, SSH tunnel and Tailscale, and CI'
+        Write-Host 'PASS Windows app opening: fresh install, rerun, HERDR_WEB_NO_OPEN, SSH tunnel, and CI'
     } finally {
         foreach ($pair in @(@('CI', $savedCi), @('HERDR_WEB_NO_OPEN', $savedNoOpen), @('SSH_CONNECTION', $savedSsh))) {
             if ($null -eq $pair[1]) { Remove-Item "Env:$($pair[0])" -ErrorAction SilentlyContinue }
@@ -260,7 +312,7 @@ exit /b 1
     $childFile = Join-Path $ghStandIn 'child.txt'
     Remove-Item -LiteralPath $childFile -Force -ErrorAction SilentlyContinue
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $answer = Invoke-GhApi 'user/starred/devswha/herdr-web-ui'
+    $answer = Invoke-GhApi 'user/starred/tomrutsaert/herdr-web-ui'
     $elapsed = $clock.Elapsed.TotalSeconds
     $childPid = [int](Get-Content -LiteralPath $childFile -ErrorAction SilentlyContinue | Select-Object -First 1)
     Assert ($childPid -gt 0) 'control: the lingering stand-in must have started its child and named its PID'
@@ -337,7 +389,7 @@ public static class ImmediateGh {
             try {
                 Invoke-Expression $case.source
                 $clock = [Diagnostics.Stopwatch]::StartNew()
-                $answer = Invoke-GhApi 'user/starred/devswha/herdr-web-ui'
+                $answer = Invoke-GhApi 'user/starred/tomrutsaert/herdr-web-ui'
                 Assert ($null -eq $answer -and $clock.Elapsed.TotalSeconds -lt 15) 'regression: immediate child must not keep the call waiting past its deadline'
                 Assert ($ready.WaitOne(0)) 'control: the resumed shim must have started its child'
                 $childPid = [int](Get-Content -LiteralPath $env:HERDR_TEST_GH_CHILD)

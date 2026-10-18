@@ -1,24 +1,23 @@
 #!/bin/sh
 # herdr web ui in one line, from a PC that may have none of it yet:
 #
-#   curl -fsSL https://herdrweb.dev/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 #
 # 1. Installs what is missing, for this user only and without sudo: herdr (its own installer, into
 #    ~/.local/bin), Bun (its own installer, into ~/.bun) and Node 22 (the official build, checked
 #    against its published SHA-256, into ~/.local/share/herdr-web-ui/node).
-# 2. Installs herdr web ui as a herdr plugin, so it starts with herdr and Settings → Updates keeps it
-#    current, and starts it now when herdr is running.
-# 3. When Tailscale runs on this PC, serves the app to your tailnet (`tailscale serve`, on the first
-#    free HTTPS port) and prints the address a phone opens as a QR code (scripts/plugin.ts phone).
+# 2. Installs herdr web ui as a herdr plugin, so it starts with herdr. Check and Update in
+#    Settings → About are explicit/manual. Starts the app now when herdr is running.
+# 3. Prints the local app address. Configure a secure remote route separately.
 # 4. On a first install, mentions a GitHub star once. When the gh CLI is signed in and has not
 #    starred the repository, it asks at the terminal, for 20 seconds, and stars only on "y"; it
 #    never stars by itself.
 #
-# Run it again at any time: what is already there is kept, and step 3 is repeated.
+# Run it again at any time: what is already there is kept, and the local address is printed.
 #   HERDR_WEB_UI_REF=<branch or tag>   install that ref instead of the latest release
 set -eu
 
-REPO="devswha/herdr-web-ui"
+REPO="tomrutsaert/herdr-web-ui"
 PLUGIN="devswha.herdr-web-ui"
 BIN_DIR="$HOME/.local/bin"
 NODE_DIR="$HOME/.local/share/herdr-web-ui/node"
@@ -31,12 +30,25 @@ say() { printf '%s\n' "herdr web ui: $*"; }
 link() { if [ "$terminal" = 1 ]; then printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$1" "$1"; else printf '%s' "$1"; fi; }
 fail() { printf '%s\n' "herdr web ui: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "needs '$1', which is not installed. Install it and run this again."; }
-# The highest vX.Y.Z tag, as the updater picks it: a new install gets what existing ones run,
-# never the commits merged to main since the last release.
+# Read the installed distribution as data, never by executing its code.
+verify_fork() {
+  bun -e '
+    const { readFileSync } = await import("node:fs");
+    const { spawnSync } = await import("node:child_process");
+    try {
+      const root = process.argv[1];
+      const identity = readFileSync(`${root}/shared/distribution.ts`, "utf8").replace(/\r\n/g, "\n");
+      const remote = spawnSync("git", ["-C", root, "config", "--local", "--get", "remote.origin.url"], { encoding: "utf8" });
+      if (!/^export const DISTRIBUTION_REPOSITORY = "tomrutsaert\/herdr-web-ui";$/m.test(identity)
+          || remote.status !== 0 || !/^(https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)tomrutsaert\/herdr-web-ui(?:\.git)?$/.test(remote.stdout.trim())) process.exit(1);
+    } catch { process.exit(1); }
+  ' "$1" || fail "migration required: this plugin is upstream or unknown. Stop only the web plugin, preserve its config/state, then explicitly replace its checkout with tomrutsaert/herdr-web-ui and restart the web plugin (INSTALL.md#fork-migration). Nothing was started or uninstalled."
+}
+# Stable fork releases only; untagged main commits and inherited tags do not qualify.
 latest_release() {
-  git ls-remote --tags --refs "https://github.com/$REPO.git" 'v*' 2>/dev/null |
-    sed -n 's|.*refs/tags/\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p' |
-    sort -t. -k1.2,1n -k2,2n -k3,3n | tail -n 1
+  git ls-remote --tags --refs "https://github.com/$REPO.git" 'fork-v*' 2>/dev/null |
+    sed -n 's|.*refs/tags/\(fork-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$|\1|p' |
+    sort -t. -k1.7,1n -k2,2n -k3,3n | tail -n 1
 }
 # at_least 1.4.0 1.10.2: is the second dotted version the first or newer
 at_least() {
@@ -172,29 +184,6 @@ install_node() {
   installed_here="$installed_here node"
 }
 
-# herdr's checkout stays at the version first installed: Settings → Updates builds each newer release
-# in the app's state dir and runs it from there (server/updater.ts, current.json). The directory of the
-# code that runs now, so the phone step is the running version's, not the first install's.
-running_code() {
-  state="${HERDR_WEB_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-web-ui}"
-  head=$(git -C "$1" rev-parse HEAD 2>/dev/null || true)
-  # shellcheck disable=SC2016 # JavaScript, not shell
-  bun -e '
-    const [root, state, head] = process.argv.slice(1);
-    const { readdirSync, readFileSync } = await import("node:fs");
-    let found = root;
-    try {
-      for (const name of readdirSync(`${state}/updates`)) {
-        try {
-          const saved = JSON.parse(readFileSync(`${state}/updates/${name}/current.json`, "utf8"));
-          if (saved.source_revision === head && String(saved.directory).startsWith(`${state}/updates/${name}/release-`)) found = saved.directory;
-        } catch {}
-      }
-    } catch {}
-    console.log(found);
-  ' "$1" "$state" "$head"
-}
-
 main() {
   case "$(uname -s)" in
     Linux) os=linux ;;
@@ -254,10 +243,13 @@ main() {
   [ "${node_major:-0}" -ge 18 ] || install_node
 
   if herdr plugin list 2>/dev/null | grep -q "$PLUGIN "; then
-    say "already installed as a herdr plugin; Settings → Updates keeps it current"
+    root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "devswha.herdr-web-ui")?.plugin_root ?? "")')
+    verify_fork "$root"
+    say "already installed as a herdr plugin (verified fork); check and update explicitly in Settings"
   else
     need git
     ref=${HERDR_WEB_UI_REF:-$(latest_release)}
+    case "$ref" in v[0-9]*|remote-v*|fork-remote-v*) fail "app installs require a fork-v release tag (or an explicit development branch/commit)" ;; esac
     [ -n "$ref" ] || fail "could not look up the latest release on github.com. Check the connection and run this again."
     say "installing the herdr plugin at $ref (herdr clones and builds it: about a minute)"
     # herdr previews the whole manifest first; on success its last word is enough, on failure all of it
@@ -275,6 +267,7 @@ main() {
 
   root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "'"$PLUGIN"'")?.plugin_root ?? "")')
   [ -n "$root" ] || fail "herdr does not list the plugin after installing it; see: herdr plugin list"
+  verify_fork "$root"
 
   if herdr status server --json 2>/dev/null | grep -q '"running":true'; then
     # the action only queues the start (its output goes to herdr's plugin log), so wait for it here
@@ -287,7 +280,7 @@ main() {
         # the start ran inside herdr, so what it said is in herdr's plugin log, not on this terminal
         # shellcheck disable=SC2016 # JavaScript, not shell
         herdr plugin log list 2>/dev/null </dev/null | bun -e 'const logs = JSON.parse(await Bun.stdin.text()).result.logs.filter((log) => log.plugin_id === process.argv[1] && log.stderr); if (logs.length > 0) console.error(logs.at(-1).stderr.trim())' "$PLUGIN" || true
-        break
+        fail "the web plugin did not start. Resolve any fork migration or startup error before retrying (INSTALL.md#fork-migration)."
       }
       sleep 1
     done
@@ -296,26 +289,9 @@ main() {
   fi
 
   echo
-  code=$(running_code "$root")
-  if grep -q '"phone"' "$code/scripts/plugin.ts" 2>/dev/null; then
-    bun "$code/scripts/plugin.ts" phone </dev/null || true
-  else
-    # a release from before the phone step: the address the running app already knows, as a QR code
-    origin=$(bun "$root/scripts/plugin.ts" status </dev/null | awk '$1 == "running" { print $2 }')
-    url=""
-    [ -z "$origin" ] || url=$(curl -fsS --max-time 5 "$origin/api/access" 2>/dev/null | bun -e 'try { console.log(JSON.parse(await Bun.stdin.text()).tailscale?.serving_url ?? "") } catch { console.log("") }')
-    [ -z "$origin" ] || say "on this PC: $(link "$origin")"
-    if [ -n "$url" ]; then
-      say "on your phone: $(link "$url")"
-      # the app's own QR library, there since 0.3.11 for Settings → Phone
-      if [ -d "$code/node_modules/qrcode-generator" ]; then
-        # shellcheck disable=SC2016 # JavaScript, not shell
-        (cd "$code" && bun -e 'const { default: qr } = await import("qrcode-generator"); const c = qr(0, "M"); c.addData(process.argv[1]); c.make(); console.log(c.createASCII(1, 1))' "$url") || true
-      fi
-    else
-      say "no phone address yet, and this version cannot set one up: update it in Settings → Updates, then run this again"
-    fi
-  fi
+  origin=$(bun "$root/scripts/plugin.ts" status </dev/null | awk '$1 == "running" { print $2 }')
+  [ -z "$origin" ] || say "on this PC: $(link "$origin")"
+  say "for another device, configure an HTTPS reverse proxy or SSH tunnel, then use Phone setup to pair"
 
   open_app
 

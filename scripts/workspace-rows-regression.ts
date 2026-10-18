@@ -103,7 +103,7 @@ try {
   });
   const workspaceFoldKey = `herdr-web-ui:workspace-collapsed:local:${other.workspaceId}`;
   server = createServer({
-    port: 0, hostname: "127.0.0.1", token: "", tailscaleOwner: null,
+    port: 0, hostname: "127.0.0.1", token: "",
     stateDir: join(root, "state"), codexHome: join(root, "codex"),
     usage: new UsageService(undefined, []),
   });

@@ -37,11 +37,9 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   a `mkdtempSync` `stateDir` and `port: 0` for every `createServer`. Never run the real
   `herdr update` in a test.
 - Screenshots and recordings come from the demo or a test session, never the user's live one.
-- A web UI server an agent starts for someone to open (manual QA, a preview) binds to this PC's
-  Tailscale address, not loopback: `HOST=$(tailscale ip -4) PORT=<free port> bun run server`,
-  then hand over `http://<that address>:<port>`. A Tailscale-only bind stays inside the tailnet
-  (`lanExposed` in `server/access.ts`); never bind `0.0.0.0` for it. Tests keep `port: 0` on
-  loopback.
+- A preview for someone to open uses an approved HTTPS/private access path or explicit loopback
+  forwarding. Keep the server bound to loopback unless another bind is authorized; never provision
+  a public preview service on your own initiative. Tests keep `port: 0` on loopback.
 
 ## Maintainer workflow
 - A session that changes code, in any harness, stops at an open PR: only the maintainer's merge
@@ -63,7 +61,7 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   worktree it runs in.
 - Everything written to git and GitHub (commits, branches, PRs, reviews, issues, changelog
   fragments) is in English.
-- Never push a `v*` tag by hand: installed updaters act on tags alone.
+- Never push a `fork-v*` tag by hand: installed updaters act on tags alone.
 - The merge pass cuts releases ([steps](docs/development.md#releasing)); any other session may
   prepare the release PR but stops at it. When that PR raises `REMOTE_BUNDLE_VERSION`, the merge
   pass merges nothing touching `server/`, `shared/`, `bun.lock` or `patches/` from its merge until

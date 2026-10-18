@@ -25,7 +25,7 @@ let sshd: ReturnType<typeof Bun.spawn> | undefined;
 let server: ReturnType<typeof createServer> | undefined;
 const initialSocket = process.env["HERDR_SOCKET"];
 process.env["HERDR_SOCKET"] = join(root, "local-offline.sock");
-process.env["HERDR_WEB_BUNDLE_MANIFEST"] = resolve(`remote-bundles/manifest-${process.platform}-${process.arch}.json`);
+const bundleManifest = resolve(`remote-bundles/manifest-${process.platform}-${process.arch}.json`);
 const sockets: WebSocket[] = [];
 let port = 0;
 let originalKey = "";
@@ -109,7 +109,7 @@ try {
     command(["sudo", "-n", "chown", "-R", username, remoteHome]);
   }
   await startSshd();
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state });
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, bundleManifest });
   const target = { destination: `${username}@127.0.0.1`, port, ...(passwordMode ? {} : { identity_file: originalKey }), session: "ssh-qa", name: "QA remote" };
   const health = await api<{ ok: boolean }>("/api/health?scope=bridge"); assert.equal(health.ok, true);
   const job = await setup(target);
@@ -171,7 +171,7 @@ try {
   await api(path, "PATCH", { enabled: true });
   await until(async () => api<{ machines: Machine[] }>("/api/machines"), (r) => r.machines.some((m) => m.id === machineId && m.state === "connected"), "key-only reconnect");
   assert.ok((await api<{ snapshot: SessionSnapshot }>(path + "/session")).snapshot.panes.some((p) => p.pane_id === paneId), "remote work survives disconnect");
-  server.stop(); server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state });
+  server.stop(); server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, bundleManifest });
   await until(async () => api<{ machines: Machine[] }>("/api/machines"), (r) => r.machines.some((m) => m.id === machineId && m.state === "connected"), "server restart reconnect");
   console.log("PASS isolated local failure, disconnect/reconnect and server restart recovery");
 
@@ -182,15 +182,8 @@ try {
   assert.ok(!existsSync(join(remoteHome, ".config/herdr/sessions/ssh-cancel/herdr.sock")));
   console.log("PASS cancellation before installation leaves remote session absent");
 
-  const manifest = process.env["HERDR_WEB_BUNDLE_MANIFEST"]!;
-  const badManifest = join(root, "invalid-manifest.json");
-  const data = JSON.parse(readFileSync(manifest, "utf8"));
-  data.version = "incompatible-test-version";
-  writeFileSync(badManifest, JSON.stringify(data));
-  process.env["HERDR_WEB_BUNDLE_MANIFEST"] = badManifest;
   const idempotentUpdate = await setup({ ...target, machine_id: machineId, identity_file: join(state, "ssh", machineId), update_remote: true });
   assert.equal(idempotentUpdate.phase, "connected", idempotentUpdate.error ?? "");
-  process.env["HERDR_WEB_BUNDLE_MANIFEST"] = manifest;
   assert.ok((await api<{ snapshot: SessionSnapshot }>(path + "/session")).snapshot.panes.some((p) => p.pane_id === paneId));
   assert.ok((await api<{ snapshot: SessionSnapshot }>(secondPath + "/session")).snapshot.panes.length);
   console.log("PASS compatible bridge update is idempotent and preserves both daemons");

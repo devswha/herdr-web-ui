@@ -1,6 +1,6 @@
 /**
  * gzip for the text this server answers with, when the browser takes it. A conversation page is
- * JSON of up to a few megabytes, polled every 2 s while it changes; over a Tailscale relay or a
+ * JSON of up to a few megabytes, polled every 2 s while it changes; over a
  * phone's link those bytes were most of a session switch (2026-10-08: 2.1 MB → about a fifth).
  *
  * Only finished bodies of a text type: the event stream (SSE) and a WebSocket upgrade pass

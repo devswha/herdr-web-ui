@@ -1,7 +1,7 @@
 import { trimUrl } from "./markdown.ts";
 
 /**
- * ssh's stderr as the setup dialog shows it. Tailscale SSH's browser check prints a URL and
+ * ssh's stderr as the setup dialog shows it. SSH's browser check prints a URL and
  * waits until it is visited, so an address has to be clickable. Only https addresses link:
  * the text comes from a remote host, and nothing else it prints should become a control.
  */

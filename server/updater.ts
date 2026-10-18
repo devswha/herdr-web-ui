@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CHECKOUT_CHANGED_REASON, noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
+import { APP_TAG_PREFIX, DISTRIBUTION_GIT } from "../shared/distribution.ts";
 import { compareVersions, releaseNotes, releaseSummaries, SUMMARIES_FILE } from "./release-notes.ts";
 
 export interface Release {
@@ -38,8 +39,8 @@ export function readNotesFile(path: string): string {
   } finally { closeSync(fd); }
 }
 const SHA = /^[0-9a-f]{40,64}$/;
-/** A release is a plain `vX.Y.Z` tag: `remote-v*` bundle tags and pre-releases never qualify. */
-const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
+/** A release is a plain `fork-vX.Y.Z` tag: `fork-remote-v*` bundle tags and pre-releases never qualify. */
+const RELEASE_TAG = /^fork-v(\d+)\.(\d+)\.(\d+)$/;
 
 function packageVersion(directory: string): string | null {
   try {
@@ -98,10 +99,6 @@ export function runCommand(cwd: string, argv: string[], signal?: AbortSignal, ti
 /** The unshallow fetch downloads the whole missing history in one go: a slow link needs minutes,
  * not the 30 s bound of an ordinary command (#1252). */
 const UNSHALLOW_TIMEOUT_MS = 10 * 60_000;
-/** After a failed unshallow fetch, the next attempt waits this long: retried on every 5-minute
- * check, the same history was re-downloaded for days on slow links (#1252). */
-const UNSHALLOW_RETRY_MS = 6 * 60 * 60_000;
-
 /** The `tmp_pack_*` files a pack directory holds right now; none when there is no directory. */
 function tmpPacks(packDir: string | null): Set<string> {
   if (packDir === null) return new Set();
@@ -156,18 +153,11 @@ export class Updater {
   /** What the last update brought; set with the release that runs. */
   installed: InstalledNotes = noInstalledNotes();
   private busy = false;
-  private timer?: ReturnType<typeof setInterval>;
-  private initialTimer?: ReturnType<typeof setTimeout>;
   private sourceRevision = "";
-  private failedRevision: string | null = null;
-  /** When a failed unshallow fetch may be tried again (#1252); a time already past, the initial
-   * 0 included, holds nothing off. */
-  private unshallowRetryAt = 0;
-
   constructor(readonly options: {
-    root: string; stateDir: string; autoUpdate: boolean;
+    root: string; stateDir: string;
     /** herdr's `plugin install` checks out a shallow, detached commit it owns; that HEAD is
-     * accepted when it is an ancestor of origin/main (a user's own detached checkout is not). */
+     * accepted when launched by the managed plugin (a user's own detached checkout is not). */
     pluginCheckout?: boolean;
     /** Runs once a release is installed and active; the supervisor hands itself over here. */
     afterInstall?: (release: Release) => void | Promise<void>;
@@ -175,7 +165,7 @@ export class Updater {
     notice?: string;
     activate: (release: Release, commit: () => void) => Promise<void>;
     publish: (status: UpdateStatus) => void;
-  }) { this.status.auto_update = options.autoUpdate; this.status.error = options.notice ?? null; }
+  }) { this.status.error = options.notice ?? null; }
 
   /** One git command in the source checkout; a test stands in here for a fetch that fails
    * without git ending it itself (#1252). */
@@ -187,10 +177,6 @@ export class Updater {
 
   async initialize(): Promise<Release | null> {
     mkdirSync(this.options.stateDir, { recursive: true, mode: 0o700 });
-    try {
-      const failed = JSON.parse(readFileSync(join(this.options.stateDir, "failed.json"), "utf8")) as { revision?: string };
-      if (failed.revision && SHA.test(failed.revision)) this.failedRevision = failed.revision;
-    } catch { /* no failed automatic candidate */ }
     try {
       this.sourceRevision = await this.git("rev-parse", "HEAD");
       if (!SHA.test(this.sourceRevision)) throw new Error("Invalid source revision");
@@ -265,23 +251,16 @@ export class Updater {
     return null;
   }
 
-  start() {
-    // One check per supervisor, independent of tabs. No network calls in createServer tests.
-    this.initialTimer = setTimeout(() => void this.request("check"), 10_000);
-    this.timer = setInterval(() => void this.request("check"), 5 * 60_000);
-  }
-  stop() {
-    clearTimeout(this.initialTimer); clearInterval(this.timer); this.controller.abort();
-  }
+  stop() { this.controller.abort(); }
 
-  private async discover(byUser = false) {
+  private async discover() {
     this.patch({ phase: "checking", error: this.options.notice ?? null, available: false, blocked_reason: null });
     const reason = await this.sourceBlock();
     if (reason) { this.patch({ blocked_reason: reason, checked_at: new Date().toISOString() }); return; }
     // Only published releases update installs: commits pushed to main without a tag stay put.
-    await this.fetchInto(() => this.git("fetch", "--no-tags", "origin", "+refs/tags/v*:refs/tags/v*"));
-    const tags = (await this.git("for-each-ref", "--sort=-v:refname", "--format=%(refname:short)", "refs/tags/v*"))
-      .split("\n").filter((tag) => RELEASE_TAG.test(tag));
+    await this.fetchInto(() => this.git("fetch", "--prune", "--no-tags", DISTRIBUTION_GIT, `+refs/tags/${APP_TAG_PREFIX}*:refs/herdr-fork/releases/${APP_TAG_PREFIX}*`));
+    const tags = (await this.git("for-each-ref", "--sort=-v:refname", "--format=%(refname:short)", "refs/herdr-fork/releases/*"))
+      .split("\n").map((tag) => tag.replace("herdr-fork/releases/", "")).filter((tag) => RELEASE_TAG.test(tag));
     const checked_at = new Date().toISOString();
     const latest = tags[0];
     if (!latest) {
@@ -290,21 +269,21 @@ export class Updater {
       return;
     }
     // ^{commit} peels an annotated tag to the commit the build and the health check report
-    const target = await this.git("rev-parse", `${latest}^{commit}`);
+    const target = await this.git("rev-parse", `refs/herdr-fork/releases/${latest}^{commit}`);
     if (!SHA.test(target)) throw new Error("Invalid update revision");
     const current = this.release!.revision;
     let block: string | null = null;
     let available = false;
     if (target !== current) {
-      if (await this.ancestor(current, target, byUser)) available = true;
+      if (await this.ancestor(current, target)) available = true;
       // running ahead of the latest release (a development checkout) is simply up to date
-      else if (!await this.ancestor(target, current, byUser)) {
+      else if (!await this.ancestor(target, current)) {
         block = "The running version is not part of the release history; automatic downgrade is disabled.";
       }
     }
     // the notes of the last check stay readable while this one runs; they change with its answer
-    this.notes = available ? await this.changes(target, latest.slice(1)) : noUpdateNotes();
-    this.patch({ latest_revision: target, latest_version: latest.slice(1), checked_at, blocked_reason: block, available });
+    this.notes = available ? await this.changes(target, latest.slice(APP_TAG_PREFIX.length)) : noUpdateNotes();
+    this.patch({ latest_revision: target, latest_version: latest.slice(APP_TAG_PREFIX.length), checked_at, blocked_reason: block, available });
   }
 
   /**
@@ -322,20 +301,11 @@ export class Updater {
   }
 
   /** herdr's plugin checkout is shallow: fetch the missing history once before calling two commits unrelated. */
-  private async ancestor(older: string, newer: string, byUser = false): Promise<boolean> {
+  private async ancestor(older: string, newer: string): Promise<boolean> {
     const test = () => this.git("merge-base", "--is-ancestor", older, newer).then(() => true, () => false);
     if (await test()) return true;
     if (await this.git("rev-parse", "--is-shallow-repository") !== "true") return false;
-    // the backoff holds the timer off, never a user's own Check or Update — the same way a
-    // revision automatic installation gave up on is still installed when asked for
-    if (!byUser && Date.now() < this.unshallowRetryAt) {
-      throw new Error(`The checkout's history is not fully fetched; the unshallow fetch failed and the next attempt is at ${new Date(this.unshallowRetryAt).toISOString()}.`);
-    }
-    try { await this.fetchInto(() => this.unshallowFetch(UNSHALLOW_TIMEOUT_MS)); }
-    catch (error) {
-      this.unshallowRetryAt = Date.now() + UNSHALLOW_RETRY_MS;
-      throw error;
-    }
+    await this.fetchInto(() => this.unshallowFetch(UNSHALLOW_TIMEOUT_MS));
     return test();
   }
 
@@ -369,33 +339,26 @@ export class Updater {
    * `run` is the command runner, a seam for a test that checks the argv and timeout the real
    * fetch hands on. */
   protected async unshallowFetch(timeout: number, run: typeof runCommand = runCommand): Promise<string> {
-    return run(this.options.root, ["git", "fetch", "--no-tags", "--unshallow", "origin"], this.controller.signal, timeout);
+    return run(this.options.root, ["git", "fetch", "--no-tags", "--unshallow", DISTRIBUTION_GIT], this.controller.signal, timeout);
   }
 
-  /** `byUser`: the request came from the settings' Check or Update (through the supervisor), not
-   * from the 5-minute timer; only the timer waits a failed unshallow fetch's backoff out. */
-  async request(command: UpdateCommand, byUser = false): Promise<void> {
+  /** Only an explicit Check or Update reaches this entry point. */
+  async request(command: UpdateCommand): Promise<void> {
     if (this.busy || !this.status.managed || this.controller.signal.aborted) return;
     this.busy = true;
     let stage: string | null = null;
-    let attempted: string | null = null;
     try {
-      await this.discover(byUser);
-      if ((command === "install" || this.options.autoUpdate) && this.status.available) {
+      await this.discover();
+      if (command === "install" && this.status.available) {
         const revision = this.status.latest_revision!;
-        if (command === "check" && revision === this.failedRevision) {
-          this.patch({ phase: "error", error: "Automatic installation of this revision previously failed. Use Update and restart to retry, or wait for a newer revision." });
-          return;
-        }
-        attempted = revision;
         this.patch({ phase: "building", step: "download" });
         stage = mkdtempSync(join(this.options.stateDir, "release-"));
         const run = (args: string[], timeout?: number) => runCommand(stage!, args, this.controller.signal, timeout);
         await run(["git", "clone", "--quiet", "--no-checkout", "--no-hardlinks", this.options.root, "."]);
         await run(["git", "fetch", "--quiet", this.options.root, revision]);
         await run(["git", "checkout", "--quiet", "--detach", revision]);
-        // The clone's origin must keep pointing at the user's chosen upstream.
-        await run(["git", "remote", "set-url", "origin", await this.git("remote", "get-url", "origin")]);
+        // The serving release keeps the same fork distribution source.
+        await run(["git", "remote", "set-url", "origin", DISTRIBUTION_GIT]);
         this.patch({ step: "dependencies" });
         await run([process.execPath, "install", "--frozen-lockfile"], 180_000);
         this.patch({ step: "typecheck" });
@@ -421,8 +384,6 @@ export class Updater {
         // a supervisor that stays (one run directly, without the launcher) tells it from here on
         this.installed = this.brought(next);
         this.patch({ current_revision: revision, current_version: packageVersion(next.directory), available: false });
-        this.failedRevision = null;
-        rmSync(join(this.options.stateDir, "failed.json"), { force: true });
         for (const entry of readdirSync(this.options.stateDir, { withFileTypes: true })) {
           const directory = join(this.options.stateDir, entry.name);
           if (entry.isDirectory() && entry.name.startsWith("release-") && directory !== next.directory && directory !== previous?.directory) {
@@ -436,12 +397,6 @@ export class Updater {
       }
       this.patch({ phase: "idle", step: null });
     } catch (error) {
-      if (attempted && !this.controller.signal.aborted) {
-        this.failedRevision = attempted;
-        try {
-          writeFileSync(join(this.options.stateDir, "failed.json"), JSON.stringify({ revision: attempted }), { mode: 0o600 });
-        } catch { /* the in-memory guard still prevents repeated automatic restarts */ }
-      }
       this.patch({ phase: "error", step: null, error: error instanceof Error ? error.message : String(error) });
     } finally {
       if (stage) rmSync(stage, { recursive: true, force: true });

@@ -1,8 +1,8 @@
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
+import { DISTRIBUTION_REPOSITORY } from "../shared/distribution.ts";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
 
@@ -10,10 +10,9 @@ import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, Her
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
-import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
+import { cameThroughProxy, decideAccess, hasProxyHeaders, isLoopbackAddress, isLoopbackBind, lanExposed } from "./access.ts";
 import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts";
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
-import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { badRequest, errorResponse, jsonResponse, readJsonObject } from "./http.ts";
 import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
@@ -72,7 +71,6 @@ import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 import { handlePortalRequest, PortalService } from "./portal.ts";
-import { handleTelemetryRequest, Telemetry } from "./telemetry.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
 import { CLIProxyService } from "./cliproxy.ts";
 import { CLIProxyRoutes } from "./cliproxy-routes.ts";
@@ -99,8 +97,6 @@ const REPAINT_MIN_INTERVAL_MS = 1000;
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
 const PLUGIN_ACTION_WAIT_MS = 5_000;
-/** a focus or reconnect re-reads the panes for the daily active message at most this often */
-const VISIT_READ_MS = 10 * 60_000;
 const livePaneIds = async (timeoutMs?: number): Promise<string[]> => (await sessionSnapshot(undefined, timeoutMs)).panes.map((pane) => pane.pane_id);
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
@@ -342,12 +338,6 @@ export function createServer(
     token?: string;
     /** where VAPID keys and push subscriptions persist; tests pass a temp dir */
     stateDir?: string;
-    /** the PC's own Tailscale login, for the identity check; tests set it, otherwise `tailscale status` says */
-    tailscaleOwner?: string | null;
-    /** the operator declares `tailscale serve` as this install's only ingress; HERDR_WEB_TAILSCALE_SERVE_ONLY=1 says the same */
-    tailscaleServeOnly?: boolean;
-    /** the tailnet identity behind the access check; unset, the tailscale CLI says. Tests pass one with their own status reader. */
-    tailnet?: TailnetIdentitySource;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
     grokHome?: string;
@@ -362,8 +352,6 @@ export function createServer(
     herdrUpdate?: HerdrUpdater;
     /** a public address through Portal (server/portal.ts); unset, the app offers none. Tests pass one that runs a stand-in portal. */
     portal?: PortalService;
-    /** anonymous install and update counts (server/telemetry.ts); unset, the server sends none and answers 404. Only the real entrypoint passes one. */
-    telemetry?: Telemetry;
     /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
     usage?: UsageService;
     /** Tests supply an isolated proxy service, never a user's configured instance. */
@@ -372,6 +360,8 @@ export function createServer(
     usageLogin?: UsageLoginService;
     /** voice input's key, provider and models; tests pass one with their own env and fetch */
     voice?: VoiceService;
+    /** Isolated/local runtime manifest; never selected by an HTTP client or environment variable. */
+    bundleManifest?: string;
     machines?: boolean;
     /** Read-only saved profiles from the local herdr client; tests supply their own catalog. */
     herdrProfiles?: () => Promise<HerdrMachineProfile[]>;
@@ -463,9 +453,9 @@ export function createServer(
   /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
   const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; roles: number; run: Promise<unknown> | null; sent: boolean }>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
-  /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
+  /** An unset token leaves local/device access and the direct-network first-pair policy. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
-  /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
+  /** paired devices (server/devices.ts), besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
   const preferences = new PreferenceStore(options.stateDir ?? defaultStateDir());
   const cliProxy = options.cliProxy ?? new CLIProxyService(options.stateDir ?? defaultStateDir());
@@ -473,15 +463,6 @@ export function createServer(
   const usageLogin = options.usageLogin ?? new UsageLoginService();
   const usage = options.usage ?? new UsageService(undefined, undefined, (refresh) => cliProxy.report(refresh));
   const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
-  /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
-  const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
-  const tailnet = options.tailnet ?? new TailnetIdentitySource();
-  const identityOf = async (grantPath: boolean, host: string | null) => {
-    if (namedOwner !== undefined) return { ...(grantPath ? await tailnet.freshIdentity(host) : { soleLogin: null, dnsName: null, tailnetIp: null }), owner: namedOwner, tagged: false };
-    return grantPath ? tailnet.freshIdentity(host) : tailnet.identity();
-  };
-  identityOf(false, null);
-  const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
 
   /**
    * Runs `task` after everything queued for the pane. While a composer message is in
@@ -1098,28 +1079,10 @@ export function createServer(
       }),
     };
   };
-  /**
-   * A browser visit for the daily active message: the call is made now so the visit's day is the
-   * trigger's, the panes are read after. Nothing is read while telemetry cannot send; a socket open
-   * passes the snapshot it fetches anyway, and other visits read the panes at most every
-   * VISIT_READ_MS (in between they still count the day, with the kinds already known).
-   */
-  let visitReadAt = -Infinity;
-  function countVisit(snapshot?: ReturnType<typeof clientSnapshot>): void {
-    const telemetry = options.telemetry;
-    if (!telemetry?.counting()) return;
-    let agents: Promise<(string | null)[]> | (string | null)[] = [];
-    if (snapshot || Date.now() - visitReadAt >= VISIT_READ_MS) {
-      visitReadAt = Date.now();
-      agents = (snapshot ?? clientSnapshot()).then((read) => read.panes.map((pane) => pane.agent ?? pane.agent_session?.agent ?? null));
-    }
-    void telemetry.active(agents)
-      .catch((error) => console.error(`telemetry: the visit was not counted (${error instanceof Error ? error.message : String(error)})`));
-  }
   /** A pane's status frame: every one says whether the pane waits on its turn's background work. */
   const paneStatus = (paneId: string, status: AgentStatus, about: { background_tasks?: number; plan?: PlanSummary | null } = {}): ServerMessage =>
     ({ type: "pane-status", pane_id: paneId, agent_status: status, ...about, ...(waits.waiting(paneId) ? { background_wait: true as const } : {}) });
-  const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions, clientSnapshot);
+  const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions, clientSnapshot, { manifest: options.bundleManifest });
   if (machines && options.herdrProfiles) machines.watchHerdrProfiles(options.herdrProfiles);
   const bridgeToken = randomBytes(32).toString("hex");
 
@@ -1794,9 +1757,6 @@ export function createServer(
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
-      const funnel = request.headers.has("tailscale-funnel-request");
-      const tailscaleLogin = request.headers.get("tailscale-user-login");
-      const forwardedFor = request.headers.get("x-forwarded-for");
       const requestHost = request.headers.get("host");
       // the guessing budget of the address that asks (auth.ts): a token presented while it waits is not compared
       const client = authClient(ip?.address ?? null, request.headers);
@@ -1810,17 +1770,13 @@ export function createServer(
       try {
         pairedDevice = devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE));
       } catch (error) {
-        // First-cookie confirmation is an authorization write, not best-effort telemetry.
+        // First-cookie confirmation is an authorization write, not best-effort bookkeeping.
         return errorResponse(error);
       }
-      const requestShape = { loopback, forwarded, funnel, tailscaleLogin, forwardedFor, serveOnly };
-      const identity = await identityOf(token === "" && pairedDevice === null && isServeOwnerRequest(requestShape) && (pathname === "/ws" || pathname.startsWith("/api/")), requestHost);
       const access = decideAccess({
-        ...requestShape,
-        host: requestHost,
+        loopback, forwarded, proxyHeaders: hasProxyHeaders(request.headers),
         tokenMatched,
         device: pairedDevice,
-        ...identity,
         tokenConfigured: token !== "",
         gated: devices.gated,
       });
@@ -1932,9 +1888,8 @@ export function createServer(
       }
       if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
       if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
-        return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
+        return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "" });
       }
-      if (pathname === "/api/telemetry") return handleTelemetryRequest(request, options.telemetry);
       // what every browser of this server shares; a watching device reads it and cannot change it (above)
       if (pathname === "/api/preferences") return handlePreferencesRequest(request, preferences);
 
@@ -1948,7 +1903,7 @@ export function createServer(
         try {
           // a paired device owns its alerts; the open LAN (before any pairing) owns them only while
           // it stays open, like a subscription from before owners (undefined); a local/token/
-          // Tailscale sign-in is the owner (null)
+          // token sign-in is the owner (null)
           const owner = access.level !== "full" ? null : access.device?.id ?? (access.via === "open" ? undefined : null);
           const answered = await handlePushRequest(request, pathname, push, owner);
           if (answered) return answered;
@@ -1966,21 +1921,16 @@ export function createServer(
         // reconnaissance, not help. Nothing here changes who is let in (server/access.ts).
         const lan_exposure = access.level === "full" && lanExposed({ hostname, tokenConfigured: token !== "", gated: devices.gated })
           ? { host: hostname } : undefined;
-        if (url.searchParams.get("scope") === "bridge") return jsonResponse({ ok: true, auth, bridge_protocol: BRIDGE_PROTOCOL });
+        if (url.searchParams.get("scope") === "bridge") return jsonResponse({ ok: true, auth, distribution: DISTRIBUTION_REPOSITORY, bridge_protocol: BRIDGE_PROTOCOL });
         try {
           const info = await ping();
           // a forced answer (tests) and a runtime without the PTY sidecar are told the way a Windows herdr's own would be
           const herdr = attachableIdentity(info, sidecar);
           return jsonResponse({ ok: true, herdr, auth, ...(lan_exposure ? { lan_exposure } : {}),
-            web_ui: { boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
+            web_ui: { distribution: DISTRIBUTION_REPOSITORY, boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
         } catch (error) {
           return errorResponse(error);
         }
-      }
-
-      if (pathname === "/api/access") {
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        return jsonResponse(await remoteAccess(bunServer.port ?? DEFAULT_PORT), 200, { "cache-control": "no-store" });
       }
 
       if (pathname === "/api/session") {
@@ -2207,7 +2157,6 @@ export function createServer(
         if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
         clients.add(client);
         const snapshot = clientSnapshot();
-        countVisit(snapshot);
         try {
           send(client, { type: "snapshot", snapshot: await snapshot, features: SERVER_FEATURES });
         } catch (error) {
@@ -2222,7 +2171,6 @@ export function createServer(
         const presence = presenceOf(raw);
         if (presence === true) {
           present.add(client);
-          if (!client.data.relay) countVisit();
         } else if (presence === false) present.delete(client);
         if (client.data.relay) { client.data.relay.message(raw); return; }
         if (presence !== null) return;
@@ -2906,7 +2854,7 @@ export function createServer(
   if (options.portal) {
     let resume: Promise<void>;
     try {
-      resume = options.portal.resume({ port: server.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
+      resume = options.portal.resume({ port: server.port ?? DEFAULT_PORT, tokenSet: token !== "" });
     } catch (error) {
       resume = Promise.reject(error);
     }
@@ -2955,16 +2903,12 @@ export function createServer(
 
 if (import.meta.main) {
   const updates = connectUpdater();
-  const version = (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as { version: string }).version;
-  const telemetry = new Telemetry({ stateDir: defaultStateDir(), version, env: process.env, fetch, previousVersion: () => updates.installed().previous_version });
   const portal = new PortalService({ stateDir: defaultStateDir() });
-  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true, herdrProfiles: readHerdrProfiles });
-  telemetry.start();
+  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, registerBridge: true, herdrProfiles: readHerdrProfiles });
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
-    telemetry.stop();
     instance.stop();
     // Attach sidecars need ~1.2s to release herdr's exclusive client slot; Portal unregisters from
     // its relay, and the pipes it logs to must outlive it
@@ -2977,14 +2921,14 @@ if (import.meta.main) {
   if (!isLoopbackBind(instance.hostname)) {
     if (lanExposed({ hostname: instance.hostname, tokenConfigured: (process.env["HERDR_WEB_TOKEN"] ?? "") !== "", gated: false })) {
       console.error(
-        `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
+        `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through an SSH tunnel.`,
       );
     }
     // The bind address says nothing about the transport: a token cookie and every keystroke
     // travel in the clear on plain http, so a listener on the same network gets them.
     if ((process.env["HERDR_WEB_TOKEN"] ?? "") !== "") {
       console.error(
-        `WARNING: listening on http://${instance.hostname}:${instance.port} - HERDR_WEB_TOKEN is not confidential over cleartext http; on an untrusted network anyone who can read the traffic has the token and everything you type. Reach this PC over Tailscale, put it behind a TLS-terminating proxy, or keep HOST=127.0.0.1.`,
+        `WARNING: listening on http://${instance.hostname}:${instance.port} - HERDR_WEB_TOKEN is not confidential over cleartext http; on an untrusted network anyone who can read the traffic has the token and everything you type. Put this PC behind a TLS-terminating proxy, or keep HOST=127.0.0.1.`,
       );
     }
   }

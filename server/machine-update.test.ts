@@ -13,11 +13,11 @@ import type { PushService } from "./push.ts";
 // Real setup/approval/verification with a loopback identity endpoint and a fake SSH host.
 // No bundle is downloaded and no real process or user's herdr is touched.
 describe("approved bridge replacement", () => {
-  async function scenario(options: { identity?: Record<string, unknown>; unauthorized?: boolean; replacementProtocol?: number; initialBundle?: string; replacementBundle?: string; reconnect?: boolean; updateAgain?: boolean; repeatBundle?: string; repeatIdentity?: Record<string, unknown>; initialProtocol?: number; onlyFirst?: boolean } = {}) {
+  async function scenario(options: { identity?: Record<string, unknown>; unauthorized?: boolean; replacementProtocol?: number; initialBundle?: string; replacementBundle?: string; reconnect?: boolean; updateAgain?: boolean; repeatBundle?: string; repeatIdentity?: Record<string, unknown>; initialProtocol?: number; initialDistribution?: string | null; onlyFirst?: boolean } = {}) {
     const dir = mkdtempSync(join(tmpdir(), "herdr-bridge-replacement-"));
     const socket = "/home/fixture/.config/herdr/herdr.sock";
     const token = "a".repeat(64);
-    let descriptor = { pid: 4242, port: 29431, token, socket_path: socket, managed_remote: true, bridge_protocol: options.initialProtocol ?? BRIDGE_PROTOCOL + 1, bundle_version: options.initialBundle ?? "older" };
+    let descriptor = { pid: 4242, port: 29431, token, socket_path: socket, managed_remote: true, bridge_protocol: options.initialProtocol ?? BRIDGE_PROTOCOL + 1, distribution: options.initialDistribution === null ? undefined : options.initialDistribution ?? "tomrutsaert/herdr-web-ui", bundle_version: options.initialBundle ?? "older" };
     let stopped = false;
     let replacementChecks = 0;
     const operations: string[] = [];
@@ -53,7 +53,7 @@ describe("approved bridge replacement", () => {
         if (script === "kill -TERM 4242") { operations.push("stop:4242"); stopped = true; return ""; }
         if (script.includes("nohup")) {
           operations.push("start");
-          descriptor = { ...descriptor, pid: 4243, bridge_protocol: options.replacementProtocol ?? BRIDGE_PROTOCOL, bundle_version: options.replacementBundle ?? REMOTE_BUNDLE_VERSION };
+          descriptor = { ...descriptor, distribution: "tomrutsaert/herdr-web-ui", pid: 4243, bridge_protocol: options.replacementProtocol ?? BRIDGE_PROTOCOL, bundle_version: options.replacementBundle ?? REMOTE_BUNDLE_VERSION };
           return "";
         }
         if (script.includes('for f in "$HOME/.config/herdr-web-ui/bridges/"')) return JSON.stringify(descriptor);
@@ -82,12 +82,12 @@ describe("approved bridge replacement", () => {
         const result = await until(first.id, ["connected", "failed"]);
         return { result, operations: [...operations], registered: manager.list().filter((machine) => machine.kind === "ssh").length };
       }
-      expect(await until(first.id, ["failed"])).toMatchObject({ action_required: options.initialBundle ? "bridge_conflict" : "update_bridge" });
+      expect(await until(first.id, ["failed"])).toMatchObject({ action_required: Number(options.initialBundle) > Number(REMOTE_BUNDLE_VERSION) ? "bridge_conflict" : "update_bridge" });
       expect(manager.list().map((machine) => machine.kind)).toEqual(["local"]);
       expect(operations).toEqual([]);
       const update = await request("", { destination: "fixture-only", update_remote: true });
       const approval = await until(update.id, ["approval", "failed"]);
-      if (options.initialBundle) {
+      if (Number(options.initialBundle) > Number(REMOTE_BUNDLE_VERSION)) {
         expect(approval.phase).toBe("failed");
         return { result: approval, operations: [...operations], registered: 0 };
       }
@@ -109,6 +109,22 @@ describe("approved bridge replacement", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }
+
+  for (const distribution of [null, "devswha/herdr-web-ui"]) {
+    it(`requires an explicit upgrade for a same-version bridge from ${distribution ?? "an unknown distribution"}`, async () => {
+      const { result, registered } = await scenario({ onlyFirst: true, initialProtocol: BRIDGE_PROTOCOL, initialBundle: REMOTE_BUNDLE_VERSION, initialDistribution: distribution });
+      expect(result).toMatchObject({ phase: "failed", action_required: "update_bridge" });
+      expect(registered).toBe(0);
+    });
+  }
+
+  it("replaces a same-version legacy bridge only through the explicit approval path", async () => {
+    for (const initialDistribution of [null, "devswha/herdr-web-ui"]) {
+      const { result, registered } = await scenario({ initialDistribution, initialProtocol: BRIDGE_PROTOCOL, initialBundle: REMOTE_BUNDLE_VERSION });
+      expect(result.phase).toBe("connected");
+      expect(registered).toBe(1);
+    }
+  });
 
   it("replaces a different protocol only after approval, then verifies the new bridge normally", async () => {
     const { result, operations, registered } = await scenario();

@@ -11,9 +11,7 @@ web server on port `7317` and never replaces herdr, its sessions or the user's o
 
 - Bind to `127.0.0.1` (the default) unless the user asks for remote access. Anyone who can reach an
   ungated server can type into the user's terminals. Never bind to `0.0.0.0` or a LAN address, or
-  put it behind a proxy other people can reach, without a token (`HERDR_WEB_TOKEN`). A `tailscale
-  serve` address may go without one only when the user confirms every device in their tailnet is
-  their own.
+  put it behind a proxy other people can reach, without a token (`HERDR_WEB_TOKEN`).
 - Never print, log or commit the token. Write it only to the config file named below and tell the
   user where it is.
 - Do not install herdr, Bun or Node yourself unless the user agrees. Say which one is missing and how
@@ -30,39 +28,88 @@ herdr status server  # the herdr server must be running
 git --version
 ```
 
-- A missing tool: **Ask** the user before installing it. Bun: `curl -fsSL https://bun.sh/install | bash`.
-  herdr: <https://herdr.dev>. Node: the user's usual manager (nvm, Homebrew, distro packages).
-- herdr not running: ask the user to start `herdr` in a terminal, then check again.
-- Supported platforms: Linux x64 and arm64, macOS, Windows x64. Windows uses the [screen mirror](docs/remote-pcs.md#windows-pcs), so Node is not needed there. No compiler or Python is needed: the terminal
-  addon is prebuilt for these platforms. Other platforms (Alpine, 32-bit ARM) have no build.
+- A missing tool: **Ask** before installing it. Bun: `curl -fsSL https://bun.sh/install | bash`.
+  herdr: <https://herdr.dev>. Node: the user's usual package manager.
+- If herdr is not running, ask the user to start it in a terminal, then check again.
+- Supported platforms: Linux x64/arm64, macOS and Windows x64. Windows uses a screen mirror
+  and does not need Node. No compiler or Python is needed on supported platforms.
 
 ## 2. Choose the install method
 
 | Method | When | Updates |
 | --- | --- | --- |
-| **A. herdr plugin** (default) | The user wants it to start with herdr | In-app: Settings → About |
-| **B. Source checkout** | The user wants to develop it, or asks for a clone | In-app, while the checkout stays on a clean `main` |
-| **C. One-line installer** | The user agrees to install what is missing (herdr, Bun, Node) and to let Tailscale serve the app | In-app, like A |
+| **A. herdr plugin** (default) | Start with herdr | Manual Check/Update in Settings → About |
+| **B. Source checkout** | Development or a requested clone | Manual Check/Update on a clean `main` |
+| **C. One-line installer** | The user approves installing missing prerequisites | Same as A |
 
-Use A unless the user says otherwise. C is A plus the prerequisites and step 5 in one command,
-`curl -fsSL https://herdrweb.dev/install.sh | sh`: it installs herdr, Bun and
-Node 22 for the user only (no sudo) when they are missing, installs the plugin, starts it when herdr
-runs, and, when Tailscale runs on the PC, serves the app to the tailnet (`tailscale serve`) and
-prints the address as a QR code. It changes the user's Tailscale configuration, so it needs the
-same **Ask** as step 5. Running it again keeps what is there. On a first install it prints a link
-for a GitHub star, unless the account gh is signed in to has starred the repository already. It
-asks whether to give one only at a terminal, and goes on by itself after 20 seconds: do not answer
-the question, and do not star the repository for the user.
+For a private repository, authenticate Git and run the installer from an authenticated checkout;
+anonymous raw-file and release asset URLs may be unavailable. Use local remote-runtime builds
+when fork assets are private ([remote PCs](docs/remote-pcs.md)). Never fall back to upstream.
 
-On Windows x64, use `irm https://herdrweb.dev/install.ps1 | iex` in PowerShell.
+Use A unless the user chooses otherwise. C installs missing prerequisites for the user and this
+fork's latest `fork-vX.Y.Z` release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
+```
+
+It does not configure remote access. Ask before installing missing prerequisites. A first install
+may ask about starring the fork at an interactive terminal; never answer for the user.
+
+On Windows x64, use `irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex` in PowerShell.
 It requires Git for Windows and installs missing herdr and Bun for the user, without Node or WSL.
 It starts the plugin when herdr runs. Phone access stays optional: use the **Phone setup** action.
-`HERDR_WEB_UI_REF` selects a branch or tag for testing; otherwise it installs the latest release.
+`HERDR_WEB_UI_REF` selects a fork release tag or an explicit development branch/commit; inherited
+upstream app and runtime tags are refused. Otherwise it installs the latest fork release.
+
+## Fork migration
+
+An existing `devswha.herdr-web-ui` entry is not proof of this fork. The installers require the
+fork distribution marker and a fork Git origin before they start it. Unknown/upstream copies
+are refused without uninstalling them. A replaced checkout also cannot count an older running
+server or an unexplained live PID as a running fork.
+
+**Ask** before migrating. Record the checkout path from `herdr plugin list --json`, the config
+path from `herdr plugin config-dir devswha.herdr-web-ui`, and the configured app state path
+(`HERDR_WEB_STATE_DIR`, otherwise `~/.config/herdr-web-ui`). Back up those config/state directories
+and preserve the plugin's state directory. They hold device credentials, push keys and settings.
+Keep the stable plugin ID and original paths; never delete them to make an install pass.
+
+1. Identify the old web plugin's listener/process before invoking its Stop action. If a recorded
+   PID cannot be identified as that web plugin, investigate it instead of killing an unrelated
+   process. Once ownership is confirmed, stop **only the web plugin** with
+   `herdr plugin action invoke devswha.herdr-web-ui.stop`
+   (`devswha.herdr-web-ui.stop-windows` on Windows), then confirm that its listener/process has
+   exited. Do not run `herdr server stop` or restart the daemon.
+2. With a clean checkout and the user's approval, explicitly replace its source using a
+   published fork release. In the commands below, `root` is the recorded plugin checkout and
+   `fork-vX.Y.Z` is an actual fork release, not an inherited upstream tag:
+
+   ```bash
+   git -C "$root" status --short       # stop if there are local changes
+   git -C "$root" remote set-url origin https://github.com/tomrutsaert/herdr-web-ui.git
+   git -C "$root" fetch --no-tags origin tag fork-vX.Y.Z
+   git -C "$root" checkout --detach fork-vX.Y.Z
+   (cd "$root" && bun install --frozen-lockfile && bun run build)
+   ```
+
+   Use authenticated Git access for a private fork. These commands leave config and app state
+   in place. Do not use an upstream reinstall command afterwards. The fork installer validates
+   the checkout rather than relying on the registry's historical repository label. In-place
+   replacement **does not update herdr's registry provenance**. Every later reinstall or plugin
+   operation that names a repository must explicitly name `tomrutsaert/herdr-web-ui`; do not
+   let a registry-recorded upstream repository choose the source. There is no automatic upstream
+   fallback. Use a supported explicit uninstall/reinstall only after confirming its state-retention
+   behavior and backing up config/state; this guide does not assume uninstall preserves them.
+3. Start the web plugin explicitly (`devswha.herdr-web-ui.start`, or `.start-windows`). Check
+   `/api/health` for `web_ui.distribution: "tomrutsaert/herdr-web-ui"`. The in-app updater's state
+   is distribution-scoped; inherited upstream releases are not resumed. Existing pairing and
+   push state remain at their original paths.
 
 ## 3A. Install as a herdr plugin
 
 ```bash
-herdr plugin install devswha/herdr-web-ui --yes
+herdr plugin install tomrutsaert/herdr-web-ui --yes
 ```
 
 herdr clones the repository, runs `bun install` and `bun run build`, then registers the plugin. This
@@ -119,7 +166,7 @@ herdr plugin action invoke devswha.herdr-web-ui.start
 ## 3B. Install from source
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
+git clone https://github.com/tomrutsaert/herdr-web-ui.git
 cd herdr-web-ui
 bun install
 bun run start
@@ -149,55 +196,25 @@ Tell the user to open <http://127.0.0.1:7317>.
 
 ## 5. Optional: phone or remote access
 
-**Ask** the user first. This exposes their terminals over the network. Then serve it over HTTPS.
-Without HTTPS, a phone can view the app but cannot install it or receive alerts. With Tailscale:
+**Ask** first: remote access exposes terminals and files. Keep the server on loopback and use
+an approved HTTPS reverse proxy or private SSH forward. Set `HERDR_WEB_TOKEN` before exposing
+a proxy; never print or log the token. See [proxy setup](docs/guide.md#behind-a-reverse-proxy).
+The installer does not discover or publish routes.
+
+For a desktop SSH forward: `ssh -L 7317:127.0.0.1:7317 <server>`, then open
+`http://127.0.0.1:7317` locally. A phone needs HTTPS to install the PWA and receive alerts.
+At the configured HTTPS address, use a token or pair with a code from **Settings → Phone &
+devices** on a signed-in device. For a headless plugin installation, run `pair` from its checkout:
 
 ```bash
-tailscale serve --bg --https=443 http://127.0.0.1:7317
+root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "devswha.herdr-web-ui")?.plugin_root ?? "")')
+bun "$root/scripts/plugin.ts" pair
 ```
 
-Or run the one-line installer (method C) again, which installs nothing when the app is there, or
-`bun scripts/plugin.ts phone` from a source checkout: it runs that command on the first
-free HTTPS port when Tailscale runs and does not serve the app yet, says how to undo it, and prints the
-address as a QR code. **Settings → Phone & devices** in the app shows this step's state: the address that already works as a QR
-code, or the exact command still to run. Who gets in:
-
-- The user's own Tailscale devices get in as the user: `tailscale serve` states the login, and the
-  server compares it with this PC's. Nothing to configure. Other people's logins are refused, and
-  tagged devices (no person's login) need pairing. If the user's own phone is asked to pair anyway,
-  `HERDR_WEB_TAILSCALE_SERVE_ONLY=1` lets it in without a code on a tailnet one login owns
-  ([Access and safety](docs/guide.md#access-and-safety)).
-- Any other device (someone else's, or a LAN or public address) is paired: **Settings → Phone & devices**
-  on the PC shows a six-digit code and a QR code; the device enters it once. On a headless PC with
-  no browser, find the plugin path with `herdr plugin list` (herdr 0.9.4 moved plugin checkouts),
-  then run:
-
-  ```bash
-  root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "devswha.herdr-web-ui")?.plugin_root ?? "")')
-  bun "$root/scripts/plugin.ts" pair
-  ```
-
-  This prints the code in the terminal. Do this with the user present; never read a code aloud into
-  a log.
-- A token (`HERDR_WEB_TOKEN`) is for scripts and proxies. Only when the user asks for one, create it
-  without printing it. For the plugin:
-
-   ```bash
-   CONFIG_ENV="$(herdr plugin config-dir devswha.herdr-web-ui)/env"
-   touch "$CONFIG_ENV" && chmod 600 "$CONFIG_ENV"
-   printf 'HERDR_WEB_TOKEN=%s\n' "$(openssl rand -hex 32)" >> "$CONFIG_ENV"
-   ```
-
-   For a source install, write the same line to a file only the user can read (for example
-   `~/.config/herdr-web-ui/token.env`, mode `600`) and start with
-   `env $(cat ~/.config/herdr-web-ui/token.env) bun run start`. Restart herdr web ui either way.
-
-Tell the user the HTTPS address. Until a device is paired, and with no token set, a LAN or proxied
-address is open to anyone who reaches it, as before; the server warns on startup. A token sent over
-plain `http://` is readable by anyone on the network path: prefer HTTPS (Tailscale or a
-TLS-terminating proxy) for any address others can reach.
-
-Other PCs over SSH are added from the web UI (Settings → Remote PCs → **Add PC**), not by an install step here.
+A code is a one-use secret valid for ten minutes; do not record it in logs. Forwarded or
+foreign-host loopback requests always require credentials. Direct non-loopback binds remain
+open until a token is set or a device is confirmed, so never expose one unprotected.
+Other PCs over SSH are added from **Settings → Remote PCs → Add PC**.
 
 ## Configuration
 
@@ -205,22 +222,21 @@ Other PCs over SSH are added from the web UI (Settings → Remote PCs → **Add 
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Bind address |
 | `PORT` | `7317` | HTTP and WebSocket port |
-| `HERDR_WEB_TOKEN` | unset | Token for scripts and proxies. Once set, every client that is not a paired device or the user's own Tailscale login needs it, this PC included |
+| `HERDR_WEB_TOKEN` | unset | Token for scripts and proxies. Once set, every client that is not a paired device needs it, this PC included |
 | `HERDR_SOCKET` | `~/.config/herdr/herdr.sock` | herdr socket (source installs; the plugin follows herdr) |
-| `HERDR_WEB_AUTO_UPDATE` | `0` | `1` installs new versions automatically |
 | `HERDR_WEB_STATE_DIR` | `~/.config/herdr-web-ui` | Push keys, device subscriptions, PC registrations, update builds. Keep it across reinstalls. |
 
 The [user guide](docs/guide.md#configuration) lists the rest.
 
 ## Update
 
-- Settings → **About** → **Update and restart** when a new release (`vX.Y.Z`) is out. It works for
+- Settings → **About** → **Check for updates**, then **Update and restart** when a new release (`fork-vX.Y.Z`) is out. It works for
   both install methods. The new
   version is built separately and the app restarts only if the build and health check pass.
-- Plugin alternative: `herdr plugin install devswha/herdr-web-ui --yes` again. It replaces the
+- Plugin alternative: `herdr plugin install tomrutsaert/herdr-web-ui --yes` again. It replaces the
   checkout; restart the plugin afterwards.
 - Source alternative: `git pull` on `main`, then restart `bun run start`. The in-app updater only
-  offers published releases (`vX.Y.Z` tags); `main` can be ahead of the latest release.
+  offers published releases (`fork-vX.Y.Z` tags); `main` can be ahead of the latest release.
 
 ## Uninstall
 

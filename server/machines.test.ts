@@ -152,7 +152,7 @@ describe("SSH output during setup", () => {
   const cleanups: (() => void)[] = [];
   afterEach(() => { while (cleanups.length) cleanups.pop()!(); });
 
-  /** A PC whose ssh prints a line and then waits for the user, like Tailscale SSH's browser check. */
+  /** A PC whose ssh prints a line and then waits for the user, like SSH's browser check. */
   function waitingSsh(script: string): MachineManager {
     const root = mkdtempSync(join(tmpdir(), "herdr-ssh-output-"));
     const bin = join(root, "bin");
@@ -172,16 +172,16 @@ describe("SSH output during setup", () => {
   }
 
   it("shows what ssh printed while it is still waiting, and drops it once the setup is cancelled", async () => {
-    const manager = waitingSsh(`echo "To authenticate, visit: https://login.tailscale.com/a/check123" >&2\nexec sleep 30`);
+    const manager = waitingSsh(`echo "To authenticate, visit: https://auth.example.test/ssh/check123" >&2\nexec sleep 30`);
     const started = manager.setup({ destination: "check-pc" });
     expect(started.ssh_output).toBeNull();
     const job = await until(() => manager.job(started.id)?.ssh_output ? manager.job(started.id) : null);
     expect(job.phase).toBe("connecting");
-    expect(job.ssh_output).toBe("To authenticate, visit: https://login.tailscale.com/a/check123");
+    expect(job.ssh_output).toBe("To authenticate, visit: https://auth.example.test/ssh/check123");
     // the dialog polls this route: the line has to be in its answer, not only on the manager
     const response = await handleMachineRequest(new Request(`http://localhost:7317/api/machines/setup/${started.id}`, { headers: { origin: "http://localhost:7317" } }), manager);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ phase: "connecting", ssh_output: "To authenticate, visit: https://login.tailscale.com/a/check123" });
+    expect(await response.json()).toMatchObject({ phase: "connecting", ssh_output: "To authenticate, visit: https://auth.example.test/ssh/check123" });
     manager.action(started.id, { action: "cancel" });
     expect(manager.job(started.id)).toMatchObject({ phase: "cancelled", ssh_output: null });
   });
@@ -333,34 +333,7 @@ describe("a bridge update on a PC that cannot be reached", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("lets the user's Update bridge take back a Cancel, and keeps a queued automatic update from undoing one", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "herdr-cancel-flag-"));
-    writeFileSync(join(dir, "machines.json"), JSON.stringify([{ id, name: "macbook", enabled: false, target: { destination: "macbook" }, snapshot: null }]));
-    SshConnection.prototype.start = async () => { throw new Error("ssh: connect to host macbook port 22: Connection timed out"); };
-    SshConnection.prototype.close = () => {};
-    const manager = new MachineManager(dir, {} as PushService, new CompletionTracker(null), async () => { throw new Error("local offline"); });
-    type Internals = { machines: Map<string, { updateCancelled?: boolean; machine: { enabled: boolean; state: string; action_required: string | null } }>; jobs: Map<string, { finished: Promise<void> }>; autoChain: Promise<void>; queueAutoUpdate(id: string): void };
-    const internals = manager as unknown as Internals;
-    const runtime = internals.machines.get(id)!;
-    Object.assign(runtime.machine, { enabled: true, state: "error", action_required: "update_bridge" });
-    try {
-      // an automatic update queued before the Cancel, which runs once the one ahead of it is done
-      runtime.updateCancelled = true;
-      internals.queueAutoUpdate(id);
-      await internals.autoChain;
-      expect(internals.jobs.size).toBe(0);
-      // a scheduled update keeps the Cancel, the user's button takes it back
-      await internals.jobs.get(manager.updateBridge(id, true).id)!.finished;
-      expect(runtime.updateCancelled).toBe(true);
-      Object.assign(runtime.machine, { state: "error", action_required: "update_bridge" });
-      await internals.jobs.get(manager.updateBridge(id).id)!.finished;
-      expect(runtime.updateCancelled).toBe(false);
-    } finally { manager.stop(); rmSync(dir, { recursive: true, force: true }); }
-  });
 
-  // The record a live server showed for a switched-off MacBook: an earlier failed update left the
-  // button and its error, then an update that was cancelled (Cancel update, a closed dialog, the
-  // setup's time limit) disconnected the PC and kept both, with no reconnect ever scheduled.
   it("reconnects after a cancelled update, and asks again only once the PC answers", async () => {
     const dir = mkdtempSync(join(tmpdir(), "herdr-cancelled-update-"));
     writeFileSync(join(dir, "machines.json"), JSON.stringify([{ id, name: "macbook", enabled: false, target: { destination: "macbook" }, snapshot: null }]));
@@ -465,7 +438,7 @@ describe("host detection", () => {
       expect(inspection).toMatchObject({
         platform: "win32-x64", home: "C:\\Users\\u", herdrPath: "C:\\Users\\u\\AppData\\Local\\Programs\\Herdr\\bin\\herdr.exe",
         expectedSocket: "C:\\Users\\u\\AppData\\Roaming\\herdr\\sessions\\qa\\herdr.sock",
-        runtimeDir: `C:\\Users\\u\\AppData\\Local\\herdr-web-ui\\remote-v${REMOTE_BUNDLE_VERSION}`, bundleReady: false,
+        runtimeDir: `C:\\Users\\u\\AppData\\Local\\herdr-web-ui\\fork-remote-v${REMOTE_BUNDLE_VERSION}`, bundleReady: false,
       });
     }
   });
@@ -542,7 +515,7 @@ describe("bridge verification failures", () => {
   /** a bridge whose herdr socket is `socket` */
   function bridge(socket: string): number {
     process.env["HERDR_SOCKET"] = socket;
-    const server = createServer({ port: 0, hostname: "127.0.0.1", token: TOKEN, stateDir: temp(), machines: false, registerBridge: false, tailscaleOwner: null });
+    const server = createServer({ port: 0, hostname: "127.0.0.1", token: TOKEN, stateDir: temp(), machines: false, registerBridge: false });
     stops.push(() => server.stop());
     return server.port!;
   }
@@ -579,7 +552,7 @@ describe("bridge verification failures", () => {
       it(`connects the inspected Windows socket to its bridge for ${JSON.stringify(root)}, session ${session}`, async () => {
         const env = { XDG_CONFIG_HOME: root, APPDATA: "C:\\Users\\u\\AppData\\Roaming", HERDR_REMOTE_SESSION: session };
         const socket = String(bridgeSocket(true, { env }, win32.join, () => "C:\\Users\\u"));
-        const identity = { pid: process.pid, managed_remote: true, bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: "1:2", herdr: { protocol: 22 } };
+        const identity = { distribution: "tomrutsaert/herdr-web-ui", pid: process.pid, managed_remote: true, bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: "1:2", herdr: { protocol: 22 } };
         const port = answering(200, JSON.stringify(identity));
         const descriptor = { ...identity, port, token: TOKEN };
         const ssh = {

@@ -1,5 +1,6 @@
 /** Where app state and managed-update state live. Dependency-free on purpose: the launcher
  * (server/managed.ts) imports it and must stay small and stable across releases. */
+import { DISTRIBUTION_REPOSITORY } from "../shared/distribution.ts";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,10 +11,10 @@ export function defaultStateDir(): string {
   return join(process.env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr-web-ui");
 }
 
-/** One update state per source checkout and port, so two checkouts or ports never share builds. */
+/** One update state per distribution, source checkout and port, so two checkouts or ports never share builds. */
 export function updateStateDir(root: string, port: number, stateDir = defaultStateDir()): string {
   return join(resolve(stateDir), "updates",
-    createHash("sha256").update(`${resolve(root)}:${port}`).digest("hex").slice(0, 16));
+    createHash("sha256").update(`${DISTRIBUTION_REPOSITORY}:${resolve(root)}:${port}`).digest("hex").slice(0, 16));
 }
 
 /** A supervisor exits with this after an install: "start the supervisor of the release now active"

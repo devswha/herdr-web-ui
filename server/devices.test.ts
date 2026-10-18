@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeviceStore, normalizeLabel } from "./devices.ts";
-import { isTaggedNode, parseTailscaleOwner } from "./tailscale.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "herdr-devices-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -161,28 +160,12 @@ describe("DeviceStore", () => {
   });
 });
 
-describe("labels and owner", () => {
+describe("device labels", () => {
   it("trims labels and falls back", () => {
     expect(normalizeLabel("  my   phone ", "Device")).toBe("my phone");
     expect(normalizeLabel("", "Device")).toBe("Device");
     expect(normalizeLabel(42, "Device")).toBe("Device");
     expect(normalizeLabel("x".repeat(80), "Device")).toHaveLength(48);
-  });
-
-  it("reads the PC's login out of tailscale status", () => {
-    const status = JSON.stringify({ Self: { UserID: 42 }, User: { "42": { LoginName: "me@example.com" }, "43": { LoginName: "them@example.com" } } });
-    expect(parseTailscaleOwner(status)).toBe("me@example.com");
-    expect(parseTailscaleOwner(JSON.stringify({ Self: { UserID: 99 }, User: {} }))).toBeNull();
-    // a real id is past 2^53: as a double it becomes ...136 and names nobody (#526)
-    expect(parseTailscaleOwner('{"Self":{"UserID":15633668397603135},"User":{"15633668397603135":{"LoginName":"me@example.com"}}}')).toBe("me@example.com");
-    expect(parseTailscaleOwner(null)).toBeNull();
-    expect(parseTailscaleOwner("nope")).toBeNull();
-    expect(isTaggedNode(status)).toBeFalse();
-    // a tagged node's user entry is the node itself: no person's login
-    const tagged = JSON.stringify({ Self: { UserID: 7, Tags: ["tag:server"] }, User: { "7": { LoginName: "pc.tailnet.ts.net" } } });
-    expect(parseTailscaleOwner(tagged)).toBeNull();
-    expect(isTaggedNode(tagged)).toBeTrue();
-    expect(isTaggedNode(null)).toBeFalse();
   });
 });
 

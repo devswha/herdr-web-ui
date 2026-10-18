@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, watch, writeFileSync } from "node:fs";
+import { forkReleasePrerequisites } from "./windows-release-prerequisites.ts";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,9 +21,9 @@ const STAND_INS: Record<string, string> = {
   --version) echo "herdr 0.9.3" ;;
   "plugin list") [ ! -e "$SCRATCH/installed" ] || echo "devswha.herdr-web-ui 0.0.0" ;;
   "plugin list --json") printf '{"result":{"plugins":[{"plugin_id":"devswha.herdr-web-ui","plugin_root":"%s"}]}}\\n' "$SCRATCH/plugin" ;;
-  "plugin install "*) : > "$SCRATCH/installed"; echo "Installed devswha.herdr-web-ui" ;;
+  "plugin install "*) echo "$*" > "$SCRATCH/install.args"; : > "$SCRATCH/installed"; echo "Installed devswha.herdr-web-ui" ;;
   "status server --json") if [ -e "$SCRATCH/running" ]; then echo '{"running":true}'; else echo '{"running":false}'; fi ;;
-  "plugin action invoke "*) ;;
+  "plugin action invoke "*) echo "$*" > "$SCRATCH/start.args" ;;
   *) echo "unexpected herdr $*" >&2; exit 1 ;;
 esac`,
   node: `echo v22.0.0`,
@@ -60,12 +61,17 @@ class Pc {
     const bin = join(this.scratch, "bin");
     mkdirSync(bin);
     mkdirSync(join(this.scratch, "plugin", "scripts"), { recursive: true });
-    writeFileSync(join(this.scratch, "plugin", "scripts", "plugin.ts"), `import { existsSync } from "node:fs";\nif (process.argv[2] === "phone") console.log("the phone step");\nif (process.argv[2] === "status" && existsSync(process.env.SCRATCH + "/running")) console.log("running http://127.0.0.1:7317 (pid 1234)");\n`);
-    for (const tool of ["sh", "bash", "cat", "uname", "ldd", "grep", "curl", "git", "tar", "awk", "sed", "mktemp", "rm", "sleep", "perl", "mv"]) {
+    writeFileSync(join(this.scratch, "plugin", "scripts", "plugin.ts"), `import { existsSync } from "node:fs";\nif (process.argv[2] === "status" && existsSync(process.env.SCRATCH + "/running")) console.log("running http://127.0.0.1:7317 (pid 1234)");\n`);
+    for (const tool of ["sh", "bash", "cat", "uname", "ldd", "grep", "curl", "git", "tar", "awk", "sed", "sort", "tail", "mktemp", "rm", "sleep", "perl", "mv"]) {
       if (tool === "perl" && options.perl === false) continue;
       const real = Bun.which(tool);
       if (real) symlinkSync(real, join(bin, tool));
     }
+    rmSync(join(bin, "git"));
+    writeFileSync(join(bin, "git"), '#!/bin/sh\n[ "$*" = "-C $SCRATCH/plugin config --local --get remote.origin.url" ] || exit 1\ncat "$SCRATCH/origin"\n', { mode: 0o755 });
+    writeFileSync(join(this.scratch, "origin"), "https://github.com/tomrutsaert/herdr-web-ui.git");
+    mkdirSync(join(this.scratch, "plugin", "shared"));
+    writeFileSync(join(this.scratch, "plugin", "shared", "distribution.ts"), 'export const DISTRIBUTION_REPOSITORY = "tomrutsaert/herdr-web-ui";\n');
     symlinkSync(process.execPath, join(bin, "bun"));
     for (const name of gh ? ["herdr", "node", "xdg-open", "open", "gh"] : ["herdr", "node", "xdg-open", "open"]) {
       writeFileSync(join(bin, name), `#!/bin/sh\n${STAND_INS[name]!}\n`);
@@ -115,7 +121,7 @@ class Pc {
   }
   stars(): number { return this.ghCalls().filter((call) => call.includes("--method PUT")).length; }
   private environment(extra: Record<string, string> = {}): Record<string, string> {
-    return { PATH: join(this.scratch, "bin"), HOME: this.scratch, SCRATCH: this.scratch, SHELL: "/bin/sh", TERM: "xterm", HERDR_WEB_UI_REF: "v0.0.0", ...extra };
+    return { PATH: join(this.scratch, "bin"), HOME: this.scratch, SCRATCH: this.scratch, SHELL: "/bin/sh", TERM: "xterm", HERDR_WEB_UI_REF: "fork-v0.0.0", ...extra };
   }
 
   /** as a script or an agent runs it: the script on stdin, and no terminal */
@@ -159,6 +165,14 @@ class Pc {
     return { out, exitCode: Number(/exit=(\d+)/.exec(out)?.[1] ?? -1), asked: out.includes(QUESTION), askedAt };
   }
 }
+it("gates release-only Windows scenarios on readable stable fork releases, never inherited tags", () => {
+  const inherited = "a refs/tags/v99.0.0\nb refs/tags/remote-v99\nc refs/tags/fork-v2.0.0-rc.1";
+  expect(forkReleasePrerequisites(null)).toMatchObject({ latest: "", previous: "" });
+  expect(forkReleasePrerequisites(inherited)).toMatchObject({ latest: "", previous: "" });
+  expect(forkReleasePrerequisites(`${inherited}\nd refs/tags/fork-v1.9.0`)).toMatchObject({ latest: "fork-v1.9.0", previous: "" });
+  expect(forkReleasePrerequisites(`${inherited}\nd refs/tags/fork-v1.9.0\ne refs/tags/fork-v1.10.0`)).toMatchObject({ latest: "fork-v1.10.0", previous: "fork-v1.9.0" });
+});
+
 const pcs: string[] = [];
 afterAll(() => { for (const scratch of pcs) rmSync(scratch, { recursive: true, force: true }); });
 
@@ -176,6 +190,88 @@ it("extracts only the URL from a PID-bearing Windows status line", () => {
 
 // install.sh is the Linux and macOS installer: Windows has install.ps1 and scripts/windows-install.test.ps1
 describe.skipIf(platform() === "win32")("install.sh without a terminal", () => {
+  it("selects only stable fork tags from the fork source on a fresh install", async () => {
+    const pc = new Pc();
+    const git = join(pc.scratch, "bin", "git");
+    rmSync(git);
+    writeFileSync(git, `#!/bin/sh
+[ "$1" != "-C" ] || { [ "$*" = "-C $SCRATCH/plugin config --local --get remote.origin.url" ] || exit 1; cat "$SCRATCH/origin"; exit 0; }
+[ "$*" = "ls-remote --tags --refs https://github.com/tomrutsaert/herdr-web-ui.git fork-v*" ] || exit 1
+printf '%s\\n' 'aaa refs/tags/v99.0.0' 'bbb refs/tags/fork-v1.9.0' 'ccc refs/tags/fork-v1.10.0' 'ddd refs/tags/fork-v2.0.0-rc.1' 'eee refs/tags/fork-remote-v99'
+`);
+    chmodSync(git, 0o755);
+    const { out, exitCode } = await pc.unattended({ HERDR_WEB_UI_REF: "" });
+    expect(exitCode, out).toBe(0);
+    expect(readFileSync(join(pc.scratch, "install.args"), "utf8")).toContain("plugin install tomrutsaert/herdr-web-ui --ref fork-v1.10.0 --yes");
+  });
+
+  it("refuses inherited app and runtime tags even as an install override", async () => {
+    for (const ref of ["v99.0.0", "remote-v99", "fork-remote-v99"]) {
+      const pc = new Pc();
+      expect((await pc.unattended({ HERDR_WEB_UI_REF: ref })).exitCode).toBe(1);
+      expect(existsSync(join(pc.scratch, "installed"))).toBe(false);
+    }
+  });
+
+  it("refuses an existing upstream plugin without starting or replacing it", async () => {
+    const pc = new Pc().installed().running();
+    rmSync(join(pc.scratch, "plugin", "shared", "distribution.ts"));
+    const { exitCode, out } = await pc.unattended();
+    expect(exitCode, out).toBe(1);
+    expect(out).toContain("migration");
+    expect(existsSync(join(pc.scratch, "start.args"))).toBe(false);
+    expect(existsSync(join(pc.scratch, "install.args"))).toBe(false);
+  });
+
+  it("accepts an existing fork, but refuses a checkout whose origin was retargeted", async () => {
+    const fork = new Pc().installed().running();
+    expect((await fork.unattended()).exitCode).toBe(0);
+    expect(existsSync(join(fork.scratch, "start.args"))).toBe(true);
+    const retargeted = new Pc().installed().running();
+    writeFileSync(join(retargeted.scratch, "origin"), "https://github.com/devswha/herdr-web-ui.git");
+    expect((await retargeted.unattended()).exitCode).toBe(1);
+    expect(existsSync(join(retargeted.scratch, "start.args"))).toBe(false);
+  });
+
+  it("validates the stored fork origin with real Git even when transport is rewritten", async () => {
+    const realGit = Bun.which("git")!;
+    const pc = new Pc().installed();
+    const root = join(pc.scratch, "plugin");
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync([realGit, "-C", root, ...args], { env: { ...process.env, HOME: pc.scratch, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: join(pc.scratch, "unused-git-config") } });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      return result.stdout.toString().trim();
+    };
+    rmSync(join(pc.scratch, "bin", "git"));
+    symlinkSync(realGit, join(pc.scratch, "bin", "git"));
+    git("init", "-q");
+    const mirror = join(pc.scratch, "local-transport-only");
+    for (const origin of ["https://github.com/tomrutsaert/herdr-web-ui.git", "git@github.com:tomrutsaert/herdr-web-ui.git", "ssh://git@github.com/tomrutsaert/herdr-web-ui.git"]) {
+      git("config", "remote.origin.url", origin);
+      git("config", `url.${mirror}.insteadOf`, origin);
+      expect(git("remote", "get-url", "origin")).toBe(mirror);
+      expect(git("config", "--local", "--get", "remote.origin.url")).toBe(origin);
+      const result = await pc.unattended();
+      expect(result.exitCode, result.out).toBe(0);
+    }
+    // A stored foreign origin stays foreign, even when transport would rewrite it to this fork.
+    const foreign = "https://github.com/devswha/herdr-web-ui.git";
+    git("config", "remote.origin.url", foreign);
+    git("config", "url.https://github.com/tomrutsaert/herdr-web-ui.git.insteadOf", foreign);
+    expect(git("remote", "get-url", "origin")).toBe("https://github.com/tomrutsaert/herdr-web-ui.git");
+    expect((await pc.unattended()).exitCode).toBe(1);
+  });
+
+  it("reports a migration-required startup failure instead of a successful install", async () => {
+    const pc = new Pc().installed().running();
+    writeFileSync(join(pc.scratch, "plugin", "scripts", "plugin.ts"), 'console.log("down http://127.0.0.1:7317"); console.error("Fork migration required: the old web process still runs");');
+    rmSync(join(pc.scratch, "bin", "sleep"));
+    writeFileSync(join(pc.scratch, "bin", "sleep"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const result = await pc.unattended();
+    expect(result.exitCode).toBe(1);
+    expect(result.out).toContain("migration");
+  });
+
   it.concurrent("mentions the star with a link when the PC has no gh", async () => {
     const { out, exitCode } = await new Pc().unattended();
     expect(exitCode).toBe(0);
@@ -191,7 +287,7 @@ describe.skipIf(platform() === "win32")("install.sh without a terminal", () => {
     const { out, exitCode } = await pc.unattended();
     expect(exitCode).toBe(0);
     expect(out).not.toContain(MENTION);
-    expect(pc.ghCalls()).toEqual(["api --hostname github.com --include user/starred/devswha/herdr-web-ui"]);
+    expect(pc.ghCalls()).toEqual(["api --hostname github.com --include user/starred/tomrutsaert/herdr-web-ui"]);
   });
 
   it.concurrent("gives the link and asks nothing when the account has not starred", async () => {

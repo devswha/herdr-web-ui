@@ -1,14 +1,13 @@
 /**
  * Portal (github.com/gosuda/portal-tunnel): an optional public HTTPS address for this server,
  * started and stopped from Settings → Phone & devices with the `portal` already on this PC; the
- * app never installs it. Tailscale stays the private route and is only ever read (tailscale.ts).
+ * app never installs it.
  * Whatever a request asks, the guide's rules for a public proxy hold (docs/guide.md, Behind a
  * reverse proxy):
  *
- * - no address without a token, and none while HERDR_WEB_TAILSCALE_SERVE_ONLY says tailscale serve
- *   is the only way in, not even one an earlier server left running;
+ * - no address without a token, not even one an earlier server left running;
  * - routed mode, which keeps the browser's Host and sends X-Forwarded-For and
- *   X-Forwarded-Proto: https, and drops a visitor's Tailscale-User-Login;
+ *   X-Forwarded-Proto: https;
  * - one relay the user picked, discovery off, hidden from the relay's list; the identity file kept
  *   here holds the name, and with it the address, across restarts;
  * - only the relay's origin comes from the request, and Portal gets none of this server's
@@ -26,7 +25,7 @@ import { chunksOf } from "./remote-bundle.ts";
 import { updateRequestAllowed } from "./update-api.ts";
 import { windowsArgv, windowsProcessTable } from "./windows-processes.ts";
 
-/** the first release with `--strip-request-header` and an address tied to the identity */
+/** the first supported release with an address tied to the identity */
 const PORTAL_VERSION = "v2.6.1";
 /** a relay that answers but will not take the tunnel is only ever retried, never refused */
 const READY_TIMEOUT_MS = 60_000;
@@ -50,8 +49,6 @@ type Child = ReturnType<typeof Bun.spawn>;
 interface Guards {
   /** HERDR_WEB_TOKEN is set */
   tokenSet: boolean;
-  /** HERDR_WEB_TAILSCALE_SERVE_ONLY: tailscale serve is declared the only way in */
-  serveOnly: boolean;
 }
 interface StartRequest extends Guards {
   relay: string;
@@ -110,9 +107,8 @@ export function readyUrl(line: string): string | null {
   try { return new URL(match[1]!).origin; } catch { return null; }
 }
 
-function blockedBy({ tokenSet, serveOnly }: Guards): PortalStatus["blocked"] {
+function blockedBy({ tokenSet }: Guards): PortalStatus["blocked"] {
   if (!tokenSet) return "token_required";
-  if (serveOnly) return "serve_only";
   return null;
 }
 
@@ -415,7 +411,6 @@ export class PortalService {
     const child = Bun.spawn([
       bin, "expose",
       "--http-route", `/=${port}`,
-      "--strip-request-header", "Tailscale-User-Login",
       // a name counts only when the identity file is created; later runs keep the saved one
       "--name", `herdr-${randomBytes(8).toString("hex")}`,
       "--identity-path", this.identityPath,
@@ -619,7 +614,6 @@ export async function handlePortalRequest(request: Request, pathname: string, po
   let started: ReturnType<PortalService["start"]>;
   try { started = portal.start({ ...context, relay }); } catch (error) { return errorResponse(error); }
   if (started === "token_required") return fail("token_required", "Set HERDR_WEB_TOKEN and restart the app before you start Portal: anyone on the internet can open its address.", 409);
-  if (started === "serve_only") return fail("serve_only", "Turn off HERDR_WEB_TAILSCALE_SERVE_ONLY and restart the app before you start Portal: it says tailscale serve is the only way in.", 409);
   if (started === "busy") return fail("portal_busy", "Portal is busy; try again once it is idle.", 409);
   if (started === "state_in_use") return fail("portal_state_in_use", "Another server owns this Portal state directory. Give this server its own HERDR_WEB_STATE_DIR.", 409);
   return reply({ accepted: true }, 202);

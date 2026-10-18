@@ -75,9 +75,7 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
         if (message?.type === "update-status-request") publish();
         if (message?.type === "update-command" && (message.command === "check" || message.command === "install")) {
           const command = message.command;
-          // a browser's Check or Update is a user's own request: it does not wait the unshallow
-          // backoff out, the 5-minute timer does
-          void started.promise.then(() => updater.request(command, true));
+          void started.promise.then(() => updater.request(command));
         }
       },
       onExit(proc, code) {
@@ -103,7 +101,7 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
   const pluginRoot = process.env["HERDR_PLUGIN_ROOT"];
   // only a launcher-started supervisor can hand over: run directly, it keeps serving the update itself
   const launched = typeof process.send === "function";
-  const updater = new Updater({ root, stateDir, autoUpdate: process.env["HERDR_WEB_AUTO_UPDATE"] === "1", publish,
+  const updater = new Updater({ root, stateDir, publish,
     pluginCheckout: pluginRoot !== undefined && resolve(pluginRoot) === root,
     notice: process.env["HERDR_WEB_SUPERVISOR_FALLBACK"]
       ? "The updated supervisor failed to start, so the previous one is running this version. The next update tries again."
@@ -149,9 +147,8 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
     }
     switching = false;
     started.resolve();
-    updater.start();
     process.send?.({ type: "supervisor-ready" });
-    console.log(`Managed updates: ${updater.status.auto_update ? "automatic install" : "automatic checks, install from Settings"}`);
+    console.log("Managed updates: check and install explicitly from Settings");
   } catch (error) {
     console.error(error);
     await shutdown(1);

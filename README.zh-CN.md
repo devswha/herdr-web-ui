@@ -1,5 +1,7 @@
 # herdr web ui
 
+此分支由 `tomrutsaert/herdr-web-ui` 分发。在 Settings → About 中手动检查并安装更新。应用仅使用 `fork-vX.Y.Z` 标签，远程运行时仅使用 `fork-remote-vN` 标签，不会安装继承的上游标签。不发送维护者使用统计，也不自动发布网络访问地址。为保留已安装状态，插件 ID 仍为 `devswha.herdr-web-ui`。
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
 </p>
@@ -9,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="https://herdrweb.dev/">官网</a> ·
+  <a href="https://github.com/tomrutsaert/herdr-web-ui">仓库</a> ·
   <a href="#install">安装</a> ·
-  <a href="https://herdrweb.dev/demo/">体验演示</a> ·
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/tree/main/site/demo">演示源码</a> ·
   <a href="docs/guide.md#quick-start">快速入门</a> ·
   <a href="#faq">常见问题</a> ·
   <a href="#docs">文档</a>
@@ -19,8 +21,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT 许可证"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub 星标数"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="最新版本"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/tomrutsaert/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub 星标数"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/tomrutsaert/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="最新版本"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="可安装的 PWA"></a>
 </p>
@@ -79,7 +81,7 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 - **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc 和 pi 的原生会话记录，以及 herdr 识别出的 OpenCode 2 和 Devin CLI 会话，一键切换到实时终端。智能体工作时可以先写好下一条消息，它会在下一轮发出，也可以用 Send now 立即发送。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。
 - **需要你时及时提醒** — 实时显示每个窗格的状态；应用打开时提醒会从顶部滑下；智能体需要输入或完成任务时发送推送通知，即使应用已关闭也能收到。
-- **安装到手机** — PWA 在键盘上方提供按键栏（Esc、Tab、Ctrl、Alt、Shift、Enter 和方向键），可在 Settings（设置）中调整顺序或添加自定义组合键；Tailscale 地址以二维码显示。[手机设置 →](docs/guide.md#on-your-phone)
+- **安装到手机** — PWA 在键盘上方提供按键栏（Esc、Tab、Ctrl、Alt、Shift、Enter 和方向键），可在 Settings（设置）中调整顺序或添加自定义组合键；已配置的 HTTPS 地址以二维码显示。[手机设置 →](docs/guide.md#on-your-phone)
 - **开口代替打字** — 在聊天或终端输入行中语音输入，韩语和英语混说也能识别；文字只放进输入框，由你决定何时发送。使用你自己的 OpenAI API 密钥，或浏览器自带的语音识别。
 - **沿用现有工作流** — 智能体由 herdr 管理，本应用负责连接；在 Settings（设置）中更新应用，无需停止智能体，每次更新带来的变化以更新说明列出。新标签页和 worktree 可从行的 ⋯ 菜单创建。[全部功能 →](docs/guide.md#features)
 
@@ -90,33 +92,30 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 ## 安装
 
 ```bash
-curl -fsSL https://herdrweb.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-支持 Linux（x64、arm64）或 macOS。安装程序会为当前用户补齐 herdr 0.9.0+、Bun 1.4+ 和 Node 18+ 依赖，然后将应用安装为 herdr 插件。如果已安装的 herdr 低于 0.9.0，请先自行更新并重启 herdr，再重新运行安装程序。使用默认监听地址且 Tailscale 正在运行时，HTTPS 配置成功后会提供 tailnet 内的访问地址和二维码。你自己的设备本来就能免验证码进入：`tailscale serve` 会告知你的登录名。如果你的手机仍被要求配对，设置 `HERDR_WEB_TAILSCALE_SERVE_ONLY=1` 后，在只有一个登录名的 tailnet 上也能免验证码进入；但仅限于没有公共代理或隧道等其他途径能访问此端口的情况（[访问与安全](docs/guide.md#access-and-safety)）。
+支持 Linux（x64、arm64）或 macOS。安装程序会为当前用户补齐 herdr 0.9.0+、Bun 1.4+ 和 Node 18+ 依赖，然后将应用安装为 herdr 插件。如果已安装的 herdr 低于 0.9.0，请先自行更新并重启 herdr，再重新运行安装程序。 请自行配置 HTTPS 反向代理或 SSH 隧道，然后用验证码配对设备。安装应用和通知需要 HTTPS 或 localhost。
 
-<p align="center">
 Windows x64 请在 PowerShell 中运行：
 
 ```powershell
-irm https://herdrweb.dev/install.ps1 | iex
+irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
 需要 [Git for Windows](https://git-scm.com/download/win)。安装程序会为当前用户补齐 herdr 和 Bun，然后安装同一个插件，无需 Node 或 WSL。要在手机上使用，请在 herdr 中打开 **Phone setup**。在 herdr 支持 Windows 终端附加之前，Windows 上的终端是一个可以输入、网格固定的[屏幕镜像](docs/remote-pcs.md#windows-pcs)。
 
-<p align="center">
-  <img src="docs/screenshots/install.png" width="720" alt="安装程序输出：安装 Bun、Node 和 herdr 插件，然后通过 tailscale serve 提供应用访问地址，并显示供手机扫描的二维码。">
-</p>
-
 已经安装了所需依赖？只需安装插件：
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install tomrutsaert/herdr-web-ui
 ```
 
-在 herdr 运行时，打开 **[localhost:7317](http://localhost:7317)**。选择一个窗格，或点击 **New workspace（新建工作区）** 启动智能体。要在手机上使用，请扫描安装程序提供的二维码，并将应用添加到主屏幕。[快速入门 →](docs/guide.md#quick-start)
+在 herdr 运行时，打开 **[localhost:7317](http://localhost:7317)**。选择一个窗格，或点击 **New workspace（新建工作区）** 启动智能体。要在手机上使用，请打开已配置的 HTTPS 地址，配对设备并将应用添加到主屏幕。[快速入门 →](docs/guide.md#quick-start)
 
 服务器默认监听 `127.0.0.1`。如需从其他设备访问，请参阅[手机设置](docs/guide.md#on-your-phone)和[访问与安全](docs/guide.md#access-and-safety)。
+
+只有通过非 localhost 的 HTTPS 地址打开应用时才显示配对二维码。本地页面和 Phone setup 提供配对码，不会发现外部地址。
 
 <a id="faq"></a>
 
@@ -134,13 +133,13 @@ Claude Code、Codex、omp、omo、gjc 和 pi 直接从各自的会话文件读�
 
 不会。两者同时连接到同一批终端，所以窗格在桌面、浏览器和手机上都保持实时。不需要停止或交接任何东西。 [TUI 与浏览器 →](docs/guide.md#faq)
 
-**必须使用 Tailscale 吗？**
+**如何从其他设备连接？**
 
-不必。Tailscale、SSH 隧道、VPN 或自行配置的 HTTPS 代理都可以提供访问电脑的通路。安装应用和推送提醒需要 HTTPS 或 localhost 等安全上下文；基本浏览也可以使用局域网中的普通 HTTP 地址。[其他方式 →](docs/guide.md#faq)
+请自行配置 HTTPS 反向代理或 SSH 隧道，然后用验证码配对设备。安装应用和通知需要 HTTPS 或 localhost。
 
 **我的代码或对话会离开我的电脑吗？**
 
-会话文件保留在运行各个智能体的电脑上，内容会发送到你连接的浏览器。本应用没有自有的云端中继或账号服务。可选的语音输入会把录音发送给配置的服务商；启用文字整理时也会发送文本。启用用量显示后，会连接服务商的 API。更新、远程电脑设置和推送提醒也可能连接外部服务。应用在安装时、每次更新时，以及打开应用的当天每天一次（附带正在运行的编程智能体类型）会发送匿名计数（版本、操作系统、安装方式和一个随机 ID，不保存 IP 地址），可在 **Settings → About → Anonymous usage counts** 中查看发送内容并关闭。智能体自身如何连接模型，取决于它的配置。[数据传输与访问 →](docs/guide.md#faq)
+会话内容发送到已连接的浏览器。可选语音输入、用量显示、手动更新、远程电脑设置和通知可能使用外部服务。不向维护者发送使用统计。
 
 **支持 Windows 吗？**
 
@@ -175,7 +174,7 @@ Claude Code、Codex、omp、omo、gjc 和 pi 直接从各自的会话文件读�
 ## 开发
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
+git clone https://github.com/tomrutsaert/herdr-web-ui.git
 cd herdr-web-ui
 bun install
 

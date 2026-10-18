@@ -1,5 +1,7 @@
 # herdr web ui
 
+이 포크의 배포 저장소는 `tomrutsaert/herdr-web-ui`입니다. Settings → About에서 업데이트를 확인한 뒤 직접 설치합니다. 앱은 `fork-vX.Y.Z`, 원격 런타임은 `fork-remote-vN` 태그만 사용합니다. 사용량 집계 전송이나 네트워크 자동 공개는 없습니다. 기존 상태를 유지하기 위해 플러그인 ID는 `devswha.herdr-web-ui`로 유지합니다.
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
 </p>
@@ -9,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="https://herdrweb.dev/">웹사이트</a> ·
+  <a href="https://github.com/tomrutsaert/herdr-web-ui">저장소</a> ·
   <a href="#install">설치</a> ·
-  <a href="https://herdrweb.dev/demo/">데모 체험</a> ·
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/tree/main/site/demo">데모 소스</a> ·
   <a href="docs/guide.md#quick-start">빠른 시작</a> ·
   <a href="#faq">자주 묻는 질문</a> ·
   <a href="#docs">문서</a>
@@ -19,8 +21,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT license"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/tomrutsaert/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/tomrutsaert/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="Installable PWA"></a>
 </p>
@@ -79,7 +81,7 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 - **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc, pi의 대화 기록과 herdr가 식별한 OpenCode 2와 Devin CLI 세션을 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. 에이전트가 일하는 동안 다음 메시지를 써 두면 다음 턴에 들어가고, Send now로 바로 보낼 수도 있습니다. [지원 에이전트 →](docs/guide.md#supported-agents)
 - **탭 한 번으로 승인** — 승인 요청, 질문, 계획 메뉴가 카드로 뜹니다. 답을 보내기 전에 그 질문이 아직 유효한지 확인합니다.
 - **내가 필요할 때 알림** — 모든 pane의 상태를 실시간으로 보여 주고, 앱을 보고 있을 때는 알림이 위에서 내려오며, 에이전트가 입력을 기다리거나 일을 끝내면 앱이 닫혀 있어도 푸시 알림을 보냅니다.
-- **폰에 설치해서 쓰기** — 키보드 위에 키 바(Esc, Tab, Ctrl, Alt, Shift, Enter, 방향키)가 붙은 PWA입니다. 키 순서를 바꾸거나 나만의 키 조합을 Settings(설정)에서 추가할 수 있습니다. Tailscale 주소는 QR 코드로 받아 갑니다. [폰 설정 →](docs/guide.md#on-your-phone)
+- **폰에 설치해서 쓰기** — 키보드 위에 키 바(Esc, Tab, Ctrl, Alt, Shift, Enter, 방향키)가 붙은 PWA입니다. 키 순서를 바꾸거나 나만의 키 조합을 Settings(설정)에서 추가할 수 있습니다. 설정한 HTTPS 주소를 QR 코드로 공유합니다. [폰 설정 →](docs/guide.md#on-your-phone)
 - **말로 입력하기** — 채팅이나 터미널 입력 줄에 받아쓰기로 입력합니다. 한국어와 영어를 섞어 말해도 됩니다. 에이전트에게 보내기 전에 글자를 확인할 수 있고, 받아쓰기는 내 OpenAI 키나 브라우저의 음성 인식을 씁니다.
 - **작업 방식은 그대로** — 에이전트는 herdr가 관리하고, 이 앱은 거기에 연결만 합니다. 에이전트를 멈추지 않고 Settings(설정)에서 업데이트하며, 업데이트마다 무엇이 바뀌는지 패치 노트로 보여 줍니다. 새 탭과 worktree는 행의 ⋯ 메뉴에서 만듭니다. [전체 기능 →](docs/guide.md#features)
 
@@ -90,33 +92,30 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 ## 설치
 
 ```bash
-curl -fsSL https://herdrweb.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-Linux(x64, arm64)와 macOS를 지원합니다. herdr 0.9.0 이상, Bun 1.4 이상, Node 18 이상 중 없는 것을 현재 사용자 계정에 설치한 뒤, 앱을 herdr 플러그인으로 설치합니다. 이미 설치된 herdr가 0.9.0보다 오래됐다면 herdr를 직접 업데이트하고 다시 시작한 다음 설치 스크립트를 다시 실행하세요. 기본 수신 주소를 쓰고 Tailscale이 켜져 있으면, HTTPS 설정이 끝났을 때 tailnet 주소와 QR 코드가 나옵니다. 자신의 기기는 원래 코드 없이 들어갑니다. `tailscale serve`가 로그인을 알려 주기 때문입니다. 그래도 자신의 폰이 페어링을 요구받는다면 `HERDR_WEB_TAILSCALE_SERVE_ONLY=1`을 설정하면 로그인이 하나뿐인 tailnet에서는 코드 없이 들어갈 수 있습니다. 단, 공용 프록시나 터널 등 다른 경로로 이 포트에 접근할 수 있다면 설정하지 마세요 ([접근과 안전](docs/guide.md#access-and-safety)).
+Linux(x64, arm64)와 macOS를 지원합니다. herdr 0.9.0 이상, Bun 1.4 이상, Node 18 이상 중 없는 것을 현재 사용자 계정에 설치한 뒤, 앱을 herdr 플러그인으로 설치합니다. 이미 설치된 herdr가 0.9.0보다 오래됐다면 herdr를 직접 업데이트하고 다시 시작한 다음 설치 스크립트를 다시 실행하세요. HTTPS 리버스 프록시 또는 SSH 터널을 직접 설정한 뒤 코드로 기기를 페어링하세요. 앱 설치와 알림에는 HTTPS 또는 localhost가 필요합니다.
 
-<p align="center">
 PowerShell에서 Windows x64용으로 설치하려면:
 
 ```powershell
-irm https://herdrweb.dev/install.ps1 | iex
+irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
 [Git for Windows](https://git-scm.com/download/win)가 필요합니다. 없는 herdr와 Bun을 현재 사용자 계정에 설치한 뒤 같은 플러그인을 설치합니다. Node나 WSL은 필요 없습니다. 폰에서 쓰려면 herdr에서 **Phone setup**을 여세요. herdr가 Windows에서 터미널 attach를 지원하기 전까지 Windows 터미널은 입력은 되고 격자 크기는 고정된 [화면 미러](docs/remote-pcs.md#windows-pcs)로 보입니다.
 
-<p align="center">
-  <img src="docs/screenshots/install.png" width="720" alt="설치 스크립트 출력: Bun, Node, herdr 플러그인이 설치되고 tailscale serve가 앱을 공개한 뒤 폰용 QR 코드가 나옵니다.">
-</p>
-
 필요한 도구가 이미 있다면 플러그인만 설치해도 됩니다.
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install tomrutsaert/herdr-web-ui
 ```
 
-herdr가 실행 중인 상태에서 **[localhost:7317](http://localhost:7317)**을 여세요. pane을 고르거나 **New workspace**로 에이전트를 시작합니다. 폰에서 쓰려면 설치 스크립트가 보여 준 QR 코드를 찍고 앱을 홈 화면에 추가하세요. [빠른 시작 →](docs/guide.md#quick-start)
+herdr가 실행 중인 상태에서 **[localhost:7317](http://localhost:7317)**을 여세요. pane을 고르거나 **New workspace**로 에이전트를 시작합니다. 폰에서 쓰려면 설정한 HTTPS 주소를 열고 기기를 페어링한 뒤 앱을 홈 화면에 추가하세요. [빠른 시작 →](docs/guide.md#quick-start)
 
 서버는 기본적으로 `127.0.0.1`에서만 받습니다. 다른 기기에서 접속하려면 [폰 설정](docs/guide.md#on-your-phone)과 [접근과 보안](docs/guide.md#access-and-safety)을 보세요.
+
+QR 코드는 localhost가 아닌 HTTPS 주소로 앱을 열었을 때만 표시됩니다. 로컬 페이지와 Phone setup에서는 페어링 코드를 사용하세요.
 
 <a id="faq"></a>
 
@@ -134,13 +133,13 @@ Claude Code, Codex, omp, omo, gjc, pi는 각자의 세션 파일에서 읽습니
 
 아니요. 둘 다 같은 터미널에 동시에 붙으므로, pane은 책상에서도 브라우저에서도 폰에서도 그대로 살아 있습니다. 멈추거나 넘겨줄 것이 없습니다. [TUI와 브라우저 →](docs/guide.md#faq)
 
-**Tailscale이 꼭 필요한가요?**
+**다른 기기에서 어떻게 접속하나요?**
 
-아니요. Tailscale, SSH 터널, VPN이나 직접 설정한 HTTPS 프록시로 PC에 접속할 수 있습니다. 앱 설치와 푸시 알림에는 HTTPS나 localhost 같은 보안 컨텍스트가 필요하며, 기본 화면은 LAN의 일반 HTTP 주소로도 열 수 있습니다. [다른 방법 →](docs/guide.md#faq)
+HTTPS 리버스 프록시 또는 SSH 터널을 직접 설정한 뒤 코드로 기기를 페어링하세요. 앱 설치와 알림에는 HTTPS 또는 localhost가 필요합니다.
 
 **코드나 대화가 내 컴퓨터 밖으로 나가나요?**
 
-세션 파일은 각 에이전트가 실행되는 PC에 남고, 내용은 연결한 브라우저로 전송됩니다. 이 앱 자체의 클라우드 중계나 계정 서비스는 없습니다. 선택 기능인 음성 입력은 녹음을, 텍스트 다듬기를 쓰면 텍스트도 설정된 제공업체로 보내며, 사용량 표시를 켜면 제공업체 API에 접속합니다. 업데이트, 원격 PC 설정, 푸시 알림도 외부 서비스에 접속할 수 있습니다. 앱은 설치될 때, 업데이트될 때마다, 그리고 앱을 연 날 하루 한 번(실행 중인 코딩 에이전트 종류 포함) 익명 카운트를 보냅니다(버전, OS, 설치 방식, 무작위 ID이며 IP 주소는 저장하지 않습니다). **Settings → About → Anonymous usage counts**에서 보내는 내용을 보고 끌 수 있습니다. 에이전트 자체의 모델 연결은 해당 에이전트 설정에 따릅니다. [데이터 전송과 접근 →](docs/guide.md#faq)
+세션 내용은 연결된 브라우저에 전송됩니다. 선택한 음성 입력, 사용량 표시, 수동 업데이트, 원격 PC 설정 및 알림은 외부 서비스를 사용할 수 있습니다. 유지 관리자에게 사용 통계를 보내지 않습니다.
 
 **Windows에서도 되나요?**
 
@@ -183,7 +182,7 @@ Claude Code, Codex, omp, omo, gjc, pi는 각자의 세션 파일에서 읽습니
 ## 개발
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
+git clone https://github.com/tomrutsaert/herdr-web-ui.git
 cd herdr-web-ui
 bun install
 

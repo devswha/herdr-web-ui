@@ -1,5 +1,5 @@
 // Registers the service worker. navigator.serviceWorker only exists in secure
-// contexts (https:// or localhost), so on a plain http:// LAN/tailnet IP this
+// contexts (https:// or localhost), so on a plain http:// LAN IP this
 // silently does nothing and the app still works uncached.
 window.addEventListener("load", () => {
   if (!("serviceWorker" in navigator)) return;

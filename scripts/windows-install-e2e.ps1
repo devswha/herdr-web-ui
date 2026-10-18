@@ -13,6 +13,8 @@ param(
     [string]$Ref = '',
     # after installing, update to the latest release through the app's own updater
     [switch]$Update,
+    # Already probed by CI; explicit refs avoid requiring release discovery for current-commit QA.
+    [string]$LatestRelease = '',
     # fail unless herdr and Bun are missing, so that their installers run (a CI runner)
     [switch]$Fresh
 )
@@ -42,10 +44,10 @@ function Find-Plugin {
     (herdr plugin list --json | ConvertFrom-Json).result.plugins | Where-Object { $_.plugin_id -eq $pluginId } | Select-Object -First 1
 }
 function Get-ReleaseTags {
-    $tags = @(git ls-remote --tags --refs 'https://github.com/devswha/herdr-web-ui.git' 'v*' |
-        ForEach-Object { if ($_ -match 'refs/tags/(v\d+\.\d+\.\d+)$') { $Matches[1] } } |
-        Sort-Object { [version]$_.Substring(1) })
-    Assert ($tags.Count -ge 2) 'Could not read the release tags from GitHub'
+    $tags = @(git ls-remote --tags --refs 'https://github.com/tomrutsaert/herdr-web-ui.git' 'fork-v*' |
+        ForEach-Object { if ($_ -match 'refs/tags/(fork-v\d+\.\d+\.\d+)$') { $Matches[1] } } |
+        Sort-Object { [version]$_.Substring(6) })
+    Assert ($tags.Count -ge 1) 'Could not read the release tags from GitHub'
     $tags
 }
 function Invoke-Installer([string]$InstallRef) {
@@ -58,11 +60,12 @@ function Invoke-Installer([string]$InstallRef) {
 # $Expected is a full commit or a release tag.
 function Assert-App([string]$Expected) {
     $health = Wait-Until { $answer = Get-Json '/api/health'; if ($answer.ok) { $answer } } 60 'the app to answer'
+    Assert ($health.web_ui.distribution -eq 'tomrutsaert/herdr-web-ui') 'The running server is not this fork'
     $updates = Get-Json '/api/updates'
     if ($Expected -match '^[0-9a-f]{40}$') {
         Assert ($health.web_ui.revision -eq $Expected) "The app runs $($health.web_ui.revision), not $Expected"
     } else {
-        Assert ("v$($updates.current_version)" -eq $Expected) "The app runs $($updates.current_version), not $Expected"
+        Assert ("fork-v$($updates.current_version)" -eq $Expected) "The app runs $($updates.current_version), not $Expected"
     }
     $page = Invoke-WebRequest "$origin/" -UseBasicParsing -TimeoutSec 10
     $bundle = [regex]::Match($page.Content, 'assets/index-[^"]+\.js').Value
@@ -77,9 +80,15 @@ if ($Fresh) {
     Assert (-not (Test-Herdr)) '-Fresh: herdr is already installed'
     Assert (-not (Get-Command bun -ErrorAction SilentlyContinue)) '-Fresh: Bun is already installed'
 }
-$tags = Get-ReleaseTags
-$latest = $tags[-1]
-if ($Update -and -not $Ref) { $Ref = $tags[-2] }
+$latest = $LatestRelease
+if (-not $Ref -or ($Update -and -not $latest)) {
+    $tags = Get-ReleaseTags
+    $latest = $tags[-1]
+    if ($Update -and -not $Ref) {
+        Assert ($tags.Count -ge 2) 'A previous fork release is required for update QA'
+        $Ref = $tags[-2]
+    }
+}
 $expected = if ($Ref) { $Ref } else { $latest }
 $startedServer = $false
 try {
@@ -107,14 +116,15 @@ try {
     Assert-App $expected
 
     if ($Update) {
+        Invoke-WebRequest "$origin/api/updates/check" -Method POST -Headers @{ 'x-herdr-update' = '1' } -UseBasicParsing -TimeoutSec 30 | Out-Null
         $found = Wait-Until { $status = Get-Json '/api/updates'; if ($status.latest_version) { $status } } 90 'the app to find the latest release'
-        Assert ($found.available -and "v$($found.latest_version)" -eq $latest) "The app offers $($found.latest_version) (available: $($found.available)), not $latest"
+        Assert ($found.available -and "fork-v$($found.latest_version)" -eq $latest) "The app offers $($found.latest_version) (available: $($found.available)), not $latest"
         Write-Host "e2e: updating $expected to $latest"
         Invoke-WebRequest "$origin/api/updates/install" -Method POST -Headers @{ 'x-herdr-update' = '1' } -UseBasicParsing -TimeoutSec 30 | Out-Null
         # the app restarts in the middle of this, so some of these questions go unanswered
         $after = Wait-Until {
             $status = Get-Json '/api/updates'
-            if ($status.phase -eq 'error' -or ($status.phase -eq 'idle' -and "v$($status.current_version)" -eq $latest)) { $status }
+            if ($status.phase -eq 'error' -or ($status.phase -eq 'idle' -and "fork-v$($status.current_version)" -eq $latest)) { $status }
         } 600 "the update to $latest"
         Assert ($after.phase -ne 'error') "The update failed: $($after.error)"
         Assert ((Get-Json '/api/health').web_ui.revision -eq $found.latest_revision) 'The updated app does not run the latest release'

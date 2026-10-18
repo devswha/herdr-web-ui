@@ -1,4 +1,4 @@
-# Native Windows install: irm https://herdrweb.dev/install.ps1 | iex
+# Native Windows install: irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 param([string]$Ref = $env:HERDR_WEB_UI_REF)
 
 & {
@@ -68,29 +68,38 @@ function Find-Plugin {
 function Test-WindowsPlugin($Plugin) {
     $Plugin.plugin_root -and (Test-Path -LiteralPath (Join-Path $Plugin.plugin_root 'scripts\plugin.ps1'))
 }
+function Assert-ForkPlugin($Plugin) {
+    try {
+        $identity = Get-Content -Raw -LiteralPath (Join-Path $Plugin.plugin_root 'shared\distribution.ts')
+        $remote = (Run-Tool git @('-C', $Plugin.plugin_root, 'config', '--local', '--get', 'remote.origin.url') | Out-String).Trim()
+        if ($identity -match '(?m)^export const DISTRIBUTION_REPOSITORY = "tomrutsaert/herdr-web-ui";\r?$' -and
+            $remote -match '^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)tomrutsaert/herdr-web-ui(?:\.git)?$') { return }
+    } catch { }
+    throw 'Fork migration required: stop only the web plugin, preserve config/state, explicitly replace its checkout with tomrutsaert/herdr-web-ui, then restart the web plugin (INSTALL.md#fork-migration). Nothing was started or uninstalled.'
+}
 $plugin = Find-Plugin
+if ($plugin) { Assert-ForkPlugin $plugin }
 $newInstall = $false
 if ($plugin -and -not (Test-WindowsPlugin $plugin)) {
-    # A copy from a release older than Windows support never starts here, so no in-app update reaches it.
-    Write-Host 'herdr web ui: replacing an installed copy that has no Windows support'
-    Run-Tool herdr @('plugin', 'uninstall', $pluginId) | Out-Null
-    $plugin = $null
+    throw 'The installed fork copy has no Windows support. Stop the web plugin and explicitly replace its checkout; config/state must be preserved (INSTALL.md#fork-migration).'
 }
 if (-not $plugin) {
     if (-not $Ref) {
-        $Ref = Run-Tool git @('ls-remote', '--tags', '--refs', 'https://github.com/devswha/herdr-web-ui.git', 'v*') |
-            ForEach-Object { if ($_ -match 'refs/tags/(v\d+\.\d+\.\d+)$') { $Matches[1] } } |
-            Sort-Object { [version]$_.Substring(1) } | Select-Object -Last 1
+        $Ref = Run-Tool git @('ls-remote', '--tags', '--refs', 'https://github.com/tomrutsaert/herdr-web-ui.git', 'fork-v*') |
+            ForEach-Object { if ($_ -match 'refs/tags/(fork-v\d+\.\d+\.\d+)$') { $Matches[1] } } |
+            Sort-Object { [version]$_.Substring(6) } | Select-Object -Last 1
     }
     if (-not $Ref) { throw 'Could not find the latest app release on GitHub. Check your connection and run this again.' }
+    if ($Ref -match '^(v\d|(?:fork-)?remote-v)') { throw 'App installs require a fork-v release tag or an explicit development branch/commit.' }
     Write-Host "herdr web ui: installing the plugin at $Ref"
-    Run-Tool herdr @('plugin', 'install', 'devswha/herdr-web-ui', '--ref', $Ref, '--yes')
+    Run-Tool herdr @('plugin', 'install', 'tomrutsaert/herdr-web-ui', '--ref', $Ref, '--yes')
     $newInstall = $true
     $plugin = Find-Plugin
     if (-not $plugin.plugin_root) { throw 'herdr does not list the plugin after installing it. See: herdr plugin list' }
+    Assert-ForkPlugin $plugin
     # herdr installs a release without Windows build steps as a success that cannot start.
     if (-not (Test-WindowsPlugin $plugin)) { throw "herdr web ui $Ref does not support Windows yet. Run this again after the next release." }
-} else { Write-Host 'herdr web ui: already installed; Settings > Updates keeps it current' }
+} else { Write-Host 'herdr web ui: already installed; manually Check for updates, then Update and restart in Settings > About' }
 
 $server = Run-Tool herdr @('status', 'server', '--json') | ConvertFrom-Json
 if ($server.running) {
@@ -132,7 +141,7 @@ if ($server.running) {
                 $port = if ($scheme -eq 'https://') { '443' } else { '80' }
             }
             Write-Host "herdr web ui: from your own computer, run: ssh -L ${port}:127.0.0.1:${port} <this-pc>, then open http://127.0.0.1:${port} and click Install in the address bar"
-            Write-Host 'herdr web ui: Phone setup in herdr shows the Tailscale address when there is one'
+            Write-Host 'herdr web ui: Use an HTTPS reverse proxy or SSH tunnel, then Phone setup in herdr to pair'
         } elseif ($origin -match '^https?://(127\.0\.0\.1|localhost)(:\d+)?(?:/|$)') {
             Write-Host "herdr web ui: open $origin in your browser and click Install in the address bar"
         } else {
@@ -377,15 +386,15 @@ function Read-Answer {
 # GitHub says the account has not (404), only at a terminal, and stars only on "y".
 if ($newInstall) {
     try {
-        $starred = Invoke-GhApi 'user/starred/devswha/herdr-web-ui'
+        $starred = Invoke-GhApi 'user/starred/tomrutsaert/herdr-web-ui'
         if (-not $starred -or $starred.status -ne '204') {
             Write-Host ''
-            Write-Host 'herdr web ui: if it helps you, a GitHub star helps other herdr users find it: https://github.com/devswha/herdr-web-ui'
+            Write-Host 'herdr web ui: if it helps you, a GitHub star helps other herdr users find it: https://github.com/tomrutsaert/herdr-web-ui'
             if ($starred -and $starred.status -eq '404' -and (Test-Terminal)) {
                 Write-Host -NoNewline 'herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] '
                 $answer = Read-Answer
                 if ("$answer".Trim() -match '^(y|yes)$') {
-                    $given = Invoke-GhApi '--method PUT user/starred/devswha/herdr-web-ui'
+                    $given = Invoke-GhApi '--method PUT user/starred/tomrutsaert/herdr-web-ui'
                     if ($given -and $given.code -eq 0) { Write-Host 'herdr web ui: starred. Thank you!' }
                     else { Write-Host 'herdr web ui: gh could not star it; the page above can' }
                 }

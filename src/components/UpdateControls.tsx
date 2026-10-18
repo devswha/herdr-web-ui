@@ -16,9 +16,9 @@ import { useLocale, useT } from "../lib/i18n.ts";
 
 declare const __APP_VERSION__: string;
 
-const CHANGELOG = "https://github.com/devswha/herdr-web-ui/blob/main/CHANGELOG.md";
+const CHANGELOG = "https://github.com/tomrutsaert/herdr-web-ui/blob/main/CHANGELOG.md";
 /** the restart commands for a plugin and a source install */
-const RESTART_HELP = "https://github.com/devswha/herdr-web-ui/blob/main/docs/guide.md#updates";
+const RESTART_HELP = "https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#updates";
 
 /**
  * What an update brings, or brought: each release it installs, newest first. A release is told
@@ -78,7 +78,7 @@ function UpdateProgress({ status, fallback }: { status: UpdateStatus | null; fal
   </div>;
 }
 
-export function UpdateControls({ updates, bridgesFollow = false }: { updates: UpdatesModel; bridgesFollow?: boolean }) {
+export function UpdateControls({ updates }: { updates: UpdatesModel }) {
   const t = useT();
   const { status, error, busy, needsReload, reload, notes, installed, request } = updates;
   const locale = useLocale();
@@ -103,7 +103,7 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
     {/* under the release on offer, when there is one: what runs now stays to be read */}
     {installed && installed.releases.length > 0 && <ReleaseNotes notes={installed} label={t("What the last update brought")} />}
     {status?.managed && <>
-      <p className="settings-hint">{t("Checks for new releases every 5 minutes.")} {t(status.auto_update ? "Automatic installation is enabled." : "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.")}{bridgesFollow ? ` ${t("Remote PCs' bridges are updated afterwards when the new version needs it.")}` : ""}</p>
+      <p className="settings-hint">{t("Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.")}</p>
       <div className="update-actions">
         <button type="button" className="btn" disabled={busy} onClick={() => void request("check")}>{t("Check for updates")}</button>
         <button type="button" className="btn btn-primary" disabled={busy || !status.available || !!status.blocked_reason} onClick={() => void request("install")}>{t("Update and restart")}</button>

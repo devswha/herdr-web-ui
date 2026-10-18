@@ -68,7 +68,7 @@ async function oneLineInstall(): Promise<void> {
   assert.match(out, /Installed /, `the plugin install did not finish:\n${out.slice(-2500)}`);
   assert.doesNotMatch(out, /gyp ERR|node-gyp/, "nothing compiled");
   assert.match(out, /herdr is not running/, "no herdr yet, so no start");
-  assert.match(out, /install Tailscale/, `the phone step names what is missing:\n${out.slice(-1500)}`);
+  assert.match(out, /HTTPS reverse proxy or SSH tunnel/, `the phone step describes secure access:\n${out.slice(-1500)}`);
   assert.match(await asUser("herdr --version; bun --version; node --version"), /^v22\./m, "install.sh's Node, on a new terminal's PATH");
   await step("herdr starts, and the app with it", async () => {
     await asUser("setsid nohup herdr server > ~/herdr-server.log 2>&1 < /dev/null &");

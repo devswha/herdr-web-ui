@@ -5,22 +5,18 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { ConversationMonitor } from "./conversation-monitor.ts";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, LanExposure, PortalStatus, PushKey, RemoteAccess, SessionSnapshot, TabMoved, PaneFindResponse, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, LanExposure, PortalStatus, PushKey, SessionSnapshot, TabMoved, PaneFindResponse, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import { PortalService } from "./portal.ts";
 import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
 import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
-import { Telemetry } from "./telemetry.ts";
-import { NOTICE_VERSION, telemetryHarnesses, type TelemetryActive, type TelemetryEvent, type TelemetryStatus } from "../shared/telemetry.ts";
-import { DEFAULT_SETTINGS, telemetrySettingsSnapshot } from "../src/lib/settings.ts";
 import { HerdrSocket } from "../src/lib/ws.ts";
 import { herdrRpc, paneRead, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
-import { TailnetIdentitySource } from "./tailscale.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import type { RepoDiffFileList, RepoDiffFilePatch } from "../shared/protocol.ts";
 
@@ -491,149 +487,6 @@ describe("update API", () => {
   });
 });
 
-describe("telemetry API", () => {
-  it("answers 404 on a server started without telemetry", async () => {
-    for (const method of ["GET", "POST"]) {
-      const response = await fetch(`${base()}/api/telemetry`, { method, headers: { "x-herdr-update": "1", "content-type": "application/json" }, ...(method === "POST" ? { body: "{}" } : {}) });
-      expect(response.status).toBe(404);
-      expect((await response.json() as ApiError).error.code).toBe("not_found");
-    }
-  });
-
-  it("validates real settings payloads, protects acknowledgement, and previews only safe event values", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-telemetry-api-"));
-    const sent: TelemetryEvent[] = [];
-    const telemetry = new Telemetry({ stateDir: state, version: "9.9.9", env: {}, url: "http://receiver.invalid/v1/events", noticeGraceMs: 0,
-      fetch: (async (_url: string | URL | Request, init?: RequestInit) => { sent.push(JSON.parse(String(init?.body)) as TelemetryEvent); return new Response(null, { status: 204 }); }) as typeof fetch });
-    const server = createServer({ port: 0, stateDir: state, token: "", telemetry });
-    const url = `http://localhost:${server.port}/api/telemetry`;
-    const headers = { "content-type": "application/json", "x-herdr-update": "1", origin: new URL(url).origin };
-    const settings = telemetrySettingsSnapshot({
-      ...DEFAULT_SETTINGS,
-      theme: "light",
-      terminalFontFamily: "private font name",
-      quickReplies: ["private reply"],
-      usageHidden: ["private-account-key"],
-    });
-    try {
-      const first = await fetch(url);
-      expect(first.headers.get("cache-control")).toBe("no-store");
-      expect(await first.json() as TelemetryStatus).toMatchObject({ enabled: true, notice_seen: false, blocked_by_env: false, next: { event: "install", version: "9.9.9", settings: null } });
-
-      const post = (body: unknown, extraHeaders: Record<string, string> = {}) => fetch(url, {
-        method: "POST", headers: { ...headers, ...extraHeaders }, body: JSON.stringify(body),
-      });
-      expect((await post({ notice_seen: true, notice_version: NOTICE_VERSION }, { "x-herdr-update": "" })).status).toBe(403);
-      expect((await post({ notice_seen: true, notice_version: NOTICE_VERSION }, { origin: "https://attacker.invalid", "sec-fetch-site": "cross-site" })).status).toBe(403);
-      expect((await post({ notice_seen: true })).status).toBe(400);
-      expect((await post({ notice_seen: true, notice_version: NOTICE_VERSION - 1 })).status).toBe(400);
-      expect((await post({ settings: { ...settings, theme: "private text" } })).status).toBe(400);
-      expect((await post({ settings: { ...settings, injected: true } })).status).toBe(400);
-      expect((await post({ settings, changed_settings: ["theme"] })).status).toBe(400);
-      expect(await (await fetch(url)).json() as TelemetryStatus).toMatchObject({ notice_seen: false, next: { settings: null } });
-      expect(sent).toEqual([]);
-
-      const seen = await post({ notice_seen: true, notice_version: NOTICE_VERSION, settings });
-      const preview = await seen.json() as TelemetryStatus;
-      expect(seen.status).toBe(200);
-      expect(preview).toMatchObject({ notice_seen: true, next: { event: "install", settings } });
-      expect(JSON.stringify(preview)).not.toContain("private font name");
-      expect(JSON.stringify(preview)).not.toContain("private reply");
-      expect(JSON.stringify(preview)).not.toContain("private-account-key");
-      await telemetry.report();
-      expect(sent).toEqual([expect.objectContaining({ event: "install", version: "9.9.9", settings })]);
-      expect(JSON.stringify(sent[0]!.settings)).not.toContain("private font name");
-      expect(JSON.stringify(sent[0]!.settings)).not.toContain("private reply");
-      expect(JSON.stringify(sent[0]!.settings)).not.toContain("private-account-key");
-      expect(await (await fetch(url)).json() as TelemetryStatus).toMatchObject({ next: null });
-      const off = await post({ enabled: false });
-      expect(await off.json() as TelemetryStatus).toMatchObject({ enabled: false });
-    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
-  });
-
-  it("counts a browser's websocket visit as one active message naming only allowed harness kinds", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-telemetry-active-"));
-    const posts: { url: string; body: TelemetryActive }[] = [];
-    let firstPost!: () => void;
-    const arrived = new Promise<void>((resolve) => { firstPost = resolve; });
-    const telemetry = new Telemetry({ stateDir: state, version: "9.9.9", env: {}, url: "http://receiver.invalid/v1/events", activeUrl: "http://receiver.invalid/v1/active", noticeGraceMs: 0,
-      fetch: (async (url: string | URL | Request, init?: RequestInit) => {
-        posts.push({ url: String(url), body: JSON.parse(String(init?.body)) as TelemetryActive });
-        if (String(url).endsWith("/v1/active")) firstPost();
-        return new Response(null, { status: 204 });
-      }) as typeof fetch });
-    const server = createServer({ port: 0, stateDir: state, token: "", telemetry });
-    const url = `http://localhost:${server.port}/api/telemetry`;
-    const headers = { "content-type": "application/json", "x-herdr-update": "1", origin: new URL(url).origin };
-    const sockets: WebSocket[] = [];
-    const snapshot = (): Promise<void> => new Promise((resolve, reject) => {
-      const socket = new WebSocket(`ws://localhost:${server.port}/ws`);
-      sockets.push(socket);
-      const timer = setTimeout(() => reject(new Error("no snapshot frame")), 10_000);
-      socket.onerror = () => { clearTimeout(timer); reject(new Error("websocket error")); };
-      socket.onmessage = (event) => {
-        if ((JSON.parse(String(event.data)) as { type: string }).type !== "snapshot") return;
-        clearTimeout(timer);
-        resolve();
-      };
-    });
-    try {
-      expect((await fetch(url, { method: "POST", headers, body: JSON.stringify({ notice_seen: true, notice_version: NOTICE_VERSION }) })).status).toBe(200);
-      await snapshot();
-      await Promise.race([arrived, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no active message")), 10_000))]);
-      const active = posts.filter((post) => post.url.endsWith("/v1/active"));
-      expect(active).toHaveLength(1);
-      expect(active[0]!.body.event).toBe("active");
-      expect(telemetryHarnesses(active[0]!.body.harnesses)).toEqual(active[0]!.body.harnesses);
-      expect((await (await fetch(url)).json() as TelemetryStatus).active.harnesses).toEqual(active[0]!.body.harnesses);
-      await snapshot();
-      await telemetry.active([]);
-      expect(posts.filter((post) => post.url.endsWith("/v1/active"))).toHaveLength(1);
-    } finally {
-      for (const socket of sockets) socket.close();
-      server.stop();
-      rmSync(state, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps telemetry behind the token gate", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-telemetry-auth-"));
-    const telemetry = new Telemetry({ stateDir: state, version: "9.9.9", env: {}, fetch: (async () => new Response(null, { status: 204 })) as unknown as typeof fetch });
-    const server = createServer({ port: 0, stateDir: state, token: "test-telemetry-token", telemetry });
-    try {
-      for (const method of ["GET", "POST"]) {
-        expect((await fetch(`http://localhost:${server.port}/api/telemetry`, { method, headers: { "x-herdr-update": "1" } })).status).toBe(401);
-      }
-    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
-  });
-});
-
-describe("phone access", () => {
-  it("says how a phone can reach this server, whatever Tailscale is doing on this machine", async () => {
-    const response = await fetch(`${base()}/api/access`);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    const access = (await response.json()) as RemoteAccess;
-    expect(access.port).toBe(server.port);
-    expect(["missing", "stopped", "running"]).toContain(access.tailscale.state);
-    if (access.tailscale.state !== "running") {
-      expect(access.tailscale).toEqual({ state: access.tailscale.state, dns_name: null, serving_url: null, serve_command: null, serve_url: null });
-    } else {
-      // either an address already works, or there is a command to make one
-      expect((access.tailscale.serving_url === null) !== (access.tailscale.serve_command === null)).toBe(true);
-      if (access.tailscale.serve_command !== null) expect(access.tailscale.serve_command).toContain(`http://127.0.0.1:${server.port}`);
-    }
-  });
-
-  it("stays behind the token gate", async () => {
-    const protectedState = mkdtempSync(join(tmpdir(), "herdr-access-auth-"));
-    const protectedServer = createServer({ port: 0, stateDir: protectedState, token: "test-access-token" });
-    try {
-      expect((await fetch(`http://localhost:${protectedServer.port}/api/access`)).status).toBe(401);
-    } finally { protectedServer.stop(); rmSync(protectedState, { recursive: true, force: true }); }
-  });
-});
-
 describe("Portal API", () => {
   it("does not serve requests until startup cleanup completes", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-portal-startup-gate-"));
@@ -920,7 +773,7 @@ describe("agent rename", () => {
     const paneId = owned.root_pane.pane_id;
     const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-agent-rename-bridge-"));
     // the other PC's bridge asks its browsers for a token of its own; the proxy holds only the bridge token it registered
-    const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: state, tailscaleOwner: null });
+    const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: state });
     const registered = JSON.parse(readFileSync(descriptorPath(), "utf8")) as BridgeDescriptor;
     const endpoint = `http://127.0.0.1:${bridge.port}`;
     const manager = { endpoint: (id: string) => id === "rename-remote" ? { url: endpoint, token: registered.token } : null, trackTerminal: () => () => {} } as unknown as MachineManager;
@@ -1042,7 +895,7 @@ describe("tab creation", () => {
   it("forwards remote tab creation using the registered bridge token", async () => {
     const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-bridge" });
     const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-tab-bridge-"));
-    const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: state, tailscaleOwner: null });
+    const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: state });
     const registered = JSON.parse(readFileSync(descriptorPath(), "utf8")) as BridgeDescriptor;
     const endpoint = `http://127.0.0.1:${bridge.port}`;
     const manager = { endpoint: (id: string) => id === "tab-remote" ? { url: endpoint, token: registered.token } : null, trackTerminal: () => () => {} } as unknown as MachineManager;
@@ -2934,23 +2787,22 @@ describe("web push", () => {
 });
 
 describe("pairing and identity", () => {
-  /** no token: the gate is where the request comes from, who Tailscale says it is, or a paired device's cookie */
+  /** no token: the gate is where the request comes from, a token, or a paired device's cookie */
   const OWNER = "owner@example.com";
   let open: { port: number; stop: () => void };
   const openState = mkdtempSync(join(tmpdir(), "herdr-pairing-"));
-  beforeAll(() => { open = createServer({ port: 0, stateDir: openState, tailscaleOwner: OWNER }); });
+  beforeAll(() => { open = createServer({ port: 0, stateDir: openState }); });
   afterAll(() => { open?.stop(); rmSync(openState, { recursive: true, force: true }); });
   const base = () => `http://127.0.0.1:${open.port}`;
-  /** as if `tailscale serve` or a reverse proxy had forwarded it: the test client is on loopback, like a proxy */
+  /** as if a reverse proxy had forwarded it: the test client is on loopback, like a proxy */
   const proxied = (login?: string, extra: Record<string, string> = {}) => ({ "x-forwarded-for": "100.64.0.9", ...(login ? { "tailscale-user-login": login } : {}), ...extra });
   const auth = async (headers: Record<string, string> = {}) => ((await (await fetch(`${base()}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
   const guard = { "content-type": "application/json", "x-herdr-machine": "1" };
   let cookie = "";
   let deviceId = "";
 
-  it("lets this PC in, and not a proxied request with no login while the PC's Tailscale login is known", async () => {
+  it("admits local loopback but requires credentials through a proxy", async () => {
     expect(await auth()).toMatchObject({ authenticated: true, via: "local" });
-    // tailscale serve names no person for a tagged node: it pairs, even before the first device
     expect(await auth(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
     expect((await fetch(`${base()}/api/session`, { headers: proxied() })).status).toBe(401);
   });
@@ -2968,113 +2820,10 @@ describe("pairing and identity", () => {
     }
   });
 
-  it("trusts the PC's own Tailscale login and refuses another", async () => {
-    expect(await auth(proxied(OWNER))).toMatchObject({ authenticated: true, via: "tailscale" });
-    expect(await auth(proxied("Owner@Example.com"))).toMatchObject({ authenticated: true, via: "tailscale" });
-    expect(await auth(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "other_user" });
-    const refused = await fetch(`${base()}/api/session`, { headers: proxied("someone@example.com") });
-    expect(refused.status).toBe(403);
-    expect(((await refused.json()) as ApiError).error.code).toBe("other_user");
-  });
-
-  it("regression: refuses identity headers without a single tailnet forwarded address", async () => {
-    for (const forwardedFor of [null, "127.0.0.1", "203.0.113.50", "100.64.0.9, 100.64.0.10"]) {
-      const headers = { "tailscale-user-login": OWNER, ...(forwardedFor === null ? {} : { "x-forwarded-for": forwardedFor }) };
-      const response = await fetch(`${base()}/api/devices`, { headers });
-      expect(response.status).toBe(401);
-      expect(((await response.json()) as ApiError).error.code).toBe("unauthorized");
+  it("never trusts proxy identity, even before the first device is paired", async () => {
+    for (const headers of [proxied(OWNER), { "tailscale-user-login": OWNER }, { "tailscale-funnel-request": "?1" }] as Record<string, string>[]) {
       expect(await auth(headers)).toMatchObject({ authenticated: false, reason: "pairing_required" });
-    }
-    // control: Serve may forward either tailnet address family.
-    expect((await fetch(`${base()}/api/devices`, { headers: proxied(OWNER, { "x-forwarded-for": "fd7a:115c:a1e0::1" }) })).status).toBe(200);
-  });
-
-  it("lets the owner's own device in with no login header, where serve is the only ingress and one login owns the tailnet", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-sole-user-"));
-    const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    const savedServeOnly = process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"];
-    delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    // what `tailscale status --json` says for the reported tailnet: one login, every node untagged
-    const NODE = "denisss-macbook-pro-m1.tail5cc90b.ts.net";
-    const status = JSON.stringify({ BackendState: "Running", Self: { DNSName: `${NODE}.`, UserID: 7, TailscaleIPs: ["100.101.102.103"] }, Peer: { phone: { DNSName: "phone.tail5cc90b.ts.net.", UserID: 7 } }, User: { "7": { LoginName: OWNER } } });
-    const tailnet = new TailnetIdentitySource(async () => status);
-    process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = "1";
-    const sole = createServer({ port: 0, stateDir: state, tailnet });
-    if (savedServeOnly === undefined) delete process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"]; else process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = savedServeOnly;
-    const off = createServer({ port: 0, stateDir: state, tailscaleServeOnly: false, tailnet });
-    const named = createServer({ port: 0, stateDir: state, tailscaleOwner: OWNER, tailscaleServeOnly: true, tailnet });
-    const other = createServer({ port: 0, stateDir: state, tailscaleOwner: "named@example.com", tailscaleServeOnly: true, tailnet });
-    const at = async (port: number, headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
-    try {
-      // the captain's phone: tailscale serve proxied it, names no person, and the address is this PC's Tailscale name
-      const phone = { ...proxied(), host: NODE };
-      expect(await at(sole.port, phone)).toMatchObject({ authenticated: true, via: "tailscale" });
-      expect((await fetch(`http://127.0.0.1:${sole.port}/api/session`, { headers: phone })).status).not.toBe(401);
-      // the same name in another case, or this PC's tailnet address, is the same PC
-      expect(await at(sole.port, { ...proxied(), host: NODE.toUpperCase() })).toMatchObject({ authenticated: true, via: "tailscale" });
-      expect(await at(sole.port, { ...proxied(), host: "100.101.102.103:7317" })).toMatchObject({ authenticated: true, via: "tailscale" });
-      // a rebinding page or a public domain forwarded here presents its own Host, and pairs
-      expect(await at(sole.port, { ...proxied(), host: "evil.example:7317" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
-      expect((await fetch(`http://127.0.0.1:${sole.port}/api/session`, { headers: { ...proxied(), host: "evil.example:7317" } })).status).toBe(401);
-      // and the floor stays where it was: another login, Funnel and a LAN client gain nothing
-      expect(await at(sole.port, { ...phone, "tailscale-user-login": "someone@example.com" })).toMatchObject({ authenticated: false, reason: "other_user" });
-      expect(await at(sole.port, { ...phone, "tailscale-funnel-request": "?1" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
-      expect(await at(sole.port, { ...phone, "tailscale-user-login": OWNER })).toMatchObject({ authenticated: true, via: "tailscale" });
-      // regression: a rejected identity is not an absent identity, even at this PC's Host.
-      expect(await at(sole.port, { ...phone, "tailscale-user-login": OWNER, "x-forwarded-for": "127.0.0.1" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
-      // where the operator did not declare serve the only ingress, the same request pairs, with or without the tailnet's name as Host
-      expect(await at(off.port, proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
-      expect(await at(off.port, phone)).toMatchObject({ authenticated: false, reason: "pairing_required" });
-      expect((await fetch(`http://127.0.0.1:${off.port}/api/session`, { headers: proxied() })).status).toBe(401);
-      // a named owner is read the same way: the sole login it matches is let in, another name is not
-      expect(await at(named.port, phone)).toMatchObject({ authenticated: true, via: "tailscale" });
-      expect(await at(other.port, phone)).toMatchObject({ authenticated: false, reason: "pairing_required" });
-    } finally {
-      sole.stop();
-      off.stop();
-      named.stop();
-      other.stop();
-      if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
-      rmSync(state, { recursive: true, force: true });
-    }
-  });
-
-  it("refuses a serve request inside the cache's TTL once a node is tagged since the cache was read", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-stale-identity-"));
-    const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    const NODE = "stale-pc.example.ts.net";
-    const self = { DNSName: `${NODE}.`, TailscaleIPs: ["100.101.102.103"], UserID: 7 };
-    const sole = JSON.stringify({ BackendState: "Running", Self: self, User: { "7": { LoginName: OWNER } } });
-    const tagged = JSON.stringify({ BackendState: "Running", Self: self, Peer: { node: { UserID: 7, Tags: ["tag:server"] } }, User: { "7": { LoginName: OWNER } } });
-    let read = 0;
-    const tailnet = new TailnetIdentitySource(() => Promise.resolve(read++ === 0 ? sole : tagged));
-    await tailnet.freshIdentity(NODE);
-    const serveOnly = createServer({ port: 0, stateDir: state, tailscaleServeOnly: true, tailnet });
-    try {
-      const auth = ((await (await fetch(`http://127.0.0.1:${serveOnly.port}/api/health?scope=bridge`, { headers: { ...proxied(), host: NODE } })).json()) as { auth: HealthAuth }).auth;
-      expect(auth).toMatchObject({ authenticated: false, reason: "pairing_required" });
-    } finally {
-      serveOnly.stop();
-      if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
-      rmSync(state, { recursive: true, force: true });
-    }
-  });
-
-  it("takes the login named in HERDR_WEB_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-named-owner-"));
-    const before = process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    process.env["HERDR_WEB_TAILSCALE_OWNER"] = " named@example.com ";
-    const named = createServer({ port: 0, stateDir: state });
-    try {
-      const at = async (headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${named.port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
-      expect(await at(proxied("named@example.com"))).toMatchObject({ authenticated: true, via: "tailscale" });
-      expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "other_user" });
-      expect(await at(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
-    } finally {
-      named.stop();
-      if (before === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = before;
-      rmSync(state, { recursive: true, force: true });
+      expect((await fetch(`${base()}/api/devices`, { headers })).status).toBe(401);
     }
   });
 
@@ -3101,7 +2850,7 @@ describe("pairing and identity", () => {
     expect(await auth(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
     expect((await fetch(`${base()}/api/session`, { headers: proxied() })).status).toBe(401);
     expect(await auth()).toMatchObject({ authenticated: true, via: "local" });
-    expect(await auth(proxied(OWNER))).toMatchObject({ authenticated: true, via: "tailscale" });
+    expect(await auth(proxied(OWNER))).toMatchObject({ authenticated: false, reason: "pairing_required" });
     const list = (await (await fetch(`${base()}/api/devices`, { headers: { ...proxied(), cookie } })).json()) as { devices: Array<{ id: string; label: string; current: boolean }> };
     expect(list.devices.map((d) => [d.label, d.current])).toEqual([["Test phone", true]]);
     deviceId = list.devices[0]!.id;
@@ -3142,7 +2891,7 @@ describe("pairing and identity", () => {
       expect(list.devices.map((d) => d.label)).toContain("Phone by CLI");
       // with a token configured, the script reads it from the plugin's .env file and gets past the gate
       const tokenState = mkdtempSync(join(tmpdir(), "herdr-pair-cli-token-"));
-      const secured = createServer({ port: 0, stateDir: tokenState, token: "cli-t0k3n", tailscaleOwner: null });
+      const secured = createServer({ port: 0, stateDir: tokenState, token: "cli-t0k3n" });
       try {
         writeFileSync(join(configDir, ".env"), "HERDR_WEB_TOKEN=cli-t0k3n\n");
         const withToken = await pairCli(secured.port);
@@ -3157,9 +2906,9 @@ describe("pairing and identity", () => {
     } finally { rmSync(configDir, { recursive: true, force: true }); }
   });
 
-  it("a configured token gates this PC and its Tailscale login, and a paired device gets past it", async () => {
+  it("a configured token gates local and proxied access, and a paired device gets past it", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-pairing-token-"));
-    const secured = createServer({ port: 0, stateDir: state, token: "t0k3n", tailscaleOwner: OWNER });
+    const secured = createServer({ port: 0, stateDir: state, token: "t0k3n" });
     const at = (headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${secured.port}/api/health?scope=bridge`, { headers }).then((r) => r.json() as Promise<{ auth: HealthAuth }>).then((b) => b.auth);
     try {
       expect(await at()).toMatchObject({ authenticated: false, reason: "token_required" });
@@ -3479,7 +3228,7 @@ describe("terminal lens of a bridge without the PTY sidecar", () => {
 
 it("refuses cross-origin changes while allowing same-origin and CLI requests", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-origin-"));
-  const instance = createServer({ port: 0, stateDir: root, token: "", tailscaleOwner: null, machines: false });
+  const instance = createServer({ port: 0, stateDir: root, token: "", machines: false });
   const base = `http://127.0.0.1:${instance.port}`;
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-origin" });
   try {

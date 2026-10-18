@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for helping. Bugs and ideas go in an [issue](https://github.com/devswha/herdr-web-ui/issues/new/choose);
+Thanks for helping. Bugs and ideas go in an [issue](https://github.com/tomrutsaert/herdr-web-ui/issues/new/choose);
 security problems never do: see [SECURITY.md](SECURITY.md). For a larger change, open an issue first so
 the approach can be agreed before you build it. Small fixes can go straight to a PR.
 
-**Features.** Open a [feature request](https://github.com/devswha/herdr-web-ui/issues/new?template=feature_request.yml)
+**Features.** Open a [feature request](https://github.com/tomrutsaert/herdr-web-ui/issues/new?template=feature_request.yml)
 and wait for a maintainer's yes before you write code; a feature PR without one may be closed, however
 well it is built. The app is a bridge to herdr, so a feature should either mirror something herdr's
 own TUI does, or meet a need that widely used coding-agent apps already meet (the Codex and Claude
@@ -32,12 +32,12 @@ bun run server   # API + WebSocket on :7317
 bun run dev      # Vite on :5173, proxies /api and /ws
 ```
 
-Neither command updates itself; only `bun run start` and the plugin run the updater.
+Updates are manual: `bun run start` and the plugin offer Check and Update in Settings. No startup or periodic release discovery runs.
 
 ## Branches and pull requests
 
 - Fork, branch from `main` (`feat/…`, `fix/…`, `chore/…`, `docs/…`) and open the PR against `main`.
-  There is no `develop` branch; releases are `vX.Y.Z` tags on `main`.
+  There is no `develop` branch; releases are `fork-vX.Y.Z` tags on `main`.
 - Independent changes should use independent PRs from `main`. The only exception is a stack explicitly
   managed by a maintainer for a genuine code dependency; code conflicts and approval gates are
   scheduling constraints, not reasons to stack. See the [coordinated-work procedure](docs/development.md#coordinated-work).
@@ -104,8 +104,7 @@ running terminals: see [development](docs/development.md#checks).
   and a reason, including repairs the proposal tool already applied. Every
   entry has to pass the AA contrast test on the committed hex. Then run `bun run generate:themes`;
   never edit `src/lib/themes.generated.ts` or the other generated copies.
-- **The browser demo:** the [demo](https://herdrweb.dev/demo/) redeploys on every
-  merge to `main`. A feature meant to show there needs an answer in `site/demo/transport.ts`; anything
+- **The browser demo:** the local demo is built with `bun run build:site`. A feature meant to show there needs an answer in `site/demo/transport.ts`; anything
   else gets its 404.
 - **Changelog:** a change users notice gets a small file in [changelog.d/](changelog.d/README.md)
   with its `### Added`, `### Changed` or `### Fixed` lines; do not edit CHANGELOG.md, and do not
@@ -114,5 +113,5 @@ running terminals: see [development](docs/development.md#checks).
 ## Releases
 
 Maintainers only: see [development](docs/development.md#releasing). App releases are cut by the
-Release workflow; never push a `vX.Y.Z` tag by hand, since installed updaters act on tags alone.
-Remote-PC runtime bundles are published with a `remote-vN` tag, and an app release requires the matching one.
+Release workflow; never push a `fork-vX.Y.Z` tag by hand, since installed updaters act on tags alone.
+Remote-PC runtime bundles are published with a `fork-remote-vN` tag, and an app release requires the matching one.

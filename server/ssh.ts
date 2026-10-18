@@ -40,7 +40,7 @@ function listening(port: number): Promise<boolean> {
 
 /**
  * What ssh said last, for the setup dialog: some messages ask the user to act while ssh keeps
- * waiting (Tailscale SSH's browser check URL), and the exit error is too late for those.
+ * waiting (SSH's browser check URL), and the exit error is too late for those.
  * Control characters go (a terminal's colours and cursor moves mean nothing in a dialog).
  */
 export function recentSshOutput(text: string, maxLines = 8, maxBytes = 2048): string {

@@ -784,7 +784,7 @@ try {
   // still release the buttons: the status poll stops with the page, the request does not.
   let releaseCheck!: () => void;
   const checkGate = new Promise<void>((resolve) => { releaseCheck = resolve; });
-  const idleStatus = { managed: true, auto_update: false, phase: "idle", current_revision: null, latest_revision: null, current_version: "0.0.0", latest_version: "0.0.0", available: false, checked_at: new Date().toISOString(), blocked_reason: null, error: null };
+  const idleStatus = { managed: true, phase: "idle", current_revision: null, latest_revision: null, current_version: "0.0.0", latest_version: "0.0.0", available: false, checked_at: new Date().toISOString(), blocked_reason: null, error: null };
   await page.route("**/api/updates", (route) => route.fulfill({ json: idleStatus }));
   await page.route("**/api/updates/check", async (route) => { await checkGate; await route.fulfill({ json: { ok: true } }); });
   const setPageHidden = (hidden: boolean) => page.evaluate((hidden) => {
@@ -2412,7 +2412,7 @@ try {
   if (pageEvidence) await pageEvidence.finish();
   await page.close();
 
-  const secured = createServer({ port: 0, hostname: "127.0.0.1", token: "browser-test-token", stateDir: join(root, "secured"), tailscaleOwner: null });
+  const secured = createServer({ port: 0, hostname: "127.0.0.1", token: "browser-test-token", stateDir: join(root, "secured") });
   releases.push(() => secured.stop());
   const securedOrigin = `http://127.0.0.1:${secured.port}`;
   const securedContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });

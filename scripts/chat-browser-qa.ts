@@ -59,9 +59,7 @@ try {
     await Bun.sleep(50);
   }
   await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "idle" });
-  // tailscaleOwner null: the plain-HTTP page below reaches the server under a name that is not
-  // loopback, which a PC running Tailscale would otherwise send to pairing
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), codexHome, tailscaleOwner: null });
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), codexHome });
   browser = await chromium.launch({ executablePath: chromePath(), headless: process.env["HEADED"] !== "1", args: ["--no-sandbox", "--host-resolver-rules=MAP clipboard.test 127.0.0.1", "--no-proxy-server"] });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   const page = await context.newPage();
@@ -256,6 +254,10 @@ try {
   const code = "printf 'clipboard ✓'";
   add(message("assistant", `\`\`\`sh\n${code}\n\`\`\``, "final_answer"), 9);
   persist();
+  const pairing = await (await fetch(`http://127.0.0.1:${server.port}/api/devices/pair/start`, { method: "POST", headers: { "x-herdr-machine": "1" } })).json() as { code: string };
+  const paired = await fetch(`http://127.0.0.1:${server.port}/api/devices/pair`, { method: "POST", headers: { "x-herdr-machine": "1", "content-type": "application/json" }, body: JSON.stringify({ code: pairing.code }) });
+  const credential = paired.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
+  await page.context().addCookies([{ name: "herdr_web_device", value: credential, url: `http://clipboard.test:${server.port}`, httpOnly: true, sameSite: "Strict" }]);
   const insecure = await page.context().newPage();
   await insecure.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "chat"), paneId);
   insecure.on("pageerror", (error) => errors.push(error.message));

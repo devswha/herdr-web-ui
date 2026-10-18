@@ -39,7 +39,7 @@ const STABLE_CONNECTION_MS = 10_000;
  * flight answers it: a frame buffered before the sleep proves nothing. With no pong by
  * PROBE_TIMEOUT_MS it pings once more, and drops the socket when that one is not answered either;
  * each probe that ends in a drop doubles the next one's deadline up to PROBE_TIMEOUT_MAX_MS, so a
- * slow link (a relayed tailnet, a remote PC) is not dropped over and over. A deadline that fires
+ * slow link (a relay, a remote PC) is not dropped over and over. A deadline that fires
  * PROBE_OVERDUE_MS late was frozen with the page, not waiting: the probe starts over.
  */
 const PROBE_TIMEOUT_MS = 3_000;

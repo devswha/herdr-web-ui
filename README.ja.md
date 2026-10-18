@@ -1,5 +1,7 @@
 # herdr web ui
 
+このフォークの配布元は `tomrutsaert/herdr-web-ui` です。更新は Settings → About で確認してから手動で実行します。アプリは `fork-vX.Y.Z`、リモートランタイムは `fork-remote-vN` のタグのみを使います。利用状況の送信やネットワークの自動公開はありません。既存の設定を維持するためプラグイン ID は `devswha.herdr-web-ui` のままです。
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
 </p>
@@ -9,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="https://herdrweb.dev/">公式サイト</a> ·
+  <a href="https://github.com/tomrutsaert/herdr-web-ui">公式サイト</a> ·
   <a href="#install">インストール</a> ·
-  <a href="https://herdrweb.dev/demo/">デモを試す</a> ·
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/tree/main/site/demo">デモのソース</a> ·
   <a href="docs/guide.md#quick-start">クイックスタート</a> ·
   <a href="#faq">よくある質問</a> ·
   <a href="#docs">ドキュメント</a>
@@ -19,8 +21,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT ライセンス"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub スター数"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="最新リリース"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/tomrutsaert/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub スター数"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/tomrutsaert/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="最新リリース"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="インストール可能な PWA"></a>
 </p>
@@ -79,7 +81,7 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 - **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc、pi の会話履歴と、herdr が識別した OpenCode 2 と Devin CLI のセッションを表示し、ワンクリックでライブターミナルに切り替えられます。エージェントの作業中に次のメッセージを書いておくと次のターンで送られ、Send now ですぐに送ることもできます。[対応エージェント →](docs/guide.md#supported-agents)
 - **タップで承認** — 承認リクエスト、質問、計画メニューがカードになり、問いかけがまだ有効か確認してから回答を送信します。
 - **対応が必要なときに通知** — すべてのペインの状態をリアルタイムに表示し、アプリを開いているときは通知が上から降りてきます。入力が必要なときや完了したときには、アプリを閉じていてもプッシュ通知が届きます。
-- **スマートフォンにインストール** — キーボードの上にキーバー（Esc、Tab、Ctrl、Alt、Shift、Enter、矢印キー）が並ぶ PWA。キーの並べ替えや独自のキー組み合わせの追加は Settings（設定）でできます。Tailscale のアドレスは QR コードで表示されます。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
+- **スマートフォンにインストール** — キーボードの上にキーバー（Esc、Tab、Ctrl、Alt、Shift、Enter、矢印キー）が並ぶ PWA。キーの並べ替えや独自のキー組み合わせの追加は Settings（設定）でできます。設定した HTTPS アドレスを QR コードで共有できます。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
 - **話して入力** — チャットやターミナルの入力欄に音声で入力できます。韓国語と英語が混ざっても認識し、送信するまで何も送られません。自分の OpenAI API キー、またはブラウザの音声認識を使います。
 - **いつもの作業環境をそのままに** — エージェントは herdr が管理し、このアプリはそこに接続します。エージェントを止めずに Settings（設定）からアップデートでき、アップデートごとの変更はパッチノートで確認できます。新しいタブや worktree は行の ⋯ メニューから作れます。[すべての機能 →](docs/guide.md#features)
 
@@ -90,33 +92,30 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 ## インストール
 
 ```bash
-curl -fsSL https://herdrweb.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-Linux（x64、arm64）または macOS に対応しています。必要な herdr 0.9.0+、Bun 1.4+、Node 18+ がなければ現在のユーザー向けにインストールし、その後アプリを herdr プラグインとしてインストールします。既存の herdr が 0.9.0 より古い場合は、自分で herdr を更新・再起動してからインストーラーを再実行してください。デフォルトの待ち受けアドレスを使用し、Tailscale が起動している場合、HTTPS の設定に成功すると tailnet 内のアクセス用アドレスと QR コードが表示されます。自分のデバイスはもともとコードなしで入れます。`tailscale serve` がログイン名を伝えるためです。それでも自分のスマートフォンがペアリングを求められるときは、`HERDR_WEB_TAILSCALE_SERVE_ONLY=1` を設定すると、ログインが1つだけの tailnet ならコードなしで入れるようになります。ただし、公開プロキシやトンネルなど別の経路でこのポートに届く場合は設定しないでください（[アクセスと安全性](docs/guide.md#access-and-safety)）。
+Linux（x64、arm64）または macOS に対応しています。必要な herdr 0.9.0+、Bun 1.4+、Node 18+ がなければ現在のユーザー向けにインストールし、その後アプリを herdr プラグインとしてインストールします。既存の herdr が 0.9.0 より古い場合は、自分で herdr を更新・再起動してからインストーラーを再実行してください。 HTTPS のリバースプロキシまたは SSH トンネルを自分で設定し、デバイスをコードでペアリングしてください。アプリのインストールと通知には HTTPS または localhost が必要です。
 
-<p align="center">
 Windows x64 では PowerShell で:
 
 ```powershell
-irm https://herdrweb.dev/install.ps1 | iex
+irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
 [Git for Windows](https://git-scm.com/download/win) が必要です。足りない herdr と Bun を現在のユーザー向けにインストールし、同じプラグインをインストールします。Node や WSL は不要です。スマートフォンから使うには herdr で **Phone setup** を開いてください。herdr が Windows でターミナルのアタッチに対応するまで、Windows のターミナルは入力でき、グリッドが固定された[画面ミラー](docs/remote-pcs.md#windows-pcs)になります。
 
-<p align="center">
-  <img src="docs/screenshots/install.png" width="720" alt="インストーラーの出力：Bun、Node、herdr プラグインのインストール後、tailscale serve でアプリへのアクセスを有効にし、スマートフォン用の QR コードを表示します。">
-</p>
-
 必要なソフトウェアがすでにそろっている場合は、プラグインだけをインストールできます。
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install tomrutsaert/herdr-web-ui
 ```
 
-herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を開きます。ペインを選ぶか、**New workspace（新規ワークスペース）** からエージェントを起動してください。スマートフォンで使う場合は、インストーラーの QR コードを読み取り、アプリをホーム画面に追加します。[クイックスタート →](docs/guide.md#quick-start)
+herdr が起動した状態で **[localhost:7317](http://localhost:7317)** を開きます。ペインを選ぶか、**New workspace（新規ワークスペース）** からエージェントを起動してください。スマートフォンでは設定した HTTPS アドレスを開き、ペアリングしてホーム画面に追加します。[クイックスタート →](docs/guide.md#quick-start)
 
 サーバーのデフォルトの待ち受けアドレスは `127.0.0.1` です。別のデバイスからアクセスする場合は、[スマートフォンの設定](docs/guide.md#on-your-phone)と[アクセスと安全性](docs/guide.md#access-and-safety)を参照してください。
+
+QR コードは localhost 以外の HTTPS アドレスで開いた場合だけ表示されます。ローカルページと Phone setup ではペアリングコードを使います。
 
 <a id="faq"></a>
 
@@ -134,13 +133,13 @@ Claude Code、Codex、omp、omo、gjc、pi は、それぞれのセッション�
 
 いいえ。どちらも同じターミナルに同時に接続するので、ペインは机の上でも、ブラウザでも、スマートフォンでもそのまま動き続けます。止めたり引き渡したりするものはありません。 [TUI とブラウザ →](docs/guide.md#faq)
 
-**Tailscale は必須ですか？**
+**ほかのデバイスから接続するには？**
 
-いいえ。Tailscale、SSH トンネル、VPN、または自分で設定した HTTPS プロキシで PC に接続できます。アプリのインストールとプッシュ通知には HTTPS や localhost などのセキュアなコンテキストが必要ですが、基本的な閲覧は LAN 上の通常の HTTP アドレスでもできます。[ほかの方法 →](docs/guide.md#faq)
+HTTPS のリバースプロキシまたは SSH トンネルを自分で設定し、デバイスをコードでペアリングしてください。アプリのインストールと通知には HTTPS または localhost が必要です。
 
 **コードや会話が自分のマシンの外に出ることはありますか？**
 
-セッションファイルは各エージェントを実行している PC に残り、その内容は接続したブラウザへ送られます。このアプリ独自のクラウド中継やアカウントサービスはありません。任意の音声入力は録音を、文章の整形も使う場合はテキストも、設定したプロバイダーへ送ります。使用量表示を有効にするとプロバイダーの API に接続します。更新、リモート PC の設定、プッシュ通知でも外部サービスに接続することがあります。アプリはインストール時、アップデートのたび、そしてアプリを開いた日に1日1回（実行中のコーディングエージェントの種類つき）匿名のカウントを送ります（バージョン、OS、インストール方法、ランダムな ID で、IP アドレスは保存されません）。**Settings → About → Anonymous usage counts** で送信内容を確認し、オフにできます。エージェント自身のモデルへの接続は、そのエージェントの設定によります。[データの送信とアクセス →](docs/guide.md#faq)
+セッションの内容は接続したブラウザに送られます。任意の音声入力、使用量表示、手動更新、リモート PC 設定、通知は外部サービスを使う場合があります。管理者向けの利用状況は送信しません。
 
 **Windows でも動きますか？**
 
@@ -181,7 +180,7 @@ Claude Code、Codex、omp、omo、gjc、pi は、それぞれのセッション�
 ## 開発
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
+git clone https://github.com/tomrutsaert/herdr-web-ui.git
 cd herdr-web-ui
 bun install
 

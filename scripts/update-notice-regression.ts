@@ -24,7 +24,7 @@ export async function checkUpdateNotice(browser: Browser, origin: string, shots?
     const shot = async (name: string) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`) }); };
 
     let status: UpdateStatus = {
-      managed: true, auto_update: false, phase: "idle", current_revision: null, latest_revision: "b".repeat(40),
+      managed: true, phase: "idle", current_revision: null, latest_revision: "b".repeat(40),
       current_version: "0.0.1", latest_version: "9.9.9", available: true, checked_at: new Date().toISOString(), blocked_reason: null, error: null, step: null,
     };
     let installs = 0;

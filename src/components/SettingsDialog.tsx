@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ArrowLeft, Bell, Check, ChevronRight, Gauge, Info, Keyboard, MessageSquare, Mic, Monitor, Palette, Plug, Plus, Search, Smartphone, SquareTerminal, Star, X, type LucideIcon } from "lucide-react";
 
 import "./SettingsDialog.css";
@@ -22,10 +22,9 @@ import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts"
 import { UI_FONT_MAX, UI_FONT_MIN } from "../lib/typography.ts";
 import { canListInstalledFonts, filterFamilies, isMonospaceFamily, queryInstalledFonts } from "../lib/installedFonts.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
-import type { MachineSettings } from "../../shared/machines.ts";
-import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
-import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
-import type { AgentIntegration, HealthAuth, PluginActions, RemoteAccess } from "../../shared/protocol.ts";
+import { fetchVoiceStatus, saveVoiceConfig } from "../lib/api.ts";
+import { phonePlan } from "../lib/phone.ts";
+import type { AgentIntegration, HealthAuth, PluginActions } from "../../shared/protocol.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { loadIntegrations, outcomeFor, type IntegrationsResult } from "../lib/integrations.ts";
 import type { VoiceStatus } from "../../shared/voice.ts";
@@ -38,7 +37,6 @@ import { copyText } from "../lib/clipboard.ts";
 import { PushTestControls } from "./PushTestControls.tsx";
 import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
-import { TelemetryControls } from "./TelemetryControls.tsx";
 import { UsageSettings } from "./UsageSettings.tsx";
 import { useSheetSwipe } from "../lib/sheets.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
@@ -832,23 +830,15 @@ function DevicesPage({ auth, onSignOut }: { auth: HealthAuth | null; onSignOut: 
   const { settings, update } = useSettings();
   const t = useT();
   const installPrompt = useInstallPrompt();
-  // the server says what Tailscale on its PC already serves
-  const [access, setAccess] = useState<RemoteAccess | null | undefined>(undefined);
-  const loadAccess = useCallback(() => {
-    setAccess(undefined);
-    fetchRemoteAccess().then(setAccess, () => setAccess(null));
-  }, []);
-  useEffect(() => { loadAccess(); }, [loadAccess]);
-  const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext }, access ?? null);
-  // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
-  const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
+  const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext });
+  const pairUrl = plan.kind === "here" ? plan.url : null;
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   // what keeps the switch from working here, only while it does (lib/wakeLock.ts asks for the same two)
   const wakeLockProblem = !window.isSecureContext ? t("Needs HTTPS or localhost.") : !("wakeLock" in navigator) ? t("This browser can't keep the screen on.") : null;
   return (
     <>
       <SettingsGroup title={t("Phone")} section="phone">
-        <div className="settings-item"><PhonePanel plan={plan} loading={access === undefined} onRefresh={loadAccess} /></div>
+        <div className="settings-item"><PhonePanel plan={plan} /></div>
         <SettingsRow label={t("Keep screen on")} description={<>{t("While a terminal or chat pane is open.")}{wakeLockProblem !== null && <span className="settings-condition">{wakeLockProblem}</span>}</>}>
           <Toggle label={t("Keep screen on")} checked={settings.keepScreenOn} onChange={(keepScreenOn) => update({ keepScreenOn })} />
         </SettingsRow>
@@ -876,20 +866,13 @@ function DevicesPage({ auth, onSignOut }: { auth: HealthAuth | null; onSignOut: 
   );
 }
 
-function RemotePcsPage({ actions, pcSettings, pcSettingsError, onPcSettings }: { actions: AppActions; pcSettings: MachineSettings | null; pcSettingsError: string | null; onPcSettings: (patch: Partial<MachineSettings>) => void }) {
+function RemotePcsPage({ actions }: { actions: AppActions }) {
   const t = useT();
   return (
     <SettingsGroup>
       <SettingsRow label={t("Add PC")} description={t("Connect another PC over an SSH alias or user@host. Its workspaces join the sidebar.")}>
         <button type="button" className="btn" onClick={actions.openAddPc}><Monitor aria-hidden="true" />{t("Add PC")}</button>
       </SettingsRow>
-      {/* the switch is the server's and waits for its answer; Add PC never does */}
-      {pcSettings && (
-        <SettingsRow label={t("Update PC bridges automatically")} description={t("When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.")}>
-          <Toggle label={t("Update PC bridges automatically")} checked={pcSettings.auto_update_bridges} onChange={(auto_update_bridges) => onPcSettings({ auto_update_bridges })} />
-        </SettingsRow>
-      )}
-      {pcSettingsError && <p className="settings-item settings-hint" role="alert">{pcSettingsError}</p>}
     </SettingsGroup>
   );
 }
@@ -919,21 +902,20 @@ function PluginsGroup() {
   );
 }
 
-function AboutPage({ updates, herdrVersion, bridgesFollow }: { updates: UpdatesModel; herdrVersion: string | null; bridgesFollow: boolean }) {
+function AboutPage({ updates, herdrVersion }: { updates: UpdatesModel; herdrVersion: string | null }) {
   const t = useT();
   return (
     <>
-      <UpdateControls updates={updates} bridgesFollow={bridgesFollow} />
+      <UpdateControls updates={updates} />
       <HerdrUpdateControls enabled herdrVersion={herdrVersion} />
       <PluginsGroup />
-      <TelemetryControls />
       <SettingsGroup title={t("About")} className="settings-about" section="about">
         <div className="settings-row">
           <div className="settings-row-text">
             <span className="settings-label">herdr web ui</span>
-            <a className="settings-link" href="https://herdrweb.dev/" target="_blank" rel="noreferrer">herdrweb.dev</a>
+            <a className="settings-link" href="https://github.com/tomrutsaert/herdr-web-ui" target="_blank" rel="noreferrer">tomrutsaert/herdr-web-ui</a>
           </div>
-          <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
+          <a className="btn" href="https://github.com/tomrutsaert/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
         </div>
       </SettingsGroup>
     </>
@@ -1043,21 +1025,6 @@ function OpenSettingsDialog({ section = null, linkPage = null, linkSection = nul
       else tab(before.page)?.focus();
     }
   }, [page, keyBarOpen, narrow, section]);
-  // server-side: the web server updates PC bridges, so it keeps this choice
-  const [pcSettings, setPcSettings] = useState<MachineSettings | null>(null);
-  const [pcSettingsError, setPcSettingsError] = useState<string | null>(null);
-  // asked when a page that shows them opens, so a request that failed earlier is made again
-  useEffect(() => {
-    if (page !== "remote" && page !== "about") return;
-    let live = true;
-    machineRequest<MachineSettings>("/settings").then((settings) => { if (live) setPcSettings(settings); }, () => { if (live) setPcSettings(null); });
-    return () => { live = false; };
-  }, [page]);
-  const updatePcSettings = async (patch: Partial<MachineSettings>) => {
-    try { setPcSettings(await machineRequest<MachineSettings>("/settings", "PATCH", patch)); setPcSettingsError(null); }
-    catch (e) { setPcSettingsError(e instanceof Error ? e.message : String(e)); }
-  };
-
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent): void => {
       // an Escape that cancels an IME composition (the editor's Character field) is the IME's
@@ -1091,9 +1058,9 @@ function OpenSettingsDialog({ section = null, linkPage = null, linkSection = nul
       case "usage": return <UsageSettings onLocalLogin={onUsageLogin} />;
       case "shortcuts": return <ShortcutsPage />;
       case "devices": return <DevicesPage auth={auth} onSignOut={actions.lock} />;
-      case "remote": return <RemotePcsPage actions={actions} pcSettings={pcSettings} pcSettingsError={pcSettingsError} onPcSettings={(patch) => void updatePcSettings(patch)} />;
+      case "remote": return <RemotePcsPage actions={actions} />;
       case "integrations": return <IntegrationsPage />;
-      case "about": return <AboutPage updates={updates} herdrVersion={herdrVersion} bridgesFollow={pcSettings?.auto_update_bridges === true} />;
+      case "about": return <AboutPage updates={updates} herdrVersion={herdrVersion} />;
       default: return null;
     }
   };

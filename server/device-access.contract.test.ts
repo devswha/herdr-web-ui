@@ -36,7 +36,7 @@ async function until(check: () => boolean): Promise<void> {
 
 it("revocation closes an active device's terminal and roster stream without disconnecting another device", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-device-access-"));
-  const server = createServer({ port: 0, stateDir: root, token: "test-device-access", tailscaleOwner: null });
+  const server = createServer({ port: 0, stateDir: root, token: "test-device-access" });
   const base = `http://127.0.0.1:${server.port}`;
   const admin = { ...guard, authorization: "Bearer test-device-access" };
   const sockets: WebSocket[] = [];
@@ -88,7 +88,7 @@ it("a corrupt device registry refuses strangers while keeping local recovery and
   const root = mkdtempSync(join(tmpdir(), "herdr-device-recovery-"));
   const path = join(root, "devices.json");
   writeFileSync(path, "{broken registry");
-  const server = createServer({ port: 0, stateDir: root, token: "", tailscaleOwner: null });
+  const server = createServer({ port: 0, stateDir: root, token: "" });
   const base = `http://127.0.0.1:${server.port}`;
   try {
     expect((await fetch(`${base}/api/session`, { headers: { "x-forwarded-for": "192.0.2.1" } })).status).toBe(401);
@@ -100,14 +100,14 @@ it("a corrupt device registry refuses strangers while keeping local recovery and
   } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
-it("keeps a forwarded first-pair gate open until a returned cookie is durably confirmed", async () => {
+it("confirms proxy pairing durably and permits retry after a lost response", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-first-pair-proxy-"));
-  const options = { port: 0, stateDir: root, token: "", tailscaleOwner: null, machines: false } as const;
+  const options = { port: 0, stateDir: root, token: "", machines: false } as const;
   let server = createServer(options);
   let base = `http://127.0.0.1:${server.port}`;
   const forwarded = { "x-forwarded-for": "198.51.100.24" };
   const start = async () => {
-    const response = await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: { origin: base, "x-herdr-machine": "1", ...forwarded } });
+    const response = await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: { origin: base, "x-herdr-machine": "1" } });
     expect(response.status).toBe(200);
     return (await response.json() as { code: string }).code;
   };
@@ -119,30 +119,30 @@ it("keeps a forwarded first-pair gate open until a returned cookie is durably co
   const stranger = () => fetch(`${base}/api/devices`, { headers: forwarded });
   try {
     const droppedCookie = await issue(await start());
-    expect((await stranger()).status).toBe(200);
-    expect((await (await fetch(`${base}/api/devices`, { headers: forwarded })).json()).devices).toEqual([]);
+    expect((await stranger()).status).toBe(401);
+    expect((await (await fetch(`${base}/api/devices`)).json()).devices).toEqual([]);
     expect(() => readFileSync(join(root, "devices.json"), "utf8")).toThrow();
 
     // A lost cookie can be retried through the proxy; issuing another cookie still does
-    // not close the gate until one of them returns in a later request.
+    // not confirm either credential until one returns in a later request.
     const retryCookie = await issue(await start());
-    expect((await stranger()).status).toBe(200);
+    expect((await stranger()).status).toBe(401);
     expect(retryCookie).not.toBe(droppedCookie);
     server.stop();
 
     // No first-pair candidate or gate survives a restart before confirmation.
     server = createServer(options);
     base = `http://127.0.0.1:${server.port}`;
-    expect((await stranger()).status).toBe(200);
+    expect((await stranger()).status).toBe(401);
     const confirmedCookie = await issue(await start());
-    expect((await stranger()).status).toBe(200);
+    expect((await stranger()).status).toBe(401);
     const blocked = join(root, `devices.json.${process.pid}.tmp`);
     mkdirSync(blocked);
     const failed = await fetch(`${base}/api/devices`, { headers: { ...forwarded, cookie: confirmedCookie } });
     expect(failed.status).toBe(500);
     expect(failed.headers.get("content-type")).toContain("application/json");
     expect(await failed.json()).toMatchObject({ error: { code: "internal_error" } });
-    expect((await stranger()).status).toBe(200);
+    expect((await stranger()).status).toBe(401);
     expect(() => readFileSync(join(root, "devices.json"), "utf8")).toThrow();
     rmSync(blocked, { recursive: true });
     expect((await fetch(`${base}/api/devices`, { headers: { ...forwarded, cookie: confirmedCookie } })).status).toBe(200);
@@ -161,7 +161,7 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
   const store = new DeviceStore(root);
   const watch = store.pair(store.startPairing().code, "Watch", "watch")!;
   store.match(watch.token);
-  const server = createServer({ port: 0, stateDir: root, token: "test-watch", tailscaleOwner: null, machines: false });
+  const server = createServer({ port: 0, stateDir: root, token: "test-watch", machines: false });
   const base = `http://127.0.0.1:${server.port}`;
   const cookie = `herdr_web_device=${watch.token}`;
   const headers = { ...guard, cookie };
@@ -225,7 +225,7 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
 
 it("revoking a paired device removes its persistent push subscription", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-device-push-"));
-  const server = createServer({ port: 0, stateDir: root, token: "test-push-owner", tailscaleOwner: null, machines: false, pushLoopbackHttp: true });
+  const server = createServer({ port: 0, stateDir: root, token: "test-push-owner", machines: false, pushLoopbackHttp: true });
   const fake = await startFakePushService();
   const base = `http://127.0.0.1:${server.port}`;
   const admin = { ...guard, authorization: "Bearer test-push-owner" };
@@ -250,7 +250,7 @@ it("returns an error when revocation cannot be persisted, then allows a successf
   const store = new DeviceStore(root);
   const paired = store.pair(store.startPairing().code, "Phone", "drive")!;
   store.match(paired.token);
-  const server = createServer({ port: 0, stateDir: root, token: "test-write", tailscaleOwner: null, machines: false });
+  const server = createServer({ port: 0, stateDir: root, token: "test-write", machines: false });
   const base = `http://127.0.0.1:${server.port}`;
   const blocked = join(root, `devices.json.${process.pid}.tmp`);
   try {
