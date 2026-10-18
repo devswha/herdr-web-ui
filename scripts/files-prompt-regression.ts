@@ -97,18 +97,56 @@ async function checkPrompt(page: Page, label: string, failure: "abort" | "500" |
   await page.screenshot({ path: join(shots, `prompt-${label}-${failure}-before.png`) });
   let finish!: () => void;
   const failedRead = new Promise<void>((resolve) => { finish = resolve; });
+  let failedRequest: import("playwright-core").Request | undefined;
+  let failureComplete = false;
+  let nextRead: import("playwright-core").Request | undefined;
+  let finishNextRead!: () => void;
+  const nextReadFinished = new Promise<void>((resolve) => { finishNextRead = resolve; });
+  const onRequest = (request: import("playwright-core").Request) => {
+    if (failureComplete && request.url().includes("/api/pane/prompt?") && !nextRead) nextRead = request;
+  };
+  const onRequestFinished = (request: import("playwright-core").Request) => {
+    if (request === failedRequest) failureComplete = true;
+    if (request === nextRead) finishNextRead();
+  };
+  const onRequestFailed = (request: import("playwright-core").Request) => {
+    if (request === failedRequest) failureComplete = true;
+  };
+  page.on("request", onRequest);
+  page.on("requestfinished", onRequestFinished);
+  page.on("requestfailed", onRequestFailed);
   let handled = false;
   const pattern = /\/api\/pane\/prompt\?/;
   await page.route(pattern, async (route) => {
     if (handled) { await route.continue(); return; }
     handled = true;
+    failedRequest = route.request();
+    await page.evaluate(() => { (window as unknown as { cardsRemoved: number }).cardsRemoved = 0; });
     if (failure === "abort") await route.abort("failed");
     else if (failure === "500") await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "qa_failure" }) });
     else await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>not JSON</title>" });
     finish();
   });
-  await failedRead;
-  const gone = await page.waitForFunction(() => document.querySelector(".prompt-card") === null, undefined, { timeout: 1_500 }).then(() => true).catch(() => false);
+  let failedTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      failedRead,
+      new Promise<never>((_, reject) => { failedTimer = setTimeout(() => reject(new Error(`timed out waiting for failed prompt read (${failure})`)), 10_000); }),
+    ]);
+  } finally { if (failedTimer) clearTimeout(failedTimer); }
+  let nextTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      nextReadFinished,
+      new Promise<never>((_, reject) => { nextTimer = setTimeout(() => reject(new Error(`timed out waiting for next prompt read response (${failure})`)), 10_000); }),
+    ]);
+  } finally {
+    if (nextTimer) clearTimeout(nextTimer);
+    page.off("request", onRequest);
+    page.off("requestfinished", onRequestFinished);
+    page.off("requestfailed", onRequestFailed);
+  }
+  const gone = await page.locator(".prompt-card").count() === 0;
   await page.screenshot({ path: join(shots, `prompt-${label}-${failure}-after.png`) });
   await option.waitFor({ timeout: 10_000 });
   await page.unroute(pattern);
