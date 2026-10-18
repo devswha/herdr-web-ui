@@ -6,7 +6,7 @@
  * the start, after a resize, every few seconds and once the screen goes quiet. A working agent changes a spinner and a
  * timer on almost every read (measured with gjc on a 119x40 pane: 12 screens a second, 2.8
  * rows changed in each), so whole screens were 135 KB a second to every viewer, over SSH from
- * a remote PC and on to a phone; the changed rows are 9 KB a second (#261). Output that scrolls
+ * the browser over its network connection; the changed rows are 9 KB a second (#261). Output that scrolls
  * changes every row, and then the whole screen is the shorter of the two and goes out instead. It stands where a PtySession stands, so
  * the attach lifecycle, the replay for late joiners and the output window are the same.
  *

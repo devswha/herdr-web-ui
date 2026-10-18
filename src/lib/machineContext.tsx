@@ -4,7 +4,7 @@ import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, PluginA
 import type { ZoomMode } from "./layoutMap.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
-/** Bound functions retain their owner across an async upload or a fast PC switch. */
+/** Bound functions retain their owner across an async upload or a fast pane switch. */
 export function useMachineApi() {
   const id = useMachineId();
   return useMemo(() => ({

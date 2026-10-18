@@ -428,7 +428,7 @@ export function PaneTerminal({
   // What each pane's chat last read, and whether a message went out since: kept per pane here,
   // not in the chat, so a message sent ends the greeting at once and neither another lens, another
   // pane nor a failed read brings it back before the conversation shows a turn or a new history.
-  // It lives in lib/greeting.ts, over this component, which another PC's pane mounts again.
+  // It lives in lib/greeting.ts, outside this component, so pane remounts retain it.
   const [, redrawGreeting] = useReducer((count: number) => count + 1, 0);
   const onChatRead = useCallback((pane: string, read: ChatRead | null) => {
     const owner = paneStorageId(machineId, pane);
@@ -818,7 +818,7 @@ export function PaneTerminal({
     // tracked in herdr's history rows: a wheel, or dragging past the top or bottom edge,
     // scrolls the pane through the API, the highlight is repainted over the visible part,
     // and letting go copies herdr's own text for the range, soft-wrapped lines joined.
-    // Without the API (plain HTTP, observe mode, an older remote bridge, a failed read)
+    // Without the API (plain HTTP, observe mode, an older server, a failed read)
     // only the visible selection is copied, as xterm has it.
     interface Cell { row: number; col: number }
     interface Drag {

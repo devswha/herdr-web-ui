@@ -1,7 +1,7 @@
 import type { AppLink } from "./deepLink.ts";
 
 export type NotificationPaneView = "chat" | "terminal";
-/** `workspace_id`: the workspace the pane was last seen in (server/push.ts), so an ended pane's tap opens it. */
+/** `workspace_id`: the workspace the pane was last seen in from its local snapshot, so an ended pane's tap opens it. */
 export type NotificationTarget = { machine_id: string; pane_id: string; view?: NotificationPaneView; workspace_id?: string };
 type Target = NotificationTarget;
 type Select = (target: Target) => void;
@@ -18,16 +18,14 @@ export function notificationViewForPane(target: NotificationTarget | null, machi
   if (!target || paneId === null || target.machine_id !== machineId || target.pane_id !== paneId) return null;
   return target.view ?? null;
 }
-/** The roster is in and does not list this PC: it was removed since (the roster lists every PC set up, connected or not). */
+/** The local roster is ready and cannot resolve this workstation key, such as an old saved link. */
 export function machineMissing(roster: readonly { id: string }[], machineId: string): boolean {
   return roster.length > 0 && !roster.some((machine) => machine.id === machineId);
 }
 
 /**
- * Whether a PC named at roster `since` (the count of rosters the server had sent then) is gone:
- * only a roster the server sent after that can say so. The list in hand when a link or a
- * selection was made may predate the PC (a tab resumed before its roster refreshed, a PC just
- * added), and a list rebuilt from it (a pane's status) is no newer. `since` null: nothing waits.
+ * Settle an unresolved workstation key only against a fresh server roster. A resumed tab's
+ * cached roster or a locally patched status cannot settle a saved link. `since` null: nothing waits.
  */
 export function machineGone(roster: readonly { id: string }[], rosterSeq: number, since: number | null, machineId: string): boolean {
   return since !== null && rosterSeq > since && machineMissing(roster, machineId);

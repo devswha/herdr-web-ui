@@ -50,7 +50,7 @@ const PID_FILE = join(STATE_DIR, "server.pid");
 const LOG_FILE = join(STATE_DIR, "server.log");
 /** the server needs a moment to bind and open its first herdr connection */
 const READY_TIMEOUT_MS = 20_000;
-/** the supervisor gives its bridge 6 s to exit before it kills it */
+/** Allow the owned server and its attach sidecars to finish their graceful shutdown. */
 const STOP_TIMEOUT_MS = 15_000;
 /** how long a killed server gets to disappear before `stop` reports that it could not stop it */
 const KILL_WAIT_MS = 3_000;
@@ -439,9 +439,8 @@ const stopDependencies: StopDependencies = {
 };
 
 /**
- * Returns once the server is gone. It stops answering at once, but its supervisor holds the
- * checkout's lock until the bridge under it exits, and a `start` before then finds that lock,
- * gives up, and leaves nothing running.
+ * Return only after the owned launcher and server have exited, so a subsequent start cannot
+ * race their shutdown or leave an old attach sidecar running.
  */
 export async function stop(dependencies: StopDependencies = stopDependencies): Promise<number> {
   const record = pidRecord();
@@ -472,7 +471,7 @@ export async function stop(dependencies: StopDependencies = stopDependencies): P
       const member = processes.find(row => row.pid === memberPid);
       return member ? [member] : [];
     })];
-    // Windows has no Unix process groups or graceful SIGTERM: include the supervisor and bridge.
+    // Windows has no Unix process groups or graceful SIGTERM: include the launcher and server.
     const killed = dependencies.terminateTree(pid);
     if (killed.status !== 0 && recordedPid() !== null) {
       process.stderr.write(`could not stop herdr web ui: ${killed.error?.message ?? killed.stderr.trim()}\n`);

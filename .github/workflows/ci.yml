@@ -140,10 +140,9 @@ jobs:
           node: 'true'
       - run: bun install --frozen-lockfile
       - run: bun run check fast
-      # A release (package.json's version not tagged yet) must raise REMOTE_BUNDLE_VERSION when the
-      # bundle's inputs changed, carry its patch notes. Only the
-      # change that bumps the version against BASE_SHA counts, so PRs merged before the Release run
-      # pass. The checkout is shallow, so the tags and the base it compares with are fetched first.
+      # A release must carry its local version metadata and patch notes. Only the change that
+      # bumps the version against BASE_SHA counts, so PRs merged before the Release run pass.
+      # The checkout is shallow, so fetch its app release tags and comparison base first.
       - name: Release guards
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -194,7 +193,7 @@ jobs:
           herdr: 'true'
       - run: bun install --frozen-lockfile
         if: needs.changes.outputs.draft != 'true'
-      - name: Integration tests (updater restart and rollback included)
+      - name: Integration tests
         if: needs.changes.outputs.draft != 'true'
         env:
           HERDR_TEST_SHARDS: ${{ runner.environment == 'self-hosted' && '4' || '1' }}

@@ -5,9 +5,8 @@
  * The page is site/index.html, with its Simplified Chinese copy at site/zh/index.html (the same page,
  * its paths one level up; a change to one belongs in the other). Both are built from the README's artifacts: its top video (`videos`, a GitHub
  * upload that is downloaded, never committed; docs/development.md, "README media"), its feature clips
- * (docs/media/readme/*.webp) and the installer still. A video's poster frame is cut with ffmpeg when it
- * is installed (the workflow installs it); without it the still stays full size and a poster that
- * could not be made is dropped from the page. `{{version}}` comes from package.json. The page's FAQ rows are also written into its head as
+ * (docs/media/readme/*.webp). A video's poster frame is cut with ffmpeg when it
+ * is installed (the workflow installs it); posters that cannot be made are dropped from the page. `{{version}}` comes from package.json. The page's FAQ rows are also written into its head as
  * FAQPage structured data, so the two cannot differ, and sitemap.xml lists the page (the demo is
  * noindex and stays out of it).
  *
@@ -41,11 +40,8 @@ const copies: Array<[from: string, to: string]> = [
   ["public/social-preview.png", "assets/social-preview.png"],
 ];
 
-/** The pages, in _site/: every one gets the figures, the media checks and the FAQ data below. */
+/** The pages, in _site/: every one gets the media checks and the FAQ data below. */
 const pages = ["index.html", "zh/index.html"];
-
-/** README stills, scaled down for the page when ffmpeg is there. */
-const stills: Array<{ file: string; width: number }> = [{ file: "install.png", width: 1400 }];
 
 /**
  * The README's top video and its GitHub upload. It is listed here, not read from the README, so the
@@ -93,12 +89,6 @@ for (const dir of ["assets", "media"]) {
 cpSync(join(root, "docs/media/readme"), join(out, "media/readme"), { recursive: true });
 
 const hasFfmpeg = Bun.which("ffmpeg") !== null;
-for (const still of stills) {
-  const from = join(root, "docs/screenshots", still.file);
-  const target = join(out, "assets", still.file);
-  if (!hasFfmpeg || !(await run(["ffmpeg", "-v", "error", "-y", "-i", from, "-vf", `scale=${still.width}:-1`, target]))) copyFileSync(from, target);
-}
-
 mkdirSync(join(out, "media"), { recursive: true });
 for (const video of videos) {
   const target = join(out, "media", video.file);
@@ -203,4 +193,4 @@ copyFileSync(join(root, "site/demo/index.html"), join(out, "demo", "index.html")
 const files = new Bun.Glob("**/*").scanSync({ cwd: out, dot: true });
 let bytes = 0;
 for (const file of files) bytes += Bun.file(join(out, file)).size;
-console.log(`_site: ${(bytes / 1024 / 1024).toFixed(1)} MB${hasFfmpeg ? "" : " (no ffmpeg: full-size stills, videos without posters)"}`);
+console.log(`_site: ${(bytes / 1024 / 1024).toFixed(1)} MB${hasFfmpeg ? "" : " (no ffmpeg: videos without posters)"}`);

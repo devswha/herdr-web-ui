@@ -1,4 +1,4 @@
-/** Validate fork release metadata  before publishing. */
+/** Validate fork release metadata before publishing. */
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { releaseNotes } from "./release-notes.ts";

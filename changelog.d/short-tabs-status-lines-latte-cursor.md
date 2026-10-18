@@ -5,5 +5,5 @@
   "Opening link…": each status line is in the page before its words arrive, so the change is read.
 - The New workspace dialog's Directory field shows the end of a long path, where the folder's name
   is, when the path is set for you or the field is left.
-- Korean: the sentences for an agent that did not start, a tool's image and a provider's rate limit
-  no longer hang a particle on the name ("이(가)").
+- Korean: the sentences for an agent that did not start and a tool's image no longer hang a
+  particle on the name ("이(가)").

@@ -4,6 +4,7 @@ import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, exists
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { ConversationMonitor } from "./conversation-monitor.ts";
+import { DISTRIBUTION_REPOSITORY } from "../shared/distribution.ts";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, LanExposure, SessionSnapshot, TabMoved, PaneFindResponse, PaneReadResult, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrSocket } from "../src/lib/ws.ts";
@@ -13,11 +14,10 @@ import type { RepoDiffFileList, RepoDiffFilePatch } from "../shared/protocol.ts"
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
- * Runs against the REAL herdr server on the developer's machine: these are the
+ * Runs against an isolated real herdr test session: these are the
  * integration seams the browser UI depends on, so a mock here would prove nothing.
  * Tests never mutate a user's pane; mutation cases create labeled workspaces and close them in afterAll.
- * Every server here keeps its push state (VAPID key, subscriptions) in a temp dir: the
- * user's ~/.config/herdr-web-ui holds their real devices, which a test must never page.
+ * Every server uses temporary application state, never the user's paired devices or preferences.
  */
 let server: { port: number; stop: () => void };
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-contract-"));
@@ -2059,7 +2059,7 @@ describe("pairing and identity", () => {
   const base = () => `http://127.0.0.1:${open.port}`;
   /** as if a reverse proxy had forwarded it: the test client is on loopback, like a proxy */
   const proxied = (login?: string, extra: Record<string, string> = {}) => ({ "x-forwarded-for": "100.64.0.9", ...(login ? { "tailscale-user-login": login } : {}), ...extra });
-  const auth = async (headers: Record<string, string> = {}) => ((await (await fetch(`${base()}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
+  const auth = async (headers: Record<string, string> = {}) => ((await (await fetch(`${base()}/api/access`, { headers })).json()) as { auth: HealthAuth }).auth;
   const guard = { "content-type": "application/json", "x-herdr-request": "1" };
   let cookie = "";
   let deviceId = "";
@@ -2172,7 +2172,7 @@ describe("pairing and identity", () => {
   it("a configured token gates local and proxied access, and a paired device gets past it", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-pairing-token-"));
     const secured = createServer({ port: 0, stateDir: state, token: "t0k3n" });
-    const at = (headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${secured.port}/api/health?scope=bridge`, { headers }).then((r) => r.json() as Promise<{ auth: HealthAuth }>).then((b) => b.auth);
+    const at = (headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${secured.port}/api/access`, { headers }).then((r) => r.json() as Promise<{ auth: HealthAuth }>).then((b) => b.auth);
     try {
       expect(await at()).toMatchObject({ authenticated: false, reason: "token_required" });
       expect(await at({ authorization: "Bearer wrong" })).toEqual({ required: true, authenticated: false, reason: "token_required" });
@@ -2352,6 +2352,20 @@ describe("token auth", () => {
     expect(["error", "close"]).toContain(outcome);
   }, 10000);
 
+  it("refuses target-qualified WebSocket URLs instead of silently attaching to this workstation", async () => {
+    const ws = connectWithCookie(`${wsUrl()}?machine_id=another-workstation`, `herdr_web_token=${TOKEN}`);
+    try {
+      const outcome = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("no upgrade result within 5000ms")), 5000);
+        const settle = (result: string) => { clearTimeout(timer); resolve(result); };
+        ws.addEventListener("open", () => settle("open"));
+        ws.addEventListener("error", () => settle("refused"));
+        ws.addEventListener("close", () => settle("refused"));
+      });
+      expect(outcome).toBe("refused");
+    } finally { ws.close(); }
+  }, 10000);
+
   it("upgrades a websocket that carries the cookie", async () => {
     const ws = connectWithCookie(wsUrl(), `herdr_web_token=${TOKEN}`);
     const first = await new Promise<{ type: string }>((resolve, reject) => {
@@ -2513,6 +2527,31 @@ describe("repository diff of a pane's folder", () => {
     expect(posted.status).toBe(400);
     expect(((await posted.json()) as ApiError).error.code).toBe("method_not_allowed");
   });
+});
+
+it("the public access probe stays available without herdr and exposes only access metadata", async () => {
+  const root = mkdtempSync(join(tmpdir(), "herdr-access-probe-"));
+  const previousSocket = process.env["HERDR_SOCKET"];
+  let app: ReturnType<typeof createServer> | undefined;
+  try {
+    process.env["HERDR_SOCKET"] = join(root, "missing.sock");
+    app = createServer({ port: 0, hostname: "127.0.0.1", token: "probe-fixture", stateDir: root });
+    const origin = `http://127.0.0.1:${app.port}`;
+    const health = await fetch(`${origin}/api/health`, { headers: { authorization: "Bearer probe-fixture" } });
+    expect(health.status).toBeGreaterThanOrEqual(500);
+    const probe = await fetch(`${origin}/api/access`, { headers: { "x-forwarded-proto": "https" } });
+    expect(probe.status).toBe(200);
+    expect(await probe.json()).toEqual({
+      ok: true,
+      distribution: DISTRIBUTION_REPOSITORY,
+      auth: { required: true, authenticated: false, reason: "token_required" },
+    });
+  } finally {
+    app?.stop();
+    if (previousSocket === undefined) delete process.env["HERDR_SOCKET"];
+    else process.env["HERDR_SOCKET"] = previousSocket;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // Remote browsers use the same authenticated, local-session stream as this workstation.

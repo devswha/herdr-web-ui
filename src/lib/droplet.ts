@@ -4,9 +4,8 @@ import { paneStorageId } from "../../shared/machines.ts";
 
 /**
  * In-app alerts: a notice that drops from the top edge while the app is on screen.
- * A push to a device whose app is visible arrives silent (public/sw.js), and the tab
- * alerts stay quiet in a visible tab (lib/notifications.ts), so without this an agent
- * that waits on the user while the app is open says so nowhere but its sidebar row.
+ * Tab notifications stay quiet while the page is visible (lib/notifications.ts), so
+ * these notices tell the user about another pane without leaving the open app.
  *
  * App decides what is news (shared/notify-policy.ts, as the other alerts do) and calls
  * showDroplet(); components/Droplet.tsx is the one place that draws them.
@@ -29,7 +28,7 @@ export interface QueuedDroplet extends DropletNotice {
   id: number;
 }
 
-/** A finished turn this long or longer is a "long turn" (server/push.ts DEFAULT_ALERT_TIMING.longTurn). */
+/** A finished turn this long or longer is a "long turn". */
 export const LONG_TURN_MS = 60_000;
 /** The same notice for the same pane this soon again is one notice. */
 export const DROPLET_REPEAT_MS = 400;
@@ -37,7 +36,7 @@ export const DROPLET_REPEAT_MS = 400;
 /**
  * Whether this device wants to hear about a status at all, the finished-turn length included:
  * `worked` is how long the pane worked before it finished, null when this page did not see
- * it start (then it is told, as the server does).
+ * it start (then it is reported rather than silently discarded).
  */
 export function dropletAllows(prefs: AlertPrefs, status: AgentStatus, worked: number | null): boolean {
   if (status === "blocked") return prefs.input;
@@ -53,7 +52,7 @@ export function dropletAllows(prefs: AlertPrefs, status: AgentStatus, worked: nu
  * taken from the roster, the event would be no change and the alert would be lost. Any other
  * change is taken, with the turn's clock kept as an event would keep it: that is how the page
  * catches up after status events were lost, and a wait that follows is news again. A pane
- * first seen is taken as it is, and one no PC lists any more is forgotten.
+ * first seen is taken as it is, and one no longer in the local roster is forgotten.
  */
 export function seedStatuses(
   known: Map<string, AgentStatus>,
@@ -76,7 +75,7 @@ export function seedStatuses(
 
 /**
  * When a pane's turn began, by pane, so a finished one knows how long it worked: from working
- * or blocked entered until it is at rest again, as server/push.ts measures it. Returns how
+ * or blocked entered until it is at rest again. Returns how
  * long the turn took when the pane comes to rest, null while busy or when its start was not seen.
  */
 export function trackTurn(started: Map<string, number>, key: string, previous: AgentStatus | undefined, next: AgentStatus, now: number): number | null {

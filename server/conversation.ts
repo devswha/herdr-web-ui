@@ -1299,7 +1299,7 @@ async function ompTranscriptPath(paneId: string, cwd: string): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { kind?: unknown; value?: unknown } } }>("agent.get", { target: paneId });
   const session = info.agent.agent_session;
   const path = session?.kind === "path" && typeof session.value === "string" ? session.value : null;
-  // a Windows bridge starts with HOME set to the profile directory (remote-entry.ts)
+  // Accept only a native transcript inside this process's local home store.
   const store = ompSessionStore(path, process.env["HOME"] ?? "");
   if (path === null || store === null) {
     const held = await ompHeldTranscript(paneId, cwd);

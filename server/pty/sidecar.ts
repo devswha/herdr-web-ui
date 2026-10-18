@@ -2,7 +2,7 @@ import type { HerdrIdentity } from "../../shared/machines.ts";
 
 /**
  * A terminal attach runs on the PTY sidecar: `node pty-host.mjs`, which imports
- * @lydell/node-pty. A runtime without either 
+ * @lydell/node-pty. A runtime without either
  * cannot start it, whatever herdr itself can do, so its panes stay mirrored.
  */
 export interface SidecarRuntime {

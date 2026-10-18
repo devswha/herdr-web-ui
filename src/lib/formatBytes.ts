@@ -6,4 +6,3 @@ export function formatBytes(bytes: number): string {
   const megabytes = bytes / (1024 * 1024);
   return `${megabytes < 10 ? Math.round(megabytes * 10) / 10 : Math.round(megabytes)} MB`;
 }
-

@@ -8,7 +8,7 @@ import { ChunkFailureNotice } from "./ChunkFailureNotice.tsx";
 
 describe("the reader tab's reload line", () => {
   it("offers a reload once a part of the app failed to load, without the update model", async () => {
-    // FileReader mounts it where App would mount the update line: KaTeX that cannot load leaves math as source
+    // FileReader mounts it where App would mount its chunk-failure notice: KaTeX that cannot load leaves math as source
     await expect(lazyChunk(() => Promise.reject(new TypeError("Failed to fetch dynamically imported module: /assets/katex-old.js")))()).rejects.toThrow("Failed to fetch");
     const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
     Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });

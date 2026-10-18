@@ -41,8 +41,8 @@ export type HerdrPane = PaneInfo & { background_tasks?: number; background_wait?
  *  GET    /api/access                    -> { ok: true, distribution: string, auth: HealthAuth }, independent of herdr
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
  *                                          Windows herdr and on a bridge that cannot run the PTY sidecar; terminal_mirror: its
- *                                          terminal lens is the pane's screen, repainted; health reports the same herdr), auth: HealthAuth,
- *                                          web_ui: { boot_id: string | null, revision: string | null } }
+ *                                          terminal lens is the pane's screen, repainted), auth: HealthAuth,
+ *                                          web_ui: { distribution: string } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
@@ -185,7 +185,7 @@ export type HerdrPane = PaneInfo & { background_tasks?: number; background_wait?
  *  DELETE /api/auth                      -> 204, clears the token and the device cookies
  *  GET    /api/devices                   -> { devices: PairedDevice[] } (the paired devices; `current` marks the caller's)
  *  POST   /api/devices/pair/start        -> PairingCode: a six-digit code good for ten minutes, replacing any pending one
- *         (same origin, from a client with full access)
+ *         (X-Herdr-Request: 1 + same origin, from a client with full access)
  *  POST   /api/devices/pair { code, label? } -> 204 + Set-Cookie herdr_web_device (public, like /api/auth;
  *         401 invalid_code when the code is wrong, spent after five tries, or expired)
  *  PATCH  /api/devices/:id  { label }    -> PairedDevice;  DELETE /api/devices/:id -> 204 (revoked at its next request)
@@ -280,6 +280,7 @@ export interface PairingCode {
   readonly expires_at: string;
 }
 
+/** One turn of a structured agent conversation, as shown in the chat lens. */
 export interface ConversationTurn {
   role: "user" | "assistant";
   ts: string | null;
@@ -928,7 +929,7 @@ export interface PromptAnswer {
   custom_text?: string;
 }
 
-/** WebSocket at /ws
+/** WebSocket at /ws (no query parameters)
  *
  *  Client -> server frames: attach {pane_id, cols, rows} | detach {pane_id} | input {pane_id, text}
  *    | keys {pane_id, keys} | resize {pane_id, cols, rows} | release-size {pane_id} | role {mode}

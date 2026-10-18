@@ -60,8 +60,6 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
       <div className="machine-title">
         <span className="sidebar-mark" aria-hidden="true"><Monitor /></span>
         <span className="machine-name">{machine.name}</span>
-        {/* the computer this app's server runs on; on a phone "this PC" read as the phone */}
-        {machine.kind === "local" && <span className="machine-kind" title={t("The computer this app runs on")}>{t("Host")}</span>}
         <span className={`machine-dot is-${machine.state}`} title={t(STATE_WORD[machine.state])} aria-hidden="true" />
       </div>
       {/* the fold over this PC's workspaces sits beside the + */}

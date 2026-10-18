@@ -127,7 +127,7 @@ try {
     // the chat asks for the pane's slash commands to mark skill names in an answer: this pane has none
     if (url.pathname.endsWith("/pane/commands")) return Response.json({ commands: [] });
     if (url.pathname.endsWith("/pane/conversation")) {
-      const machine = url.pathname.includes("/machines/remote/") ? "remote" : "local";
+      const machine = "local";
       const older = url.searchParams.has("before");
       if (url.searchParams.get("before") === "window:2") {
         slideReads++;
@@ -367,21 +367,17 @@ try {
     await page.reload();
     await page.getByText("REVISION-102", { exact: true }).waitFor();
     await settleBottom(page);
-    await page.evaluate(() => window.chatQa.machine("remote"));
-    await page.getByText("remote E1 ROW-999", { exact: true }).waitFor();
-    assert.ok((await metrics(page)).keys.every((key) => key?.includes('"remote"')), "same-pane remote rows have a separate identity scope");
-    console.log(`PASS ${width} ${theme}: another PC does not inherit rows`);
-    const remoteRow = page.locator("[data-chat-row]").filter({ hasText: "remote E1 ROW-999" });
-    await remoteRow.evaluate((row) => {
+    const selectedRow = page.locator("[data-chat-row]").filter({ hasText: "local E1 ROW-999" });
+    await selectedRow.evaluate((row) => {
       const range = document.createRange(); range.selectNodeContents(row);
       getSelection()?.removeAllRanges(); getSelection()?.addRange(range);
     });
     await page.waitForFunction(() => Number(document.querySelector(".chat-view")?.getAttribute("data-chat-pinned")) > 0);
     epoch = 2;
     await update(page);
-    await page.getByText("remote E2 ROW-999", { exact: true }).waitFor();
+    await page.getByText("local E2 ROW-999", { exact: true }).waitFor();
     await page.waitForFunction(() => document.querySelector(".chat-view")?.getAttribute("data-chat-pinned") === "0");
-    assert.equal(await page.getByText("remote E1 ROW-999", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("local E1 ROW-999", { exact: true }).count(), 0);
     console.log(`PASS ${width} ${theme}: history replacement releases selected old rows`);
     for (const origin of [false, true]) {
       newestStart = 0; beginsAtOrigin = origin; epoch = 1;

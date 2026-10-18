@@ -133,7 +133,7 @@ try {
         // the demo's new agent works for a moment first: it is greeted once it rests
         await greeting.waitFor({ timeout: 8_000 });
         assert.equal(await greeting.locator(".composer-greeting-title").textContent(), "What should Claude do in new-project?");
-        assert.equal(await greeting.locator(".composer-greeting-where").textContent(), "workstation · /home/demo/new-project");
+        assert.equal(await greeting.locator(".composer-greeting-where").textContent(), "Host · /home/demo/new-project");
         assert.equal(await page.locator(".pane-frame.is-current .chat-empty").count(), 0, "the greeting stands in for the chat's own empty line");
         assert.equal(await page.locator(".pane-frame.is-current .chat-turn").count(), 0);
         assert.equal(await page.locator(".conn-live").count(), 1);

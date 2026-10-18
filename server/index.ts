@@ -346,7 +346,7 @@ export function createServer(
 ): ServerInstance {
   const attachments = new Map<string, PaneAttachment>();
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
-  /** whether the sidecar can run, settled as the server starts so that attach, /api/health tell one answer; a forced answer (tests) stands in for it */
+  /** whether the sidecar can run, settled as the server starts so attach and /api/health tell one answer; a forced answer (tests) stands in for it */
   const sidecar = options.sidecar ?? (options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
   let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
   const terminalAttach = async (): Promise<boolean> => {
@@ -1643,7 +1643,7 @@ export function createServer(
       // the route's answer, gzipped for a browser that takes it (server/compress.ts)
       return compressResponse(request, await (async (): Promise<Response | undefined> => {
       const url = new URL(request.url);
-      let { pathname } = url;
+      const { pathname } = url;
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -1697,10 +1697,12 @@ export function createServer(
       }
 
       // Chat reads can chain several valid 10 s RPCs. Leave the 15/30 s client deadline
-      // in charge rather than Bun's default 10 s idle cutoff. PC proxies have their own budget above.
+      // in charge rather than Bun's default 10 s idle cutoff.
       if (pathname === "/api/pane/read" || pathname === "/api/pane/conversation") bunServer.timeout(request, 60);
       if (pathname === "/ws") {
         if (!sameOrigin(request)) return new Response("invalid origin", { status: 403 });
+        // A target-qualified URL must never silently connect to the local workstation.
+        if (url.search !== "") return badRequest("invalid_request", "use /ws without query parameters");
         const deviceId = access.level === "full" ? access.device?.id : undefined;
         const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, { keepSize: boolean }>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
@@ -1752,7 +1754,7 @@ export function createServer(
           // a forced answer (tests) and a runtime without the PTY sidecar are told the way a Windows herdr's own would be
           const herdr = attachableIdentity(info, sidecar);
           return jsonResponse({ ok: true, herdr, auth, ...(lan_exposure ? { lan_exposure } : {}),
-            web_ui: { distribution: DISTRIBUTION_REPOSITORY, boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
+            web_ui: { distribution: DISTRIBUTION_REPOSITORY } });
         } catch (error) {
           return errorResponse(error);
         }

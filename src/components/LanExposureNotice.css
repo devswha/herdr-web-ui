@@ -1,4 +1,4 @@
-/* Persistent access warning; independent of deployment/update controls. */
+/* Persistent network exposure warning. */
 .lan-exposure-notice {
   display: flex;
   flex: 0 0 auto;

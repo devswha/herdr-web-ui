@@ -305,7 +305,7 @@ try {
   console.log("PASS Agy native parser output renders user/assistant text and independent expandable tool results");
   assert.deepEqual(errors, []);
   console.log("PASS synthetic Devin bubbles and tools render; switching to Claude clears Devin history");
-  console.log("PASS product pane commits across A→B→A, another PC, and late or failed answers");
+  console.log("PASS product pane commits across A→B→A and late or failed answers");
 } finally {
   releases.forEach((release) => release());
   await browser?.close();

@@ -7,7 +7,7 @@ import { ENDED_NOTIFICATION_BODY, paneNotificationTag, statusNotificationBody } 
  * (https or localhost) - a plain-http LAN deployment reports "unsupported", and the bell
  * there switches only the in-app alerts.
  *
- * The transition policy is shared with the server (shared/notify-policy.ts).
+ * The transition policy lives in shared/notify-policy.ts.
  */
 
 export { alertStatus, alertsAllow, shouldNotifyStatus } from "../../shared/notify-policy.ts";
@@ -34,7 +34,7 @@ async function show(paneId: string, title: string, body: string, onClick?: () =>
   if (typeof globalThis.Notification === "undefined") return;
   if (globalThis.Notification.permission !== "granted") return;
   if (typeof document !== "undefined" && !document.hidden) return; // visible tab: the UI already shows it
-  const options: NotificationOptions = { body, tag: paneNotificationTag(paneId, machineId), data: { pane_id: paneId, machine_id: machineId, ...(workspaceId ? { workspace_id: workspaceId } : {}) }, icon: "/icons/icon-192.png?v=ram1" };
+  const options: NotificationOptions = { body, tag: paneNotificationTag(paneId), data: { pane_id: paneId, machine_id: machineId, ...(workspaceId ? { workspace_id: workspaceId } : {}) }, icon: "/icons/icon-192.png?v=ram1" };
   try {
     const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
     if (registration?.active) {

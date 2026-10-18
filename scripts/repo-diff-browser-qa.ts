@@ -7,7 +7,7 @@
  * native selection and a real copy that keep blank lines and leave the gutters out; binary,
  * too-large, conflicted, deleted, untracked and renamed files and their notes; a folder that is no
  * repository and a commit that does not exist; the file itself opened on the owning PC; Escape,
- * Back and Close with the focus returned; a remote PC's routes; the rows in the app's palette; and
+ * Back and Close with the focus returned; the rows in the app's palette; and
  * the static demo's fixture.
  *
  * The browser is Playwright's headless shell, whose clipboard is its own: a real Cmd+C here never
@@ -557,9 +557,6 @@ try {
     await context.close();
   }
 
-  // a remote PC's repository reads through its bridge, the file too
-
-
   // the static demo answers the routes from its fixture: the list, a diff and no missing route
   {
     const app = join(root, "demo");
@@ -602,7 +599,7 @@ try {
     await context.close();
     console.log("PASS the static demo lists its fixture's changes and draws a diff with no missing route");
   }
-  console.log("repository diff: browser OK (list, bounded rows, unified/split, fold, copy, open file, Back/Close/focus, unavailable kinds, staged/commits/errors, remote, demo)");
+  console.log("repository diff: browser OK (list, bounded rows, unified/split, fold, copy, open file, Back/Close/focus, unavailable kinds, staged/commits/errors, demo)");
 } finally {
   await browser?.close(); server?.stop(true); demoServer?.stop(true); rmSync(root, { recursive: true, force: true });
 }

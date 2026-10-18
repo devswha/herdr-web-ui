@@ -78,7 +78,8 @@ Keep the stable plugin ID and original paths; never delete them to make an insta
    fallback. Use a supported explicit uninstall/reinstall only after confirming its state-retention
    behavior and backing up config/state; this guide does not assume uninstall preserves them.
 3. Start the web plugin explicitly (`devswha.herdr-web-ui.start`, or `.start-windows`). Check
-   `/api/health` for `web_ui.distribution: "tomrutsaert/herdr-web-ui"`. Existing paired devices and shared preferences remain at their original paths; deployment never resumes an in-app update.
+   `/api/health` for `web_ui.distribution: "tomrutsaert/herdr-web-ui"`. Existing paired devices
+   and shared preferences remain at their original paths; deployment never resumes an in-app update.
 
 ## Remote browser access
 

@@ -1,4 +1,5 @@
 import "./test-herdr.ts";
+import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +11,7 @@ import { checkSecretInput } from "./secret-input-regression.ts";
 import { checkTerminalCopy } from "./terminal-copy-regression.ts";
 import { checkPaneFind } from "./pane-find-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
-import { checkNotificationView } from "./notification-view-regression.ts";
+import { checkAlertToggle, checkNotificationView } from "./notification-view-regression.ts";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { checkTerminalPinch } from "./terminal-pinch-regression.ts";
 import { checkMobileTabs } from "./mobile-tabs-regression.ts";
@@ -45,6 +46,43 @@ function isWorkspaceMissing(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "workspace_not_found";
 }
 
+/** A failed local session read disables workstation actions until a successful retry. */
+export async function checkLocalSessionAvailability(browser: Browser, origin: string): Promise<void> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+  try {
+    await context.addInitScript(() => {
+      if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
+    });
+    const page = await context.newPage();
+    let unavailable = false;
+    await page.route("**/api/events", (route) => route.abort());
+    await page.route("**/api/session", (route) => unavailable
+      ? route.fulfill({ status: 503, json: { error: { code: "herdr_unavailable", message: "Workstation is unavailable" } } })
+      : route.continue());
+    await page.goto(origin);
+    await page.locator(".machine-name").waitFor();
+    assert.equal(await page.locator(".machine-new").isEnabled(), true);
+    unavailable = true;
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await page.getByRole("alert").filter({ hasText: "Workstation is unavailable" }).waitFor();
+    await page.locator(".machine-group.is-offline").waitFor({ timeout: 4000 });
+    assert.equal(await page.locator(".machine-new").isDisabled(), true, "unavailable herdr cannot create a workspace");
+    unavailable = false;
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await page.locator(".machine-group.is-offline").waitFor({ state: "detached" });
+    assert.equal(await page.locator(".machine-new").isEnabled(), true, "a successful local read restores workstation actions");
+    assert.equal((await page.locator(".machine-title").innerText()).trim(), "Host", "the local workstation name is not duplicated by a Host badge");
+    await page.evaluate(() => {
+      const settings = JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}");
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ ...settings, language: "ja" }));
+    });
+    await page.reload();
+    await page.getByText("ホスト", { exact: true }).waitFor();
+    assert.equal((await page.locator(".machine-title").innerText()).trim(), "ホスト", "the local name follows the interface language");
+    console.log("PASS local workstation identity is localized once; failed session reads disable actions and retry restores them");
+  } finally { await context.close(); }
+}
+
 export async function runUiContextChecks(): Promise<void> {
   const tempBase = existsSync("/tmp") ? "/tmp" : tmpdir();
   const root = realpathSync(mkdtempSync(join(tempBase, "hwc-")));
@@ -76,6 +114,8 @@ export async function runUiContextChecks(): Promise<void> {
       args: ["--no-sandbox", "--accept-lang=en-US"],
     });
 
+    await timed("checkLocalSessionAvailability", () => checkLocalSessionAvailability(browser!, origin));
+    await timed("checkAlertToggle", () => checkAlertToggle(browser!, origin));
     await timed("checkWakeLock", () => checkWakeLock(browser!, origin, paneA));
     await timed("checkSecretInput", () => checkSecretInput(browser!, origin));
     await timed("checkTerminalCopy", () => checkTerminalCopy(browser!, origin));
