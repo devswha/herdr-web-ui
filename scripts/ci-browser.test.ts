@@ -70,7 +70,7 @@ describe("browser lane", () => {
   it("summarizes every script and exits zero on success without enabling local evidence", async () => {
     const { text, code, evidence } = await lane();
     expect(code).toBe(0);
-    expect(rows(text)).toHaveLength(66);
+    expect(rows(text)).toHaveLength(67);
     expect(rows(text).map((row) => row.script)).toContain("scripts/cliproxy-settings-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/gjc-status-browser-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/pane-input-focus-demo-regression.ts");
@@ -91,6 +91,7 @@ describe("browser lane", () => {
     expect(rows(text).map((row) => row.script)).toContain("scripts/repo-diff-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/terminal-viewport-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/omo-question-wheel-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/files-prompt-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/terminal-cjk-punctuation-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/pane-paging-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/application-paging-regression.ts");
