@@ -103,6 +103,26 @@ describe("saved theme migration", () => {
     });
   });
 
+  it("persists OLED independently on either settings side and applies its dark, black chrome after reload", () => {
+    const root = { lang: "", dataset: {}, style: { colorScheme: "", setProperty() {}, removeProperty() {} } };
+    let meta = "";
+    Object.defineProperty(globalThis, "document", { configurable: true, value: {
+      documentElement: root, querySelector: () => ({ setAttribute: (_name: string, value: string) => { meta = value; } }),
+    } });
+    for (const side of ["dark", "light"] as const) {
+      const key = side === "dark" ? "darkTheme" : "lightTheme";
+      const otherKey = side === "dark" ? "lightTheme" : "darkTheme";
+      saveSettings(sanitizeSettings({ theme: side, [key]: "oled", [otherKey]: "codex" }));
+      const reloaded = loadSettings();
+      expect(reloaded[key]).toBe("oled");
+      expect(reloaded[otherKey]).toBe("codex");
+      applyToDocument(reloaded, themeFor(reloaded, side), "en");
+      expect(root.dataset).toMatchObject({ theme: "dark", palette: "oled" });
+      expect(root.style.colorScheme).toBe("dark");
+      expect(meta).toBe("#000000");
+    }
+  });
+
   it("writes the row's actual mode, palette, meta and color scheme on either side (k)", () => {
     const root = { lang: "", dataset: {}, style: { colorScheme: "", setProperty() {}, removeProperty() {} } };
     let meta = "";

@@ -1428,6 +1428,54 @@
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
+/* OLED: Charcoal's neutral chrome and Vesper's warm accents, on opaque black surfaces.
+   Borders separate resting panels; only hover, selection and status tints lift off black. */
+[data-theme="dark"][data-palette="oled"] {
+  --bg: #000000;
+  --bg-panel: #000000;
+  --bg-elevated: #000000;
+  --bg-hover: #141414;
+  --bg-input: #000000;
+  --border: #333333;
+  --border-strong: #555555;
+  --bubble-border: var(--border);
+  --text: #d4d4d4;
+  --text-dim: #999999;
+  --text-strong: #e6e0e9;
+  --accent: #f0932b;
+  --accent-tint: #2b1908;
+  --primary: #f0932b;
+  --primary-hover: #ffb86c;
+  --primary-text: #000000;
+  --primary-tint: #2b1908;
+  --status-idle: #999999;
+  --status-working: #82aaff;
+  --status-blocked: #e46353;
+  --status-done: #6ed675;
+  --status-working-tint: rgba(130, 170, 255, 0.14);
+  --status-blocked-tint: rgba(228, 99, 83, 0.14);
+  --status-done-tint: rgba(110, 214, 117, 0.14);
+  --danger-tint: rgba(228, 99, 83, 0.12);
+  --danger-text: #e46353;
+  --notice: #ffb86c;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --term-bg: #000000;
+  --term-fg: #d4d4d4;
+  --term-cursor: #f0932b;
+  --term-selection: #2b1908;
+  --line-number: #999999;
+  --syntax-function: #ffb86c;
+  --syntax-keyword: #f0932b;
+  --syntax-string: #6ed675;
+  --syntax-number: #e06a5f;
+  --syntax-type: #82aaff;
+  --syntax-variable: #e6e0e9;
+  --syntax-meta: #d9a066;
+}
+
 [data-chat-width="narrow"] {
   --chat-w: var(--content-w);
 }

@@ -79,6 +79,7 @@ export const JA: Record<string, string> = {
   "Dracula": "Dracula",
   "Nord": "Nord",
   "Vesper": "Vesper",
+  "OLED": "OLED",
   "Pin agent": "エージェントを固定",
   "Unpin agent": "エージェントの固定を解除",
   "Pin workspace": "ワークスペースを固定",

@@ -244,6 +244,7 @@ const THEME_NAMES: Record<ThemeId, string> = {
   dracula: "Dracula",
   nord: "Nord",
   vesper: "Vesper",
+  oled: "OLED",
 };
 
 /**

@@ -441,7 +441,7 @@ try {
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(url);
         await page.locator(".conn-live").waitFor({ state: "attached" });
-        for (const id of ["dracula", "nord", "vesper"]) {
+        for (const id of ["dracula", "nord", "vesper", "oled"]) {
           await openSettings(page);
           await openSettingsPage(page, "Appearance");
           await page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name: "Dark", exact: true }).click();
@@ -476,7 +476,7 @@ try {
         await page.reload();
         await page.locator(".conn-live").waitFor({ state: "attached" });
         await page.waitForFunction(() => document.documentElement.dataset.palette === "codex" && document.documentElement.dataset.theme === "light" && getComputedStyle(document.documentElement).colorScheme === "light");
-        if (process.env.UI_EVIDENCE_DIR) writeFileSync(join(process.env.UI_EVIDENCE_DIR, "any-side.txt"), "PASS Light mode with lightTheme=dracula draws data-theme=dark, data-palette=dracula, color-scheme=dark.\nPASS injected lightTheme=not-a-theme reloads codex light, the default.\nPASS Dracula, Nord and Vesper do not pre-fill a sibling.\n");
+        if (process.env.UI_EVIDENCE_DIR) writeFileSync(join(process.env.UI_EVIDENCE_DIR, "any-side.txt"), "PASS Light mode with lightTheme=dracula draws data-theme=dark, data-palette=dracula, color-scheme=dark.\nPASS injected lightTheme=not-a-theme reloads codex light, the default.\nPASS Dracula, Nord, Vesper and OLED do not pre-fill a sibling.\n");
         console.log("PASS dark-only themes on either side, distinct borders, no siblings, and unknown-id reload");
         await openSettings(page);
         // beside the list, turning pages is one step however many are turned

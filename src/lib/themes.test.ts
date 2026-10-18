@@ -1,7 +1,37 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { resolveEntry } from "./themeCss.ts";
 import { DEFAULT_THEME, isThemeId, pickTheme, rowFor, SUPPORTED_ENTRIES, terminalColors, THEME_IDS, themeColor } from "./themes.ts";
 
 describe("theme lookups", () => {
+  it("keeps OLED surfaces exactly black, with warm selection and one dark row on either side", () => {
+    expect(isThemeId("oled")).toBe(true);
+    expect(SUPPORTED_ENTRIES.filter(({ id }) => id === "oled").map(({ mode }) => mode)).toEqual(["dark"]);
+    const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
+    const { resolved } = resolveEntry(css, "oled", "dark");
+    for (const role of ["bg", "bg-panel", "bg-elevated", "bg-input", "term-bg"]) {
+      expect({ role, color: resolved[`--${role}`] }).toEqual({ role, color: "#000000" });
+    }
+    for (const side of ["dark", "light"] as const) {
+      expect(rowFor("oled", side)).toMatchObject({ id: "oled", mode: "dark" });
+      expect(themeColor("oled", side)).toBe("#000000");
+      expect(terminalColors("oled", side)).toEqual({
+        background: "#000000", foreground: "#d4d4d4", cursor: "#f0932b", selectionBackground: "#2b1908",
+      });
+    }
+    const globalDark = resolveEntry(css, "amber", "dark").resolved;
+    for (const state of ["working", "blocked", "done", "idle", "unknown"]) {
+      const role = `--indicator-${state}`;
+      expect({ role, color: resolved[role] }).toEqual({ role, color: globalDark[role] });
+    }
+    expect(resolved["--syntax-comment"]).toBe(resolved["--text-dim"]);
+    expect(resolved["--syntax-inserted"]).toBe(resolved["--status-done"]);
+    expect(resolved["--syntax-deleted"]).toBe(resolved["--status-blocked"]);
+    expect(resolved["--accent-tint"]).toBe("#2b1908");
+    expect(pickTheme({ darkTheme: "codex", lightTheme: "codex" }, "dark", "oled")).toEqual({ darkTheme: "oled" });
+  });
+
   it("knows the ids of the generated table and nothing else", () => {
     expect(THEME_IDS.every((id) => isThemeId(id))).toBe(true);
     expect([isThemeId("not-a-theme"), isThemeId(""), isThemeId(undefined), isThemeId(1)]).toEqual([false, false, false, false]);

@@ -13,7 +13,7 @@ buttons). Agent states carry the remaining saturated colors and none of them is 
 chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
 default, light follows the same hierarchy, and comfortable or compact density changes scale without
 changing information architecture. A new browser starts on the Codex theme (dark and light), which
-draws this hierarchy in Codex's neutral surfaces and blue accent; amber, charcoal, Catppuccin and
+draws this hierarchy in Codex's neutral surfaces and blue accent; amber, charcoal, Catppuccin, OLED and
 herdr's built-in themes are picked in Settings → Appearance → Dark theme and Light theme. Amber
 stays the base every theme block overrides, the look before settings load, and the look a browser
 keeps when it saved a theme while amber was the default. Settings are saved on a user's first
@@ -147,9 +147,9 @@ theme can be picked on either side. Picking one half of a herdr pair also sets t
 its sibling, but only while that side still holds `codex` (the default, even if picked by hand),
 `amber` (the default before it) or the sibling of the previous pick; any other value is kept. A
 dark theme picked for light mode still draws dark.
-The themes are amber, charcoal, codex and catppuccin plus herdr's built-ins; herdr's `terminal` theme is
-not offered. The tables above are amber, the base blocks; every other theme overrides them in a
-`[data-theme][data-palette]` block of `src/styles.css`.
+The themes are amber, charcoal, codex, catppuccin and oled plus herdr's built-ins; herdr's
+`terminal` theme is not offered. The tables above are amber, the base blocks; every other theme
+overrides them in a `[data-theme][data-palette]` block of `src/styles.css`.
 
 The theme blocks of `src/styles.css` are the theme table and the one place a theme color is
 edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
@@ -166,13 +166,22 @@ herdr mapping (`mapTheme`), including repairs the proposal tool already made, is
 committed hex.
 
 `--bubble-border` is the edge of the chat's user bubble. It is `transparent` where `--bg-elevated`
-alone parts the bubble from `--bg`: dark amber and dark charcoal. It is `var(--border)`
-where the two surfaces sit close: every light theme (the `[data-theme="light"]` block sets it for
-all palettes) and dark Catppuccin, whose elevated surface is darker than its canvas.
+alone parts the bubble from `--bg`: dark amber, charcoal and Codex. Every light theme, dark
+Catppuccin and the herdr-derived dark themes use `var(--border)` to keep the edge distinct.
+OLED also uses `var(--border)` because its bubble and canvas share the same black surface.
 
 - **Charcoal** is a neutral Ghostty-style dark: near-black canvas, a slightly lighter panel and
   terminal, a near-white accent and primary, and muted agent states. It keeps amber's rounded
   corners and card shadow. In light it's plain paper with an ink accent and cursor.
+- **OLED** is an app-owned, dark-only theme following Charcoal's Ghostty-style neutral chrome
+  and Vesper's warm accents. The canvas, panels, inputs, elevated cards and terminal are pure
+  `#000000`, with `#333333` / `#555555` boundaries instead of resting tonal steps. Neutral text
+  (`#d4d4d4`, stronger `#e6e0e9`, muted `#999999`) stays quiet; orange `#f0932b` and light orange
+  `#ffb86c` mark actions and the cursor, with a warm `#2b1908` selection and `#141414` hover.
+  These warm accents follow the OLED terminal/editor palette style without importing runtime
+  configuration. Blue `#82aaff` marks work and green `#6ed675` completion; red is lightened from
+  `#df5141` to `#e46353` so a blocked badge still exceeds AA on a hovered row (4.61:1).
+  Like other dark-only themes, it stays dark when chosen for the light side and has no sibling.
 - **Codex** copies the Codex desktop app's default theme export: surface `#ffffff` / `#181818`,
   ink `#1a1c1f` / `#ffffff` and accent `#3a83f7`. The chrome sits one quiet step off the surface,
   the primary control is ink as Codex's send button, and agent states and code take Codex's
