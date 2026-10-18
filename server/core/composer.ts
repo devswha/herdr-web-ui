@@ -1,11 +1,15 @@
 /**
- * The screen work behind a chat send that reads no server state: clearing a Claude or Hermes
- * input box before a message, the message's own shape, and the refusal a draft earns. Pending
- * delivery and the immediate send share them.
+ * The screen work behind a chat send, owning no server state: clearing a Claude or Hermes input
+ * box before a message, the message's own shape, the refusal a draft earns, and the immediate send
+ * itself (createSubmitText), handed the state it reads. Pending delivery and the immediate send
+ * share them.
  */
 import type { HerdrPane } from "../../shared/protocol.ts";
-import { HerdrError, paneGet, paneRead, paneScrollInfo, paneSendKeys } from "../herdr/client.ts";
-import { claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeRestoredDraft, codexQuestionsCollapsed, hermesInputDraft, lastChatSubmitted, viewportShowsLive } from "../prompt.ts";
+import { secretPrompt } from "../../shared/secret-prompt.ts";
+import { agentPrompt, HerdrError, paneGet, paneRead, paneScrollInfo, paneSendKeys, paneSendText } from "../herdr/client.ts";
+import { mirrorInput } from "../mirror-input.ts";
+import { paneContext } from "../pane-routes.ts";
+import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, heldCandidate, hermesInputDraft, lastChatSubmitted, modelListWaits, noteSubmitted, parseInteractivePrompt, viewportShowsLive } from "../prompt.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
 
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
@@ -133,4 +137,188 @@ export async function freeClaudeBox(paneId: string, working: boolean, authorize:
   // fixed wait: the box redraws after the two Esc presses before it reads empty
   await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
   if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
+}
+
+export function createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS }: {
+  options: { submitDeadlineMs?: number; submitDelayMs?: number };
+  lastTyped: Map<string, number>;
+  attachments: ReadonlyMap<string, { cols: number }>;
+  terminalAttach: () => Promise<boolean>;
+  SUBMIT_DEADLINE_MS: number;
+  TYPED_SETTLE_MS: number;
+  DRAFT_CLEAR_WAIT_MS: number;
+  DRAFT_CLEAR_POLL_MS: number;
+  SUBMIT_DELAY_MS: number;
+}) {
+  /**
+   * Types a composer message and submits it, with its own Enter after the text: arriving
+   * in the same chunk as the paste, a TUI still busy with it (turning an image path into
+   * an attachment, redrawing after the phone keyboard closed) could take it for a newline
+   * and leave the message unsent in its input box. Done here rather than in the browser,
+   * the gap survives a jittery connection and the Enter still goes when the phone locks.
+   *
+   * An agent gets it through herdr's agent.prompt (the paste, then Enter 300ms later),
+   * which refuses while the agent waits for an answer: the message is not typed into its
+   * menu. A pane without an agent in front gets `payload`, shaped for its own paste mode,
+   * through send_text, then Enter SUBMIT_DELAY_MS later; both return once the pane has
+   * the bytes, so the pane sees the whole gap. So does a Codex "blocked" only by questions
+   * waiting collapsed in its queue: its main prompt still takes the message.
+   */
+
+  /**
+   * `clearDraft`: the draft an input_draft refusal named, which the user asked to clear and send
+   * over. It goes only while the box still holds exactly that, and the message only once the box
+   * reads empty.
+   * `sendAnyway`: the user saw the box a refusal naming no draft showed and chose to send: only into
+   * the Claude terminal and session that refusal was for (`confirmation` with no draft), and only while
+   * the box still shows what they saw or reads empty. Never typed instead of agent.prompt.
+   */
+  async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {},
+    clearDraft?: string, confirmation?: { draft: string | null; identity: PendingIdentity; box?: string | null }, sendAnyway = false): Promise<void> {
+    let clearedDraft = false;
+    const inTime = (reserve = 0): void => {
+      authorize();
+      if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS) - reserve) {
+        throw new HerdrError("submit_timeout", "the message waited too long behind earlier input; nothing was typed");
+      }
+    };
+    const typed = Date.now() - (lastTyped.get(paneId) ?? 0);
+    // fixed wait: herdr holds a lone ESC typed through the attach pty and says nothing when it lets go
+    if (typed < TYPED_SETTLE_MS) await Bun.sleep(TYPED_SETTLE_MS - typed);
+    lastTyped.delete(paneId);
+    inTime();
+    // the terminal's input line stands in for the keyboard: it types what the user wrote, an
+    // answer into an open menu included, where agent.prompt would refuse
+    try {
+      if (!fromTerminal) {
+        const pane = await paneGet(paneId).catch((error: unknown) => {
+          if (error instanceof HerdrError && error.code === "pane_not_found") return undefined;
+          throw error;
+        });
+        inTime();
+        const identity = pane ? pendingIdentity(pane) : null;
+        const sameClaude = (current: PendingIdentity | null): boolean => current?.agent === "claude"
+          && confirmation !== undefined && confirmation.draft === clearDraft
+          && current.terminalId === confirmation.identity.terminalId && current.session === confirmation.identity.session;
+        if (clearDraft !== undefined && !sameClaude(identity)) {
+          throw new HerdrError("pending_target_changed", "The named draft's Claude terminal or session changed; nothing was cleared or sent");
+        }
+        if (sendAnyway && !(identity?.agent === "claude" && confirmation !== undefined && confirmation.draft === null
+          && identity.terminalId === confirmation.identity.terminalId && identity.session === confirmation.identity.session)) {
+          throw new HerdrError("pending_target_changed", "The refused message's Claude terminal or session changed, or nothing was refused; nothing was sent");
+        }
+        if (sendAnyway) {
+          // only over the box the user was shown: anything typed there since is refused again, and shown
+          const reads = await claudeBoxReads(paneId);
+          inTime();
+          const box = claudeInputBoxContent(reads[0]);
+          // a box that cannot be read whole cannot be compared: it is refused, and offers no send anyway
+          if (claudeInputDraft(...reads) && (box === null || box !== confirmation!.box)) throw new InputDraftError(claudeClearableDraft(...reads), identity ?? undefined, box);
+          // the reads waited on herdr: the pane may hold another Claude by now, checked again right before the write
+          const now = pendingIdentity(await paneGet(paneId));
+          inTime();
+          if (now.agent !== "claude" || now.terminalId !== confirmation!.identity.terminalId || now.session !== confirmation!.identity.session) {
+            throw new HerdrError("pending_target_changed", "The refused message's Claude terminal or session changed; nothing was sent");
+          }
+        }
+        if ((pane?.agent ?? pane?.agent_session?.agent) === "claude" && !sendAnyway) {
+          if (clearDraft === undefined) {
+            try {
+              await freeClaudeBox(paneId, pane?.agent_status === "working", authorize, arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
+            } catch (error) {
+              if (error instanceof InputDraftError) throw new InputDraftError(error.draft, identity ?? undefined, error.box);
+              throw error;
+            }
+          }
+          let reads = await claudeBoxReads(paneId);
+          inTime();
+          // reads the pane's state first, then the screen the checks and the caller use, so a prompt
+          // that opens while the state is read is on that screen
+          const clearScreenReady = async (): Promise<void> => {
+            const current = await paneGet(paneId);
+            if (clearDraft !== undefined && !sameClaude(pendingIdentity(current))) {
+              throw new HerdrError("pending_target_changed", "The named draft's Claude terminal or session changed; nothing was cleared or sent");
+            }
+            reads = await claudeBoxReads(paneId);
+            if (secretPrompt(reads[0], attachments.get(paneId)?.cols) !== null
+              || parseInteractivePrompt("claude", reads[0], null, true, [], heldCandidate(paneId)) !== null
+              || modelListWaits("claude", reads[0]) || current.agent_status === "blocked") {
+              throw new HerdrError("agent_blocked", "The terminal is waiting for an answer; its draft was not cleared");
+            }
+            if (!["working", "idle", "done"].includes(current.agent_status)) {
+              throw new HerdrError("agent_not_ready", "The agent's current input state is not known");
+            }
+          };
+          if (clearDraft !== undefined) await clearScreenReady();
+          if (claudeInputDraft(...reads)) {
+            // only the draft the user was shown goes, never what has since replaced it
+            const draft = claudeClearableDraft(...reads);
+            if (clearDraft === undefined || draft !== clearDraft) throw new InputDraftError(draft, identity ?? undefined, clearDraft === undefined ? claudeInputBoxContent(reads[0]) : null);
+            const reserve = DRAFT_CLEAR_WAIT_MS + 500;
+            inTime(reserve);
+            // A confirmation names the earlier draft, not text typed while it was inspected.
+            await clearScreenReady();
+            inTime(reserve);
+            const currentDraft = claudeClearableDraft(...reads);
+            if (currentDraft !== clearDraft) throw new InputDraftError(currentDraft, identity ?? undefined);
+            // The final draft comparison and clearing keys are not atomic (herdr has no compare-and-clear),
+            // so terminal text another client types moments after the user's explicit "Clear it and send"
+            // click can also be cleared.
+            // Connecting to herdr also yields: check the budget and authority again at the write.
+            const allowed = (): boolean => {
+              try { inTime(reserve); clearedDraft = true; return true; } catch { return false; }
+            };
+            try {
+              await paneSendKeys(paneId, CLAUDE_CLEAR_INPUT_KEYS, undefined, allowed);
+            } catch (error) {
+              if (error instanceof HerdrError && error.code === "cancelled") inTime(reserve);
+              throw error;
+            }
+            clearedDraft = true;
+            for (const deadline = Date.now() + DRAFT_CLEAR_WAIT_MS; await clearScreenReady(), claudeInputDraft(...reads);) {
+              if (Date.now() >= deadline) throw new InputDraftError(claudeClearableDraft(...reads));
+              await Bun.sleep(DRAFT_CLEAR_POLL_MS);
+            }
+            await clearScreenReady();
+            if (!claudeInputEmpty(...reads)) throw new InputDraftError(null);
+            inTime();
+          }
+          if (clearDraft !== undefined && !claudeInputEmpty(...reads)) throw new InputDraftError(null);
+        }
+        // a clear request or send anyway reached a Hermes pane only to be refused above: both are Claude's
+        if ((pane?.agent ?? pane?.agent_session?.agent) === "hermes") {
+          await freeHermesInput(paneId, identity ?? undefined);
+          inTime();
+        }
+        try {
+          await agentPrompt(paneId, closeMention(text));
+          noteSubmitted(paneId, text);
+          return;
+        } catch (error) {
+          if (!(error instanceof HerdrError)) throw error;
+          if (clearDraft !== undefined || sendAnyway) throw error;
+          const queuedOnly = error.code === "agent_blocked" && await blockedOnlyByCodexQueue(paneId);
+          if (error.code !== "agent_not_found" && error.code !== "agent_not_ready" && !queuedOnly) throw error;
+        }
+      }
+      inTime();
+      // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
+      // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
+      // asked only for such a block, so a one-line message never waits on it.
+      const shaped = await mirrorInput(closeMention(payload), async () => await terminalAttach() ? null : (await paneContext(paneId)).agent);
+      inTime();
+      await paneSendText(paneId, shaped);
+      // fixed wait: a TUI busy with the paste takes an Enter in the same chunk for a newline (SUBMIT_DELAY_MS)
+      await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
+      authorize();
+      await paneSendKeys(paneId, ["Enter"]);
+      noteSubmitted(paneId, text);
+    } catch (error) {
+      if (clearedDraft) {
+        throw new HerdrError("submit_partial", "Claude Code's terminal draft was cleared or may have changed, but sending was not confirmed. Your chat text stayed here. Check the terminal before sending again.");
+      }
+      throw error;
+    }
+  }
+  return submitText;
 }
