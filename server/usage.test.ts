@@ -468,7 +468,7 @@ describe("providers", () => {
   });
 
   /** OpenCode 2's own credential store, the `credential` table of the DB `server/opencode.ts` reads. */
-  function opencodeStore(rows: Array<{ id?: string; integration?: string; value: unknown; active?: number | null; updated?: number }>, dir = join(home, ".local", "share", "opencode")) {
+  function opencodeStore(rows: Array<{ id?: string; integration?: string; value: unknown; active?: number; updated?: number }>, dir = join(home, ".local", "share", "opencode")) {
     mkdirSync(dir, { recursive: true });
     const db = new Database(join(dir, "opencode.db"));
     db.exec("create table credential (id text primary key, integration_id text, label text, value text, active integer, time_created integer, time_updated integer)");
@@ -490,7 +490,7 @@ describe("providers", () => {
 
   it("takes OpenCode's active credential row, its Go row before its Zen row", async () => {
     opencodeStore([
-      { integration: "opencode-go", value: { type: "key", key: "oc_sk_go_old" }, active: null, updated: 5 },
+      { integration: "opencode-go", value: { type: "key", key: "oc_sk_go_old" }, active: 0, updated: 5 },
       { integration: "opencode-go", value: { type: "key", key: "oc_sk_go_active" }, active: 1, updated: 1 },
       { integration: "opencode", value: { type: "key", key: "oc_sk_zen" }, active: 1, updated: 9 },
     ]);
