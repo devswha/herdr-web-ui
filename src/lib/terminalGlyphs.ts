@@ -31,6 +31,7 @@
 import type { Terminal } from "@xterm/xterm";
 
 import { BOX_GLYPHS, boxBackground, boxDrawing, boxRun, pixelPlacement, type BoxDrawing } from "./terminalBoxGlyphs.ts";
+import { herdrWidthProvider } from "./terminalWidths.ts";
 
 /** Spacing up to this is rounding between the font and the cell grid, not a misfit glyph. */
 const MIN_SPACING_PX = 1;
@@ -73,6 +74,15 @@ export function glyphFit(spacing: number, glyphWidth: number, cellWidth: number)
   const wide = Math.round(slot / cellWidth) >= 2;
   const scale = wide ? Math.min(MAX_SCALE, (FILL * slot) / glyphWidth) : 1;
   return { scale, spacing: slot - glyphWidth * scale };
+}
+
+const compositionWidths = herdrWidthProvider();
+
+/** Fits an IME's first pending glyph to the same cells it will occupy in the row. */
+export function compositionGlyphFit(first: string, drawn: number, glyphWidth: number, cellWidth: number): GlyphFit | null {
+  // A narrow fallback glyph still occupies its Unicode cells, even if it fits inside one.
+  const cells = compositionWidths.wcwidth(first.codePointAt(0) ?? 0x20);
+  return glyphFit(cells * cellWidth - drawn, glyphWidth, cellWidth);
 }
 
 /** Nerd Font icons and the like: the private use areas, where a font's glyph is meant to fill one cell. */
@@ -365,9 +375,7 @@ export function adjustTerminalGlyphs(term: Terminal): () => void {
       xtermMeasure.textContent = held;
       measure.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
       const glyphWidth = measure.measureText(first).width;
-      // a glyph wider than its one cell takes two in the row
-      const cells = drawn > cellWidth + MIN_SPACING_PX ? 2 : 1;
-      const fit = glyphFit(cells * cellWidth - drawn, glyphWidth, cellWidth);
+      const fit = compositionGlyphFit(first, drawn, glyphWidth, cellWidth);
       if (fit) {
         size = `${fontSize * fit.scale}px`;
         spacing = `${fit.spacing}px`;
