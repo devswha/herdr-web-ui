@@ -194,6 +194,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The README's plugin-only install now names herdr 0.9.0+, Bun 1.4+ and Node 18+, and the guide's
   checkout install says herdr must be running first. The Windows installer now says to restart
   herdr after updating it.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - An omo pane's `/` and `$` menu shows each command's description as one short line, the whole
   text in its tooltip, and lists your own skills apart from the ones omo ships, each with its
   own icon.
@@ -370,6 +371,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - The pre-connect shell's "Connecting…" line is translated like every other status line.
   ([#1246](https://github.com/devswha/herdr-web-ui/pull/1246))
 - A damaged remote PC settings file is reported in the server log.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - A browser that gets in with a token its proxy sends in an `Authorization` header no longer
   offers **Sign out**, which cleared nothing: the proxy sent the token again with the next
   request. `/api/health` marks such a sign-in with `auth.bearer`.
@@ -398,8 +400,10 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#1313](https://github.com/devswha/herdr-web-ui/pull/1313))
 - Files opened on one pane follows a switch to another pane while it is open (the Next pane and
   Previous pane shortcuts): it lists the new pane's folder instead of the folder it was opened on.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - A prompt card no longer disappears for two seconds when one read of the pane's prompt fails (a
   network error or a server hiccup): it stays until the next read says the menu is gone.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - A GJC pane's chat and status no longer start the gjc CLI on every refresh: the session found
   for the pane is kept until GJC's session index changes (a `/new` or `/resume` always writes
   it), the pane's gjc process changes, or half a minute passes.
@@ -431,6 +435,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#1325](https://github.com/devswha/herdr-web-ui/pull/1325))
 - Moving the cursor before the terminal's kept space on iPhone or iPad no longer drops typed
   Hangul or interferes with composition and held Backspace.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - On an iPhone, Korean typed with the on-screen keyboard in a terminal arrives as whole syllables
   (한글) instead of one jamo at a time (ㅎㅏㄴㄱㅡㄹ).
   ([#1327](https://github.com/devswha/herdr-web-ui/pull/1327))
@@ -455,9 +460,11 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#1268](https://github.com/devswha/herdr-web-ui/pull/1268))
 - When the app's server cannot reach herdr, the sidebar's connection error and the header's
   "herdr offline" pill now say what to do: start herdr on this PC, or check HERDR_SOCKET.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - A setting the server cannot save (its state folder is read-only) no longer fails silently:
   Settings shows a plain sentence with the next step, the server's own words behind Details, and
   the change is sent again once the folder can be written.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - OmO's bundled skills now appear in the chat command menu on Windows.
   ([#1229](https://github.com/devswha/herdr-web-ui/pull/1229))
 - OmO panes show BG while a detached eval cell is still running or queued after the assistant
@@ -510,6 +517,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   ([#1246](https://github.com/devswha/herdr-web-ui/pull/1246))
 - A `HERDR_SOCKET` set in the plugin's config is now used, so the plugin can show a named herdr
   session instead of always following herdr's own socket.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - Installing the herdr plugin on WSL no longer fails with `scripts/preflight.sh: 7: set: Illegal
   option -` when git there converts line endings (`core.autocrlf=true`): every text file is now
   checked out with LF.
@@ -549,6 +557,7 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 - Starting the server on a port that is taken now prints one plain line naming the address and what
   to do instead of a stack trace, and the log says once at startup when herdr cannot be reached or
   the state folder cannot be written.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 - Settings switches draw their knob centred in the track, and an on switch takes it all the way to
   the end.
   ([#1282](https://github.com/devswha/herdr-web-ui/pull/1282))
@@ -646,6 +655,8 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
   writes the terminal colors, DESIGN.md's amber table, the `theme-color` tag and the web manifest
   colors from them, and fast checks fail when a copy is stale. Nothing changes on screen.
   ([#1253](https://github.com/devswha/herdr-web-ui/pull/1253))
+- The remote-PC runtime is now version 31: every saved PC asks for **Update bridge…** once.
+  ([#1330](https://github.com/devswha/herdr-web-ui/pull/1330))
 
 ## [0.4.11] - 2026-10-16
 
