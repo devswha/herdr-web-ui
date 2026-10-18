@@ -131,6 +131,7 @@ describe("GJC SDK transcript identity binding", () => {
       path: savedPath,
       hostIncarnation: "linux:12345",
       endpointGeneration: 4,
+      guardSessionIds: ["session-1"],
     });
     expect(calls.map(({ command, args }) => [command, args])).toEqual([
       ["gjc", [...commandArgs, "--json-input", JSON.stringify({ scope: scope(cwd) })]],
@@ -155,6 +156,37 @@ describe("GJC SDK transcript identity binding", () => {
     ]);
     await expect(gjcSdkTranscriptWithRunner([321], cwd, agentDir, conflicting.runner)).resolves.toBeNull();
     expect(conflicting.calls).toHaveLength(2);
+  });
+
+  it("guards stale and direct-fence same-pid sessions across pages without unrelated pids", async () => {
+    mkdirSync(agentDir, { recursive: true });
+    const stale = session({ sessionId: "stale-same-pid", live: false });
+    const fence = session({
+      sessionId: "direct-fence",
+      endpointGeneration: 0,
+      processIncarnation: "linux:12345",
+      locator: { ...locator(), stateRoot: agentDir },
+    });
+    const unrelated = session({ sessionId: "unrelated-pid", pid: 999 });
+    const exactStale = session({ sessionId: "exact-stale-same-pid", deleted: true });
+    const exactUnrelated = session({ sessionId: "exact-unrelated-pid", pid: 999 });
+    const { runner } = fakeRunner([
+      page([stale, unrelated], { continuationCursor: "next-page" }),
+      page([fence, session()]),
+      page([stale, fence, session(), exactStale, exactUnrelated], {
+        savedSession: { id: "session-1", path: savedPath },
+      }),
+    ]);
+
+    const binding = await gjcSdkTranscriptWithRunner([321], cwd, agentDir, runner);
+    expect(binding?.guardSessionIds).toEqual([
+      "stale-same-pid",
+      "direct-fence",
+      "session-1",
+      "exact-stale-same-pid",
+    ]);
+    expect(binding?.guardSessionIds).not.toContain("unrelated-pid");
+    expect(binding?.guardSessionIds).not.toContain("exact-unrelated-pid");
   });
 
   it("does not choose by cwd alone when multiple pane GJC processes match", async () => {
@@ -308,6 +340,7 @@ describe("GJC SDK transcript identity binding", () => {
       path: join(cwd, "session-2.jsonl"),
       hostIncarnation: "linux:12345",
       endpointGeneration: 4,
+      guardSessionIds: ["session-2"],
     });
     expect(calls).toHaveLength(4);
   });
