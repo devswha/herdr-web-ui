@@ -2,8 +2,8 @@ import { handleWorkspaceRequest } from "./workspace-routes.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { accessSync, constants, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 
 import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PlanSummary, PluginActionsResponse, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
@@ -2958,7 +2958,18 @@ if (import.meta.main) {
   const version = (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as { version: string }).version;
   const telemetry = new Telemetry({ stateDir: defaultStateDir(), version, env: process.env, fetch, previousVersion: () => updates.installed().previous_version });
   const portal = new PortalService({ stateDir: defaultStateDir() });
-  const instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true, herdrProfiles: readHerdrProfiles });
+  let instance: ReturnType<typeof createServer>;
+  try {
+    instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true, herdrProfiles: readHerdrProfiles });
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code !== "EADDRINUSE" && code !== "EADDRNOTAVAIL" && code !== "EACCES") throw err;
+    const host = process.env["HOST"] ?? "127.0.0.1";
+    const port = process.env["PORT"] || DEFAULT_PORT;
+    const reason = code === "EADDRINUSE" ? "the port is in use" : code === "EADDRNOTAVAIL" ? "that address is not on this PC" : "permission denied";
+    console.error(`herdr web ui cannot listen on ${host}:${port}: ${reason}. Another app (or herdr web ui) may already use it; start with another PORT=, or open http://${host}:${port} if it is this app.`);
+    process.exit(1);
+  }
   telemetry.start();
   let stopping = false;
   const shutdown = () => {
@@ -2974,6 +2985,28 @@ if (import.meta.main) {
   process.on("SIGINT", shutdown);
   if (process.env["HERDR_WEB_MANAGED"] === "1") process.on("disconnect", shutdown);
   console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
+  const socket = herdrSocketPath();
+  void ping(socket).catch(() => {
+    console.error(`herdr is not reachable at ${socket}: start herdr, or set HERDR_SOCKET to its socket (named sessions: ~/.config/herdr/sessions/<name>/herdr.sock).`);
+  });
+  // the state folder is created on first write, so test the nearest folder that exists
+  const stateDir = defaultStateDir();
+  let probe = stateDir;
+  while (true) {
+    try {
+      accessSync(probe, constants.F_OK);
+      break;
+    } catch {
+      const parent = dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
+    }
+  }
+  try {
+    accessSync(probe, constants.W_OK);
+  } catch {
+    console.error(`cannot write ${stateDir}: settings, devices and updates will not be saved; fix its permissions or set HERDR_WEB_STATE_DIR.`);
+  }
   if (!isLoopbackBind(instance.hostname)) {
     if (lanExposed({ hostname: instance.hostname, tokenConfigured: (process.env["HERDR_WEB_TOKEN"] ?? "") !== "", gated: false })) {
       console.error(
