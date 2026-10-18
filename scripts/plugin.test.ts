@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { processStartUpperBound } from "../server/process-start.ts";
 import { herdrStateDir } from "./plugin-state.ts";
 
 /**
@@ -75,15 +76,92 @@ describe("plugin settings files", () => {
 });
 
 /** What the app's bridge health answers (server/index.ts): it holds the port whether herdr answers or not. */
-const BRIDGE_HEALTH = { ok: true, auth: { required: false, authenticated: true }, bridge_protocol: 1 };
+const BRIDGE_HEALTH = { ok: true, auth: { required: false, authenticated: true }, bridge_protocol: 1, distribution: "tomrutsaert/herdr-web-ui" };
 /** What the app's full health answers while herdr does (every release since v0.1.0 has sent these). */
-const APP_HEALTH = { ok: true, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } };
+const APP_HEALTH = { web_ui: { distribution: "tomrutsaert/herdr-web-ui" }, ok: true, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } };
+
+async function launcherFixture(body = 'process.on("SIGTERM", () => setTimeout(() => process.exit(0), 1000));', executable = process.execPath, argv0 = executable) {
+  const root = join(scratch, "owned-root");
+  mkdirSync(join(root, "server"), { recursive: true });
+  const script = join(root, "server", "managed.ts");
+  writeFileSync(script, `${body}\nconsole.log("READY"); await Bun.stdin.text();`);
+  const child = Bun.spawn([executable, script], { argv0, detached: true, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+  const reader = child.stdout.getReader();
+  await reader.read(); reader.releaseLock();
+  const bound = processStartUpperBound(child.pid);
+  if (bound === null) throw new Error("fixture process start time unavailable");
+  while (Date.now() < bound + 25) await Bun.sleep(5);
+  mkdirSync(join(scratch, "state"), { recursive: true });
+  writeFileSync(join(scratch, "state", "server.pid"), `${child.pid}\n`);
+  return { root, child };
+}
 
 describe("port", () => {
   const keep = (port: number) => {
     mkdirSync(join(scratch, ".config", "herdr-web-ui"), { recursive: true });
     writeFileSync(join(scratch, ".config", "herdr-web-ui", "plugin-port"), `${port}\n`);
   };
+
+  it("refuses an upstream process still running after the checkout was replaced", async () => {
+    const old = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => Response.json(new URL(request.url).searchParams.has("scope")
+      ? { ok: true, auth: { required: false, authenticated: true }, bridge_protocol: 1 }
+      : { ok: true, herdr: { version: "0.9.3" }, auth: { required: false, authenticated: true } }) });
+    try {
+      writeFileSync(join(configDir, ".env"), `PORT=${old.port}\n`);
+      const started = await run("start");
+      expect(started.exitCode).toBe(1);
+      expect(started.err).toContain("migration");
+      expect((await status()).out).toContain("down ");
+    } finally { old.stop(true); }
+  });
+
+  it("starts a new isolated launcher when a live unrelated process inherited the recorded PID", async () => {
+    const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+    const port = reservation.port!;
+    reservation.stop(true);
+    const root = join(scratch, "fixture-root");
+    mkdirSync(join(root, "server"), { recursive: true });
+    writeFileSync(join(root, "server", "managed.ts"), `
+      const server = Bun.serve({ hostname: "127.0.0.1", port: Number(process.env.PORT), fetch: () => Response.json(${JSON.stringify(APP_HEALTH)}) });
+      process.on("SIGTERM", () => { server.stop(true); process.exit(0); });
+    `);
+    const unrelated = Bun.spawn([process.execPath, "-e", 'console.log("READY"); await Bun.stdin.text();'], { stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+    const reader = unrelated.stdout.getReader();
+    await reader.read(); reader.releaseLock();
+    mkdirSync(join(scratch, "state"));
+    writeFileSync(join(scratch, "state", "server.pid"), `${unrelated.pid}\n`);
+    writeFileSync(join(configDir, ".env"), `PORT=${port}\n`);
+    let launched: number | undefined;
+    try {
+      const started = await run("start", { HERDR_PLUGIN_ROOT: root });
+      const recorded = Number(readFileSync(join(scratch, "state", "server.pid"), "utf8"));
+      if (recorded !== unrelated.pid) launched = recorded;
+      expect(started.exitCode, started.err).toBe(0);
+      expect(started.out).toContain("listening");
+      expect(launched).toBeDefined();
+      expect(unrelated.exitCode).toBeNull();
+      const stopped = await run("stop", { HERDR_PLUGIN_ROOT: root });
+      expect(stopped.exitCode, stopped.err).toBe(0);
+      expect(unrelated.exitCode).toBeNull();
+      launched = undefined;
+    } finally {
+      unrelated.stdin.end(); await unrelated.exited;
+      if (launched) { try { process.kill(launched, "SIGKILL"); } catch { /* fixture exited */ } }
+    }
+  });
+
+  it("requires an explicit stop only for a positively identified older launcher", async () => {
+    const { root, child } = await launcherFixture();
+    const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+    const port = reservation.port!; reservation.stop(true);
+    writeFileSync(join(configDir, ".env"), `PORT=${port}\n`);
+    try {
+      const started = await run("start", { HERDR_PLUGIN_ROOT: root });
+      expect(started.exitCode, started.err).toBe(1);
+      expect(started.err).toContain("INSTALL.md#fork-migration");
+      expect(child.exitCode).toBeNull();
+    } finally { child.stdin.end(); await child.exited; }
+  });
 
   it("reports the port an earlier start fell back to", async () => {
     keep(3);
@@ -217,20 +295,74 @@ describe("port", () => {
 });
 
 describe("stop", () => {
-  it("returns only once the server's process group is gone", async () => {
-    // a server that takes a second to exit, as the supervisor does while its bridge shuts down
-    const server = spawn("sh", ["-c", "trap 'sleep 1; exit 0' TERM; while :; do sleep 0.1; done"], { detached: true, stdio: "ignore" });
-    const pid = server.pid!;
-    mkdirSync(join(scratch, "state"));
-    writeFileSync(join(scratch, "state", "server.pid"), `${pid}\n`);
-    const started = Date.now();
-    const stopped = await run("stop");
-    expect(stopped.exitCode, stopped.err).toBe(0);
-    expect(stopped.out).toContain(`stopped herdr web ui (pid ${pid})`);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
-    expect(() => process.kill(-pid, 0)).toThrow();
-    expect(existsSync(join(scratch, "state", "server.pid"))).toBe(false);
+  it("returns only once the verified launcher's process group is gone", async () => {
+    const { root, child } = await launcherFixture();
+    try {
+      const started = Date.now();
+      const stopped = await run("stop", { HERDR_PLUGIN_ROOT: root });
+      expect(stopped.exitCode, stopped.err).toBe(0);
+      expect(stopped.out).toContain(`stopped herdr web ui (pid ${child.pid})`);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+      expect(await child.exited).toBe(0);
+      expect(existsSync(join(scratch, "state", "server.pid"))).toBe(false);
+    } finally { child.stdin.end(); if (child.exitCode === null) child.kill("SIGKILL"); await child.exited; }
   });
+
+  for (const removed of [false, true]) {
+    it.skipIf(removed && platform() !== "linux")(`stops a launcher from ${removed ? "a replaced temporary Bun executable" : "a different Bun path"}`, async () => {
+      const executable = join(scratch, "previous Bun", "bin", "bun");
+      mkdirSync(join(scratch, "previous Bun", "bin"), { recursive: true });
+      copyFileSync(process.execPath, executable);
+      chmodSync(executable, 0o755);
+      const { root, child } = await launcherFixture(undefined, executable);
+      try {
+        if (removed) {
+          // Only the fixture copy is unlinked. Its pathname can now refer to a different file.
+          rmSync(executable);
+          writeFileSync(executable, "not the running executable");
+          expect(readlinkSync(`/proc/${child.pid}/exe`)).toBe(`${executable} (deleted)`);
+        }
+        const stopped = await run("stop", { HERDR_PLUGIN_ROOT: root });
+        expect(stopped.exitCode, stopped.err).toBe(0);
+        expect(await child.exited).toBe(0);
+        expect(existsSync(join(scratch, "state", "server.pid"))).toBe(false);
+      } finally { child.stdin.end(); if (child.exitCode === null) child.kill("SIGKILL"); await child.exited; }
+    });
+  }
+
+  for (const kind of ["unrelated", "newer-than-record", "non-Bun-runtime"] as const) {
+    it(`never signals ${kind === "unrelated" ? "an unrelated" : `a ${kind}`} process referenced by a stale PID record`, async () => {
+      const fixture = kind === "non-Bun-runtime"
+        ? await launcherFixture('globalThis.Bun = { stdin: { text: () => new Promise(resolve => { process.stdin.resume(); process.stdin.on("end", resolve); }) } };', Bun.which("node")!, "bun")
+        : await launcherFixture();
+      let root = fixture.root;
+      if (kind === "unrelated") root = join(scratch, "a-different-plugin-checkout");
+      else if (kind === "newer-than-record") {
+        const past = new Date(Date.now() - 60_000);
+        utimesSync(join(scratch, "state", "server.pid"), past, past);
+      }
+      const signals = join(scratch, "signals.jsonl");
+      try {
+        if (kind === "non-Bun-runtime" && platform() === "linux") {
+          expect(readFileSync(`/proc/${fixture.child.pid}/cmdline`, "utf8").split("\0")[0]).toBe("bun");
+        }
+        const child = Bun.spawn([process.execPath, "--eval", `
+          const { appendFileSync } = await import("node:fs");
+          const { stop } = await import(${JSON.stringify(join(ROOT, "scripts", "plugin.ts"))});
+          process.exit(await stop({ isWindows: false, processTable: async () => [], isAlive: () => true,
+            terminateTree: () => { throw new Error("not Windows"); },
+            signal: (target, signal) => appendFileSync(${JSON.stringify(signals)}, JSON.stringify({ target, signal }) + "\\n") }));
+        `], { cwd: ROOT, env: { ...process.env, HERDR_PLUGIN_ROOT: root, HERDR_PLUGIN_CONFIG_DIR: configDir,
+          HERDR_PLUGIN_STATE_DIR: join(scratch, "state"), HERDR_WEB_STATE_DIR: join(scratch, "app-state") }, stdout: "pipe", stderr: "pipe" });
+        const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        expect(code, out + err).toBe(1);
+        expect(err).toContain("no signal was sent");
+        expect(existsSync(signals)).toBe(false);
+        expect(fixture.child.exitCode).toBeNull();
+        expect(readFileSync(join(scratch, "state", "server.pid"), "utf8")).toBe(`${fixture.child.pid}\n`);
+      } finally { fixture.child.stdin.end(); await fixture.child.exited; }
+    });
+  }
 
   // a server that exited while its parent (a plugin host, say) has not reaped it yet
   it.skipIf(platform() !== "linux" || !Bun.which("setsid"))("counts an exited, unreaped server as gone", async () => {

@@ -6,10 +6,10 @@ body:
     attributes:
       value: |
         A security problem (someone gets in who should not, a secret leaks) goes to a
-        [private report](https://github.com/devswha/herdr-web-ui/security/advisories/new), not here.
+        [private report](https://github.com/tomrutsaert/herdr-web-ui/security/advisories/new), not here.
 
         **Leave out secrets.** Never paste `HERDR_WEB_TOKEN`, a pairing code or link, device cookies,
-        SSH keys or agent sign-ins. Blur hostnames and Tailscale logins in screenshots if you prefer.
+        SSH keys or agent sign-ins. Blur hostnames in screenshots if you prefer.
   - type: textarea
     id: what
     attributes:
@@ -72,7 +72,6 @@ body:
       options:
         - This PC (localhost)
         - SSH tunnel
-        - tailscale serve
         - LAN address
         - Reverse proxy or public domain
         - Not sure
@@ -85,7 +84,6 @@ body:
       description: The method only. Never the token or code itself.
       options:
         - Nothing (this PC)
-        - Tailscale login
         - Paired device
         - Token
         - Not sure

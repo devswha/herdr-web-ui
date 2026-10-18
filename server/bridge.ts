@@ -1,3 +1,4 @@
+import { DISTRIBUTION_REPOSITORY } from "../shared/distribution.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -6,7 +7,7 @@ import { BRIDGE_PROTOCOL, REMOTE_BUNDLE_VERSION, type BridgeIdentity } from "../
 import { HerdrError, herdrSocketPath, ping } from "./herdr/client.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 
-export interface BridgeDescriptor { managed_remote?: boolean; port: number; token: string; pid: number; socket_path: string; bridge_protocol: number; bundle_version: string }
+export interface BridgeDescriptor { distribution?: string; managed_remote?: boolean; port: number; token: string; pid: number; socket_path: string; bridge_protocol: number; bundle_version: string }
 export function bridgeRegistry(): string { return join(homedir(), ".config/herdr-web-ui/bridges"); }
 export function socketPath(): string {
   const path = resolve(herdrSocketPath());
@@ -24,7 +25,7 @@ export async function bridgeIdentity(sidecar = sidecarAvailable()): Promise<Brid
     throw error;
   }
   const info = attachableIdentity(await ping(), sidecar);
-  return { pid: process.pid, managed_remote: process.env["HERDR_WEB_REMOTE"] === "1", bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: `${stat.dev}:${stat.ino}`, herdr: info };
+  return { distribution: DISTRIBUTION_REPOSITORY, pid: process.pid, managed_remote: process.env["HERDR_WEB_REMOTE"] === "1", bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: `${stat.dev}:${stat.ino}`, herdr: info };
 }
 export function registerBridge(port: number, token = randomBytes(32).toString("hex")): { token: string; close(): void } {
   const dir = bridgeRegistry();
@@ -39,7 +40,7 @@ export function registerBridge(port: number, token = randomBytes(32).toString("h
     } catch { /* stale descriptor */ }
   }
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ managed_remote: process.env["HERDR_WEB_REMOTE"] === "1", port, token, pid: process.pid, socket_path: socketPath(), bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION } satisfies BridgeDescriptor), { mode: 0o600 });
+  writeFileSync(tmp, JSON.stringify({ distribution: DISTRIBUTION_REPOSITORY, managed_remote: process.env["HERDR_WEB_REMOTE"] === "1", port, token, pid: process.pid, socket_path: socketPath(), bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION } satisfies BridgeDescriptor), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, path);
   return { token, close() { try { if (JSON.parse(readFileSync(path, "utf8")).pid === process.pid) unlinkSync(path); } catch {} } };

@@ -99,8 +99,8 @@ export class DeviceStore {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       // A damaged registry is not a first installation. Keep it intact for recovery and
-      // let the existing local/token/Tailscale routes provide access to the owner.
-      this.error = `Cannot read ${this.path}. Restore a valid devices.json or fix its permissions, then restart the server. External access without a token or trusted Tailscale login remains blocked.`;
+      // let the existing local/token routes provide access to the owner.
+      this.error = `Cannot read ${this.path}. Restore a valid devices.json or fix its permissions, then restart the server. External access without a token remains blocked.`;
       console.error(this.error);
     }
   }
@@ -181,7 +181,7 @@ export class DeviceStore {
       const confirmed = { ...candidate, last_seen_at: new Date(now).toISOString() };
       const next = [...this.devices, confirmed];
       const gate = this.gateClosedAt ?? confirmed.created_at;
-      // This is an authorization write, not last-seen telemetry: do not match the cookie
+      // This is an authorization write, not last-seen bookkeeping: do not match the cookie
       // unless the device and closed gate reached disk together.
       this.save(next, gate);
       this.devices = next;
@@ -199,7 +199,7 @@ export class DeviceStore {
           const next = this.devices.map((d) => d === device ? { ...d, last_seen_at: new Date(now).toISOString() } : d);
           this.save(next);
           this.devices = next;
-        } catch { /* last-seen telemetry must not deny an otherwise valid credential */ }
+        } catch { /* last-seen bookkeeping must not deny an otherwise valid credential */ }
       }
       return { id: device.id, label: device.label, role: device.role };
     }

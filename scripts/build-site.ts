@@ -33,8 +33,7 @@ const out = join(root, "_site");
 const copies: Array<[from: string, to: string]> = [
   ["site/index.html", "index.html"],
   ["site/zh/index.html", "zh/index.html"],
-  ["site/googlec8861932279eca6b.html", "googlec8861932279eca6b.html"],
-  // the one-line installer: curl -fsSL https://herdrweb.dev/install.sh | sh
+  // the one-line installer: curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
   ["install.sh", "install.sh"],
   ["install.ps1", "install.ps1"],
   ["public/favicon.ico", "favicon.ico"],
@@ -125,7 +124,7 @@ for (const video of videos) {
 
 // the pages' figures: the release they are built from, and the repository's stars as of the build
 const version = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
-const repo = await fetch("https://api.github.com/repos/devswha/herdr-web-ui", { headers: { accept: "application/vnd.github+json" } }).catch(() => null);
+const repo = await fetch("https://api.github.com/repos/tomrutsaert/herdr-web-ui", { headers: { accept: "application/vnd.github+json" } }).catch(() => null);
 const repoBody: unknown = repo?.ok ? await repo.json() : null;
 const stars = repoBody && typeof repoBody === "object" && "stargazers_count" in repoBody && typeof repoBody.stargazers_count === "number" ? repoBody.stargazers_count : null;
 if (stars === null) console.warn(`GitHub star count unavailable (${repo ? `HTTP ${repo.status}` : "no connection"}): the page shows a dash`);
@@ -133,7 +132,7 @@ if (stars === null) console.warn(`GitHub star count unavailable (${repo ? `HTTP 
 // the list is not a count, so a page that cannot be read leaves a dash
 let contributors: number | null = 0;
 for (let pageNumber = 1; contributors !== null && pageNumber <= 10; pageNumber += 1) {
-  const response = await fetch(`https://api.github.com/repos/devswha/herdr-web-ui/contributors?per_page=100&page=${pageNumber}`, { headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  const response = await fetch(`https://api.github.com/repos/tomrutsaert/herdr-web-ui/contributors?per_page=100&page=${pageNumber}`, { headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
   const body: unknown = response?.ok ? await response.json().catch(() => null) : null;
   if (!Array.isArray(body)) {
     console.warn(`GitHub contributor count unavailable (${response ? `HTTP ${response.status}` : "no connection"}): the page shows a dash`);
@@ -157,7 +156,7 @@ const starsByRepo = new Map<string, number>();
 for (const plugin of listed) {
   if (plugin && typeof plugin === "object" && typeof plugin.fullName === "string" && typeof plugin.stars === "number") starsByRepo.set(plugin.fullName, plugin.stars);
 }
-const listedStars = starsByRepo.get("devswha/herdr-web-ui");
+const listedStars = starsByRepo.get("tomrutsaert/herdr-web-ui");
 const rank = listedStars === undefined ? null : [...starsByRepo.values()].filter((count) => count > listedStars).length + 1;
 if (rank === null) console.warn(`herdr plugin index unavailable (${index ? `HTTP ${index.status}` : "no connection"}) or the plugin is not in it: the page shows a dash`);
 
@@ -208,7 +207,7 @@ for (const name of pages) {
 // A rebuild is not necessarily a content change; omit the optional lastmod rather than invent it.
 writeFileSync(
   join(out, "sitemap.xml"),
-  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://herdrweb.dev/</loc></url>\n  <url><loc>https://herdrweb.dev/zh/</loc></url>\n</urlset>\n`,
+  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://tomrutsaert.github.io/herdr-web-ui/</loc></url>\n  <url><loc>https://tomrutsaert.github.io/herdr-web-ui/zh/</loc></url>\n</urlset>\n`,
 );
 
 // the demo: the real client, relative paths, the transport in front of it

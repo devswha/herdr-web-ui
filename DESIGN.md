@@ -1814,12 +1814,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   per keystroke.
 - Remote PCs: an **Add PC** row (label, one-line description, button) opens the PC
   setup dialog and closes Settings behind it; when that dialog closes, focus lands on the header's
-  workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
+  workspace-list toggle. Each incompatible PC offers an explicit **Update bridge** action;
+  reconnecting does not approve installation.
 - Install (a row of the Phone group) reflects installed, promptable or browser-instructions state;
   About links the repository.
 - Portal, a group of its own between Phone and Devices where the server offers it: while it runs,
   the address and QR code as the Phone group draws them over a Relay row with Stop; otherwise one
-  hint for what blocks it (no token, serve-only, no `portal` or an old one, with a link to get it)
+  hint for what blocks it (no token, no `portal` or an old one, with a link to get it)
   or a wide Relay row whose text field and Start stack on a phone. Starting and stopping are one
   dim status line; a failure is the server's sentence over Portal's own lines, folded.
 - The running versions are always written, since the sidebar carries none. Updates opens with
@@ -2073,3 +2074,15 @@ The values are the ones in `src/styles.css`.
 | Terminal content accessibility relies on xterm defaults | `PaneTerminal.tsx` | Screen-reader mode changes terminal DOM and input behavior | Decide with herdr TUI owners |
 | Drawer has no focus trap | `.sidebar.is-open` | Closed state leaves the tab order, but open-state trapping is not implemented | Add a shared focus utility |
 | Modal focus is initialized, not fully trapped | Dialog components | Escape/scrim/close work; tab containment is not shared | Add the same focus utility |
+
+## Fork distribution and access
+
+Settings offers **Check for updates** and **Update and restart**. Each remote PC's bridge
+upgrade has its own explicit action, with approval before replacing a verified managed bridge.
+The running bridge's distribution, protocol, bundle version and socket identity determine
+compatibility. About links to the fork repository.
+
+Phone follows the existing app's settings pattern: when opened through non-loopback HTTPS,
+it shares that browser address and pairing link as QR codes. A loopback page shows a code and
+secure-access guidance instead, since it cannot know the public address. Portal remains its own
+explicit Start/Stop group, protected by the token gate. No public-address setting is required.

@@ -8,10 +8,6 @@ import { openSettingsPage } from "./settings-page.ts";
 export async function checkWakeLock(browser: Browser, origin: string, paneId: string): Promise<void> {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   try {
-    await context.route("**/api/access", (route) => route.fulfill({ json: {
-      port: 7317,
-      tailscale: { state: "running", dns_name: "demo.example.ts.net", serving_url: null, serve_command: "tailscale serve -bg --https=7317 http://127.0.0.1:7317", serve_url: "https://demo.example.ts.net:7317" },
-    } }));
     await context.addInitScript(() => {
       const stats = { requests: 0, releases: 0, refuse: false };
       Object.assign(window, { wakeLockStats: stats });

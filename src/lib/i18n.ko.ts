@@ -2,7 +2,7 @@
  * Korean for every `t("…")` in src/. The English string is the key. Grouped by where the text
  * shows; within a group, roughly in the order it appears. Register: labels and buttons as nouns
  * or ~하기, sentences in 합니다체. Fixed terms: 패널, 워크스페이스, 에이전트, 터미널, 채팅, 페어링,
- * 기기; product names (herdr, Tailscale, Codex, Claude Code) stay as they are. Placeholders in
+ * 기기; product names (herdr, Codex, Claude Code) stay as they are. Placeholders in
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
@@ -204,8 +204,6 @@ export const KO: Record<string, string> = {
   "Star on GitHub": "GitHub에서 Star 누르기",
   "Remote PCs": "원격 PC",
   "Connect another PC over an SSH alias or user@host. Its workspaces join the sidebar.": "SSH 별칭이나 user@host로 다른 PC를 연결합니다. 연결한 PC의 워크스페이스는 사이드바에 함께 보입니다.",
-  "Update PC bridges automatically": "PC 브리지 자동 업데이트",
-  "When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.": "앱 업데이트에 새 브리지가 필요하면, 저장된 키로 연결되는 PC는 뒤에서 업데이트됩니다. 비밀번호가 필요한 PC는 먼저 묻습니다.",
 
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "명령 팔레트",
@@ -563,10 +561,7 @@ export const KO: Record<string, string> = {
   "These notes could not be shown.": "이 노트를 표시할 수 없습니다.",
   "Up to date.": "최신 상태입니다.",
   "Waiting for an update check…": "업데이트 확인을 기다리는 중…",
-  "Checks for new releases every 5 minutes.": "5분마다 새 릴리스를 확인합니다.",
-  "Automatic installation is enabled.": "자동 설치가 켜져 있습니다.",
   "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.": "준비되면 설치하세요. 브리지가 잠시 다시 연결되고 herdr 세션은 계속 돕니다.",
-  "Remote PCs' bridges are updated afterwards when the new version needs it.": "새 버전이 필요로 하면 원격 PC의 브리지도 이어서 업데이트됩니다.",
   "Check for updates": "업데이트 확인",
   "Update and restart": "업데이트하고 다시 시작",
   "Running herdr {version}": "herdr {version} 실행 중",
@@ -882,7 +877,6 @@ export const KO: Record<string, string> = {
   "Enter all 6 digits of the pairing code.": "페어링 코드 6자리를 모두 입력하세요.",
   "That code is wrong, used up or expired. Start a new pairing on the PC.": "코드가 틀렸거나 이미 쓰였거나 만료되었습니다. PC에서 새 페어링을 시작하세요.",
   "Token does not match.": "토큰이 맞지 않습니다.",
-  "Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.": "Tailscale에 따르면 이 기기는 이 PC 주인이 아닌 다른 사람의 것입니다. 주인이 페어링 코드로 들여보낼 수는 있습니다.",
   "This server requires an access token or a pairing code.": "이 서버는 접속 토큰이나 페어링 코드가 필요합니다.",
   "Pair this device with a code from the PC: Settings → Devices there, or the pair command in its terminal.": "PC에서 받은 코드로 이 기기를 페어링하세요. 코드는 PC의 설정 → 기기에서, 또는 PC 터미널의 pair 명령으로 받습니다.",
   "Pairing code": "페어링 코드",
@@ -895,7 +889,6 @@ export const KO: Record<string, string> = {
 
   // ---- devices ----
   "You are on the PC itself.": "지금 PC 자체에서 보고 있습니다.",
-  "You are in as this PC's Tailscale login.": "이 PC의 Tailscale 로그인으로 접속했습니다.",
   "This is a paired device.": "페어링된 기기입니다.",
   "You are in with the access token.": "접속 토큰으로 로그인했습니다.",
   "This browser is in only because nothing is paired yet: from anywhere that can reach this address, so would anyone.": "아직 페어링된 기기가 없어 로그인 없이 접속된 상태입니다. 이 주소로 접속할 수 있는 사람은 누구나 똑같이 들어올 수 있습니다.",
@@ -930,22 +923,10 @@ export const KO: Record<string, string> = {
   "{n} h ago": "{n}시간 전",
 
   // ---- phone ----
-  "Asking this PC about Tailscale…": "이 PC의 Tailscale 상태를 확인하는 중…",
-  "Check again": "다시 확인",
   "Open this address on your phone": "폰에서 이 주소를 여세요",
-  "Tailscale already serves this PC": "Tailscale이 이미 이 PC를 서빙하고 있습니다",
   "Once it is open, install the app, then open the ⋯ menu and tap Alerts.": "열리면 앱을 설치한 뒤 ⋯ 메뉴에서 알림을 누르세요.",
-  "In a terminal on this PC, publish the app to your tailnet. Only devices in your tailnet can open the address.": "이 PC의 터미널에서 앱을 테일넷에 공개하세요. 테일넷 안의 기기만 이 주소를 열 수 있습니다.",
-  "It will be at {url}.": "주소는 {url} 입니다.",
-  "Tailscale is on this PC but not connected. Run tailscale up there, then check again.": "이 PC에 Tailscale이 있지만 연결되어 있지 않습니다. 거기서 tailscale up을 실행한 뒤 다시 확인하세요.",
-  "Tailscale is the shortest route: install it on this PC, run tailscale up, then check again. An SSH tunnel or your own HTTPS proxy work too.": "Tailscale이 가장 빠른 길입니다. 이 PC에 설치하고 tailscale up을 실행한 뒤 다시 확인하세요. SSH 터널이나 직접 만든 HTTPS 프록시도 됩니다.",
-  "Get Tailscale": "Tailscale 받기",
   "Other routes": "다른 방법",
-  "This PC did not say how it can be reached.": "이 PC가 어떻게 접속할 수 있는지 알려주지 않았습니다.",
   "Copy": "복사",
-  "Your own Tailscale devices get in as you.": "내 Tailscale 기기는 바로 들어옵니다.",
-  "With an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "접근 토큰을 설정했다면 기기마다 한 번 토큰을 묻습니다. 다른 사람의 기기나 LAN·공개 주소는 페어링이 필요합니다. 아래 기기 항목을 보세요.",
-  "Access and safety": "접근과 안전",
   "A public HTTPS address for this PC through a Portal relay. Anyone on the internet can open it, so it needs an access token.": "Portal 릴레이를 거치는 이 PC의 공개 HTTPS 주소입니다. 인터넷의 누구나 열 수 있으므로 접근 토큰이 필요합니다.",
   "Portal serves this PC": "Portal이 이 PC를 서빙하고 있습니다",
   "Open it on your phone and sign in with the access token, or pair the phone: Devices, below.": "폰에서 열고 접근 토큰으로 로그인하거나 폰을 페어링하세요. 아래 기기 항목을 보세요.",
@@ -953,7 +934,6 @@ export const KO: Record<string, string> = {
   "Stop": "중지",
   "Stopping…": "중지 중…",
   "Set HERDR_WEB_TOKEN on this PC and restart the app to start Portal.": "Portal을 시작하려면 이 PC에 HERDR_WEB_TOKEN을 설정하고 앱을 다시 시작하세요.",
-  "Portal is a second way in: unset HERDR_WEB_TAILSCALE_SERVE_ONLY on this PC and restart the app first.": "Portal은 또 하나의 접속 경로입니다. 먼저 이 PC에서 HERDR_WEB_TAILSCALE_SERVE_ONLY를 해제하고 앱을 다시 시작하세요.",
   "Portal is not installed on this PC.": "이 PC에 Portal이 설치되어 있지 않습니다.",
   "This PC has Portal {version}; the app needs {min} or later.": "이 PC의 Portal은 {version}입니다. 앱에는 {min} 이상이 필요합니다.",
   "Get Portal": "Portal 받기",
@@ -1167,15 +1147,6 @@ export const KO: Record<string, string> = {
   "It is the last tab of {workspace}: the workspace closes with it, and the agents and shells in it stop.": "{workspace}의 마지막 탭입니다. 워크스페이스도 함께 닫히고, 그 안의 에이전트와 셸이 멈춥니다.",
   "Tabs of {workspace}": "{workspace}의 탭",
   "{n} panes": "패널 {n}개",
-  "herdr web ui sends anonymous usage counts.": "herdr web ui는 사용 현황을 익명으로 집계합니다.",
-  "What is sent": "보내는 내용",
-  "Anonymous usage counts": "익명 사용 집계",
-  "Turned off on this PC by HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK or a CI environment.": "이 PC에서는 HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK 또는 CI 환경 때문에 꺼져 있습니다.",
-  "Send anonymous usage counts": "익명 사용 집계 보내기",
-  "Once on install and once per update, with the last browser's app settings, and once a day you open the app, with the kinds of coding agents running in herdr (such as claude or codex). Custom fonts, shortcuts and replies are reported only as customization flags or counts, never their text. Account identifiers, terminal content and files are excluded. The receiver stores the country, not the IP address.": "앱 설치 시 한 번, 업데이트마다 한 번, 마지막으로 사용한 브라우저의 앱 설정과 함께 보내고, 앱을 여는 날마다 한 번, herdr에서 실행 중인 코딩 에이전트의 종류(claude, codex 등)와 함께 보냅니다. 사용자 지정 글꼴, 바로 가기 및 답변은 텍스트가 아니라 사용자 지정 여부 플래그나 개수로만 보고됩니다. 계정 식별자, 터미널 내용 및 파일은 제외됩니다. 받는 쪽은 IP 주소가 아닌 국가를 저장합니다.",
-  "Once a day you open the app:": "앱을 여는 날마다 한 번:",
-  "The receiver adds the country this message comes from (two letters, such as KR). It does not store the address.": "받는 쪽에서 이 메시지를 보낸 국가(KR 같은 두 글자)를 덧붙입니다. 주소는 저장하지 않습니다.",
-  "This version has already been counted. The next event is sent after an update.": "이 버전은 이미 집계되었습니다. 다음 전송은 업데이트 후입니다.",
   "Agent integrations": "에이전트 통합",
   "herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.": "herdr 통합이 있으면 재시작 후 각 에이전트의 세션을 이어서 열 수 있습니다. 이 페이지는 상태를 읽기만 합니다. herdr가 실행되는 PC의 터미널에서 명령을 실행한 뒤 이 페이지를 다시 여세요.",
   "Not found on this PC": "이 PC에서 찾을 수 없음",
@@ -1363,4 +1334,5 @@ export const KO: Record<string, string> = {
   "Conversation turns": "대화 턴",
   "Go to turn {n}": "{n}번째 턴으로 이동",
   "Show full message": "전체 메시지 보기",
+  "Use your own HTTPS reverse proxy or an SSH tunnel, then pair this device.": "직접 설정한 HTTPS 리버스 프록시 또는 SSH 터널을 사용한 뒤 이 기기를 페어링하세요.",
 };

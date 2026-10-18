@@ -3,10 +3,9 @@ name: Windows install
 # the app's first start, and an update. CI's "Native Windows install" job checks install.ps1's
 # decisions against stand-ins and downloads, builds and starts nothing.
 #
-# A pull request that touches what an install runs installs its own commit. Once a week the README's
-# command installs the latest release, and the release before it updates to it: herdr's and Bun's
-# installers change without a commit here. Everything comes from the network, so this is not a
-# required check.
+# Every run validates the checked-out commit. Scheduled/manual runs additionally exercise latest
+# and previous fork releases only when readable stable releases exist. Prerequisite skips are
+# reported separately, never counted as exercised release installation.
 on:
   pull_request:
     paths:
@@ -16,6 +15,7 @@ on:
       - 'scripts/plugin.ts'
       - 'scripts/preflight.ps1'
       - 'scripts/windows-install-e2e.ps1'
+      - 'scripts/windows-release-prerequisites.ts'
       - 'server/managed.ts'
       - 'server/supervisor.ts'
       - 'package.json'
@@ -42,14 +42,42 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       # no setup-bun: a PC that has neither herdr nor Bun is the case under test
-      - name: Install this commit
-        if: github.event_name == 'pull_request'
+      - name: Install this commit (independent of release availability)
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-install-e2e.ps1 -Ref $env:HEAD_SHA -Fresh
-      - name: Install the latest release with the README's command
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: powershell
+        run: |
+          # A runner-local source fixture also works for a private repo or an unmerged PR SHA.
+          # The plugin's recorded origin remains canonical; only Git transport is redirected.
+          $key = "url.$($env:GITHUB_WORKSPACE.Replace('\', '/')).insteadOf"
+          git config --global --add $key 'https://github.com/tomrutsaert/herdr-web-ui.git'
+          try {
+            & scripts/windows-install-e2e.ps1 -Ref $env:HEAD_SHA -Fresh
+            if ($LASTEXITCODE -ne 0) { throw 'Current-commit Windows installation failed' }
+          } finally { git config --global --unset-all $key }
+          "$env:USERPROFILE\.bun\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Configure read-only Git authentication for fork release scenarios
         if: github.event_name != 'pull_request'
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-install-e2e.ps1 -Installer https://herdrweb.dev/install.ps1 -Fresh
-      - name: Update from the release before it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh auth setup-git --hostname github.com
+      - name: Check optional fork release prerequisites
+        id: releases
         if: github.event_name != 'pull_request'
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-install-e2e.ps1 -Installer https://herdrweb.dev/install.ps1 -Update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/windows-release-prerequisites.ts
+      - name: Install the latest readable fork release
+        if: github.event_name != 'pull_request' && steps.releases.outputs.latest != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.releases.outputs.latest }}
+        # Use the checked-out installer, not an anonymous raw URL for a private repository.
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-install-e2e.ps1 -Ref $env:LATEST
+      - name: Update from the previous readable fork release
+        if: github.event_name != 'pull_request' && steps.releases.outputs.previous != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.releases.outputs.latest }}
+          PREVIOUS: ${{ steps.releases.outputs.previous }}
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-install-e2e.ps1 -Ref $env:PREVIOUS -LatestRelease $env:LATEST -Update

@@ -31,7 +31,8 @@ if (!process.env.HERDR_SSH_QA_CONFIG) {
 }
 const container = `herdr-profiles-qa-${process.pid}`;
 const state = join(root, "state");
-const oldManifest = process.env.HERDR_WEB_BUNDLE_MANIFEST, oldSocket = process.env.HERDR_SOCKET;
+const oldSocket = process.env.HERDR_SOCKET;
+let bundleManifest: string;
 process.env.HERDR_SOCKET = join(root, "local-offline.sock");
 let server: ReturnType<typeof createServer> | undefined;
 let rows: ReturnType<typeof parseHerdrProfiles> = [];
@@ -53,7 +54,7 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
   return response.json() as Promise<T>;
 }
 const machines = async () => (await api<{ machines: Machine[] }>("/api/machines")).machines;
-const start = (stateDir = state) => createServer({ port: 0, hostname: "127.0.0.1", token: "", tailscaleOwner: null, stateDir, herdrProfiles: async () => rows });
+const start = (stateDir = state) => createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir, bundleManifest, herdrProfiles: async () => rows });
 async function connect(machine: Machine, expectApproval = true) {
   let job = await api<SetupJob>("/api/machines/setup", "POST", { ...machine.target, machine_id: machine.id });
   let approved = false;
@@ -94,7 +95,7 @@ try {
   const platform = remote("uname -m") === "x86_64" ? "linux-x64" : "linux-arm64";
   const manifest = join(root, "manifest.json");
   writeFileSync(manifest, JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { [platform]: { url: filename, sha256 } } }));
-  process.env.HERDR_WEB_BUNDLE_MANIFEST = manifest;
+  bundleManifest = manifest;
   rows = [{ ...catalog[0]!, target: { ...catalog[0]!.target!, destination: "herdr-profile-fixture", port } }];
   assert.equal(rows[0]!.target!.session, undefined);
   server = start();
@@ -179,6 +180,6 @@ try {
 } finally {
   for (const ws of sockets) ws.close(); server?.stop();
   Bun.spawnSync(["docker", "rm", "-f", container]);
-  for (const [key, value] of [["HERDR_WEB_BUNDLE_MANIFEST", oldManifest], ["HERDR_SOCKET", oldSocket]]) { if (value === undefined) delete process.env[key!]; else process.env[key!] = value; }
+  for (const [key, value] of [["HERDR_SOCKET", oldSocket]]) { if (value === undefined) delete process.env[key!]; else process.env[key!] = value; }
   rmSync(root, { recursive: true, force: true });
 }

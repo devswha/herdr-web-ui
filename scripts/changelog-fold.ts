@@ -11,7 +11,7 @@ export const FRAGMENT_NAME = /^[a-z0-9][a-z0-9.-]*\.md$/;
 /** The sections a fragment may use, in the order a release lists them. */
 export const SECTIONS = ["Added", "Changed", "Removed", "Fixed", "Maintenance"] as const;
 
-const REPO = "https://github.com/devswha/herdr-web-ui";
+const REPO = "https://github.com/tomrutsaert/herdr-web-ui";
 const UNRELEASED = "## [Unreleased]";
 const HINT = `see ${FRAGMENTS_DIR}/${FRAGMENTS_README}`;
 const CHANGELOG_HINT = `fix the entry, or move it into a ${FRAGMENTS_DIR}/ fragment (${HINT})`;
@@ -105,11 +105,13 @@ export function foldChangelog(changelog: string, fragments: { name: string; sect
   const order = [...SECTIONS.filter((name) => merged.has(name)), ...[...merged.keys()].filter((name) => !(SECTIONS as readonly string[]).includes(name))];
   const notes = order.flatMap((name) => ["", `### ${name}`, ...merged.get(name)!]);
 
-  const unreleasedLink = `[Unreleased]: ${REPO}/compare/v${previous}...HEAD`;
-  const link = lines.indexOf(unreleasedLink);
-  if (link < end) throw new Error(`CHANGELOG.md must end its links with "${unreleasedLink}"`);
+  // The first fork release follows an inherited v-tag; later ones follow fork-v tags.
+  const link = lines.findIndex((line) => line.startsWith("[Unreleased]: https://github.com/")
+    && ["v", "fork-v"].some((prefix) => line.endsWith(`/compare/${prefix}${previous}...HEAD`)));
+  if (link < end) throw new Error("CHANGELOG.md must end its links with an Unreleased comparison for the previous release");
+  const previousTag = lines[link]!.split("/compare/")[1]!.replace("...HEAD", "");
   const tail = lines.slice(end);
-  tail.splice(link - end, 1, `[Unreleased]: ${REPO}/compare/v${version}...HEAD`, `[${version}]: ${REPO}/compare/v${previous}...v${version}`);
+  tail.splice(link - end, 1, `[Unreleased]: ${REPO}/compare/fork-v${version}...HEAD`, `[${version}]: ${REPO}/compare/${previousTag}...fork-v${version}`);
   return [...lines.slice(0, start), UNRELEASED, "", `## [${version}] - ${date}`, ...notes, "", ...tail].join("\n");
 }
 

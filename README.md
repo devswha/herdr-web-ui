@@ -1,5 +1,7 @@
 # herdr web ui
 
+This fork is distributed from `tomrutsaert/herdr-web-ui`. Updates are manual: choose **Check for updates**, then **Update and restart** in Settings → About. Only `fork-vX.Y.Z` app tags and `fork-remote-vN` remote runtimes are used; inherited upstream tags are ignored. No maintainer telemetry or network discovery/publication integration is included. The plugin ID stays `devswha.herdr-web-ui` to preserve installed state.
+
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
 </p>
@@ -9,9 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://herdrweb.dev/">website</a> ·
   <a href="#install">install</a> ·
-  <a href="https://herdrweb.dev/demo/">try the demo</a> ·
   <a href="docs/guide.md#quick-start">quick start</a> ·
   <a href="#faq">faq</a> ·
   <a href="#docs">docs</a>
@@ -19,8 +19,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT license"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/tomrutsaert/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/tomrutsaert/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/tomrutsaert/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="Installable PWA"></a>
 </p>
@@ -79,7 +79,7 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Read 
 - **Chat and terminal, one pane** — native Claude Code, Codex, omp, omo, gjc, pi, Hermes and explicitly identified Devin CLI transcripts, plus OpenCode 2 sessions herdr identifies, with the live terminal a click away. Write the next message while the agent works: it goes in with the next turn, or at once with Send now. [Supported agents →](docs/guide.md#supported-agents)
 - **Approve with a tap** — approvals, questions and plan menus become cards, checked to be current before your answer is sent.
 - **Know when you're needed** — live status for every pane, an alert that drops in while the app is open, and push alerts when an agent needs input or finishes, even with the app closed.
-- **Install it on your phone** — a PWA with a key bar above the keyboard (Esc, Tab, Ctrl, Alt, Shift, Enter, arrows) that you can rearrange and extend with your own combinations in Settings, and a QR code to your Tailscale address. [Phone setup →](docs/guide.md#on-your-phone)
+- **Install it on your phone** — a PWA with a key bar above the keyboard (Esc, Tab, Ctrl, Alt, Shift, Enter, arrows) that you can rearrange and extend with your own combinations in Settings, and a QR code for the current address when opened through non-loopback HTTPS. [Phone setup →](docs/guide.md#on-your-phone)
 - **Speak instead of typing** — dictate into the chat or the terminal line, Korean and English mixed. Review the words before sending them to the agent; transcription uses your own OpenAI key or the browser's speech recognition.
 - **Keep your workflow** — herdr owns the agents; this app connects to them. Update from Settings without stopping them, with patch notes for what each update brings. New tabs and worktrees come from a row's ⋯ menu. [All features →](docs/guide.md#features)
 
@@ -87,31 +87,40 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Read 
 
 ## install
 
+**Already installed upstream?** The stable plugin ID is shared, so the installer refuses an
+upstream or unknown checkout rather than starting or replacing it. Follow
+[fork migration](INSTALL.md#fork-migration): preserve config/state, explicitly stop and replace
+only the web plugin, then restart it. Never restart the herdr daemon for this migration.
+
+For a private repository, use an authenticated checkout and run its installer locally; anonymous
+raw-file URLs require read access. Configure Git credentials for manual app updates. If runtime
+release assets are private, [build remote runtimes locally](docs/remote-pcs.md#building-and-distributing-runtimes).
+
 ```bash
-curl -fsSL https://herdrweb.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-Linux (x64, arm64) or macOS. Installs missing herdr 0.9.0+, Bun 1.4+ and Node 18+ prerequisites for your user, then installs the app as a herdr plugin. If an existing herdr installation is older than 0.9.0, update and restart herdr yourself before rerunning the installer. With the default listen address and Tailscale running, successful HTTPS setup provides a tailnet address and QR code. Your own devices get in without a code as it is: `tailscale serve` states your login. If your own phone is asked to pair anyway, `HERDR_WEB_TAILSCALE_SERVE_ONLY=1` lets it in without a code on a tailnet one login owns, but only when nothing else, such as a public proxy or tunnel, reaches this port ([Access and safety](docs/guide.md#access-and-safety)).
+Linux (x64, arm64) or macOS. Installs missing herdr 0.9.0+, Bun 1.4+ and Node 18+ prerequisites for your user, then installs the app as a herdr plugin. If an existing herdr installation is older than 0.9.0, update and restart herdr yourself before rerunning the installer. Configure an HTTPS reverse proxy or SSH tunnel separately for remote access.
 
 Windows x64, in PowerShell:
 
 ```powershell
-irm https://herdrweb.dev/install.ps1 | iex
+irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
 Requires [Git for Windows](https://git-scm.com/download/win). Installs missing herdr and Bun for your user, then installs the same plugin. No Node or WSL is needed. Open **Phone setup** in herdr for phone access. Windows terminals use the [screen mirror](docs/remote-pcs.md#windows-pcs), with typing and a fixed grid, until herdr supports terminal attach there.
 
-<p align="center">
-  <img src="docs/screenshots/install.png" width="720" alt="Installer output: Bun, Node and the herdr plugin install, then tailscale serve publishes the app and a QR code for the phone appears.">
-</p>
-
 Already have the prerequisites? Install just the plugin:
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install tomrutsaert/herdr-web-ui
 ```
 
-With herdr running, open **[127.0.0.1:7317](http://127.0.0.1:7317)**. On a new install on a PC with a desktop, the installer opens it in your browser for you; click **Install** in the address bar to add the app. The installed app belongs to that exact address, so keep using `http://127.0.0.1:7317` rather than `localhost`. Set `HERDR_WEB_NO_OPEN=1` before running the installer to skip opening the browser. Pick a pane or start an agent with **New workspace**. To use your phone, scan the installer's QR code and add the app to your home screen. [Quick start →](docs/guide.md#quick-start)
+With herdr running, open **[127.0.0.1:7317](http://127.0.0.1:7317)**. On a new install on a PC with a desktop, the installer opens it in your browser for you; click **Install** in the address bar to add the app. The installed app belongs to that exact address, so keep using `http://127.0.0.1:7317` rather than `localhost`. Set `HERDR_WEB_NO_OPEN=1` before running the installer to skip opening the browser. Pick a pane or start an agent with **New workspace**. To use your phone, open your configured HTTPS address, pair the device and add the app to your home screen. [Quick start →](docs/guide.md#quick-start)
+
+A pairing QR is available only in a browser already using a non-loopback HTTPS address.
+The local page and terminal Phone setup show a pairing code instead; they do not discover a
+remote address.
 
 The server listens on `127.0.0.1` by default. For access from another device, see [phone setup](docs/guide.md#on-your-phone) and [access and safety](docs/guide.md#access-and-safety).
 
@@ -129,13 +138,13 @@ Claude Code, Codex, omp, omo, gjc, pi and Hermes are read from their own session
 
 No. Both attach to the same terminals at the same time, so the pane stays live at your desk, in the browser and on the phone. Nothing is stopped or handed over. [TUI and browser →](docs/guide.md#faq)
 
-**Do I need Tailscale?**
+**How do I connect another device?**
 
-No. Tailscale, an SSH tunnel, a VPN or your own HTTPS proxy can provide a route to the PC. Installation and push alerts need a secure context such as HTTPS or localhost; basic browsing also works over plain HTTP on a LAN. [The options →](docs/guide.md#faq)
+Use an SSH tunnel or your own HTTPS reverse proxy to reach the PC. Installation and push alerts need a secure context such as HTTPS or localhost; basic browsing also works over plain HTTP on a LAN. [The options →](docs/guide.md#faq)
 
 **Does my code or conversation leave my machine?**
 
-Session files stay on the PC running each agent, and their contents are served to browsers you connect. The app has no hosted relay or account service of its own. Optional voice input sends audio (and text when polishing) to the configured provider; enabled usage meters contact provider APIs. Updates, remote-PC setup and push alerts can also use external services. The app sends an anonymous count when it is installed, each time it is updated (the version, the OS, how it was installed and a random ID; no IP address is stored) and once a day the app is opened (with the kinds of coding agents running), and **Settings → About → Anonymous usage counts** shows what is sent and turns it off. The agents’ own model connections depend on their configuration. [Data flow and access →](docs/guide.md#faq)
+Session files stay on the PC running each agent, and their contents are served to browsers you connect. The app has no hosted relay or account service of its own. Optional voice input sends audio (and text when polishing) to the configured provider; enabled usage meters contact provider APIs. Updates, remote-PC setup and push alerts can also use external services. No maintainer usage counts are sent. The agents’ own model connections depend on their configuration. [Data flow and access →](docs/guide.md#faq)
 
 **Does it work on Windows?**
 
@@ -168,7 +177,7 @@ Helping someone install the app? Follow [INSTALL.md](INSTALL.md). For repository
 ## development
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
+git clone https://github.com/tomrutsaert/herdr-web-ui.git
 cd herdr-web-ui
 bun install
 

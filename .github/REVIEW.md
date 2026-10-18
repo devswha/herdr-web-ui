@@ -24,7 +24,7 @@ AI review is advisory; CI and maintainer review determine whether a PR can merge
   with main: flag a PR that raises a count in `scripts/fixed-sleeps.json` (a rename moves its entry
   with the same count) or adds an allowlist entry (DEMO_404, DEMO_IGNORES, UNIX_CONNECT_ALLOWED,
   NET_CONNECT_ALLOWED) without a reason that holds.
-- Installed updaters discover Git tags immediately. Release only the exact commit
+- Explicit update checks discover fork release tags even without a release object. Release only the exact commit
   that passed CI; never create the release tag as a prerequisite for validation.
 - External contributors' PRs get the same priority and the same bar as maintainers'
   own: review them when they arrive and consider them for the next release. Approve

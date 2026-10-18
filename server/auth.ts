@@ -8,7 +8,7 @@
  * flag whenever the request arrived over TLS or through a TLS-terminating proxy.
  *
  * An empty token disables this gate; server/access.ts then decides by where a request comes
- * from, what Tailscale says about it, and whether it holds a paired device's cookie (the
+ * from, and whether it holds a paired device's cookie (the
  * helpers for that cookie live here too), and index.ts warns when a public bind address is
  * combined with neither.
  */
@@ -95,8 +95,7 @@ export function requiresAuth(pathname: string): boolean {
   return pathname !== "/api/health" && pathname !== "/api/auth" && pathname !== "/api/devices/pair";
 }
 
-export function unauthorizedJson(reason: "other_user" | "pairing_required" | "token_required" = "token_required"): Response {
-  if (reason === "other_user") return jsonResponse({ error: { code: "other_user", message: "this PC belongs to another Tailscale user" } }, 403);
+export function unauthorizedJson(reason: "pairing_required" | "token_required" = "token_required"): Response {
   return jsonResponse({ error: { code: "unauthorized", message: reason === "pairing_required" ? "pair this device, or use the token" : "token required" } }, 401);
 }
 
@@ -132,7 +131,7 @@ function authWaitLeft(key: string): number {
 }
 
 /**
- * The address a budget is kept for. A proxy on this PC (`tailscale serve`, a local reverse
+ * The address a budget is kept for. A proxy on this PC (a local reverse
  * proxy) is the peer of every request it forwards, so without this every visitor would share
  * the one 127.0.0.1 budget and five wrong tries from anyone would lock the owner out. Such a
  * proxy appends the address it saw to X-Forwarded-For, so the last entry is its word; earlier

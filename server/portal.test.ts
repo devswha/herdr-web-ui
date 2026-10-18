@@ -14,7 +14,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const ADDRESS = "https://herdr-test-0123456789abcdef0123456789abcdef01234567.relay.example";
 const RELAY = "https://relay.example";
-const open = { tokenSet: true, serveOnly: false };
+const open = { tokenSet: true };
 
 interface StandIn {
   path: string;
@@ -151,12 +151,11 @@ describe("what Portal is given and says", () => {
 });
 
 describe("running Portal", () => {
-  it("opens nothing without a token, or while tailscale serve is declared the only way in", async () => {
+  it("opens nothing without a token", async () => {
     const portal = standIn();
     const service = new PortalService({ stateDir: mkdtempSync(join(root, "state-")), bin: portal.path, fetch: relay() });
-    expect(service.start({ relay: RELAY, port: 7317, tokenSet: false, serveOnly: false })).toBe("token_required");
-    expect(service.start({ relay: RELAY, port: 7317, tokenSet: true, serveOnly: true })).toBe("serve_only");
-    expect((await service.status({ tokenSet: false, serveOnly: false })).blocked).toBe("token_required");
+    expect(service.start({ relay: RELAY, port: 7317, tokenSet: false })).toBe("token_required");
+    expect((await service.status({ tokenSet: false })).blocked).toBe("token_required");
     expect(portal.pids()).toEqual([]);
   });
 
@@ -179,7 +178,7 @@ describe("running Portal", () => {
     }
   });
 
-  it("exposes this server in routed mode on the one relay given, without a visitor's Tailscale login or this server's secrets", async () => {
+  it("exposes this server in routed mode on the one relay given, without this server's secrets", async () => {
     const stateDir = mkdtempSync(join(root, "state-"));
     const portal = standIn();
     const service = new PortalService({ stateDir, bin: portal.path, fetch: relay() });
@@ -190,7 +189,6 @@ describe("running Portal", () => {
     const flag = (name: string) => seen[seen.indexOf(name) + 1];
     expect(seen[0]).toBe("expose");
     expect(flag("--http-route")).toBe("/=7317");
-    expect(flag("--strip-request-header")).toBe("Tailscale-User-Login");
     expect(flag("--relays")).toBe(RELAY);
     expect(flag("--identity-path")).toBe(join(stateDir, "portal", "identity.json"));
     expect(seen).toContain("--discovery=false");
@@ -339,7 +337,7 @@ describe("running Portal", () => {
       const path = join(stateDir, "portal", "state.json");
       writeFileSync(path, contents);
       const service = new PortalService({ stateDir, fetch: relay() });
-      await expect(service.resume({ port: 7317, tokenSet: false, serveOnly: false })).rejects.toThrow();
+      await expect(service.resume({ port: 7317, tokenSet: false })).rejects.toThrow();
       expect(() => service.start({ port: 7317, relay: RELAY, ...open })).toThrow();
       expect(readFileSync(path, "utf8")).toBe(contents);
     }
@@ -428,9 +426,9 @@ describe("running Portal", () => {
     first.start({ relay: RELAY, port: 7317, ...open });
     await until(first, (s) => s.phase === "running", "the first Portal was ready");
     const tokenless = new PortalService({ stateDir, bin: portal.path, fetch: relay() });
-    await tokenless.resume({ port: 7317, tokenSet: false, serveOnly: false });
+    await tokenless.resume({ port: 7317, tokenSet: false });
     expect(await gone(portal.pids()[0]!)).toBe(true);
-    expect((await tokenless.status({ tokenSet: false, serveOnly: false })).phase).toBe("idle");
+    expect((await tokenless.status({ tokenSet: false })).phase).toBe("idle");
     expect(portal.pids()).toHaveLength(1);
   });
 
@@ -489,7 +487,7 @@ describe("running Portal", () => {
     writeFileSync(join(portalDir, "state.json"), JSON.stringify({ enabled: true, relay: RELAY, port: 7317, pid: unrelated.pid }));
     const service = new PortalService({ stateDir, fetch: relay() });
     try {
-      await service.resume({ port: 7317, tokenSet: false, serveOnly: false });
+      await service.resume({ port: 7317, tokenSet: false });
       expect(alive(unrelated.pid)).toBe(true);
     } finally {
       unrelated.kill("SIGTERM");
@@ -513,7 +511,7 @@ describe("running Portal", () => {
     try {
       await waitFor(() => alive(unrelated.pid), "unrelated interpreter started");
       expect((await internals.processArgv(unrelated.pid))?.slice(1, 3)).toEqual([scriptPath, "expose"]);
-      await service.resume({ port: 7317, tokenSet: false, serveOnly: false });
+      await service.resume({ port: 7317, tokenSet: false });
       expect(alive(unrelated.pid)).toBe(true);
     } finally {
       if (alive(unrelated.pid)) unrelated.kill("SIGTERM");
@@ -583,7 +581,7 @@ describe("running Portal", () => {
       return killProcess(target, signal);
     }) as typeof process.kill);
     try {
-      await service.resume({ port: 7317, tokenSet: false, serveOnly: false });
+      await service.resume({ port: 7317, tokenSet: false });
       expect(sentSigkill).toBe(true);
       expect(probesAfterSigkill).toBe(3);
       expect(argv).toHaveBeenCalled();
@@ -680,7 +678,6 @@ describe("the Portal endpoint", () => {
       expect(await code(await handlePortalRequest(post("start", { relay: relayInput }), "/api/portal/start", service, server))).toBe("invalid_relay");
     }
     expect(await code(await handlePortalRequest(post("start"), "/api/portal/start", service, { ...server, tokenSet: false }))).toBe("token_required");
-    expect(await code(await handlePortalRequest(post("start"), "/api/portal/start", service, { ...server, serveOnly: true }))).toBe("serve_only");
     expect(portal.pids()).toEqual([]);
 
     expect((await handlePortalRequest(post("start"), "/api/portal/start", service, server)).status).toBe(202);

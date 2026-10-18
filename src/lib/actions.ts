@@ -46,7 +46,7 @@ export interface AppActions {
   toggleSidebar: () => void;
   /** flips dark/light (a `system` setting becomes the opposite of the resolved theme) */
   toggleTheme: () => void;
-  /** Sign out of token/device authentication; null for automatic local/Tailscale access. */
+  /** Sign out of token/device authentication; null for automatic local access. */
   lock: (() => Promise<void>) | null;
   /** null once alerts are on (or unsupported); otherwise asks for permission */
   enableNotifications: (() => void) | null;

@@ -15,6 +15,7 @@
     "scripts/ci-tests.ts",
     "scripts/release-notes.ts",
     "scripts/release-guards.ts",
+    "scripts/windows-release-prerequisites.ts",
     "scripts/changelog-fold.ts",
     "site/demo/transport.ts",
     "scripts/build-remote-bundle.ts",

@@ -2,10 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { sshOutputParts } from "./sshOutput.ts";
 
 describe("sshOutputParts", () => {
-  it("links the Tailscale SSH check address and keeps the words around it", () => {
-    expect(sshOutputParts("# Tailscale SSH requires an additional check.\n# To authenticate, visit: https://login.tailscale.com/a/abc123.")).toEqual([
-      { type: "text", value: "# Tailscale SSH requires an additional check.\n# To authenticate, visit: " },
-      { type: "link", href: "https://login.tailscale.com/a/abc123", value: "https://login.tailscale.com/a/abc123" },
+  it("links the SSH check address and keeps the words around it", () => {
+    expect(sshOutputParts("# SSH requires an additional check.\n# To authenticate, visit: https://auth.example.test/ssh/abc123.")).toEqual([
+      { type: "text", value: "# SSH requires an additional check.\n# To authenticate, visit: " },
+      { type: "link", href: "https://auth.example.test/ssh/abc123", value: "https://auth.example.test/ssh/abc123" },
       { type: "text", value: "." },
     ]);
   });

@@ -51,8 +51,6 @@ export interface MachineUpdate { job_id: string; step: string; progress: SetupPr
  * rate is bytes per second over the stage so far; elapsed_ms is how long the stage has run.
  */
 export interface SetupProgress { stage: "download" | "upload" | "install" | "restart"; done: number; total: number | null; rate: number | null; elapsed_ms: number }
-/** Server-side PC preferences (machine-settings.json in the state directory). */
-export interface MachineSettings { auto_update_bridges: boolean }
 export interface SetupRequest extends SshTarget { name?: string; machine_id?: string; update_remote?: boolean }
 export type SetupPhase = "connecting" | "authentication" | "checking" | "approval" | "installing" | "starting" | "connected" | "failed" | "cancelled";
 export interface SetupChallenge { id: string; kind: "host_key" | "secret"; prompt: string }
@@ -72,7 +70,7 @@ export interface SetupJob {
   action_required?: MachineAction | null;
   /**
    * ssh's latest stderr lines while the connection is being made, null otherwise. Some of them
-   * ask the user to act while ssh keeps waiting (Tailscale SSH's browser check URL).
+   * ask the user to act while ssh keeps waiting (SSH's browser check URL).
    */
   ssh_output: string | null;
   target: SshTarget;
@@ -82,8 +80,9 @@ export type SetupAction = { action: "answer"; challenge_id: string; answer: stri
 /** `preferences`: what every browser of this server shares changed (shared/preferences.ts) */
 export type MachineEvent = { type: "machines"; machines: Machine[] } | { type: "machine-message"; machine_id: string; message: ServerMessage }
   | { type: "preferences"; preferences: SharedPreferences };
-export interface BridgeHealth { ok: true; auth: HealthAuth; bridge_protocol: number }
+export interface BridgeHealth { distribution: string; ok: true; auth: HealthAuth; bridge_protocol: number }
 export interface BridgeIdentity {
+  distribution: string;
   pid: number;
   managed_remote: boolean;
   bridge_protocol: number;

@@ -351,7 +351,7 @@ describe("GET /api/workspace/diff/*", () => {
     // a first pairing is a device only once its cookie came back: that return is what saves it
     expect(store.match(watchToken)).not.toBeNull();
     watchCookie = `herdr_web_device=${watchToken}`;
-    server = createServer({ port: 0, stateDir, token: "test-repo-diff", tailscaleOwner: null, machines: false });
+    server = createServer({ port: 0, stateDir, token: "test-repo-diff", machines: false });
     base = `http://127.0.0.1:${server.port}`;
   });
   afterAll(() => { server.stop(); rmSync(stateDir, { recursive: true, force: true }); });

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { access, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, isAbsolute, resolve } from "node:path";
+import { DISTRIBUTION_URL, RUNTIME_TAG_PREFIX } from "../shared/distribution.ts";
 import { REMOTE_BUNDLE_VERSION } from "../shared/machines.ts";
 
 export interface BundleManifest {
@@ -10,14 +11,16 @@ export interface BundleManifest {
 interface BundleSourceOptions { manifest?: string; directory?: string }
 export async function bundleManifestSource(platform: string, options: BundleSourceOptions = {}): Promise<string> {
   if (!/^((linux|darwin)-(x64|arm64)|win32-x64)$/.test(platform)) throw new Error(`Unsupported bundle platform: ${platform}`);
-  const configured = options.manifest ?? process.env["HERDR_WEB_BUNDLE_MANIFEST"];
+  const configured = options.manifest;
   if (configured) return configured;
-  // Development installs can distribute locally built runtimes without publishing
-  // a release. Resolve beside this server, never against its launch directory.
-  const local = join(options.directory ?? join(import.meta.dir, "..", "remote-bundles"), `manifest-${platform}.json`);
+  // The launcher pins the source root across managed releases; gitignored bundles stay there.
+  const sourceRoot = process.env["HERDR_WEB_SOURCE_ROOT"];
+  if (!options.directory && sourceRoot && !isAbsolute(sourceRoot)) throw new Error("HERDR_WEB_SOURCE_ROOT must be absolute");
+  const directory = options.directory ?? join(sourceRoot ? resolve(sourceRoot) : resolve(import.meta.dir, ".."), "remote-bundles");
+  const local = join(directory, `manifest-${platform}.json`);
   try { await access(local); return local; }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  return `https://github.com/devswha/herdr-web-ui/releases/download/remote-v${REMOTE_BUNDLE_VERSION}/manifest.json`;
+  return `${DISTRIBUTION_URL}/releases/download/${RUNTIME_TAG_PREFIX}${REMOTE_BUNDLE_VERSION}/manifest.json`;
 }
 export interface BundleFile { path: string; sha256: string; size: number }
 interface BundleFileOptions extends BundleSourceOptions {
@@ -88,10 +91,13 @@ export async function bundleFile(platform: string, signal: AbortSignal, options:
   const source = await bundleManifestSource(platform, options);
   const https = source.startsWith("https://");
   const manifest: BundleManifest = https
-    ? await fetch(source, { signal }).then(async (r) => { if (!r.ok) throw new Error(`Remote bundle for ${platform} is unavailable (HTTP ${r.status}). On the web server, run bun run build:remote ${platform}, or configure HERDR_WEB_BUNDLE_MANIFEST.`); return r.json() as Promise<BundleManifest>; })
+    ? await fetch(source, { signal }).then(async (r) => { if (!r.ok) throw new Error(`Remote bundle for ${platform} is unavailable (HTTP ${r.status}). On the web server, run bun run build:remote ${platform}.`); return r.json() as Promise<BundleManifest>; })
     : JSON.parse(await readFile(source, { encoding: "utf8", signal }));
   if (manifest.version !== REMOTE_BUNDLE_VERSION) throw new Error("Remote bundle version mismatch");
   const asset = manifest.assets[platform];
+  if ((https || asset?.url.startsWith("https://")) && (!asset || !new URL(asset.url).href.startsWith(`${DISTRIBUTION_URL}/releases/download/${RUNTIME_TAG_PREFIX}${REMOTE_BUNDLE_VERSION}/`))) {
+    throw new Error("Remote bundle asset is outside this fork release");
+  }
   if (!asset || !/^[a-f0-9]{64}$/.test(asset.sha256)) throw new Error(`No verified bundle for ${platform}`);
   let path: string;
   if (asset.url.startsWith("https://")) {

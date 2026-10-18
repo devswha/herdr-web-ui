@@ -3,7 +3,7 @@
  * shows; within a group, roughly in the order it appears. Register: labels and buttons as concise
  * nouns or verbs, sentences in です・ます調. Fixed terms: ペイン, ワークスペース, エージェント,
  * ターミナル, チャット, ペアリング, デバイス, セッション, 入力欄, キー (SSH key; 秘密鍵 for private
- * key), デフォルト (not 既定). Product names (herdr, Tailscale, Codex, Claude Code, GitHub), GitHub
+ * key), デフォルト (not 既定). Product names (herdr, Codex, Claude Code, GitHub), GitHub
  * labels (Star, Issue), acronyms (SSH, CLI, HTTPS, QR) and names like Markdown, Enter, Skill ツール stay
  * in English. Placeholders in braces keep their English names.
  */
@@ -206,8 +206,6 @@ export const JA: Record<string, string> = {
   "Star on GitHub": "GitHub で Star する",
   "Remote PCs": "リモート PC",
   "Connect another PC over an SSH alias or user@host. Its workspaces join the sidebar.": "SSH エイリアスまたは user@host で別の PC を接続します。接続した PC のワークスペースはサイドバーに並びます。",
-  "Update PC bridges automatically": "PC ブリッジを自動更新",
-  "When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.": "アプリの更新で新しいブリッジが必要になった場合、保存済みのキーで接続する PC はバックグラウンドで更新されます。パスワードが必要な PC では先に確認します。",
 
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "コマンドパレット",
@@ -565,10 +563,7 @@ export const JA: Record<string, string> = {
   "These notes could not be shown.": "このノートを表示できませんでした。",
   "Up to date.": "最新の状態です。",
   "Waiting for an update check…": "更新の確認を待っています…",
-  "Checks for new releases every 5 minutes.": "5 分ごとに新しいリリースを確認します。",
-  "Automatic installation is enabled.": "自動インストールが有効です。",
   "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.": "準備ができたらインストールしてください。ブリッジは一時的に再接続しますが、herdr のセッションは実行されたままです。",
-  "Remote PCs' bridges are updated afterwards when the new version needs it.": "新しいバージョンで必要な場合は、続けてリモート PC のブリッジも更新されます。",
   "Check for updates": "更新を確認",
   "Update and restart": "更新して再起動",
   "Running herdr {version}": "herdr {version} を実行中",
@@ -884,7 +879,6 @@ export const JA: Record<string, string> = {
   "Enter all 6 digits of the pairing code.": "ペアリングコードの 6 桁をすべて入力してください。",
   "That code is wrong, used up or expired. Start a new pairing on the PC.": "コードが間違っているか、使用済みか、期限切れです。PC で新しいペアリングを開始してください。",
   "Token does not match.": "トークンが一致しません。",
-  "Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.": "Tailscale によると、このデバイスはこの PC の所有者以外のユーザーのものです。所有者はペアリングコードでアクセスを許可できます。",
   "This server requires an access token or a pairing code.": "このサーバーにはアクセストークンまたはペアリングコードが必要です。",
   "Pair this device with a code from the PC: Settings → Devices there, or the pair command in its terminal.": "PC から取得したコードでこのデバイスをペアリングしてください。コードは PC の 設定 → デバイス、または PC のターミナルの pair コマンドで取得できます。",
   "Pairing code": "ペアリングコード",
@@ -897,7 +891,6 @@ export const JA: Record<string, string> = {
 
   // ---- devices ----
   "You are on the PC itself.": "PC 本体からアクセスしています。",
-  "You are in as this PC's Tailscale login.": "この PC の Tailscale ログインでアクセスしています。",
   "This is a paired device.": "ペアリング済みのデバイスです。",
   "You are in with the access token.": "アクセストークンでアクセスしています。",
   "This browser is in only because nothing is paired yet: from anywhere that can reach this address, so would anyone.": "まだ何もペアリングされていないため、このブラウザーはアクセスできています。このアドレスに到達できる場所からなら、誰でも同様にアクセスできます。",
@@ -932,22 +925,10 @@ export const JA: Record<string, string> = {
   "{n} h ago": "{n} 時間前",
 
   // ---- phone ----
-  "Asking this PC about Tailscale…": "この PC の Tailscale の状態を確認しています…",
-  "Check again": "再確認",
   "Open this address on your phone": "スマートフォンでこのアドレスを開いてください",
-  "Tailscale already serves this PC": "Tailscale はすでにこの PC を公開しています",
   "Once it is open, install the app, then open the ⋯ menu and tap Alerts.": "開いたらアプリをインストールし、⋯ メニューの「通知」をタップしてください。",
-  "In a terminal on this PC, publish the app to your tailnet. Only devices in your tailnet can open the address.": "この PC のターミナルで、アプリを tailnet に公開してください。tailnet 内のデバイスだけがこのアドレスを開けます。",
-  "It will be at {url}.": "アドレスは {url} になります。",
-  "Tailscale is on this PC but not connected. Run tailscale up there, then check again.": "この PC に Tailscale はありますが、接続されていません。そこで tailscale up を実行してから再確認してください。",
-  "Tailscale is the shortest route: install it on this PC, run tailscale up, then check again. An SSH tunnel or your own HTTPS proxy work too.": "Tailscale が最も手軽な方法です。この PC にインストールして tailscale up を実行し、再確認してください。SSH トンネルや独自の HTTPS プロキシも使えます。",
-  "Get Tailscale": "Tailscale を入手",
   "Other routes": "その他の方法",
-  "This PC did not say how it can be reached.": "この PC から接続方法の情報が得られませんでした。",
   "Copy": "コピー",
-  "Your own Tailscale devices get in as you.": "自分の Tailscale デバイスはそのままアクセスできます。",
-  "With an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "アクセストークンを設定している場合は、デバイスごとに一度トークンを求められます。他のユーザーのデバイスや、LAN・パブリックアドレスからのアクセスにはペアリングが必要です。下の「デバイス」を参照してください。",
-  "Access and safety": "アクセスと安全性",
   "A public HTTPS address for this PC through a Portal relay. Anyone on the internet can open it, so it needs an access token.": "Portal リレーを経由する、この PC の公開 HTTPS アドレスです。インターネット上の誰でも開けるため、アクセストークンが必要です。",
   "Portal serves this PC": "Portal がこの PC を公開しています",
   "Open it on your phone and sign in with the access token, or pair the phone: Devices, below.": "スマートフォンで開いてアクセストークンでサインインするか、スマートフォンをペアリングしてください。下の「デバイス」を参照してください。",
@@ -955,7 +936,6 @@ export const JA: Record<string, string> = {
   "Stop": "停止",
   "Stopping…": "停止しています…",
   "Set HERDR_WEB_TOKEN on this PC and restart the app to start Portal.": "Portal を開始するには、この PC で HERDR_WEB_TOKEN を設定してアプリを再起動してください。",
-  "Portal is a second way in: unset HERDR_WEB_TAILSCALE_SERVE_ONLY on this PC and restart the app first.": "Portal はもう一つの入口です。先にこの PC で HERDR_WEB_TAILSCALE_SERVE_ONLY を解除し、アプリを再起動してください。",
   "Portal is not installed on this PC.": "この PC には Portal がインストールされていません。",
   "This PC has Portal {version}; the app needs {min} or later.": "この PC の Portal は {version} です。アプリには {min} 以降が必要です。",
   "Get Portal": "Portal を入手",
@@ -1169,15 +1149,6 @@ export const JA: Record<string, string> = {
   "It is the last tab of {workspace}: the workspace closes with it, and the agents and shells in it stop.": "{workspace} の最後のタブです。ワークスペースも一緒に閉じ、その中のエージェントとシェルが停止します。",
   "Tabs of {workspace}": "{workspace} のタブ",
   "{n} panes": "{n} 個のペイン",
-  "herdr web ui sends anonymous usage counts.": "herdr web ui は匿名の利用集計を送信します。",
-  "What is sent": "送信内容",
-  "Anonymous usage counts": "匿名の利用集計",
-  "Turned off on this PC by HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK or a CI environment.": "この PC では HERDR_WEB_TELEMETRY=0、DO_NOT_TRACK または CI 環境によりオフになっています。",
-  "Send anonymous usage counts": "匿名の利用集計を送る",
-  "Once on install and once per update, with the last browser's app settings, and once a day you open the app, with the kinds of coding agents running in herdr (such as claude or codex). Custom fonts, shortcuts and replies are reported only as customization flags or counts, never their text. Account identifiers, terminal content and files are excluded. The receiver stores the country, not the IP address.": "インストール時に 1 回、更新ごとに 1 回、最後に使用したブラウザーのアプリ設定とともに送信し、アプリを開いた日に 1 回、herdr で動いているコーディングエージェントの種類（claude や codex など）とともに送信します。カスタムフォント、ショートカット、返信は、内容そのものではなく、カスタマイズの有無を示すフラグまたは件数としてのみ報告されます。アカウント識別子、ターミナルの内容、ファイルは含まれません。受信側が保存するのは国であり、IP アドレスではありません。",
-  "Once a day you open the app:": "アプリを開いた日に 1 回:",
-  "The receiver adds the country this message comes from (two letters, such as KR). It does not store the address.": "受信側が、このメッセージの送信元の国（KR のような 2 文字）を付け加えます。アドレスは保存しません。",
-  "This version has already been counted. The next event is sent after an update.": "このバージョンは集計済みです。次の送信は更新の後です。",
   "Agent integrations": "エージェント連携",
   "This PC's bridge does not offer agent integrations yet. It will after its next runtime update.": "この PC のブリッジはまだエージェント連携に対応していません。次のランタイム更新後に利用できます。",
   "herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.": "herdr の連携があると、再起動後に各エージェントのセッションを再開できます。このページは状態を読むだけです。herdr が動いている PC のターミナルでコマンドを実行してから、このページを開き直してください。",
@@ -1365,4 +1336,5 @@ export const JA: Record<string, string> = {
   "Conversation turns": "会話のターン",
   "Go to turn {n}": "ターン {n} へ移動",
   "Show full message": "メッセージ全体を表示",
+  "Use your own HTTPS reverse proxy or an SSH tunnel, then pair this device.": "自分で設定した HTTPS リバースプロキシまたは SSH トンネルを使い、このデバイスをペアリングしてください。",
 };

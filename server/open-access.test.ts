@@ -9,7 +9,7 @@ import { forgetAuthAttempts } from "./auth.ts";
 
 /**
  * The access gate at the HTTP seam: what this PC needs to reach, and what a watching
- * device does not. `decideAccess` itself (loopback, Tailscale, token, device, open mode)
+ * device does not. `decideAccess` itself (loopback, token, device, open mode)
  * is covered in server/access.test.ts, and pairing initiation in server/devices.test.ts.
  */
 

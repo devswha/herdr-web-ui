@@ -102,7 +102,7 @@ try {
             await openSettingsPage(page, label(name), label("Back to settings"));
             // what a page asks the server for (devices, the phone address, the accounts) has arrived
             await page.waitForFunction((loading) => ![...document.querySelectorAll(".settings-body [role='status']")].some((node) => loading.includes(node.textContent?.trim() ?? "")),
-              [label("Loading…"), label("Asking this PC about Tailscale…")]);
+              [label("Loading…")]);
             if (name === "Subscription usage") await page.locator(".usage-accounts-row").first().waitFor();
             if (name === "Voice input") {
               await page.locator(".voice-key").waitFor();

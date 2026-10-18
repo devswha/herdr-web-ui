@@ -21,7 +21,7 @@ import type { SshConnection } from "./ssh.ts";
 import { psQuote } from "./powershell.ts";
 
 export const REMOTE_PATH = 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
-export const BUNDLE_DIR = `.local/share/herdr-web-ui/remote-v${REMOTE_BUNDLE_VERSION}`;
+export const BUNDLE_DIR = `.local/share/herdr-web-ui/fork-remote-v${REMOTE_BUNDLE_VERSION}`;
 /** the Windows runtime directory, under %LOCALAPPDATA%; `$base` in the scripts below */
 export const WINDOWS_BUNDLE_BASE = "$env:LOCALAPPDATA\\herdr-web-ui";
 export const UNSUPPORTED_HOST = "Only Linux, macOS (x64 or arm64) and Windows (x64) PCs are supported.";
@@ -62,7 +62,7 @@ export interface HostInspection {
   registryDir: string;
 }
 export interface StartOptions { session?: string; herdrPath: string; inspection: HostInspection }
-export interface InstallOptions { cacheDir?: string; onProgress?(stage: InstallStage, done: number, total: number | null): void }
+export interface InstallOptions { manifest?: string; cacheDir?: string; onProgress?(stage: InstallStage, done: number, total: number | null): void }
 
 export interface RemoteHost {
   readonly kind: "posix" | "windows";
@@ -88,7 +88,7 @@ function parseDescriptors(lines: string[]): BridgeDescriptor[] {
 /** sha256 asset upload, both-sides verification, extraction, atomic activation: shared by both hosts. */
 async function fetchBundle(platform: string, signal: AbortSignal, options: InstallOptions) {
   const report = options.onProgress ?? (() => {});
-  const asset = await bundleFile(platform, signal, { cacheDir: options.cacheDir, onProgress: (done, total) => report("download", done, total) });
+  const asset = await bundleFile(platform, signal, { manifest: options.manifest, cacheDir: options.cacheDir, onProgress: (done, total) => report("download", done, total) });
   report("upload", 0, asset.size);
   return { asset, input: { path: asset.path, onProgress: (done: number) => report("upload", done, asset.size), onUploaded: () => report("install", 0, null) } };
 }
@@ -98,7 +98,7 @@ export const posixHost: RemoteHost = {
   bundleDescription: "Private web bridge bundle (Bun, Node and node-pty; no build tools needed)",
   logHint: "~/.config/herdr-web-ui/bridges/bridge.log",
   async inspect(ssh, session) {
-    const inspection = await ssh.run(REMOTE_PATH + `printf '%s\\n' "$(uname -s)" "$(uname -m)" "$(cd -P "$HOME" && pwd -P)" "\${XDG_CONFIG_HOME:-$HOME/.config}" "$(command -v herdr || true)"; test -x "$HOME/${BUNDLE_DIR}/bin/bun" && printf 'bundle-ready\\n' || true; for d in "$HOME/.local/share/herdr-web-ui/remote-v"*; do if test -x "$d/bin/bun"; then printf 'bundle-older\\n'; break; fi; done; for f in "$HOME/.config/herdr-web-ui/bridges/"*.json; do test ! -f "$f" || cat "$f"; printf '\\n'; done`);
+    const inspection = await ssh.run(REMOTE_PATH + `printf '%s\\n' "$(uname -s)" "$(uname -m)" "$(cd -P "$HOME" && pwd -P)" "\${XDG_CONFIG_HOME:-$HOME/.config}" "$(command -v herdr || true)"; test -x "$HOME/${BUNDLE_DIR}/bin/bun" && printf 'bundle-ready\\n' || true; for d in "$HOME/.local/share/herdr-web-ui/fork-remote-v"*; do if test -x "$d/bin/bun"; then printf 'bundle-older\\n'; break; fi; done; for f in "$HOME/.config/herdr-web-ui/bridges/"*.json; do test ! -f "$f" || cat "$f"; printf '\\n'; done`);
     const [os, arch, home, xdgConfig, herdrPath, ...lines] = inspection.split("\n");
     if (!["Linux", "Darwin"].includes(os ?? "") || !["x86_64", "aarch64", "arm64"].includes(arch ?? "")) throw new Error(UNSUPPORTED_HOST);
     if (!home?.startsWith("/")) throw new Error("The SSH account's home directory ($HOME) could not be read on this PC");
@@ -151,7 +151,7 @@ export function windowsBridgeFiles(session?: string): { log: string; launcher: s
   return { log: `bridge${suffix}.log`, launcher: `start-bridge${suffix}.cmd` };
 }
 
-const WINDOWS_BUNDLE = `${WINDOWS_BUNDLE_BASE}\\remote-v${REMOTE_BUNDLE_VERSION}`;
+const WINDOWS_BUNDLE = `${WINDOWS_BUNDLE_BASE}\\fork-remote-v${REMOTE_BUNDLE_VERSION}`;
 const WINDOWS_REGISTRY = "$env:USERPROFILE\\.config\\herdr-web-ui\\bridges";
 // a script's exit code follows its last statement: a listing of a registry not there yet must
 // not count as a failure, so the directory is checked first
@@ -170,7 +170,7 @@ export const windowsHost: RemoteHost = {
       "if (-not (Test-Path $herdr)) { $herdr = (Get-Command herdr.exe -ErrorAction SilentlyContinue).Source }",
       "Write-Output 'Windows'; Write-Output $env:PROCESSOR_ARCHITECTURE; Write-Output $env:USERPROFILE; Write-Output $env:APPDATA; if ($env:XDG_CONFIG_HOME) { Write-Output $env:XDG_CONFIG_HOME } else { Write-Output '' }; Write-Output $env:LOCALAPPDATA; Write-Output \"$herdr\"",
       `if (Test-Path "${WINDOWS_BUNDLE}\\bin\\bun.exe") { Write-Output 'bundle-ready' }`,
-      `if (Get-ChildItem "${WINDOWS_BUNDLE_BASE}" -Directory -Filter 'remote-v*' -ErrorAction SilentlyContinue | Where-Object { Test-Path "$($_.FullName)\\bin\\bun.exe" }) { Write-Output 'bundle-older' }`,
+      `if (Get-ChildItem "${WINDOWS_BUNDLE_BASE}" -Directory -Filter 'fork-remote-v*' -ErrorAction SilentlyContinue | Where-Object { Test-Path "$($_.FullName)\\bin\\bun.exe" }) { Write-Output 'bundle-older' }`,
       WINDOWS_DESCRIPTORS,
     ].join("\n"));
     const [os, arch, home, appData, xdgConfigHome, localAppData, herdrPath, ...lines] = inspection.split("\n");
@@ -187,7 +187,7 @@ export const windowsHost: RemoteHost = {
       expectedSocket: session ? win32.join(herdrDir, "sessions", session, "herdr.sock") : win32.join(herdrDir, "herdr.sock"),
       bundleReady: lines.includes("bundle-ready"), bundleOlder: lines.includes("bundle-older"),
       descriptors: parseDescriptors(lines),
-      runtimeDir: `${localAppData}\\herdr-web-ui\\remote-v${REMOTE_BUNDLE_VERSION}`, registryDir: `${home}\\.config\\herdr-web-ui\\bridges`,
+      runtimeDir: `${localAppData}\\herdr-web-ui\\fork-remote-v${REMOTE_BUNDLE_VERSION}`, registryDir: `${home}\\.config\\herdr-web-ui\\bridges`,
     };
   },
   herdrVersion: (ssh, herdrPath) => ssh.runPowerShell(`& ${psQuote(herdrPath)} --version`),
@@ -213,7 +213,7 @@ export const windowsHost: RemoteHost = {
     const base = (await ssh.runPowerShell(`Write-Output "${WINDOWS_BUNDLE_BASE}"`)).trim();
     if (!/^[A-Za-z]:\\/.test(base)) throw new Error("%LOCALAPPDATA% could not be read on this PC");
     // the same shape as the POSIX install: verify here and there, stage, then swap the
-    // `remote-vN` junction (no privilege needed, unlike a symlink). The upload is its own
+    // `fork-remote-vN` junction (no privilege needed, unlike a symlink). The upload is its own
     // step (sftp, see SshConnection.upload), so the lock is taken around it by hand.
     const stage = `${base}\\install.${process.pid}`;
     await ssh.runPowerShell([

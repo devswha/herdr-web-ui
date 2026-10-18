@@ -10,7 +10,6 @@ import { DEVICE_COOKIE } from "../server/auth.ts";
 import { createServer, type ServerInstance } from "../server/index.ts";
 import { PortalService } from "../server/portal.ts";
 import { UsageService } from "../server/usage.ts";
-import type { RemoteAccess } from "../shared/protocol.ts";
 import { openSettingsPage } from "./settings-page.ts";
 
 const dist = join(import.meta.dir, "..", "dist", "index.html");
@@ -28,13 +27,6 @@ const relayFetch: typeof fetch = async (input) => {
   if (url === "https://unavailable.relay.example/sdk/domain") return new Response(null, { status: 503 });
   if (url !== "https://relay.example/sdk/domain") throw new Error(`Unexpected Portal fixture request: ${url}`);
   return Response.json({ data: { release_version: "v2.6.1" } });
-};
-const remoteAccess = {
-  port: 443,
-  tailscale: { state: "missing", dns_name: null, serving_url: null, serve_command: null, serve_url: null },
-} satisfies RemoteAccess;
-const portalFetchPage = async (context: BrowserContext): Promise<void> => {
-  await context.route("**/api/access", (route) => route.fulfill({ json: remoteAccess }));
 };
 const openPhoneSettings = async (page: Page): Promise<void> => {
   await page.keyboard.press("ControlOrMeta+Shift+Comma");
@@ -83,8 +75,6 @@ try {
     hostname: "127.0.0.1",
     stateDir,
     token,
-    tailscaleOwner: null,
-    tailscaleServeOnly: false,
     portal,
     usage: new UsageService(undefined, []),
     registerBridge: false,
@@ -96,7 +86,6 @@ try {
   const ownerContext = await browser.newContext({ viewport: { width: 1100, height: 800 }, locale: "en-US" });
   contexts.push(ownerContext);
   await ownerContext.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
-  await portalFetchPage(ownerContext);
   const ownerPage = await ownerContext.newPage();
   ownerPage.setDefaultTimeout(10_000);
   const pageErrors: string[] = [];
@@ -129,7 +118,6 @@ try {
   contexts.push(watchContext);
   await watchContext.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
   await watchContext.addCookies([{ name: DEVICE_COOKIE, value: watchToken, url: origin, httpOnly: true, sameSite: "Strict" }]);
-  await portalFetchPage(watchContext);
   const watchPage = await watchContext.newPage();
   watchPage.setDefaultTimeout(10_000);
   watchPage.on("pageerror", (error) => pageErrors.push(error.message));
@@ -187,8 +175,6 @@ try {
     hostname: "127.0.0.1",
     stateDir: blockedState,
     token: "",
-    tailscaleOwner: null,
-    tailscaleServeOnly: false,
     portal: blockedPortal,
     usage: new UsageService(undefined, []),
     registerBridge: false,
@@ -197,7 +183,6 @@ try {
   const blockedContext = await browser.newContext({ viewport: { width: 1100, height: 800 }, locale: "en-US" });
   contexts.push(blockedContext);
   await blockedContext.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" })));
-  await portalFetchPage(blockedContext);
   const blockedPage = await blockedContext.newPage();
   blockedPage.setDefaultTimeout(10_000);
   blockedPage.on("pageerror", (error) => pageErrors.push(error.message));

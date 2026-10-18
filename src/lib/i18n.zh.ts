@@ -6,7 +6,7 @@
  * terms: 窗格 (pane; 面板 only in 命令面板), 工作区 (workspace), 终端 (terminal), 聊天 (chat),
  * 配对 (pairing), 设备 (device), 会话 (session), 输入框 (composer). Terms Chinese developers read
  * in English stay English: Agent, Token, Skill, Star, bridge, Issue, CLI, SSH, Markdown, Shell;
- * product names (herdr, Tailscale, Codex, Claude Code, GitHub) and key caps stay as they are.
+ * product names (herdr, Codex, Claude Code, GitHub) and key caps stay as they are.
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
@@ -208,8 +208,6 @@ export const ZH: Record<string, string> = {
   "Star on GitHub": "在 GitHub 上点 Star",
   "Remote PCs": "远程 PC",
   "Connect another PC over an SSH alias or user@host. Its workspaces join the sidebar.": "通过 SSH 别名或 user@host 连接另一台 PC。连接后，它的工作区会显示在侧栏中。",
-  "Update PC bridges automatically": "自动更新 PC 的 bridge",
-  "When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.": "当应用更新需要更新的 bridge 时，使用已保存密钥连接的 PC 会在后台更新。需要密码的 PC 会先询问。",
 
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "命令面板",
@@ -567,10 +565,7 @@ export const ZH: Record<string, string> = {
   "These notes could not be shown.": "无法显示这些说明。",
   "Up to date.": "已是最新版本。",
   "Waiting for an update check…": "正在等待检查更新…",
-  "Checks for new releases every 5 minutes.": "每 5 分钟检查一次新版本。",
-  "Automatic installation is enabled.": "已启用自动安装。",
   "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.": "准备好后即可安装。bridge 会短暂重连，herdr 会话会继续运行。",
-  "Remote PCs' bridges are updated afterwards when the new version needs it.": "如新版本需要，远程 PC 的 bridge 随后也会更新。",
   "Check for updates": "检查更新",
   "Update and restart": "更新并重启",
   "Running herdr {version}": "正在运行 herdr {version}",
@@ -886,7 +881,6 @@ export const ZH: Record<string, string> = {
   "Enter all 6 digits of the pairing code.": "请输入配对码的全部 6 位数字。",
   "That code is wrong, used up or expired. Start a new pairing on the PC.": "该代码错误、已使用或已过期。请在 PC 上开始新的配对。",
   "Token does not match.": "Token 不匹配。",
-  "Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.": "Tailscale 显示此设备属于此 PC 所有者以外的其他人。所有者仍可通过配对码让其访问。",
   "This server requires an access token or a pairing code.": "此服务器需要访问 Token 或配对码。",
   "Pair this device with a code from the PC: Settings → Devices there, or the pair command in its terminal.": "使用 PC 提供的代码配对此设备：在 PC 的“设置 → 设备”中获取，或在其终端中运行 pair 命令。",
   "Pairing code": "配对码",
@@ -899,7 +893,6 @@ export const ZH: Record<string, string> = {
 
   // ---- devices ----
   "You are on the PC itself.": "你正在 PC 本机上访问。",
-  "You are in as this PC's Tailscale login.": "你已通过此 PC 的 Tailscale 登录身份访问。",
   "This is a paired device.": "这是已配对的设备。",
   "You are in with the access token.": "你已通过访问 Token 访问。",
   "This browser is in only because nothing is paired yet: from anywhere that can reach this address, so would anyone.": "此浏览器能够访问，仅因为尚未配对任何设备：任何能访问此地址的人都同样可以进入。",
@@ -934,22 +927,10 @@ export const ZH: Record<string, string> = {
   "{n} h ago": "{n} 小时前",
 
   // ---- phone ----
-  "Asking this PC about Tailscale…": "正在查询此 PC 的 Tailscale 状态…",
-  "Check again": "重新检查",
   "Open this address on your phone": "在手机上打开此地址",
-  "Tailscale already serves this PC": "Tailscale 已在为此 PC 提供服务",
   "Once it is open, install the app, then open the ⋯ menu and tap Alerts.": "打开后安装应用，然后在 ⋯ 菜单中点按“提醒”。",
-  "In a terminal on this PC, publish the app to your tailnet. Only devices in your tailnet can open the address.": "在此 PC 的终端中将应用发布到你的 tailnet。只有 tailnet 中的设备才能打开此地址。",
-  "It will be at {url}.": "地址为 {url}。",
-  "Tailscale is on this PC but not connected. Run tailscale up there, then check again.": "此 PC 已安装 Tailscale 但未连接。请在该 PC 上运行 tailscale up，然后重新检查。",
-  "Tailscale is the shortest route: install it on this PC, run tailscale up, then check again. An SSH tunnel or your own HTTPS proxy work too.": "Tailscale 是最简便的方式：在此 PC 上安装，运行 tailscale up，然后重新检查。也可以使用 SSH 隧道或自己的 HTTPS 代理。",
-  "Get Tailscale": "获取 Tailscale",
   "Other routes": "其他方式",
-  "This PC did not say how it can be reached.": "此 PC 未提供访问方式。",
   "Copy": "复制",
-  "Your own Tailscale devices get in as you.": "你自己的 Tailscale 设备会直接进入。",
-  "With an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "如果设置了访问令牌，每台设备会询问一次令牌。其他人的设备，或通过局域网或公网地址访问，则需要配对：请见下方“设备”。",
-  "Access and safety": "访问与安全",
   "A public HTTPS address for this PC through a Portal relay. Anyone on the internet can open it, so it needs an access token.": "经由 Portal 中继为此 PC 提供的公开 HTTPS 地址。互联网上任何人都能打开它，因此需要访问令牌。",
   "Portal serves this PC": "Portal 正在为此 PC 提供服务",
   "Open it on your phone and sign in with the access token, or pair the phone: Devices, below.": "在手机上打开它并用访问令牌登录，或配对手机：请见下方“设备”。",
@@ -957,7 +938,6 @@ export const ZH: Record<string, string> = {
   "Stop": "停止",
   "Stopping…": "正在停止…",
   "Set HERDR_WEB_TOKEN on this PC and restart the app to start Portal.": "要启动 Portal，请在此 PC 上设置 HERDR_WEB_TOKEN 并重启应用。",
-  "Portal is a second way in: unset HERDR_WEB_TAILSCALE_SERVE_ONLY on this PC and restart the app first.": "Portal 是另一条访问途径：请先在此 PC 上取消 HERDR_WEB_TAILSCALE_SERVE_ONLY 并重启应用。",
   "Portal is not installed on this PC.": "此 PC 未安装 Portal。",
   "This PC has Portal {version}; the app needs {min} or later.": "此 PC 上的 Portal 是 {version}；应用需要 {min} 或更高版本。",
   "Get Portal": "获取 Portal",
@@ -1171,15 +1151,6 @@ export const ZH: Record<string, string> = {
   "It is the last tab of {workspace}: the workspace closes with it, and the agents and shells in it stop.": "这是 {workspace} 的最后一个标签页：工作区会随之关闭，其中的代理和 shell 会停止。",
   "Tabs of {workspace}": "{workspace} 的标签页",
   "{n} panes": "{n} 个窗格",
-  "herdr web ui sends anonymous usage counts.": "herdr web ui 会匿名发送使用统计。",
-  "What is sent": "发送的内容",
-  "Anonymous usage counts": "匿名使用统计",
-  "Turned off on this PC by HERDR_WEB_TELEMETRY=0, DO_NOT_TRACK or a CI environment.": "此电脑因 HERDR_WEB_TELEMETRY=0、DO_NOT_TRACK 或 CI 环境而已关闭。",
-  "Send anonymous usage counts": "发送匿名使用统计",
-  "Once on install and once per update, with the last browser's app settings, and once a day you open the app, with the kinds of coding agents running in herdr (such as claude or codex). Custom fonts, shortcuts and replies are reported only as customization flags or counts, never their text. Account identifiers, terminal content and files are excluded. The receiver stores the country, not the IP address.": "应用安装时发送一次，每次更新发送一次，并附带最后使用的浏览器中的应用设置；在你打开应用的每一天再发送一次，并附带 herdr 中正在运行的编码代理类型（例如 claude 或 codex）。自定义字体、快捷键和快捷回复仅以自定义标记或数量的形式上报，不会上报其文本。账户标识符、终端内容和文件均不包含在内。接收端保存国家/地区，而非 IP 地址。",
-  "Once a day you open the app:": "在你打开应用的每一天发送一次：",
-  "The receiver adds the country this message comes from (two letters, such as KR). It does not store the address.": "接收端会附加这条消息来自的国家（两个字母，例如 KR）。不保存地址。",
-  "This version has already been counted. The next event is sent after an update.": "此版本已统计。下一次发送在更新之后。",
   "Agent integrations": "代理集成",
   "This PC's bridge does not offer agent integrations yet. It will after its next runtime update.": "这台 PC 的桥接服务暂不提供代理集成。下次运行时更新后即可使用。",
   "herdr's integrations let it resume each agent's session after a restart. This page only reads them: run a command in a terminal on the PC herdr runs on, then reopen this page.": "有了 herdr 集成，重启后可以恢复每个代理的会话。此页面只读取状态：请在运行 herdr 的 PC 的终端中执行命令，然后重新打开此页面。",
@@ -1367,4 +1338,5 @@ export const ZH: Record<string, string> = {
   "Conversation turns": "对话轮次",
   "Go to turn {n}": "跳到第 {n} 轮",
   "Show full message": "显示完整消息",
+  "Use your own HTTPS reverse proxy or an SSH tunnel, then pair this device.": "请使用自行配置的 HTTPS 反向代理或 SSH 隧道，然后配对此设备。",
 };

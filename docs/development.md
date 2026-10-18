@@ -381,7 +381,8 @@ bun scripts/film/render.ts check                # acceptance frame grabs, sizes,
 
 ## Website
 
-<https://herdrweb.dev/> is `site/index.html`, a static page with desktop and phone
+The optional fork Pages location is <https://tomrutsaert.github.io/herdr-web-ui/>; publishing
+requires GitHub Pages to be enabled separately. `site/index.html` is the static site source, a static page with desktop and phone
 demos, a screenshot gallery, supported agents, phone setup and a comparison table. `site/zh/index.html`
 is the same page in Simplified Chinese at `/zh/`, linked from the header; a change to one page belongs in
 the other. `bun run build:site`
@@ -409,7 +410,7 @@ history while the Website workflow waits for its successful completion.
 
 ### The browser demo
 
-<https://herdrweb.dev/demo/> is the real client on a fictional session, no server.
+The local demo is the real client on a fictional session, no server.
 `build-site.ts` builds the client a second time with `vite build --base ./` into `_site/demo/app/`,
 bundles `site/demo/transport.ts` in front of it and frames it with `site/demo/index.html`. The
 transport answers the app's `fetch("/api/…")`, the machines event stream and the `/ws` terminal
@@ -438,15 +439,13 @@ after changing the staged session. Files, images, push and remote PCs are not pa
    English lists under New features, Improvements and Bug fixes, then the version's whole
    changelog section folded under **Full changelog**.
    When the release guards (below) say so, the same PR raises `REMOTE_BUNDLE_VERSION` in
-   `shared/machines.ts`, and after deploying the telemetry Worker
-   ([telemetry/README.md](../telemetry/README.md#deploy)) commits `telemetry/deployed.json` written by
-   `bun scripts/release-guards.ts --worker-deployed`.
+   `shared/machines.ts`.
 2. Merge it after CI passes.
-3. If it raised `REMOTE_BUNDLE_VERSION` to N, push the tag `remote-vN` on the merged commit and wait
+3. If it raised `REMOTE_BUNDLE_VERSION` to N, push the tag `fork-remote-vN` on the merged commit and wait
    for the **Remote PC bundles** workflow to publish it ([remote PCs](remote-pcs.md)). Merge nothing
    that touches `server/`, `shared/`, `bun.lock` or `patches/` until the Release run is done: the
    Release run would then ask for a follow-up PR that raises the number again and a new tag.
-4. Run **Actions → Release → Run workflow**, select `main`, and enter `X.Y.Z` without `v`.
+4. Run **Actions → Release → Run workflow**, select `main`, and enter `X.Y.Z` without the `fork-v` prefix.
    The CLI equivalent is `gh workflow run release.yml --ref main -f version=X.Y.Z`.
 
 The workflow validates metadata, then runs the same unit, integration and browser checks
@@ -457,14 +456,12 @@ visible to them even without a GitHub release. Existing tags cannot be reused; f
 published version with a new patch release. If publishing fails after a tag was created,
 verify that tag's commit and repair its GitHub release rather than moving the tag.
 
-Remote-PC runtime bundles are published by a `remote-vN` tag, and an app release requires the bundle
+Remote-PC runtime bundles are published by a `fork-remote-vN` tag, and an app release requires the bundle
 that matches its server (step 3). See [remote PCs](remote-pcs.md).
 
 `scripts/release-guards.ts` fails a release PR (CI's Fast checks) and the Release run when the bundle's
-inputs changed since the published `remote-vN` without a raised `REMOTE_BUNDLE_VERSION`, when the raised
-one is not published yet (Release only), when `telemetry/worker.ts` or `shared/telemetry.ts` changed
-since the deploy recorded in `telemetry/deployed.json` ([telemetry/README.md](../telemetry/README.md#deploy)),
-or when the step 1 metadata is incomplete. In CI only the change that bumps the version is checked;
+inputs changed since the published `fork-remote-vN` without a raised `REMOTE_BUNDLE_VERSION`, when the raised
+one is not published yet (Release only), or when the step 1 metadata is incomplete. In CI only the change that bumps the version is checked;
 PRs merged before the Release run pass, and the Release run checks the whole tree again.
 
 ## Pull requests and CI
@@ -639,7 +636,7 @@ to integration; everything else belongs to unit. Name new live-server tests
 `*.contract.test.ts`. Plain `bun test` still runs both suites for local development.
 
 Remote/server/shared/dependency changes also run the existing four-platform bundle and
-SSH workflow on PRs; its publishing job only runs for `remote-v*` tags. Website publishing
+SSH workflow on PRs; its publishing job only runs for `fork-remote-v*` tags. Website publishing
 continues after `main` pushes.
 
 Repository protection should require PRs and all three checks on `main`—**Fast checks**,

@@ -284,7 +284,7 @@ unrelated IME issue without matching the event sequence.
 #### Earlier synthetic check
 
 On 2026-10-03, Safari 26.2 on an EA MacBook Air (macOS 26.2), reached through an SSH tunnel
-inside Tailscale, passed Unicode text entry, draft reload, direct/line mode switching and the
+over a private connection, passed Unicode text entry, draft reload, direct/line mode switching and the
 batched composition regression (`["니", "다", "."]`). The Safari WebDriver session used an
 owned test workspace and was deleted afterward. These checks use WebDriver text entry and
 synthetic composition events; they do not certify a physical Korean IME or an iOS keyboard.

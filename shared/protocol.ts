@@ -41,7 +41,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
 
 /** Machine API (same token gate; mutations require X-Herdr-Machine: 1 + same origin)
  * GET /api/health?scope=bridge -> BridgeHealth, never waits for herdr
- * GET /api/bridge -> authenticated BridgeIdentity (socket + runtime compatibility)
+ * GET /api/bridge -> authenticated BridgeIdentity (fork distribution + socket + runtime compatibility)
  * GET /api/machines -> { machines: Machine[] }; GET /api/machines/events -> MachineEvent SSE
  * Machine action_required=connect: a saved herdr PC awaits explicit POST /api/machines/setup before SSH.
  * Connection permission survives successful setup; installation/startup approval remains separate.
@@ -59,12 +59,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
- *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
- *         Tailscale on this PC already serves, or the command to run), no-store
  *  GET    /api/portal                    -> PortalStatus (an optional public HTTPS address through
  *         Portal, server/portal.ts), no-store
  *  POST   /api/portal/start              -> 202 { accepted: true }; body { relay }; 400 invalid_relay,
- *         409 token_required / serve_only / portal_busy / portal_state_in_use / portal_unsupported
+ *         409 token_required / portal_busy / portal_state_in_use / portal_unsupported
  *  POST   /api/portal/stop               -> 202 { accepted: true }; 409 portal_unsupported
  *         Portal POSTs require X-Herdr-Update: 1 and same-origin, like the update POSTs:
  *         403 invalid_portal_request (or invalid_origin from the outer origin gate).
@@ -76,11 +74,6 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/updates/install           -> 202 { accepted: true }
  *         Update POSTs require X-Herdr-Update: 1, same-origin browser requests,
  *         and the usual token gate. Managed starts only; status is polled during restart.
- *  GET    /api/telemetry                 -> TelemetryStatus (shared/telemetry.ts), no-store
- *  POST   /api/telemetry                 -> TelemetryStatus; TelemetryChange (shared/telemetry.ts):
- *         { enabled?, notice_seen?: true, notice_version?, settings? }. A notice acknowledgement
- *         requires the current NOTICE_VERSION. X-Herdr-Update: 1 and same-origin.
- *         404 from a server that sends no telemetry.
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
  *         each with `installed`: whether its command is on this server's PATH; for the
@@ -235,16 +228,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/usage[?refresh=1]         -> UsageReport (plan limits of the AI subscriptions signed in on this PC)
  *  Errors: non-2xx with { error: { code, message } }
  *
- *  Access: every route above except /api/health, /api/auth and /api/devices/pair, plus the
- *  /ws upgrade, needs the request to be one of: from this PC itself (no proxy in front);
- *  the PC's own Tailscale login, as `tailscale serve` states it — or, where
- *  HERDR_WEB_TAILSCALE_SERVE_ONLY=1 declares serve the only ingress on a tailnet one login
- *  owns with no tagged node, a serve request that states no login; a paired device's cookie;
- *  the shared token (HERDR_WEB_TOKEN) as cookie or `Authorization: Bearer <token>`. With a
- *  token configured, only the last two count, this PC and its Tailscale login included. Without one, and while no
- *  device is paired, anything that reaches the server is let in as before (the startup
- *  warning says so). Refusals answer 401 `unauthorized` (403 `other_user` for another Tailscale
- *  login, when no token is configured); the upgrade is refused. Static files are always public.
+ *  Access: APIs and /ws require local loopback without proxy evidence, a valid token or a
+ *  paired device. With a token configured, even local clients need credentials. Forwarded or
+ *  foreign-host loopback requests always require credentials. Direct non-loopback access is
+ *  open only until a token is configured or a device is paired. Static files stay public.
  */
 export interface ApiError {
   error: { code: string; message: string };
@@ -342,9 +329,9 @@ export interface CLIProxyLoginStatus {
 }
 
 /** How a request got in, when it did. */
-export type AccessVia = "local" | "tailscale" | "device" | "token" | "open";
+export type AccessVia = "local" | "device" | "token" | "open";
 /** Why a request did not. */
-export type AccessRefusal = "other_user" | "pairing_required" | "token_required";
+export type AccessRefusal = "pairing_required" | "token_required";
 /** What a paired device may do: drive (type, answer, manage) or only watch. */
 export type DeviceRole = "drive" | "watch";
 
@@ -389,27 +376,6 @@ export interface PairingCode {
   readonly expires_at: string;
 }
 
-/** GET /api/access: how a phone can reach this server, as far as the server can tell (Settings → Phone). */
-export interface RemoteAccess {
-  /** the port this server listens on; the tailscale command names it */
-  readonly port: number;
-  readonly tailscale: TailscaleAccess;
-}
-
-/** Read from `tailscale status --json` and `tailscale serve status --json`, never by changing anything. */
-export interface TailscaleAccess {
-  /** missing: no tailscale CLI on this PC; stopped: the CLI is there but the daemon is not running or not logged in */
-  readonly state: "missing" | "stopped" | "running";
-  /** this PC's MagicDNS name, without the trailing dot */
-  readonly dns_name: string | null;
-  /** the HTTPS address Tailscale already proxies to this server, when there is one */
-  readonly serving_url: string | null;
-  /** otherwise, the command that publishes it on the lowest free of the usual HTTPS ports ... */
-  readonly serve_command: string | null;
-  /** ... and the address that command gives, when the DNS name is known */
-  readonly serve_url: string | null;
-}
-
 /**
  * GET /api/portal: a public HTTPS address for this server through the Portal on its PC
  * (gosuda/portal-tunnel), which the app starts and stops (Settings → Phone & devices).
@@ -428,8 +394,8 @@ export interface PortalStatus {
   readonly relay: string | null;
   /** the public address while it runs, without the default port */
   readonly url: string | null;
-  /** why a start would be refused now: no token set, or tailscale serve declared the only way in */
-  readonly blocked: "token_required" | "serve_only" | null;
+  /** why a start would be refused now: no token set */
+  readonly blocked: "token_required" | null;
   /** what went wrong last; null after a success */
   readonly error: string | null;
   /** the tail of what Portal printed, for when the error alone does not say enough */

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { BUNDLE_WORKFLOW, bundleInput, bundleProblems, check, DEPLOYED_FILE, WORKER_SOURCES, workerFingerprint, workerProblems } from "./release-guards.ts";
+import { BUNDLE_WORKFLOW, bundleInput, bundleProblems, check } from "./release-guards.ts";
 
 const made: string[] = [];
 /** a throwaway identity, unsigned whatever the user's git config says */
@@ -28,23 +28,13 @@ describe("bundleProblems", () => {
   });
 
   it("fails the Release run until the raised bundle is published, and a number below a published one", () => {
-    expect(bundleProblems({ version: 28, published: [27], changed: null, publishing: true })[0]).toContain("Push the tag remote-v28");
+    expect(bundleProblems({ version: 28, published: [27], changed: null, publishing: true })[0]).toContain("Push the tag fork-remote-v28");
     expect(bundleProblems({ version: 26, published: [27], changed: [], publishing: false })[0]).toContain("raise it to 28");
   });
 
   it("counts what the bundle runs, not its tests, docs or fixtures", () => {
     expect(["server/index.ts", "shared/machines.ts", "bun.lock", "patches/x.patch", "scripts/build-remote-bundle.ts"].every(bundleInput)).toBe(true);
     expect(["server/index.test.ts", "server/AGENTS.md", "server/fixtures/a.json", "src/App.tsx", "serverless.ts", "scripts/release-notes.ts"].some(bundleInput)).toBe(false);
-  });
-});
-
-describe("workerProblems", () => {
-  it("passes the recorded deploy and tells how to deploy and record any other source", () => {
-    const current = workerFingerprint(["worker", "schema"]);
-    expect(workerProblems(current, current)).toEqual([]);
-    expect(workerFingerprint(["worker", "schema\r\n"])).toBe(workerFingerprint(["worker", "schema\n"]));
-    expect(workerProblems(workerFingerprint(["worker", "schema with attachLimit"]), current)[0]).toContain("bun scripts/release-guards.ts --worker-deployed");
-    expect(workerProblems(current, undefined)).toHaveLength(1);
   });
 });
 
@@ -63,14 +53,12 @@ describe("check", () => {
       "CHANGELOG.md": `## [Unreleased]\n\n## [${version}]\n\n- Fixed.\n`,
       "release-summaries.json": JSON.stringify({ [version]: Object.fromEntries(["en", "ko", "ja", "zh"].map((language) => [language, { fixed: ["Fixed."] }])) }),
     });
-    const worker = { "telemetry/worker.ts": "worker", "shared/telemetry.ts": "schema" };
-    write({ ...metadata("1.0.0"), ...worker, "shared/machines.ts": 'export const REMOTE_BUNDLE_VERSION = "1";\n', "server/index.ts": "a", "src/App.tsx": "a",
-      [DEPLOYED_FILE]: JSON.stringify({ sha256: workerFingerprint(WORKER_SOURCES.map((path) => worker[path as keyof typeof worker])) }) });
+    write({ ...metadata("1.0.0"), "shared/machines.ts": 'export const REMOTE_BUNDLE_VERSION = "1";\n', "server/index.ts": "a", "src/App.tsx": "a" });
     git("init", "-q");
     git("add", "-A");
     git("commit", "-qm", "1.0.0");
-    git("tag", "v1.0.0");
-    git("tag", "remote-v1");
+    git("tag", "fork-v1.0.0");
+    git("tag", "fork-remote-v1");
     write(edit);
     git("add", "-A");
     git("commit", "-qm", "next");
@@ -86,7 +74,7 @@ describe("check", () => {
   };
 
   it("leaves any tree whose version is already released alone, whatever it changed", () => {
-    expect(check(released({ "server/index.ts": "b", "telemetry/worker.ts": "new" }), false)).toEqual({ version: null, problems: [] });
+    expect(check(released({ "server/index.ts": "b" }), false)).toEqual({ version: null, problems: [] });
   });
 
   it("passes a release PR that changed only the client", () => {
@@ -114,8 +102,8 @@ describe("check", () => {
     const dir = released({ "server/index.ts": "b", "shared/machines.ts": 'export const REMOTE_BUNDLE_VERSION = "2";\n' });
     releasePr(dir);
     expect(check(dir, false).problems).toEqual([]);
-    expect(check(dir, true).problems[0]).toContain("remote-v2 is not published");
-    run(dir, "tag", "remote-v2");
+    expect(check(dir, true).problems[0]).toContain("fork-remote-v2 is not published");
+    run(dir, "tag", "fork-remote-v2");
     expect(check(dir, true).problems).toEqual([]);
   });
 
@@ -123,7 +111,7 @@ describe("check", () => {
     const dir = released({ "server/index.ts": "b", "shared/machines.ts": 'export const REMOTE_BUNDLE_VERSION = "2";\n' });
     releasePr(dir);
     expect(check(dir, false, "HEAD^1").version).toBe("1.1.0");
-    run(dir, "tag", "remote-v2");
+    run(dir, "tag", "fork-remote-v2");
     writeFileSync(join(dir, "server/other.ts"), "c");
     run(dir, "add", "-A");
     run(dir, "commit", "-qm", "feature");
@@ -135,20 +123,16 @@ describe("check", () => {
   it("fails a release that moved the bun pin the Linux bundles carry", () => {
     const pin = (version: string) => `steps:\n  - uses: oven-sh/setup-bun@v2\n    with:\n      bun-version: ${version}\n`;
     const dir = released({ [BUNDLE_WORKFLOW]: pin("1.4.2") });
-    run(dir, "tag", "-f", "remote-v1");
+    run(dir, "tag", "-f", "fork-remote-v1");
     writeFileSync(join(dir, BUNDLE_WORKFLOW), pin("1.5.0"));
     run(dir, "commit", "-qam", "bun");
     releasePr(dir);
     expect(check(dir, false).problems[0]).toContain(`${BUNDLE_WORKFLOW} bun-version`);
   });
 
-  it("fails a release whose Worker changed without a recorded deploy, and one without patch notes", () => {
-    // shared/telemetry.ts is also a bundle input, so the Worker's own file shows this one alone
-    const dir = released({ "telemetry/worker.ts": "worker with a new field" });
+  it("requires patch notes in every supported language", () => {
+    const dir = released({ "src/App.tsx": "patch notes fixture" });
     releasePr(dir);
-    const { problems } = check(dir, false);
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toStartWith("telemetry/worker.ts or shared/telemetry.ts changed");
     writeFileSync(join(dir, "release-summaries.json"), "{}");
     expect(check(dir, false).problems[0]).toContain("release-summaries.json must tell this version in: en, ko, ja, zh.");
   });

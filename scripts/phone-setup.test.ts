@@ -7,19 +7,14 @@ import { updateStateDir } from "../server/update-state.ts";
 const ROOT = join(import.meta.dir, "..");
 let scratch: string;
 let server: ReturnType<typeof Bun.serve>;
-let served: boolean;
 let paired: number;
 beforeEach(() => {
   scratch = mkdtempSync(join(tmpdir(), "herdr-phone-setup-"));
-  served = true; paired = 0;
+  paired = 0;
   server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/api/health") return Response.json({ ok: true, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } });
+    if (path === "/api/health") return Response.json({ ok: true, web_ui: { distribution: "tomrutsaert/herdr-web-ui" }, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } });
     if (request.headers.get("authorization") !== "Bearer test-token") return new Response(null, { status: 401 });
-    if (path === "/api/access") return Response.json({ port: server.port, tailscale: {
-      state: "running", dns_name: "demo.example.ts.net", serving_url: served ? "https://demo.example.ts.net" : null,
-      serve_command: "tailscale serve -bg http://127.0.0.1:7317", serve_url: "https://demo.example.ts.net",
-    } });
     if (path === "/api/devices/pair/start") {
       paired++; expect(request.headers.get("x-herdr-machine")).toBe("1");
       return Response.json({ code: "123456", expires_at: new Date(Date.now() + 600_000).toISOString() });
@@ -39,23 +34,13 @@ async function run() {
   return { out, err, code };
 }
 
-it("prints the phone address, QR and expiring code without printing the token", async () => {
+it("prints secure access guidance and an expiring code without printing the token", async () => {
   const result = await run();
   expect(result.code, result.err).toBe(0);
-  expect(result.out).toContain("https://demo.example.ts.net");
+  expect(result.out).toContain("HTTPS reverse proxy or an SSH tunnel");
   expect(result.out).toContain("123 456");
-  expect(result.out).toMatch(/[█▀▄]/);
   expect(result.out).not.toContain("test-token");
   expect(paired).toBe(1);
-});
-
-it("shows the Tailscale command without running it", async () => {
-  served = false;
-  const result = await run();
-  expect(result.code, result.err).toBe(0);
-  expect(result.out).toContain("run this on the PC");
-  expect(result.out).toContain("tailscale serve -bg");
-  expect(result.out).toContain("123 456");
 });
 
 it("runs the active release's setup using the original plugin configuration", async () => {

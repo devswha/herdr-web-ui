@@ -38,7 +38,6 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
     return Response.json({ ok: true });
   }
   if (path === "/api/session") return Response.json({ snapshot });
-  if (path === "/api/machines/settings") return Response.json({ auto_update_bridges: false });
   if (path === "/api/machines/setup" && request.method === "POST") {
     const body = await request.json() as SetupRequest; requests.push(body);
     return Response.json({ id: "qa-job", machine_id: pc.id, target: { destination: body.destination }, phase: "connected", step: "Connected", challenge: null, installations: [], error: null, ssh_output: null }, { status: 202 });

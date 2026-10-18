@@ -1,7 +1,7 @@
 /** End-to-end update QA: private Git remote/install + owned herdr pane, never the live app. */
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { chromium } from "playwright-core";
@@ -33,6 +33,7 @@ async function until(check: () => Promise<boolean>, message: string) {
 try {
   const files = await git(source, "ls-files", "--cached", "--others", "--exclude-standard", "-z");
   for (const file of new Set(files.split("\0").filter(Boolean))) {
+    if (!existsSync(join(source, file))) continue;
     mkdirSync(dirname(join(upstream, file)), { recursive: true });
     copyFileSync(join(source, file), join(upstream, file));
   }
@@ -41,6 +42,7 @@ try {
   await git(upstream, "config", "user.email", "qa@example.invalid");
   await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA baseline");
   await git(temp, "clone", "-q", upstream, install);
+  await git(install, "config", `url.${upstream}.insteadOf`, "https://github.com/tomrutsaert/herdr-web-ui.git");
   await runCommand(install, [process.execPath, "install", "--frozen-lockfile"], undefined, 180_000);
   await runCommand(install, [process.execPath, "run", "build"], undefined, 120_000);
   const reserve = Bun.serve({ port: 0, fetch: () => new Response() });
@@ -49,7 +51,7 @@ try {
   supervisor = Bun.spawn([process.execPath, "server/managed.ts"], {
     cwd: install, stdout: log, stderr: log,
     env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), HERDR_WEB_TOKEN: "",
-      HERDR_WEB_AUTO_UPDATE: "0", HERDR_WEB_TELEMETRY: "0", HERDR_WEB_STATE_DIR: join(temp, "state") },
+      HERDR_WEB_STATE_DIR: join(temp, "state") },
   });
   const status = async (): Promise<UpdateStatus | null> => {
     try { return await (await fetch(`${origin}/api/updates`)).json() as UpdateStatus; } catch { return null; }
@@ -84,7 +86,7 @@ try {
   const told = "The QA release, in a line.";
   // its own section: Unreleased is empty since changelog.d fragments, and an empty release is not told
   cut("99.0.0", "\n### Fixed\n- The QA release fixes one thing.\n", told);
-  await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA update"); await git(upstream, "tag", "v99.0.0");
+  await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA update"); await git(upstream, "tag", "fork-v99.0.0");
   const next = await git(upstream, "rev-parse", "HEAD");
   await page.getByRole("button", { name: "Check for updates", exact: true }).click();
   const installButton = page.getByRole("button", { name: "Update and restart", exact: true });
@@ -148,7 +150,7 @@ try {
   writeFileSync(join(upstream, "server/index.ts"), `throw new Error('QA startup failure');\n${readFileSync(join(upstream, "server/index.ts"), "utf8")}`);
   // its notes hold a line no one wrote by hand: they are text from a Git remote, and must not take the app down
   cut("99.0.1", `\n### Fixed\n- A release that fails to start.\n\n${">".repeat(30_000)} quoted beyond reason\n`);
-  await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA failed startup"); await git(upstream, "tag", "v99.0.1");
+  await git(upstream, "add", "."); await git(upstream, "commit", "-qm", "QA failed startup"); await git(upstream, "tag", "fork-v99.0.1");
   await page.getByRole("button", { name: "Check for updates", exact: true }).click();
   await until(() => installButton.isEnabled(), "Rollback candidate never became available");
   await installButton.click();
