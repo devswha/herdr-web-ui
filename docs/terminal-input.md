@@ -307,6 +307,22 @@ field and already repeated. `scripts/key-bar-hold-repeat-regression.ts` checks t
 under an iPhone user agent; Chromium cannot repeat an iOS key, so the repeat itself was only
 measured in the simulator.
 
+### Native iOS keyboard check: iPhone Hangul
+
+Updated: 2026-10-18
+
+In the iOS 27.0 simulator (iPhone 18 Pro, Safari, on-screen Korean 2-set keyboard driven by AXe
+taps, owned raw-mode PTY), direct typing sent 한글 as `ㅎㅏㄴㄱㅡㄹ`, also after English
+(`abcㅎㅏㄴㄱㅡㄹ`). A plain textarea composed it: the iPhone keyboard sends each jamo as a keydown
+with `keyCode` 0 and its jamo as `key`, then edits the field with deleteContentBackward and
+insertText and no composition events, the sequence the iPad hardware keyboard sends (#938). The
+xterm patch's replacement path was limited to Mac and iPad platforms; it now includes the iPhone.
+Afterwards the same taps delivered `한글 `, `abc한글 `, `하 ` (Backspace inside the syllable),
+`갑사 ` (a final consonant moving on), `한\r`, and a fourth Backspace past an emptied syllable as
+one DEL. The iPad simulator's on-screen keyboard already composed.
+`scripts/terminal-ipad-ime-regression.ts` replays the trace under an iPhone user agent and
+platform with `keyCode` 0.
+
 ### Native Android/Gboard check
 
 On 2026-10-03, an Android 16 Google Play x86_64 emulator (API 36 revision 7, Pixel 7,
