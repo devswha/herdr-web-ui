@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page, Route, WebSocket } from "playwright-core";
 import { herdrRpc, paneRead, paneSplit, tabCreate, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import type { SessionEvent } from "../shared/protocol.ts";
 
 /**
  * The split view's edges (lib/split.ts), each on a browser context of its own: the other half's
@@ -27,7 +28,35 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
     }
     return ids;
   };
+  // These panes were just created. A connected socket can already show them while the shared SSE
+  // roster still predates them; that first cached frame would replace the tab nodes mid-gesture or
+  // discard a saved split. Start each interaction scenario only once its fixture is in that roster.
+  const rosterReady = async (panes: string[], view: "chat" | "terminal"): Promise<void> => {
+    const abort = new AbortController();
+    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(15_000)]);
+    const response = await fetch(`${origin}/api/events`, { signal });
+    assert.equal(response.status, 200, "the fixture can subscribe to the workstation roster");
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        assert.equal(done, false, "the roster stays open until the fixture panes are published");
+        buffer += decoder.decode(value, { stream: true });
+        for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
+          const frame = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          if (!frame.startsWith("data: ")) continue;
+          const event = JSON.parse(frame.slice(6)) as SessionEvent;
+          if (event.type === "snapshot" && panes.every((id) => event.snapshot.panes.some((pane) =>
+            pane.pane_id === id && (view === "terminal" || pane.agent === "claude")))) return;
+        }
+      }
+    } finally { abort.abort(); await reader.cancel().catch(() => undefined); }
+  };
   const open = async (panes: string[], view: "chat" | "terminal", before?: (context: BrowserContext) => Promise<unknown>, options: { blockViewWrites?: boolean; platform?: string } = {}): Promise<{ page: Page; errors: string[] }> => {
+    await rosterReady(panes, view);
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
     contexts.push(context);
     await context.addInitScript(([ids, lens, blockViewWrites, platform]) => {

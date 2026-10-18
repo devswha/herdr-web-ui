@@ -96,6 +96,9 @@ Test that an unauthenticated visitor gets 401 from `/api/session` and `/api/even
 Use Settings → Phone & devices or `bun scripts/plugin.ts pair` to issue a ten-minute pairing code.
 A non-loopback HTTPS page can display a QR for its own address; no external address is discovered.
 
+A plugin follows the socket of the herdr session that starts it (`HERDR_SOCKET_PATH`). Set
+`HERDR_SOCKET` in the plugin config to override that session explicitly.
+
 ## State and configuration
 
 `HERDR_WEB_STATE_DIR` defaults to `~/.config/herdr-web-ui`. Keep it across deployments: it holds

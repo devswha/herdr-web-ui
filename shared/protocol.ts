@@ -199,7 +199,8 @@ export type HerdrPane = PaneInfo & { background_tasks?: number; background_wait?
 /** GET /api/events: same authentication as /api/session; one stream per browser. */
 export type SessionEvent = { type: "snapshot"; snapshot: SessionSnapshot }
   | { type: "message"; message: ServerMessage }
-  | { type: "preferences"; preferences: import("./preferences.ts").SharedPreferences };
+  | { type: "preferences"; preferences: import("./preferences.ts").SharedPreferences }
+  | { type: "herdr-sidebar"; agents: import("./pane-tokens.ts").AgentRowTokens | null };
 
 export interface ApiError {
   error: { code: string; message: string };
@@ -565,6 +566,18 @@ export interface FileInfo {
   modified: string;
   mime: string;
   kind: FileKind;
+}
+
+/**
+ * GET /api/fs/favicon?root=: the icon the project in folder `root` keeps, or null. The PC looks
+ * through every place a project keeps one (`FAVICON_CANDIDATES` in server/project-favicon.ts),
+ * best first, each read as /api/fs/stat reads `<root>/<place>`, and answers once: a folder with
+ * no icon is `{ icon: null }`, never a 404. 400 missing_root; the access rules of /api/fs/stat
+ * (no watching device, no other site's page).
+ */
+export interface ProjectFavicon {
+  /** the image found; `path` opens it through /api/fs/file */
+  icon: FileInfo | null;
 }
 
 /** Which two states of a repository are compared. */

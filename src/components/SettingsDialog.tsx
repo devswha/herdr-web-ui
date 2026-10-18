@@ -21,6 +21,7 @@ import { Segmented, SettingsGroup, SettingsRow, Stepper, Toggle } from "./Settin
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { UI_FONT_MAX, UI_FONT_MIN } from "../lib/typography.ts";
 import { canListInstalledFonts, filterFamilies, isMonospaceFamily, queryInstalledFonts } from "../lib/installedFonts.ts";
+import type { UserError } from "../lib/userError.ts";
 import { phonePlan } from "../lib/phone.ts";
 import type { AgentIntegration, HealthAuth, PluginActions } from "../../shared/protocol.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
@@ -54,6 +55,8 @@ export interface SettingsDialogProps {
   /** the herdr this app's server talks to, from the last health check */
   herdrVersion: string | null;
   onEnableNotifications: () => Promise<boolean>;
+  /** the last change the server refused to save (lib/preferencesSync.ts); null once a save lands */
+  saveError: UserError | null;
   /** a file preview is open beneath: the dialog is drawn above it */
   overPreview?: boolean;
 }
@@ -831,7 +834,22 @@ function SettingsCrash({ onClose, overPreview }: { onClose: () => void; overPrev
   );
 }
 
-function OpenSettingsDialog({ linkPage = null, linkSection = null, onPage, onClose, actions, auth, herdrVersion, onEnableNotifications, overPreview = false }: SettingsDialogProps) {
+/**
+ * A change the server refused to save, on whichever page is open: the plain sentence (lib/userError.ts),
+ * the server's own words behind Details. It stays until a save lands; the change is sent again
+ * every few seconds meanwhile (lib/preferencesSync.ts).
+ */
+function SaveFailure({ error }: { error: UserError }) {
+  const t = useT();
+  return <div className="settings-save-error" role="alert">
+    {error.detail === null ? <p>{error.message}</p> : <details className="settings-details">
+      <summary>{error.message}<span className="settings-details-toggle">{t("Details")}</span></summary>
+      <code>{error.detail}</code>
+    </details>}
+  </div>;
+}
+
+function OpenSettingsDialog({ linkPage = null, linkSection = null, onPage, onClose, actions, auth, herdrVersion, onEnableNotifications, saveError, overPreview = false }: SettingsDialogProps) {
   const t = useT();
   const narrow = useNarrow();
   // opened by Forward, the dialog shows what that entry of the history showed
@@ -955,7 +973,7 @@ function OpenSettingsDialog({ linkPage = null, linkSection = null, onPage, onClo
             </div>
           </nav>
         )}
-        {page !== null && <div key={page} ref={settingsBodyRef} id="settings-panel" className="modal-body settings-body" role="tabpanel" aria-label={label(page)} hidden={keyBarOpen}>{body()}</div>}
+        {page !== null && <div key={page} ref={settingsBodyRef} id="settings-panel" className="modal-body settings-body" role="tabpanel" aria-label={label(page)} hidden={keyBarOpen}>{saveError !== null && <SaveFailure error={saveError} />}{body()}</div>}
         {keyBarOpen && <div className="modal-body settings-key-bar-body"><KeyBarSettings /></div>}
       </section>
     </div>

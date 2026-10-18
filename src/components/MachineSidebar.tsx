@@ -10,6 +10,7 @@ import { SidebarActivityProvider, useSidebarActivityState } from "../lib/sidebar
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
 import { useAnnouncedText } from "../lib/useAnnouncedText.ts";
+import { saysHerdrAway } from "../lib/userError.ts";
 
 /** The PC header's state word; "connected" is the quiet default and shows as a dot alone, every other state also writes its word under the name. */
 export const STATE_WORD: Readonly<Record<MachineState, string>> = {
@@ -49,6 +50,7 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
   const t = useT();
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(`herdr-web-ui:pc-collapsed:${machine.id}`) === "1"; } catch { return false; } });
   const online = machine.state === "connected";
+  const nextStep = machine.error !== null && saysHerdrAway(machine.error) ? t("Start herdr on this PC, or check HERDR_SOCKET.") : null;
   const actions: AppActions = { ...props.actions, selectPane: (id) => props.onSelect(machine.id, id), openNewSession: () => props.onNew(machine.id) };
   const toggle = () => {
     setCollapsed(!collapsed);
@@ -69,6 +71,8 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
     {/* connected is the norm and says nothing new; every other state is spelled out */}
     <p className={`machine-state is-${machine.state}${online ? " visually-hidden" : ""}`} role="status" title={machine.error ?? undefined}>
       <span className="machine-state-word">{t(STATE_WORD[machine.state])}</span>
+      {machine.error && <span className="machine-state-detail">{machine.error}</span>}
+      {nextStep !== null && <span className="machine-state-next">{nextStep}</span>}
     </p>
     {!collapsed && <div className={online ? "" : "machine-offline"} inert={!online}>
       {!online && !machine.snapshot ? <p className="tree-state machine-empty" role="status">{t("No saved sessions")}</p> : <MachineContext.Provider value={machine.id}><Sidebar snapshot={machine.snapshot} online={online} selectedPaneId={props.selectedMachineId === machine.id ? props.selectedPaneId : null} actions={actions} /></MachineContext.Provider>}

@@ -1,4 +1,5 @@
 import type { SessionEvent, HerdrPane, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { HerdrSidebarConfig } from "./herdr-sidebar.ts";
 import type { PreferenceStore } from "./preferences.ts";
 
 /** One workstation's live roster, shared by authenticated browsers, including read-only devices. */
@@ -13,7 +14,7 @@ export class SessionEvents {
   private stopped = false;
   private readonly timer: ReturnType<typeof setInterval>;
 
-  constructor(private readonly read: () => Promise<SessionSnapshot>, private readonly preferences: PreferenceStore) {
+  constructor(private readonly read: () => Promise<SessionSnapshot>, private readonly preferences: PreferenceStore, private readonly herdrSidebar?: HerdrSidebarConfig) {
     this.timer = setInterval(() => void this.refresh(), 5000);
     this.timer.unref();
     void this.refresh();
@@ -79,6 +80,7 @@ export class SessionEvents {
       start: (controller) => {
         let closed = false;
         let stopPreferences: (() => void) | undefined;
+        let stopSidebar: (() => void) | undefined;
         let unwatchDevice: (() => void) | undefined;
         let heartbeat: ReturnType<typeof setInterval> | undefined;
         const send = (text: string) => {
@@ -92,7 +94,7 @@ export class SessionEvents {
           closed = true;
           this.listeners.delete(listener);
           this.connections.delete(close);
-          stopPreferences?.(); unwatchDevice?.(); clearInterval(heartbeat);
+          stopPreferences?.(); stopSidebar?.(); unwatchDevice?.(); clearInterval(heartbeat);
           request.signal.removeEventListener("abort", close);
           try { controller.close(); } catch { /* already cancelled */ }
         };
@@ -102,6 +104,9 @@ export class SessionEvents {
         this.listeners.add(listener);
         stopPreferences = this.preferences.subscribe((preferences) => listener({ type: "preferences", preferences }));
         listener({ type: "preferences", preferences: this.preferences.get() });
+        // Read before listening: existing browsers hear a change found here, this one hears it once.
+        if (this.herdrSidebar) listener({ type: "herdr-sidebar", agents: this.herdrSidebar.get() });
+        stopSidebar = this.herdrSidebar?.subscribe((agents) => listener({ type: "herdr-sidebar", agents }));
         if (this.snapshot) listener({ type: "snapshot", snapshot: this.snapshot });
         else void this.refresh();
         if (closed) return;

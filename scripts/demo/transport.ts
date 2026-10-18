@@ -974,6 +974,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     if (!entry) return error("not_found", "nothing changed at that path in this comparison", 404);
     return json({ ...shared, file: entry.file, patch: entry.patch, unavailable: entry.patch === null ? "binary" : null, truncated: false, limits: { max_patch_bytes: DEMO_DIFF_LIMITS.max_patch_bytes, context_lines: DEMO_DIFF_LIMITS.context_lines } } satisfies RepoDiffFilePatch);
   }
+  if (path === "/api/fs/favicon") return json({ icon: null });
   if (path.startsWith("/api/fs/")) return error("not_found", "the demo has no files to open", 404);
   return error("demo", `${method} ${path} is not part of the demo`, 404);
 }

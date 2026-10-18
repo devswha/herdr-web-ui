@@ -108,7 +108,7 @@ irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 
 
 Windows x64 requires Git, herdr 0.9.0+ and Bun 1.4+ already installed. No Node or WSL is needed. Terminals use a fixed-grid screen mirror until herdr supports terminal attach there.
 
-Already have the prerequisites? Install just the plugin:
+Already have herdr 0.9.0+, Bun 1.4+ and Node 18+ (Node isn't needed on Windows)? Install just the plugin:
 
 ```bash
 herdr plugin install tomrutsaert/herdr-web-ui
