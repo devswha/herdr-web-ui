@@ -94,7 +94,7 @@ const ADVICE: Record<FailureKind, (() => string) | null> = {
 
 /** A plain sentence for a failure, with what the server or the browser said kept beside it. */
 export function userErrorMessage(cause: unknown): UserError {
-  const coded = cause instanceof ApiError && cause.code !== null ? SENTENCE_BY_CODE[cause.code] : undefined;
+  const coded = cause instanceof ApiError && cause.code !== null && Object.hasOwn(SENTENCE_BY_CODE, cause.code) ? SENTENCE_BY_CODE[cause.code] : undefined;
   const message = coded?.() ?? SENTENCE[kindOf(cause)]();
   const original = ownWords(cause);
   return { message, detail: original.trim() === "" || original === message ? null : original };

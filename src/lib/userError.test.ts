@@ -44,6 +44,12 @@ describe("userErrorMessage", () => {
     expect(userErrorMessage(refused)).toEqual({ message: "The server cannot save settings: check that its state folder is writable.", detail: "EACCES: permission denied, open '/state/preferences.json.7.tmp'" });
   });
 
+  it("ignores inherited object keys when looking up a server error code", () => {
+    for (const code of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+      expect(userErrorMessage(new ApiError("/api/x", 500, "herdr said no", code))).toEqual(userErrorMessage(api(500)));
+    }
+  });
+
   it("says the PC cannot be reached when fetch never got an answer", () => {
     for (const words of ["Failed to fetch", "NetworkError when attempting to fetch resource.", "Load failed"]) {
       expect(userErrorMessage(new TypeError(words))).toEqual({ message: "Can't reach the PC. Check your connection, then try again.", detail: words });
