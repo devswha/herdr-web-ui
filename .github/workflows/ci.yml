@@ -148,7 +148,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          git fetch --no-tags --depth=1 origin '+refs/tags/fork-v*:refs/tags/fork-v*' '+refs/tags/fork-remote-v*:refs/tags/fork-remote-v*'
+          bash scripts/ci-release-tags.sh
           if [ -n "$BASE_SHA" ]; then git fetch --no-tags --depth=1 origin "$BASE_SHA" || true; fi
           bun scripts/release-guards.ts --base "$BASE_SHA"
       - name: Preserve check report and verification logs
