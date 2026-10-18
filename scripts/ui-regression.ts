@@ -23,7 +23,6 @@ import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkFolderFilter, checkNewFolder } from "./folder-filter-regression.ts";
 import { checkPaletteKeys } from "./palette-keys-regression.ts";
-import { UsageService } from "../server/usage.ts";
 import { openSettingsPage } from "./settings-page.ts";
 import { assertCspClean, watchCsp } from "./csp-violations.ts";
 import type { CspWatch } from "./csp-violations.ts";
@@ -81,8 +80,7 @@ try {
     panes.push(result.root_pane.pane_id);
   }
   const [paneA, paneB] = panes as [string, string];
-  // no provider is asked with the test machine's own sign-ins
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), usage: new UsageService(undefined, []) });
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
   const origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({
     executablePath: chromePath(),
@@ -96,7 +94,7 @@ try {
     for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
   }, panes);
   // A hook for a check that changes the roster on a page already loaded: a route cannot reach the
-  // /api/machines/events stream the page has open, so `window.__rewriteMachinesFrame`, while set,
+  // /api/events stream the page has open, so `window.__rewriteMachinesFrame`, while set,
   // rewrites each frame's data before the app reads it (the plan check below).
   await context.addInitScript(() => {
     const Native = window.EventSource;
@@ -112,6 +110,20 @@ try {
   });
 
   const page = await context.newPage();
+  const setPageHidden = (hidden: boolean) => page.evaluate((hidden) => {
+    if (hidden) Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    else delete (document as unknown as Record<string, unknown>).visibilityState;
+    document.dispatchEvent(new Event("visibilitychange"));
+    // The app takes the change in a task it posts during the event. A hide and a show sent one
+    // after the other both land before that task, and are one render in which nothing changed:
+    // a task of the page's own, posted after the app's, has run once the app has taken it.
+    return new Promise<void>((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => resolve();
+      channel.port2.postMessage(null);
+    });
+  }, hidden);
+
   const pageEvidence = evidenceDirectory ? await watchBrowserEvidence(context, page, "main-app") : undefined;
   const workspaceGroup = (workspaceId: string) => page.locator(`.workspace-group[data-workspace="${workspaceId}"]`);
   const workspaceHeader = (workspaceId: string) => workspaceGroup(workspaceId).locator(":scope > .workspace-header");
@@ -175,8 +187,6 @@ try {
   await until(() => painted.has(paneA), "owned pane paint");
   const composer = page.getByRole("textbox", { name: "Message", exact: true });
   await composer.waitFor();
-  await page.locator(".composer .voice-mic").waitFor();
-  console.log("PASS a desktop's chat offers the mic before Settings is asked");
   assert.equal(await workspaceHeader(workspaces[0]!).locator(".workspace-name").textContent(), "herdr-web-ui-test-browser-a",
     "Spaces names the workspace rather than its current pane");
   assert.equal(await workspaceGroup(workspaces[0]!).locator(".pane-select").count(), 1, "a workspace has one representative selector");
@@ -333,7 +343,7 @@ try {
   let pollChosen = false;
   let pollCaptured = false;
   let pollFinished = false;
-  const unrouteHeldPoll = await routeDrained(page, "**/api/machines", async (route) => {
+  const unrouteHeldPoll = await routeDrained(page, "**/api/session", async (route) => {
     // Hold only the stale read; later refreshes pass through without pending route handlers.
     if (pollChosen) { await route.continue(); return; }
     pollChosen = true;
@@ -368,8 +378,8 @@ try {
   // The bridge's collector retains the completed-turn event even when a direct native read
   // already says idle. Compare the row with the same authoritative roster the UI consumes.
   await until(async () => {
-    const roster = await (await context.request.get(`${origin}/api/machines`)).json() as { machines: Machine[] };
-    const settled = roster.machines.find((machine) => machine.id === "local")?.snapshot?.panes.find((pane) => pane.pane_id === paneA)?.agent_status;
+    const roster = await (await context.request.get(`${origin}/api/session`)).json() as { snapshot: SessionSnapshot };
+    const settled = roster.snapshot.panes.find((pane) => pane.pane_id === paneA)?.agent_status;
     return (settled === "idle" || settled === "done") && await agentRow(paneA).locator(".badge").getAttribute("data-status") === settled;
   }, "the agent row reflects the bridge's completed-turn status");
   console.log("PASS delayed machines poll preserves newer streamed pane status");
@@ -396,60 +406,12 @@ try {
   await machineToggle.click();
   await workspaceHeader(workspaces[0]!).locator('.workspace-select[aria-current="true"]').waitFor();
 
-  // Reuse the real API roster as an offline cache in an isolated context. Its
-  // native disabled buttons must leave selection unchanged when clicked.
-  const cachedRoster = await (await context.request.get(`${origin}/api/machines`)).json() as { machines: Machine[] };
-  // every cached pane keeps a plan, which nothing can read while its PC is offline
-  const offlineMachines = cachedRoster.machines.map((machine) => ({
-    ...machine,
-    state: "disconnected" as const,
-    snapshot: machine.snapshot && { ...machine.snapshot, panes: machine.snapshot.panes.map((pane) => ({ ...pane, plan: { done: 1, total: 4, current: "Writing the parser" } })) },
-  }));
-  const offlineContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  let offlineEvidence: BrowserEvidenceSession | undefined;
-  try {
-    await offlineContext.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false })));
-    await offlineContext.route("**/api/machines", (route) => route.fulfill({ json: { machines: offlineMachines } }));
-    await offlineContext.route("**/api/machines/events", (route) => route.fulfill({
-      contentType: "text/event-stream", body: `retry: 60000\ndata: ${JSON.stringify({ type: "machines", machines: offlineMachines })}\n\n`,
-    }));
-    await offlineContext.routeWebSocket(/\/ws(?:\?|$)/, (socket) => socket.close({ code: 1000, reason: "Offline cached roster" }));
-    const offlinePage = await offlineContext.newPage();
-    offlineEvidence = evidenceDirectory ? await watchBrowserEvidence(offlineContext, offlinePage, "offline-cached-roster") : undefined;
-    await offlinePage.goto(`${origin}/?pane=${encodeURIComponent(paneA)}`);
-    const offlineAgent = offlinePage.locator(`.agents-sidebar .agent-item[data-machine="local"][data-pane="${paneB}"] .agent-select`);
-    await offlineAgent.waitFor();
-    assert.equal(await offlineAgent.isDisabled(), true, "a cached offline agent cannot select its pane");
-    const offlineWorkspace = offlinePage.locator('.machine-offline').first();
-    assert.equal(await offlineWorkspace.evaluate((element) => element.inert), true,
-      "offline workspace controls use native inert handling");
-    assert.equal(await offlineWorkspace.evaluate((element) => {
-      const button = element.querySelector<HTMLButtonElement>("button");
-      button?.focus();
-      return element.contains(document.activeElement);
-    }), false, "offline workspace controls cannot take keyboard focus");
-    const selectionBefore = await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection"));
-    await offlineAgent.dispatchEvent("click");
-    assert.equal(await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection")), selectionBefore,
-      "offline Agent clicks leave the current selection unchanged");
-    // the linked pane is shown from the cache, and offers no plan it could not read
-    await offlinePage.locator(".view-switch").waitFor();
-    assert.equal(await offlinePage.locator(".bg-tasks-plan").count(), 0, "an offline PC's cached plan offers no plan chip");
-  } catch (error) {
-    await offlineEvidence?.captureFailure(error);
-    throw error;
-  } finally {
-    if (offlineEvidence) await offlineEvidence.finish();
-    await offlineContext.close();
-  }
-  console.log("PASS Agents excludes shells, survives PC folds, selects its machine target and disables offline rows");
-
   // a turn that ended on work still running in the background reads BG, not DONE: drawn in the sidebar, and read in the composer
   let backgroundPeer: "working" | "done" | "blocked" | "idle" | null = null;
-  const unrouteBackground = await routeDrained(page, "**/api/machines", async (route) => {
+  const unrouteBackground = await routeDrained(page, "**/api/session", async (route) => {
     const response = await route.fetch();
-    const body = await response.json() as { machines: { snapshot?: SessionSnapshot }[] };
-    for (const machine of body.machines) {
+    const body = await response.json() as { snapshot: SessionSnapshot };
+    for (const machine of [body]) {
       const pane = machine.snapshot?.panes.find((pane) => pane.pane_id === paneA);
       if (!pane || !machine.snapshot) continue;
       Object.assign(pane, { agent_status: "done", background_tasks: 1, background_wait: true });
@@ -515,26 +477,26 @@ try {
     { id: "3", label: "Write the panel", active: null, status: "pending", blocked_by: ["1"], owner: null, started_at: null, ended_at: null },
     { id: "4", label: "Ship it", active: null, status: "pending", blocked_by: ["2", "3"], owner: null, started_at: null, ended_at: null },
   ];
-  type Roster = { machines: { snapshot?: { panes: { pane_id: string }[] } }[] };
+  type Roster = { snapshot: { panes: { pane_id: string }[] } };
   const withPlan = (body: Roster): Roster => {
-    for (const machine of body.machines) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
+    for (const machine of [body]) for (const pane of machine.snapshot?.panes ?? []) if (pane.pane_id === paneA) Object.assign(pane, { plan: { done: 1, total: 4, current: "Writing the parser" } });
     return body;
   };
-  // `events`: for a page not loaded yet. The roster also comes over /api/machines/events, whose
+  // `events`: for a page not loaded yet. The roster also comes over /api/events, whose
   // first frame (and every roster change after it) is the PC's own snapshot, with no plan: one that
   // lands after a poll takes the chip away again, and each one drops the poll in flight. That stream
   // then carries the planned roster once and stays quiet (a reconnect waits an hour), so the only
   // roster the page gets is the planned one. A page already loaded keeps the stream it has.
   const planned = async (target: typeof page, { events = false } = {}): Promise<() => Promise<void>> => {
-    const unrouteMachines = await routeDrained(target, "**/api/machines", async (route) => {
+    const unrouteMachines = await routeDrained(target, "**/api/session", async (route) => {
       const response = await route.fetch();
       await route.fulfill({ response, json: withPlan(await response.json() as Roster) });
     });
     if (events) {
-      await target.route("**/api/machines/events", async (route) => {
-        const response = await route.fetch({ url: `${origin}/api/machines` });
+      await target.route("**/api/events", async (route) => {
+        const response = await route.fetch({ url: `${origin}/api/session` });
         const roster = withPlan(await response.json() as Roster);
-        await route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 3600000\ndata: ${JSON.stringify({ type: "machines", machines: roster.machines })}\n\n` });
+        await route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 3600000\ndata: ${JSON.stringify({ type: "snapshot", snapshot: roster.snapshot })}\n\n` });
       });
     }
     await target.route(`**/api/pane/plan?pane_id=${encodeURIComponent(paneA)}`, (route) => route.fulfill({ json: { plan: { steps: planSteps }, server_time: new Date().toISOString() } }));
@@ -545,10 +507,10 @@ try {
   // PC) carries the plan too, or that frame would take the chip away between waitFor and click
   await page.evaluate(([pane, plan]) => {
     (window as unknown as { __rewriteMachinesFrame?: (data: string) => string }).__rewriteMachinesFrame = (data) => {
-      let payload: { type?: string; machines?: { snapshot?: { panes: { pane_id: string }[] } }[] };
+      let payload: { type?: string; snapshot?: { panes: { pane_id: string }[] } };
       try { payload = JSON.parse(data); } catch { return data; }
-      if (payload.type !== "machines") return data;
-      for (const machine of payload.machines ?? []) for (const p of machine.snapshot?.panes ?? []) if (p.pane_id === pane) Object.assign(p, { plan });
+      if (payload.type !== "snapshot") return data;
+      for (const p of payload.snapshot?.panes ?? []) if (p.pane_id === pane) Object.assign(p, { plan });
       return JSON.stringify(payload);
     };
   }, [paneA, { done: 1, total: 4, current: "Writing the parser" }] as const);
@@ -715,19 +677,6 @@ try {
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   console.log("PASS settings shortcut and theme");
 
-  // Add PC lives in Settings → Remote PCs, not in the sidebar; opening it closes Settings behind it
-  assert.equal(await page.locator(".sidebar").getByRole("button", { name: "Add PC", exact: true }).count(), 0, "the sidebar has no Add PC button");
-  await page.keyboard.press("ControlOrMeta+Shift+Comma");
-  await openSettingsPage(page, "Remote PCs");
-  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add PC", exact: true }).click();
-  await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor();
-  assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
-  await page.getByRole("button", { name: "Close PC setup", exact: true }).click();
-  await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor({ state: "hidden" });
-  // its trigger went with Settings: focus lands on the header's workspace-list toggle instead of nowhere
-  await until(async () => await page.evaluate(() => document.activeElement?.matches(".sidebar-toggle, .drawer-toggle") ?? false), "focus returns to the workspace-list toggle after Add PC closes");
-  console.log("PASS Add PC opens from Settings, and the sidebar has no top bar");
-
   // the sidebar's right edge resizes it: its own top row in the header follows, the width is
   // kept on this device, the arrows move it from the keyboard and a double-click forgets it
   const sidebarWidths = () => page.evaluate(() => ({
@@ -780,50 +729,6 @@ try {
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   console.log("PASS sidebar rows switch between one line and two");
 
-  // An update request answered while the page is hidden (a phone app sent to the background) must
-  // still release the buttons: the status poll stops with the page, the request does not.
-  let releaseCheck!: () => void;
-  const checkGate = new Promise<void>((resolve) => { releaseCheck = resolve; });
-  const idleStatus = { managed: true, phase: "idle", current_revision: null, latest_revision: null, current_version: "0.0.0", latest_version: "0.0.0", available: false, checked_at: new Date().toISOString(), blocked_reason: null, error: null };
-  await page.route("**/api/updates", (route) => route.fulfill({ json: idleStatus }));
-  await page.route("**/api/updates/check", async (route) => { await checkGate; await route.fulfill({ json: { ok: true } }); });
-  const setPageHidden = (hidden: boolean) => page.evaluate((hidden) => {
-    if (hidden) Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-    else delete (document as unknown as Record<string, unknown>).visibilityState;
-    document.dispatchEvent(new Event("visibilitychange"));
-    // The app takes the change in a task it posts during the event. A hide and a show sent one
-    // after the other both land before that task, and are one render in which nothing changed:
-    // a task of the page's own, posted after the app's, has run once the app has taken it.
-    return new Promise<void>((resolve) => {
-      const channel = new MessageChannel();
-      channel.port1.onmessage = () => resolve();
-      channel.port2.postMessage(null);
-    });
-  }, hidden);
-  // the idle status poll runs every 30 s: a hide and a show restart it at once, onto the fake
-  for (const deadline = Date.now() + 10_000; ;) {
-    const restarted = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/updates", { timeout: 2_000 }).then(() => true, () => false);
-    await setPageHidden(true);
-    await setPageHidden(false);
-    if (await restarted) break;
-    assert.ok(Date.now() < deadline, "a hide and a show restart the update status poll");
-  }
-  await page.keyboard.press("ControlOrMeta+Shift+Comma");
-  await openSettingsPage(page, "About");
-  const checkUpdates = page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Check for updates", exact: true });
-  await checkUpdates.waitFor();
-  await checkUpdates.click();
-  await until(() => checkUpdates.isDisabled(), "the check is pending");
-  await setPageHidden(true);
-  releaseCheck();
-  await page.waitForTimeout(300);
-  await setPageHidden(false);
-  await until(async () => !(await checkUpdates.isDisabled()), "an answer that came while hidden releases the update buttons");
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  await page.unroute("**/api/updates/check");
-  await page.unroute("**/api/updates");
-  console.log("PASS an update answer that arrives while the page is hidden releases the buttons");
-
   // the More menu's Alerts item turns this device's alerts on, and off again (it stayed disabled once on)
   // the header has no button of its own for it or for New tab; from 769px Files is the header's own
   // button and leaves the menu, a phone keeps it there (deep-link-demo-regression)
@@ -851,7 +756,6 @@ try {
   await until(async () => await alertsState(page) === "Off on this device", "alerts off");
   assert.equal(await alertsOffMarked(page), true, "alerts that are off mark the More button, in its dot and its name");
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
-  assert.equal(await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription()) ?? null), null, "turning alerts off drops the push subscription");
   await runMoreItem(page, "Alerts");
   await until(async () => /^On[ ,]/.test(await alertsState(page)), "alerts on again");
   assert.equal(await alertsOffMarked(page), false);
@@ -1311,49 +1215,6 @@ try {
   assert.equal(await composer.inputValue(), "ㅎ", "the shown candidate is left alone");
   await compose("commit");
   await until(async () => /^@\S*twelfth-\S* 한$/.test(await composer.inputValue()), "the path joins the committed candidate");
-  // dictation that turns a lone slash into a command lets a waiting path in;
-  // the composer takes its speech engine when it mounts, so a pane round trip picks up the fake
-  held.clear();
-  await composer.fill("");
-  await page.evaluate(() => {
-    class FakeSpeech {
-      lang = ""; continuous = false; interimResults = false;
-      onaudiostart: (() => void) | null = null; onresult: ((event: unknown) => void) | null = null;
-      onerror: ((event: unknown) => void) | null = null; onend: (() => void) | null = null;
-      start() { (window as unknown as { fakeSpeech: FakeSpeech }).fakeSpeech = this; setTimeout(() => this.onaudiostart?.(), 0); }
-      stop() { setTimeout(() => this.onend?.(), 0); }
-      abort() { this.onend?.(); }
-    }
-    const speech = window as unknown as Record<string, unknown>;
-    speech.realSpeech = { SpeechRecognition: speech.SpeechRecognition, webkitSpeechRecognition: speech.webkitSpeechRecognition };
-    Object.assign(window, { SpeechRecognition: FakeSpeech, webkitSpeechRecognition: FakeSpeech });
-  });
-  await selectPane(paneA);
-  await selectPane(paneB);
-  await composer.pressSequentially("/");
-  await pickFiles("thirteenth.txt");
-  await until(() => held.has("thirteenth.txt"), "thirteenth upload in flight");
-  await finish("thirteenth.txt");
-  await Bun.sleep(300);
-  assert.equal(await composer.inputValue(), "/", "the path waits on the lone slash");
-  const mic = page.locator(".composer .voice-mic");
-  await mic.focus();
-  await page.keyboard.press("Enter");
-  await until(() => page.evaluate(() => "fakeSpeech" in window), "dictation listening");
-  await Bun.sleep(1200);
-  await page.evaluate(() => (window as unknown as { fakeSpeech: { onresult: (event: unknown) => void } }).fakeSpeech.onresult({ results: { length: 1, 0: { isFinal: true, 0: { transcript: "review this" } } } }));
-  await page.keyboard.press("Enter");
-  await until(async () => /@\S*thirteenth-\S* /.test(await composer.inputValue()), "the path goes in once dictation ends the command");
-  assert.match(await composer.inputValue(), /review this/);
-  await page.evaluate(() => {
-    const speech = window as unknown as Record<string, unknown>;
-    Object.assign(window, speech.realSpeech as object);
-    delete speech.realSpeech;
-    delete speech.fakeSpeech;
-  });
-  await composer.fill("");
-  await selectPane(paneA);
-  await selectPane(paneB);
   held.clear();
   await composer.fill("hello");
   await composer.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(1, 4, "backward"));
@@ -1364,7 +1225,7 @@ try {
   const selection = await composer.evaluate((element: HTMLTextAreaElement) => ({ text: element.value.slice(element.selectionStart, element.selectionEnd), direction: element.selectionDirection }));
   assert.deepEqual(selection, { text: "ell", direction: "backward" }, "the selection keeps its text and direction");
   await composer.fill("");
-  console.log("PASS paths wait for a /command, typed or dictated, or an IME composition to finish, and selections keep their direction");
+  console.log("PASS paths wait for a /command, typed or in an IME composition to finish, and selections keep their direction");
 
   // A path that does not fit whole is never cut: it waits, its chip shows a warning glyph (its words
   // for assistive tech) and the status line says the limit and how many characters over, Send is
@@ -2248,7 +2109,6 @@ try {
   await mobilePage.route(promptRoute, (route) => route.fulfill(suggest));
   await mobileComposer.fill("");
   await until(async () => await mobileComposer.getAttribute("placeholder") === "run the tests", "a phone shows the suggestion as the placeholder");
-  assert.equal(await mobilePage.locator(".voice-mic").count(), 0, "a phone's chat has no mic until Settings asks for it");
   assert.equal(await mobilePage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "a phone shows no suggestion chip by default");
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}&settings=chat&section=composer`);
   await mobilePage.getByRole("switch", { name: "Suggestion chip", exact: true }).setChecked(true);
@@ -2454,7 +2314,7 @@ try {
   await signOutConfirm.getByRole("button", { name: "Sign out", exact: true }).click();
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
-  const pairing = await securedContext.request.post(`${securedOrigin}/api/devices/pair/start`, { headers: { authorization: "Bearer browser-test-token", "x-herdr-machine": "1" } });
+  const pairing = await securedContext.request.post(`${securedOrigin}/api/devices/pair/start`, { headers: { authorization: "Bearer browser-test-token", "x-herdr-request": "1" } });
   const { code } = await pairing.json();
   await securedContext.request.post(`${securedOrigin}/api/devices/pair`, { data: { code, label: "Browser test device" } });
   await securedPage.setViewportSize({ width: 390, height: 844 });

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { appendFileSync, chmodSync } from "node:fs";
 import type { HerdrPane, PlanSummary } from "../shared/protocol.ts";
-import { paneAfterStatus } from "./machines.ts";
 import { readPlan, SessionPlans } from "./session-plan.ts";
 import { at, claude, file } from "./session-plan.fixture.ts";
 
@@ -122,14 +121,6 @@ describe("SessionPlans", () => {
     plans.poll();
     // Then the old session is never returned.
     expect(plans.planOf(pane("omo1", "omo"))?.map((step) => step.label) ?? null).toEqual(binding === "replaced" ? ["New work"] : null);
-  });
-
-  it("keeps a remote PC's plan as its frames say", () => {
-    const frame = (plan?: PlanSummary | null) => ({ type: "pane-status" as const, pane_id: "p1", agent_status: "working" as const, ...(plan === undefined ? {} : { plan }) });
-    const planned = paneAfterStatus({ ...pane("p1", "claude"), background_tasks: 1 }, frame({ done: 1, total: 2, current: "Two" }));
-    expect(planned).toMatchObject({ background_tasks: 1, plan: { done: 1, total: 2, current: "Two" } });
-    expect(paneAfterStatus(planned, frame())).toMatchObject({ plan: { done: 1, total: 2 } });
-    expect("plan" in paneAfterStatus(planned, frame(null))).toBe(false);
   });
 
   it("tells a pane's summary as its plan moves, reads nothing while its transcript is as it was, and clears it when the pane runs something else", async () => {

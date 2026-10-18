@@ -2,14 +2,14 @@
  * What every browser of this server shares: the settings that do not depend on the device
  * (src/lib/settings.ts SETTING_SCOPE says which) and the pinned agents. GET/PUT
  * /api/preferences; a change reaches the other browsers as a `preferences` event on
- * /api/machines/events. The values are checked where they are used (sanitizeSettings): the
+ * /api/events. The values are checked where they are used (sanitizeSettings): the
  * server keeps only the names below and the shape. A browser sends only the settings it changed,
  * which the server lays over what it holds, so a setting nobody changed stays each device's own.
  */
 export const SHARED_SETTING_KEYS = [
   "theme", "palette", "darkTheme", "lightTheme", "language", "sidebarRows", "agentOrder", "agentMarks", "autoSendQueued",
-  "showThinking", "quickReplies", "showQuickReplies", "showUsage", "usageCount",
-  "usageGlance", "usageOrder", "usageHidden", "claudeLaunchMode", "codexLaunchMode",
+  "showThinking", "quickReplies", "showQuickReplies",
+  "claudeLaunchMode", "codexLaunchMode",
 ] as const;
 export type SharedSettingKey = (typeof SHARED_SETTING_KEYS)[number];
 

@@ -11,7 +11,7 @@ Do not open a public issue, pull request or discussion about it.
 
 Include what you can of:
 
-- the version (Settings, under Updates, opens with `Running vX.Y.Z (commit)`) and, for a remote PC, its OS;
+- the deployed revision, app version (Settings → About) and host OS;
 - how the server was reached (localhost, SSH tunnel, LAN, reverse proxy) and how
   the client signed in (this PC, paired device, token);
 - the steps to reproduce, and what an attacker needs beforehand;
@@ -23,8 +23,8 @@ the details private until that release is out.
 
 ## Supported versions
 
-Only the latest `fork-vX.Y.Z` release gets fixes. Installs update to it from **Settings → About** (only after an explicit Check and Update). A fix in the remote-PC runtime ships as a new
-`fork-remote-vN` bundle together with the release that uses it.
+Only the latest `fork-vX.Y.Z` release gets fixes. Operators deploy releases explicitly using
+[INSTALL.md](INSTALL.md#update); the app does not discover or install updates.
 
 ## Scope
 
@@ -35,15 +35,7 @@ In scope, for example:
 - pairing codes, device cookies and revocation (`server/devices.ts`); a revoked or observe-only
   device that can still type, send keys or resize;
 - reading files, transcripts or screens outside what the app shows a signed-in client;
-- script injection in the web client (chat Markdown, file viewer, prompt cards, push payloads);
-- the remote-PC path: SSH, the bridge bundle's checksums and the relay (`server/ssh.ts`,
-  `server/remote-bundle.ts`, `server/machine-api.ts`, `server/machine-relay.ts`);
-- updates installing anything other than a published release (`server/updater.ts`,
-  `server/supervisor.ts`, `install.sh`);
-- sign-ins the subscription usage strip reads (`server/usage.ts`) leaving the server's PC other than
-  to their own provider;
-- push keys and subscriptions (`server/push.ts`).
-
+- script injection in the web client (chat Markdown, file viewer, prompt cards);
 Out of scope, as documented in [Access and safety](docs/guide.md#access-and-safety):
 
 - getting into a server that is still ungated by design: bound off loopback, with

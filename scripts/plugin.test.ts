@@ -76,7 +76,7 @@ describe("plugin settings files", () => {
 });
 
 /** What the app's bridge health answers (server/index.ts): it holds the port whether herdr answers or not. */
-const BRIDGE_HEALTH = { ok: true, auth: { required: false, authenticated: true }, bridge_protocol: 1, distribution: "tomrutsaert/herdr-web-ui" };
+const BRIDGE_HEALTH = { ok: true, auth: { required: false, authenticated: true }, distribution: "tomrutsaert/herdr-web-ui" };
 /** What the app's full health answers while herdr does (every release since v0.1.0 has sent these). */
 const APP_HEALTH = { web_ui: { distribution: "tomrutsaert/herdr-web-ui" }, ok: true, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } };
 
@@ -103,8 +103,8 @@ describe("port", () => {
   };
 
   it("refuses an upstream process still running after the checkout was replaced", async () => {
-    const old = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => Response.json(new URL(request.url).searchParams.has("scope")
-      ? { ok: true, auth: { required: false, authenticated: true }, bridge_protocol: 1 }
+    const old = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => Response.json(new URL(request.url).pathname === "/api/access"
+      ? { ok: true, auth: { required: false, authenticated: true },  }
       : { ok: true, herdr: { version: "0.9.3" }, auth: { required: false, authenticated: true } }) });
     try {
       writeFileSync(join(configDir, ".env"), `PORT=${old.port}\n`);
@@ -205,7 +205,7 @@ describe("port", () => {
       const stranger = Bun.serve({
         hostname: "127.0.0.1",
         port: 0,
-        fetch: (request) => new URL(request.url).searchParams.get("scope") === "bridge"
+        fetch: (request) => new URL(request.url).pathname === "/api/access"
           ? bridge.clone()
           : Response.json({ error: { code: "unavailable", message: "not us" } }, { status: 503 }),
       });
@@ -252,7 +252,7 @@ describe("port", () => {
     const ours = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: (request) => new URL(request.url).searchParams.get("scope") === "bridge"
+      fetch: (request) => new URL(request.url).pathname === "/api/access"
         ? Response.json(BRIDGE_HEALTH)
         : Response.json({ error: { code: "connect_failed", message: "herdr socket unreachable" } }, { status: 502 }),
     });
@@ -277,7 +277,7 @@ describe("port", () => {
       hostname: "127.0.0.1",
       port: 0,
       fetch: (request) => {
-        if (new URL(request.url).searchParams.get("scope") === "bridge") { afterBridge = 0; return Response.json(BRIDGE_HEALTH); }
+        if (new URL(request.url).pathname === "/api/access") { afterBridge = 0; return Response.json(BRIDGE_HEALTH); }
         if (afterBridge >= 0 && afterBridge++ >= 1) return Response.json(APP_HEALTH);
         return Response.json({ error: { code: "connect_failed", message: "herdr socket unreachable" } }, { status: 502 });
       },

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { lazyChunk } from "../lib/lazyChunk.ts";
 import { SettingsProvider } from "../lib/settings.ts";
-import { ChunkFailureNotice } from "./UpdateControls.tsx";
+import { ChunkFailureNotice } from "./ChunkFailureNotice.tsx";
 
 describe("the reader tab's reload line", () => {
   it("offers a reload once a part of the app failed to load, without the update model", async () => {

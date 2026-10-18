@@ -19,8 +19,8 @@ import { comboKey, LEGACY_COMBOS } from "./theme-baseline.ts";
 // the browser's Back button steps out of the dialog instead of out of the app. All files and
 // HTTP traffic stay in this disposable, loopback-only app; no herdr session is opened.
 const app = mkdtempSync(join(tmpdir(), "herdr-settings-demo-"));
-const PAGES = ["Appearance", "Chat", "Terminal", "Alerts", "Voice input", "Subscription usage", "Shortcuts", "Phone & devices", "Remote PCs", "Agent integrations", "About"];
-const SETTINGS = { language: "en", showUsage: true, voiceInput: true, showQuickReplies: true, fileOpen: "panel" };
+const PAGES = ["Appearance", "Chat", "Terminal", "Alerts", "Shortcuts", "Phone & devices", "Agent integrations", "About"];
+const SETTINGS = { language: "en", showQuickReplies: true, fileOpen: "panel" };
 
 const dialogOf = (page: Page) => page.getByRole("dialog", { name: "Settings", exact: true });
 const openSettings = async (page: Page): Promise<void> => {
@@ -103,17 +103,6 @@ try {
             // what a page asks the server for (devices, the phone address, the accounts) has arrived
             await page.waitForFunction((loading) => ![...document.querySelectorAll(".settings-body [role='status']")].some((node) => loading.includes(node.textContent?.trim() ?? "")),
               [label("Loading…")]);
-            if (name === "Subscription usage") await page.locator(".usage-accounts-row").first().waitFor();
-            if (name === "Voice input") {
-              await page.locator(".voice-key").waitFor();
-              const dictation = page.getByLabel(label("Dictation language"), { exact: true });
-              await dictation.selectOption("hu-HU");
-              await page.waitForFunction(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).voiceLanguage === "hu-HU");
-              assert.equal(await dictation.inputValue(), "hu-HU");
-              assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings")!).language), language,
-                "dictation selection does not change the display language");
-              await dictation.selectOption("auto");
-            }
             if (name === "Agent integrations") {
               // the demo's fixture, in herdr's order with the agents found on the PC first: a failed request
               // would leave one error paragraph that still fits, so the rows and their states are asserted

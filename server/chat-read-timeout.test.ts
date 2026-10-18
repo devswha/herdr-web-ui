@@ -73,14 +73,14 @@ it("keeps chat history readable while valid sequential herdr calls outlast HTTP 
     await new Promise<void>((resolve, reject) => { daemon.once("error", reject); daemon.listen(socketAddress(socketPath), resolve); });
     process.env.HERDR_SOCKET = socketPath;
     forgetTranscriptState();
-    app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), codexHome, herdrProfiles: async () => [], registerBridge: false });
+    app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), codexHome });
     const base = `http://127.0.0.1:${app.port}/api/pane/`;
     const initial = await read(`${base}conversation?pane_id=fixture`);
     expect(initial.status).toBe(200);
     expect(initial.body.cursor).toBeString();
     slow = true;
     const [newest, history, stalled] = await Promise.all([
-      read(`${base.replace("/api/pane/", "/api/machines/local/pane/")}conversation?pane_id=fixture`),
+      read(`${base}conversation?pane_id=fixture`),
       read(`${base}conversation?pane_id=fixture&before=${encodeURIComponent(initial.body.cursor)}`),
       read(`${base}read?pane_id=fixture&source=recent`),
     ]);

@@ -1,6 +1,6 @@
 import type { RepoDiffFilePatch, RepoDiffScope, RepoDiffStatus } from "../../shared/protocol.ts";
 import { ApiError, routeMissing } from "./api.ts";
-import { formatBytes } from "./bridgeProgress.ts";
+import { formatBytes } from "./formatBytes.ts";
 import { canHighlight, countLines, languageForPath } from "./highlight.ts";
 import type { Translate } from "./i18n.ts";
 import type { DiffStyle } from "./settings.ts";

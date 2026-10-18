@@ -35,11 +35,6 @@ function notifications(
     registration: { showNotification: async (title: string, options: { data: unknown }) => { shown.push({ title, options }); } },
   };
   loadWorker(self);
-  const push = (payload: unknown): Promise<void> => {
-    let completion!: Promise<void>;
-    listeners.get("push")!({ data: { json: () => payload, text: () => JSON.stringify(payload) }, waitUntil: (promise: Promise<void>) => { completion = promise; } });
-    return completion;
-  };
   const click = (paneId: string | null = "pane-a", machineId = "local", workspaceId?: string): Promise<void> => {
     let completion!: Promise<void>;
     listeners.get("notificationclick")!({
@@ -48,7 +43,7 @@ function notifications(
     });
     return completion;
   };
-  return { click, push, shown, opened, closed: () => closed };
+  return { click, shown, opened, closed: () => closed };
 }
 
 function client(focus = async () => {}, focused = false, url = APP) {
@@ -114,14 +109,6 @@ describe("notification clicks", () => {
   });
 
   it("names the workspace an alert's pane was last seen in, to an open window and a cold start", async () => {
-    const quiet = notifications([]);
-    await quiet.push({ pane_id: "w1:p9", workspace_id: "w1", title: "t", body: "terminal ended", tag: "x" });
-    await quiet.push({ pane_id: "w1:p9", title: "t", body: "b", tag: "y" });
-    expect(quiet.shown.map((shown) => shown.options.data)).toEqual([
-      { pane_id: "w1:p9", machine_id: "local", workspace_id: "w1" },
-      { pane_id: "w1:p9", machine_id: "local", workspace_id: null },
-    ]);
-
     const app = client();
     const worker = notifications([app]);
     await worker.click("w1:p9", "pc2", "w1");

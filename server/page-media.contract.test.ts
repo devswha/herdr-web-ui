@@ -61,10 +61,10 @@ it("an address the page passes on plays for no other client, and ends when that 
 
 it("revoking a paired device ends the page media its renders were given", async () => {
   const { base, render, close } = fixture();
-  const admin = { authorization: "Bearer test-page-media", "x-herdr-machine": "1", "content-type": "application/json" };
+  const admin = { authorization: "Bearer test-page-media", "x-herdr-request": "1", "content-type": "application/json" };
   try {
     const { code } = await (await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: admin })).json() as { code: string };
-    const paired = await fetch(`${base}/api/devices/pair`, { method: "POST", headers: { "x-herdr-machine": "1", "content-type": "application/json" }, body: JSON.stringify({ code, label: "phone" }) });
+    const paired = await fetch(`${base}/api/devices/pair`, { method: "POST", headers: { "x-herdr-request": "1", "content-type": "application/json" }, body: JSON.stringify({ code, label: "phone" }) });
     expect(paired.status).toBe(204);
     const cookie = paired.headers.get("set-cookie")!.split(";")[0]!;
     const { address } = await render({ cookie });
@@ -78,10 +78,10 @@ it("revoking a paired device ends the page media its renders were given", async 
 
 it("signing out ends page media rendered by a browser holding both the token and a device cookie", async () => {
   const { base, render, close } = fixture();
-  const admin = { authorization: "Bearer test-page-media", "x-herdr-machine": "1", "content-type": "application/json" };
+  const admin = { authorization: "Bearer test-page-media", "x-herdr-request": "1", "content-type": "application/json" };
   try {
     const { code } = await (await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: admin })).json() as { code: string };
-    const paired = await fetch(`${base}/api/devices/pair`, { method: "POST", headers: { "x-herdr-machine": "1", "content-type": "application/json" }, body: JSON.stringify({ code, label: "laptop" }) });
+    const paired = await fetch(`${base}/api/devices/pair`, { method: "POST", headers: { "x-herdr-request": "1", "content-type": "application/json" }, body: JSON.stringify({ code, label: "laptop" }) });
     expect(paired.status).toBe(204);
     const both = { authorization: "Bearer test-page-media", cookie: paired.headers.get("set-cookie")!.split(";")[0]! };
     const { address } = await render(both);

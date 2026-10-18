@@ -190,35 +190,6 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
-// Web push (server/push.ts sends, shared/protocol.ts PushPayload is the JSON). Every
-// push shows a notification: Safari revokes a subscription whose pushes stay silent.
-// A window of the app that is visible right now already shows the change in its
-// sidebar, so the notification then arrives without sound or vibration.
-self.addEventListener("push", (event) => {
-  let payload = {};
-  try {
-    payload = event.data ? event.data.json() : {};
-  } catch (err) {
-    payload = { body: event.data ? event.data.text() : "" };
-  }
-  event.waitUntil(
-    (async () => {
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const watching = windows.some((client) => client.visibilityState === "visible");
-      await self.registration.showNotification(payload.title || "herdr", {
-        body: payload.body || "",
-        tag: payload.tag || "herdr",
-        renotify: !watching,
-        silent: watching,
-        data: { pane_id: payload.pane_id || null, machine_id: payload.machine_id || "local", workspace_id: payload.workspace_id || null },
-        icon: "/icons/icon-192.png?v=ram1",
-        // Android's status bar and small icon: white on transparent, or Chrome's bell
-        badge: "/icons/badge-96.png?v=ram1",
-      });
-    })(),
-  );
-});
-
 /**
  * A window that runs the app and so takes a "select-pane": the shell's own paths only. Not a
  * markdown reader tab (`?read=`, src/lib/fileReader.ts renders FileReader there instead of App),
@@ -285,27 +256,6 @@ self.addEventListener("notificationclick", (event) => {
         return;
       }
       await open();
-    })(),
-  );
-});
-
-// The browser rotated the subscription (Firefox does; Chrome rarely): hand the server
-// the new endpoint and drop the old one, or pushes stop until the app is next opened.
-self.addEventListener("pushsubscriptionchange", (event) => {
-  const post = (method, body) =>
-    fetch("/api/push/subscribe", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  event.waitUntil(
-    (async () => {
-      const previous = event.oldSubscription;
-      let fresh = event.newSubscription;
-      if (!fresh) {
-        const key = previous && previous.options.applicationServerKey
-          ? previous.options.applicationServerKey
-          : (await (await fetch("/api/push")).json()).public_key;
-        fresh = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-      }
-      await post("POST", { subscription: fresh.toJSON() });
-      if (previous) await post("DELETE", { endpoint: previous.endpoint });
     })(),
   );
 });

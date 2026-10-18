@@ -3,8 +3,7 @@ import { ENDED_NOTIFICATION_BODY, paneNotificationTag, statusNotificationBody } 
 
 /**
  * Tab alerts: Web Notifications for pane status transitions while this page is open
- * but hidden. A device with a push subscription (lib/push.ts) gets the same alerts from
- * the server instead, and App skips these. Notification exists only in secure contexts
+ * but hidden. No vendor push subscription is created. Notification exists only in secure contexts
  * (https or localhost) - a plain-http LAN deployment reports "unsupported", and the bell
  * there switches only the in-app alerts.
  *
@@ -52,7 +51,7 @@ async function show(paneId: string, title: string, body: string, onClick?: () =>
   }
 }
 
-/** `workspaceId`: the pane's workspace, as the server's push names it (server/push.ts), so a tap after the pane ends opens it. */
+/** `workspaceId`: the pane's workspace, for notification-click navigation, so a tap after the pane ends opens it. */
 export function showPaneStatusNotification(paneId: string, title: string, status: AgentStatus, onClick?: () => void, machineId = "local", workspaceId?: string): void {
   void show(paneId, title, statusNotificationBody(status), onClick, machineId, workspaceId);
 }

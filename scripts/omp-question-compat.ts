@@ -149,7 +149,7 @@ try {
   const hostScript = join(work, "app-host.ts");
   writeFileSync(hostScript, `import { writeFileSync } from "node:fs";
 import { createServer } from ${JSON.stringify(pathToFileURL(join(appRoot, "server/index.ts")).href)};
-const app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: ${JSON.stringify(join(work, "web-state"))}, registerBridge: false });
+const app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: ${JSON.stringify(join(work, "web-state"))} });
 await app.statusReady;
 writeFileSync(process.env.OMP_COMPAT_READY!, JSON.stringify({ port: app.port }));
 process.on("SIGTERM", () => { app.stop(); process.exit(0); });

@@ -37,43 +37,13 @@ export type HerdrTab = TabInfo;
  */
 export type HerdrPane = PaneInfo & { background_tasks?: number; background_wait?: true; plan?: PlanSummary };
 
-export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
-
-/** Machine API (same token gate; mutations require X-Herdr-Machine: 1 + same origin)
- * GET /api/health?scope=bridge -> BridgeHealth, never waits for herdr
- * GET /api/bridge -> authenticated BridgeIdentity (fork distribution + socket + runtime compatibility)
- * GET /api/machines -> { machines: Machine[] }; GET /api/machines/events -> MachineEvent SSE
- * Machine action_required=connect: a saved herdr PC awaits explicit POST /api/machines/setup before SSH.
- * Connection permission survives successful setup; installation/startup approval remains separate.
- * SetupJob/Machine action_required=bridge_conflict: align app versions, then retry setup without update_remote.
- * POST /api/machines/setup -> SetupJob; GET/POST/DELETE /api/machines/setup/:job_id
- * PATCH /api/machines/:id { name?, enabled? }; DELETE /api/machines/:id
- * /api/machines/:id/{session,agents,pane/*,workspace/*} -> existing target-local API
- * /ws?machine_id=:id -> immutable target, unchanged role + output ACK protocol
- * Legacy paths and missing machine IDs continue to mean local.
- */
-
 /** HTTP API
+ *  GET    /api/access                    -> { ok: true, distribution: string, auth: HealthAuth }, independent of herdr
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
  *                                          Windows herdr and on a bridge that cannot run the PTY sidecar; terminal_mirror: its
- *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
+ *                                          terminal lens is the pane's screen, repainted; health reports the same herdr), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
- *  GET    /api/portal                    -> PortalStatus (an optional public HTTPS address through
- *         Portal, server/portal.ts), no-store
- *  POST   /api/portal/start              -> 202 { accepted: true }; body { relay }; 400 invalid_relay,
- *         409 token_required / portal_busy / portal_state_in_use / portal_unsupported
- *  POST   /api/portal/stop               -> 202 { accepted: true }; 409 portal_unsupported
- *         Portal POSTs require X-Herdr-Update: 1 and same-origin, like the update POSTs:
- *         403 invalid_portal_request (or invalid_origin from the outer origin gate).
- *         Unsupported methods/actions get 405 method_not_allowed; a watch-only device gets
- *         403 read_only. Startup holds HTTP/WS requests until leftover Portal cleanup completes;
- *         unreadable saved state or unverifiable cleanup fails closed with 500 internal_error.
- *  GET    /api/updates                   -> UpdateStatus (shared/update.ts), no-store
- *  POST   /api/updates/check             -> 202 { accepted: true }
- *  POST   /api/updates/install           -> 202 { accepted: true }
- *         Update POSTs require X-Herdr-Update: 1, same-origin browser requests,
- *         and the usual token gate. Managed starts only; status is polled during restart.
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
  *         each with `installed`: whether its command is on this server's PATH; for the
@@ -215,17 +185,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  DELETE /api/auth                      -> 204, clears the token and the device cookies
  *  GET    /api/devices                   -> { devices: PairedDevice[] } (the paired devices; `current` marks the caller's)
  *  POST   /api/devices/pair/start        -> PairingCode: a six-digit code good for ten minutes, replacing any pending one
- *         (X-Herdr-Machine: 1 + same origin, from a client with full access)
+ *         (same origin, from a client with full access)
  *  POST   /api/devices/pair { code, label? } -> 204 + Set-Cookie herdr_web_device (public, like /api/auth;
  *         401 invalid_code when the code is wrong, spent after five tries, or expired)
  *  PATCH  /api/devices/:id  { label }    -> PairedDevice;  DELETE /api/devices/:id -> 204 (revoked at its next request)
- *  GET    /api/push                      -> PushKey (the VAPID application server key)
- *  POST   /api/push/subscribe { subscription }  -> 204 (a browser PushSubscription JSON; upsert by endpoint)
- *         | 410 subscription_gone (its push service answered 404/410 for that endpoint since the server
- *         started: the browser must unsubscribe and subscribe anew; an older server never says it)
- *  DELETE /api/push/subscribe { endpoint }      -> 204
- *  POST   /api/push/test      { endpoint }      -> 204 | 404 subscription_not_found | 410 subscription_gone | 502 push_failed
- *  GET    /api/usage[?refresh=1]         -> UsageReport (plan limits of the AI subscriptions signed in on this PC)
  *  Errors: non-2xx with { error: { code, message } }
  *
  *  Access: APIs and /ws require local loopback without proxy evidence, a valid token or a
@@ -233,6 +196,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  foreign-host loopback requests always require credentials. Direct non-loopback access is
  *  open only until a token is configured or a device is paired. Static files stay public.
  */
+/** GET /api/events: same authentication as /api/session; one stream per browser. */
+export type SessionEvent = { type: "snapshot"; snapshot: SessionSnapshot }
+  | { type: "message"; message: ServerMessage }
+  | { type: "preferences"; preferences: import("./preferences.ts").SharedPreferences };
+
 export interface ApiError {
   error: { code: string; message: string };
 }
@@ -264,71 +232,7 @@ export interface PaneFindResponse {
   scroll?: PaneScrollInfo | null;
 }
 
-/** The subscriptions whose plan limits GET /api/usage can read from a CLI's own sign-in. */
-export type UsageProviderId = "claude" | "codex" | "cursor" | "copilot" | "grok" | "antigravity" | "opencode";
-
-/** One limit of a plan: how much of it is used and when it starts over. */
-export interface UsageWindow {
-  /** the span the limit counts over: a rolling session (5 hours), a day, a week or a billing month */
-  readonly kind: "session" | "day" | "week" | "month";
-  /** the model or quota a plan limits on its own ("Sonnet", "Premium"); null for the plan-wide limit */
-  readonly scope: string | null;
-  /** 0 to 100 */
-  readonly used_percent: number;
-  /** ISO 8601; null when the provider does not say */
-  readonly resets_at: string | null;
-  /** ISO 8601 time this window began counting; null when the provider states neither it nor the window's length */
-  readonly starts_at: string | null;
-}
-
-/**
- * Why a provider's numbers are missing or old: its sign-in expired or was refused; the provider
- * asked to slow down; the request failed; the macOS keychain holding the sign-in could not be
- * read from this server's session.
- */
-export type UsageProblem = "expired" | "rate_limited" | "failed" | "locked";
-
-export interface ProviderUsage {
-  readonly id: UsageProviderId;
-  /**
-   * One account of one provider, stable across reads: the provider and its account id, or, for a
-   * sign-in that does not say whose it is, the provider and where it was found. A PC signed in to
-   * two accounts of one provider lists both.
-   */
-  readonly key: string;
-  /** whose plan this is, as its owner knows the account: an email, or a GitHub login; null when unknown */
-  readonly account: string | null;
-  /** the plan's name as the provider states it ("max", "pro"), when it does */
-  readonly plan: string | null;
-  /** the last numbers read; kept through a later failure, which `problem` then names */
-  readonly windows: readonly UsageWindow[];
-  readonly problem: UsageProblem | null;
-  /** ISO 8601 time `windows` were read; null when they never were */
-  readonly checked_at: string | null;
-}
-
-/** GET /api/usage: only providers a CLI on this PC is signed in to are listed, once per account. */
-export interface UsageReport {
-  readonly providers: readonly ProviderUsage[];
-}
-
-/** CLIProxyAPI management configuration: the management key never leaves the server. */
-export interface CLIProxyStatus {
-  readonly configured: boolean;
-  readonly url: string;
-  readonly ok: boolean;
-  readonly problem: string | null;
-}
-export type CLIProxyProvider = "claude" | "codex";
-export interface CLIProxyLogin {
-  readonly url: string;
-  readonly state: string;
-}
-export interface CLIProxyLoginStatus {
-  readonly status: "wait" | "ok" | "error";
-}
-
-/** How a request got in, when it did. */
+/** How a request obtained access to the workstation. */
 export type AccessVia = "local" | "device" | "token" | "open";
 /** Why a request did not. */
 export type AccessRefusal = "pairing_required" | "token_required";
@@ -376,38 +280,6 @@ export interface PairingCode {
   readonly expires_at: string;
 }
 
-/**
- * GET /api/portal: a public HTTPS address for this server through the Portal on its PC
- * (gosuda/portal-tunnel), which the app starts and stops (Settings → Phone & devices).
- */
-export interface PortalStatus {
-  /** false on a server started without Portal (tests, the demo): the section stays hidden */
-  readonly supported: boolean;
-  /** what `portal version` says of the `portal` on PATH; null when there is none or it does not answer */
-  readonly version: string | null;
-  /** the oldest Portal that can run this app's tunnel */
-  readonly min_version: string;
-  /** `version` is `min_version` or later: Start is offered */
-  readonly usable: boolean;
-  readonly phase: "idle" | "starting" | "running" | "stopping" | "error";
-  /** the relay the tunnel uses, or used last; an https origin */
-  readonly relay: string | null;
-  /** the public address while it runs, without the default port */
-  readonly url: string | null;
-  /** why a start would be refused now: no token set */
-  readonly blocked: "token_required" | null;
-  /** what went wrong last; null after a success */
-  readonly error: string | null;
-  /** the tail of what Portal printed, for when the error alone does not say enough */
-  readonly output: string | null;
-}
-
-/** GET /api/push: base64url VAPID public key, the `applicationServerKey` a browser subscribes with. */
-export interface PushKey {
-  readonly public_key: string;
-}
-
-/** One turn of a structured agent conversation (the chat lens source). */
 export interface ConversationTurn {
   role: "user" | "assistant";
   ts: string | null;
@@ -1056,22 +928,6 @@ export interface PromptAnswer {
   custom_text?: string;
 }
 
-/**
- * The JSON inside every web push, decrypted by the device's service worker (public/sw.js)
- * and shown as a notification. `pane_id` is null for the enable-confirmation push; `tag`
- * is shared with the in-tab notification of the same pane, so one replaces the other.
- */
-export interface PushPayload {
-  /** Absent in legacy payloads means local. */
-  machine_id?: string;
-  pane_id: string | null;
-  /** The workspace the pane was last seen in, so the tap of an ended pane opens that workspace. Absent when not known. */
-  workspace_id?: string;
-  title: string;
-  body: string;
-  tag: string;
-}
-
 /** WebSocket at /ws
  *
  *  Client -> server frames: attach {pane_id, cols, rows} | detach {pane_id} | input {pane_id, text}
@@ -1166,11 +1022,6 @@ export type ClientMessage =
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole }
-  /** whether this page is in use: visible and focused. While any connection of a server says
-   * so, that server sends no web push to any device (#751). Sent on connect and on every change,
-   * also through a remote PC's socket (the connection server reads it there too); an older
-   * server ignores it, so it needs no feature. */
-  | { type: "presence"; active: boolean }
   /** a read-only view of the pane at this grid, for a tab out of use (feature "watch"); never resizes the pane */
   | { type: "watch"; pane_id: string; cols: number; rows: number }
   | { type: "unwatch"; pane_id: string }

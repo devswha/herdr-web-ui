@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright-core";
-import type { Machine } from "../shared/machines.ts";
+import type { SessionSnapshot } from "../shared/protocol.ts";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { PtySession } from "../server/pty/session.ts";
@@ -115,8 +115,8 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
 async function agentListed(origin: string, paneId: string): Promise<void> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    const roster = await (await fetch(`${origin}/api/machines`)).json() as { machines: Machine[] };
-    if (roster.machines.some((machine) => machine.snapshot?.panes.some((pane) => pane.pane_id === paneId && pane.agent === "claude"))) return;
+    const roster = await (await fetch(`${origin}/api/session`)).json() as { snapshot: SessionSnapshot };
+    if (roster.snapshot.panes.some((pane) => pane.pane_id === paneId && pane.agent === "claude")) return;
     await Bun.sleep(50);
   }
   throw new Error(`the roster never named the agent in ${paneId}`);
@@ -575,7 +575,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           return framesOf(page);
         };
         const setup = async (recording: Page): Promise<void> => {
-          if (scenario === "hidden-mount") await recording.route("**/api/machines", async (route) => {
+          if (scenario === "hidden-mount") await recording.route("**/api/session", async (route) => {
             const response = await route.fetch();
             // App deliberately does not load while hidden. Hide after loading starts, but before
             // the roster response can mount a pane; hasFocus alone must not permit an attach.
@@ -584,15 +584,6 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
               Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
             });
             await route.fulfill({ response });
-          });
-          if (scenario === "mirrored-mount") await recording.route("**/api/machines", async (route) => {
-            const response = await route.fetch();
-            const roster: { machines: Machine[] } = await response.json();
-            for (const machine of roster.machines) if (machine.herdr) {
-              machine.herdr.terminal_attach = false;
-              machine.herdr.terminal_mirror = true;
-            }
-            await route.fulfill({ response, json: roster });
           });
           if (scenario === "mirrored-mount") await recording.route("**/api/health", async (route) => {
             const response = await route.fetch();

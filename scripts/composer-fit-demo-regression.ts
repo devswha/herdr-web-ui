@@ -24,7 +24,7 @@ const LONG_MODEL = "gpt-5.6-sol-codex-preview-2026-10";
 // ids it names: "GPT-5.6" and "Opus 5.5"; null: the conversation names no model
 const NAMED = ["gpt-5.6", "claude-opus-5-5"] as const;
 
-interface Case { model: string | null; agent?: "claude" | "codex" | "pi" | "omo"; pending?: boolean; effort?: string | null; status?: "working" | "idle"; mic?: boolean; ring?: boolean; chatFontSize?: number | null; showUsage?: boolean; weeklyOnly?: boolean; suggestion?: string | null; contextUsed?: number; stream?: number }
+interface Case { model: string | null; agent?: "claude" | "codex" | "pi" | "omo"; pending?: boolean; effort?: string | null; status?: "working" | "idle"; ring?: boolean; chatFontSize?: number | null; suggestion?: string | null; contextUsed?: number; stream?: number }
 type Draw = "full" | "no-effort" | "out";
 
 const measure = (page: Page) => page.evaluate(() => {
@@ -88,7 +88,7 @@ const measure = (page: Page) => page.evaluate(() => {
     send: document.querySelector(".composer-controls-right .composer-send") !== null,
     sendOptions: document.querySelector(".composer-send-options") !== null,
     stop: document.querySelector(".composer-controls-right .composer-stop") !== null,
-    chip: document.querySelector(".bg-tasks-toggle") !== null, mic: document.querySelector(".composer-controls-left .voice-mic") !== null,
+    chip: document.querySelector(".bg-tasks-toggle") !== null,
     overlaps, overflowing: document.documentElement.scrollWidth > window.innerWidth,
   };
 });
@@ -161,7 +161,6 @@ try {
         { name: "deploy", description: "Deploy a project", source: "project" },
         { name: "plugin:deploy", description: "Deploy through a plugin", source: "plugin" }
       );
-      if (window.fitCase.weeklyOnly && value.id === "codex" && Array.isArray(value.windows)) value.windows = value.windows.filter((limit) => limit.kind !== "session");
       if (Array.isArray(value.turns) && value.metadata) value.metadata = { model: window.fitCase.model, reasoning_effort: window.fitCase.effort, ...(window.fitCase.ring ? { context: { used: window.fitCase.contextUsed ?? 151000, window: 272000 } } : {}) };
       if (Array.isArray(value.turns) && window.fitCase.stream) {
         const turn = value.turns.findLast((turn) => turn.role === "assistant");
@@ -212,9 +211,9 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: touch, isMobile: touch, locale: "en-US" });
     try {
       await context.addInitScript((fitCase) => {
-        if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", voiceInput: fitCase.mic ? "on" : "off", chatFontSize: fitCase.chatFontSize ?? null, showUsage: fitCase.showUsage ?? false, usageCount: "used" }));
+        if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", chatFontSize: fitCase.chatFontSize ?? null }));
         Object.assign(window, { fitCase });
-      }, { agent: "claude", pending: true, status: "working", effort: "xhigh", mic: false, ring: true, ...state });
+      }, { agent: "claude", pending: true, status: "working", effort: "xhigh", ring: true, ...state });
       const page = await context.newPage();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
@@ -573,7 +572,7 @@ try {
         console.log(`PASS skill completion at word boundaries (${agent}, ${width}px)`);
       });
       // One primary control across agents: Stop with an empty working draft, Send with text.
-      for (const agent of ["claude", "codex"] as const) for (const width of [350, 390, 800, 1440]) for (const mic of [false, true]) await withCard(browser, width, { agent, model: "gpt-5.6", mic }, async (page) => {
+      for (const agent of ["claude", "codex"] as const) for (const width of [350, 390, 800, 1440]) await withCard(browser, width, { agent, model: "gpt-5.6" }, async (page) => {
         const rest = await measure(page);
         assert.ok(rest.stop && !rest.send && !rest.sendOptions && !rest.queue, JSON.stringify(rest));
         if (width <= 480) assert.equal(await page.locator(".composer-context").evaluate((node) =>
@@ -593,7 +592,7 @@ try {
         await page.getByRole("textbox", { name: "Message", exact: true }).fill("");
         assert.equal((await measure(page)).stop, true);
       });
-      for (const agent of ["pi", "omo"] as const) await withCard(browser, 390, { agent, model: LONG_MODEL, mic: true }, async (page) => {
+      for (const agent of ["pi", "omo"] as const) await withCard(browser, 390, { agent, model: LONG_MODEL }, async (page) => {
         await draft(page);
         const row = await measure(page);
         await drawn(page, row.draw as Draw, `${agent}, a long model identifier`);
@@ -601,7 +600,7 @@ try {
       });
       console.log("PASS agents at 350, 390, 800 and 1440px use one Stop/Send control with no Queue or dropdown");
 
-      for (const width of [320, 330, 350, 390]) await withCard(browser, width, { agent: "codex", model: LONG_MODEL, mic: true }, async (page) => {
+      for (const width of [320, 330, 350, 390]) await withCard(browser, width, { agent: "codex", model: LONG_MODEL }, async (page) => {
         await draft(page);
         await upload(page);
         const row = await measure(page);
@@ -696,20 +695,6 @@ try {
         assert.ok(noteBox && surfaceBox && Math.abs(noteBox.width - surfaceBox.width) <= 1 && Math.abs(noteBox.x - surfaceBox.x) <= 1, "and as wide as it");
       });
       console.log("PASS connection loss suspends pending items, confirmed holds need Send now, and old bridges keep the draft");
-
-      for (const weeklyOnly of [false, true]) await withCard(browser, 1440, { agent: "codex", model: "gpt-5.6", showUsage: true, weeklyOnly }, async (page) => {
-        const usage = page.locator(".composer-status .composer-usage");
-        await usage.waitFor();
-        assert.equal(await usage.evaluate((node) => node.tagName === "SPAN" && !node.hasAttribute("tabindex")), true, "desktop quota is a read-only glance");
-        assert.equal(await usage.locator('span[aria-hidden="true"]').textContent(), weeklyOnly ? "Weekly 84%" : "5h 22%", "the session precedes the tighter week; no session falls back to the week");
-        assert.equal(await usage.evaluate((node) => node.classList.contains("is-high")), weeklyOnly);
-        assert.match(await usage.getAttribute("title") ?? "", /sam@work\.example/);
-      });
-      await withCard(browser, 390, { agent: "codex", model: "gpt-5.6", showUsage: true }, async (page) => {
-        assert.equal(await page.locator(".composer-status .composer-usage").count(), 0, "mobile omits the desktop quota even when sidebar limits are enabled");
-        assert.equal(await page.locator(".composer-context").evaluate((node) => node.tagName === "SPAN" && !node.hasAttribute("aria-expanded")), true);
-      });
-      console.log("PASS desktop quota is read-only and session-first with weekly fallback; mobile keeps only the inert context ring");
 
       // The message box is typed at the transcript's size (Settings → Chat font size): with a mouse
       // exactly, on a phone never under 16px, the smallest size iOS does not zoom the page for

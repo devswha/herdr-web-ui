@@ -92,7 +92,7 @@ export function requiresAuth(pathname: string): boolean {
   // a rendered page's media address is its own credential, kept to the client that rendered it for a fixed time
   // (file-view.ts): the page has no origin and sends no cookie
   if (PAGE_MEDIA_ROUTE.test(pathname)) return false;
-  return pathname !== "/api/health" && pathname !== "/api/auth" && pathname !== "/api/devices/pair";
+  return pathname !== "/api/health" && pathname !== "/api/access" && pathname !== "/api/auth" && pathname !== "/api/devices/pair";
 }
 
 export function unauthorizedJson(reason: "pairing_required" | "token_required" = "token_required"): Response {

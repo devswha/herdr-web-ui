@@ -1,6 +1,6 @@
 # herdr web ui
 
-此分支由 `tomrutsaert/herdr-web-ui` 分发。在 Settings → About 中手动检查并安装更新。应用仅使用 `fork-vX.Y.Z` 标签，远程运行时仅使用 `fork-remote-vN` 标签，不会安装继承的上游标签。不发送维护者使用统计，也不自动发布网络访问地址。为保留已安装状态，插件 ID 仍为 `devswha.herdr-web-ui`。
+本版本只服务一台工作站。经授权的远程浏览器可通过管理员配置的 HTTPS 或 VPN 访问，保留令牌认证、设备配对和只读权限。依赖安装与更新由管理员单独执行；应用不管理其他电脑或隧道，也不发送维护者统计或集成 Tailscale。插件 ID 保持为 `devswha.herdr-web-ui`。
 
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
@@ -80,10 +80,9 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 
 - **聊天与终端，共用一个窗格** — 阅读 Claude Code、Codex、omp、omo、gjc 和 pi 的原生会话记录，以及 herdr 识别出的 OpenCode 2 和 Devin CLI 会话，一键切换到实时终端。智能体工作时可以先写好下一条消息，它会在下一轮发出，也可以用 Send now 立即发送。[支持的智能体 →](docs/guide.md#supported-agents)
 - **轻点即可批准** — 审批请求、问题和计划菜单会显示为卡片，发送回答前会先确认提示仍然有效。
-- **需要你时及时提醒** — 实时显示每个窗格的状态；应用打开时提醒会从顶部滑下；智能体需要输入或完成任务时发送推送通知，即使应用已关闭也能收到。
+- **需要你时及时提醒** — 应用打开时显示窗格状态和应用内提醒。不支持关闭应用后的通知。
 - **安装到手机** — PWA 在键盘上方提供按键栏（Esc、Tab、Ctrl、Alt、Shift、Enter 和方向键），可在 Settings（设置）中调整顺序或添加自定义组合键；已配置的 HTTPS 地址以二维码显示。[手机设置 →](docs/guide.md#on-your-phone)
-- **开口代替打字** — 在聊天或终端输入行中语音输入，韩语和英语混说也能识别；文字只放进输入框，由你决定何时发送。使用你自己的 OpenAI API 密钥，或浏览器自带的语音识别。
-- **沿用现有工作流** — 智能体由 herdr 管理，本应用负责连接；在 Settings（设置）中更新应用，无需停止智能体，每次更新带来的变化以更新说明列出。新标签页和 worktree 可从行的 ⋯ 菜单创建。[全部功能 →](docs/guide.md#features)
+- **沿用现有工作流** — herdr 管理智能体，应用只负责连接。通过 ⋯ 菜单创建标签页和 worktree。更新由管理员单独执行。
 
 ---
 
@@ -95,7 +94,7 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-支持 Linux（x64、arm64）或 macOS。安装程序会为当前用户补齐 herdr 0.9.0+、Bun 1.4+ 和 Node 18+ 依赖，然后将应用安装为 herdr 插件。如果已安装的 herdr 低于 0.9.0，请先自行更新并重启 herdr，再重新运行安装程序。 请自行配置 HTTPS 反向代理或 SSH 隧道，然后用验证码配对设备。安装应用和通知需要 HTTPS 或 localhost。
+支持 Linux（x64、arm64）和 macOS。请先单独安装 herdr 0.9.0+、Bun 1.4+、Git 和 Node 18+。脚本不会自动安装依赖工具。HTTPS 或 VPN 由管理员配置。
 
 Windows x64 请在 PowerShell 中运行：
 
@@ -103,7 +102,7 @@ Windows x64 请在 PowerShell 中运行：
 irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
-需要 [Git for Windows](https://git-scm.com/download/win)。安装程序会为当前用户补齐 herdr 和 Bun，然后安装同一个插件，无需 Node 或 WSL。要在手机上使用，请在 herdr 中打开 **Phone setup**。在 herdr 支持 Windows 终端附加之前，Windows 上的终端是一个可以输入、网格固定的[屏幕镜像](docs/remote-pcs.md#windows-pcs)。
+Windows x64 需要预先安装 Git、herdr 0.9.0+ 和 Bun 1.4+。不需要 Node 或 WSL。终端使用固定网格的屏幕镜像。
 
 已经安装了所需依赖？只需安装插件：
 
@@ -123,7 +122,7 @@ herdr plugin install tomrutsaert/herdr-web-ui
 
 **可以在手机上使用 Claude Code 或 Codex 吗？**
 
-可以。在电脑上的 [herdr](https://github.com/herdrdev/herdr) 窗格里运行智能体，本应用就会在手机浏览器中显示同一个窗格：智能体自己的会话记录显示为聊天，审批和提问显示为可点按回答的卡片，随时可以切换到实时终端。它可以作为 PWA 安装到主屏幕，并在智能体需要你时发送推送提醒。[手机设置 →](docs/guide.md#on-your-phone)
+可以。在电脑上的 [herdr](https://github.com/herdrdev/herdr) 窗格里运行智能体，本应用就会在手机浏览器中显示同一个窗格：智能体自己的会话记录显示为聊天，审批和提问显示为可点按回答的卡片，随时可以切换到实时终端。可以作为 PWA 安装，打开时显示应用内提醒。[手机设置 →](docs/guide.md#on-your-phone)
 
 **聊天视图支持哪些智能体？**
 
@@ -139,15 +138,15 @@ Claude Code、Codex、omp、omo、gjc 和 pi 直接从各自的会话文件读�
 
 **我的代码或对话会离开我的电脑吗？**
 
-会话内容发送到已连接的浏览器。可选语音输入、用量显示、手动更新、远程电脑设置和通知可能使用外部服务。不向维护者发送使用统计。
+会话文件保留在主机上，并发送到经授权的浏览器。应用不会连接供应商服务、发现账户、自动安装软件或聚合其他电脑。智能体自身的模型通信、用户打开的外部链接或媒体以及管理员的网络设施属于独立范围。
 
 **支持 Windows 吗？**
 
-支持，在 Windows x64 上无需 WSL。在 herdr 支持 Windows 终端附加之前，终端是一个可以输入、网格固定的[屏幕镜像](docs/remote-pcs.md#windows-pcs)。
+支持，在 Windows x64 上无需 WSL。在 herdr 支持 Windows 终端附加之前，终端是一个可以输入、网格固定的[屏幕镜像](docs/guide.md#supported-agents)。
 
 **它与 collie、roamgate、herdr-remote 有什么不同？**
 
-这些项目也提供 herdr 的手机或浏览器客户端。本应用直接读取智能体自己的会话记录，所以窗格显示的是按轮次折叠工作过程的聊天，而不是终端输出；其他电脑可以从侧边栏通过 SSH 加入。它不自带隧道，也只支持 herdr：如果你需要 tmux 或 zellij、差异查看、Telegram 或开箱即用的隧道，其他几个更合适。[完整对比 →](docs/guide.md#faq)
+这些项目也提供 herdr 的手机或浏览器客户端。本应用直接读取智能体自己的会话记录，所以窗格显示的是按轮次折叠工作过程的聊天，而不是终端输出；本版本只服务一台工作站。它不自带隧道，也只支持 herdr：如果你需要 tmux 或 zellij、差异查看、Telegram 或开箱即用的隧道，其他几个更合适。[完整对比 →](docs/guide.md#faq)
 
 **它与 Happy、Paseo、CloudCLI UI 有什么不同？**
 
@@ -157,9 +156,9 @@ Claude Code、Codex、omp、omo、gjc 和 pi 直接从各自的会话文件读�
 
 ## 文档
 
-从[用户指南](docs/guide.md)开始：[快速入门](docs/guide.md#quick-start) · [支持的智能体](docs/guide.md#supported-agents) · [功能](docs/guide.md#features) · [手机](docs/guide.md#on-your-phone) · [远程电脑](docs/remote-pcs.md) · [访问与安全](docs/guide.md#access-and-safety) · [配置](docs/guide.md#configuration) · [键盘快捷键](docs/guide.md#keyboard-shortcuts) · [常见问题](docs/guide.md#faq)。
+从[用户指南](docs/guide.md)开始：[快速入门](docs/guide.md#quick-start) · [支持的智能体](docs/guide.md#supported-agents) · [功能](docs/guide.md#features) · [手机](docs/guide.md#on-your-phone) · [访问与安全](docs/guide.md#access-and-safety) · [配置](docs/guide.md#configuration) · [键盘快捷键](docs/guide.md#keyboard-shortcuts) · [常见问题](docs/guide.md#faq)。
 
-深入了解：[工作原理](docs/guide.md#how-it-works) · [聊天记录](docs/chat-mode-audit.md) · [终端流量控制](docs/terminal-flow-control.md) · [应用更新](docs/app-updates.md) · [更新日志](CHANGELOG.md)。
+深入了解：[工作原理](docs/guide.md#how-it-works) · [聊天记录](docs/chat-mode-audit.md) · [终端流量控制](docs/terminal-flow-control.md) · [更新日志](CHANGELOG.md)。
 
 ## 致谢
 

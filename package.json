@@ -13,7 +13,7 @@
     "dev": "bun --bun vite",
     "build": "bun --bun vite build",
     "server": "bun run server/index.ts",
-    "start": "bun run build && bun run server/managed.ts",
+    "start": "bun run server/managed.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "check": "bun scripts/check.ts",
     "test": "bun test",
@@ -22,9 +22,7 @@
     "test:ui": "bun run build && bun scripts/ui-regression.ts && bun scripts/ui-contexts-regression.ts && bun scripts/sticky-modifiers-regression.ts",
     "generate:types": "bun run scripts/generate-protocol-types.ts",
     "generate:themes": "bun run scripts/generate-themes.ts",
-    "build:remote": "bun run scripts/build-remote-bundle.ts",
-    "build:site": "bun scripts/build-site.ts",
-    "test:ssh": "bun run scripts/ssh-integration.ts"
+    "build:site": "bun scripts/build-site.ts"
   },
   "dependencies": {
     "@legendapp/list": "3.3.5",
@@ -40,8 +38,7 @@
     "mermaid": "^12.1.0",
     "qrcode-generator": "^2.0.4",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "web-push": "^3.6.7"
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
@@ -49,7 +46,6 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/react-test-renderer": "^19.1.0",
-    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.1.2",
     "playwright-core": "^1.49.1",
     "react-test-renderer": "19.3.0",

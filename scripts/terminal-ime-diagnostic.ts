@@ -123,7 +123,7 @@ function stop(): Promise<void> {
 }
 
 try {
-  api = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), registerBridge: false });
+  api = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
   const made = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-native-ime" });
   workspace = made.workspace.workspace_id;
   const pane = made.root_pane.pane_id;

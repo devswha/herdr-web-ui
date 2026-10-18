@@ -56,7 +56,7 @@ describe("CI fork release tag discovery", () => {
     expect(git(checkout, "tag", "--list")).toBe("");
   });
 
-  for (const tags of [["fork-v0.4.12"], ["fork-remote-v30"], ["fork-v0.4.12", "fork-remote-v30"]]) {
+  for (const tags of [["fork-v0.4.12"], ["fork-v0.4.12", "fork-v0.4.13"]]) {
     it(`fetches published ${tags.join(" and ")} without upstream tags`, () => {
       const { upstream, checkout } = fixture([...tags, "v99.0.0", "remote-v99"]);
       const result = fetchTags(checkout);

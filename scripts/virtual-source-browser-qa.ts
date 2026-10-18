@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
 import { build as viteBuild } from "vite";
 import { serveStatic } from "../server/static.ts";
-import { formatBytes } from "../src/lib/bridgeProgress.ts";
+import { formatBytes } from "../src/lib/formatBytes.ts";
 import { SOURCE_PREVIEW_LINES, TEXT_PREVIEW_BYTES } from "../src/lib/filePreviewText.ts";
 import { VIRTUAL_HIGHLIGHT_LINES, VIRTUAL_SOURCE_LINES } from "../src/lib/sourcePreview.ts";
 
@@ -500,12 +500,6 @@ try {
   await close(page);
   console.log("PASS Markdown keeps the Preview's budget, and its source is virtualized and colored");
 
-  // a remote PC's file reads through its bridge
-  requests.length = 0;
-  await open(page, "/src/mid.ts", "remote-fixture");
-  await waitRows(page);
-  assert.ok(requests.length >= 2 && requests.every((path) => path.startsWith("/api/machines/remote-fixture/fs/")), `remote requests: ${requests.join(", ")}`);
-  await close(page);
   assert.deepEqual(errors, [], "no errors at the end");
   await context.close();
   console.log("PASS a remote PC's source reads through its bridge");

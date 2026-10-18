@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { releaseSummaries, SUMMARIES_FILE } from "../server/release-notes.ts";
-import { SUMMARY_GROUPS, SUMMARY_LANGUAGES, type SummaryGroup } from "../shared/update.ts";
+import { releaseSummaries, SUMMARIES_FILE } from "./release-summary.ts";
+import { SUMMARY_GROUPS, SUMMARY_LANGUAGES, type SummaryGroup } from "./release-summary.ts";
 import { FRAGMENTS_DIR, fragmentFiles } from "./changelog-fold.ts";
 
 /** The GitHub release's headings for the patch-note lists, in SUMMARY_GROUPS order. */

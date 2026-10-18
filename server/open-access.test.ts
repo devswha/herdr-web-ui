@@ -34,7 +34,7 @@ describe("this PC, with no token and no configuration", () => {
 
   it("is let in with nothing set up: the local-dev path", async () => {
     expect((await fetch(`${base}/api/devices`)).status).toBe(200);
-    const started = await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: { origin: base, "x-herdr-machine": "1" } });
+    const started = await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: { origin: base, "x-herdr-request": "1" } });
     expect(started.status).toBe(200);
     expect((await started.json() as { code: string }).code).toMatch(/^\d{6}$/);
     // the gate is still open to strangers here: nothing is paired and no token exists,
@@ -60,21 +60,17 @@ describe("a paired watch device", () => {
 
   const asWatcher = (path: string, method = "GET") => fetch(`${base}${path}`, {
     method,
-    headers: { cookie, origin: base, "x-herdr-machine": "1", ...(method === "POST" ? { "content-type": "application/json" } : {}) },
+    headers: { cookie, origin: base, "x-herdr-request": "1", ...(method === "POST" ? { "content-type": "application/json" } : {}) },
   });
 
-  it("keeps the filesystem, the directory listing and push/test out of reach", async () => {
+  it("keeps the filesystem, the directory listing out of reach", async () => {
     // its own credentials are a preference of that device, so signing out keeps working
     expect((await asWatcher("/api/auth", "DELETE")).status).toBe(204);
     // the filesystem and the directory listing are shape the terminal never shows it
     expect((await asWatcher("/api/fs/file?path=/etc/hostname")).status).toBe(403);
     expect((await asWatcher("/api/workspace/directories?cwd=/tmp")).status).toBe(403);
-    expect((await asWatcher("/api/machines/local/workspace/directories?cwd=/tmp")).status).toBe(403);
     // nor make a folder there
     expect((await asWatcher("/api/workspace/directories", "POST")).status).toBe(403);
-    expect((await asWatcher("/api/machines/local/workspace/directories", "POST")).status).toBe(403);
-    // sending an alert is not a preference: it makes the server POST somewhere
-    expect((await asWatcher("/api/push/test", "POST")).status).toBe(403);
     // watching is the role's whole point
     expect((await asWatcher("/api/devices")).status).toBe(200);
   });
@@ -86,7 +82,7 @@ describe("a paired watch device", () => {
     const format = await asWatcher("/api/pane/read?pane_id=w9999:p9999&format=markdown");
     expect((await format.json() as { error: { code: string } }).error.code).toBe("invalid_format");
     // the same check on this PC, where the method is the only thing wrong
-    const posted = await fetch(`${base}/api/pane/read?pane_id=w9999:p9999&source=visible`, { method: "POST", headers: { origin: base, "x-herdr-machine": "1" } });
+    const posted = await fetch(`${base}/api/pane/read?pane_id=w9999:p9999&source=visible`, { method: "POST", headers: { origin: base, "x-herdr-request": "1" } });
     expect(posted.status).toBe(400);
     expect((await posted.json() as { error: { code: string } }).error.code).toBe("method_not_allowed");
   });
@@ -100,7 +96,7 @@ describe("a paired watch device", () => {
     expect((await (await read()).json() as { error: { code: string } }).error.code).toBe("invalid_origin");
     // the custom mutation header is that client's proof, and it still passes the origin gate:
     // what answers next is this device's own role, not the origin check
-    const cli = await fetch(`${base}/api/pane/read?pane_id=w9999:p9999&source=visible`, { method: "POST", headers: { cookie, "x-herdr-machine": "1" } });
+    const cli = await fetch(`${base}/api/pane/read?pane_id=w9999:p9999&source=visible`, { method: "POST", headers: { cookie, "x-herdr-request": "1" } });
     expect(cli.status).toBe(403);
     expect((await cli.json() as { error: { code: string } }).error.code).toBe("read_only");
   });
@@ -142,7 +138,7 @@ describe("a token set: guessing it", () => {
   });
 
   it("counts a paired watch device's guesses, so it cannot guess its way up to drive", async () => {
-    const watcher = (bearer: string): Promise<Response> => fetch(`${base}/api/push/test`, {
+    const watcher = (bearer: string): Promise<Response> => fetch(`${base}/api/pane/rename`, {
       method: "POST",
       headers: { cookie: `herdr_web_device=${encodeURIComponent(watchToken)}`, authorization: `Bearer ${bearer}`, origin: base, "content-type": "application/json", "x-forwarded-for": "100.64.0.5" },
       body: "{}",

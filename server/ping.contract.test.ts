@@ -3,8 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerMessage } from "../shared/protocol.ts";
-import { MachineRelay } from "./machine-relay.ts";
-import type { MachineManager } from "./machines.ts";
 import { createServer, type ServerInstance } from "./index.ts";
 
 /** A socket whose frames are awaited as events, each wait bounded by a deadline. */
@@ -43,34 +41,14 @@ class FrameSocket {
 describe("WebSocket liveness ping", () => {
   const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-ping-"));
   const sockets: WebSocket[] = [];
-  const relays: MachineRelay[] = [];
   let bridge: ServerInstance | undefined;
-  let proxy: ReturnType<typeof Bun.serve<{ relay: MachineRelay }>> | undefined;
-
-  async function connect(url: string): Promise<FrameSocket> {
-    const socket = new FrameSocket(new WebSocket(url));
-    sockets.push(socket.ws);
-    await socket.opened;
-    await socket.next((message) => message.type === "snapshot", "snapshot");
-    return socket;
-  }
 
   beforeAll(() => {
-    bridge = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "test-ping", machines: false });
-    // a remote PC's socket, as /ws?machine_id= relays it, with this bridge as the remote
-    const manager = { endpoint: () => ({ url: `http://127.0.0.1:${bridge!.port}`, token: "test-ping" }), trackTerminal: () => () => {} } as unknown as MachineManager;
-    proxy = Bun.serve<{ relay: MachineRelay }>({ port: 0, hostname: "127.0.0.1", async fetch(request, instance) {
-      const relay = new MachineRelay(manager, "remote"); relays.push(relay);
-      await relay.ready;
-      if (instance.upgrade(request, { data: { relay } })) return;
-      relay.close(); return new Response(null, { status: 426 });
-    }, websocket: { open(ws) { ws.data.relay.bind(ws); }, message(ws, raw) { ws.data.relay.message(raw); }, close(ws) { ws.data.relay.close(); } } });
+    bridge = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "test-ping" });
   });
 
   afterAll(() => {
     for (const socket of sockets) socket.close();
-    for (const relay of relays) relay.close();
-    proxy?.stop(true);
     bridge?.stop();
     rmSync(stateDir, { recursive: true, force: true });
   });
@@ -94,13 +72,5 @@ describe("WebSocket liveness ping", () => {
     socket.send({ type: "ping", id: "x" });
     expect(await socket.next((message) => message.type === "error", "invalid ping", before)).toMatchObject({ code: "invalid_ping" });
     expect(socket.seen.slice(before).some((message) => message.type === "pong")).toBe(false);
-  }, 20_000);
-
-  it("relays a ping to a remote PC and its pong back unchanged", async () => {
-    const socket = await connect(`ws://127.0.0.1:${proxy!.port}/ws`);
-    const snapshot = socket.seen.find((message) => message.type === "snapshot");
-    expect(snapshot?.type === "snapshot" && snapshot.features).toContain("ping");
-    socket.send({ type: "ping", id: 42 });
-    expect(await socket.next((message) => message.type === "pong", "relayed pong")).toEqual({ type: "pong", id: 42 });
   }, 20_000);
 });

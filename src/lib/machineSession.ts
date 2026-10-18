@@ -2,7 +2,6 @@ import type { PendingMessage, ServerMessage } from "../../shared/protocol.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import { afterSend, afterSettled, greetingMemory, rememberGreeting } from "./greeting.ts";
 import { pendingMessages, type PendingMessageStore } from "./pendingMessages.ts";
-import { watchPageInUse } from "./presence.ts";
 import { HerdrSocket } from "./ws.ts";
 
 type Handler = (message: ServerMessage, sent: boolean) => void;
@@ -25,11 +24,10 @@ export class MachineSession {
   private readonly handlers = new Set<Handler>();
   private readonly offMessage: () => void;
   private readonly offDisconnect: () => void;
-  private readonly offPresence: () => void;
   private closed = false;
 
   constructor(readonly machineId: string, options: MachineSessionOptions = {}) {
-    this.socket = options.socket ?? new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);
+    this.socket = options.socket ?? new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`);
     this.store = options.pendingStore ?? pendingMessages;
     // Installed before view subscribers, and kept even while this PC has no mounted pane.
     this.offMessage = this.socket.on((message) => {
@@ -50,7 +48,6 @@ export class MachineSession {
       for (const handler of this.handlers) handler(message, sent);
     });
     this.offDisconnect = this.socket.onDisconnect(() => this.disconnected());
-    this.offPresence = watchPageInUse((active) => this.socket.setPresence(active));
   }
 
   get scope(): string | null { return this.currentScope; }
@@ -91,7 +88,6 @@ export class MachineSession {
     this.disconnected();
     this.offMessage();
     this.offDisconnect();
-    this.offPresence();
     this.handlers.clear();
     this.socket.close();
   }

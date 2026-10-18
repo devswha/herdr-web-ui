@@ -172,7 +172,7 @@ it("tells a held session omo has not written yet from an older one", async () =>
 it("serves a held omo session as an empty conversation until its file is written", async () => {
   const paneId = await pane();
   await hold(paneId, "unwritten-http");
-  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "server-state"), machines: false });
+  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "server-state") });
   const home = process.env["HOME"];
   // the conversation route reads omo's store under HOME
   process.env["HOME"] = root;

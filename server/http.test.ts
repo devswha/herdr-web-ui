@@ -45,7 +45,7 @@ describe("pane find HTTP validation", () => {
   });
   beforeAll(() => {
     stateDir = mkdtempSync(join(tmpdir(), "herdr-find-http-"));
-    server = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "", machines: false, sidecar: false });
+    server = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "", sidecar: false });
   });
   afterEach(() => find.mockClear());
   afterAll(() => {

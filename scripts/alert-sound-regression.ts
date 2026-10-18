@@ -69,7 +69,7 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
       // subscribed to these newly created panes. Observe a real status event before testing alerts.
       const statuses: Record<string, string> = {};
       const NativeEvents = window.EventSource;
-      type Roster = { type: string; machines: { id: string; snapshot: { panes: { pane_id: string; agent_status: string }[] } | null }[] };
+      type Roster = { type: string; snapshot: { panes: { pane_id: string; agent_status: string }[] } };
       class ObservedEvents extends NativeEvents {
         constructor(url: string | URL, init?: EventSourceInit) {
           super(url, init);
@@ -79,14 +79,14 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
           let roster: Roster | null = null;
           this.addEventListener("message", (event) => {
             const payload = JSON.parse(event.data);
-            if (payload.type === "machines") roster = payload;
+            if (payload.type === "snapshot") roster = payload;
             const message = payload.message;
             if (message?.type === "pane-status") {
               statuses[message.pane_id] = message.agent_status;
               // The server reads the roster from herdr on its own, and now and then one shows a
               // status before the event that tells of it arrives. `rosterFirst` makes it every time.
               if ((window as unknown as { rosterFirst?: boolean }).rosterFirst && roster) {
-                const ahead: Roster = { ...roster, machines: roster.machines.map((machine) => machine.id !== payload.machine_id || !machine.snapshot ? machine : { ...machine, snapshot: { ...machine.snapshot, panes: machine.snapshot.panes.map((pane) => pane.pane_id === message.pane_id ? { ...pane, agent_status: message.agent_status } : pane) } }) };
+                const ahead: Roster = { ...roster, snapshot: { ...roster.snapshot, panes: roster.snapshot.panes.map((pane) => pane.pane_id === message.pane_id ? { ...pane, agent_status: message.agent_status } : pane) } };
                 handler?.call(this, new MessageEvent("message", { data: JSON.stringify(ahead) }));
               }
             }
@@ -278,9 +278,8 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
 if (import.meta.main) {
   const { chromium } = await import("playwright-core");
   const { createServer } = await import("../server/index.ts");
-  const { UsageService } = await import("../server/usage.ts");
   const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-sound-server-"));
-  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir, usage: new UsageService(undefined, []) });
+  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir });
   const browser = await chromium.launch({
     executablePath: chromePath(),
     headless: true, args: ["--no-sandbox", "--accept-lang=en-US"],

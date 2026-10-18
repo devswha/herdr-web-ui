@@ -8,7 +8,6 @@ import { join } from "node:path";
 import { chromium, type Locator, type Page } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
-import { openSettingsPage } from "./settings-page.ts";
 
 /** a file action: its button in the header, or up to 600px the item in the header's More menu */
 async function fileAction(scope: Locator | Page, name: string): Promise<Locator> {
@@ -21,8 +20,6 @@ async function fileAction(scope: Locator | Page, name: string): Promise<Locator>
 }
 import { sheetsSettled } from "./sheets-settled.ts";
 import { runMoreItem } from "./header-more.ts";
-import type { Machine } from "../shared/protocol.ts";
-import { FAVICON_CANDIDATES } from "../src/lib/projectFavicon.ts";
 import { chromePath } from "./chrome-path.ts";
 
 const openFiles = async (page: import("playwright-core").Page) => {
@@ -346,42 +343,6 @@ try {
     assert.equal(await page.evaluate(() => (window as unknown as { testDocument: string }).testDocument), "same-document");
     console.log(`PASS Settings opens above the preview at ${width}px; Escape and Back preserve it, then X closes the file once`);
   }
-
-  // Add PC from Settings over a preview: Settings closes, the preview stays mounted beneath, and
-  // the native modal Add PC opens is on top. Tab walks Add PC's own controls; the preview's trap
-  // must not take it back to its own, now inert, controls.
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await videoLink.click();
-  await preview.waitFor();
-  await page.keyboard.press("ControlOrMeta+Shift+Comma");
-  const settingsOverPreview = page.getByRole("dialog", { name: "Settings", exact: true });
-  await settingsOverPreview.waitFor();
-  await openSettingsPage(page, "Remote PCs");
-  await settingsOverPreview.getByRole("button", { name: "Add PC", exact: true }).click();
-  const addPc = page.locator("dialog.machine-dialog");
-  await addPc.waitFor();
-  await settingsOverPreview.waitFor({ state: "hidden" });
-  assert.equal(await page.locator(".file-viewer").count(), 1, "the preview stays beneath Add PC");
-  await page.waitForFunction(() => Boolean(document.activeElement?.closest("dialog.machine-dialog")));
-  const addPcFocus: string[] = [];
-  for (let press = 0; press < 3; press++) {
-    await page.keyboard.press("Tab");
-    addPcFocus.push(await page.evaluate(() => {
-      const active = document.activeElement;
-      return active?.closest("dialog.machine-dialog") ? active.outerHTML.slice(0, 120) : `outside: ${active?.outerHTML.slice(0, 80)}`;
-    }));
-  }
-  assert.ok(addPcFocus.every((entry) => !entry.startsWith("outside")), `Tab stays inside Add PC over a preview: ${addPcFocus.join(" | ")}`);
-  assert.ok(new Set(addPcFocus).size >= 2, `Tab moves through Add PC over a preview: ${addPcFocus.join(" | ")}`);
-  // Escape is Add PC's too: it closes Add PC alone, and the preview and its entry stay
-  const previewUnderAddPc = await page.evaluate(() => history.state["herdr-web-ui:file-preview"]);
-  await page.keyboard.press("Escape");
-  await addPc.waitFor({ state: "hidden" });
-  assert.equal(await page.locator(".file-viewer").count(), 1, "Escape over Add PC leaves the preview beneath it");
-  assert.deepEqual(await page.evaluate(() => history.state["herdr-web-ui:file-preview"]), previewUnderAddPc, "Escape over Add PC preserves the preview entry");
-  await preview.getByRole("button", { name: "Close file", exact: true }).click();
-  await preview.waitFor({ state: "hidden" });
-  console.log("PASS Add PC opened from Settings over a preview keeps Tab inside Add PC, and its Escape closes Add PC alone");
 
   // With no preview beneath it, Settings stays on the layer every dialog shares, so the palette
   // its shortcut opens is drawn above Settings instead of taking focus and Escape unseen.
@@ -1164,72 +1125,6 @@ try {
       await context.close();
       console.log(`PASS Markdown inline/new tab/reload/raw/download: ${width}px ${theme}`);
     }
-  }
-  // A file-only link owns its PC even if this browser last selected another one.
-  // The remote fixture has no panes; only the bridge hop is supplied here, and its
-  // file requests still go through the real server's stat/Range implementation.
-  const roster: { machines: Machine[] } = await (await context.request.get(`${origin}/api/machines`)).json();
-  const local = roster.machines.find((machine) => machine.id === "local");
-  assert.ok(local?.snapshot);
-  const remote: Machine = { ...local, id: "remote-fixture", name: "Remote fixture", snapshot: { ...local.snapshot, panes: [], workspaces: [], tabs: [], layouts: [], agents: [] } };
-  for (const target of ["remote-fixture", "local", "missing-fixture"]) {
-    const ownerContext = await browser.newContext();
-    const fileRequests: string[] = [];
-    await ownerContext.addInitScript(({ stored, pane }) => {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-      sessionStorage.setItem("herdr-web-ui:selection", JSON.stringify({ machine_id: stored, pane_id: pane }));
-    }, { stored: target === "local" ? "remote-fixture" : "local", pane });
-    await ownerContext.route("**/api/**", async (route) => {
-      const request = new URL(route.request().url());
-      if (request.pathname === "/api/machines/events") { await route.abort(); return; }
-      if (request.pathname === "/api/machines") { await route.fulfill({ json: { machines: [...roster.machines, remote] } }); return; }
-      if (request.pathname === "/api/machines/remote-fixture/session") { await route.fulfill({ json: { snapshot: remote.snapshot } }); return; }
-      if (request.pathname.includes("/fs/")) {
-        // the sidebar probes each workspace folder for its project icon on its own PC; only the
-        // document's reads are the link's
-        const asked = request.searchParams.get("path") ?? "";
-        if (!FAVICON_CANDIDATES.some((candidate) => asked.endsWith(`/${candidate}`))) fileRequests.push(request.pathname);
-        if (request.pathname.startsWith("/api/machines/remote-fixture/")) {
-          request.pathname = request.pathname.replace("/api/machines/remote-fixture/", "/api/");
-          await route.fulfill({ response: await route.fetch({ url: request.href }) });
-          return;
-        }
-      }
-      await route.continue();
-    });
-    const ownerPage = await ownerContext.newPage();
-    ownerPage.setDefaultTimeout(10_000);
-    await ownerPage.goto(`${origin}/?machine=${target}&file=${encodeURIComponent(markdownPath)}`);
-    if (target === "missing-fixture") {
-      await ownerPage.getByText("That link's PC is not set up here", { exact: true }).waitFor();
-      assert.equal(await ownerPage.locator(".file-viewer").count(), 0);
-      assert.equal(fileRequests.length, 0, "an unknown PC never reads the local file");
-      // nor does the document's own tab, for a PC that is not set up here
-      const readerPage = await ownerContext.newPage();
-      await readerPage.goto(`${origin}/?read=${encodeURIComponent(markdownPath)}&machine=${target}`);
-      await readerPage.locator(".file-reader .file-viewer-note").waitFor();
-      assert.equal(fileRequests.some((path) => path.startsWith("/api/fs/")), false, "the reader never reads the local file for another PC");
-      await readerPage.close();
-    } else {
-      await ownerPage.locator(".file-viewer-markdown").getByRole("heading", { name: "Markdown preview", exact: true }).waitFor();
-      const prefix = target === "local" ? "/api/fs/" : "/api/machines/remote-fixture/fs/";
-      assert.ok(fileRequests.length >= 2 && fileRequests.every((path) => path.startsWith(prefix)), fileRequests.join(", "));
-      await ownerPage.waitForFunction((path) => new URLSearchParams(location.search).get("file") === path, markdownPath);
-      const link = await ownerPage.getByRole("link", { name: "Open in a new tab", exact: true, includeHidden: true }).getAttribute("href");
-      assert.ok(link);
-      assert.equal(new URL(link, origin).searchParams.get("machine") ?? "local", target);
-      // the document's own tab reads the file from that PC too
-      fileRequests.length = 0;
-      const readerPage = await ownerContext.newPage();
-      await readerPage.goto(new URL(link, origin).href);
-      await readerPage.locator(".file-reader .file-viewer-markdown").getByRole("heading", { name: "Markdown preview", exact: true }).waitFor();
-      assert.ok(fileRequests.length >= 2 && fileRequests.every((path) => path.startsWith(prefix)), fileRequests.join(", "));
-      await readerPage.close();
-      await ownerPage.reload();
-      await ownerPage.locator(".file-viewer-markdown").getByRole("heading", { name: "Markdown preview", exact: true }).waitFor();
-    }
-    await ownerContext.close();
-    console.log(`PASS file-only link PC ownership, stored selection and pane independence: ${target}`);
   }
   await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}&view=chat`);
   await page.locator(".markdown-code").first().waitFor();

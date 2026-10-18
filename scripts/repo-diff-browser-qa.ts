@@ -558,24 +558,7 @@ try {
   }
 
   // a remote PC's repository reads through its bridge, the file too
-  {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", theme: "dark" })));
-    const page = await context.newPage();
-    page.setDefaultTimeout(15_000);
-    await page.goto(origin);
-    requests.length = 0;
-    await openFiles(page, "pane-main", "remote-fixture");
-    await changeRows(page);
-    await openChange(page, "src/money.ts");
-    await waitRows(page);
-    await page.getByRole("button", { name: "Open file", exact: true }).click();
-    await page.getByRole("dialog", { name: "money.ts", exact: true }).waitFor();
-    assert.deepEqual(requests.filter((path) => path.includes("/workspace/diff/")), ["/api/machines/remote-fixture/workspace/diff/files", "/api/machines/remote-fixture/workspace/diff/file"], `remote diff requests: ${requests.join(", ")}`);
-    assert.ok(requests.some((path) => path === "/api/machines/remote-fixture/fs/stat"), `remote file requests: ${requests.join(", ")}`);
-    await context.close();
-    console.log("PASS a remote PC's changes and files read through its bridge");
-  }
+
 
   // the static demo answers the routes from its fixture: the list, a diff and no missing route
   {

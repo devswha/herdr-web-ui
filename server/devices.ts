@@ -13,7 +13,7 @@ import type { DeviceRole, PairedDevice } from "../shared/protocol.ts";
 import type { Access } from "./access.ts";
 import { deviceCookie, isSecureRequest, noContent } from "./auth.ts";
 import { badRequest, isJsonObject, jsonResponse } from "./http.ts";
-import { sameOrigin } from "./machine-security.ts";
+import { sameOrigin } from "./origin.ts";
 
 const CODE_TTL_MS = 10 * 60_000;
 const CODE_ATTEMPTS = 5;
@@ -247,7 +247,7 @@ export class DeviceStore {
 /**
  * /api/devices*. Pairing itself is public, like /api/auth: it is how a device gets in. The
  * rest reaches here only through the gate in index.ts, and anything that changes the list
- * needs the app's own mutation guard (same origin + X-Herdr-Machine), like the other mutations.
+ * needs the app's own mutation guard (same origin + X-Herdr-Request), like the other mutations.
  */
 export async function handleDeviceRequest(request: Request, pathname: string, store: DeviceStore, access: Access): Promise<Response> {
   if (store.error !== null) return jsonResponse({ error: { code: "device_store_unavailable", message: access.level === "full" ? store.error : "Device pairing is unavailable; ask the owner to check Settings → Devices on the host." } }, 503);
@@ -270,7 +270,7 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
     if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
     return jsonResponse({ devices: store.list(access.level === "full" ? access.device?.id ?? null : null) }, 200, { "cache-control": "no-store" });
   }
-  if (!sameOrigin(request) || request.headers.get("x-herdr-machine") !== "1") return jsonResponse({ error: { code: "invalid_origin", message: "Manage devices from this app" } }, 403);
+  if (!sameOrigin(request) || request.headers.get("x-herdr-request") !== "1") return jsonResponse({ error: { code: "invalid_origin", message: "Manage devices from this app" } }, 403);
   if (access.level === "full" && access.role === "watch") return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
   if (pathname === "/api/devices/pair/start") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");

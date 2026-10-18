@@ -69,13 +69,11 @@ export async function checkWakeLock(browser: Browser, origin: string, paneId: st
     assert.equal(await toggle.getAttribute("aria-checked"), "true", "unsupported browsers keep the preference without failing");
 
     // A saved opt-in alone must not acquire a lock when the roster contains no pane.
-    await context.route("**/api/machines/events", (route) => route.abort());
-    await context.route("**/api/machines", async (route) => {
+    await context.route("**/api/events", (route) => route.abort());
+    await context.route("**/api/session", async (route) => {
       const response = await route.fetch();
       const body = await response.json();
-      for (const machine of body.machines) {
-        if (machine.snapshot) machine.snapshot = { ...machine.snapshot, panes: [], workspaces: [], focused_pane_id: null };
-      }
+      body.snapshot = { ...body.snapshot, panes: [], workspaces: [], focused_pane_id: null };
       await route.fulfill({ json: body });
     });
     await page.reload();

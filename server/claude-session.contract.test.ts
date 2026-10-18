@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { createServer } from "./index.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import { claudeProjectDir } from "./claude-store.ts";
-import { startFakePushService } from "./push.fake.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse, HerdrPane, OmoActivity, PanePlan, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 
@@ -27,9 +26,7 @@ let statusClock = Date.now();
 
 function makeServer() {
   return createServer({
-    port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"),
-    pushLoopbackHttp: true, statusNow: () => statusClock,
-    alertTiming: { short: 0, long: 0, longTurn: 1000 },
+    port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), statusNow: () => statusClock,
     backgroundWait: { grace: 1500, limit: 60_000 },
   });
 }
@@ -196,11 +193,7 @@ it.skipIf(!NATIVE)("lists a Claude pane's subagents, counts the running ones and
   writeFileSync(join(folder, "agent-a1.meta.json"), JSON.stringify({ agentType: "reviewer", description: "Review the parser", toolUseId: "toolu_a1", requestShape: "background" }));
   writeFileSync(join(folder, "agent-a1.jsonl"), `${JSON.stringify({ isSidechain: true, agentId: "a1", type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: "go" } })}\n`);
 
-  // a device that wants every alert: a count that changes alone must not reach it
-  const device = await startFakePushService();
   try {
-    const subscribed = await fetch(`${base}/api/push/subscribe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: device.subscription, alerts: { input: true, done: "always" } }) });
-    expect(subscribed.status).toBe(204);
     // asked: the server finds the pane's transcript itself. Its background lookup may already have come up empty
     // (herdr busy or late under load), which it does not repeat for a few seconds: the list follows once it looks again,
     // as the client's own retries see it
@@ -227,16 +220,9 @@ it.skipIf(!NATIVE)("lists a Claude pane's subagents, counts the running ones and
     const conversation = await read(second.pane);
     expect(conversation.source).toBe("claude-transcript");
     expect(conversation.turns.flatMap((turn) => turn.parts).filter((part) => part.kind === "task_result")).toMatchObject([{ kind: "task_result", tasks: [{ id: "a1", status: "completed", result: "fine" }] }]);
-    // A later collector alert waits through the same delivery queue as any earlier alert.
-    const barrier = device.waitFor((push) => push.payload.pane_id === first.pane, "input alert barrier", 10_000);
-    await herdrRpc("pane.report_agent", { pane_id: first.pane, source: "manual", agent: "claude", state: "blocked" });
-    await barrier;
-    expect(device.received.map((push) => push.payload.pane_id)).toEqual([first.pane]);
   } finally {
     frames.socket.close();
-    await fetch(`${base}/api/push/subscribe`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: device.subscription.endpoint }) }).catch(() => undefined);
     await herdrRpc("pane.report_agent", { pane_id: first.pane, source: "manual", agent: "claude", state: "idle" });
-    device.stop();
   }
 }, 25_000);
 
@@ -251,7 +237,6 @@ async function backgroundTurn(taskId: string) {
   server = makeServer();
   await bounded(server.statusReady, "Background status subscription");
   const base = `http://127.0.0.1:${server.port}`;
-  const device = await startFakePushService();
   const frames = await Frames.connect(server.port);
   const status = (frame: ServerMessage): frame is Extract<ServerMessage, { type: "pane-status" }> => frame.type === "pane-status" && frame.pane_id === target.pane;
   const shown = async (): Promise<HerdrPane | undefined> => {
@@ -270,11 +255,7 @@ async function backgroundTurn(taskId: string) {
   const now = () => new Date(statusClock).toISOString();
   const close = async () => {
     frames.socket.close();
-    const removed = await fetch(`${base}/api/push/subscribe`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: device.subscription.endpoint }) });
-    expect(removed.status).toBe(204);
-    await server.alertsSettled();
     server.stop();
-    device.stop();
     forgetTranscriptState();
     server = makeServer();
     await bounded(server.statusReady, "Restored status subscription");
@@ -283,8 +264,6 @@ async function backgroundTurn(taskId: string) {
     // Resolve the native session before the status event's synchronous transcript poll.
     const tasks = await fetch(`${base}/api/pane/omo-tasks?pane_id=${encodeURIComponent(target.pane)}`);
     expect(tasks.status).toBe(200);
-    const subscribed = await fetch(`${base}/api/push/subscribe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: device.subscription, alerts: { input: true, done: "long" } }) });
-    expect(subscribed.status).toBe(204);
     await report("working");
     statusClock += 1500;
     write({ type: "user", timestamp: now(), origin: { kind: "human" }, permissionMode: "default", message: { role: "user", content: "run the suite and ship" } },
@@ -293,12 +272,8 @@ async function backgroundTurn(taskId: string) {
     const held = await report("idle");
     expect(held).toMatchObject({ agent_status: "done", background_tasks: 1, background_wait: true });
     expect(await shown()).toMatchObject({ background_tasks: 1, background_wait: true });
-    const alerts = () => device.received.filter((push) => push.payload.pane_id === target.pane);
-    await server.alertsSettled();
-    expect(alerts()).toEqual([]);
     return {
-      shown, frames, status, report, alerts, close,
-      alerted: () => device.waitFor((push) => push.payload.pane_id === target.pane, "Background finish", 10_000),
+      shown, frames, status, report, close,
       end: async () => {
         const counted = frames.wait((frame) => status(frame) && frame.background_tasks === 0);
         write({ type: "queue-operation", operation: "enqueue", timestamp: now(), content: `<task-notification>\n<task-id>${taskId}</task-id>\n<status>completed</status>\n<summary>Background command completed (exit code 0)</summary>\n</task-notification>` });
@@ -308,33 +283,25 @@ async function backgroundTurn(taskId: string) {
   } catch (error) { await close(); throw error; }
 }
 
-it.skipIf(!NATIVE)("holds a turn that ended on its background command, and alerts once, for the whole turn, when the turn its notice starts ends", async () => {
+it.skipIf(!NATIVE)("holds a turn that ended on its background command, until the turn its notice starts ends", async () => {
   const turn = await backgroundTurn("bsuite");
   try {
     await turn.end();
     expect((await turn.shown())?.background_wait).toBe(true);
     await turn.report("working");
-    const alerted = turn.alerted();
     await turn.report("idle");
-    await alerted;
-    await server.alertsSettled();
-    expect(turn.alerts().map((push) => push.payload.body)).toEqual(["work finished"]);
     expect((await turn.shown())?.background_wait).toBeUndefined();
   } finally { await turn.close(); }
 }, 15_000);
 
-it.skipIf(!NATIVE)("lets go of a turn whose work ended when no turn follows, with one frame that says so and one alert", async () => {
+it.skipIf(!NATIVE)("lets go of a turn whose work ended when no turn follows, with one frame that says so", async () => {
   const turn = await backgroundTurn("blint");
   try {
     await turn.end();
     const from = turn.frames.seen.length;
     const released = turn.frames.wait((frame) => turn.status(frame) && frame.background_wait !== true);
-    const alerted = turn.alerted();
     statusClock += 1500;
     await released;
-    await alerted;
-    await server.alertsSettled();
-    expect(turn.alerts().map((push) => push.payload.body)).toEqual(["work finished"]);
     const atRest = turn.frames.seen.slice(from).filter(turn.status);
     expect(atRest).toHaveLength(1);
     expect(atRest[0]).toMatchObject({ agent_status: "done" });

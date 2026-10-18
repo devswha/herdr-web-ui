@@ -5,13 +5,10 @@ import { join } from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
-import { UsageService } from "../server/usage.ts";
-import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkSecretInput } from "./secret-input-regression.ts";
 import { checkTerminalCopy } from "./terminal-copy-regression.ts";
 import { checkPaneFind } from "./pane-find-regression.ts";
-import { checkUsageMeters } from "./usage-regression.ts";
 import { checkNotificationStartup } from "./notification-startup-regression.ts";
 import { checkNotificationView } from "./notification-view-regression.ts";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
@@ -25,7 +22,6 @@ import { checkSplitView } from "./split-view-regression.ts";
 import { checkTakeOver } from "./take-over-regression.ts";
 import { checkAlertSound } from "./alert-sound-regression.ts";
 import { checkBackgroundTabKeepsTerminalSize, checkChatKeepsTerminalSize, checkFocusedWindowReclaimsTerminalSize, checkPaneSwitchKeepsTerminalSize } from "./chat-size-regression.ts";
-import { checkUpdateNotice } from "./update-notice-regression.ts";
 import { chromePath } from "./chrome-path.ts";
 
 async function timed(name: string, check: () => Promise<void>): Promise<void> {
@@ -72,7 +68,7 @@ export async function runUiContextChecks(): Promise<void> {
     const paneB = createdB.root_pane.pane_id;
     await herdrRpc("pane.report_agent", { pane_id: paneB, source: "manual", agent: "codex", state: "idle" });
 
-    server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root, usage: new UsageService(undefined, []) });
+    server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
     const origin = `http://127.0.0.1:${server.port}`;
     browser = await chromium.launch({
       executablePath: chromePath(),
@@ -80,12 +76,10 @@ export async function runUiContextChecks(): Promise<void> {
       args: ["--no-sandbox", "--accept-lang=en-US"],
     });
 
-    await timed("checkPushSettings", () => checkPushSettings(browser!, origin));
     await timed("checkWakeLock", () => checkWakeLock(browser!, origin, paneA));
     await timed("checkSecretInput", () => checkSecretInput(browser!, origin));
     await timed("checkTerminalCopy", () => checkTerminalCopy(browser!, origin));
     await timed("checkPaneFind", () => checkPaneFind(browser!, origin));
-    await timed("checkUsageMeters", () => checkUsageMeters(browser!, origin));
     await timed("checkNotificationStartup", () => checkNotificationStartup(browser!, origin, paneA, paneB));
     await timed("checkNotificationView", () => checkNotificationView(browser!, origin));
     await timed("checkMobileViewport", () => checkMobileViewport(browser!, origin, paneB));
@@ -102,7 +96,6 @@ export async function runUiContextChecks(): Promise<void> {
     await timed("checkPaneSwitchKeepsTerminalSize", () => checkPaneSwitchKeepsTerminalSize(browser!, origin));
     await timed("checkBackgroundTabKeepsTerminalSize", () => checkBackgroundTabKeepsTerminalSize(browser!, origin));
     await timed("checkFocusedWindowReclaimsTerminalSize", () => checkFocusedWindowReclaimsTerminalSize(browser!, origin));
-    await timed("checkUpdateNotice", () => checkUpdateNotice(browser!, origin));
   } catch (error) {
     failed = true;
     failure = error;

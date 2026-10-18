@@ -32,7 +32,7 @@ bun run server   # API + WebSocket on :7317
 bun run dev      # Vite on :5173, proxies /api and /ws
 ```
 
-Updates are manual: `bun run start` and the plugin offer Check and Update in Settings. No startup or periodic release discovery runs.
+Build and update this checkout only through explicit operator deployment steps in [INSTALL.md](INSTALL.md#update). Startup never discovers releases or installs software.
 
 ## Branches and pull requests
 
@@ -76,8 +76,7 @@ bun run test:ui            # builds, then browser regression on `herdr-web-ui-te
                            # herdr --session herdr-web-ui-test server stop
 ```
 
-`bun test` runs the unit and integration suites together. Remote-PC changes also have
-`bun run test:ssh`. Tests and screenshots use panes and state they create themselves, never your
+`bun test` runs the unit and integration suites together. Tests and screenshots use panes and state they create themselves, never your
 running terminals: see [development](docs/development.md#checks).
 
 ## What a change needs
@@ -113,5 +112,4 @@ running terminals: see [development](docs/development.md#checks).
 ## Releases
 
 Maintainers only: see [development](docs/development.md#releasing). App releases are cut by the
-Release workflow; never push a `fork-vX.Y.Z` tag by hand, since installed updaters act on tags alone.
-Remote-PC runtime bundles are published with a `fork-remote-vN` tag, and an app release requires the matching one.
+Release workflow; never push a `fork-vX.Y.Z` tag by hand, as the release workflow owns publication.

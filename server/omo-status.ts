@@ -237,7 +237,7 @@ export class OmoStatus {
     this.staleIsFailure = deps.staleIsFailure ?? false;
   }
 
-  /** Watches with no browser connected too: web push depends on it. */
+  /** Watches with no browser connected too: local completion tracking depends on it. */
   start(): void {
     if (this.timer !== null) return;
     const pollMs = this.deps.pollMs ?? 1000;

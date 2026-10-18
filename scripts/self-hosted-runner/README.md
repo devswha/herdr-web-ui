@@ -59,7 +59,7 @@ gh variable set CI_SELF_HOSTED_LABELS --body '["self-hosted","linux","x64","herd
 gh variable delete CI_SELF_HOSTED_LABELS   # back to GitHub-hosted ubuntu-24.04
 ```
 
-A manual run can override the variable with the `self_hosted_labels` workflow_dispatch input. Fork PRs always use `ubuntu-24.04`; Windows/macOS jobs, `remote-bundles.yml` and `windows-install.yml` stay GitHub-hosted.
+A manual run can override the variable with the `self_hosted_labels` workflow_dispatch input. Fork PRs always use `ubuntu-24.04`; Windows/macOS jobs stay GitHub-hosted.
 
 ## Security model
 

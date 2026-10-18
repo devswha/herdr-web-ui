@@ -194,8 +194,6 @@ export class HerdrSocket {
     this.connectionState = "waiting";
   };
   private mode: ClientRole = "interact";
-  /** whether the page is in use (`presence`), as last told; null until the page says */
-  private presence: boolean | null = null;
   private stopped = false;
   /** the output stopped while the page was hidden, or just after it was shown again */
   private stoppedHidden = false;
@@ -291,7 +289,6 @@ export class HerdrSocket {
       // arrive - the UI would stay stuck in the old role while the header pill lies
       this.rawSend({ type: "role", mode: this.mode });
       // a new connection is a new client to the server: it has to hear again whether the page is in use
-      if (this.presence !== null) this.rawSend({ type: "presence", active: this.presence });
       // Mounted panes decide whether a new connection may acquire an attach before any replay.
       for (const handler of this.beforeReplayHandlers) handler();
       for (const [paneId, state] of this.attached) {
@@ -769,12 +766,6 @@ export class HerdrSocket {
     if (drove && this.mode === "interact") this.send({ type: "release-size", pane_id: paneId });
   }
 
-  /** Whether the page is in use (visible and focused): the server holds web push while one is. Replays on reconnect. */
-  setPresence(active: boolean): void {
-    if (this.presence === active) return;
-    this.presence = active;
-    if (this.connected) this.rawSend({ type: "presence", active });
-  }
 
   /** Sets the connection's role. Not queued: the role replays before the attaches on reconnect. */
   setMode(mode: ClientRole): void {

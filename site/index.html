@@ -40,9 +40,6 @@
     <link rel="icon" href="favicon.ico" sizes="32x32" />
     <link rel="icon" type="image/png" href="favicon.png" sizes="64x64" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
     <script>
       // before first paint: the saved ink/paper choice, else the system's
       (() => {
@@ -147,19 +144,6 @@
       }
 
       /* stat strip */
-      .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--line); }
-      .stat { padding: 22px var(--gut) 20px; border-right: 1px solid var(--line); }
-      .stat:last-child { border-right: 0; }
-      .stat b { display: block; color: var(--ink); font-family: var(--disp); font-weight: 900; font-size: clamp(30px, 3.2vw, 44px); line-height: 1.1; letter-spacing: -0.03em; }
-      .stat span { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--faint); }
-      .stat .ic { color: var(--spot); }
-      a.stat:hover b { color: var(--spot); }
-      @media (max-width: 760px) {
-        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .stat:nth-child(2) { border-right: 0; }
-        .stat:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
-      }
-
       /* the recording, or the app itself */
       .show { padding: 30px var(--gut) 40px; }
       .show-head { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 14px; color: var(--faint); }
@@ -328,7 +312,6 @@
           <a href="#faq">FAQ</a>
           <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/CHANGELOG.md">Changelog</a>
         </nav>
-        <a class="chip stars" href="https://github.com/tomrutsaert/herdr-web-ui" aria-label="GitHub, {{stars}} stars"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>{{stars}}</a>
         <a class="chip lang" href="zh/" hreflang="zh-CN" lang="zh-CN" title="简体中文">中文</a>
         <div class="modes caps" role="group" aria-label="Colour mode">
           <button type="button" data-mode="ink" aria-pressed="true">Ink</button>
@@ -351,24 +334,6 @@
         </div>
       </section>
 
-      <section class="stats" aria-label="At a glance">
-        <a class="stat" href="https://github.com/tomrutsaert/herdr-web-ui/stargazers">
-          <b>{{stars}}</b>
-          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.6 1.1 6.45L12 17.45 6.2 20.5l1.1-6.45-4.7-4.6 6.5-.95z"/></svg>github stars</span>
-        </a>
-        <a class="stat" href="https://github.com/tomrutsaert/herdr-web-ui/releases/latest">
-          <b>v{{version}}</b>
-          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6zM4 19h16v2H4z"/></svg>latest release</span>
-        </a>
-        <a class="stat" href="https://github.com/tomrutsaert/herdr-web-ui/graphs/contributors">
-          <b>{{contributors}}</b>
-          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9c0-3.3 3.1-6 7-6s7 2.7 7 6zm15-9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm1 9v-1c0-1.7-.7-3.2-1.8-4.3 2.7.3 4.8 2.3 4.8 5.3z"/></svg>contributors</span>
-        </a>
-        <a class="stat" href="https://herdr.dev/plugins/" title="Repositories ranked by GitHub stars in herdr's plugin index">
-          <b>{{plugin_rank}}</b>
-          <span class="caps"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h4v8H4zm6-10h4v18h-4zm6 6h4v12h-4z"/></svg>of {{plugin_repo_count}} plugin repos</span>
-        </a>
-      </section>
 
       <section class="show" aria-labelledby="show-title">
         <div class="show-head caps"><h2 id="show-title">One pane, every screen</h2><span>recorded live</span></div>
@@ -420,21 +385,21 @@
           <div class="n">03</div>
           <div>
             <h3>Know when you're needed.<span class="arw" aria-hidden="true">→</span></h3>
-            <p>Live status for every pane, an alert that drops in while the app is open, and push alerts when an agent needs input or finishes, even with the app closed.</p>
+            <p>Live pane status and in-app alerts while the app is open. Closed-app alerts are not supported.</p>
           </div>
           <div class="ev" aria-hidden="true">
             <div class="ev-row"><span>Guard the export button</span><b><i class="dot blocked"></i>needs input</b></div>
             <div class="ev-row"><span>Idempotent payments</span><b><i class="dot working"></i>working</b></div>
             <div class="ev-row"><span>Why did the backup fail?</span><b><i class="dot done"></i>done</b></div>
             <div class="ev-row"><span>Proofread the guide</span><b><i class="dot ring"></i>idle</b></div>
-            <div class="ev-note">push · codex needs your input</div>
+            <div class="ev-note">in-app alert · codex needs your input</div>
           </div>
         </a>
         <a class="row" href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#on-your-phone">
           <div class="n">04</div>
           <div>
             <h3>Install it on your phone.<span class="arw" aria-hidden="true">→</span></h3>
-            <p>Configure your own HTTPS reverse proxy or SSH tunnel and pair the device. Updates are checked and installed manually.</p>
+            <p>Configure your own HTTPS reverse proxy or SSH tunnel and pair the device. Operators build and deploy separately.</p>
           </div>
           <div class="ev" aria-hidden="true">
 
@@ -445,24 +410,12 @@
           <div class="n">05</div>
           <div>
             <h3>Keep your workflow.<span class="arw" aria-hidden="true">→</span></h3>
-            <p>herdr owns the agents; this app connects to them. No wrapper command, no second daemon, no account. Update from Settings without stopping them, with patch notes for what each update brings.</p>
+            <p>herdr owns the agents; this app connects to them. No wrapper command, no second daemon, no account. Operators deploy updates outside the app without stopping herdr or its agents.</p>
           </div>
           <div class="ev" aria-hidden="true">
             <div class="ev-row"><span>herdr</span><b><i class="dot done"></i>owns every pty</b></div>
             <div class="ev-row"><span>herdr web ui</span><b>herdr terminal attach</b></div>
-            <div class="ev-note">listens on 127.0.0.1 · updates roll back on a failed health check</div>
-          </div>
-        </a>
-        <a class="row" href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#voice-input">
-          <div class="n">06</div>
-          <div>
-            <h3>Speak instead of typing.<span class="arw" aria-hidden="true">→</span></h3>
-            <p>Dictate into the chat or the terminal line, Korean and English mixed. Review the words before sending them to the agent; transcription uses your own OpenAI key or the browser's speech recognition.</p>
-          </div>
-          <div class="ev" aria-hidden="true">
-            <div class="ev-row"><span>hold the mic</span><b><i class="dot working"></i>recording 0:04</b></div>
-            <div class="q">테스트 다시 돌리고, fix the flaky one</div>
-            <div class="ev-note">goes in at the caret · never sent by itself</div>
+            <div class="ev-note">listens on 127.0.0.1 · operator-managed HTTPS/VPN access</div>
           </div>
         </a>
       </section>
@@ -540,7 +493,7 @@
             <tbody>
               <tr>
                 <th scope="row">Runs as</th>
-                <td class="us" data-client="herdr web ui">A herdr plugin. herdr builds it, starts it and it updates itself.</td>
+                <td class="us" data-client="herdr web ui">A herdr plugin built and deployed explicitly by the operator.</td>
                 <td data-client="collie">Its own bridge, from a curl installer or as a herdr plugin.</td>
                 <td data-client="roamgate">Its own server, from a curl installer or as a herdr plugin.</td>
                 <td data-client="herdr-remote">A macOS menu-bar or Windows tray app, plus a Python relay for the phone.</td>
@@ -575,14 +528,14 @@
               </tr>
               <tr>
                 <th scope="row">Other machines</th>
-                <td class="us" data-client="herdr web ui">Linux, macOS and Windows PCs over SSH, added from Settings.</td>
+                <td class="us" data-client="herdr web ui">One workstation; no multi-PC aggregation.</td>
                 <td data-client="collie">Crews: one collie per machine behind one URL.</td>
                 <td data-client="roamgate">SSH profiles to herdr on other Linux and macOS hosts.</td>
                 <td data-client="herdr-remote">The relay collects several machines.</td>
               </tr>
               <tr>
                 <th scope="row">Also</th>
-                <td class="us" data-client="herdr web ui">A viewer for the files agents make, web push, remote-PC bridges kept current with the app, and an interface in English, Chinese, Japanese and Korean.</td>
+                <td class="us" data-client="herdr web ui">A file viewer, local session statistics and an interface in English, Chinese, Japanese and Korean.</td>
                 <td data-client="collie">Six UI languages, device pairing, output search, a read-only view of changes.</td>
                 <td data-client="roamgate">A file explorer with diff annotations, the Ranger assistant, and it can install herdr for you.</td>
                 <td data-client="herdr-remote">A daily digest, a TUI, a notch panel on a MacBook.</td>
@@ -602,7 +555,7 @@
         <dl>
           <div class="qa">
             <dt>Can I use Claude Code or Codex from my phone?</dt>
-            <dd>Yes. Run the agent in a herdr pane on your computer, and this app shows the same pane in your phone's browser: the agent's own transcript as a chat, its approvals and questions as cards you tap, and the live terminal a tap away. It installs to the home screen and sends a push alert when an agent needs you. <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#on-your-phone">Phone setup →</a></dd>
+            <dd>Yes. Run the agent in a herdr pane on your computer, and this app shows the same pane in your phone's browser: the agent's own transcript as a chat, its approvals and questions as cards you tap, and the live terminal a tap away. It installs to the home screen and shows alerts while open. <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#on-your-phone">Phone setup →</a></dd>
           </div>
           <div class="qa">
             <dt>Which agents does the chat view support?</dt>
@@ -618,11 +571,11 @@
           </div>
           <div class="qa">
             <dt>Does my code or conversation leave my machine?</dt>
-            <dd>Session content is served to connected browsers. Optional voice and usage providers, explicit updates, remote setup and push may use external services. No maintainer usage counts are sent.</dd>
+            <dd>Session files remain on the host workstation and are served to authorized connected browsers. The app does not contact vendor services, discover accounts, provision software or aggregate other PCs. Agents’ own model traffic, user-opened external links/media and operator network infrastructure are separate.</dd>
           </div>
           <div class="qa">
             <dt>Does it work on Windows?</dt>
-            <dd>Yes, on Windows x64 without WSL. Until herdr can attach a terminal there, the terminal is a <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/remote-pcs.md#windows-pcs">screen mirror</a> with typing and a fixed grid.</dd>
+            <dd>Yes, on Windows x64 without WSL. Until herdr can attach a terminal there, the terminal is a <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#supported-agents">screen mirror</a> with typing and a fixed grid.</dd>
           </div>
           <div class="qa">
             <dt>How is it different from Happy, Paseo or CloudCLI UI?</dt>
@@ -634,9 +587,9 @@
       <section class="end" id="install" aria-labelledby="install-title">
         <div>
           <h2 id="install-title">Take herdr with you.</h2>
-            <p>Configure your own HTTPS reverse proxy or SSH tunnel and pair the device. Updates are checked and installed manually.</p>
+            <p>Configure your own HTTPS reverse proxy or SSH tunnel and pair the device. Operators build and deploy separately.</p>
           <div class="cmd"><code>curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh</code><button type="button" class="copy caps" data-copy="curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh">Copy</button></div>
-          <p class="after">Windows x64, in PowerShell. It needs Git for Windows and opens the app the same way; terminals there use the <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/remote-pcs.md#windows-pcs">screen mirror</a>.</p>
+          <p class="after">Windows x64, in PowerShell. It needs Git for Windows and opens the app the same way; terminals there use the <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#supported-agents">screen mirror</a>.</p>
           <div class="cmd ps"><code>irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex</code><button type="button" class="copy caps" data-copy="irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex">Copy</button></div>
           <p class="after">Have herdr, Bun and Node already? <code>herdr plugin install tomrutsaert/herdr-web-ui</code><br />Then open <code>http://127.0.0.1:7317</code>, where Install in the address bar adds the app. It starts with herdr from then on.<br /><a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#quick-start">run it from a checkout</a> · <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/INSTALL.md">INSTALL.md for a coding agent</a> · <a href="https://github.com/tomrutsaert/herdr-web-ui/blob/main/docs/guide.md#access-and-safety">access and safety →</a></p>
         </div>

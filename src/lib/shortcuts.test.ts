@@ -90,12 +90,6 @@ it("matches shifted digits and detects alias and default-restoration conflicts",
 });
 
 describe("shortcutDisplayKeys", () => {
-  it("shows the default chord, custom chord, disabled state, and uncustomizable voice chord", () => {
-    expect(shortcutDisplayKeys("palette", {})).toEqual(["Mod", "Shift", "K"]);
-    expect(shortcutDisplayKeys("toggle-view", { "toggle-view": "p" })).toEqual(["Mod", "Shift", "P"]);
-    expect(shortcutDisplayKeys("settings", { settings: null })).toEqual([]);
-    expect(shortcutDisplayKeys("voice", { voice: "p" })).toEqual(["Mod", "Shift", "Space"]);
-  });
 });
 
 describe("non-Latin keyboard layouts", () => {

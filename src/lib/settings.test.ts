@@ -10,7 +10,7 @@ import { DEFAULT_ID } from "../../scripts/generate-themes.ts";
 import { FONT_FAMILY_MAX_CHARS } from "./fontFamily.ts";
 import { DEFAULT_KEY_BAR_ITEMS, migrateKeyBarItems } from "./keyBar.ts";
 import { SHARED_SETTING_KEYS } from "../../shared/preferences.ts";
-import { SETTING_SCOPE, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews, DICTATION_LANGUAGES, VOICE_BUTTONS, wantsVoiceInput } from "./settings.ts";
+import { SETTING_SCOPE, alertPrefs, CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_LANE_MAX_REM, CHAT_LANE_MIN, CHAT_WIDTHS, chatFontSize, chatLaneLength, chatLaneWidth, DEFAULT_SETTINGS, MARKDOWN_WIDTHS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, quickReplyButtons, sanitizeSettings, terminalTheme, forgetPaneViews } from "./settings.ts";
 import { applyToDocument, loadSettings, saveSettings } from "./settings.ts";
 import { sanitizeSettings as oldSanitizeSettings, saveSettings as oldSaveSettings } from "./settings.legacy-fixture.ts";
 import { themeFor } from "./themeFor.ts";
@@ -443,54 +443,11 @@ describe("quick replies", () => {
   });
 });
 
-describe("microphone button", () => {
-  it("is automatic until chosen, and reads a record from before it had three places", () => {
-    expect(DEFAULT_SETTINGS.voiceInput).toBe("auto");
-    expect(sanitizeSettings({}).voiceInput).toBe("auto");
-    for (const voiceInput of VOICE_BUTTONS) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe(voiceInput);
-    // the old toggle: on was a choice, off was also what an untouched device stored
-    expect(sanitizeSettings({ voiceInput: true }).voiceInput).toBe("on");
-    expect(sanitizeSettings({ voiceInput: false }).voiceInput).toBe("auto");
-    for (const voiceInput of [null, 1, "yes", "ON"]) expect(sanitizeSettings({ voiceInput }).voiceInput).toBe("auto");
-  });
-
-  it("listens for the browser's language until another is chosen from the list", () => {
-    expect(DEFAULT_SETTINGS.voiceLanguage).toBe("auto");
-    expect(sanitizeSettings({}).voiceLanguage).toBe("auto");
-    for (const voiceLanguage of DICTATION_LANGUAGES) expect(sanitizeSettings({ voiceLanguage }).voiceLanguage).toBe(voiceLanguage);
-    for (const voiceLanguage of [null, 1, "", "hu", "hu-hu", "xx-XX", "auto "]) expect(sanitizeSettings({ voiceLanguage }).voiceLanguage).toBe("auto");
-  });
-
-  it("is asked for in the chat off a phone on auto, everywhere when on and nowhere when off", () => {
-    expect(wantsVoiceInput("auto", "chat", false)).toBe(true);
-    expect(wantsVoiceInput("auto", "chat", true)).toBe(false);
-    expect(wantsVoiceInput("auto", "terminal", false)).toBe(false);
-    for (const mode of ["chat", "terminal"] as const) {
-      for (const phone of [false, true]) {
-        expect(wantsVoiceInput("on", mode, phone)).toBe(true);
-        expect(wantsVoiceInput("off", mode, phone)).toBe(false);
-      }
-    }
-  });
-});
-
 describe("quick replies row", () => {
   it("stays hidden until chosen in settings", () => {
     expect(DEFAULT_SETTINGS.showQuickReplies).toBe(false);
     expect(sanitizeSettings({ showQuickReplies: true }).showQuickReplies).toBe(true);
     expect(sanitizeSettings({ showQuickReplies: "yes" }).showQuickReplies).toBe(false);
-    expect(DEFAULT_SETTINGS.showUsage).toBe(false);
-    expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
-    expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
-    expect(DEFAULT_SETTINGS.usageCount).toBe("left");
-    expect(sanitizeSettings({ usageCount: "used" }).usageCount).toBe("used");
-    expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("left");
-    expect(DEFAULT_SETTINGS.usageGlance).toBe("session");
-    expect(sanitizeSettings({ usageGlance: "week" }).usageGlance).toBe("week");
-    expect(sanitizeSettings({ usageGlance: "nearest" }).usageGlance).toBe("session");
-    expect(sanitizeSettings({ usageOrder: ["codex:a", 3, "codex:a", "", "claude:b"] }).usageOrder).toEqual(["codex:a", "claude:b"]);
-    expect(sanitizeSettings({ usageHidden: Array.from({ length: 100 }, (_, index) => `k${index}`) }).usageHidden).toHaveLength(64);
-    expect(sanitizeSettings({ usageHidden: "codex:a" }).usageHidden).toEqual([]);
   });
 });
 

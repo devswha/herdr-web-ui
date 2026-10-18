@@ -1,6 +1,6 @@
 # herdr web ui
 
-This fork is distributed from `tomrutsaert/herdr-web-ui`. Updates are manual: choose **Check for updates**, then **Update and restart** in Settings → About. Only `fork-vX.Y.Z` app tags and `fork-remote-vN` remote runtimes are used; inherited upstream tags are ignored. No maintainer telemetry or network discovery/publication integration is included. The plugin ID stays `devswha.herdr-web-ui` to preserve installed state.
+This edition serves one workstation. Authorized remote browsers connect through operator-configured HTTPS or VPN infrastructure. Token authentication, device pairing and read-only devices are supported. Software installation and updates are separate operator deployment tasks; the app never provisions prerequisites or additional PCs. No maintainer telemetry or built-in Tailscale integration is included. The plugin ID remains `devswha.herdr-web-ui` to preserve installed state.
 
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
@@ -78,10 +78,9 @@ A browser and phone client for [herdr](https://github.com/herdrdev/herdr). Read 
 
 - **Chat and terminal, one pane** — native Claude Code, Codex, omp, omo, gjc, pi, Hermes and explicitly identified Devin CLI transcripts, plus OpenCode 2 sessions herdr identifies, with the live terminal a click away. Write the next message while the agent works: it goes in with the next turn, or at once with Send now. [Supported agents →](docs/guide.md#supported-agents)
 - **Approve with a tap** — approvals, questions and plan menus become cards, checked to be current before your answer is sent.
-- **Know when you're needed** — live status for every pane, an alert that drops in while the app is open, and push alerts when an agent needs input or finishes, even with the app closed.
+- **Know when you’re needed** — live pane status and in-app alerts while the app is open. Closed-app alerts are not supported.
 - **Install it on your phone** — a PWA with a key bar above the keyboard (Esc, Tab, Ctrl, Alt, Shift, Enter, arrows) that you can rearrange and extend with your own combinations in Settings, and a QR code for the current address when opened through non-loopback HTTPS. [Phone setup →](docs/guide.md#on-your-phone)
-- **Speak instead of typing** — dictate into the chat or the terminal line, Korean and English mixed. Review the words before sending them to the agent; transcription uses your own OpenAI key or the browser's speech recognition.
-- **Keep your workflow** — herdr owns the agents; this app connects to them. Update from Settings without stopping them, with patch notes for what each update brings. New tabs and worktrees come from a row's ⋯ menu. [All features →](docs/guide.md#features)
+- **Keep your workflow** — herdr owns the agents; this app connects to them. New tabs and worktrees come from a row’s ⋯ menu. Operators build and update separately. [All features →](docs/guide.md#features)
 
 ---
 
@@ -93,14 +92,13 @@ upstream or unknown checkout rather than starting or replacing it. Follow
 only the web plugin, then restart it. Never restart the herdr daemon for this migration.
 
 For a private repository, use an authenticated checkout and run its installer locally; anonymous
-raw-file URLs require read access. Configure Git credentials for manual app updates. If runtime
-release assets are private, [build remote runtimes locally](docs/remote-pcs.md#building-and-distributing-runtimes).
+raw-file URLs require read access. Use the explicit deployment process in [INSTALL.md](INSTALL.md#update).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-Linux (x64, arm64) or macOS. Installs missing herdr 0.9.0+, Bun 1.4+ and Node 18+ prerequisites for your user, then installs the app as a herdr plugin. If an existing herdr installation is older than 0.9.0, update and restart herdr yourself before rerunning the installer. Configure an HTTPS reverse proxy or SSH tunnel separately for remote access.
+Linux (x64, arm64) or macOS. Install herdr 0.9.0+, Bun 1.4+, Git and Node 18+ separately first. The operator-invoked helper installs the plugin, not its prerequisites. Configure HTTPS or VPN access separately.
 
 Windows x64, in PowerShell:
 
@@ -108,7 +106,7 @@ Windows x64, in PowerShell:
 irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
-Requires [Git for Windows](https://git-scm.com/download/win). Installs missing herdr and Bun for your user, then installs the same plugin. No Node or WSL is needed. Open **Phone setup** in herdr for phone access. Windows terminals use the [screen mirror](docs/remote-pcs.md#windows-pcs), with typing and a fixed grid, until herdr supports terminal attach there.
+Windows x64 requires Git, herdr 0.9.0+ and Bun 1.4+ already installed. No Node or WSL is needed. Terminals use a fixed-grid screen mirror until herdr supports terminal attach there.
 
 Already have the prerequisites? Install just the plugin:
 
@@ -128,7 +126,7 @@ The server listens on `127.0.0.1` by default. For access from another device, se
 
 **Can I use Claude Code or Codex from my phone?**
 
-Yes. Run the agent in a [herdr](https://github.com/herdrdev/herdr) pane on your computer, and this app shows the same pane in your phone's browser: the agent's own transcript as a chat, its approvals and questions as cards you tap, and the live terminal a tap away. It installs to the home screen as a PWA and sends a push alert when an agent needs you. [Phone setup →](docs/guide.md#on-your-phone)
+Yes. Run the agent in a [herdr](https://github.com/herdrdev/herdr) pane on your computer, and this app shows the same pane in your phone's browser: the agent's own transcript as a chat, its approvals and questions as cards you tap, and the live terminal a tap away. It installs to the home screen as a PWA and shows alerts while open. [Phone setup →](docs/guide.md#on-your-phone)
 
 **Which agents does the chat view support?**
 
@@ -140,19 +138,19 @@ No. Both attach to the same terminals at the same time, so the pane stays live a
 
 **How do I connect another device?**
 
-Use an SSH tunnel or your own HTTPS reverse proxy to reach the PC. Installation and push alerts need a secure context such as HTTPS or localhost; basic browsing also works over plain HTTP on a LAN. [The options →](docs/guide.md#faq)
+Use an SSH tunnel or your own HTTPS reverse proxy to reach the PC. PWA installation and optional open-tab notifications need a secure context such as HTTPS or localhost; basic browsing also works over plain HTTP on a LAN. [The options →](docs/guide.md#faq)
 
 **Does my code or conversation leave my machine?**
 
-Session files stay on the PC running each agent, and their contents are served to browsers you connect. The app has no hosted relay or account service of its own. Optional voice input sends audio (and text when polishing) to the configured provider; enabled usage meters contact provider APIs. Updates, remote-PC setup and push alerts can also use external services. No maintainer usage counts are sent. The agents’ own model connections depend on their configuration. [Data flow and access →](docs/guide.md#faq)
+Session files remain on the host workstation and are served to authorized connected browsers. The app does not contact vendor services, discover accounts, provision software or aggregate other PCs. Agents’ own model traffic, user-opened external links/media and operator network infrastructure are separate.
 
 **Does it work on Windows?**
 
-Yes, on Windows x64 without WSL. Until herdr can attach a terminal there, the terminal is a [screen mirror](docs/remote-pcs.md#windows-pcs) with typing and a fixed grid.
+Yes, on Windows x64 without WSL. Until herdr can attach a terminal there, the terminal is a [screen mirror](docs/guide.md#supported-agents) with typing and a fixed grid.
 
 **How is it different from collie, roamgate or herdr-remote?**
 
-These are other phone or browser clients for herdr. This one reads the agent's own transcript, so a pane is a chat with the work folded per turn rather than terminal output, and other PCs join over SSH from the sidebar. It brings no tunnel and drives only herdr: if you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit. [The full comparison →](docs/guide.md#faq)
+These are other phone or browser clients for herdr. This one reads the agent's own transcript, so a pane is a chat with the work folded per turn rather than terminal output, and it serves one workstation. It brings no tunnel and drives only herdr: if you want tmux or zellij, diffs, Telegram or a tunnel out of the box, one of the others is the better fit. [The full comparison →](docs/guide.md#faq)
 
 **How is it different from Happy, Paseo or CloudCLI UI?**
 
@@ -160,9 +158,9 @@ Those projects provide their own ways to start or manage agent sessions. This ap
 
 ## docs
 
-Start with the [user guide](docs/guide.md): [quick start](docs/guide.md#quick-start) · [supported agents](docs/guide.md#supported-agents) · [features](docs/guide.md#features) · [phone](docs/guide.md#on-your-phone) · [remote PCs](docs/remote-pcs.md) · [access and safety](docs/guide.md#access-and-safety) · [configuration](docs/guide.md#configuration) · [keyboard shortcuts](docs/guide.md#keyboard-shortcuts) · [FAQ](docs/guide.md#faq).
+Start with the [user guide](docs/guide.md): [quick start](docs/guide.md#quick-start) · [supported agents](docs/guide.md#supported-agents) · [features](docs/guide.md#features) · [phone](docs/guide.md#on-your-phone) · [access and safety](docs/guide.md#access-and-safety) · [configuration](docs/guide.md#configuration) · [keyboard shortcuts](docs/guide.md#keyboard-shortcuts) · [FAQ](docs/guide.md#faq).
 
-For a closer look: [how it works](docs/guide.md#how-it-works) · [chat transcripts](docs/chat-mode-audit.md) · [terminal flow control](docs/terminal-flow-control.md) · [app updates](docs/app-updates.md) · [changelog](CHANGELOG.md).
+For a closer look: [how it works](docs/guide.md#how-it-works) · [chat transcripts](docs/chat-mode-audit.md) · [terminal flow control](docs/terminal-flow-control.md) · [changelog](CHANGELOG.md).
 
 ## thanks
 

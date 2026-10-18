@@ -65,7 +65,7 @@ async function answer(response: Response): Promise<[number, string | null]> {
 }
 
 const post = (base: string, route: string, body: string, headers: Record<string, string> = {}) =>
-  fetch(`${base}${route}`, { method: "POST", headers: { origin: base, "x-herdr-machine": "1", "content-type": "application/json", ...headers }, body });
+  fetch(`${base}${route}`, { method: "POST", headers: { origin: base, "x-herdr-request": "1", "content-type": "application/json", ...headers }, body });
 
 describe("a JSON route's answer before herdr", () => {
   it("answers the wrong method", async () => {

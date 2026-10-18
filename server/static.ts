@@ -54,16 +54,16 @@ function cacheControlFor(pathname: string): string {
  * Every directive is here for a reason, and none of them is a guess:
  *
  * - `default-src 'self'`: the fallback for anything not named below. Nothing is fetched
- *   from another host: the API, the terminal socket, the machines event stream, the
+ *   from another host: the API, the terminal socket, the local session event stream, the
  *   fonts (bundled woff2, `src/fonts/`), the PC bundle and the push endpoints are all
- *   same-origin, and the remote PCs are reached through this server's own /api/machines
+ *   same-origin, and the workstation is reached through this server's local API
  *   proxy rather than from the browser.
  * - `script-src 'self'`: both entry points are Vite modules (index.html), nothing in the
  *   app evaluates a string, and there is no inline handler attribute. This is the
  *   directive that matters: KaTeX output and the agent marks are the two places that put
  *   third-party HTML into the page.
  * - `style-src 'self' 'unsafe-inline'`: inline style attributes are how measured layout
- *   reaches the DOM (AgentPicker, RowMenu, Droplet, UsageMeters), and KaTeX writes one on
+ *   reaches the DOM (AgentPicker, RowMenu, Droplet), and KaTeX writes one on
  *   every expression it cannot render. It is also load-bearing for the terminal itself:
  *   xterm.js builds its layers by appending a <style> element to the DOM, and a
  *   DOM-inserted <style> is subject to style-src, so without 'unsafe-inline' the pane
@@ -80,7 +80,7 @@ function cacheControlFor(pathname: string): string {
  *   same-origin .woff of the same face, so the maths still draws.
  * - `connect-src 'self'`: every fetch is a relative /api path, the terminal socket is
  *   window.location.host over ws:/wss: (which 'self' matches — confirmed in Chromium:
- *   an explicit `new WebSocket("ws://<same host>/ws")` and the machines event stream both
+ *   an explicit `new WebSocket("ws://<same host>/ws")` and the local session event stream both
  *   connect under the enforcing header).
  * - `media-src 'self'`: the file viewer's <video>/<audio>, same-origin.
  * - `frame-src 'self'`: the PDF viewer frames /api/fs/file, same-origin. With the request's

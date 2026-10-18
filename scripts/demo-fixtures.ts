@@ -25,15 +25,7 @@ const get = async (path: string): Promise<unknown> => JSON.parse(scrub(await (aw
 
 try {
   mkdirSync(OUT, { recursive: true });
-  // the roster fills in once the local bridge has read herdr: wait for the snapshot
-  let roster: { machines: Array<{ state: string; snapshot: unknown | null }> } = { machines: [] };
-  for (let attempt = 0; attempt < 50; attempt++) {
-    roster = (await get("/api/machines")) as typeof roster;
-    if (roster.machines[0]?.snapshot) break;
-    await Bun.sleep(200);
-  }
-  if (!roster.machines[0]?.snapshot) throw new Error("the local machine never reported a snapshot");
-  save("machines.json", roster);
+  save("machines.json", { machines: [{ id: "local", name: "Host", kind: "local", enabled: true, state: "connected", error: null, snapshot: (await get("/api/session") as { snapshot: unknown }).snapshot }] });
   save("agents.json", await get("/api/agents"));
   save("commands.json", await get(`/api/pane/commands?pane_id=${encodeURIComponent(demo.pane("api").pane)}`));
   save("panes.json", Object.fromEntries(demo.panes.map((p) => [p.key, p.pane])));

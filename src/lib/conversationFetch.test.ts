@@ -90,12 +90,9 @@ describe("conversation peek", () => {
     expect(asked).toBe(1);
   });
 
-  it("has nothing for a pane never read, or read on another PC", async () => {
+  it("has nothing for a pane never read", async () => {
     globalThis.fetch = (async (_url: string) => new Response(JSON.stringify({ source: "claude-transcript", turns: [], cursor: null }), { status: 200, headers: { etag: "\"q\"" } })) as typeof fetch;
     expect(peekPaneConversation("peek:never")).toBeUndefined();
-    await fetchPaneConversation("peek:p2", "pc-a");
-    expect(peekPaneConversation("peek:p2", "pc-a")).toBeDefined();
-    expect(peekPaneConversation("peek:p2")).toBeUndefined();
   });
 
   it("never hands back an older page", async () => {

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chromium, devices } from "playwright-core";
-import type { Machine } from "../shared/machines.ts";
+import type { SessionSnapshot } from "../shared/protocol.ts";
 import type { WorkspaceCreated } from "../shared/protocol.ts";
 import { sessionSnapshot, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { passingFolder } from "../src/lib/recent-directories.ts";
@@ -12,7 +12,6 @@ import { chromePath } from "./chrome-path.ts";
 
 await import("./test-herdr.ts");
 const { createServer } = await import("../server/index.ts");
-const { UsageService } = await import("../server/usage.ts");
 // not under a folder recent folders leave out: the temporary directory, or this checkout when it
 // is one of herdr's worktrees (`passingFolder`), so the fixtures live under the home's cache
 const cache = join(homedir(), ".cache", "herdr-web-ui-tests");
@@ -20,7 +19,7 @@ mkdirSync(cache, { recursive: true });
 const root = realpathSync(mkdtempSync(join(cache, "herdr-recent-folders-")));
 if (passingFolder(root)) throw new Error(`the fixtures' folder ${root} is one recent folders leave out`);
 const owned = new Set<string>();
-const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), usage: new UsageService(undefined, []) });
+const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
 try {
   const browser = await chromium.launch({
     executablePath: chromePath(),
@@ -62,14 +61,13 @@ try {
             }
           }, { theme, project });
           await context.route("**/api/agents", (route) => route.fulfill({ json: { agents: [{ kind: "codex", label: "Codex" }] } }));
-          await context.route("**/api/machines/events", (route) => route.abort());
-          await context.route("**/api/machines", async (route) => {
+          await context.route("**/api/events", (route) => route.abort());
+          await context.route("**/api/session", async (route) => {
             const response = await route.fetch();
-            const body: { machines: Machine[] } = await response.json();
-            const local = body.machines.find((machine) => machine.id === "local");
+            const body: { snapshot: SessionSnapshot } = await response.json();
+            const local = body;
             assert.ok(local?.snapshot);
-            await route.fulfill({ json: { machines: [{
-              ...local, name: "QA host", snapshot: {
+            await route.fulfill({ json: { snapshot: {
                 ...local.snapshot,
                 panes: [
                   ...local.snapshot.panes.filter((pane) => pane.cwd === project),
@@ -77,7 +75,7 @@ try {
                 ],
                 workspaces: local.snapshot.workspaces.filter((workspace) => owned.has(workspace.workspace_id)),
               },
-            }] } });
+            } });
           });
           let requests = 0;
           let failCreate = false;

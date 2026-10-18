@@ -25,10 +25,6 @@ export type SidebarRows = "one" | "two";
 export type AgentOrder = "workspace" | "activity";
 /** how agent logos are drawn: in their brand colors, or without color: Claude's in the text color, the others in grey (data-marks on <html>) */
 export type AgentMarks = "color" | "mono";
-/** what the plan meters count: the share of a limit used, or what is left of it */
-export type UsageCount = "used" | "left";
-/** the limit a plan meter shows: the plan's week, or its short session (5 hours on Claude and Codex) */
-export type UsageGlance = "week" | "session";
 /** amber: the herdr look (the default before codex); charcoal: neutral Ghostty-style dark;
  *  catppuccin: Catppuccin Mocha in dark, Latte in light. A record naming a palette that was removed
  *  (report, lilac, forest) loads as amber. */
@@ -37,21 +33,6 @@ export type Palette = ThemeId;
  *  narrow: 820px; default: follows the pane, up to 60rem (chatLaneWidth); wide: 72rem; full: the pane, less the gutters */
 export type ChatWidth = "narrow" | "default" | "wide" | "full";
 export const CHAT_WIDTHS: readonly ChatWidth[] = ["narrow", "default", "wide", "full"];
-/** the microphone button. auto: in the chat composer off a phone, and only where dictation can work;
- *  on: there, on a phone and in the terminal input line, disabled with its reason where it cannot work; off: nowhere */
-export type VoiceButton = "auto" | "on" | "off";
-export const VOICE_BUTTONS: readonly VoiceButton[] = ["auto", "on", "off"];
-/**
- * The languages dictation can be set to, as BCP 47 tags (SpeechRecognition.lang; the transcribe
- * route takes the first subtag). Auto can also use a browser language outside this list when
- * its primary subtag is two letters and the UI is not translated into it.
- */
-export const DICTATION_LANGUAGES = [
-  "ar-SA", "cs-CZ", "da-DK", "de-DE", "el-GR", "en-GB", "en-US", "es-ES", "fi-FI", "fr-FR", "he-IL", "hi-IN",
-  "hu-HU", "id-ID", "it-IT", "ja-JP", "ko-KR", "nb-NO", "nl-NL", "pl-PL", "pt-BR", "pt-PT", "ro-RO", "ru-RU",
-  "sk-SK", "sv-SE", "th-TH", "tr-TR", "uk-UA", "vi-VN", "zh-CN", "zh-TW",
-] as const;
-export type DictationLanguage = "auto" | (typeof DICTATION_LANGUAGES)[number];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcutBindings.ts";
@@ -121,7 +102,7 @@ export interface Settings {
   keepScreenOn: boolean;
   /** UI language; `system` follows the browser (src/lib/i18n.ts) */
   language: LanguageSetting;
-  /** alerts on this device at all: the bell turns them off (push subscription dropped) and on */
+  /** alerts on this device at all: the bell turns them off and on */
   alertsOn: boolean;
   /** alert this device when an agent waits on the user (shared/notify-policy.ts AlertPrefs) */
   alertInput: boolean;
@@ -135,23 +116,8 @@ export interface Settings {
   quickReplies: string[];
   /** whether the quick replies show above the composer at all */
   showQuickReplies: boolean;
-  /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
-  showUsage: boolean;
-  usageCount: UsageCount;
-  usageGlance: UsageGlance;
   /** every pane's lens until switched in that pane; changing it puts every pane back on it */
   defaultView: DefaultView;
-  /** the plan meters' order by ProviderUsage.key; accounts not in it follow as the server lists them */
-  usageOrder: string[];
-  /** accounts left out of the plan meters, strip and popover alike, by ProviderUsage.key */
-  usageHidden: string[];
-  /** the microphone button in the composer and the terminal input line; nothing is recorded until it is pressed */
-  voiceInput: VoiceButton;
-  /** the language dictation listens for; auto: the UI language's, or the browser's the UI lacks (src/lib/voice.ts dictationLocale) */
-  voiceLanguage: DictationLanguage;
-  voicePolishChat: boolean;
-  /** off by default: a terminal line is usually a command, kept as spoken */
-  voicePolishTerminal: boolean;
   /** the file viewer wraps long lines instead of scrolling sideways */
   wrapCode: boolean;
   /** the width of a Markdown preview: the chat's lane (--chat-w), centered, or the viewer's width */
@@ -181,15 +147,13 @@ export type DiffStyle = (typeof DIFF_STYLES)[number];
 export const SETTING_SCOPE = {
   theme: "shared", palette: "shared", darkTheme: "shared", lightTheme: "shared", language: "shared", sidebarRows: "shared", agentOrder: "shared",
   agentMarks: "shared", autoSendQueued: "shared", showThinking: "shared", quickReplies: "shared",
-  showQuickReplies: "shared", showUsage: "shared", usageCount: "shared",
-  usageGlance: "shared", usageOrder: "shared", usageHidden: "shared", defaultView: "device", suggestionChip: "device",
+  showQuickReplies: "shared", defaultView: "device", suggestionChip: "device",
   terminalInputMode: "device", keyBarExtras: "device", keyBarItems: "device", shortcutOverrides: "device", density: "device",
   terminalFontSize: "device",
   terminalWheelSpeed: "device", terminalFontFamily: "device", paneClipboard: "device", releasePaneAway: "device",
   chatFontSize: "device", chatFontFamily: "device", uiFontSize: "device", chatWidth: "device", enterSends: "device",
   keepScreenOn: "device", alertsOn: "device", alertInput: "device", alertDone: "device", alertInApp: "device", alertSound: "device",
   paletteLight: "device", paletteDark: "device", statusIndicators: "device",
-  voiceInput: "device", voiceLanguage: "device", voicePolishChat: "device", voicePolishTerminal: "device",
   // Viewer layout follows this screen, as chatWidth does.
   wrapCode: "device", markdownWidth: "device", diffStyle: "device", fileOpen: "device", webLinks: "device",
   // a new agent starts the same way whichever device opened it
@@ -239,16 +203,7 @@ export const DEFAULT_SETTINGS: Settings = {
   alertSound: false,
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
-  showUsage: false,
-  usageCount: "left",
-  usageGlance: "session",
   defaultView: "auto",
-  usageOrder: [],
-  usageHidden: [],
-  voiceInput: "auto",
-  voiceLanguage: "auto",
-  voicePolishChat: true,
-  voicePolishTerminal: false,
   wrapCode: false,
   markdownWidth: "readable",
   diffStyle: "unified",
@@ -259,36 +214,14 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const QUICK_REPLIES_MAX = 12;
-/** accounts the usage order and hiding remember; more are a hand-edited record */
-export const USAGE_KEYS_MAX = 64;
-
-/** A list of usage keys: strings only, each once, bounded. */
-function usageKeys(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 512))].slice(0, USAGE_KEYS_MAX);
-}
 export const QUICK_REPLY_MAX_CHARS = 200;
-
-/**
- * A record from before the button had a place of its own holds a boolean: on stays on. Its off
- * was also what a device that never chose held, so it follows the default.
- */
-function voiceButton(value: unknown): VoiceButton {
-  if (value === true) return "on";
-  return VOICE_BUTTONS.includes(value as VoiceButton) ? value as VoiceButton : DEFAULT_SETTINGS.voiceInput;
-}
-
-/** Whether an input asks for dictation at all: auto leaves the terminal input line and a phone's composer alone. */
-export function wantsVoiceInput(setting: VoiceButton, mode: "chat" | "terminal", phone: boolean): boolean {
-  return setting === "on" || (setting === "auto" && mode === "chat" && !phone);
-}
 
 /** The replies worth a button: what the list holds, without the blank ones still being written. */
 export function quickReplyButtons(settings: Settings): string[] {
   return settings.quickReplies.filter((reply) => reply.trim() !== "");
 }
 
-/** This device's alert choices, as the server keeps them with its push subscription. */
+/** This device's alert choices while the app is open. */
 export function alertPrefs(settings: Settings): AlertPrefs {
   return { input: settings.alertInput, done: settings.alertDone };
 }
@@ -425,16 +358,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       ? record["quickReplies"].filter((reply): reply is string => typeof reply === "string").slice(0, QUICK_REPLIES_MAX).map((reply) => reply.slice(0, QUICK_REPLY_MAX_CHARS))
       : [...DEFAULT_SETTINGS.quickReplies],
     showQuickReplies: typeof record["showQuickReplies"] === "boolean" ? record["showQuickReplies"] : DEFAULT_SETTINGS.showQuickReplies,
-    showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
-    usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
-    usageGlance: record["usageGlance"] === "week" || record["usageGlance"] === "session" ? record["usageGlance"] : DEFAULT_SETTINGS.usageGlance,
     defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
-    usageOrder: usageKeys(record["usageOrder"]),
-    usageHidden: usageKeys(record["usageHidden"]),
-    voiceInput: voiceButton(record["voiceInput"]),
-    voiceLanguage: DICTATION_LANGUAGES.includes(record["voiceLanguage"] as (typeof DICTATION_LANGUAGES)[number]) ? record["voiceLanguage"] as DictationLanguage : DEFAULT_SETTINGS.voiceLanguage,
-    voicePolishChat: typeof record["voicePolishChat"] === "boolean" ? record["voicePolishChat"] : DEFAULT_SETTINGS.voicePolishChat,
-    voicePolishTerminal: typeof record["voicePolishTerminal"] === "boolean" ? record["voicePolishTerminal"] : DEFAULT_SETTINGS.voicePolishTerminal,
     wrapCode: typeof record["wrapCode"] === "boolean" ? record["wrapCode"] : DEFAULT_SETTINGS.wrapCode,
     markdownWidth: MARKDOWN_WIDTHS.find((width) => width === record["markdownWidth"]) ?? DEFAULT_SETTINGS.markdownWidth,
     diffStyle: DIFF_STYLES.find((style) => style === record["diffStyle"]) ?? DEFAULT_SETTINGS.diffStyle,

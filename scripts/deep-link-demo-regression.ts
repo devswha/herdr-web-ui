@@ -142,7 +142,7 @@ try {
             set: (fetch) => {
               fixtureFetch = async (input, init) => {
                 const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href).pathname;
-                if (path === "/api/machines") await released;
+                if (path === "/api/session") await released;
                 return fetch(input, init);
               };
             },
@@ -412,15 +412,15 @@ try {
       try {
         await delayedContext.addInitScript(`
           localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-          let released = false, fullMachines = null;
+          let released = false, fullSnapshot = null;
           const deliveries = [];
-          const hold = machines => {
-            fullMachines = machines;
-            return released ? machines : machines.map(machine => ({ ...machine, snapshot: null }));
+          const hold = snapshot => {
+            fullSnapshot = snapshot;
+            return released ? snapshot : null;
           };
           window.__releaseRoster = () => {
             released = true;
-            for (const deliver of deliveries) deliver({ type: "machines", machines: fullMachines });
+            for (const deliver of deliveries) deliver({ type: "snapshot", snapshot: fullSnapshot });
           };
           let fixtureFetch = window.fetch;
           Object.defineProperty(window, "fetch", {
@@ -429,9 +429,9 @@ try {
               fixtureFetch = async (input, init) => {
                 const response = await fetch(input, init);
                 const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href).pathname;
-                if (path !== "/api/machines") return response;
+                if (path !== "/api/session") return response;
                 const body = await response.json();
-                return new Response(JSON.stringify({ ...body, machines: hold(body.machines) }), { headers: response.headers });
+                return new Response(JSON.stringify({ ...body, snapshot: hold(body.snapshot) }), { headers: response.headers });
               };
             }
           });
@@ -451,8 +451,8 @@ try {
                   deliveries.push(deliver);
                   this.source.onmessage = event => {
                     const data = JSON.parse(event.data);
-                    if (data.type === "machines") data.machines = hold(data.machines);
-                    if (released || data.type === "machines") deliver(data);
+                    if (data.type === "snapshot") data.snapshot = hold(data.snapshot);
+                    if (released || data.type === "snapshot") deliver(data);
                   };
                   this.source.onopen = () => {
                     this.readyState = 1;

@@ -7,8 +7,8 @@ const claude: AgentIntegration = { target: "claude", label: "claude", command: "
 
 it("answers an unsupported bridge's 404 as unsupported, and any other failure as an error", async () => {
   expect(await loadIntegrations(async () => [claude])).toEqual({ kind: "list", integrations: [claude] });
-  expect(await loadIntegrations(async () => { throw new ApiError("/api/machines/pc/integrations", 404, "unknown endpoint", "not_found"); })).toEqual({ kind: "unsupported" });
-  expect(await loadIntegrations(async () => { throw new ApiError("/api/machines/pc/integrations", 503, "This PC is disconnected", "machine_offline"); }))
+  expect(await loadIntegrations(async () => { throw new ApiError("/api/integrations", 404, "unknown endpoint", "not_found"); })).toEqual({ kind: "unsupported" });
+  expect(await loadIntegrations(async () => { throw new ApiError("/api/integrations", 503, "This PC is disconnected", "machine_offline"); }))
     .toMatchObject({ kind: "error", message: expect.stringContaining("This PC is disconnected") });
   expect(await loadIntegrations(async () => { throw new TypeError("offline"); })).toEqual({ kind: "error", message: "offline" });
 });

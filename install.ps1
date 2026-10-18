@@ -1,4 +1,4 @@
-# Native Windows install: irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
+# Operator-invoked plugin installation. Install Git, herdr and Bun separately first.
 param([string]$Ref = $env:HERDR_WEB_UI_REF)
 
 & {
@@ -11,52 +11,16 @@ function Run-Tool([string]$Tool, [string[]]$Arguments) {
     & $Tool @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Tool failed (exit $LASTEXITCODE). Fix the error above and run this again." }
 }
-function Run-HerdrInstaller([string]$Installer) {
-    # Its errors join its output, so a failed download can be told from a silent stop. Under Stop,
-    # Windows PowerShell would end this script at the first line curl writes to stderr.
-    $ErrorActionPreference = 'Continue'
-    & $Installer 2>&1 | ForEach-Object { $line = "$_"; Write-Host $line; $line }
-}
-
-# The official installers keep these user-local directories on PATH for future terminals.
-$env:PATH = "$env:USERPROFILE\.bun\bin;$env:LOCALAPPDATA\Programs\Herdr\bin;$env:PATH"
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw 'Install Git for Windows (https://git-scm.com/download/win), then run this again.'
 }
-if (-not (Get-Command herdr -ErrorAction SilentlyContinue)) {
-    Write-Host 'herdr web ui: installing herdr for your user'
-    $installer = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName() + '.cmd')
-    try {
-        Invoke-WebRequest 'https://herdr.dev/install.cmd' -UseBasicParsing -OutFile $installer
-        # herdr's installer gives up on a download that stays under 1 KB/s for 30 seconds.
-        $download = 'curl: \(\d+\)|Failed to download'
-        $output = @(Run-HerdrInstaller $installer)
-        if ($LASTEXITCODE -ne 0 -and ($output -match $download)) {
-            Write-Host "herdr web ui: herdr's download did not finish; trying once more"
-            $output = @(Run-HerdrInstaller $installer)
-        }
-        if ($LASTEXITCODE -ne 0) {
-            if ($output -match $download) { throw "herdr could not be downloaded: the connection was too slow or was cut off (curl's message is above). Run this again, on another network if it keeps failing, or install herdr from https://herdr.dev first." }
-            # Seen stopping without a message of its own on a PC with banking security software.
-            throw "herdr's installer did not finish. If it showed no error, security software may have stopped it: install herdr from https://herdr.dev, then run this again."
-        }
-    } finally { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue }
-}
+if (-not (Get-Command herdr -ErrorAction SilentlyContinue)) { throw 'Install herdr 0.9.0 or newer separately, then retry.' }
 $herdrVersion = (Run-Tool herdr @('--version')) -replace '^herdr\s+', '' -replace '-.*$', ''
 if ([version]$herdrVersion -lt [version]'0.9.0') {
     throw "Needs herdr 0.9.0 or newer; this is $herdrVersion. Update herdr and run this again."
 }
 
-$bun = Get-Command bun -ErrorAction SilentlyContinue
-if (-not $bun -or [version]((Run-Tool bun @('--version')) -replace '-.*$', '') -lt [version]'1.4.0') {
-    Write-Host 'herdr web ui: installing Bun 1.4.2 for your user'
-    # The same stable runtime as CI; use Bun's official installer rather than a second downloader.
-    # It leaves this session with the user's PATH alone: without the machine's, neither this script nor herdr finds git.
-    $path = $env:PATH
-    & ([scriptblock]::Create((Invoke-WebRequest 'https://bun.sh/install.ps1' -UseBasicParsing).Content)) -Version '1.4.2'
-    $env:PATH = $path
-}
-if (-not (Get-Command bun -ErrorAction SilentlyContinue)) { throw 'Bun did not install. See https://bun.sh.' }
+if (-not (Get-Command bun -ErrorAction SilentlyContinue)) { throw 'Install Bun 1.4 or newer separately, then retry.' }
 $bunVersion = Run-Tool bun @('--version')
 if ([version]($bunVersion -replace '-.*$', '') -lt [version]'1.4.0') { throw "Needs Bun 1.4 or newer; this is $bunVersion." }
 
@@ -99,7 +63,7 @@ if (-not $plugin) {
     Assert-ForkPlugin $plugin
     # herdr installs a release without Windows build steps as a success that cannot start.
     if (-not (Test-WindowsPlugin $plugin)) { throw "herdr web ui $Ref does not support Windows yet. Run this again after the next release." }
-} else { Write-Host 'herdr web ui: already installed; manually Check for updates, then Update and restart in Settings > About' }
+} else { Write-Host 'herdr web ui: already installed; updates are an operator deployment step (INSTALL.md#update)' }
 
 $server = Run-Tool herdr @('status', 'server', '--json') | ConvertFrom-Json
 if ($server.running) {
@@ -151,255 +115,4 @@ if ($server.running) {
 } else { Write-Host 'herdr web ui: starts with herdr. Open a new terminal and run: herdr' }
 Write-Host 'herdr web ui: open Phone setup in herdr for phone access.'
 
-# One gh api call: gh's exit code and the HTTP status GitHub answered with, or nothing when gh is
-# not there or does not answer in 10 seconds. A gh that hangs must not hold up an install that is done:
-# the deadline covers its exit and its output both (a child it handed the output to could live on),
-# and, when job assignment succeeds, what outlasts it is killed with its children. The job ends with
-# the call: a shim's launcher may be gone already, and taskkill /T finds no tree under a PID that exited.
-function Invoke-GhApi([string]$Arguments) {
-    $gh = Get-Command gh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $gh) { return }
-    $job = [IntPtr]::Zero
-    try {
-        if (-not ('HerdrWebUi.GhJob' -as [type])) {
-            Add-Type -TypeDefinition @'
-using System;
-using System.ComponentModel;
-using System.IO;
-using System.Runtime.InteropServices;
-using System.Text;
-using Microsoft.Win32.SafeHandles;
-namespace HerdrWebUi {
-    public static class GhJob {
-        [StructLayout(LayoutKind.Sequential)]
-        struct BasicLimits {
-            public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags;
-            public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit;
-            public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass;
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        struct IoCounters { public ulong Reads, Writes, Others, ReadBytes, WriteBytes, OtherBytes; }
-        [StructLayout(LayoutKind.Sequential)]
-        struct ExtendedLimits {
-            public BasicLimits Basic; public IoCounters Io; public UIntPtr ProcessMemoryLimit;
-            public UIntPtr JobMemoryLimit; public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed;
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        struct SecurityAttributes {
-            public int Length; public IntPtr Descriptor; public int Inherit;
-        }
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        struct StartupInfo {
-            public int Size; public string Reserved, Desktop, Title;
-            public uint X, Y, XSize, YSize, XChars, YChars, Fill, Flags;
-            public ushort Show, ReservedSize; public IntPtr ReservedBytes, Input, Output, Error;
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        internal struct ProcessInfo { public IntPtr Process, Thread; public int Id, ThreadId; }
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SecurityAttributes attributes, uint size);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        static extern bool CreateProcess(string application, StringBuilder command, IntPtr processAttributes,
-            IntPtr threadAttributes, bool inherit, uint flags, IntPtr environment, string directory,
-            ref StartupInfo startup, out ProcessInfo process);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern uint ResumeThread(IntPtr thread);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool TerminateProcess(IntPtr process, uint code);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool GetExitCodeProcess(IntPtr process, out int code);
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        static extern IntPtr CreateJobObject(IntPtr attributes, string name);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, uint length);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool CloseHandle(IntPtr handle);
-        // A job whose processes are all killed when its last handle closes (KILL_ON_JOB_CLOSE).
-        public static IntPtr Create() {
-            IntPtr job = CreateJobObject(IntPtr.Zero, null);
-            if (job == IntPtr.Zero) return job;
-            ExtendedLimits info = new ExtendedLimits();
-            info.Basic.LimitFlags = 0x2000;
-            if (SetInformationJobObject(job, 9, ref info, (uint)Marshal.SizeOf(typeof(ExtendedLimits)))) return job;
-            CloseHandle(job);
-            return IntPtr.Zero;
-        }
-        public static bool Assign(IntPtr job, IntPtr process) { return AssignProcessToJobObject(job, process); }
-        public sealed class GhProcess : IDisposable {
-            public IntPtr Handle { get; private set; }
-            public int Id { get; private set; }
-            public StreamWriter StandardInput { get; private set; }
-            public StreamReader StandardOutput { get; private set; }
-            public StreamReader StandardError { get; private set; }
-            IntPtr thread;
-            internal GhProcess(ProcessInfo info, StreamWriter input, StreamReader output, StreamReader error) {
-                Handle = info.Process; thread = info.Thread; Id = info.Id;
-                StandardInput = input; StandardOutput = output; StandardError = error;
-            }
-            public void Resume() {
-                if (ResumeThread(thread) == uint.MaxValue) throw new Win32Exception();
-                CloseHandle(thread); thread = IntPtr.Zero;
-            }
-            public bool WaitForExit(int milliseconds) {
-                uint result = WaitForSingleObject(Handle, (uint)milliseconds);
-                if (result == uint.MaxValue) throw new Win32Exception();
-                return result == 0;
-            }
-            public int ExitCode {
-                get { int code; if (!GetExitCodeProcess(Handle, out code)) throw new Win32Exception(); return code; }
-            }
-            public void Dispose() {
-                // An error before Resume must not strand a suspended process, even without a job.
-                if (thread != IntPtr.Zero) { TerminateProcess(Handle, 1); CloseHandle(thread); thread = IntPtr.Zero; }
-                StandardInput.Dispose();
-                foreach (StreamReader reader in new[] { StandardOutput, StandardError }) {
-                    try { reader.Dispose(); } catch (InvalidOperationException) { }
-                }
-                CloseHandle(Handle); Handle = IntPtr.Zero;
-            }
-        }
-        public static GhProcess StartSuspended(string application, string arguments) {
-            IntPtr inputRead = IntPtr.Zero, inputWrite = IntPtr.Zero, outputRead = IntPtr.Zero;
-            IntPtr outputWrite = IntPtr.Zero, errorRead = IntPtr.Zero, errorWrite = IntPtr.Zero;
-            ProcessInfo info = new ProcessInfo();
-            StreamWriter input = null; StreamReader output = null, error = null;
-            try {
-                SecurityAttributes attributes = new SecurityAttributes();
-                attributes.Length = Marshal.SizeOf(typeof(SecurityAttributes)); attributes.Inherit = 1;
-                if (!CreatePipe(out inputRead, out inputWrite, ref attributes, 0) ||
-                    !CreatePipe(out outputRead, out outputWrite, ref attributes, 0) ||
-                    !CreatePipe(out errorRead, out errorWrite, ref attributes, 0) ||
-                    !SetHandleInformation(inputWrite, 1, 0) ||
-                    !SetHandleInformation(outputRead, 1, 0) ||
-                    !SetHandleInformation(errorRead, 1, 0)) throw new Win32Exception();
-                StartupInfo startup = new StartupInfo();
-                startup.Size = Marshal.SizeOf(typeof(StartupInfo)); startup.Flags = 0x100; // STARTF_USESTDHANDLES
-                startup.Input = inputRead; startup.Output = outputWrite; startup.Error = errorWrite;
-                // CREATE_NO_WINDOW | CREATE_SUSPENDED: assignment happens before any shim code runs.
-                if (!CreateProcess(application, new StringBuilder("\"" + application + "\" " + arguments),
-                    IntPtr.Zero, IntPtr.Zero, true, 0x08000004, IntPtr.Zero, null, ref startup, out info))
-                    throw new Win32Exception();
-                input = new StreamWriter(new FileStream(new SafeFileHandle(inputWrite, true), FileAccess.Write));
-                inputWrite = IntPtr.Zero;
-                output = new StreamReader(new FileStream(new SafeFileHandle(outputRead, true), FileAccess.Read), Console.OutputEncoding);
-                outputRead = IntPtr.Zero;
-                error = new StreamReader(new FileStream(new SafeFileHandle(errorRead, true), FileAccess.Read), Console.OutputEncoding);
-                errorRead = IntPtr.Zero;
-                return new GhProcess(info, input, output, error);
-            } catch {
-                if (info.Process != IntPtr.Zero) { TerminateProcess(info.Process, 1); CloseHandle(info.Process); }
-                if (info.Thread != IntPtr.Zero) CloseHandle(info.Thread);
-                if (input != null) input.Dispose();
-                if (output != null) output.Dispose();
-                if (error != null) error.Dispose();
-                throw;
-            } finally {
-                // Only the child keeps the inherited ends; parent ends now belong to the streams.
-                foreach (IntPtr handle in new[] { inputRead, inputWrite, outputRead, outputWrite, errorRead, errorWrite })
-                    if (handle != IntPtr.Zero) CloseHandle(handle);
-            }
-        }
-    }
-}
-'@
-        }
-        $job = [HerdrWebUi.GhJob]::Create()
-    } catch { $job = [IntPtr]::Zero } # taskkill fallback cannot find an orphan after its launcher exits
-    $start = New-Object Diagnostics.ProcessStartInfo
-    $ghArguments = "api --hostname github.com --include $Arguments"
-    if ($gh.Path -match '\.(cmd|bat)$') {
-        # a shim: the command interpreter runs it, with the path and the arguments as one quoted command
-        $start.FileName = $env:ComSpec
-        $start.Arguments = "/d /c """"$($gh.Path)"" $ghArguments"""
-    } else {
-        $start.FileName = $gh.Path
-        $start.Arguments = $ghArguments
-    }
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $start.RedirectStandardInput = $true
-    $start.RedirectStandardOutput = $true
-    $start.RedirectStandardError = $true
-    $process = $null
-    try {
-        if ($job -ne [IntPtr]::Zero) {
-            $process = [HerdrWebUi.GhJob]::StartSuspended($start.FileName, $start.Arguments)
-            if (-not [HerdrWebUi.GhJob]::Assign($job, $process.Handle)) {
-                $null = [HerdrWebUi.GhJob]::CloseHandle($job); $job = [IntPtr]::Zero
-            }
-            $process.Resume()
-        } else {
-            $process = [Diagnostics.Process]::Start($start)
-        }
-        $process.StandardInput.Close()
-        $said = $process.StandardOutput.ReadToEndAsync()
-        $null = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(10000) -or -not $said.Wait(2000)) {
-            # closing the job kills gh and every process it started, also one whose parent has exited
-            if ($job -ne [IntPtr]::Zero) { $null = [HerdrWebUi.GhJob]::CloseHandle($job); $job = [IntPtr]::Zero }
-            try { & $env:ComSpec /d /c "taskkill /T /F /PID $($process.Id) >nul 2>&1" } catch { }
-            return
-        }
-        $status = ''
-        if ($said.Result -match '^HTTP\S* (\d{3})') { $status = $Matches[1] }
-        @{ code = $process.ExitCode; status = $status }
-    } finally {
-        # what gh left running after it answered ends here too
-        if ($job -ne [IntPtr]::Zero) { $null = [HerdrWebUi.GhJob]::CloseHandle($job) }
-        if ($process) {
-            # Dispose leaves the pipe readers open on .NET Framework; a reader still busy with its
-            # ReadToEndAsync may refuse to close, and then the job has ended the writers already
-            foreach ($reader in @($process.StandardOutput, $process.StandardError)) { try { $reader.Close() } catch { } }
-            $process.Dispose()
-        }
-    }
-}
-# A script that runs this has nobody to answer. A terminal can have nobody at it either (an agent's),
-# so the answer is read key by key within 20 seconds in all: what was typed before the question is
-# discarded, and a line left unfinished when the time is up is no answer.
-function Test-Terminal { -not ($env:CI -or [Console]::IsInputRedirected -or [Console]::IsOutputRedirected) }
-function Read-Answer {
-    $Host.UI.RawUI.FlushInputBuffer()
-    $until = (Get-Date).AddSeconds(20)
-    $answer = ''
-    while ((Get-Date) -lt $until) {
-        if (-not [Console]::KeyAvailable) { Start-Sleep -Milliseconds 100; continue }
-        $key = [Console]::ReadKey($true)
-        if ($key.Key -eq [ConsoleKey]::Enter) { Write-Host ''; return $answer }
-        if ($key.Key -eq [ConsoleKey]::Backspace) {
-            if ($answer.Length -gt 0) { $answer = $answer.Substring(0, $answer.Length - 1); Write-Host -NoNewline "`b `b" }
-        } elseif (-not [char]::IsControl($key.KeyChar)) {
-            $answer += $key.KeyChar
-            Write-Host -NoNewline $key.KeyChar
-        }
-    }
-    Write-Host ''
-    return $null
-}
-# Once, on the first install, and not to an account that already starred (204). It asks only when
-# GitHub says the account has not (404), only at a terminal, and stars only on "y".
-if ($newInstall) {
-    try {
-        $starred = Invoke-GhApi 'user/starred/tomrutsaert/herdr-web-ui'
-        if (-not $starred -or $starred.status -ne '204') {
-            Write-Host ''
-            Write-Host 'herdr web ui: if it helps you, a GitHub star helps other herdr users find it: https://github.com/tomrutsaert/herdr-web-ui'
-            if ($starred -and $starred.status -eq '404' -and (Test-Terminal)) {
-                Write-Host -NoNewline 'herdr web ui: star it now with the GitHub account gh is signed in to? [y/N] '
-                $answer = Read-Answer
-                if ("$answer".Trim() -match '^(y|yes)$') {
-                    $given = Invoke-GhApi '--method PUT user/starred/tomrutsaert/herdr-web-ui'
-                    if ($given -and $given.code -eq 0) { Write-Host 'herdr web ui: starred. Thank you!' }
-                    else { Write-Host 'herdr web ui: gh could not star it; the page above can' }
-                }
-            }
-        }
-    } catch { } # the install is done by now: a question that cannot be asked must not fail it
-}
 }

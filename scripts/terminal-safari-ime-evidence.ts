@@ -60,7 +60,7 @@ process.stdin.on('data', bytes => {
   }
 });
 `);
-    const api = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), registerBridge: false });
+    const api = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
     const sockets = new Set<Socket>();
     let workspace: string | undefined;
     let web: Awaited<ReturnType<typeof preview>> | undefined;

@@ -142,28 +142,6 @@ describe("PC connection ownership", () => {
     session.close();
   });
 
-  it("isolates identical pane and pending IDs across PCs and closes only the selected registry entry", () => {
-    const sessions = new Map<string, ReturnType<typeof setup>>();
-    const sharedStore = setup("store-only").store;
-    const registry = new MachineSessionRegistry((machineId) => {
-      const item = setup(machineId, sharedStore); sessions.set(machineId, item); return item.session;
-    });
-    const local = registry.get("local"), remote = registry.get("remote");
-    expect(registry.get("local")).toBe(local);
-    start(local, sessions.get("local")!.socket);
-    start(remote, sessions.get("remote")!.socket);
-    local.acceptPending("w1:p1", message("same"), local.epoch);
-    remote.acceptPending("w1:p1", message("same"), remote.epoch);
-    expect(local.scope).not.toBe(remote.scope);
-    expect(sharedStore.isOwned(paneStorageId("local", "w1:p1"), "same", local.scope)).toBe(true);
-    expect(sharedStore.isOwned(paneStorageId("remote", "w1:p1"), "same", remote.scope)).toBe(true);
-    registry.retainMachines(new Set(["remote"]));
-    expect(sessions.get("local")!.socket.closes).toBe(1);
-    expect(sessions.get("remote")!.socket.closes).toBe(0);
-    expect(sessions.get("remote")!.store.isOwned(paneStorageId("remote", "w1:p1"), "same", remote.scope)).toBe(true);
-    registry.closeAll();
-  });
-
   it("closeAll clears ownership and is reusable after an effect restart", () => {
     const made: ReturnType<typeof setup>[] = [];
     const registry = new MachineSessionRegistry((machineId) => {

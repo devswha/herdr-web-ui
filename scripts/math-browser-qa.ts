@@ -85,7 +85,7 @@ try {
   assert.equal(scripts.length, loaded, "KaTeX is fetched once");
   assert.equal(mathAssets.length, 2, "later expressions reuse both assets");
   assert.equal(await page.getByText("\\(a^2+b^2=c^2\\)").count(), 0, "a later expression is typeset at once");
-  assert.equal(await page.locator(".update-notice").count(), 0, "math that loads asks for no reload");
+  assert.equal(await page.locator(".chunk-failure-notice").count(), 0, "math that loads asks for no reload");
   assert.deepEqual(errors, []);
 
   // offline when the first expression comes: it and every later one keep their source form, quietly
@@ -113,8 +113,8 @@ try {
   // fetch, so the recovery is the reload line (lib/lazyChunk.ts), not a retry
   assert.equal(aborted, 1, "later expressions reuse the failed load without retrying");
   assert.equal(await offline.locator(".katex").count(), 0);
-  // the recovery: the app's update line (useUpdates) offers the reload, and only a tap reloads
-  const notice = offline.locator(".update-notice.is-warning");
+  // the recovery: the app's chunk-load failure line offers the reload, and only a tap reloads
+  const notice = offline.locator(".chunk-failure-notice");
   await notice.getByText("Part of the app could not load.").waitFor({ timeout: 5_000 });
   assert.equal(reloads, 0, "the page is not reloaded until it is asked to be");
   await offline.unroute("**/*.js");
@@ -131,19 +131,19 @@ try {
   write("```mermaid\ngraph LR\n  A[Start] --> B[End]\n```");
   await diagrams.goto(`http://127.0.0.1:${server.port}/`);
   await diagrams.locator(".markdown-mermaid svg").waitFor({ timeout: 15_000 });
-  assert.equal(await diagrams.locator(".update-notice").count(), 0, "a diagram that loads asks for no reload");
+  assert.equal(await diagrams.locator(".chunk-failure-notice").count(), 0, "a diagram that loads asks for no reload");
   // a diagram that fails only to parse is a code block, and no reason to reload
   write("```mermaid\ngraph LR\n  A[Start --> \n```");
   await diagrams.evaluate(() => window.qa.refresh());
   await diagrams.locator(".markdown-code").first().waitFor();
   await diagrams.waitForTimeout(800);
-  assert.equal(await diagrams.locator(".update-notice").count(), 0, "a syntax error asks for no reload");
+  assert.equal(await diagrams.locator(".chunk-failure-notice").count(), 0, "a syntax error asks for no reload");
   const goneChunk = diagrams.waitForEvent("requestfailed", { predicate: (request) => /\/sequenceDiagram-[^/]+\.js$/.test(request.url()), timeout: 5_000 });
   await diagrams.route(/\/sequenceDiagram-[^/]+\.js$/, (route) => route.abort());
   write("```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n```");
   await diagrams.evaluate(() => window.qa.refresh());
   await goneChunk;
-  await diagrams.locator(".update-notice.is-warning").getByText("Part of the app could not load.").waitFor({ timeout: 5_000 });
+  await diagrams.locator(".chunk-failure-notice").getByText("Part of the app could not load.").waitFor({ timeout: 5_000 });
   assert.equal(await diagrams.locator(".markdown-mermaid svg").count(), 0, "the diagram whose chunk is gone stays a code block");
   assert.deepEqual(errors, []);
 

@@ -28,7 +28,6 @@ import { delimiter, join, resolve } from "node:path";
 import { DISTRIBUTION_REPOSITORY } from "../shared/distribution.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { canBind, FALLBACK_PORTS, freePort, savedPort } from "./plugin-port.ts";
-import { activePluginScript } from "./plugin-runtime.ts";
 import { herdrStateDir } from "./plugin-state.ts";
 import { processStartedAt, processStartUpperBound } from "../server/process-start.ts";
 import { descendantProcesses, windowsArgv, windowsProcessTable } from "../server/windows-processes.ts";
@@ -91,7 +90,7 @@ const fileVars = CONFIG_FILES.map(readEnvFile);
 const shadowed = fileVars.length === 2 ? Object.keys(fileVars[0]!).filter((key) => key in fileVars[1]! && fileVars[0]![key] !== fileVars[1]![key]) : [];
 const env = { ...process.env, ...Object.assign({}, ...fileVars) as Record<string, string> };
 const PATH_KEY = platform() === "win32" ? Object.keys(env).sort().find(key => key.toLowerCase() === "path") ?? "PATH" : "PATH";
-/** the app's own state, as the server finds it (server/update-state.ts): the same path with or without herdr's env */
+/** the app's own state, as the server finds it (server/state.ts): the same path with or without herdr's env */
 const APP_STATE_DIR = env["HERDR_WEB_STATE_DIR"] || join(env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr-web-ui");
 /** the port a start took because the default could not be opened; absent while the default serves */
 const PORT_FILE = join(APP_STATE_DIR, "plugin-port");
@@ -103,7 +102,7 @@ const originOf = (value: number): string => `http://${host === "0.0.0.0" ? "127.
 let origin = originOf(port);
 
 /**
- * herdr's PATH plus where the one-line installer (install.sh) puts Bun, Node and herdr: herdr may
+ * herdr's PATH plus common operator-managed tool locations: herdr may
  * have been started from a shell that has none of them, and the server spawns `node` for every
  * terminal. Appended, so a Node the user chose (nvm, Homebrew) still comes first.
  */
@@ -135,11 +134,11 @@ async function health(): Promise<boolean> {
 /** Whether the app holds the port: its bridge health answers without asking herdr. */
 async function appOnPort(): Promise<"fork" | "foreign" | null> {
   try {
-    const response = await fetch(`${origin}/api/health?scope=bridge`, { signal: AbortSignal.timeout(1500) });
+    const response = await fetch(`${origin}/api/access`, { signal: AbortSignal.timeout(1500) });
     if (!response.ok) return null;
     // another program's JSON can say ok too: only the app's own answer (server/index.ts) counts
-    const body = (await response.json()) as { ok?: unknown; auth?: unknown; bridge_protocol?: unknown; distribution?: string };
-    return body.ok === true && Number.isInteger(body.bridge_protocol) && appAuth(body.auth)
+    const body = (await response.json()) as { ok?: unknown; auth?: unknown; distribution?: string };
+    return body.ok === true && appAuth(body.auth)
       ? body.distribution === DISTRIBUTION_REPOSITORY ? "fork" : "foreign" : null;
   } catch {
     return null;
@@ -563,7 +562,7 @@ async function pair(): Promise<number> {
     process.stderr.write(`herdr web ui is not running at ${origin}; start it first\n`);
     return 1;
   }
-  const headers: Record<string, string> = { "content-type": "application/json", "x-herdr-machine": "1" };
+  const headers: Record<string, string> = { "content-type": "application/json", "x-herdr-request": "1" };
   if ((env["HERDR_WEB_TOKEN"] ?? "") !== "") headers["authorization"] = `Bearer ${env["HERDR_WEB_TOKEN"]}`;
   const started = await fetch(`${origin}/api/devices/pair/start`, { method: "POST", headers, body: "{}" });
   if (!started.ok) {
@@ -579,11 +578,6 @@ async function pair(): Promise<number> {
 
 /** The marketplace action has a real pane, so its access guidance and pairing code stay visible. */
 async function phoneSetup(): Promise<number> {
-  const active = activePluginScript(ROOT, port, APP_STATE_DIR);
-  if (active !== join(resolve(ROOT), "scripts", "plugin.ts") && resolve(active) !== resolve(import.meta.filename)) {
-    const child = Bun.spawn([process.execPath, active, "phone-setup"], { cwd: ROOT, windowsHide: true, env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
-    return await child.exited;
-  }
   process.stdout.write(`Phone setup\n\nApp on this PC: ${link(origin)}\n`);
   let code = 0;
   if (!(await health())) {

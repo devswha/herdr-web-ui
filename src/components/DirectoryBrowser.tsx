@@ -6,7 +6,7 @@ import { FileGlyph } from "./FileGlyph.tsx";
 
 import type { DirectoryListing } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
-import { formatBytes } from "../lib/bridgeProgress.ts";
+import { formatBytes } from "../lib/formatBytes.ts";
 import { useMachineApi } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
 import { resolveWorkspaceRoot, workspaceRelativePath } from "../lib/workspacePath.ts";

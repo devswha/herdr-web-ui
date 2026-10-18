@@ -72,7 +72,7 @@ test("leaves alone what it must not touch", async () => {
   expect((await compressResponse(asks("/x", "identity"), json(50_000)))!.headers.get("content-encoding")).toBeNull();
   expect((await compressResponse(asks(), json(10)))!.headers.get("content-encoding")).toBeNull();
   const stream = new Response("data: x\n\n", { headers: { "content-type": "text/event-stream" } });
-  expect(await compressResponse(asks("/api/machines/events"), stream)).toBe(stream);
+  expect(await compressResponse(asks("/api/events"), stream)).toBe(stream);
   const image = new Response(new Uint8Array(5000), { headers: { "content-type": "image/png" } });
   expect(await compressResponse(asks(), image)).toBe(image);
   const file = new Response("y".repeat(50_000), { headers: { "content-type": "text/plain" } });

@@ -7,8 +7,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AccessGate } from "./AccessGate.tsx";
 import { FileViewer } from "./FileViewer.tsx";
-import { ChunkFailureNotice } from "./UpdateControls.tsx";
-import { fetchBridgeHealth } from "../lib/api.ts";
+import { ChunkFailureNotice } from "./ChunkFailureNotice.tsx";
+import { fetchAccess } from "../lib/api.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { MachineContext } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
@@ -28,7 +28,7 @@ export function FileReader({ target }: { target: ReaderTarget }) {
     let alive = true;
     const probe = async (): Promise<void> => {
       try {
-        const health = await fetchBridgeHealth();
+        const health = await fetchAccess();
         if (!alive) return;
         setLocked(health.auth.required && !health.auth.authenticated);
         setLockReason(health.auth.reason ?? null);

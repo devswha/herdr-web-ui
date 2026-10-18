@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
-import { VOICE_DEFAULTS, type VoiceStatus } from "../shared/voice.ts";
 import type {} from "./chat-history-fixture.tsx";
 import { parseAgyTranscript } from "../server/agy.ts";
 import { chromePath } from "./chrome-path.ts";
@@ -32,8 +31,6 @@ try {
     if (path === "/ws") return new Response(null, { status: 404 });
     if (path.endsWith("/pane/commands")) return Response.json({ commands: [] });
     if (path.endsWith("/pane/omo-tasks")) return Response.json({ tasks: [], runs: [] });
-    // a desktop's composer asks whether dictation can work here before it shows the mic
-    if (path === "/api/voice") return Response.json({ configured: false, source: null, ...VOICE_DEFAULTS } satisfies VoiceStatus);
     return path === "/" ? new Response('<html><head><link rel="stylesheet" href="/chat-history-fixture.css"></head><body><div id="root"></div><script type="module" src="/chat-history-fixture.js"></script></body></html>', { headers: { "Content-Type": "text/html" } }) : new Response(Bun.file(join(root, path.slice(1))));
   } });
   browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
@@ -63,7 +60,7 @@ try {
     const url = new URL(route.request().url());
     if (product) {
       const pane = url.searchParams.get("pane_id") ?? url.searchParams.get("pane") ?? "";
-      const key = `${/\/api\/machines\/([^/]+)\//.exec(url.pathname)?.[1] ?? "local"}/${pane}`;
+      const key = `local/${pane}`;
       const answer = (status: number) => status === 200
         ? route.fulfill({ json: key === "local/agy" ? { source: "agy-transcript", history_id: "synthetic-agy-session", cursor: null, turns: parseAgyTranscript([
           { step_index: 0, type: "USER_INPUT", status: "DONE", content: "Summarize the last three fictional commits." },
@@ -163,14 +160,6 @@ try {
   await page.locator(".work-row-head").click();
   assert.equal(await page.getByText("STALE TOOL OUTPUT", { exact: true }).count(), 0);
   assert.equal(await page.locator(".chat-tool-more").count(), 1);
-  // A remote PC with the same pane/tool id is a distinct target too.
-  await page.locator(".chat-tool-more").click();
-  const remoteIndex = await page.evaluate(() => window.qa.requests.length - 1);
-  await page.evaluate(() => window.qa.chat("a", "remote-pc"));
-  await page.waitForFunction((i) => window.qa.requests[i].signal.aborted, remoteIndex);
-  await page.evaluate((i) => window.qa.requests[i].reject(), remoteIndex);
-  await page.getByText(newest, { exact: true }).waitFor();
-  assert.equal(await page.getByText("Couldn't load the whole output — retry", { exact: true }).count(), 0);
   // Already loaded older history must be discarded when a held cursor gets 409.
   epoch = "four"; newest = "loaded history newest"; before = "four:100"; holdOlder = false;
   await page.evaluate(() => window.qa.chat("b"));
@@ -193,7 +182,7 @@ try {
   assert.equal(await page.locator(".chat-older").count(), 0);
   console.log("PASS held-cursor and older-page 409 recovery discard history and immediately reload");
   assert.deepEqual(errors, []);
-  console.log("PASS reused tool ids after clear, machine switch and unmount cancellation; no browser errors");
+  console.log("PASS reused tool ids after clear, pane switch and unmount cancellation; no browser errors");
 
   // An authoritative refusal must hide stale history even if the second, terminal read fails.
   // This is the DB/export mismatch path: the reader returns scrollback, not a transport error.
@@ -263,32 +252,30 @@ try {
   await shows("local/b", "local/a");
   await select("a", "local");
   await shows("local/a", "local/b");
-  await select("a", "remote-pc");
-  await shows("remote-pc/a", "local/a");
   // A late success and a late error from B must neither replace nor erase A's chat.
   for (const status of [200, 503]) {
-    held.add("remote-pc/b");
-    const ended = await page.evaluate(() => window.qa.answered.filter((key) => key === "remote-pc/b").length);
-    const remoteStarted = nextRoute("remote-pc/b");
-    await select("b", "remote-pc");
-    await remoteStarted;
-    await select("a", "remote-pc");
-    await page.getByText("history remote-pc/a", { exact: true }).waitFor();
-    held.delete("remote-pc/b");
+    held.add("local/b");
+    const ended = await page.evaluate(() => window.qa.answered.filter((key) => key === "local/b").length);
+    const started = nextRoute("local/b");
+    await select("b", "local");
+    await started;
+    await select("a", "local");
+    await page.getByText("history local/a", { exact: true }).waitFor();
+    held.delete("local/b");
     for (const request of pending.splice(0)) await request.answer(status);
     // B's request has ended in the page (answered, or cancelled when B left) and two frames
     // have passed: whatever it could change is committed
-    await page.waitForFunction((count) => window.qa.answered.filter((key) => key === "remote-pc/b").length > count, ended);
+    await page.waitForFunction((count) => window.qa.answered.filter((key) => key === "local/b").length > count, ended);
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    await shows("remote-pc/a", "remote-pc/b");
-    assert.equal(await page.getByText("history remote-pc/a", { exact: true }).count(), 1, "late response preserves active chat");
+    await shows("local/a", "local/b");
+    assert.equal(await page.getByText("history local/a", { exact: true }).count(), 1, "late response preserves active chat");
     assert.equal(await page.locator(".chat-inline-error").count(), 0, "late error belongs to the abandoned pane");
   }
-  failing.add("remote-pc/b");
-  await select("b", "remote-pc");
+  failing.add("local/b");
+  await select("b", "local");
   await page.locator(".chat-inline-error").waitFor();
-  assert.equal(await page.getByText("history remote-pc/a", { exact: true }).count(), 0, "unavailable chat cannot show another pane's history");
-  assert.ok((await page.evaluate(() => window.qa.commits)).every((turns) => !turns.some((turn) => turn.includes("history remote-pc/a"))), "no commit of the unavailable chat showed another pane's history");
+  assert.equal(await page.getByText("history local/a", { exact: true }).count(), 0, "unavailable chat cannot show another pane's history");
+  assert.ok((await page.evaluate(() => window.qa.commits)).every((turns) => !turns.some((turn) => turn.includes("history local/a"))), "no commit of the unavailable chat showed another pane's history");
   await select("devin", "local", "devin");
   await page.getByText("Synthetic Devin prompt", { exact: true }).waitFor();
   await page.getByText("Synthetic Devin answer", { exact: true }).waitFor();

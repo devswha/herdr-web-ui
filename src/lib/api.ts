@@ -1,5 +1,5 @@
 import type { PreferencesChange, SharedPreferences } from "../../shared/preferences.ts";
-import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
+import { machinePath, type HerdrIdentity } from "../../shared/machines.ts";
 import type {
   AgentKind,
   AgentRenameRequest,
@@ -36,8 +36,6 @@ import type {
   PaneFindResponse,
   PlanStep,
   PromptAnswer,
-  PushKey,
-  PortalStatus,
   RemoveWorktreeRequest,
   ResizePaneRequest,
   SessionSnapshot,
@@ -47,7 +45,6 @@ import type {
   SplitPaneRequest,
   SwapPaneRequest,
   TabCreated,
-  UsageReport,
   WorkspaceCreated,
   PluginActionRequest,
   PluginActionResult,
@@ -60,81 +57,10 @@ import type {
 } from "../../shared/protocol.ts";
 import { SUPPORTED_AGENT_KINDS } from "../../shared/supported-agents.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
-import { readInstalledNotes, readUpdateNotes, type HerdrUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
-import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 import { MAX_ATTACHMENT_BYTES } from "../../shared/attachments.ts";
 import { t } from "./i18n.ts";
 import { chatReadDeadlineMs, withChatReadDeadline } from "./chatReadDeadline.ts";
-import type { UsageLoginAccounts, UsageLoginProvider, UsageLoginRequest, UsageLoginStarted } from "../../shared/usage-login.ts";
 
-export function fetchUsageLoginProviders(signal: AbortSignal): Promise<{ providers: readonly UsageLoginProvider[] }> {
-  return getJson("/api/usage/login", { signal });
-}
-
-export function fetchUsageLoginAccounts(provider: string, signal: AbortSignal): Promise<UsageLoginAccounts> {
-  return getJson(`/api/usage/login?provider=${encodeURIComponent(provider)}`, { signal });
-}
-
-export function startUsageLogin(request: UsageLoginRequest): Promise<UsageLoginStarted> {
-  return getJson<UsageLoginStarted>("/api/usage/login", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request), signal: AbortSignal.timeout(30_000),
-  });
-}
-
-/** The sidebar's plan meters; `refresh` asks the providers again instead of the server's recent answer. */
-export function fetchUsage(refresh = false): Promise<UsageReport> {
-  return getJson<UsageReport>(refresh ? "/api/usage?refresh=1" : "/api/usage");
-}
-
-/** Local server's CLIProxyAPI controls; secrets are only ever sent, never read back. */
-export function cliProxyRequest<T>(path = "", init: RequestInit = {}): Promise<T> {
-  return getJson<T>(`/api/cliproxy${path}`, { ...init, cache: "no-store", signal: init.signal ?? AbortSignal.timeout(60_000) });
-}
-
-export function fetchUpdateStatus(): Promise<UpdateStatus> {
-  return getJson<UpdateStatus>("/api/updates");
-}
-
-/** What the available update brings. A server older than the notes answers with an error. */
-export async function fetchUpdateNotes(): Promise<UpdateNotes> {
-  return readUpdateNotes(await getJson<unknown>("/api/updates/notes"));
-}
-
-/** What the last update brought. A server older than the question answers with an error. */
-export async function fetchInstalledNotes(): Promise<InstalledNotes> {
-  return readInstalledNotes(await getJson<unknown>("/api/updates/installed"));
-}
-
-export async function requestUpdate(command: UpdateCommand): Promise<void> {
-  const url = `/api/updates/${command}`;
-  const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
-  if (!response.ok) throw await errorFrom(url, response);
-}
-
-/** Settings → Updates: herdr itself, on the PC the server runs on. */
-export function fetchHerdrUpdate(): Promise<HerdrUpdateStatus> {
-  return getJson<HerdrUpdateStatus>("/api/herdr/update");
-}
-
-export async function requestHerdrUpdate(): Promise<void> {
-  const url = "/api/herdr/update";
-  const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
-  if (!response.ok) throw await errorFrom(url, response);
-}
-
-/** Settings → Phone & devices: Portal's public address for the server's PC. */
-export function fetchPortal(): Promise<PortalStatus> {
-  return getJson<PortalStatus>("/api/portal");
-}
-
-export async function requestPortal(action: "start" | "stop", relay?: string): Promise<void> {
-  const url = `/api/portal/${action}`;
-  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-update": "1" }, body: JSON.stringify(relay === undefined ? {} : { relay }) });
-  if (!response.ok) throw await errorFrom(url, response);
-}
-
-/** Anonymous install and update counts; null from a server that sends none (404). */
 /** What every browser of this server shares (shared/preferences.ts); null where the server predates it. */
 export async function fetchPreferences(): Promise<SharedPreferences | null> {
   try { return await getJson<SharedPreferences>("/api/preferences"); }
@@ -168,11 +94,7 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * A 404 for the route itself, not for what it was asked about: a PC whose bridge is from before
- * the route, whose answer the local server passes through (server/machine-api.ts). What herdr
- * refuses comes with a code of its own (pane_not_found).
- */
+/** A missing app endpoint, as distinct from herdr refusing a pane with its own error code. */
 export const routeMissing = (error: unknown): boolean => error instanceof ApiError && error.status === 404 && error.code === "not_found";
 
 async function errorFrom(url: string, response: Response): Promise<ApiError> {
@@ -339,7 +261,7 @@ export async function fetchHealth(): Promise<HealthInfo> {
 export async function authenticate(token: string): Promise<void> {
   const response = await fetch("/api/auth", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+    headers: { "content-type": "application/json", "x-herdr-request": "1" },
     body: JSON.stringify({ token }),
   });
   if (!response.ok) throw await errorFrom("/api/auth", response);
@@ -347,7 +269,7 @@ export async function authenticate(token: string): Promise<void> {
 
 /** POST /api/devices/pair: the code shown on the PC, once; the server answers with this device's own HttpOnly cookie. */
 export async function pairDevice(code: string, label: string): Promise<void> {
-  const response = await fetch("/api/devices/pair", { method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ code, label }) });
+  const response = await fetch("/api/devices/pair", { method: "POST", headers: { "content-type": "application/json", "x-herdr-request": "1" }, body: JSON.stringify({ code, label }) });
   if (!response.ok) throw await errorFrom("/api/devices/pair", response);
 }
 
@@ -415,7 +337,7 @@ export async function uploadPaneImage(paneId: string, image: Blob, machineId = "
   const data_base64 = base64FromBytes(new Uint8Array(await image.arrayBuffer()));
   const response = await fetch(machinePath(machineId, "pane/image"), {
     method: "POST",
-    headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+    headers: { "content-type": "application/json", "x-herdr-request": "1" },
     body: JSON.stringify({ pane_id: paneId, content_type: image.type, data_base64, ...(image instanceof File ? { name: image.name } : {}) }),
   });
   if (!response.ok) throw await errorFrom(machinePath(machineId, "pane/image"), response);
@@ -425,7 +347,7 @@ export async function uploadPaneImage(paneId: string, image: Blob, machineId = "
 async function sendJson(url: string, method: "POST" | "PATCH" | "DELETE", body: unknown): Promise<Response> {
   const response = await fetch(url, {
     method,
-    headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+    headers: { "content-type": "application/json", "x-herdr-request": "1" },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await errorFrom(url, response);
@@ -744,50 +666,6 @@ export async function answerPanePrompt(answer: PromptAnswer, machineId = "local"
   await sendJson(machinePath(machineId, "pane/prompt/answer"), "POST", answer);
 }
 
-/** GET /api/push: the server's VAPID key, the `applicationServerKey` this device subscribes with. */
-export async function fetchPushKey(): Promise<string> {
-  return (await getJson<PushKey>("/api/push")).public_key;
-}
 
-/** `alerts`: what this device wants to hear about; the server applies it to every alert it sends here. */
-export async function registerPushSubscription(subscription: PushSubscriptionJSON, alerts?: AlertPrefs): Promise<void> {
-  await sendJson("/api/push/subscribe", "POST", alerts === undefined ? { subscription } : { subscription, alerts });
-}
-
-export async function unregisterPushSubscription(endpoint: string): Promise<void> {
-  await sendJson("/api/push/subscribe", "DELETE", { endpoint });
-}
-
-/** One confirmation push to this device only; ApiError 502 `push_failed` when the push service refused it. */
-export async function sendTestPush(endpoint: string): Promise<void> {
-  await sendJson("/api/push/test", "POST", { endpoint });
-}
-
-export function fetchBridgeHealth(): Promise<BridgeHealth> { return getJson("/api/health?scope=bridge"); }
-export async function fetchMachines(signal?: AbortSignal): Promise<Machine[]> {
-  const response = await fetch("/api/machines", { signal });
-  if (!response.ok) throw await errorFrom("/api/machines", response);
-  return ((await response.json()) as { machines: Machine[] }).machines;
-}
-export async function machineRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-  const response = await fetch(`/api/machines${path}`, { method, headers: { "content-type": "application/json", "x-herdr-machine": "1" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (!response.ok) throw await errorFrom("/api/machines", response);
-  return response.json();
-}
-export const startMachineSetup = (request: SetupRequest) => machineRequest<SetupJob>("/setup", "POST", request);
-export const fetchMachineSetup = (id: string) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`);
-export const answerMachineSetup = (id: string, action: SetupAction) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`, "POST", action);
-
-/** GET /api/voice: whether the server holds a key; the key itself never comes back. */
-export async function fetchVoiceStatus(): Promise<VoiceStatus> {
-  const response = await fetch("/api/voice", { cache: "no-store" });
-  if (!response.ok) throw await errorFrom("/api/voice", response);
-  return (await response.json()) as VoiceStatus;
-}
-
-/** PUT /api/voice/config: ApiError 409 `key_from_env` when the key comes from HERDR_WEB_OPENAI_API_KEY. */
-export async function saveVoiceConfig(update: VoiceConfigUpdate): Promise<VoiceStatus> {
-  const response = await fetch("/api/voice/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(update) });
-  if (!response.ok) throw await errorFrom("/api/voice/config", response);
-  return (await response.json()) as VoiceStatus;
-}
+/** Authentication remains available while the local herdr is restarting. */
+export function fetchAccess(): Promise<{ auth: HealthAuth }> { return getJson("/api/access"); }

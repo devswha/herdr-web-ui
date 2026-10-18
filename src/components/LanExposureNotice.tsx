@@ -14,7 +14,7 @@ import "./LanExposureNotice.css";
 export function LanExposureNotice({ host, onOpen }: { host: string; onOpen: () => void }) {
   const t = useT();
   return (
-    <div className="update-notice is-exposed" role="status" data-testid="lan-exposure-notice">
+    <div className="lan-exposure-notice" role="status" data-testid="lan-exposure-notice">
       <span>{t("Anyone who can reach {host} on your network can type into every pane: no access token is set and no device is paired yet.", { host })}</span>
       <button type="button" className="btn" onClick={onOpen}>{t("Phone & devices")}</button>
     </div>

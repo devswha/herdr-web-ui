@@ -155,14 +155,5 @@ describe("seedStatuses", () => {
     expect(shouldNotifyStatus(known.get("p1"), "blocked")).toBe(false);
   });
 
-  it("forgets a pane no PC lists any more, on each PC by its own id", () => {
-    const known = new Map<string, AgentStatus>();
-    seedStatuses(known, [...roster(["p1", "blocked"]), { id: "pc-2", snapshot: { panes: [{ pane_id: "p1", agent_status: "working" as AgentStatus }] } }]);
-    expect(known.size).toBe(2);
-    // p1 closed on this PC; the other PC is offline and lists nothing
-    seedStatuses(known, [{ id: "local", snapshot: { panes: [] } }, { id: "pc-2", snapshot: null }]);
-    expect(known.size).toBe(0);
-    seedStatuses(known, roster(["p1", "idle"]));
-    expect(known.get("p1")).toBe("idle");
-  });
+
 });

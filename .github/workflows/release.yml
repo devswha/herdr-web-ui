@@ -31,7 +31,6 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           bun scripts/release-notes.ts "$RELEASE_VERSION"
-          # the fork-remote-vN this version names is published from this tree, and release metadata is complete
           bun scripts/release-guards.ts --release "$RELEASE_VERSION"
           if git show-ref --verify --quiet "refs/tags/fork-v$RELEASE_VERSION"; then
             echo 'This version already has a tag; choose a new version.' >&2

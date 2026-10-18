@@ -233,7 +233,7 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
 
 if (import.meta.main) {
   const stateDir = mkdtempSync(join(tmpdir(), "herdr-find-regression-state-"));
-  const server = createServer({ port: 0, stateDir, registerBridge: false });
+  const server = createServer({ port: 0, stateDir });
   let browser: Browser | undefined;
   try {
     browser = await chromium.launch({ headless: true, executablePath: chromePath() });

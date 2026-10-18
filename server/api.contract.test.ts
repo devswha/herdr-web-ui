@@ -5,18 +5,9 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { ConversationMonitor } from "./conversation-monitor.ts";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, LanExposure, PortalStatus, PushKey, SessionSnapshot, TabMoved, PaneFindResponse, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
-import { HerdrUpdater } from "./herdr-update.ts";
-import { PortalService } from "./portal.ts";
-import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
-import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
-import { VoiceService } from "./voice.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, LanExposure, SessionSnapshot, TabMoved, PaneFindResponse, PaneReadResult, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
 import { HerdrSocket } from "../src/lib/ws.ts";
 import { herdrRpc, paneRead, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
-import { startFakePushService, type FakePushService } from "./push.fake.ts";
-import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
-import { handleMachineRequest } from "./machine-api.ts";
-import type { MachineManager } from "./machines.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import type { RepoDiffFileList, RepoDiffFilePatch } from "../shared/protocol.ts";
 
@@ -32,7 +23,7 @@ let server: { port: number; stop: () => void };
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-contract-"));
 
 beforeAll(() => {
-  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushLoopbackHttp: true });
+  server = createServer({ port: 0, stateDir });
 });
 
 afterAll(() => {
@@ -103,7 +94,7 @@ describe("Grok conversation API", () => {
       expect((await (await fetch(url)).json()).activity).toBe("idle");
       appendFileSync(path, event({ sessionUpdate: "rewind_marker", target_prompt_index: 0 }, true));
       expect((await fetch(`${url}&from=${encodeURIComponent(`${body.history_id}:0`)}`)).status).toBe(409);
-      const local = await fetch(url.replace("/api/pane/", "/api/machines/local/pane/"));
+      const local = await fetch(url.replace("/api/pane/", "/api/pane/"));
       expect((await local.json()).turns).toEqual([]);
       const missing = "00000000-0000-4000-8000-000000000002";
       await report(missing, "resume");
@@ -190,7 +181,7 @@ describe("Agy conversation API", () => {
       expect((await fetch(`${url}&from=${encodeURIComponent(`${body.history_id}:0`)}`)).status).toBe(409);
       expect((await fetch(outputUrl)).status).toBe(404);
       forgetTranscriptState();
-      const local = await fetch(url.replace("/api/pane/", "/api/machines/local/pane/"));
+      const local = await fetch(url.replace("/api/pane/", "/api/pane/"));
       expect((await local.json()).turns).toHaveLength(1);
       db.exec("DROP TABLE steps");
       expect(await (await fetch(url)).json()).toEqual({ source: "scrollback", turns: [] });
@@ -255,318 +246,6 @@ describe("Devin conversation API", () => {
       await workspaceClose(created.workspace.workspace_id);
       rmSync(state, { recursive: true, force: true });
     }
-  });
-});
-
-describe("usage API", () => {
-  it("returns OpenCode Go windows without exposing its credential", async () => {
-    const usageState = mkdtempSync(join(tmpdir(), "herdr-opencode-contract-"));
-    const token = "oc_sk_contract_only";
-    const usage = new UsageService({
-      home: usageState, env: { OPENCODE_API_KEY: token }, platform: "linux", now: () => Date.parse("2026-10-06T00:00:00Z"),
-      keychain: async () => ({ status: "missing" }), run: async () => null,
-      fetch: async (url, init) => {
-        expect(url).toBe("https://opencode.ai/zen/go/v1/usage");
-        expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${token}`);
-        return Response.json({ usage: {
-          rolling: { percent: 12, resetsAt: "2026-10-06T01:00:00Z" },
-          weekly: { percent: 34 }, monthly: { percent: 56 },
-        } });
-      },
-    }, USAGE_PROVIDERS.filter((provider) => provider.id === "opencode"));
-    const app = createServer({ port: 0, stateDir: usageState, usage, token: "report-token" });
-    try {
-      const url = `http://localhost:${app.port}/api/usage`;
-      expect((await fetch(url)).status).toBe(401);
-      const response = await fetch(url, { headers: { authorization: "Bearer report-token" } });
-      expect(response.status).toBe(200);
-      const body = await response.text();
-      expect(body).not.toContain(token);
-      expect(body).not.toContain(usageState);
-      expect((JSON.parse(body) as UsageReport).providers).toMatchObject([{
-        id: "opencode", account: null, plan: "Go", problem: null,
-        windows: [
-          { kind: "session", used_percent: 12, resets_at: "2026-10-06T01:00:00.000Z" },
-          { kind: "week", used_percent: 34 }, { kind: "month", used_percent: 56 },
-        ],
-      }]);
-    } finally { app.stop(); rmSync(usageState, { recursive: true, force: true }); }
-  });
-
-  it("answers the report and keeps it behind the token gate", async () => {
-    const usageState = mkdtempSync(join(tmpdir(), "herdr-usage-auth-"));
-    const usage = new UsageService(undefined, []);
-    const open = createServer({ port: 0, stateDir: usageState, usage });
-    const gated = createServer({ port: 0, stateDir: usageState, usage, token: "test-usage-token" });
-    try {
-      const answered = await fetch(`http://localhost:${open.port}/api/usage`);
-      expect(answered.status).toBe(200);
-      expect(answered.headers.get("cache-control")).toBe("no-store");
-      expect(await answered.json() as UsageReport).toEqual({ providers: [] });
-      expect((await fetch(`http://localhost:${gated.port}/api/usage`)).status).toBe(401);
-      const withToken = await fetch(`http://localhost:${gated.port}/api/usage`, { headers: { authorization: "Bearer test-usage-token" } });
-      expect(withToken.status).toBe(200);
-    } finally { open.stop(); gated.stop(); rmSync(usageState, { recursive: true, force: true }); }
-  });
-});
-
-describe("voice API", () => {
-  it("keeps the key on the server, refuses cross-site writes and streams a transcript", async () => {
-    const voiceState = mkdtempSync(join(tmpdir(), "herdr-voice-contract-"));
-    const key = "sk-contract-0123456789";
-    const provider = Bun.serve({
-      port: 0, hostname: "127.0.0.1",
-      async fetch(request) {
-        if (new URL(request.url).pathname !== "/v1/audio/transcriptions") return new Response("not found", { status: 404 });
-        expect(request.headers.get("authorization")).toBe(`Bearer ${key}`);
-        await request.formData();
-        return new Response(`data: ${JSON.stringify({ type: "transcript.text.done", text: "git status" })}\n\n`, { headers: { "content-type": "text/event-stream" } });
-      },
-    });
-    const voice = new VoiceService({ stateDir: voiceState, env: { HERDR_WEB_OPENAI_BASE_URL: `http://127.0.0.1:${provider.port}/v1` }, fetch });
-    const open = createServer({ port: 0, stateDir: voiceState, voice });
-    const gated = createServer({ port: 0, stateDir: voiceState, voice, token: "test-voice-token" });
-    const at = (path: string) => `http://localhost:${open.port}${path}`;
-    try {
-      expect((await fetch(`http://localhost:${gated.port}/api/voice`)).status).toBe(401);
-      expect(await (await fetch(at("/api/voice"))).json()).toMatchObject({ configured: false, source: null });
-
-      const crossSite = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: JSON.stringify({ api_key: key }) });
-      expect(crossSite.status).toBe(403);
-      const saved = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: key }) });
-      expect(saved.status).toBe(200);
-      const status = await (await fetch(at("/api/voice"))).text();
-      expect(JSON.parse(status)).toMatchObject({ configured: true, source: "file" });
-      expect(status).not.toContain(key);
-      expect(statSync(join(voiceState, "voice.json")).mode & 0o777).toBe(0o600);
-
-      const form = new FormData();
-      form.append("audio", new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" }), "voice.webm");
-      form.append("mode", "chat");
-      form.append("polish", "0");
-      const transcribed = await fetch(at("/api/voice/transcribe"), { method: "POST", body: form });
-      expect(transcribed.headers.get("content-type")).toContain("application/x-ndjson");
-      expect((await transcribed.text()).trim().split("\n").map((line) => JSON.parse(line))).toEqual([{ type: "done", text: "git status" }]);
-    } finally {
-      open.stop(); gated.stop(); provider.stop(true);
-      rmSync(voiceState, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("update API", () => {
-  it("reports unmanaged servers without performing network discovery", async () => {
-    const response = await fetch(`${base()}/api/updates`);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect((await response.json() as { managed: boolean }).managed).toBe(false);
-  });
-
-  it("answers what the available update brings, and nothing where no supervisor told it", async () => {
-    const none = await fetch(`${base()}/api/updates/notes`);
-    expect(none.status).toBe(200);
-    expect(none.headers.get("cache-control")).toBe("no-store");
-    expect(await none.json()).toEqual({ revision: null, releases: [], omitted: 0 });
-    expect((await fetch(`${base()}/api/updates/notes`, { method: "POST", headers: { "x-herdr-update": "1" } })).status).toBe(405);
-
-    const notes: UpdateNotes = { revision: "b".repeat(40), releases: [{ version: "9.9.9", date: "2026-10-07", notes: "### Added\n- A thing." }], omitted: 2 };
-    const managedState = mkdtempSync(join(tmpdir(), "herdr-update-notes-"));
-    const managed = createServer({ port: 0, stateDir: managedState,
-      updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true, available: true }), notes: () => notes, installed: noInstalledNotes, request() {} } });
-    try {
-      expect(await (await fetch(`http://localhost:${managed.port}/api/updates/notes`)).json()).toEqual(notes);
-    } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
-  });
-
-  it("tells the served build's commit once it differs from the running revision", async () => {
-    const running = "a".repeat(40), moved = "d".repeat(40);
-    let head: string | null = running;
-    const managedState = mkdtempSync(join(tmpdir(), "herdr-update-checkout-"));
-    const managed = createServer({ port: 0, stateDir: managedState,
-      updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true, current_revision: running }), notes: () => ({ revision: null, releases: [], omitted: 0 }),
-        installed: noInstalledNotes, request() {}, servedRevision: async () => head } });
-    const read = async () => (await (await fetch(`http://localhost:${managed.port}/api/updates`)).json()) as { served_revision?: string | null };
-    try {
-      expect((await read()).served_revision).toBeNull();
-      head = moved;
-      expect((await read()).served_revision).toBe(moved);
-      head = null;
-      expect((await read()).served_revision).toBeNull();
-    } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
-    // an unmanaged server names no checkout
-    expect((await (await fetch(`${base()}/api/updates`)).json() as { served_revision?: string | null }).served_revision).toBeUndefined();
-  });
-
-  it("answers what the last update brought, and nothing where no update was installed", async () => {
-    const none = await fetch(`${base()}/api/updates/installed`);
-    expect(none.status).toBe(200);
-    expect(none.headers.get("cache-control")).toBe("no-store");
-    expect(await none.json()).toEqual({ revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 });
-    expect((await fetch(`${base()}/api/updates/installed`, { method: "POST", headers: { "x-herdr-update": "1" } })).status).toBe(405);
-
-    const installed: InstalledNotes = { revision: "c".repeat(40), version: "9.9.9", previous_version: "9.9.8", installed_at: "2026-10-07T00:00:00.000Z",
-      releases: [{ version: "9.9.9", date: "2026-10-07", notes: "### Added\n- A thing.", summary: { en: { new: ["A thing."] }, ko: { new: ["기능 하나."] } } }], omitted: 0 };
-    const managedState = mkdtempSync(join(tmpdir(), "herdr-update-installed-"));
-    const managed = createServer({ port: 0, stateDir: managedState,
-      updates: { status: () => ({ ...unmanagedUpdateStatus(), managed: true }), notes: () => ({ revision: null, releases: [], omitted: 0 }), installed: () => installed, request() {} } });
-    try {
-      expect(await (await fetch(`http://localhost:${managed.port}/api/updates/installed`)).json()).toEqual(installed);
-    } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
-  });
-
-  it("refuses cross-site/form update requests and unmanaged installs", async () => {
-    for (const headers of [{}, { "x-herdr-update": "1", origin: "https://untrusted.invalid" },
-      { "x-herdr-update": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
-      const response = await fetch(`${base()}/api/updates/install`, { method: "POST", headers });
-      expect(response.status).toBe(403);
-    }
-    const response = await fetch(`${base()}/api/updates/install`, { method: "POST", headers: { "x-herdr-update": "1" } });
-    expect(response.status).toBe(409);
-    expect((await response.json() as ApiError).error.code).toBe("updates_unmanaged");
-  });
-
-  it("keeps status and update actions behind the token gate", async () => {
-    const protectedState = mkdtempSync(join(tmpdir(), "herdr-update-auth-"));
-    const protectedServer = createServer({ port: 0, stateDir: protectedState, token: "test-update-token" });
-    try {
-      for (const path of ["/api/updates", "/api/updates/notes", "/api/updates/installed", "/api/updates/check", "/api/updates/install"]) {
-        const response = await fetch(`http://localhost:${protectedServer.port}${path}`, {
-          method: path === "/api/updates/check" || path === "/api/updates/install" ? "POST" : "GET", headers: { "x-herdr-update": "1" },
-        });
-        expect(response.status).toBe(401);
-      }
-      for (const method of ["GET", "POST"]) {
-        const response = await fetch(`http://localhost:${protectedServer.port}/api/herdr/update`, { method, headers: { "x-herdr-update": "1" } });
-        expect(response.status).toBe(401);
-      }
-    } finally { protectedServer.stop(); rmSync(protectedState, { recursive: true, force: true }); }
-  });
-
-  it("offers no herdr update on a server started without the updater", async () => {
-    const response = await fetch(`${base()}/api/herdr/update`);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json() as HerdrUpdateStatus).toMatchObject({ supported: false, phase: "idle", output: null });
-    expect((await fetch(`${base()}/api/herdr/update`, { method: "POST" })).status).toBe(403);
-    const refused = await fetch(`${base()}/api/herdr/update`, { method: "POST", headers: { "x-herdr-update": "1" } });
-    expect(refused.status).toBe(409);
-    expect((await refused.json() as ApiError).error.code).toBe("herdr_update_unsupported");
-  });
-
-  it("updates herdr through the server and reports what herdr said", async () => {
-    // a stand-in: the real `herdr update` would replace the herdr on PATH and hand its server off
-    const state = mkdtempSync(join(tmpdir(), "herdr-update-api-"));
-    const standIn = join(state, "herdr");
-    writeFileSync(standIn, [
-      "#!/bin/sh",
-      `echo "$*" >> '${join(state, "calls")}'`,
-      'case "$1" in',
-      `  status) echo '{"client":{"version":"0.9.3","binary":"${standIn}"},"server":{"running":true,"version":"0.9.3","capabilities":{"live_handoff":true}},"update":{"server_binary_stale":false}}' ;;`,
-      "  update) echo 'already up to date (0.9.3)' >&2 ;;",
-      "  *) exit 2 ;;",
-      "esac",
-      "",
-    ].join("\n"));
-    chmodSync(standIn, 0o755);
-    const server = createServer({ port: 0, stateDir: state, token: "", herdrUpdate: new HerdrUpdater({ bin: standIn }) });
-    const url = `http://localhost:${server.port}/api/herdr/update`;
-    try {
-      expect(await (await fetch(url)).json() as HerdrUpdateStatus).toMatchObject({ supported: true, phase: "idle", server_version: "0.9.3", binary_version: "0.9.3", stale: false });
-      expect((await fetch(url, { method: "POST" })).status).toBe(403);
-      expect(existsSync(join(state, "calls")) ? readFileSync(join(state, "calls"), "utf8") : "").not.toContain("update --handoff");
-      const accepted = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
-      expect(accepted.status).toBe(202);
-      const deadline = Date.now() + 10_000;
-      let status = await (await fetch(url)).json() as HerdrUpdateStatus;
-      while (status.phase === "updating" || status.finished_at === null) {
-        if (Date.now() >= deadline) throw new Error("Timed out: the herdr update finished");
-        await Bun.sleep(20);
-        status = await (await fetch(url)).json() as HerdrUpdateStatus;
-      }
-      expect(status).toMatchObject({ phase: "idle", output: "already up to date (0.9.3)" });
-      expect(readFileSync(join(state, "calls"), "utf8")).toContain("update --handoff");
-    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
-  });
-});
-
-describe("Portal API", () => {
-  it("does not serve requests until startup cleanup completes", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-portal-startup-gate-"));
-    let releaseCleanup!: () => void;
-    const cleanup = new Promise<void>((resolve) => { releaseCleanup = resolve; });
-    class DeferredPortal extends PortalService {
-      override resume(): Promise<void> { return cleanup; }
-    }
-    const server = createServer({ port: 0, stateDir: state, token: "", portal: new DeferredPortal({ stateDir: state }) });
-    try {
-      let resolved = false;
-      const request = fetch(`http://127.0.0.1:${server.port}/api/health?scope=bridge`).then((response) => {
-        resolved = true;
-        return response;
-      });
-      const deadline = Date.now() + 50;
-      while (!resolved && Date.now() < deadline) await Bun.sleep(5);
-      expect(resolved).toBe(false);
-      releaseCleanup();
-      const response = await request;
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ ok: true, bridge_protocol: expect.any(Number) });
-    } finally {
-      releaseCleanup();
-      server.stop();
-      rmSync(state, { recursive: true, force: true });
-    }
-  });
-
-  it("fails closed when startup cleanup rejects", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-portal-startup-failure-"));
-    class FailedPortal extends PortalService {
-      override resume(): Promise<void> { return Promise.reject(new Error("Portal cleanup failed")); }
-    }
-    const server = createServer({ port: 0, stateDir: state, token: "", portal: new FailedPortal({ stateDir: state }) });
-    try {
-      const response = await fetch(`http://127.0.0.1:${server.port}/api/health?scope=bridge`);
-      expect(response.status).toBe(500);
-      expect(await response.json()).toMatchObject({ error: { code: "internal_error" } });
-    } finally {
-      server.stop();
-      rmSync(state, { recursive: true, force: true });
-    }
-  });
-
-  it("opens a public address only behind the token, and closes it again", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-portal-api-"));
-    const standIn = join(state, "stand-in-portal");
-    writeFileSync(standIn, [
-      "#!/bin/sh",
-      'case "$1" in',
-      "  version) echo v2.6.1 ;;",
-      "  expose) trap 'exit 0' TERM; echo 'INF service ready at https://herdr-test-0123.relay.example:443'; while :; do sleep 0.05; done ;;",
-      "  *) exit 2 ;;",
-      "esac",
-      "",
-    ].join("\n"));
-    chmodSync(standIn, 0o755);
-    const relay = (async () => Response.json({ data: { release_version: "v2.6.1" } })) as unknown as typeof fetch;
-    const server = createServer({ port: 0, stateDir: state, token: "test-portal-token", portal: new PortalService({ stateDir: state, bin: standIn, fetch: relay }) });
-    const url = `http://127.0.0.1:${server.port}/api/portal`;
-    const signedIn = { authorization: "Bearer test-portal-token" };
-    const post = (action: string, headers: Record<string, string>) => fetch(`${url}/${action}`, { method: "POST", headers: { ...headers, "x-herdr-update": "1", "content-type": "application/json" }, body: JSON.stringify({ relay: "relay.example" }) });
-    const status = async (headers: Record<string, string> = signedIn) => await (await fetch(url, { headers })).json() as PortalStatus;
-    try {
-      expect((await fetch(url)).status).toBe(401);
-      expect(await status()).toMatchObject({ supported: true, usable: true, blocked: null, phase: "idle" });
-      expect((await post("start", {})).status).toBe(401);
-      expect((await post("start", signedIn)).status).toBe(202);
-      const deadline = Date.now() + 10_000;
-      let running = await status();
-      while (running.phase === "starting") {
-        if (Date.now() >= deadline) throw new Error("Timed out: Portal was ready");
-        await Bun.sleep(20);
-        running = await status();
-      }
-      expect(running).toMatchObject({ phase: "running", url: "https://herdr-test-0123.relay.example", relay: "https://relay.example" });
-      expect((await post("stop", signedIn)).status).toBe(202);
-      expect((await status()).url).toBeNull();
-    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
   });
 });
 
@@ -644,9 +323,8 @@ describe("tab rename and close", () => {
       expect(renamed.status).toBe(200);
       expect(await renamed.json()).toEqual({ ok: true });
       expect((await tabsOf(id)).find((t) => t.tab_id === second.tab.tab_id)?.label).toBe("build");
-      // the local-PC alias reaches both
-      const alias = await fetch(`${base()}/api/machines/local/tab/rename`, {
-        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ tab_id: second.tab.tab_id, label: "tests" }),
+      const alias = await fetch(`${base()}/api/tab/rename`, {
+        method: "POST", headers: { "content-type": "application/json", "x-herdr-request": "1" }, body: JSON.stringify({ tab_id: second.tab.tab_id, label: "tests" }),
       });
       expect(alias.status).toBe(200);
       expect((await tabsOf(id)).find((t) => t.tab_id === second.tab.tab_id)?.label).toBe("tests");
@@ -667,7 +345,7 @@ describe("tab rename and close", () => {
 
 describe("tab reorder", () => {
   const post = (body: unknown, path = "/api/tab/move") => fetch(`${base()}${path}`, {
-    method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify(body),
+    method: "POST", headers: { "content-type": "application/json", "x-herdr-request": "1" }, body: JSON.stringify(body),
   });
   it("requires a tab and a non-negative safe insertion boundary", async () => {
     expect((await fetch(`${base()}/api/tab/move`)).status).toBe(400);
@@ -695,7 +373,7 @@ describe("tab reorder", () => {
       const initial = await sessionSnapshot();
       const nativeIds = () => sessionSnapshot().then((snapshot) => snapshot.tabs.filter((tab) => tab.workspace_id === id).map((tab) => tab.tab_id));
       for (const [boundary, expected] of [[3, [second.tab.tab_id, third.tab.tab_id, firstId]], [0, [firstId, second.tab.tab_id, third.tab.tab_id]]] as const) {
-        const response = await post({ tab_id: firstId, insert_index: boundary }, "/api/machines/local/tab/move");
+        const response = await post({ tab_id: firstId, insert_index: boundary }, "/api/tab/move");
         expect(response.status).toBe(200);
         const result = await response.json() as TabMoved;
         expect(result.ok).toBe(true);
@@ -759,41 +437,13 @@ describe("agent rename", () => {
       expect(await nameOf(second.root_pane.pane_id)).toBeNull();
 
       // the local-PC alias reaches it, and null clears
-      const alias = await fetch(`${base()}/api/machines/local/agent/rename`, {
-        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ pane_id: paneId, name: null }),
+      const alias = await fetch(`${base()}/api/agent/rename`, {
+        method: "POST", headers: { "content-type": "application/json", "x-herdr-request": "1" }, body: JSON.stringify({ pane_id: paneId, name: null }),
       });
       expect(alias.status).toBe(200);
       expect(await alias.json()).toEqual({ ok: true });
       expect(await nameOf(paneId)).toBeNull();
     } finally { await workspaceClose(id); }
-  });
-
-  it("forwards a remote rename with the registered bridge token, not the browser's", async () => {
-    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-agent-rename-bridge" });
-    const paneId = owned.root_pane.pane_id;
-    const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-agent-rename-bridge-"));
-    // the other PC's bridge asks its browsers for a token of its own; the proxy holds only the bridge token it registered
-    const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: state });
-    const registered = JSON.parse(readFileSync(descriptorPath(), "utf8")) as BridgeDescriptor;
-    const endpoint = `http://127.0.0.1:${bridge.port}`;
-    const manager = { endpoint: (id: string) => id === "rename-remote" ? { url: endpoint, token: registered.token } : null, trackTerminal: () => () => {} } as unknown as MachineManager;
-    try {
-      expect(registered.token).not.toBe("test-browser-token");
-      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr-web-ui-test", agent: "claude", state: "idle" });
-      // the browser token is deliberately absent: the proxy must authenticate with the bridge token
-      expect((await fetch(`${endpoint}/api/agent/rename`, { method: "POST", body: "{}" })).status).toBe(401);
-      const res = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/rename-remote/agent/rename", {
-        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" },
-        body: JSON.stringify({ pane_id: paneId, name: "webui-rename-b" }),
-      }), manager);
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ ok: true });
-      expect(await nameOf(paneId)).toBe("webui-rename-b");
-    } finally {
-      bridge.stop();
-      await workspaceClose(owned.workspace.workspace_id);
-      rmSync(state, { recursive: true, force: true });
-    }
   });
 
   it("validates the body before asking herdr", async () => {
@@ -874,57 +524,6 @@ describe("tab creation", () => {
     } finally {
       await workspaceClose(owned.workspace.workspace_id);
       rmSync(cwd, { recursive: true, force: true });
-    }
-  });
-
-  it("supports the authenticated local-PC alias without allowing other tab routes", async () => {
-    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-local-alias" });
-    try {
-      const res = await fetch(`${base()}/api/machines/local/tab/create`, {
-        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" },
-        body: JSON.stringify({ workspace_id: owned.workspace.workspace_id, agent: null }),
-      });
-      expect(res.status).toBe(200);
-      const created = await res.json() as WorkspaceCreated;
-      expect(created).toMatchObject({ workspace_id: owned.workspace.workspace_id, agent_started: false });
-      expect(created.pane_id).not.toBe(owned.root_pane.pane_id);
-      expect((await fetch(`${base()}/api/machines/local/tab/move/extra`)).status).toBe(404);
-    } finally { await workspaceClose(owned.workspace.workspace_id); }
-  });
-
-  it("forwards remote tab creation using the registered bridge token", async () => {
-    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-bridge" });
-    const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-tab-bridge-"));
-    const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: state });
-    const registered = JSON.parse(readFileSync(descriptorPath(), "utf8")) as BridgeDescriptor;
-    const endpoint = `http://127.0.0.1:${bridge.port}`;
-    const manager = { endpoint: (id: string) => id === "tab-remote" ? { url: endpoint, token: registered.token } : null, trackTerminal: () => () => {} } as unknown as MachineManager;
-    try {
-      const request = () => new Request("http://127.0.0.1/api/machines/tab-remote/tab/create", {
-        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" },
-        body: JSON.stringify({ workspace_id: owned.workspace.workspace_id, cwd: tmpdir(), agent: null }),
-      });
-      // The browser token is deliberately absent: the proxy must authenticate with the bridge token.
-      expect((await fetch(`${endpoint}/api/tab/create`, { method: "POST", body: "{}" })).status).toBe(401);
-      const res = await handleMachineRequest(request(), manager);
-      expect(res.status).toBe(200);
-      const created = await res.json() as WorkspaceCreated;
-      expect(created).toMatchObject({ workspace_id: owned.workspace.workspace_id, agent_started: false });
-      expect(created.pane_id).not.toBe(owned.root_pane.pane_id);
-
-      const createdTab = (await sessionSnapshot()).panes.find((pane) => pane.pane_id === created.pane_id)!.tab_id;
-      const moved = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/tab-remote/tab/move", {
-        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" },
-        body: JSON.stringify({ tab_id: createdTab, insert_index: 0 }),
-      }), manager);
-      expect(moved?.status).toBe(200);
-      expect(((await moved!.json()) as TabMoved).tabs[0]?.tab_id).toBe(createdTab);
-      const management = await fetch(`${endpoint}/api/machines`, { headers: { authorization: `Bearer ${registered.token}` } });
-      expect(management.status).toBe(401);
-    } finally {
-      bridge.stop();
-      await workspaceClose(owned.workspace.workspace_id);
-      rmSync(state, { recursive: true, force: true });
     }
   });
 
@@ -1677,22 +1276,6 @@ describe("POST /api/pane/image", () => {
     } as RequestInit);
     expect(res.status).toBe(413);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("image_too_large");
-  });
-
-  it("passes a 20 MiB upload through a PC proxy route (regression: the remote refused it above 8 MiB)", async () => {
-    const manager = {
-      endpoint: () => ({ url: base(), token: "" }),
-      trackTerminal: () => () => undefined,
-    } as unknown as MachineManager;
-    const bytes = Buffer.alloc(20 * 1024 * 1024, 9);
-    const res = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/pc1/pane/image", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-herdr-machine": "1" },
-      body: JSON.stringify({ pane_id: qaPaneId, content_type: "application/zip", data_base64: bytes.toString("base64"), name: "remote.zip" }),
-    }), manager);
-    expect(res.status).toBe(200);
-    const { path } = (await res.json()) as { path: string };
-    expect(statSync(path).size).toBe(bytes.byteLength);
   });
 
   it("rejects empty image data with 400", async () => {
@@ -2466,326 +2049,6 @@ function connectWithCookie(url: string, cookie: string): WebSocket {
   return new ctor(url, { headers: { cookie } });
 }
 
-describe("web push", () => {
-  /** A fake push service that decrypts like a device: see push.fake.ts. */
-  let fake: FakePushService;
-  let pushWorkspaceId: string | null = null;
-  let pushPaneId: string | null = null;
-
-  const postJson = (path: string, body: unknown, method = "POST") =>
-    fetch(`${base()}${path}`, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-
-  beforeAll(async () => {
-    fake = await startFakePushService();
-    const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-      "workspace.create",
-      { label: "herdr-web-ui-test-push", cwd: "/tmp", focus: false },
-    );
-    pushWorkspaceId = created.workspace.workspace_id;
-    pushPaneId = created.root_pane.pane_id;
-  });
-
-  afterAll(async () => {
-    await postJson("/api/push/subscribe", { endpoint: fake.subscription.endpoint }, "DELETE").catch(() => undefined);
-    fake.stop();
-    if (pushWorkspaceId) await herdrRpc("workspace.close", { workspace_id: pushWorkspaceId }).catch(() => undefined);
-  });
-
-  it("hands out its VAPID key and refuses what is not a subscription", async () => {
-    const key = (await (await fetch(`${base()}/api/push`)).json()) as PushKey;
-    expect(Buffer.from(key.public_key, "base64url").length).toBe(65);
-
-    const malformed = await postJson("/api/push/subscribe", { subscription: { endpoint: fake.subscription.endpoint, keys: {} } });
-    expect(malformed.status).toBe(400);
-    expect(((await malformed.json()) as ApiError).error.code).toBe("invalid_subscription");
-
-    const wrongMethod = await fetch(`${base()}/api/push/subscribe`);
-    expect(wrongMethod.status).toBe(400);
-    expect(((await wrongMethod.json()) as ApiError).error.code).toBe("method_not_allowed");
-  });
-
-  it("confirms a new device with a push it can decrypt, and forgets it on request", async () => {
-    expect((await postJson("/api/push/subscribe", { subscription: fake.subscription })).status).toBe(204);
-    expect((await postJson("/api/push/test", { endpoint: fake.subscription.endpoint })).status).toBe(204);
-    const confirmation = await fake.waitFor((push) => push.payload.tag === "herdr-test", "confirmation push", 5000);
-    expect(confirmation.payload.pane_id).toBeNull();
-    expect(confirmation.vapidValid).toBe(true);
-    const key = (await (await fetch(`${base()}/api/push`)).json()) as PushKey;
-    expect(confirmation.vapidKey).toBe(key.public_key);
-
-    expect((await postJson("/api/push/subscribe", { endpoint: fake.subscription.endpoint }, "DELETE")).status).toBe(204);
-    const gone = await postJson("/api/push/test", { endpoint: fake.subscription.endpoint });
-    expect(gone.status).toBe(404);
-    expect(((await gone.json()) as ApiError).error.code).toBe("subscription_not_found");
-  });
-
-  // regression (fails on main): an endpoint the push service retired is refused, never-known stays not found (#1038)
-  it.each([404, 410])("answers subscription_gone on the first test when the push service returns %i", async (status) => {
-    const retiring = await startFakePushService();
-    try {
-      expect((await postJson("/api/push/subscribe", { subscription: retiring.subscription })).status).toBe(204);
-      retiring.answerWith(status);
-      const first = await postJson("/api/push/test", { endpoint: retiring.subscription.endpoint });
-      expect(first.status).toBe(410);
-      expect(((await first.json()) as ApiError).error.code).toBe("subscription_gone");
-      const again = await postJson("/api/push/subscribe", { subscription: retiring.subscription });
-      expect(again.status).toBe(410);
-      expect(((await again.json()) as ApiError).error.code).toBe("subscription_gone");
-      const tested = await postJson("/api/push/test", { endpoint: retiring.subscription.endpoint });
-      expect(tested.status).toBe(410);
-      expect(((await tested.json()) as ApiError).error.code).toBe("subscription_gone");
-      // control
-      const unknown = await postJson("/api/push/test", { endpoint: "https://push.example/never-known" });
-      expect(unknown.status).toBe(404);
-      expect(((await unknown.json()) as ApiError).error.code).toBe("subscription_not_found");
-    } finally {
-      retiring.stop();
-    }
-  });
-
-  it("pushes a live pane's status change to a subscribed device", async () => {
-    const paneId = pushPaneId!;
-    expect((await postJson("/api/push/subscribe", { subscription: fake.subscription })).status).toBe(204);
-    // same retry as the pane-status test: the collector may still be re-subscribing to
-    // the new pane, so alternate real changes until one lands as a push
-    let pushed = null;
-    for (let attempt = 0; attempt < 8 && !pushed; attempt += 1) {
-      const state = attempt % 2 === 0 ? "blocked" : "working";
-      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state });
-      if (state !== "blocked") continue;
-      pushed = await fake
-        .waitFor((push) => push.payload.pane_id === paneId, "status push", 2_500)
-        .catch(() => null);
-    }
-    expect(pushed).not.toBeNull();
-    expect(pushed!.payload.body).toBe("waiting for your input");
-    expect(pushed!.payload.tag).toBe(`herdr-pane-${paneId}`);
-    expect(pushed!.urgency).toBe("high");
-    expect(pushed!.vapidValid).toBe(true);
-  }, 40_000);
-
-  it("sends no device an alert while a connected page says it is in use, and alerts again once it is not (#751)", async () => {
-    let created: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
-    let dir: string | undefined;
-    let device: FakePushService | undefined;
-    let bridge: ReturnType<typeof createServer> | undefined;
-    let page: RecordingSocket | undefined;
-    try {
-      created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-push-presence" });
-      const paneId = created.root_pane.pane_id;
-      dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-push-presence-"));
-      device = await startFakePushService();
-      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false, pushLoopbackHttp: true,
-        alertTiming: { short: 0, long: 0, longTurn: 0 } });
-      const subscribe = await fetch(`http://127.0.0.1:${bridge.port}/api/push/subscribe`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: device.subscription }),
-      });
-      expect(subscribe.status).toBe(204);
-      page = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
-      // a connection's frames are handled in order: the role-ack says the presence before it was read
-      const tell = async (active: boolean): Promise<void> => {
-        page!.seen.length = 0;
-        page!.send({ type: "presence", active });
-        page!.send({ type: "role", mode: "interact" });
-        await page!.waitFor((message) => message.type === "role-ack", "role-ack after presence", 5_000);
-      };
-      const report = async (state: "working" | "blocked"): Promise<boolean> => {
-        // only a frame this report caused may answer it
-        page!.seen.length = 0;
-        await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state });
-        return page!.waitFor((message) => message.type === "pane-status" && message.pane_id === paneId && message.agent_status === state,
-          `${state} on the page`, 2_500).then(() => true).catch(() => false);
-      };
-      const alerts = () => device!.received.filter((push) => push.payload.pane_id === paneId);
-
-      await tell(true);
-      // the collector may still be subscribing to the new pane: alternate until a blocked lands
-      let blocked = false;
-      for (let attempt = 0; attempt < 8 && !blocked; attempt++) {
-        await report("working");
-        blocked = await report("blocked");
-      }
-      expect(blocked).toBe(true);
-      await bridge.alertsSettled();
-      expect(alerts()).toHaveLength(0);
-
-      await tell(false);
-      expect(await report("working")).toBe(true);
-      expect(await report("blocked")).toBe(true);
-      const pushed = await device.waitFor((push) => push.payload.pane_id === paneId, "alert once no page is in use", 5_000);
-      expect(pushed.payload.body).toBe("waiting for your input");
-
-      // a page that leaves without saying so no longer holds the alerts back
-      await tell(true);
-      page.close();
-      page = undefined;
-      const watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
-      page = watcher;
-      // the server reads the close on its own time: alternate until an alert comes, which only
-      // happens once the closed page stopped holding them back
-      let alerted = false;
-      for (let attempt = 0; attempt < 8 && !alerted; attempt++) {
-        expect(await report("working")).toBe(true);
-        expect(await report("blocked")).toBe(true);
-        await bridge.alertsSettled();
-        alerted = alerts().length === 2;
-      }
-      expect(alerted).toBe(true);
-    } finally {
-      page?.close();
-      bridge?.stop();
-      device?.stop();
-      if (created) await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
-      if (dir) rmSync(dir, { recursive: true, force: true });
-    }
-  }, 60_000);
-
-  it("reports a Codex unknown after work as done over WS and HTTP and delivers its completion push", async () => {
-    // Exercise the real collector -> CompletionTracker -> PushService path using
-    // manually reported statuses in owned panes. No Codex request or real device.
-    let created: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
-    let probe: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
-    let dir: string | undefined;
-    let cleanupDevice: FakePushService | undefined;
-    let bridge: ReturnType<typeof createServer> | undefined;
-    let watcher: RecordingSocket | undefined;
-    try {
-      created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-codex-finish" });
-      probe = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-codex-probe" });
-      const paneId = created.root_pane.pane_id;
-      const probeId = probe.root_pane.pane_id;
-      dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-codex-finish-"));
-      const device = await startFakePushService();
-      cleanupDevice = device;
-      await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "unknown" });
-      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false, pushLoopbackHttp: true,
-        alertTiming: { short: 0, long: 0, longTurn: 0 } });
-      const origin = `http://127.0.0.1:${bridge.port}`;
-      watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
-      const subscribe = await fetch(`${origin}/api/push/subscribe`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subscription: device.subscription, alerts: { input: false, done: "always" } }),
-      });
-      expect(subscribe.status).toBe(204);
-
-      // Prove the subscription is live before changing the watched pane exactly
-      // once. Alternating a separate probe does not fabricate its work history.
-      let live = false;
-      for (let attempt = 0; attempt < 8 && !live; attempt++) {
-        const state = attempt % 2 === 0 ? "working" : "blocked";
-        await herdrRpc("pane.report_agent", { pane_id: probeId, source: "manual", agent: "claude", state });
-        live = await watcher.waitFor((message) => message.type === "pane-status" && message.pane_id === probeId && message.agent_status === state,
-          "Codex regression probe", 2_500).then(() => true).catch(() => false);
-      }
-      expect(live).toBe(true);
-
-      const report = async (agent: string, state: string, expected: string) => {
-        watcher!.seen.length = 0;
-        await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent, state });
-        await watcher!.waitFor((message) => message.type === "pane-status" && message.pane_id === paneId && message.agent_status === expected,
-          `${agent}/${state} presented as ${expected}`, 5_000);
-        const raw = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
-        // herdr itself may promote an unfocused idle after work to done.
-        const rawStatus = raw.panes.find((pane) => pane.pane_id === paneId)?.agent_status;
-        if (state === "idle") expect(rawStatus === "idle" || rawStatus === "done").toBe(true);
-        else expect(rawStatus).toBe(state);
-        const shown = await (await fetch(`${origin}/api/session`)).json() as { snapshot: SessionSnapshot };
-        expect(shown.snapshot.panes.find((pane) => pane.pane_id === paneId)?.agent_status).toBe(expected);
-        expect(shown.snapshot.agents.find((pane) => pane.pane_id === paneId)?.agent_status).toBe(expected);
-      };
-
-      for (let turn = 0; turn < 2; turn++) {
-        await report("codex", "working", "working");
-        await report("codex", "unknown", "done");
-        await device.waitFor((message) => message.payload.pane_id === paneId &&
-          device.received.filter((received) => received.payload.pane_id === paneId).length === turn + 1,
-          "Codex completion push", 5_000);
-      }
-      const finishes = () => device.received.filter((message) => message.payload.pane_id === paneId);
-      expect(finishes()).toHaveLength(2);
-      expect(finishes().every((message) => message.payload.body === "work finished" && message.vapidValid)).toBe(true);
-
-      // The same unknown status after an identity handoff is still ongoing work.
-      await report("pi", "working", "working");
-      await report("claude", "unknown", "working");
-      expect(finishes()).toHaveLength(2);
-      await report("claude", "idle", "done");
-      await device.waitFor((message) => message.payload.pane_id === paneId && finishes().length === 3, "handoff completion push", 5_000);
-      expect(finishes()).toHaveLength(3);
-    } finally {
-      if (bridge && cleanupDevice) await fetch(`http://127.0.0.1:${bridge.port}/api/push/subscribe`, {
-        method: "DELETE", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ endpoint: cleanupDevice.subscription.endpoint }),
-      }).catch(() => undefined);
-      watcher?.close();
-      bridge?.stop();
-      cleanupDevice?.stop();
-      if (dir) rmSync(dir, { recursive: true, force: true });
-      if (created) await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
-      if (probe) await workspaceClose(probe.workspace.workspace_id).catch(() => undefined);
-    }
-  }, 40_000);
-
-  it("alerts on the very first change after a restart, measured against herdr's snapshot", async () => {
-    // A server restart must not cost the first alert: the collector seeds each pane's
-    // status from its startup snapshot. Pane `watched` is already working when the new
-    // server starts; pane `probe` shares the status subscription and proves it is live
-    // before `watched` changes exactly once.
-    const createPane = async (label: string) =>
-      herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>("workspace.create", {
-        label,
-        cwd: "/tmp",
-        focus: false,
-      });
-    const watched = await createPane("herdr-web-ui-test-push-restart");
-    const probe = await createPane("herdr-web-ui-test-push-probe");
-    const watchedId = watched.root_pane.pane_id;
-    const probeId = probe.root_pane.pane_id;
-    const restartDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-restart-"));
-    const device = await startFakePushService();
-    let restarted: { port: number; stop: () => void } | null = null;
-    let watcher: RecordingSocket | null = null;
-    try {
-      await herdrRpc("pane.report_agent", { pane_id: watchedId, source: "manual", agent: "claude", state: "working" });
-      const before = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
-      expect(before.panes.find((pane) => pane.pane_id === watchedId)?.agent_status).toBe("working");
-
-      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushLoopbackHttp: true });
-      const subscribe = await fetch(`http://localhost:${restarted.port}/api/push/subscribe`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subscription: device.subscription }),
-      });
-      expect(subscribe.status).toBe(204);
-      watcher = await RecordingSocket.connect(`ws://localhost:${restarted.port}/ws`);
-
-      let live = false;
-      for (let attempt = 0; attempt < 8 && !live; attempt += 1) {
-        const state = attempt % 2 === 0 ? "working" : "idle";
-        await herdrRpc("pane.report_agent", { pane_id: probeId, source: "manual", agent: "claude", state });
-        live = await watcher
-          .waitFor((m) => m.type === "pane-status" && m.pane_id === probeId && m.agent_status === state, "probe status", 2_500)
-          .then(() => true)
-          .catch(() => false);
-      }
-      expect(live).toBeTrue();
-
-      await herdrRpc("pane.report_agent", { pane_id: watchedId, source: "manual", agent: "claude", state: "blocked" });
-      await watcher.waitFor((m) => m.type === "pane-status" && m.pane_id === watchedId, "watched status", 5_000);
-      const pushed = await device.waitFor((push) => push.payload.pane_id === watchedId, "first push after restart", 5_000);
-      expect(pushed.payload.body).toBe("waiting for your input");
-    } finally {
-      watcher?.close();
-      restarted?.stop();
-      device.stop();
-      rmSync(restartDir, { recursive: true, force: true });
-      for (const created of [watched, probe]) {
-        await herdrRpc("workspace.close", { workspace_id: created.workspace.workspace_id }).catch(() => undefined);
-      }
-    }
-  }, 60_000);
-});
-
 describe("pairing and identity", () => {
   /** no token: the gate is where the request comes from, a token, or a paired device's cookie */
   const OWNER = "owner@example.com";
@@ -2797,7 +2060,7 @@ describe("pairing and identity", () => {
   /** as if a reverse proxy had forwarded it: the test client is on loopback, like a proxy */
   const proxied = (login?: string, extra: Record<string, string> = {}) => ({ "x-forwarded-for": "100.64.0.9", ...(login ? { "tailscale-user-login": login } : {}), ...extra });
   const auth = async (headers: Record<string, string> = {}) => ((await (await fetch(`${base()}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
-  const guard = { "content-type": "application/json", "x-herdr-machine": "1" };
+  const guard = { "content-type": "application/json", "x-herdr-request": "1" };
   let cookie = "";
   let deviceId = "";
 
@@ -2960,13 +2223,6 @@ describe("token auth", () => {
     expect(body.error.code).toBe("unauthorized");
   });
 
-  it("keeps web push behind the gate: a subscription receives pane titles", async () => {
-    for (const [method, path] of [["GET", "/api/push"], ["POST", "/api/push/subscribe"], ["POST", "/api/push/test"]] as const) {
-      const res = await fetch(`${securedBase()}${path}`, { method, body: method === "GET" ? undefined : "{}" });
-      expect(res.status).toBe(401);
-    }
-  });
-
   it("keeps the image upload behind the gate", async () => {
     const res = await fetch(`${securedBase()}/api/pane/image`, {
       method: "POST",
@@ -3008,7 +2264,7 @@ describe("token auth", () => {
       expect(refused.auth).toMatchObject({ required: true, authenticated: false, reason: "pairing_required" });
       expect(refused.lan_exposure).toBeUndefined();
       // pairing one device closes the gate to strangers, and the warning leaves with the state
-      const guard = { "content-type": "application/json", "x-herdr-machine": "1" };
+      const guard = { "content-type": "application/json", "x-herdr-request": "1" };
       const { code } = (await (await fetch(`http://127.0.0.1:${open.port}/api/devices/pair/start`, { method: "POST", headers: guard })).json()) as { code: string };
       const paired = await fetch(`http://127.0.0.1:${open.port}/api/devices/pair`, { method: "POST", headers: { ...guard, "x-forwarded-for": "100.64.0.9" }, body: JSON.stringify({ code, label: "Phone" }) });
       expect(paired.status).toBe(204);
@@ -3155,84 +2411,44 @@ describe("generated wire types", () => {
   });
 });
 
-
-describe("PC management API", () => {
-  it("reports bridge auth independently of herdr and exposes the local PC", async () => {
-    const health = await fetch(`${base()}/api/health?scope=bridge`);
-    expect(health.status).toBe(200);
-    const body = await health.json() as { auth: HealthAuth; bridge_protocol: number };
-    expect(body.bridge_protocol).toBe(1);
-    expect(body.auth.authenticated).toBe(true);
-    const list = await fetch(`${base()}/api/machines`);
-    expect(list.headers.get("cache-control")).toBe("no-store");
-    const data = await list.json() as { machines: { id: string; kind: string }[] };
-    expect(data.machines[0]).toMatchObject({ id: "local", kind: "local" });
-    const local = await fetch(`${base()}/api/machines/local/session`);
-    expect(local.status).toBe(200);
-    const viaAlias = await fetch(`${base()}/api/machines/local/integrations`);
-    expect(viaAlias.status).toBe(200);
-    const direct = await fetch(`${base()}/api/integrations`);
-    expect(await viaAlias.json()).toEqual(await direct.json());
-  });
-  it("rejects CSRF, malformed targets and remote forwarding outside the allowlist", async () => {
-    for (const headers of [{}, { "x-herdr-machine": "1", origin: "https://evil.invalid" }, { "x-herdr-machine": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
-      const response = await fetch(`${base()}/api/machines/setup`, { method: "POST", headers, body: JSON.stringify({ destination: "host" }) });
-      expect(response.status).toBe(403);
-    }
-    const bad = await fetch(`${base()}/api/machines/setup`, { method: "POST", headers: { "x-herdr-machine": "1" }, body: JSON.stringify({ destination: "-oProxyCommand=bad" }) });
-    expect(bad.status).toBe(400);
-    expect((await fetch(`${base()}/api/machines/missing/pane/read?pane_id=p1`)).status).toBe(503);
-    expect((await fetch(`${base()}/api/machines/missing/auth`)).status).toBe(404);
-  });
-  it("gates PC metadata, setup and SSE behind the existing token", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "herdr-machine-auth-"));
-    const gated = createServer({ port: 0, token: "machine-test-secret", stateDir });
-    try {
-      for (const path of ["/api/machines", "/api/machines/events", "/api/machines/setup", "/api/bridge"]) expect((await fetch(`http://localhost:${gated.port}${path}`)).status).toBe(401);
-      const health = await fetch(`http://localhost:${gated.port}/api/health?scope=bridge`).then((r) => r.json()) as { auth: HealthAuth };
-      expect(health.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
-    } finally { gated.stop(); rmSync(stateDir, { recursive: true, force: true }); }
-  });
-});
-
 describe("terminal lens of a bridge without the PTY sidecar", () => {
   const TOKEN = "sidecar-test-secret";
-  /** what /api/health and /api/bridge tell of herdr, from a bridge whose runtime has the sidecar or lacks it */
+  /** what /api/health tells of herdr, from a bridge whose runtime has the sidecar or lacks it */
   const told = async (sidecar: boolean) => {
     const dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-sidecar-"));
-    const bridge = createServer({ port: 0, stateDir: dir, token: TOKEN, machines: false, sidecar });
+    const bridge = createServer({ port: 0, stateDir: dir, token: TOKEN, sidecar });
     try {
       const get = async (path: string) => {
         const response = await fetch(`http://localhost:${bridge.port}${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
         expect(response.status).toBe(200);
         return (await response.json()) as { herdr: unknown };
       };
-      return { health: (await get("/api/health")).herdr, bridge: (await get("/api/bridge")).herdr };
+      return (await get("/api/health")).herdr;
     } finally { bridge.stop(); rmSync(dir, { recursive: true, force: true }); }
   };
 
-  it("reports a mirror from /api/health and /api/bridge though herdr itself can attach", async () => {
+  it("reports a mirror from /api/health though herdr itself can attach", async () => {
     const herdr = await ping();
     // the case only means something against a herdr that can attach
     expect(herdr.terminal_attach).toBe(true);
     const mirrored = { ...herdr, terminal_attach: false, terminal_mirror: true };
-    expect(await told(false)).toEqual({ health: mirrored, bridge: mirrored });
+    expect(await told(false)).toEqual(mirrored);
   });
 
   it("passes herdr's own answer through where the sidecar runs", async () => {
     const herdr = await ping();
     expect(herdr).not.toHaveProperty("terminal_mirror");
-    expect(await told(true)).toEqual({ health: herdr, bridge: herdr });
+    expect(await told(true)).toEqual(herdr);
   });
 });
 
 it("refuses cross-origin changes while allowing same-origin and CLI requests", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-origin-"));
-  const instance = createServer({ port: 0, stateDir: root, token: "", machines: false });
+  const instance = createServer({ port: 0, stateDir: root, token: "" });
   const base = `http://127.0.0.1:${instance.port}`;
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-origin" });
   try {
-    for (const path of ["pane/input", "pane/keys", "pane/close", "pane/focus", "layout/ratio", "workspace/create", "tab/create", "tab/rename", "tab/close", "tab/move", "push/subscribe"]) {
+    for (const path of ["pane/input", "pane/keys", "pane/close", "pane/focus", "layout/ratio", "workspace/create", "tab/create", "tab/rename", "tab/close", "tab/move"]) {
       const response = await fetch(`${base}/api/${path}`, { method: "POST", headers: { origin: "http://other.example", "content-type": "text/plain" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, text: "must not type", keys: ["Enter"] }) });
       expect(response.status).toBe(403);
       expect(await response.json()).toMatchObject({ error: { code: "invalid_origin" } });
@@ -3270,7 +2486,7 @@ describe("repository diff of a pane's folder", () => {
     const expected: RepoDiffFileList["files"] = [{ path: "a.txt", old_path: null, status: "modified", additions: 1, deletions: 1, binary: false }];
     for (const url of [
       `${base()}/api/workspace/diff/files?${pane}`,
-      `${base()}/api/machines/local/workspace/diff/files?${pane}`,
+      `${base()}/api/workspace/diff/files?${pane}`,
       `${base()}/api/workspace/diff/files?${pane}&directory=..`,
       `${base()}/api/workspace/diff/files?pane_id=no-such-pane&directory=${encodeURIComponent(root)}`,
     ]) {
@@ -3293,8 +2509,43 @@ describe("repository diff of a pane's folder", () => {
     const relative = await fetch(`${base()}/api/workspace/diff/files?pane_id=no-such-pane&directory=sub`);
     expect(relative.status).toBe(400);
     expect(((await relative.json()) as ApiError).error.code).toBe("invalid_cwd");
-    const posted = await fetch(`${base()}/api/workspace/diff/files?${pane}`, { method: "POST", headers: { "x-herdr-machine": "1" } });
+    const posted = await fetch(`${base()}/api/workspace/diff/files?${pane}`, { method: "POST", headers: { "x-herdr-request": "1" } });
     expect(posted.status).toBe(400);
     expect(((await posted.json()) as ApiError).error.code).toBe("method_not_allowed");
+  });
+});
+
+// Remote browsers use the same authenticated, local-session stream as this workstation.
+describe("local session events", () => {
+  it("opens through operator HTTPS forwarding with a token and includes shared preferences", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-events-"));
+    const network = globalThis.fetch;
+    const outbound: string[] = [];
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      outbound.push(String(input));
+      return Promise.reject(new Error("Application-initiated network request in the workstation fixture"));
+    }) as typeof fetch;
+    const app = createServer({ port: 0, hostname: "127.0.0.1", token: "events-fixture", stateDir: root });
+    const abort = new AbortController();
+    try {
+      const response = await network(`http://127.0.0.1:${app.port}/api/events`, {
+        headers: { authorization: "Bearer events-fixture", origin: `https://127.0.0.1:${app.port}`, "x-forwarded-proto": "https" },
+        signal: abort.signal,
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      const reader = response.body!.getReader();
+      let data = "";
+      while (!data.includes('"type":"preferences"') || !data.includes('"type":"snapshot"')) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error("Session events ended before preferences arrived");
+        data += new TextDecoder().decode(chunk.value);
+      }
+      expect(data).toContain('"revision":0');
+      await reader.cancel();
+      const preferences = await network(`http://127.0.0.1:${app.port}/api/preferences`, { headers: { authorization: "Bearer events-fixture" } });
+      expect(preferences.status).toBe(200);
+      expect(outbound).toEqual([]);
+    } finally { globalThis.fetch = network; abort.abort(); app.stop(); rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { updateStateDir } from "../server/update-state.ts";
 
 const ROOT = join(import.meta.dir, "..");
 let scratch: string;
@@ -16,7 +15,7 @@ beforeEach(() => {
     if (path === "/api/health") return Response.json({ ok: true, web_ui: { distribution: "tomrutsaert/herdr-web-ui" }, herdr: { version: "0.9.3", protocol: 1 }, auth: { required: false, authenticated: true } });
     if (request.headers.get("authorization") !== "Bearer test-token") return new Response(null, { status: 401 });
     if (path === "/api/devices/pair/start") {
-      paired++; expect(request.headers.get("x-herdr-machine")).toBe("1");
+      paired++; expect(request.headers.get("x-herdr-request")).toBe("1");
       return Response.json({ code: "123456", expires_at: new Date(Date.now() + 600_000).toISOString() });
     }
     return new Response(null, { status: 404 });
@@ -41,17 +40,4 @@ it("prints secure access guidance and an expiring code without printing the toke
   expect(result.out).toContain("123 456");
   expect(result.out).not.toContain("test-token");
   expect(paired).toBe(1);
-});
-
-it("runs the active release's setup using the original plugin configuration", async () => {
-  const updates = updateStateDir(ROOT, server.port!, join(scratch, "app-state"));
-  const release = join(updates, "release-test");
-  mkdirSync(join(release, "scripts"), { recursive: true });
-  writeFileSync(join(release, "scripts", "plugin.ts"), 'console.log("active release", process.argv[2], process.env.HERDR_PLUGIN_ROOT);');
-  const revision = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: ROOT, windowsHide: true }).stdout.toString().trim();
-  writeFileSync(join(updates, "current.json"), JSON.stringify({ source_revision: revision, directory: release }));
-  const result = await run();
-  expect(result.code, result.err).toBe(0);
-  expect(result.out).toContain(`active release phone-setup ${ROOT}`);
-  expect(paired).toBe(0);
 });

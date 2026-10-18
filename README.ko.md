@@ -1,6 +1,6 @@
 # herdr web ui
 
-이 포크의 배포 저장소는 `tomrutsaert/herdr-web-ui`입니다. Settings → About에서 업데이트를 확인한 뒤 직접 설치합니다. 앱은 `fork-vX.Y.Z`, 원격 런타임은 `fork-remote-vN` 태그만 사용합니다. 사용량 집계 전송이나 네트워크 자동 공개는 없습니다. 기존 상태를 유지하기 위해 플러그인 ID는 `devswha.herdr-web-ui`로 유지합니다.
+이 버전은 워크스테이션 한 대를 제공합니다. 관리자가 구성한 HTTPS 또는 VPN을 통해 허가된 원격 브라우저에서 사용할 수 있습니다. 토큰 인증, 기기 페어링, 읽기 전용 권한을 유지합니다. 필수 도구 설치와 업데이트는 관리자가 별도로 수행합니다. 앱은 다른 PC나 터널을 관리하지 않으며, 사용 통계 전송이나 Tailscale 통합도 없습니다. 플러그인 ID는 `devswha.herdr-web-ui`로 유지합니다.
 
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
@@ -80,10 +80,9 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 
 - **채팅과 터미널을 pane 하나에** — Claude Code, Codex, omp, omo, gjc, pi의 대화 기록과 herdr가 식별한 OpenCode 2와 Devin CLI 세션을 보여 주고, 클릭 한 번이면 라이브 터미널로 넘어갑니다. 에이전트가 일하는 동안 다음 메시지를 써 두면 다음 턴에 들어가고, Send now로 바로 보낼 수도 있습니다. [지원 에이전트 →](docs/guide.md#supported-agents)
 - **탭 한 번으로 승인** — 승인 요청, 질문, 계획 메뉴가 카드로 뜹니다. 답을 보내기 전에 그 질문이 아직 유효한지 확인합니다.
-- **내가 필요할 때 알림** — 모든 pane의 상태를 실시간으로 보여 주고, 앱을 보고 있을 때는 알림이 위에서 내려오며, 에이전트가 입력을 기다리거나 일을 끝내면 앱이 닫혀 있어도 푸시 알림을 보냅니다.
+- **내가 필요할 때 알림** — 앱을 열어 둔 동안 pane 상태와 앱 내 알림을 표시합니다. 앱이 닫힌 동안의 알림은 지원하지 않습니다.
 - **폰에 설치해서 쓰기** — 키보드 위에 키 바(Esc, Tab, Ctrl, Alt, Shift, Enter, 방향키)가 붙은 PWA입니다. 키 순서를 바꾸거나 나만의 키 조합을 Settings(설정)에서 추가할 수 있습니다. 설정한 HTTPS 주소를 QR 코드로 공유합니다. [폰 설정 →](docs/guide.md#on-your-phone)
-- **말로 입력하기** — 채팅이나 터미널 입력 줄에 받아쓰기로 입력합니다. 한국어와 영어를 섞어 말해도 됩니다. 에이전트에게 보내기 전에 글자를 확인할 수 있고, 받아쓰기는 내 OpenAI 키나 브라우저의 음성 인식을 씁니다.
-- **작업 방식은 그대로** — 에이전트는 herdr가 관리하고, 이 앱은 거기에 연결만 합니다. 에이전트를 멈추지 않고 Settings(설정)에서 업데이트하며, 업데이트마다 무엇이 바뀌는지 패치 노트로 보여 줍니다. 새 탭과 worktree는 행의 ⋯ 메뉴에서 만듭니다. [전체 기능 →](docs/guide.md#features)
+- **작업 방식은 그대로** — herdr가 에이전트를 관리하고 앱은 연결만 합니다. ⋯ 메뉴에서 새 탭과 worktree를 만듭니다. 업데이트는 관리자가 별도로 수행합니다.
 
 ---
 
@@ -95,7 +94,7 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-Linux(x64, arm64)와 macOS를 지원합니다. herdr 0.9.0 이상, Bun 1.4 이상, Node 18 이상 중 없는 것을 현재 사용자 계정에 설치한 뒤, 앱을 herdr 플러그인으로 설치합니다. 이미 설치된 herdr가 0.9.0보다 오래됐다면 herdr를 직접 업데이트하고 다시 시작한 다음 설치 스크립트를 다시 실행하세요. HTTPS 리버스 프록시 또는 SSH 터널을 직접 설정한 뒤 코드로 기기를 페어링하세요. 앱 설치와 알림에는 HTTPS 또는 localhost가 필요합니다.
+Linux(x64, arm64)와 macOS를 지원합니다. herdr 0.9.0+, Bun 1.4+, Git, Node 18+를 먼저 별도로 설치하세요. 스크립트는 필수 도구를 자동 설치하지 않습니다. HTTPS 또는 VPN은 관리자가 구성합니다.
 
 PowerShell에서 Windows x64용으로 설치하려면:
 
@@ -103,7 +102,7 @@ PowerShell에서 Windows x64용으로 설치하려면:
 irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
-[Git for Windows](https://git-scm.com/download/win)가 필요합니다. 없는 herdr와 Bun을 현재 사용자 계정에 설치한 뒤 같은 플러그인을 설치합니다. Node나 WSL은 필요 없습니다. 폰에서 쓰려면 herdr에서 **Phone setup**을 여세요. herdr가 Windows에서 터미널 attach를 지원하기 전까지 Windows 터미널은 입력은 되고 격자 크기는 고정된 [화면 미러](docs/remote-pcs.md#windows-pcs)로 보입니다.
+Windows x64에서는 Git, herdr 0.9.0+, Bun 1.4+를 먼저 준비하세요. Node나 WSL은 필요 없습니다. 터미널은 고정 격자의 화면 미러를 사용합니다.
 
 필요한 도구가 이미 있다면 플러그인만 설치해도 됩니다.
 
@@ -123,7 +122,7 @@ QR 코드는 localhost가 아닌 HTTPS 주소로 앱을 열었을 때만 표시�
 
 **Claude Code나 Codex를 폰에서 쓸 수 있나요?**
 
-네. 컴퓨터의 [herdr](https://github.com/herdrdev/herdr) pane에서 에이전트를 실행하면, 이 앱이 같은 pane을 폰 브라우저에 보여 줍니다. 에이전트의 기록은 채팅으로, 승인과 질문은 탭해서 답하는 카드로 나오고, 라이브 터미널로도 바로 넘어갈 수 있습니다. PWA로 홈 화면에 설치되며, 에이전트가 사용자를 기다리면 푸시 알림을 보냅니다. [폰 설정 →](docs/guide.md#on-your-phone)
+네. 컴퓨터의 [herdr](https://github.com/herdrdev/herdr) pane에서 에이전트를 실행하면, 이 앱이 같은 pane을 폰 브라우저에 보여 줍니다. 에이전트의 기록은 채팅으로, 승인과 질문은 탭해서 답하는 카드로 나오고, 라이브 터미널로도 바로 넘어갈 수 있습니다. PWA로 설치하고 열어 둔 동안 앱 내 알림을 볼 수 있습니다. [폰 설정 →](docs/guide.md#on-your-phone)
 
 **채팅 화면은 어떤 에이전트를 지원하나요?**
 
@@ -139,15 +138,15 @@ HTTPS 리버스 프록시 또는 SSH 터널을 직접 설정한 뒤 코드로 �
 
 **코드나 대화가 내 컴퓨터 밖으로 나가나요?**
 
-세션 내용은 연결된 브라우저에 전송됩니다. 선택한 음성 입력, 사용량 표시, 수동 업데이트, 원격 PC 설정 및 알림은 외부 서비스를 사용할 수 있습니다. 유지 관리자에게 사용 통계를 보내지 않습니다.
+세션 파일은 호스트에 남고 허가된 브라우저에 전송됩니다. 앱은 외부 공급자 서비스 접속, 계정 검색, 소프트웨어 자동 설치, 다른 PC 집계를 하지 않습니다. 에이전트의 모델 통신, 사용자가 여는 외부 링크나 미디어, 관리자의 네트워크 인프라는 별개입니다.
 
 **Windows에서도 되나요?**
 
-네. Windows x64에서 WSL 없이 됩니다. herdr가 Windows에서 터미널 attach를 지원하기 전까지 터미널은 입력이 되는 고정 격자의 [화면 미러](docs/remote-pcs.md#windows-pcs)입니다.
+네. Windows x64에서 WSL 없이 됩니다. herdr가 Windows에서 터미널 attach를 지원하기 전까지 터미널은 입력이 되는 고정 격자의 [화면 미러](docs/guide.md#supported-agents)입니다.
 
 **collie, roamgate, herdr-remote와 무엇이 다른가요?**
 
-이들도 herdr를 폰이나 브라우저에서 쓰는 클라이언트입니다. 이 앱은 에이전트의 기록을 직접 읽어서, pane이 터미널 출력이 아니라 작업이 턴마다 접힌 채팅으로 보이고, 다른 PC는 사이드바에서 SSH로 붙습니다. 터널은 제공하지 않고 herdr만 다룹니다. tmux나 zellij, diff, Telegram, 바로 쓰는 터널이 필요하면 다른 쪽이 더 맞습니다. [전체 비교 →](docs/guide.md#faq)
+이들도 herdr를 폰이나 브라우저에서 쓰는 클라이언트입니다. 이 앱은 에이전트의 기록을 직접 읽어서, pane이 터미널 출력이 아니라 작업이 턴마다 접힌 채팅으로 보이고, 워크스테이션 한 대를 제공합니다. 터널은 제공하지 않고 herdr만 다룹니다. tmux나 zellij, diff, Telegram, 바로 쓰는 터널이 필요하면 다른 쪽이 더 맞습니다. [전체 비교 →](docs/guide.md#faq)
 
 **Happy, Paseo, CloudCLI UI와 무엇이 다른가요?**
 
@@ -157,9 +156,9 @@ HTTPS 리버스 프록시 또는 SSH 터널을 직접 설정한 뒤 코드로 �
 
 ## 문서
 
-[사용자 가이드](docs/guide.md)부터 보세요: [빠른 시작](docs/guide.md#quick-start) · [지원 에이전트](docs/guide.md#supported-agents) · [기능](docs/guide.md#features) · [폰](docs/guide.md#on-your-phone) · [원격 PC](docs/remote-pcs.md) · [접근과 보안](docs/guide.md#access-and-safety) · [설정](docs/guide.md#configuration) · [키보드 단축키](docs/guide.md#keyboard-shortcuts) · [FAQ](docs/guide.md#faq).
+[사용자 가이드](docs/guide.md)부터 보세요: [빠른 시작](docs/guide.md#quick-start) · [지원 에이전트](docs/guide.md#supported-agents) · [기능](docs/guide.md#features) · [폰](docs/guide.md#on-your-phone) · [접근과 보안](docs/guide.md#access-and-safety) · [설정](docs/guide.md#configuration) · [키보드 단축키](docs/guide.md#keyboard-shortcuts) · [FAQ](docs/guide.md#faq).
 
-더 자세히: [동작 방식](docs/guide.md#how-it-works) · [채팅 기록](docs/chat-mode-audit.md) · [터미널 흐름 제어](docs/terminal-flow-control.md) · [앱 업데이트](docs/app-updates.md) · [변경 기록](CHANGELOG.md).
+더 자세히: [동작 방식](docs/guide.md#how-it-works) · [채팅 기록](docs/chat-mode-audit.md) · [터미널 흐름 제어](docs/terminal-flow-control.md) · [변경 기록](CHANGELOG.md).
 
 문서는 영어로 쓰여 있습니다.
 

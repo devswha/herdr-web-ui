@@ -1,6 +1,6 @@
 /**
  * The browser demo's stand-in for the server. Loaded before the app on the demo page, it answers
- * `fetch("/api/…")`, `new EventSource("/api/machines/events")` and `new WebSocket("…/ws")` from
+ * `fetch("/api/…")`, `new EventSource("/api/events")` and `new WebSocket("…/ws")` from
  * fixtures (site/demo/fixtures/, captured by scripts/demo-fixtures.ts from the staged fictional
  * session) instead of the network. The app's own code is unchanged: it believes it talks to a
  * herdr web ui server on a PC called "workstation".
@@ -12,9 +12,8 @@
  * one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, PortalStatus, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, SessionEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, TabMoved, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope } from "../../shared/protocol.ts";
-import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
 import { closeLayoutPane, resizeLayout, setLayoutSplitRatio, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
@@ -22,6 +21,7 @@ import { rollupStatus } from "../../src/lib/status.ts";
 import { movedTabOrder } from "../../src/lib/tabOrder.ts";
 import { CHATS, PROMPT, SPECS, type DemoSpec } from "./fixtures.ts";
 import { DemoHistory } from "./history.ts";
+import type { Machine } from "../../shared/machines.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
 import commandsFixture from "./fixtures/commands.json";
@@ -286,7 +286,7 @@ function relabelAutoTabs(workspaceId: string): void {
   }
 }
 
-function emitSse(event: MachineEvent): void {
+function emitSse(event: SessionEvent): void {
   const message = new MessageEvent("message", { data: JSON.stringify(event) });
   for (const listener of sseListeners) listener(message);
 }
@@ -304,7 +304,7 @@ function setStatus(paneId: string, status: AgentStatus): void {
   if (agent) Object.assign(agent, { agent_status: status, state_change_seq: nextStateSeq() });
   for (const workspace of snapshot().workspaces) if (workspace.workspace_id === pane.workspace_id) workspace.agent_status = status;
   for (const tab of snapshot().tabs) if (tab.tab_id === pane.tab_id) tab.agent_status = status;
-  emitSse({ type: "machine-message", machine_id: local.id, message: { type: "pane-status", pane_id: paneId, agent_status: status } });
+  emitSse({ type: "message", message: { type: "pane-status", pane_id: paneId, agent_status: status } });
   for (const socket of sockets) socket.push({ type: "pane-status", pane_id: paneId, agent_status: status });
 }
 
@@ -315,8 +315,8 @@ function conversationChanged(paneId: string): void {
 }
 
 function structureChanged(): void {
-  emitSse({ type: "machines", machines });
-  emitSse({ type: "machine-message", machine_id: local.id, message: { type: "session-changed" } });
+  emitSse({ type: "snapshot", snapshot: snapshot() });
+  emitSse({ type: "message", message: { type: "session-changed" } });
   for (const socket of sockets) socket.push({ type: "session-changed" });
 }
 
@@ -467,41 +467,6 @@ const DEMO_DIFF: { file: RepoDiffFile; patch: string | null }[] = [
   ].join("\n") },
 ];
 
-/** Settings → Subscription usage on the demo: plans as the workstation's CLIs might report them, resets counted from now. */
-function usageReport(): UsageReport {
-  const now = Date.now();
-  const at = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
-  // Claude and Codex state a window's length (5 h, 7 days), so the server knows when it began; the others do not
-  const session = (hours: number) => ({ resets_at: at(hours), starts_at: at(hours - 5) });
-  const week = (hours: number) => ({ resets_at: at(hours), starts_at: at(hours - 168) });
-  const checked = new Date(now).toISOString();
-  return { providers: [
-    { id: "claude", key: "claude:demo-claude", account: "sam@example.com", plan: "max", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 38, ...session(2.4) },
-      { kind: "week", scope: null, used_percent: 61, ...week(78) },
-      { kind: "week", scope: "Sonnet", used_percent: 12, ...week(78) },
-    ] },
-    { id: "codex", key: "codex:demo-codex-work", account: "sam@work.example", plan: "pro", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 22, ...session(1.2) },
-      { kind: "week", scope: null, used_percent: 84, ...week(97) },
-    ] },
-    { id: "codex", key: "codex:demo-codex-home", account: "sam@example.com", plan: "plus", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 5, ...session(3.1) },
-      { kind: "week", scope: null, used_percent: 31, ...week(140) },
-    ] },
-    { id: "cursor", key: "cursor:demo-cursor", account: "sam@example.com", plan: "pro", problem: null, checked_at: checked, windows: [
-      { kind: "month", scope: null, used_percent: 27, resets_at: at(290), starts_at: null },
-      { kind: "month", scope: "Cursor models", used_percent: 19, resets_at: at(290), starts_at: null },
-      { kind: "month", scope: "Other models", used_percent: 8, resets_at: at(290), starts_at: null },
-    ] },
-    { id: "opencode", key: "opencode:demo-opencode", account: null, plan: "Go", problem: null, checked_at: checked, windows: [
-      { kind: "session", scope: null, used_percent: 10, resets_at: at(3.2), starts_at: null },
-      { kind: "week", scope: null, used_percent: 28, resets_at: at(18), starts_at: null },
-      { kind: "month", scope: null, used_percent: 15, resets_at: at(520), starts_at: null },
-    ] },
-  ] };
-}
-
 /** One fictional plugin, so the palette's Plugin actions group and Settings have something to show. */
 const PLUGINS: PluginActions[] = [
   { plugin_id: "example.layout", name: "Layout", version: "0.1.0", description: "Apply project layouts", enabled: true, actions: [
@@ -515,48 +480,14 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   const query = url.searchParams;
   const paneId = query.get("pane_id") ?? "";
 
+  if (path === "/api/access") return json({ auth: { required: false, authenticated: true } });
   if (path === "/api/health") {
     const auth = { required: false, authenticated: true };
-    if (query.get("scope") === "bridge") return json({ ok: true, auth, bridge_protocol: 1 });
     return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { boot_id: DEMO_VERSION, revision: null } });
   }
-  if (path === "/api/machines") return json({ machines });
   if (path === "/api/session") return json({ snapshot: snapshot() });
   if (path === "/api/agents") return json(agentsFixture);
   if (path === "/api/integrations") return json({ integrations: integrationsFixture } satisfies IntegrationsResponse);
-  if (path === "/api/updates") return json({ managed: false, phase: "idle", current_revision: null, latest_revision: null, current_version: __APP_VERSION__, latest_version: null, available: false, checked_at: null, blocked_reason: null, error: null }, 200, { "cache-control": "no-store" });
-  if (path === "/api/updates/notes") return json({ revision: null, releases: [], omitted: 0 }, 200, { "cache-control": "no-store" });
-  if (path === "/api/updates/installed") return json({ revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 }, 200, { "cache-control": "no-store" });
-  // the demo has no herdr to update: the controls stay hidden
-  if (path === "/api/herdr/update") return json({ supported: false, phase: "idle", server_version: null, binary_version: null, stale: false, output: null, finished_at: null }, 200, { "cache-control": "no-store" });
-  // the demo opens no public address: the Portal section stays hidden
-  if (path === "/api/portal") return json({ supported: false, version: null, min_version: "v2.6.1", usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null } satisfies PortalStatus, 200, { "cache-control": "no-store" });
-  if (path === "/api/portal/start" || path === "/api/portal/stop") return error("portal_unsupported", "The demo opens no public address.", 409);
-  if (path === "/api/usage") return json(usageReport(), 200, { "cache-control": "no-store" });
-  if (path === "/api/usage/login") {
-    if (method === "GET") {
-      if (url.searchParams.has("provider")) return json({ accounts: url.searchParams.get("provider") === "cursor" ? ["cursor@example.test"] : [] });
-      return json({ providers: [
-        { id: "claude", cli: "claude", installed: true, local: true, separate_home: true },
-        { id: "codex", cli: "codex", installed: true, local: true, separate_home: true },
-        { id: "cursor", cli: "Cursor CLI (agent)", installed: true, local: true, separate_home: false },
-        { id: "copilot", cli: "GitHub CLI (gh)", installed: true, local: true, separate_home: false },
-        { id: "grok", cli: "grok", installed: false, local: true, separate_home: false },
-        { id: "antigravity", cli: "Antigravity CLI (agy)", installed: true, local: false, separate_home: false },
-        { id: "opencode", cli: "opencode", installed: true, local: true, separate_home: false },
-      ] });
-    }
-    return error("demo", "This demo cannot run a local CLI. Sign in on an installed server.", 409);
-  }
-  // Public demo never saves management credentials or starts a real OAuth login.
-  if (path === "/api/cliproxy") {
-    if (method === "GET") return json({ configured: false, url: "http://localhost:8317", ok: false, problem: null });
-    return error("demo", "Connect CLIProxyAPI from an installed server, not the public demo.", 409);
-  }
-  if (path === "/api/cliproxy/login" || path === "/api/cliproxy/callback") return error("demo", "Sign in from an installed server, not the public demo.", 409);
-  if (path === "/api/push" || path.startsWith("/api/push/")) return error("push_unavailable", "the demo sends no alerts", 404);
-  if (path.startsWith("/api/machines/")) return error("demo", "remote PCs need a real machine", 404);
-
   if (path === "/api/worktree/list" || path === "/api/worktree/create" || path === "/api/worktree/open" || path === "/api/worktree/remove") {
     const listing = path === "/api/worktree/list";
     if (method !== (listing ? "GET" : "POST")) return error("method_not_allowed", listing ? "use GET" : "use POST", 400);
@@ -1023,9 +954,6 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     return json({ workspace_id: id, pane_id: pane.pane_id, agent_started: agent !== null } satisfies WorkspaceCreated);
   }
   // no key in the demo: the app falls back to the browser's own speech recognition
-  if (path === "/api/voice") return json({ configured: false, source: null, ...VOICE_DEFAULTS } satisfies VoiceStatus, 200, { "cache-control": "no-store" });
-  if (path === "/api/voice/config") return error("demo", "the demo saves no OpenAI key", 409);
-  if (path === "/api/voice/transcribe") return error("voice_not_configured", "transcription is unavailable in the demo", 409);
   if (path === "/api/workspace/diff/files" || path === "/api/workspace/diff/file") {
     const scope = query.get("scope") || "workspace";
     if (scope !== "workspace" && scope !== "staged" && scope !== "commit") return error("invalid_scope", "scope must be workspace, staged or commit", 400);
@@ -1073,13 +1001,13 @@ class DemoEventSource extends EventTarget {
     super();
     this.url = url;
     sseListeners.add(this.listener);
-    setTimeout(() => { this.onopen?.(new Event("open")); this.listener(new MessageEvent("message", { data: JSON.stringify({ type: "machines", machines } satisfies MachineEvent) })); }, 30);
+    setTimeout(() => { this.onopen?.(new Event("open")); this.listener(new MessageEvent("message", { data: JSON.stringify({ type: "snapshot", snapshot: snapshot() } satisfies SessionEvent) })); }, 30);
   }
   close(): void { this.readyState = 2; sseListeners.delete(this.listener); }
 }
 window.EventSource = function (url: string | URL, init?: EventSourceInit) {
   const target = new URL(String(url), location.href);
-  return target.pathname === "/api/machines/events" ? (new DemoEventSource(target.href) as unknown as EventSource) : new RealEventSource(url, init);
+  return target.pathname === "/api/events" ? (new DemoEventSource(target.href) as unknown as EventSource) : new RealEventSource(url, init);
 } as unknown as typeof EventSource;
 
 // ---- WebSocket: terminals ----------------------------------------------------------------------
@@ -1229,7 +1157,6 @@ class DemoSocket extends EventTarget {
         if (this.mode === "observe") this.holdPending(undefined, "read_only", "This connection now only watches. Pending messages will not be sent automatically.");
         this.push({ type: "role-ack", mode: this.mode });
         break;
-      case "presence":
         // the demo sends no alerts, so whether the page is in use holds nothing back
         break;
       // the demo socket never goes half-open, but it answers the liveness probe as the server does
@@ -1619,7 +1546,5 @@ for (const pane of snapshot().panes) {
 if ("serviceWorker" in navigator) {
   Object.defineProperty(navigator.serviceWorker, "register", { value: () => new Promise(() => {}) });
 }
-// no push: the bell then says alerts are unsupported here instead of failing to subscribe
-Object.defineProperty(globalThis, "PushManager", { value: undefined, configurable: true });
 
 declare const __APP_VERSION__: string;

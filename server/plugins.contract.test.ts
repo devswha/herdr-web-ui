@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { createServer } from "./index.ts";
 import { herdrRpc, herdrSocketPath, pluginLogList, sessionSnapshot, workspaceClose, workspaceCreate, type WorkspaceCreateResult, type WorktreeOpenResult } from "./herdr/client.ts";
 import { disposableConfig } from "../scripts/disposable-config.ts";
-import { MACHINE_PROXY_PATH } from "./machine-api.ts";
 import type { ApiError, PluginActionResult, PluginActionsResponse } from "../shared/protocol.ts";
 
 /**
@@ -40,7 +39,7 @@ describe.skipIf(disposable === null || process.platform === "win32")("plugin act
   }
 
   const base = () => `http://localhost:${server.port}`;
-  const invoke = (body: unknown, headers: Record<string, string> = { "x-herdr-machine": "1" }) =>
+  const invoke = (body: unknown, headers: Record<string, string> = { "x-herdr-request": "1" }) =>
     fetch(`${base()}/api/plugin/action`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
 
   beforeAll(async () => {
@@ -206,7 +205,7 @@ platforms = ["linux", "macos"]
   });
 
   it("says a command that outlasts the wait is running, and how it ended when asked again", async () => {
-    const started = await fetch(`http://localhost:${impatient.port}/api/plugin/action`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ plugin_id: PLUGIN, action_id: "late" }) });
+    const started = await fetch(`http://localhost:${impatient.port}/api/plugin/action`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-request": "1" }, body: JSON.stringify({ plugin_id: PLUGIN, action_id: "late" }) });
     expect(started.status).toBe(200);
     const running = (await started.json()) as PluginActionResult;
     expect(running).toEqual({ log_id: expect.any(String), status: "running", exit_code: null, output: null, opened_pane_id: null });
@@ -268,7 +267,7 @@ platforms = ["linux", "macos"]
       expect(((await response.json()) as ApiError).error.code).toBe(code);
     }
     expect((await fetch(`${base()}/api/plugin/action`)).status).toBe(400);
-    expect((await fetch(`${base()}/api/plugins/actions`, { method: "POST", headers: { "x-herdr-machine": "1" } })).status).toBe(400);
+    expect((await fetch(`${base()}/api/plugins/actions`, { method: "POST", headers: { "x-herdr-request": "1" } })).status).toBe(400);
   });
 
   it("runs nothing for a page of another origin", async () => {
@@ -292,28 +291,5 @@ platforms = ["linux", "macos"]
     } finally {
       await herdrRpc("plugin.enable", { plugin_id: PLUGIN });
     }
-  });
-
-  it("answers on the local PC's explicit alias as on the plain path", async () => {
-    const listed = await fetch(`${base()}/api/machines/local/plugins/actions`);
-    expect(listed.status).toBe(200);
-    expect(((await listed.json()) as PluginActionsResponse).plugins.map((entry) => entry.plugin_id)).toContain(PLUGIN);
-    const ran = await fetch(`${base()}/api/machines/local/plugin/action`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ plugin_id: PLUGIN, action_id: "fail" }) });
-    expect(ran.status).toBe(200);
-    const failed = (await ran.json()) as PluginActionResult;
-    expect(failed).toMatchObject({ status: "failed", exit_code: 3, output: "boom" });
-    const asked = await fetch(`${base()}/api/machines/local/plugin/action?plugin_id=${encodeURIComponent(PLUGIN)}&log_id=${encodeURIComponent(failed.log_id)}`);
-    expect([asked.status, await asked.json()]).toEqual([200, failed]);
-    // a POST without the app's header never reaches the route, and no other plugin path is aliased
-    const bare = await fetch(`${base()}/api/machines/local/plugin/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ plugin_id: PLUGIN, action_id: "fail" }) });
-    expect([bare.status, ((await bare.json()) as ApiError).error.code]).toEqual([403, "invalid_origin"]);
-    const other = await fetch(`${base()}/api/machines/local/plugin/link`, { method: "POST", headers: { "x-herdr-machine": "1" } });
-    expect([other.status, ((await other.json()) as ApiError).error.code]).toEqual([400, "invalid_route"]);
-  });
-
-  it("is forwarded to a remote PC's bridge", () => {
-    expect(MACHINE_PROXY_PATH.test("plugins/actions")).toBe(true);
-    expect(MACHINE_PROXY_PATH.test("plugin/action")).toBe(true);
-    expect(MACHINE_PROXY_PATH.test("plugin/link")).toBe(false);
   });
 });

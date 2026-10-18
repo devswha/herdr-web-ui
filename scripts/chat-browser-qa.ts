@@ -254,8 +254,8 @@ try {
   const code = "printf 'clipboard ✓'";
   add(message("assistant", `\`\`\`sh\n${code}\n\`\`\``, "final_answer"), 9);
   persist();
-  const pairing = await (await fetch(`http://127.0.0.1:${server.port}/api/devices/pair/start`, { method: "POST", headers: { "x-herdr-machine": "1" } })).json() as { code: string };
-  const paired = await fetch(`http://127.0.0.1:${server.port}/api/devices/pair`, { method: "POST", headers: { "x-herdr-machine": "1", "content-type": "application/json" }, body: JSON.stringify({ code: pairing.code }) });
+  const pairing = await (await fetch(`http://127.0.0.1:${server.port}/api/devices/pair/start`, { method: "POST", headers: { "x-herdr-request": "1" } })).json() as { code: string };
+  const paired = await fetch(`http://127.0.0.1:${server.port}/api/devices/pair`, { method: "POST", headers: { "x-herdr-request": "1", "content-type": "application/json" }, body: JSON.stringify({ code: pairing.code }) });
   const credential = paired.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
   await page.context().addCookies([{ name: "herdr_web_device", value: credential, url: `http://clipboard.test:${server.port}`, httpOnly: true, sameSite: "Strict" }]);
   const insecure = await page.context().newPage();

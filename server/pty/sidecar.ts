@@ -2,7 +2,7 @@ import type { HerdrIdentity } from "../../shared/machines.ts";
 
 /**
  * A terminal attach runs on the PTY sidecar: `node pty-host.mjs`, which imports
- * @lydell/node-pty. A runtime without either (the win32 remote bundle ships Bun alone)
+ * @lydell/node-pty. A runtime without either 
  * cannot start it, whatever herdr itself can do, so its panes stay mirrored.
  */
 export interface SidecarRuntime {
@@ -29,8 +29,7 @@ export function isRealNode(executable: string, env: Record<string, string | unde
 
 /**
  * Looked up on the PATH the sidecar's spawn inherits (PtySession passes process.env), not the
- * one this process was launched with: a remote bundle adds its own bin/ at runtime
- * (server/remote-entry.ts), and a bare Bun.which() would not see the Node shipped there.
+ * one this process was launched with: operator-managed runtime paths must be respected when locating Node.
  */
 function nodeOnPath(): boolean {
   const found = Bun.which("node", { PATH: process.env["PATH"] ?? "" });
@@ -51,7 +50,7 @@ const here: SidecarRuntime = {
 
 let known: boolean | null = null;
 
-/** This runtime's answer is taken once: every caller (attach, /api/health, /api/bridge) gets the same one. */
+/** This runtime's answer is taken once: every caller (attach and /api/health) gets the same one. */
 export function sidecarAvailable(runtime?: SidecarRuntime): boolean {
   if (runtime) return runtime.pty() && runtime.node();
   if (known === null) known = here.pty() && here.node();

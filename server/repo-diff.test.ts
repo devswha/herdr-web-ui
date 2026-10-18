@@ -351,7 +351,7 @@ describe("GET /api/workspace/diff/*", () => {
     // a first pairing is a device only once its cookie came back: that return is what saves it
     expect(store.match(watchToken)).not.toBeNull();
     watchCookie = `herdr_web_device=${watchToken}`;
-    server = createServer({ port: 0, stateDir, token: "test-repo-diff", machines: false });
+    server = createServer({ port: 0, stateDir, token: "test-repo-diff" });
     base = `http://127.0.0.1:${server.port}`;
   });
   afterAll(() => { server.stop(); rmSync(stateDir, { recursive: true, force: true }); });
@@ -394,7 +394,7 @@ describe("GET /api/workspace/diff/*", () => {
       expect(response.status).toBe(status);
       expect((await response.json() as ApiError).error.code).toBe(code);
     }
-    const posted = await files(directory(), { ...owner, "x-herdr-machine": "1" }, "POST");
+    const posted = await files(directory(), { ...owner, "x-herdr-request": "1" }, "POST");
     expect(posted.status).toBe(400);
     expect((await posted.json() as ApiError).error.code).toBe("method_not_allowed");
   });
@@ -405,7 +405,7 @@ describe("GET /api/workspace/diff/*", () => {
     expect(crossSite.status).toBe(403);
     expect((await crossSite.json() as ApiError).error.code).toBe("cross_site");
     expect((await fetch(`${base}/api/session`, { headers: { cookie: watchCookie } })).status).not.toBe(401);
-    for (const path of ["workspace/diff/files", "workspace/diff/file", "machines/pc1/workspace/diff/files", "machines/pc1/workspace/diff/file", "machines/local/workspace/diff/file"]) {
+    for (const path of ["workspace/diff/files", "workspace/diff/file"]) {
       const response = await fetch(`${base}/api/${path}?${directory()}&path=a.txt`, { headers: { cookie: watchCookie } });
       expect([path, response.status]).toEqual([path, 403]);
       expect((await response.json() as ApiError).error.code).toBe("read_only");

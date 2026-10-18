@@ -23,7 +23,7 @@ describe("GET /manifest.webmanifest", () => {
       writeFileSync(join(dist, "manifest.webmanifest"), JSON.stringify({ name: "herdr", short_name: "herdr", id: "/", start_url: "/", scope: "/" }));
     }
     stateDir = mkdtempSync(join(tmpdir(), "herdr-manifest-http-"));
-    server = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "", machines: false, sidecar: false });
+    server = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "", sidecar: false });
   });
   afterEach(() => {
     if (previous === undefined) delete process.env["HERDR_WEB_APP_NAME"]; else process.env["HERDR_WEB_APP_NAME"] = previous;

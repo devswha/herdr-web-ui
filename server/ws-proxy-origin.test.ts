@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { sameOrigin, canSendSecret } from "./machine-security.ts";
+import { sameOrigin } from "./origin.ts";
 
 function upgrade(headers: Record<string, string> = {}, path = "/ws", method = "GET"): Request {
   return new Request(`http://public.example${path}`, { method, headers: {
@@ -44,9 +44,8 @@ describe("Traefik secure WebSocket origin", () => {
     headers.set("origin", "https://public.example:8443");
     expect(sameOrigin(new Request("http://public.example:9443/ws", { headers }))).toBe(false);
   });
-  it("keeps ordinary HTTP(S) proxy checks and secret-input rules unchanged", () => {
+  it("keeps ordinary HTTP(S) proxy checks origin rules unchanged", () => {
     expect(sameOrigin(upgrade({ "x-forwarded-proto": "https" }))).toBe(true);
     expect(sameOrigin(upgrade({ "x-forwarded-proto": "http", origin: "http://public.example" }))).toBe(true);
-    expect(canSendSecret(upgrade({}, "/api/pane/secret", "POST"))).toBe(false);
   });
 });

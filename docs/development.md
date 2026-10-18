@@ -10,7 +10,7 @@ bun run server   # API + WebSocket on :7317
 bun run dev      # Vite on :5173, proxies /api and /ws
 ```
 
-`bun run server` and `bun run dev` never update themselves; only `bun run start` and the plugin run the update supervisor.
+All runtime entrypoints run the operator-built checkout without dependency installation or release discovery. Build and update explicitly as described in [INSTALL.md](../INSTALL.md#update).
 
 ## Checks
 
@@ -115,15 +115,7 @@ bun scripts/output-browser-qa.ts # terminal output flow control end to end
 bun scripts/math-browser-qa.ts  # chat math: KaTeX loads with the first expression
 bun scripts/recent-folders-regression.ts # owned workspaces: PC-scoped history, reload, three chips on one row that fill Directory, pending and failures
 bun scripts/phone-worktree-sheet-regression.ts # a phone's New worktree sheet: the agent list's own stroke, and a Shell checkout's terminal opening
-bun run test:ssh                # remote-PC integration over SSH
-bun scripts/fresh-install-docker.ts [owner/repo] [ref]  # a new user's install in a bare Ubuntu (Docker)
 ```
-
-`fresh-install-docker.ts` is the check for "does a new user get a working install": a disposable
-Ubuntu 24.04 with only curl, git and the distro's Node 18, a normal user, herdr and Bun from their
-installers, a headless herdr, then `herdr plugin install` of a pushed ref (default: the current
-branch), the start action, `/api/health`, the PTY smoke test on the box's Node, and the startup hook
-after a herdr restart. It prints the time each step took. `KEEP=1` leaves the container for a look.
 
 Tests run against a herdr session of their own, `herdr-web-ui-test`. The first run starts a headless `herdr --session herdr-web-ui-test server` and later runs reuse it, so test workspaces never show in the herdr you work in (`scripts/test-herdr.ts`). Stop it with `herdr --session herdr-web-ui-test server stop`. `HERDR_TEST_SESSION` picks another name, and `HERDR_TEST_LIVE=1` runs against `HERDR_SOCKET` or your default session instead.
 
@@ -413,56 +405,24 @@ history while the Website workflow waits for its successful completion.
 The local demo is the real client on a fictional session, no server.
 `build-site.ts` builds the client a second time with `vite build --base ./` into `_site/demo/app/`,
 bundles `site/demo/transport.ts` in front of it and frames it with `site/demo/index.html`. The
-transport answers the app's `fetch("/api/…")`, the machines event stream and the `/ws` terminal
+transport answers the app's `fetch("/api/…")`, the local session event stream and the `/ws` terminal
 socket from `site/demo/fixtures/`: the chats and the Codex approval are the README's
 (`site/demo/fixtures.ts`, shared with `scripts/readme-media/stage.ts`), and `machines.json`,
 `agents.json`, `commands.json` and the shell pane's `terminal.json` are captured from that staged
 session by `bun scripts/demo-fixtures.ts` (needs herdr; it uses the `herdr-web-ui-demo` session and
 scrubs the hostname and login). Recapture them after a herdr upgrade changes the snapshot shapes, or
-after changing the staged session. Files, images, push and remote PCs are not part of the demo.
+after changing the staged session. Files and images are not part of the demo.
 
 ## Releasing
 
-1. Open a release PR that bumps `version` in `package.json` and `herdr-plugin.toml`,
-   runs `bun scripts/changelog-fold.ts X.Y.Z [YYYY-MM-DD]` (it moves the `Unreleased` notes in
-   [CHANGELOG.md](../CHANGELOG.md) and the [changelog.d/](../changelog.d/README.md) fragments under
-   the new version, dated today in local time by default, links each fragment's PR and deletes the
-   fragments; then add the `by @login` credits; a fragment merged later must be moved into the
-   version by hand, since the release workflow refuses while one is left), and tells the release
-   in [release-summaries.json](../release-summaries.json) the way a game's patch notes do: under
-   the version, for each language in `SUMMARY_LANGUAGES` (`shared/update.ts`: `en`, `ko`, `ja` and `zh`), the lists `new`, `improved` and `fixed` (a list with nothing to say is left out), each a few lines of
-   plain text, 90 characters at most, the same number of lines in every language. It is what
-   an install shows before and after the update, with the changelog section folded under it,
-   so a line names what changes for the people who use the app and leaves out PR numbers and
-   internals. The unit suite and the release workflow fail without every language.
-   The GitHub release is written from the same files by `scripts/release-notes.ts`: the
-   English lists under New features, Improvements and Bug fixes, then the version's whole
-   changelog section folded under **Full changelog**.
-   When the release guards (below) say so, the same PR raises `REMOTE_BUNDLE_VERSION` in
-   `shared/machines.ts`.
-2. Merge it after CI passes.
-3. If it raised `REMOTE_BUNDLE_VERSION` to N, push the tag `fork-remote-vN` on the merged commit and wait
-   for the **Remote PC bundles** workflow to publish it ([remote PCs](remote-pcs.md)). Merge nothing
-   that touches `server/`, `shared/`, `bun.lock` or `patches/` until the Release run is done: the
-   Release run would then ask for a follow-up PR that raises the number again and a new tag.
-4. Run **Actions → Release → Run workflow**, select `main`, and enter `X.Y.Z` without the `fork-v` prefix.
-   The CLI equivalent is `gh workflow run release.yml --ref main -f version=X.Y.Z`.
-
-The workflow validates metadata, then runs the same unit, integration and browser checks
-as PRs against the exact `main` commit selected when the run starts. Only after all checks
-pass does it create the tag and GitHub release. A failed validation creates neither.
-Do not push release tags by hand: installed updaters read Git tags directly, so a tag is
-visible to them even without a GitHub release. Existing tags cannot be reused; fix a
-published version with a new patch release. If publishing fails after a tag was created,
-verify that tag's commit and repair its GitHub release rather than moving the tag.
-
-Remote-PC runtime bundles are published by a `fork-remote-vN` tag, and an app release requires the bundle
-that matches its server (step 3). See [remote PCs](remote-pcs.md).
-
-`scripts/release-guards.ts` fails a release PR (CI's Fast checks) and the Release run when the bundle's
-inputs changed since the published `fork-remote-vN` without a raised `REMOTE_BUNDLE_VERSION`, when the raised
-one is not published yet (Release only), or when the step 1 metadata is incomplete. In CI only the change that bumps the version is checked;
-PRs merged before the Release run pass, and the Release run checks the whole tree again.
+The maintainer prepares a release PR with matching versions in `package.json` and
+`herdr-plugin.toml`, folds `changelog.d/` with `bun scripts/changelog-fold.ts X.Y.Z`, and adds
+release summaries in English, Korean, Japanese and Chinese to `release-summaries.json`.
+`bun scripts/release-guards.ts --release X.Y.Z` validates local metadata. After review and checks,
+the maintainer runs Actions → Release on the selected `main` revision. That explicit workflow
+validates and publishes the `fork-vX.Y.Z` release. Publishing does not update installations;
+operators deploy separately using [INSTALL.md](../INSTALL.md#update). No remote runtime bundles
+are built or required.
 
 ## Pull requests and CI
 
@@ -590,7 +550,7 @@ example `["self-hosted","linux","x64","herdr-ci"]`. Set, it routes:
 - in `release.yml`: the preflight and publish jobs.
 
 Detect changes, the Integration and browser summary, the Windows and macOS jobs,
-`remote-bundles.yml` and `windows-install.yml` always stay GitHub-hosted.
+Windows native checks always stay GitHub-hosted.
 
 In `ci.yml`, Detect changes picks the runner with `scripts/ci-runner-route.sh`. A fork pull request
 always gets `ubuntu-24.04`, whatever the variable says. Otherwise the `self_hosted_labels`
@@ -630,14 +590,11 @@ do; measure setup, test execution and retries separately when comparing speed. S
 [scripts/self-hosted-runner/README.md](../scripts/self-hosted-runner/README.md).
 
 `scripts/ci-tests.ts` discovers all `.test.ts` files under src/shared/server/scripts.
-Files named `*.contract.test.ts`, tests under `server/herdr/` and `server/pty/`, and
-`server/updater.test.ts` (which includes real bridge restart/rollback cases) belong
+Files named `*.contract.test.ts`, tests under `server/herdr/` and `server/pty/`, belong
 to integration; everything else belongs to unit. Name new live-server tests
 `*.contract.test.ts`. Plain `bun test` still runs both suites for local development.
 
-Remote/server/shared/dependency changes also run the existing four-platform bundle and
-SSH workflow on PRs; its publishing job only runs for `fork-remote-v*` tags. Website publishing
-continues after `main` pushes.
+Website publishing continues after `main` pushes.
 
 Repository protection should require PRs and all three checks on `main`—**Fast checks**,
 **Integration and browser**, and **Native Windows install** (GitHub App ID `15368`)—including for
@@ -666,10 +623,10 @@ input regression matrix.
 | Path | Contents |
 | --- | --- |
 | [`src/`](../src/) | React UI: chat, terminal, composer, sidebar, settings |
-| [`server/`](../server/) | API, WebSockets, transcript readers, push, PTY bridge, remote PCs and updater |
+| [`server/`](../server/) | API, WebSockets, transcript readers and PTY bridge |
 | [`shared/`](../shared/) | HTTP/WebSocket contract and generated herdr types |
-| [`scripts/`](../scripts/) | Plugin lifecycle, type generation, remote bundles, README media, the film and browser checks |
+| [`scripts/`](../scripts/) | Plugin lifecycle, type generation, README media, the film and browser checks |
 | [`public/`](../public/) | PWA manifest, service worker and icons |
-| [`docs/`](.) | Remote PCs, updates, flow control, chat audit, brand assets and README media (`docs/media/`) |
+| [`docs/`](.) | Flow control, chat audit, brand assets and README media (`docs/media/`) |
 | [`site/`](../site/) | The website, built by `scripts/build-site.ts` and deployed by GitHub Pages |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |

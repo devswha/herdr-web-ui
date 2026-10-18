@@ -24,7 +24,7 @@
 
 /* the terminal's input line on touch screens (TerminalInput.tsx): one row that grows to four,
    with a send button that reads Enter while the line is empty. It hangs from the slot's bottom
-   edge, so it grows upward; the dictation pill floats above it. It reaches the grid's top at
+   edge, so it grows upward. It reaches the grid's top at
    most (--terminal-input-room, measured by PaneTerminal.tsx): past that the text scrolls */
 .terminal-input {
   position: absolute;
@@ -41,21 +41,6 @@
   padding: var(--space-2) var(--space-2) 0;
   border-top: var(--hairline) solid var(--border);
   background: var(--bg-panel);
-}
-
-.terminal-input.has-voice {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-}
-
-/* the same round target as the send button beside it */
-.terminal-input-mic .voice-mic {
-  width: var(--touch-target);
-  height: var(--touch-target);
-}
-
-.terminal-input-mic .voice-mic:not([aria-pressed="true"]) {
-  border-color: var(--border);
-  background: var(--bg-elevated);
 }
 
 .terminal-input-text {

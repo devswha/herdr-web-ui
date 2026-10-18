@@ -2,7 +2,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEff
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, createTab, fetchHealth, fetchAccess, fetchSession, pairDevice, routeMissing, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
@@ -24,17 +24,17 @@ import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { paletteOpenQuery } from "./lib/paletteSeed.ts";
 import { MachineContext } from "./lib/machineContext.tsx";
-import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
+import { ChunkFailureNotice } from "./components/ChunkFailureNotice.tsx";
+import { MachineSidebar } from "./components/MachineSidebar.tsx";
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
 import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
 import { FILE_PANEL_DOCK_QUERY, storedFilePanelWidth } from "./lib/filePanelWidth.ts";
 import { openPresentation, type FilePresentation } from "./lib/filePresentation.ts";
-import { MachineDialog } from "./components/MachineDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./components/RowMenu.tsx";
-import { focusWorkspaceListToggle } from "./lib/focus.ts";
 import { headerCrumb, showsChat } from "./lib/headerCrumb.ts";
-import { LOCAL_MACHINE, paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
+import type { SessionEvent, SessionSnapshot } from "../shared/protocol.ts";
+import { LOCAL_MACHINE, paneStorageId, type Machine } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
 import { rosterPanes } from "./lib/dagPane.ts";
@@ -56,10 +56,7 @@ import {
   showPaneStatusNotification,
   type NotificationState,
 } from "./lib/notifications.ts";
-import { ensurePushSubscription, pushSupported, removePushSubscription } from "./lib/push.ts";
 import { machineGone, notificationLanding, notificationTargetFromSearch, sameLink, notificationViewForPane, onNotificationTarget, type NotificationTarget } from "./lib/notificationTarget.ts";
-import { useUpdates } from "./lib/updates.ts";
-import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { LanExposureNotice } from "./components/LanExposureNotice.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
 import { folderQueryFor } from "./lib/paletteFolders.ts";
@@ -98,7 +95,7 @@ const POLL_MS = 5000;
 function sameData(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
-/** trailing debounce for push-triggered refetches: bursts of events become one fetch */
+/** trailing debounce for event-triggered refetches: bursts of events become one fetch */
 const REFETCH_DEBOUNCE_MS = 500;
 
 const SELECTION_KEY = "herdr-web-ui:selection";
@@ -118,6 +115,10 @@ function storedSelection(): StoredSelection | null {
     }
   }
   return null;
+}
+
+function localMachine(snapshot: SessionSnapshot): Machine {
+  return { id: LOCAL_MACHINE, name: "Host", kind: "local", enabled: true, state: "connected", error: null, snapshot };
 }
 
 function storeSelection(machineId: string, paneId: string | null): void {
@@ -206,11 +207,11 @@ export function App() {
   const t = useT();
   const apple = /Mac|iPhone|iPad/.test(navigator.platform);
   const { settings, resolvedTheme, resolvedEntry, update: updateSettings } = useSettings();
-  // this device's alert choices: sent with its push subscription, and applied to tab alerts here
+  // this device's alert choices, applied to in-app and open-tab alerts
   const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
-  // the Alerts item's switch for this device (the header's More menu): off drops its push subscription and silences tab and in-app alerts
+  // the Alerts item's switch silences this device's tab and in-app alerts
   const alertsOn = settings.alertsOn;
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
@@ -239,23 +240,11 @@ export function App() {
     }
   }, [machines]);
   const [selectedMachineId, setSelectedMachineId] = useState(() => {
-    if (initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink))) return initialLink.machine;
-    return storedSelection()?.machine_id ?? "local";
+    return LOCAL_MACHINE;
   });
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
   const machinesRef = useRef(machines); machinesRef.current = machines;
-  const [updateRemote, setUpdateRemote] = useState(false);
-  const [machineDialog, setMachineDialog] = useState<Machine | "new" | null>(null);
-  // Add PC from Settings or the palette leaves no trigger to return focus to once its dialog
-  // closes (Settings closed when it opened): the header's workspace-list toggle stands in
-  const addPcFocusReturn = useRef(false);
-  const closeMachineDialog = useCallback(() => {
-    setMachineDialog(null);
-    if (!addPcFocusReturn.current) return;
-    addPcFocusReturn.current = false;
-    focusWorkspaceListToggle();
-  }, []);
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -282,7 +271,6 @@ export function App() {
     pairedFromAddress.current = true;
     pairDevice(pairCode, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)).then(() => loadHealth()).catch(() => { /* the gate, if any, reports it */ });
   }, [locked, pairCode, auth]); // eslint-disable-line react-hooks/exhaustive-deps
-  const updates = useUpdates(locked === false);
   const [selectedPaneId, setSelectedPaneId] = useState<string | null>(() => {
     if (initialLink?.pane) return initialLink.pane;
     // a link to a workspace opens the pane its row opens, once the roster is in (below)
@@ -489,9 +477,7 @@ export function App() {
   const [settingsLinkSection, setSettingsLinkSection] = useState<string | null>(() => initialLink?.section ?? null);
   // the page Settings shows, for the address
   const [settingsPage, setSettingsPage] = useState<string | null>(null);
-  // set by a button that points at one section of Settings, for that opening alone
-  const [settingsSection, setSettingsSection] = useState<"updates" | null>(null);
-  const closeSettings = useCallback(() => { setSettingsOpen(false); setSettingsSection(null); setSettingsLinkPage(null); setSettingsLinkSection(null); setSettingsPage(null); }, []);
+  const closeSettings = useCallback(() => { setSettingsOpen(false); setSettingsLinkPage(null); setSettingsLinkSection(null); setSettingsPage(null); }, []);
   const settingsLinkPageRef = useRef(settingsLinkPage); settingsLinkPageRef.current = settingsLinkPage;
   const onSettingsPage = useCallback((page: string | null) => {
     setSettingsPage(page);
@@ -522,10 +508,6 @@ export function App() {
   const paneLost = useCallback(() => setConnected(false), []);
   const [outputStopped, setOutputStopped] = useState(false);
   const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
-  // this device has a server-side push subscription: alerts come from the server, not the tab
-  const [pushOn, setPushOn] = useState(false);
-  const pushOnRef = useRef(pushOn);
-  pushOnRef.current = pushOn;
   // the shared settings and pins, the same in every browser of this server, once the app is in
   const receivePreferences = usePreferencesSync(locked === false);
   const receivePreferencesRef = useRef(receivePreferences); receivePreferencesRef.current = receivePreferences;
@@ -546,14 +528,14 @@ export function App() {
   snapshotRef.current = snapshot;
 
   const loadHealth = useCallback(async () => {
-    try { const next = await fetchBridgeHealth(); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); }
+    try { const next = await fetchAccess(); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); }
     catch { /* retain the gate while the connection server restarts */ }
     try { const next = await fetchHealth(); setHealth((previous) => sameData(previous, next) ? previous : next); } catch { setHealth(null); }
   }, []);
   const snapshotRequests = useRef(new SnapshotRequests());
   const load = useCallback(async () => {
     try {
-      await snapshotRequests.current.read(fetchMachines, (next) => {
+      await snapshotRequests.current.read(async () => [localMachine(await fetchSession())], (next) => {
         setMachines((previous) => sameData(previous, next) ? previous : next);
         rosterIn();
         setMachineRosterLoaded(true);
@@ -597,7 +579,7 @@ export function App() {
     };
   }, [load, loadHealth]);
 
-  // push-triggered refetches are debounced so an event burst becomes one fetch
+  // event-triggered refetches are debounced so an event burst becomes one fetch
   const scheduleRefetch = useCallback(() => {
     if (refetchTimer.current !== null) return;
     refetchTimer.current = window.setTimeout(() => {
@@ -655,7 +637,7 @@ export function App() {
     return () => { for (const event of events) window.removeEventListener(event, unlock, true); };
   }, [settings.alertSound]);
 
-  // One SSE subscription watches every PC, even when no terminal is selected.
+  // One SSE subscription watches the workstation even when no terminal is selected.
   useEffect(() => {
     if (locked !== false) return;
     // the alerts take a pane waiting on its turn's background work for working (shared/notify-policy.ts)
@@ -663,21 +645,22 @@ export function App() {
       id: machine.id,
       snapshot: machine.snapshot && { panes: machine.snapshot.panes.map((pane) => ({ pane_id: pane.pane_id, agent_status: alertStatus(pane.agent_status, (pane as HerdrPane).background_wait) })) },
     }));
-    const events = new EventSource("/api/machines/events");
+    const events = new EventSource("/api/events");
     events.onmessage = (event) => {
-      let payload: MachineEvent;
+      let payload: SessionEvent;
       try { payload = JSON.parse(event.data); } catch { return; }
       if (payload.type === "preferences") { receivePreferencesRef.current(payload.preferences); return; }
       // A poll started before this event can carry an older roster or pane status.
       snapshotRequests.current.invalidate();
-      if (payload.type === "machines") {
-        seedStatuses(statusRef.current, alerting(payload.machines), { started: turnStartRef.current, lasted: lastTurnRef.current });
-        setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
+      if (payload.type === "snapshot") {
+        const next = [localMachine(payload.snapshot)];
+        seedStatuses(statusRef.current, alerting(next), { started: turnStartRef.current, lasted: lastTurnRef.current });
+        setMachines((previous) => sameData(previous, next) ? previous : next);
         rosterIn();
         setMachineRosterLoaded(true);
         return;
       }
-      const machine = machinesRef.current.find((m) => m.id === payload.machine_id);
+      const machine = machinesRef.current.find((m) => m.id === LOCAL_MACHINE);
       if (!machine) return;
       const message = payload.message;
       if (message.type === "pane-status") {
@@ -693,7 +676,7 @@ export function App() {
           dropIn(machine, pane, kind);
           chime(machine, pane, kind);
         }
-        if (pane && shouldNotifyStatus(previous, status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${alertPaneTitle(pane)}`, status, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
+        if (pane && shouldNotifyStatus(previous, status) && alertsOnRef.current && alertsAllow(alertsRef.current, status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${alertPaneTitle(pane)}`, status, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
         setMachines((list) => {
           let changed = false;
           const next = list.map((m) => {
@@ -707,7 +690,6 @@ export function App() {
         });
       }
       if (message.type === "pane-exited") {
-        if (machine.id === "local") window.dispatchEvent(new Event("herdr-usage-changed"));
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
         const worked = endedTurn(turnStartRef.current, lastTurnRef.current, paneStorageId(machine.id, message.pane_id), Date.now());
         if (pane && dropletAllows(alertsRef.current, "done", worked)) {
@@ -715,7 +697,7 @@ export function App() {
           chime(machine, pane, "done");
         }
       }
-      if (message.type === "pane-exited" && alertsOnRef.current && !pushOnRef.current && alertsRef.current.done !== "off") {
+      if (message.type === "pane-exited" && alertsOnRef.current && alertsRef.current.done !== "off") {
         const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
         if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${alertPaneTitle(pane)}`, () => takeNotificationTargetRef.current({ machine_id: machine.id, pane_id: message.pane_id, view: "chat", workspace_id: pane.workspace_id }), machine.id, pane.workspace_id);
       }
@@ -734,44 +716,13 @@ export function App() {
     const current = notificationState();
     const next = current === "default" ? await requestNotificationPermission() : current;
     setNotifications(next);
-    if (next !== "granted") return false;
-    try {
-      const endpoint = await ensurePushSubscription(alertsRef.current);
-      setPushOn(endpoint !== null);
-      // the confirmation push proves the whole path (server -> push service -> this device)
-      if (endpoint) await sendTestPush(endpoint);
-      return endpoint !== null;
-    } catch (err) {
-      console.warn("web push unavailable, alerts stay tab-only", err);
-      return false;
-    }
+    return next === "granted";
   }, [updateSettings]);
 
-  // The browser's permission cannot be taken back from the page: turning alerts off drops
-  // this device's push subscription (the server forgets it) and silences the tab's own.
+  // Browser permission remains granted; this device's preference silences its open-tab alerts.
   const disableNotifications = useCallback(async () => {
     updateSettings({ alertsOn: false });
-    setPushOn(false);
-    await removePushSubscription().catch((err) => console.warn("could not drop the push subscription", err));
   }, [updateSettings]);
-
-  // a device that already allowed alerts re-registers on every load: idempotent, and it
-  // brings the device back if the server lost its subscriptions; a changed choice of
-  // alerts goes the same way
-  useEffect(() => {
-    if (locked !== false || notifications !== "granted" || !alertsOn || !pushSupported()) return;
-    let cancelled = false;
-    ensurePushSubscription(alerts)
-      .then((endpoint) => {
-        if (!cancelled) setPushOn(endpoint !== null);
-      })
-      .catch(() => {
-        if (!cancelled) setPushOn(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [locked, notifications, alerts, alertsOn]);
 
   const unlock = useCallback(() => {
     setLocked(false);
@@ -798,8 +749,6 @@ export function App() {
     setDrawerOpen(false);
     // before signOut: the unsubscribe call needs the cookie, and a locked device must stop
     // receiving pane titles
-    await removePushSubscription().catch(() => undefined);
-    setPushOn(false);
     try {
       await signOut();
     } catch {
@@ -1276,19 +1225,9 @@ export function App() {
         ? !settings.alertInApp
           ? { state: t("Off on this device"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
           : notifications === "default"
-            ? { state: t("On in the app"), title: t("Alerts on in the app. Tap to allow them when it is closed too"), on: true, run: enableNotifications }
+            ? { state: t("On in the app"), title: t("Alerts on in the app. Tap to turn them off"), on: true, run: enableNotifications }
             : { state: t("On in the app"), title: t("Alerts on in the app. Tap to turn them off"), on: true, run: disableNotifications }
-        : pushOn
-          ? { state: t("On, pushed to this device"), title: t("Alerts on, pushed to this device, even with the app closed. Tap to turn them off"), on: true, run: disableNotifications }
-          : {
-              state: t("On in this tab"),
-              // turning them off and on again retries the push subscription
-              title: pushSupported()
-                ? t("Alerts on while this tab is open. Tap to turn them off")
-                : t("Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app). Tap to turn them off"),
-              on: true,
-              run: disableNotifications,
-            };
+        : { state: t("On in this tab"), title: t("Alerts on while this tab is open. Tap to turn them off"), on: true, run: disableNotifications };
   // hidden only where it could do nothing: no system notifications and in-app alerts off
   const bellVisible = notifications === "default" || notifications === "granted" || settings.alertInApp;
   // the menu's button carries a dot while alerts are off here: the one state of the menu worth a glance
@@ -1369,15 +1308,7 @@ export function App() {
       },
       openSettings: () => {
         setDrawerOpen(false);
-        setSettingsSection(null);
         setSettingsOpen(true);
-      },
-      openAddPc: () => {
-        // the new PC reports its progress in the sidebar: nothing should sit over it
-        setSettingsOpen(false);
-        setUpdateRemote(false);
-        addPcFocusReturn.current = true;
-        setMachineDialog("new");
       },
       toggleSidebar: () => {
         if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen((open) => !open);
@@ -1624,7 +1555,7 @@ export function App() {
           {/* a sidebar that cannot be drawn leaves the panes working */}
           <RenderBoundary resetKey={null} fallback={(retry) => <RegionCrash message={t("The sidebar can't be shown.")} retry={retry} />}>
             <CrashProbe region="sidebar" />
-            <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+            <MachineSidebar machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
           </RenderBoundary>
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>
@@ -1636,9 +1567,8 @@ export function App() {
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
         <WebPanelContext.Provider value={filePanelAvailable ? openWebPage : null}>
         <div className={`pane-column${chatShown ? " is-chat" : ""}`}>
+        <ChunkFailureNotice />
         {/* over the pane only: a bar across the window would cut the sidebar off from its top row in the header */}
-        <UpdateNotice updates={updates} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
-        <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
         {health?.lan_exposure && <LanExposureNotice host={health.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}
         {/* the pane's tab, or two tabs side by side (lib/split.ts): a tab dragged down out of its strip,
@@ -1797,7 +1727,6 @@ export function App() {
           void load();
         }}
       /></MachineContext.Provider>
-      {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={closeMachineDialog} onConnected={(id) => { closeMachineDialog(); selectTarget(id, null); void load(); }} />}
       <Droplet onOpen={(machineId, paneId) => {
         // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
         if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;
@@ -1805,7 +1734,7 @@ export function App() {
         setFilesOpen(false);
         selectTargetRef.current(machineId, paneId);
       }} />
-      <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} onUsageLogin={(paneId) => { closeSettings(); selectTarget("local", paneId, "terminal"); void load(); }} actions={actions} updates={updates} onEnableNotifications={enableNotifications} overPreview={(viewing !== null && !fileDocked) || diffViewing !== null} />
+      <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} actions={actions} onEnableNotifications={enableNotifications} overPreview={(viewing !== null && !fileDocked) || diffViewing !== null} />
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} paneId={selectedPane.pane_id} viewing={(viewing !== null && !fileDocked) || diffViewing !== null} onOpenFile={viewFile}
           onOpenDiff={(comparison, file) => openDiff({ machineId: selectedMachineId, paneId: selectedPane.pane_id, directory: selectedPane.foreground_cwd ?? selectedPane.cwd ?? null, ...comparison, path: file.path, oldPath: file.old_path })}

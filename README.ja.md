@@ -1,6 +1,6 @@
 # herdr web ui
 
-このフォークの配布元は `tomrutsaert/herdr-web-ui` です。更新は Settings → About で確認してから手動で実行します。アプリは `fork-vX.Y.Z`、リモートランタイムは `fork-remote-vN` のタグのみを使います。利用状況の送信やネットワークの自動公開はありません。既存の設定を維持するためプラグイン ID は `devswha.herdr-web-ui` のままです。
+この版は 1 台のワークステーションを提供します。管理者が設定した HTTPS または VPN 経由で、許可されたリモートブラウザーから利用できます。トークン認証、デバイスのペアリング、読み取り専用権限を維持しています。必要なソフトウェアの導入と更新は管理者が別途行います。アプリは他の PC やトンネルを管理せず、利用統計の送信や Tailscale 連携もありません。プラグイン ID は `devswha.herdr-web-ui` のままです。
 
 <p align="center">
   <img src="public/icons/icon-192.png" alt="herdr web ui" width="100">
@@ -80,10 +80,9 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 
 - **チャットとターミナルを、ひとつのペインで** — Claude Code、Codex、omp、omo、gjc、pi の会話履歴と、herdr が識別した OpenCode 2 と Devin CLI のセッションを表示し、ワンクリックでライブターミナルに切り替えられます。エージェントの作業中に次のメッセージを書いておくと次のターンで送られ、Send now ですぐに送ることもできます。[対応エージェント →](docs/guide.md#supported-agents)
 - **タップで承認** — 承認リクエスト、質問、計画メニューがカードになり、問いかけがまだ有効か確認してから回答を送信します。
-- **対応が必要なときに通知** — すべてのペインの状態をリアルタイムに表示し、アプリを開いているときは通知が上から降りてきます。入力が必要なときや完了したときには、アプリを閉じていてもプッシュ通知が届きます。
+- **対応が必要なときに通知** — ペインの状態とアプリ内通知を、アプリを開いている間に表示します。アプリを閉じている間の通知には対応しません。
 - **スマートフォンにインストール** — キーボードの上にキーバー（Esc、Tab、Ctrl、Alt、Shift、Enter、矢印キー）が並ぶ PWA。キーの並べ替えや独自のキー組み合わせの追加は Settings（設定）でできます。設定した HTTPS アドレスを QR コードで共有できます。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
-- **話して入力** — チャットやターミナルの入力欄に音声で入力できます。韓国語と英語が混ざっても認識し、送信するまで何も送られません。自分の OpenAI API キー、またはブラウザの音声認識を使います。
-- **いつもの作業環境をそのままに** — エージェントは herdr が管理し、このアプリはそこに接続します。エージェントを止めずに Settings（設定）からアップデートでき、アップデートごとの変更はパッチノートで確認できます。新しいタブや worktree は行の ⋯ メニューから作れます。[すべての機能 →](docs/guide.md#features)
+- **いつもの作業環境をそのままに** — エージェントは herdr が管理し、アプリは接続だけを行います。新しいタブと worktree は ⋯ メニューから作成できます。更新は管理者が別途行います。
 
 ---
 
@@ -95,7 +94,7 @@ https://github.com/user-attachments/assets/d854dbb6-64bd-4eba-81c7-fbd3f525726b
 curl -fsSL https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.sh | sh
 ```
 
-Linux（x64、arm64）または macOS に対応しています。必要な herdr 0.9.0+、Bun 1.4+、Node 18+ がなければ現在のユーザー向けにインストールし、その後アプリを herdr プラグインとしてインストールします。既存の herdr が 0.9.0 より古い場合は、自分で herdr を更新・再起動してからインストーラーを再実行してください。 HTTPS のリバースプロキシまたは SSH トンネルを自分で設定し、デバイスをコードでペアリングしてください。アプリのインストールと通知には HTTPS または localhost が必要です。
+Linux（x64、arm64）と macOS に対応します。herdr 0.9.0+、Bun 1.4+、Git、Node 18+ を先に別途インストールしてください。スクリプトは必要なソフトウェアを自動導入しません。HTTPS または VPN は管理者が設定します。
 
 Windows x64 では PowerShell で:
 
@@ -103,7 +102,7 @@ Windows x64 では PowerShell で:
 irm https://raw.githubusercontent.com/tomrutsaert/herdr-web-ui/main/install.ps1 | iex
 ```
 
-[Git for Windows](https://git-scm.com/download/win) が必要です。足りない herdr と Bun を現在のユーザー向けにインストールし、同じプラグインをインストールします。Node や WSL は不要です。スマートフォンから使うには herdr で **Phone setup** を開いてください。herdr が Windows でターミナルのアタッチに対応するまで、Windows のターミナルは入力でき、グリッドが固定された[画面ミラー](docs/remote-pcs.md#windows-pcs)になります。
+Windows x64 では Git、herdr 0.9.0+、Bun 1.4+ を先に用意してください。Node と WSL は不要です。ターミナルは固定グリッドの画面ミラーを使います。
 
 必要なソフトウェアがすでにそろっている場合は、プラグインだけをインストールできます。
 
@@ -123,7 +122,7 @@ QR コードは localhost 以外の HTTPS アドレスで開いた場合だけ�
 
 **Claude Code や Codex をスマートフォンから使えますか？**
 
-はい。コンピューターの [herdr](https://github.com/herdrdev/herdr) のペインでエージェントを動かすと、このアプリが同じペインをスマートフォンのブラウザに表示します。エージェント自身の会話履歴はチャットとして、承認や質問はタップして答えるカードとして表示され、ライブターミナルにもすぐ切り替えられます。PWA としてホーム画面にインストールでき、エージェントが入力を待つとプッシュ通知が届きます。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
+はい。コンピューターの [herdr](https://github.com/herdrdev/herdr) のペインでエージェントを動かすと、このアプリが同じペインをスマートフォンのブラウザに表示します。エージェント自身の会話履歴はチャットとして、承認や質問はタップして答えるカードとして表示され、ライブターミナルにもすぐ切り替えられます。PWA としてインストールでき、開いている間にアプリ内通知を表示します。[スマートフォンの設定 →](docs/guide.md#on-your-phone)
 
 **チャット表示はどのエージェントに対応していますか？**
 
@@ -139,15 +138,15 @@ HTTPS のリバースプロキシまたは SSH トンネルを自分で設定し
 
 **コードや会話が自分のマシンの外に出ることはありますか？**
 
-セッションの内容は接続したブラウザに送られます。任意の音声入力、使用量表示、手動更新、リモート PC 設定、通知は外部サービスを使う場合があります。管理者向けの利用状況は送信しません。
+セッションファイルはホストに残り、許可されたブラウザーへ送信されます。アプリは外部ベンダーへの接続、アカウントの探索、ソフトウェアの自動導入、他の PC の集約を行いません。エージェントのモデル通信、ユーザーが開く外部リンクやメディア、管理者のネットワーク設備は別です。
 
 **Windows でも動きますか？**
 
-はい。Windows x64 で、WSL なしで動きます。herdr が Windows でターミナルのアタッチに対応するまで、ターミナルは入力ができる固定グリッドの[画面ミラー](docs/remote-pcs.md#windows-pcs)です。
+はい。Windows x64 で、WSL なしで動きます。herdr が Windows でターミナルのアタッチに対応するまで、ターミナルは入力ができる固定グリッドの[画面ミラー](docs/guide.md#supported-agents)です。
 
 **collie、roamgate、herdr-remote とは何が違いますか？**
 
-これらも herdr をスマートフォンやブラウザから使うためのクライアントです。このアプリはエージェント自身の会話履歴を読むので、ペインはターミナル出力ではなく、作業がターンごとに折りたたまれたチャットになります。ほかの PC はサイドバーから SSH で追加します。トンネルは付属せず、扱うのは herdr だけです。tmux や zellij、差分表示、Telegram、すぐ使えるトンネルが必要なら、ほかのクライアントのほうが向いています。[詳しい比較 →](docs/guide.md#faq)
+これらも herdr をスマートフォンやブラウザから使うためのクライアントです。このアプリはエージェント自身の会話履歴を読むので、ペインはターミナル出力ではなく、作業がターンごとに折りたたまれたチャットになります。1 台のワークステーションを提供します。トンネルは付属せず、扱うのは herdr だけです。tmux や zellij、差分表示、Telegram、すぐ使えるトンネルが必要なら、ほかのクライアントのほうが向いています。[詳しい比較 →](docs/guide.md#faq)
 
 **Happy、Paseo、CloudCLI UI とは何が違いますか？**
 
@@ -157,9 +156,9 @@ HTTPS のリバースプロキシまたは SSH トンネルを自分で設定し
 
 ## ドキュメント
 
-まずは[ユーザーガイド](docs/guide.md)をご覧ください：[クイックスタート](docs/guide.md#quick-start) · [対応エージェント](docs/guide.md#supported-agents) · [機能](docs/guide.md#features) · [スマートフォン](docs/guide.md#on-your-phone) · [リモート PC](docs/remote-pcs.md) · [アクセスと安全性](docs/guide.md#access-and-safety) · [設定](docs/guide.md#configuration) · [キーボードショートカット](docs/guide.md#keyboard-shortcuts) · [よくある質問](docs/guide.md#faq)。
+まずは[ユーザーガイド](docs/guide.md)をご覧ください：[クイックスタート](docs/guide.md#quick-start) · [対応エージェント](docs/guide.md#supported-agents) · [機能](docs/guide.md#features) · [スマートフォン](docs/guide.md#on-your-phone) · [アクセスと安全性](docs/guide.md#access-and-safety) · [設定](docs/guide.md#configuration) · [キーボードショートカット](docs/guide.md#keyboard-shortcuts) · [よくある質問](docs/guide.md#faq)。
 
-さらに詳しく：[仕組み](docs/guide.md#how-it-works) · [チャットの会話履歴](docs/chat-mode-audit.md) · [ターミナルのフロー制御](docs/terminal-flow-control.md) · [アプリのアップデート](docs/app-updates.md) · [変更履歴](CHANGELOG.md)。
+さらに詳しく：[仕組み](docs/guide.md#how-it-works) · [チャットの会話履歴](docs/chat-mode-audit.md) · [ターミナルのフロー制御](docs/terminal-flow-control.md) · [変更履歴](CHANGELOG.md)。
 
 <a id="thanks"></a>
 

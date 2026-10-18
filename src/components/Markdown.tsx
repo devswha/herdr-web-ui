@@ -12,7 +12,7 @@ import { HighlightedCode } from "./HighlightedCode.tsx";
 import { useT } from "../lib/i18n.ts";
 import { type MarkdownImagePreview } from "../lib/markdownImages.ts";
 import { imageSlotStyle, standaloneImage } from "../lib/imageBox.ts";
-import { formatBytes } from "../lib/bridgeProgress.ts";
+import { formatBytes } from "../lib/formatBytes.ts";
 import { MermaidLightbox } from "./MermaidLightbox.tsx";
 import { copyText } from "../lib/clipboard.ts";
 import { lazyChunk } from "../lib/lazyChunk.ts";

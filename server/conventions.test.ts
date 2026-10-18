@@ -42,15 +42,6 @@ describe("PTY sidecar boundary", () => {
   });
 });
 
-describe("web push", () => {
-  // web-push's sendNotification goes through node:https, which Bun does not carry the way it
-  // needs; push.ts builds each request with generateRequestDetails and sends it with fetch.
-  it("never calls sendNotification", () => {
-    fail(matches(files("{server,src,shared,scripts}/**/*.{ts,tsx,mjs,js}").filter((file) => !file.endsWith(".test.ts")), /\bsendNotification\b/).map((match) => match.at),
-      "Web push requests are built with webpush.generateRequestDetails and sent with fetch (server/push.ts); never call sendNotification (AGENTS.md, Bridge invariants).");
-  });
-});
-
 /** The text of the `{ … }` that opens at `open`, strings respected. */
 function braces(code: string, open: number): string {
   let depth = 0;

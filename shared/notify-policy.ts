@@ -2,8 +2,7 @@ import type { AgentStatus, PaneInfo } from "./herdr-api.generated.ts";
 
 /**
  * When a pane is worth interrupting the user for, and what the interruption says.
- * Shared by the browser's tab notifications and the server's web push, so a device
- * with the app open and a phone with it closed fire on exactly the same events.
+ * Shared by the browser's in-app and open-tab alerts.
  */
 
 /** Statuses worth interrupting the user for. `idle`/`working` are the busy baseline. */

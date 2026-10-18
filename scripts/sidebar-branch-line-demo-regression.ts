@@ -22,17 +22,17 @@ const patch = `(() => {
     w1H: { repo_key: "api", repo_name: "checkout-api", repo_root: "/tmp/checkout-api", checkout_path: "/tmp/checkout-api-flaky", is_linked_worktree: true },
     w1J: null, w1K: null, w1L: null,
   };
-  const roster = (machines) => machines.map((machine) => {
-    const copy = structuredClone(machine);
-    for (const workspace of copy.snapshot?.workspaces ?? []) if (workspace.workspace_id in marks) workspace.worktree = marks[workspace.workspace_id];
+  const roster = (snapshot) => {
+    const copy = structuredClone(snapshot);
+    for (const workspace of copy?.workspaces ?? []) if (workspace.workspace_id in marks) workspace.worktree = marks[workspace.workspace_id];
     return copy;
-  });
+  };
   window.EventSource = class extends EventTarget {
     constructor(url, options) {
       super(); this.inner = new EventSourceDemo(url, options); this.readyState = 1;
       this.inner.onmessage = (event) => {
         const message = JSON.parse(event.data);
-        if (message.type === "machines") message.machines = roster(message.machines);
+        if (message.type === "snapshot") message.snapshot = roster(message.snapshot);
         this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
       };
       this.inner.onerror = (event) => this.onerror?.(event);
@@ -42,8 +42,8 @@ const patch = `(() => {
   };
   window.fetch = async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
-    const path = url.pathname.replace(/^\\/api\\/machines\\/[^/]+/, "/api");
-    if (path === "/api/machines") return json({ machines: roster((await (await fetchDemo(input, init)).json()).machines) });
+    const path = url.pathname;
+    if (path === "/api/session") return json({ snapshot: roster((await (await fetchDemo(input, init)).json()).snapshot) });
     if (path === "/api/worktree/list") {
       const id = url.searchParams.get("workspace_id");
       const entry = (open, checkout, branch, linked) => ({ path: checkout, branch, label: checkout, is_linked_worktree: linked, is_bare: false, is_detached: false, is_prunable: false, open_workspace_id: open });

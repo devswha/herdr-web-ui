@@ -23,8 +23,6 @@ export const SHORTCUTS = [
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },
-  // listed only: held, not dispatched; VoiceInput.tsx listens for it itself (isVoiceShortcut)
-  { id: "voice", label: "Dictate (hold)", keys: ["Mod", "Shift", "Space"] },
 ] as const;
 
 export type ShortcutId = (typeof SHORTCUTS)[number]["id"];
@@ -62,7 +60,7 @@ export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): stri
 
 export function shortcutDisplayKeys(id: ShortcutId, overrides: ShortcutOverrides): string[] {
   const shortcut = SHORTCUTS.find((candidate) => candidate.id === id)!;
-  if (id === "voice" || !Object.hasOwn(overrides, id)) return [...shortcut.keys];
+  if (!Object.hasOwn(overrides, id)) return [...shortcut.keys];
   const value = overrides[id];
   return value ? bindingDisplayKeys(value) : [];
 }
@@ -131,7 +129,6 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, 
   if (event.ctrlKey || event.altKey || event.metaKey) {
     const pressed = formatExactChord(exactChordFromEvent(event));
     for (const shortcut of SHORTCUTS) {
-      if (shortcut.id === "voice") continue;
       const value = Object.hasOwn(overrides, shortcut.id) ? overrides[shortcut.id] : null;
       const chord = value ? parseExactChord(value) : null;
       if (chord && formatExactChord(chord) === pressed) return shortcut.id;
@@ -141,17 +138,10 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, 
   if (!hasMod || !event.shiftKey || event.altKey) return null;
   const key = shortcutEventKey(event);
   for (const shortcut of SHORTCUTS) {
-    if (shortcut.id === "voice") continue;
     if (Object.hasOwn(overrides, shortcut.id) && overrides[shortcut.id] === key) return shortcut.id;
   }
   const id = KEY_TO_ID[key];
   return id && !Object.hasOwn(overrides, id) ? id : null;
-}
-
-/** Mod+Shift+Space, held to dictate. matchShortcut never returns "voice": it has no action. */
-export function isVoiceShortcut(event: ShortcutEventLike, platformIsMac: boolean): boolean {
-  const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  return hasMod && event.shiftKey && !event.altKey && (event.code === "Space" || event.key === " ");
 }
 
 /**
