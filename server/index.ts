@@ -1,7 +1,7 @@
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
 import { closeMention, createSubmitText, freeClaudeBox, freeHermesInput, InputDraftError, pendingFault, pendingIdentity, pendingText } from "./core/composer.ts";
 import { createInputLane } from "./core/input.ts";
-import { type Client, presenceOf, send, type SocketData } from "./core/connections.ts";
+import { type Client, connectionData, connectionOf, createConnections, presenceOf, send, type SocketData } from "./core/connections.ts";
 import { createStatusHub } from "./core/status.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { randomBytes } from "node:crypto";
@@ -51,7 +51,6 @@ import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts"
 import { claudeHeldIsGrey, shownInputBox, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PtySession } from "./pty/session.ts";
-import { PaneWatch } from "./watch.ts";
 import { AttachOutputTail, AttachStartupProbes, isTakeoverExit } from "./attach-output.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
@@ -61,7 +60,6 @@ import { processStartedAt } from "./process-start.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer, wireBytes } from "./output-window.ts";
-import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 import { handlePortalRequest, PortalService } from "./portal.ts";
@@ -360,7 +358,7 @@ export function createServer(
   let stopped = false;
   const conversations = new ConversationMonitor((paneId, signature) => {
     for (const client of clients) {
-      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) {
+      if (!connectionOf(client).closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) {
         send(client, { type: "conversation-changed", pane_id: paneId, signature });
       }
     }
@@ -368,7 +366,7 @@ export function createServer(
 
   function releaseConversation(paneId: string): void {
     for (const client of clients) {
-      if (!client.data.closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) return;
+      if (!connectionOf(client).closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) return;
     }
     conversations.unwatch(paneId);
   }
@@ -398,14 +396,7 @@ export function createServer(
 
   const submitText = createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS });
 
-  /** authorizeSocket as a test: may this connection type now? */
-  const mayType = (client: Client): boolean => clients.has(client) && !client.data.closing && !client.data.revoked
-    && !client.data.readOnly && client.data.mode !== "observe";
-
-  function authorizeSocket(client: Client): void {
-    if (client.data.revoked) throw new HerdrError("device_revoked", "this device's access was revoked");
-    if (client.data.readOnly || client.data.mode === "observe") throw new HerdrError("read_only", "this connection can only watch");
-  }
+  const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending, devices, detachClaimed, dropClaims });
 
   function pendingLease(owner: Client, paneId: string): PendingLease {
     const attachment = attachments.get(paneId);
@@ -431,7 +422,7 @@ export function createServer(
   }
   function authorizePending(owner: Client, paneId: string, lease: PendingLease): void {
     authorizeSocket(owner);
-    if (!clients.has(owner) || owner.data.closing) throw new HerdrError("disconnected", "The pending message's connection closed");
+    if (!clients.has(owner) || connectionOf(owner).closing) throw new HerdrError("disconnected", "The pending message's connection closed");
     if (pendingAuthorities.get(owner)?.get(paneId) !== lease.authority) throw new HerdrError("pending_lease_lost", "The pending message's authority changed; review it before sending again");
     const attachment = attachments.get(paneId);
     if (attachment?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
@@ -583,24 +574,6 @@ export function createServer(
     return true;
   }
 
-  function killWatches(client: Client): void {
-    for (const watch of client.data.watches.values()) watch.kill();
-    client.data.watches.clear();
-  }
-
-  function stopSlowClient(client: Client): void {
-    if (client.data.closing) return;
-    client.data.closing = true;
-    killWatches(client);
-    pending.close(client);
-    clients.delete(client);
-    for (const paneId of client.data.attached.keys()) detach(paneId, client);
-    client.data.attached.clear();
-    client.data.conversationInterests.clear();
-    client.data.output.clear();
-    client.close(OUTPUT_STALLED_CLOSE_CODE, "terminal output consumer stalled");
-  }
-
   function reconcileOutput(paneId: string): void {
     const attachment = attachments.get(paneId);
     if (!attachment?.pty) return;
@@ -611,7 +584,7 @@ export function createServer(
       if (window) {
         // an ACK client: measured by its ACK progress, and a joiner draining its replay never pauses the pty
         const verdict = window.check(buffered);
-        if (verdict === "stop") stopSlowClient(client);
+        if (verdict === "stop") end(client, "stalled");
         else if (verdict === "pause") paused = true;
         continue;
       }
@@ -624,7 +597,7 @@ export function createServer(
       const since = attachment.stalled.get(client) ?? Date.now();
       attachment.stalled.set(client, since);
       if (Date.now() - since >= OUTPUT_STALL_MS || buffered >= OUTPUT_HARD_BYTES) {
-        stopSlowClient(client);
+        end(client, "stalled");
       } else {
         paused = true;
       }
@@ -638,7 +611,7 @@ export function createServer(
     const window = client.data.output.get(paneId);
     const bytes = Buffer.byteLength(data);
     if ((window && window.pending + bytes > OUTPUT_HARD_BYTES) || client.getBufferedAmount() >= OUTPUT_HARD_BYTES) {
-      stopSlowClient(client);
+      end(client, "stalled");
       return;
     }
     send(client, {
@@ -836,7 +809,7 @@ export function createServer(
     let takeoverWanted: Client | null = null;
     /** A click counts only while its client is still here and may type: no later start acts for one that left or observes. */
     const mayTakeOver = (client: Client | null): client is Client =>
-      client !== null && attachment.clients.has(client) && client.data.mode === "interact" && !client.data.closing;
+      client !== null && attachment.clients.has(client) && connectionOf(client).mode === "interact" && !connectionOf(client).closing;
     /** an attempt, live attach or terminal lookup is running: another start must wait */
     let trying = false;
     /** Starts at most one attempt, cancelling any scheduled retry before it can overlap. */
@@ -1105,6 +1078,17 @@ export function createServer(
     else reconcileOutput(paneId);
   }
 
+  /** An ending connection leaves its panes while its claims still count, then drops them (dropClaims). */
+  function detachClaimed(client: Client): void {
+    for (const paneId of client.data.attached.keys()) detach(paneId, client);
+  }
+
+  function dropClaims(client: Client): void {
+    client.data.attached.clear();
+    client.data.conversationInterests.clear();
+    client.data.output.clear();
+  }
+
   /**
    * Closes an attachment whose creating client detached or disconnected before it was
    * ready, unless a client still wants it: every attach records its pane in
@@ -1245,13 +1229,13 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, { keepSize: boolean }>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, relay, deviceId, readOnly } });
+            const upgraded = bunServer.upgrade(request, { data: connectionData({ relay, deviceId, readOnly }) });
             if (upgraded) return undefined as unknown as Response;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Map<string, { keepSize: boolean }>(), watches: new Map<string, PaneWatch>(), conversationInterests: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, roles: 0, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: connectionData({ deviceId, readOnly }) });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -1540,22 +1524,7 @@ export function createServer(
         for (const paneId of client.data.attached.keys()) reconcileOutput(paneId);
       },
       async open(client) {
-        if (client.data.deviceId) {
-          client.data.unwatchDevice = devices.onRevoke(client.data.deviceId, () => {
-            client.data.revoked = true;
-            client.data.closing = true;
-            killWatches(client);
-            clients.delete(client);
-            present.delete(client);
-            for (const paneId of client.data.attached.keys()) detach(paneId, client);
-            client.data.attached.clear();
-            client.data.conversationInterests.clear();
-            client.data.output.clear();
-            client.data.relay?.close(1008, "Device access revoked");
-            client.close(1008, "Device access revoked");
-          });
-          if (client.data.revoked) return;
-        }
+        if (!admit(client)) return;
         if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
         clients.add(client);
         const snapshot = clientSnapshot();
@@ -1569,7 +1538,7 @@ export function createServer(
       },
 
       async message(client, raw) {
-        if (stopped || client.data.closing) return;
+        if (stopped || connectionOf(client).closing) return;
         // read here for a relayed connection too: alerts for every PC go out from this server
         const presence = presenceOf(raw);
         if (presence === true) {
@@ -1602,31 +1571,11 @@ export function createServer(
                 send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
                 break;
               }
-              const paneId = message.pane_id;
-              client.data.watches.get(paneId)?.kill();
-              client.data.watches.delete(paneId);
-              try {
-                const watch = new PaneWatch({
-                  paneId,
-                  ...geometry,
-                  socketPath: herdrSocketPath(),
-                  onFrame: (data) => send(client, { type: "watch-data", pane_id: paneId, data }),
-                  onEnd: () => {
-                    if (client.data.watches.get(paneId) !== watch) return;
-                    client.data.watches.delete(paneId);
-                    send(client, { type: "watch-end", pane_id: paneId });
-                  },
-                });
-                client.data.watches.set(paneId, watch);
-              } catch (error) {
-                console.warn(`[watch] ${paneId} could not start: ${error instanceof Error ? error.message : String(error)}`);
-                send(client, { type: "watch-end", pane_id: paneId });
-              }
+              watchPane(client, message.pane_id, geometry);
               break;
             }
             case "unwatch": {
-              client.data.watches.get(message.pane_id)?.kill();
-              client.data.watches.delete(message.pane_id);
+              unwatchPane(client, message.pane_id);
               break;
             }
             case "attach": {
@@ -1648,7 +1597,7 @@ export function createServer(
               let attachment: PaneAttachment;
               try {
                 // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
-                attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe" || message.keep_size === true);
+                attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, connectionOf(client).mode === "observe" || message.keep_size === true);
               } catch (error) {
                 if (client.data.attached.get(message.pane_id) === claim) {
                   client.data.attached.delete(message.pane_id);
@@ -1657,7 +1606,7 @@ export function createServer(
                 }
                 throw error;
               }
-              if (stopped || client.data.closing || client.data.attached.get(message.pane_id) !== claim) {
+              if (stopped || connectionOf(client).closing || client.data.attached.get(message.pane_id) !== claim) {
                 releaseUnclaimed(message.pane_id, attachment);
                 break;
               }
@@ -1688,10 +1637,10 @@ export function createServer(
               // a pane waiting for another web bridge to let go says so to each newcomer, too
               if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
               reconcileOutput(message.pane_id);
-              if (client.data.closing) break;
+              if (connectionOf(client).closing) break;
               if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
               if (attachment.mirror) break;
-              if (client.data.mode === "interact" && !claim.keepSize) {
+              if (connectionOf(client).mode === "interact" && !claim.keepSize) {
                 // an operator's viewport owns the shared grid
                 drivePty(message.pane_id, client, geometry.cols, geometry.rows);
               } else {
@@ -1708,7 +1657,7 @@ export function createServer(
               break;
             }
             case "take-over": {
-              if (client.data.mode === "observe") {
+              if (connectionOf(client).mode === "observe") {
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
                 break;
               }
@@ -1750,7 +1699,7 @@ export function createServer(
               break;
             }
             case "input": {
-              if (client.data.mode === "observe") {
+              if (connectionOf(client).mode === "observe") {
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
                 break;
               }
@@ -1779,10 +1728,10 @@ export function createServer(
                 // typed into this attach, or into none: one left meanwhile (even attached again) takes none of it
                 const origin = attachment?.clients.has(client) ? attachment : undefined;
                 const claim = client.data.attached.get(message.pane_id);
-                const roles = client.data.roles;
+                const roles = connectionOf(client).roles;
                 // checked again right before herdr is written to: its connect is awaited (#545)
                 // and into the same attach, or still none: one made while this waited is someone else's (#732)
-                const allowed = () => mayType(client) && client.data.roles === roles && client.data.attached.get(message.pane_id) === claim
+                const allowed = () => mayType(client) && connectionOf(client).roles === roles && client.data.attached.get(message.pane_id) === claim
                   && sameAttachment(origin, attachments.get(message.pane_id), client);
                 void serialize(message.pane_id, async () => {
                   // a herdr that attaches: typing reaches an attached pane only
@@ -1824,8 +1773,8 @@ export function createServer(
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
                 const pty = attachment.pty;
                 const claim = client.data.attached.get(message.pane_id);
-                const roles = client.data.roles;
-                const allowed = () => mayType(client) && client.data.roles === roles && attachments.get(message.pane_id) === attachment && attachment.pty === pty
+                const roles = connectionOf(client).roles;
+                const allowed = () => mayType(client) && connectionOf(client).roles === roles && attachments.get(message.pane_id) === attachment && attachment.pty === pty
                   && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client) && attachment.ready && !attachment.held;
                 void serialize(message.pane_id, async () => {
                   // behind typing still in the sidecar, as a terminal key waits for it
@@ -1854,7 +1803,7 @@ export function createServer(
               break;
             }
             case "resize": {
-              if (client.data.mode === "observe") {
+              if (connectionOf(client).mode === "observe") {
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
                 break;
               }
@@ -1871,7 +1820,7 @@ export function createServer(
               const creating = attachments.has(message.pane_id) ? undefined : pendingAttachments.get(message.pane_id);
               if (creating && client.data.attached.has(message.pane_id)) {
                 try { await creating; } catch { break; }
-                if (client.data.closing || client.data.mode !== "interact" || client.data.attached.get(message.pane_id) !== claim || claim?.keepSize) break;
+                if (connectionOf(client).closing || connectionOf(client).mode !== "interact" || client.data.attached.get(message.pane_id) !== claim || claim?.keepSize) break;
               }
               drivePty(message.pane_id, client, geometry.cols, geometry.rows);
               break;
@@ -1881,7 +1830,7 @@ export function createServer(
               // goes back to the latest grid of another interact client still showing the terminal (#472).
               // Nothing to hand it to, or another client drove since: the size stays. Never an error, as
               // an older server ignores the frame.
-              if (client.data.mode !== "interact") break;
+              if (connectionOf(client).mode !== "interact") break;
               const claim = client.data.attached.get(message.pane_id);
               if (!claim) break;
               // Remember the release before looking up the attachment: its initial creation can
@@ -1892,13 +1841,13 @@ export function createServer(
               attachment.grids.delete(client);
               if (attachment.driver !== client) break;
               attachment.driver = undefined;
-              const next = [...attachment.grids].reverse().find(([other]) => other.data.mode === "interact"
+              const next = [...attachment.grids].reverse().find(([other]) => connectionOf(other).mode === "interact"
                 && attachment.clients.has(other) && other.data.attached.get(message.pane_id)?.keepSize === false);
               if (next) drivePty(message.pane_id, next[0], next[1].cols, next[1].rows);
               break;
             }
             case "keys": {
-              if (client.data.mode === "observe") {
+              if (connectionOf(client).mode === "observe") {
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
                 break;
               }
@@ -1908,7 +1857,7 @@ export function createServer(
               const origin = attachment?.clients.has(client) ? attachment : undefined;
               const pty = origin?.pty;
               const claim = client.data.attached.get(message.pane_id);
-              const roles = client.data.roles;
+              const roles = connectionOf(client).roles;
               if (attachment?.held) {
                 send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
                 break;
@@ -1963,7 +1912,7 @@ export function createServer(
                 if (!clients.has(client)) return;
                 authorizeSocket(client);
                 // the same checks once more right before herdr is written to: its connect is awaited (#545)
-                const allowed = () => mayType(client) && client.data.roles === roles && !attachments.get(message.pane_id)?.held
+                const allowed = () => mayType(client) && connectionOf(client).roles === roles && !attachments.get(message.pane_id)?.held
                   && (!origin || (attachments.get(message.pane_id) === origin && origin.pty === pty && origin.ready
                     && client.data.attached.get(message.pane_id) === claim && origin.clients.has(client)));
                 batch.sent = true;
@@ -1994,7 +1943,7 @@ export function createServer(
                   || typeof message.prompt !== "string" || secretPrompt(message.prompt) !== message.prompt || !validSecret(message.secret)) {
                   result(false, "invalid_secret"); break;
                 }
-                if (client.data.mode === "observe") { result(false, "read_only"); break; }
+                if (connectionOf(client).mode === "observe") { result(false, "read_only"); break; }
                 const attachment = attachments.get(message.pane_id);
                 if (!attachment?.clients.has(client)) { result(false, "not_attached"); break; }
                 // Mirrored cleanup uses Backspace on Windows too: only printable ASCII erases reliably.
@@ -2006,12 +1955,12 @@ export function createServer(
                 // and the pty it saw, and the role it had: a live handoff or a switch away and back
                 // during the screen read takes the secret back too (#589)
                 const pty = attachment.pty;
-                const roles = client.data.roles;
+                const roles = connectionOf(client).roles;
                 await serialize(message.pane_id, async () => {
                   // A viewport scrolled into history can still show an old password prompt.
                   // Validate the live screen before typing a secret into the current program.
                   const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
-                  if (client.data.closing || client.data.mode === "observe" || client.data.roles !== roles) { result(false, "read_only"); return; }
+                  if (connectionOf(client).closing || connectionOf(client).mode === "observe" || connectionOf(client).roles !== roles) { result(false, "read_only"); return; }
                   authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment
                     || client.data.attached.get(message.pane_id) !== claim) { result(false, "not_attached"); return; }
@@ -2021,7 +1970,7 @@ export function createServer(
                     // A mirrored pane has no pty to type into: the secret is herdr's text, then the
                     // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,
                     // so a send herdr refused is answered as failed, not as entered.
-                    const allowed = () => mayType(client) && client.data.roles === roles && attachments.get(message.pane_id) === attachment
+                    const allowed = () => mayType(client) && connectionOf(client).roles === roles && attachments.get(message.pane_id) === attachment
                       && attachment.pty === pty && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client);
                     try {
                       await paneSendText(message.pane_id, message.secret, undefined, allowed);
@@ -2037,7 +1986,7 @@ export function createServer(
                       // Cleanup is deliberately unguarded: do not leave the secret for another Enter.
                       // Raw-mode readers may receive these bytes without erasing their own buffer.
                       await paneSendKeys(message.pane_id, Array(message.secret.length).fill("Backspace"));
-                      result(false, client.data.closing || client.data.roles !== roles
+                      result(false, connectionOf(client).closing || connectionOf(client).roles !== roles
                         ? "read_only" : "not_attached");
                       return;
                     }
@@ -2089,7 +2038,7 @@ export function createServer(
                 result(false, "invalid_delivery", "A resend generation must be a nonnegative integer with a held-copy id");
                 break;
               }
-              if (client.data.mode === "observe") {
+              if (connectionOf(client).mode === "observe") {
                 result(false, "read_only", "this connection is in observe mode");
                 break;
               }
@@ -2181,7 +2130,7 @@ export function createServer(
                 const lease = message.action === "steer" ? pendingLease(client, message.pane_id) : null;
                 const answer = await serialize(message.pane_id, async (): Promise<SubmitReply> => {
                   authorizeSocket(client);
-                  if (!clients.has(client) || client.data.closing) throw new HerdrError("disconnected", "This connection closed");
+                  if (!clients.has(client) || connectionOf(client).closing) throw new HerdrError("disconnected", "This connection closed");
                   const item = pending.get(client, message.pane_id, message.pending_id);
                   if (!item) return replayPendingOutcome(client, message.pane_id, message.pending_id)
                     ? { ok: true } : { ok: false, code: "pending_not_found", message: "This pending message does not belong to this connection" };
@@ -2215,8 +2164,7 @@ export function createServer(
               }
               if (client.data.readOnly) message.mode = "observe";
               if (message.mode === "observe") holdPending(client);
-              if (client.data.mode !== message.mode) client.data.roles++;
-              client.data.mode = message.mode;
+              setRole(client, message.mode);
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {
                 // the fresh observer needs the grid it must adopt
@@ -2240,17 +2188,7 @@ export function createServer(
       },
 
       close(client) {
-        client.data.unwatchDevice?.();
-        client.data.closing = true;
-        present.delete(client);
-        if (client.data.relay) { client.data.relay.close(); return; }
-        killWatches(client);
-        pending.close(client);
-        clients.delete(client);
-        for (const paneId of client.data.attached.keys()) detach(paneId, client);
-        client.data.attached.clear();
-        client.data.conversationInterests.clear();
-        client.data.output.clear();
+        end(client, "closed");
       },
     },
   });
