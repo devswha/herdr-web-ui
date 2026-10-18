@@ -1,2 +1,3 @@
 ### Removed
-- The marketing website, its media tooling and GitHub Pages deployment.
+- The marketing website, media-production tooling and GitHub Pages deployment. Browser-test
+  fixtures and their refresh tooling remain available.

@@ -2,8 +2,8 @@
  * Captures what the browser demo (scripts/demo/transport.ts) serves in place of a server: the machine
  * roster with herdr's real snapshot shapes, the agent kinds, one pane's slash commands, and the
  * shell pane's terminal output for `git log` and `bun test`, on an 80×24 grid so the recording
- * replays on a phone. Everything comes from the staged, fictional README session
- * (scripts/readme-media/stage.ts), never from the herdr you work in, and the real hostname and
+ * replays on a phone. Everything comes from an isolated, fictional session
+ * (scripts/demo/stage.ts), never from the herdr you work in, and the real hostname and
  * login are replaced before anything is written to scripts/demo/fixtures/.
  *
  *   bun scripts/demo-fixtures.ts
@@ -11,7 +11,7 @@
 import { hostname, userInfo } from "node:os";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { stage } from "./readme-media/stage.ts";
+import { stage } from "./demo/stage.ts";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
 
 const OUT = join(import.meta.dir, "./demo/fixtures");
@@ -30,7 +30,7 @@ try {
   save("commands.json", await get(`/api/pane/commands?pane_id=${encodeURIComponent(demo.pane("api").pane)}`));
   save("panes.json", Object.fromEntries(demo.panes.map((p) => [p.key, p.pane])));
 
-  // the shell pane, driven the way the README terminal shot is: real git history, real tests
+  // the shell pane's terminal fixture: real git history, real tests
   const shell = demo.pane("shell").pane;
   const frames: Array<{ at: number; data: string }> = [];
   const started = Date.now();

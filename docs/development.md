@@ -322,39 +322,18 @@ These resource results do not remeasure the latency or compressed payload figure
 in the historical table above. They were taken with a 2 s push-read bound; the bound is now
 1 s, so a pane written continuously gets up to twice the REST reads shown in the last rows.
 
-## README media
-
-`bun run build && bun scripts/readme-media/capture.ts` regenerates the stills and demos in `docs/screenshots/` from a staged, fictional session in its own herdr session (`herdr-web-ui-demo`). Pass `shots` or `video` to redo only one of them. It needs ffmpeg.
-
-- `stage.ts` builds the session from `scripts/demo/fixtures.ts`: two git repositories under `/tmp/herdr-demo`, each with two agent worktrees herdr adds, a release shell tab, curated chats served in place of transcripts, and the hostname rewritten.
-- `record.ts` records a walkthrough at 2x (Chrome's screencast, with `--force-device-scale-factor=2`), logging pointer moves, clicks, taps and camera cues as it drives the page.
-- `compose.ts` draws every output frame on a canvas: a backdrop, a browser window or a phone, the frame under an eased camera, and a vector cursor with click ripples or touch rings. It writes `demo-*.mp4` (1920×1200 and 1080×1920, 30 fps) and a GIF of each. Stills get the same window or phone on a transparent background.
-
-The MP4s are not committed: GitHub plays a README video only from an upload (`github.com/user-attachments/…`), so drop them into an issue or PR comment and use the link it gives.
-The README's feature grid shows a looping ~7-second cut of each feature video (`docs/media/readme/*.webp`, 800×450, 15 fps), each linking to its upload. Cut one with
-`ffmpeg -ss <start> -t <seconds> -i clip.mp4 -vf "fps=15,scale=800:450:force_original_aspect_ratio=increase:flags=lanczos,crop=800:450" -c:v libwebp_anim -loop 0 -quality 72 -compression_level 6 -an out.webp`;
-the scale and crop fill 800×450 from any source aspect. Start on a sharp frame, not mid camera move. The top video stays a GitHub upload so it plays at full quality.
-
-The user guide's gallery and retained banner can be rendered from isolated app captures:
-`STILLS=/path/to/stills bun scripts/readme-media/banner.ts [banner] [look]` draws `banner.html`
-in headless Chrome into `docs/media/banner.png` (1920×800) and
-`docs/media/look-{chat,prompt,terminal}.png` (1760×1150), each quantized to 256 colours.
-Supply 2× captures named `03-desktop-todo-open.png`, `14-phone-codex-approval.png`,
-`02-desktop-chat-worked-open.png`, `04-desktop-codex-approval.png` and `07-desktop-terminal.png`.
-`FONTS` optionally names a local brand-font directory (defaults to `STILLS/fonts`, with CDN fallbacks).
-
 ## Browser fixtures
 
 Isolated browser checks use the real client on a fictional session, with no server.
 `scripts/demo-build.ts` builds the client with a relative base into a temporary directory and
 bundles `scripts/demo/transport.ts` beside it; each runner injects the transport into its own copy.
 The transport answers the app's `fetch("/api/…")`, local session event stream and `/ws` terminal
-socket from `scripts/demo/fixtures/`. The curated chats and Codex approval are shared with README
-media (`scripts/demo/fixtures.ts`, imported by `scripts/readme-media/stage.ts`).
-`machines.json`, `agents.json`, `commands.json` and the shell pane's `terminal.json` are captured
-from that staged session by `bun scripts/demo-fixtures.ts` (needs herdr; it uses the
-`herdr-web-ui-demo` session and scrubs the hostname and login). Recapture them after a herdr
-upgrade changes snapshot shapes, or after changing the staged session. Files and images need a real workstation rather than these fixtures.
+socket from `scripts/demo/fixtures/`. Curated chats, the Codex approval and the fictional layout
+are defined in `scripts/demo/fixtures.ts`.
+`bun scripts/demo-fixtures.ts` refreshes `machines.json`, `agents.json`, `commands.json`,
+`panes.json` and the shell pane's `terminal.json` using `scripts/demo/stage.ts` (needs herdr;
+it uses the isolated `herdr-web-ui-demo` session and scrubs the hostname and login). Recapture them
+when a herdr upgrade changes snapshot shapes, or after changing the staged session. Files and images need a real workstation rather than these fixtures.
 
 ## Releasing
 
@@ -563,7 +542,7 @@ input regression matrix.
 | [`src/`](../src/) | React UI: chat, terminal, composer, sidebar, settings |
 | [`server/`](../server/) | API, WebSockets, transcript readers and PTY bridge |
 | [`shared/`](../shared/) | HTTP/WebSocket contract and generated herdr types |
-| [`scripts/`](../scripts/) | Plugin lifecycle, type generation, README media and browser checks |
+| [`scripts/`](../scripts/) | Plugin lifecycle, type generation and browser checks |
 | [`public/`](../public/) | PWA manifest, service worker and icons |
 | [`docs/`](.) | Flow control, chat audit, brand assets and README media (`docs/media/`) |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |

@@ -190,7 +190,7 @@ bun test           # isolated herdr test session
 bun run test:ui    # browser regression checks
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to send a change, [development](docs/development.md) for tests, media and releases, and [DESIGN.md](DESIGN.md) for UI conventions. Report security problems privately: [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) to send a change, [development](docs/development.md) for tests and releases, and [DESIGN.md](DESIGN.md) for UI conventions. Report security problems privately: [SECURITY.md](SECURITY.md).
 
 ## license
 

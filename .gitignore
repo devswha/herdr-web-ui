@@ -12,8 +12,5 @@ evidence/
 
 remote-bundles/
 
-# README demo videos: uploaded to GitHub, not committed (docs/development.md)
-docs/screenshots/*.mp4
-
 # one-off screenshot and probe scripts kept inside the repo so imports resolve
 scripts/*.tmp.ts
