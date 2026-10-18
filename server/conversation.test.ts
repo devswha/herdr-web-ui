@@ -15,9 +15,56 @@ import * as herdr from "./herdr/client.ts";
 import { forgetHistoryChains } from "./codex.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import * as omo from "./omo.ts";
-import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneProcessRoots, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneProcessRoots, paneRunsOmo, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 
 describe("omo skill roots", () => {
+  it("uses a pane's cwd and process start when identifying a Windows OmO descendant", async () => {
+    const cwd = "C:\\Users\\demo\\repo";
+    const info = spyOn(omo, "omoProcessInfo").mockResolvedValue({ process_info: { foreground_processes: [
+      { pid: 101, argv: ["C:\\tools\\omo.exe"], startedAt: 1_700_000_000_000 },
+    ] } });
+    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir: "C:\\state\\agent", heldIds: [], custom: false });
+    try {
+      expect(await paneRunsOmo("omo-windows-fixture", cwd)).toBeTrue();
+      expect(info).toHaveBeenCalledWith("omo-windows-fixture");
+      expect(identity).toHaveBeenCalledWith({
+        pid: 101,
+        argv: ["C:\\tools\\omo.exe"],
+        cwd: undefined,
+        startedAt: 1_700_000_000_000,
+      }, cwd, expect.any(String));
+    } finally {
+      identity.mockRestore();
+      info.mockRestore();
+    }
+  });
+
+  it("uses Windows descendant metadata when resolving OmO command roots", async () => {
+    const cwd = "C:\\Users\\demo\\repo";
+    const info = spyOn(omo, "omoProcessInfo").mockResolvedValue({ process_info: { foreground_processes: [
+      { pid: 101, argv: ["C:\\tools\\omo.exe"], startedAt: 1_700_000_000_000 },
+    ] } });
+    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir: import.meta.dir, heldIds: [], custom: false });
+    const environ = spyOn(omo, "processEnviron").mockReturnValue(["PATH=/bin"]);
+    const which = spyOn(Bun, "which").mockReturnValue(null);
+    try {
+      const roots = await paneProcessRoots("omo-windows-fixture", "pi", cwd);
+      expect(info).toHaveBeenCalledWith("omo-windows-fixture");
+      expect(identity).toHaveBeenCalledWith({
+        pid: 101,
+        argv: ["C:\\tools\\omo.exe"],
+        cwd,
+        startedAt: 1_700_000_000_000,
+      }, cwd, expect.any(String));
+      expect(roots).toEqual({ omo: { agentDir: import.meta.dir, pluginDir: null }, environ: ["PATH=/bin"], pid: 101, cwd });
+    } finally {
+      which.mockRestore();
+      environ.mockRestore();
+      identity.mockRestore();
+      info.mockRestore();
+    }
+  });
+
   it("finds the bundled plugin from a Windows canonical launcher path", async () => {
     const canonical = win32.join("C:\\Users\\demo", "node_modules", "omo-ai", "dist", "cli.js");
     const directory = fs.statSync(import.meta.dir);

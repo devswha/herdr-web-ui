@@ -172,8 +172,8 @@ export function processEnviron(pid: number): string[] | null {
  * moment a process moves, so it must never override either process-specific source.
  */
 function processCwd(process: { pid: number; cwd?: string }, cwd: string): string {
-  if (typeof process.cwd === "string" && process.cwd) return process.cwd;
-  try { return readlinkSync(`/proc/${process.pid}/cwd`); } catch { return cwd; }
+  if (typeof process.cwd === "string" && process.cwd) return resolve(process.cwd);
+  try { return resolve(readlinkSync(`/proc/${process.pid}/cwd`)); } catch { return cwd ? resolve(cwd) : ""; }
 }
 
 /**
@@ -191,7 +191,7 @@ function processCwd(process: { pid: number; cwd?: string }, cwd: string): string
  *   the model it runs.
  */
 export function omoProcessIdentity(
-  process: { pid: number; argv?: string[]; cwd?: string },
+  process: { pid: number; argv?: string[]; cwd?: string; startedAt?: number },
   cwd: string,
   home: string,
   environOf: (pid: number) => readonly string[] | null = processEnviron,
@@ -199,9 +199,9 @@ export function omoProcessIdentity(
   const dir = processCwd(process, cwd);
   const environ = environOf(process.pid);
   const agentDir = omoAgentDir(environ, home, dir);
-  const startedAt = processStartedAt(process.pid);
+  const startedAt = process.startedAt ?? processStartedAt(process.pid);
   if (isOmoProcess(process.argv ?? [])) {
-    return { agentDir, heldIds: heldSessionIds(sessionDir(dir, agentDir), process.pid, startedAt), custom: false };
+    return { agentDir, heldIds: heldSessionIds(sessionDir(dir, agentDir), process.pid, startedAt, dir), custom: false };
   }
   if (!dir || startedAt === null) return null;
   const omoStore = environ?.some((word) => word.startsWith("OMO_CODING_AGENT_DIR=")) === true || agentDir === defaultOmoAgentDir(home);
@@ -316,7 +316,7 @@ function resumedIds(argv: string[]): string[] {
   return result;
 }
 
-export type ProcessInfo = { process_info?: { shell_pid?: number; foreground_processes?: { pid: number; argv?: string[]; cwd?: string }[] } } | null;
+export type ProcessInfo = { process_info?: { shell_pid?: number; foreground_processes?: { pid: number; argv?: string[]; cwd?: string; startedAt?: number }[] } } | null;
 
 /**
  * herdr on Windows names only the pane's launcher in foreground_processes, not what the launcher
@@ -326,26 +326,35 @@ export type ProcessInfo = { process_info?: { shell_pid?: number; foreground_proc
  */
 export function withOmoDescendants(info: ProcessInfo, rows: readonly ProcessRow[]): ProcessInfo {
   const shell = info?.process_info?.shell_pid;
-  if (shell === undefined) return info;
-  const foreground = info?.process_info?.foreground_processes ?? [];
-  const omo = descendantProcesses(rows, shell).filter((entry) =>
-    isOmoProcess(entry.argv) && !foreground.some((existing) => existing.pid === entry.pid));
-  return omo.length === 0 ? info : { ...info, process_info: { ...info?.process_info, foreground_processes: [...foreground, ...omo] } };
+  const existing = info?.process_info?.foreground_processes ?? [];
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  const foreground = existing.map((process) => {
+    const startedAt = byPid.get(process.pid)?.started;
+    return process.startedAt !== undefined || startedAt === undefined ? process : { ...process, startedAt };
+  });
+  const omo = (shell === undefined || !byPid.has(shell) ? [] : descendantProcesses(rows, shell)).filter((entry) =>
+    isOmoProcess(entry.argv) && !foreground.some((process) => process.pid === entry.pid)).map((entry) => {
+      const startedAt = byPid.get(entry.pid)?.started;
+      return startedAt === undefined ? entry : { ...entry, startedAt };
+    });
+  return omo.length === 0 && foreground.every((process, index) => process === existing[index])
+    ? info
+    : { ...info, process_info: { ...info?.process_info, foreground_processes: [...foreground, ...omo] } };
 }
 
-const processInfo = async (paneId: string): Promise<ProcessInfo> => {
-  const [info, rows] = await Promise.all([
-    herdrRpc<NonNullable<ProcessInfo>>("pane.process_info", { pane_id: paneId }).catch(() => null),
-    process.platform === "win32" ? recentProcessTable() : Promise.resolve([]),
-  ]);
-  return withOmoDescendants(info, rows);
+export const omoProcessInfo = async (paneId: string): Promise<ProcessInfo> => {
+  const info = await herdrRpc<NonNullable<ProcessInfo>>("pane.process_info", { pane_id: paneId }).catch(() => null);
+  if (process.platform !== "win32" || info?.process_info?.shell_pid === undefined) return info;
+  return withOmoDescendants(info, await recentProcessTable());
 };
 
-type OmoForeground = { pid: number; argv?: string[]; cwd?: string };
+type OmoForeground = { pid: number; argv?: string[]; cwd?: string; startedAt?: number };
 
 /** The pane's own directory evidence: herdr's foreground cwd, then the cwd the pane started in. */
-const paneFallbackCwd = (pane: HerdrPane): string =>
-  (typeof pane.foreground_cwd === "string" && pane.foreground_cwd) || pane.cwd || "";
+const paneFallbackCwd = (pane: HerdrPane): string => {
+  const cwd = (typeof pane.foreground_cwd === "string" && pane.foreground_cwd) || pane.cwd || "";
+  return cwd ? resolve(cwd) : "";
+};
 
 /**
  * One pane's recognized omo processes — each with the cwd it actually runs in — and the
@@ -408,7 +417,7 @@ function omoTranscriptsResolved(cwd: string, panes: readonly PaneResolution[], h
     if (omos.length === 0) continue;
     // every identity came from verified holders alone: hints and inference never apply
     const custom = omos.every(({ identity }) => identity.custom);
-    const starts = omos.map(({ process }) => processStartedAt(process.pid));
+    const starts = omos.map(({ process }) => process.startedAt ?? processStartedAt(process.pid));
     const owned = omos.map(({ identity }) => identity.agentDir);
     for (const agentDir of owned) agentDirs.add(agentDir);
     const dirs = omos.map((omo, index) => sessionDir(omo.cwd, owned[index]!));
@@ -484,7 +493,7 @@ export function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: Read
 export async function omoSessionForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<{ path: string | null; pending: string | null }> {
   // A child model can change herdr's agent label: inspect each pane's processes once.
   const candidates = panes;
-  const infos = new Map(await Promise.all(candidates.map(async (pane) => [pane.pane_id, await processInfo(pane.pane_id)] as const)));
+  const infos = new Map(await Promise.all(candidates.map(async (pane) => [pane.pane_id, await omoProcessInfo(pane.pane_id)] as const)));
   const resolved = candidates.map((pane) => resolvePaneRuntime(pane, infos.get(pane.pane_id) ?? null, home, processEnviron));
   const target = resolved.find((entry) => entry.pane.pane_id === paneId);
   // two holder-owning cwds fail closed: the pane cannot be bound to either
@@ -505,7 +514,7 @@ export async function omoTranscriptForPane(paneId: string, cwd: string, panes: H
  */
 export async function omoPanes(panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<Map<string, { path: string | null; startedAt: number | null }>> {
   const candidates = panes;
-  const infos = new Map(await Promise.all(candidates.map(async (pane) => [pane.pane_id, await processInfo(pane.pane_id)] as const)));
+  const infos = new Map(await Promise.all(candidates.map(async (pane) => [pane.pane_id, await omoProcessInfo(pane.pane_id)] as const)));
   const resolved = candidates.map((pane) => resolvePaneRuntime(pane, infos.get(pane.pane_id) ?? null, home, processEnviron));
   const found = new Map<string, { path: string | null; startedAt: number | null }>();
   const cwds = new Set(resolved.flatMap((entry) => entry.omos.length === 0 ? [] : entry.ambiguous ? entry.omos.map((omo) => omo.cwd) : [entry.cwd]));

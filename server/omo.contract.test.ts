@@ -1,10 +1,10 @@
-import { afterAll, expect, it } from "bun:test";
+import { afterAll, expect, it, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import { labelOmoPanes, paneTranscript } from "./conversation.ts";
-import { isOmoProcess, omoPanes, omoSessionForPane, omoTranscriptForPane, omoTranscriptsOfCwd, type ProcessInfo } from "./omo.ts";
+import { isOmoProcess, omoPanes, omoProcessInfo, omoSessionForPane, omoSessionFolder, omoTranscriptForPane, omoTranscriptsOfCwd } from "./omo.ts";
 import { createServer } from "./index.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
 import { startShellAgent } from "./shell-agent.ts";
@@ -14,7 +14,7 @@ const root = mkdtempSync(join(tmpdir(), "herdr-omo-binding-"));
 const workspaces: string[] = [];
 const script = join(root, "omo");
 writeFileSync(script, "setInterval(() => {}, 1000);\n");
-const dir = join(root, ".omo", "agent", "sessions", `-${root.replaceAll("/", "-")}--`);
+const dir = join(root, ".omo", "agent", "sessions", omoSessionFolder(root));
 mkdirSync(dir, { recursive: true });
 afterAll(async () => {
   for (const id of workspaces) await workspaceClose(id);
@@ -22,10 +22,10 @@ afterAll(async () => {
 });
 
 async function waitForProcess(paneId: string, marker: string) {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 10_000;
   for (;;) {
-    const info = await herdrRpc<NonNullable<ProcessInfo>>("pane.process_info", { pane_id: paneId });
-    const processes = info.process_info?.foreground_processes ?? [];
+    const info = await omoProcessInfo(paneId);
+    const processes = info?.process_info?.foreground_processes ?? [];
     // the stand-in itself, by its path: the shell's own startup processes come and go before it
     const process = processes.find((process) => process.argv?.includes(marker));
     if (process) return { process, processes };
@@ -40,7 +40,8 @@ async function launch(command: string, marker: string): Promise<string> {
   const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-omo-binding" });
   workspaces.push(created.workspace.workspace_id);
   const paneId = created.root_pane.pane_id;
-  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${command}\n` });
+  await herdrRpc("pane.send_text", { pane_id: paneId, text: process.platform === "win32" ? command : `${command}\n` });
+  if (process.platform === "win32") await herdrRpc("pane.send_keys", { pane_id: paneId, keys: ["Enter"] });
   await waitForProcess(paneId, marker);
   return paneId;
 }
@@ -114,20 +115,25 @@ it("starts omo through the pane's shell and waits until omo is its foreground pr
     return created.root_pane.pane_id;
   };
   const started = await shell();
-  await startShellAgent("omo", started, ["it's one arg"], { command: `${process.execPath} ${script}` });
-  const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: string[] }[] } }>("pane.process_info", { pane_id: started });
-  expect(info.process_info?.foreground_processes?.find((process) => isOmoProcess(process.argv ?? []))?.argv?.slice(-1)).toEqual(["it's one arg"]);
-  // a command that never becomes omo fails at the deadline instead of reporting a start
-  await expect(startShellAgent("omo", await shell(), [], { command: "true", timeoutMs: 1500 })).rejects.toThrow("omo did not start");
+  const which = spyOn(Bun, "which").mockReturnValue(process.execPath);
+  try {
+    await startShellAgent("omo", started, [script, "it's one arg"]);
+    const info = await omoProcessInfo(started);
+    expect(info?.process_info?.foreground_processes?.find((process) => isOmoProcess(process.argv ?? []))?.argv?.slice(-1)).toEqual(["it's one arg"]);
+    // a command that never becomes omo fails at the deadline instead of reporting a start
+    await expect(startShellAgent("omo", await shell(), ["-e", "setInterval(()=>{},1000)"], { timeoutMs: 1500 })).rejects.toThrow("omo did not start");
+  } finally { which.mockRestore(); }
 });
 
 // omo keeps no descriptor on its session file; it publishes a holder record instead
 const hold = async (paneId: string, id: string, store = dir, marker = script) => {
   // A later process-info snapshot can omit the launcher even after launch() observed it.
-  const { process: { pid } } = await waitForProcess(paneId, marker);
+  const { process: { pid, startedAt } } = await waitForProcess(paneId, marker);
+  const born = startedAt ?? processStartedAt(pid);
+  if (born === null) throw new Error(`cannot verify test process ${pid}'s start time`);
   const holders = join(store, "session-holders", encodeURIComponent(id));
   mkdirSync(holders, { recursive: true });
-  writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, bootAtMs: 0, processStartedAtMs: Math.floor(processStartedAt(pid)! / 1000) * 1000, cwd: root }));
+  writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, bootAtMs: 0, processStartedAtMs: Math.floor(born / 1000) * 1000, cwd: root }));
 };
 
 it("binds each omo pane in a shared cwd to the session its process holds", async () => {

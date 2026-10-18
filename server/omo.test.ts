@@ -1,7 +1,7 @@
 import { expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type { HerdrPane } from "../shared/protocol.ts";
 import { heldRuntime, heldSessionIds, isOmoProcess, omoAgentDir, omoProcessIdentity, omoSessionFolder, omoCandidates, omoTranscriptsOfCwd, selectOmoTranscript, withOmoDescendants, type OmoRuntime, type ProcessInfo } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
@@ -143,24 +143,25 @@ it("does not pin a launch session id after a new unclaimed session appears", () 
 });
 
 it("finds omo's agent directory where the process's environment moved it", () => {
-  expect(omoAgentDir(null, "/home/u", "/project")).toBe("/home/u/.omo/agent");
-  expect(omoAgentDir(["PATH=/bin"], "/home/u", "/project")).toBe("/home/u/.omo/agent");
-  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=/state/omo/agent"], "/home/u", "/project")).toBe("/state/omo/agent");
+  const home = "/home/u", cwd = "/project", defaultDir = join(home, ".omo", "agent");
+  expect(omoAgentDir(null, home, cwd)).toBe(defaultDir);
+  expect(omoAgentDir(["PATH=/bin"], home, cwd)).toBe(defaultDir);
+  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=/state/omo/agent"], home, cwd)).toBe(resolve(cwd, "/state/omo/agent"));
   // the brand's own prefix first, then senpi's and pi's, as senpi reads them
-  expect(omoAgentDir(["PI_CODING_AGENT_DIR=/pi", "SENPI_CODING_AGENT_DIR=/senpi"], "/home/u", "/project")).toBe("/senpi");
-  expect(omoAgentDir(["SENPI_CODING_AGENT_DIR=/senpi", "OMO_CODING_AGENT_DIR=/omo"], "/home/u", "/project")).toBe("/omo");
-  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=~/.local/state/omo"], "/home/u", "/project")).toBe("/home/u/.local/state/omo");
-  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=rel/agent"], "/home/u", "/project")).toBe("/project/rel/agent");
+  expect(omoAgentDir(["PI_CODING_AGENT_DIR=/pi", "SENPI_CODING_AGENT_DIR=/senpi"], home, cwd)).toBe(resolve(cwd, "/senpi"));
+  expect(omoAgentDir(["SENPI_CODING_AGENT_DIR=/senpi", "OMO_CODING_AGENT_DIR=/omo"], home, cwd)).toBe(resolve(cwd, "/omo"));
+  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=~/.local/state/omo"], home, cwd)).toBe(resolve(cwd, join(home, ".local/state/omo")));
+  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=rel/agent"], home, cwd)).toBe(resolve(cwd, "rel/agent"));
   // set but empty: senpi keeps its default and looks no further
-  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=", "SENPI_CODING_AGENT_DIR=/senpi"], "/home/u", "/project")).toBe("/home/u/.omo/agent");
+  expect(omoAgentDir(["OMO_CODING_AGENT_DIR=", "SENPI_CODING_AGENT_DIR=/senpi"], home, cwd)).toBe(defaultDir);
 });
 
 it("falls back to the pane cwd when the OS process cwd is unavailable", () => {
   const env = () => ["OMO_CODING_AGENT_DIR=relative-agent"];
   expect(omoProcessIdentity({ pid: 2 ** 30, argv: ["omo"] }, "/pane", "/home/u", env)?.agentDir)
-    .toBe("/pane/relative-agent");
+    .toBe(resolve("/pane", "relative-agent"));
   expect(omoProcessIdentity({ pid: 2 ** 30, argv: ["omo"], cwd: "/reported" }, "/pane", "/home/u", env)?.agentDir)
-    .toBe("/reported/relative-agent");
+    .toBe(resolve("/reported", "relative-agent"));
 });
 
 it("binds an omo pane whose launcher moved its agent directory out of ~/.omo", () => {
@@ -174,7 +175,7 @@ it("binds an omo pane whose launcher moved its agent directory out of ~/.omo", (
     const agentDir = join(root, "state", "profile", ".omo", "agent");
     mkdirSync(join(home, ".omo", "agent", "sessions"), { recursive: true });
     mkdirSync(cwd, { recursive: true });
-    const dir = join(agentDir, "sessions", `-${cwd.replaceAll("/", "-")}--`);
+    const dir = join(agentDir, "sessions", omoSessionFolder(cwd));
     const id = "01a0fd83-0000-7000-8000-000000000001";
     const pid = process.pid;
     mkdirSync(join(dir, "session-holders", id), { recursive: true });
@@ -214,8 +215,8 @@ it("names a cwd's session folder as omo's engine does, a Windows cwd included", 
 const launcherInfo: ProcessInfo = { process_info: { shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["C:\\tools\\pi.exe"] }] } };
 const launcherRows: ProcessRow[] = [
   { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe" },
-  { pid: 11, parent: 10, path: "C:\\tools\\pi.exe", commandLine: "pi.exe" },
-  { pid: 12, parent: 11, path: "C:\\bun.exe", commandLine: 'bun.exe "C:\\node_modules\\omo-ai\\bin\\cli.js" --session-id session-123' },
+  { pid: 11, parent: 10, path: "C:\\tools\\pi.exe", commandLine: "pi.exe", started: 1_699_000_000_000 },
+  { pid: 12, parent: 11, path: "C:\\bun.exe", commandLine: 'bun.exe "C:\\node_modules\\omo-ai\\bin\\cli.js" --session-id session-123', started: 1_700_000_000_000 },
   // below another pane's shell
   { pid: 13, parent: 2, path: "C:\\bun.exe", commandLine: 'bun.exe "C:\\node_modules\\omo-ai\\bin\\cli.js" --session-id other-session' },
 ];
@@ -223,13 +224,36 @@ const launcherRows: ProcessRow[] = [
 it("finds the OmO a Windows launcher started below the pane's shell, with its session arguments", () => {
   const processes = withOmoDescendants(launcherInfo, launcherRows)?.process_info?.foreground_processes ?? [];
   expect(processes.map((entry) => entry.pid)).toEqual([11, 12]);
+  expect(processes[0]!.startedAt).toBe(1_699_000_000_000);
   expect(isOmoProcess(processes[1]!.argv!)).toBeTrue();
   expect(processes[1]!.argv).toContain("session-123");
+  expect(processes[1]!.startedAt).toBe(1_700_000_000_000);
   expect(launcherInfo?.process_info?.foreground_processes).toHaveLength(1);
 });
 
+it("matches OmO holder records to the process start and cwd", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-omo-holder-identity-")));
+  try {
+    const home = join(root, "home"), cwd = join(root, "project"), pid = 2 ** 30;
+    const id = "owned-session";
+    const holders = join(home, ".omo", "agent", "sessions", omoSessionFolder(cwd), "session-holders", encodeURIComponent(id));
+    mkdirSync(holders, { recursive: true });
+    const record = join(holders, `${pid}.json`);
+    writeFileSync(record, JSON.stringify({ pid, processStartedAtMs: 10_000, cwd }));
+    const process = { pid, argv: ["C:\\tools\\omo.exe"], cwd, startedAt: 10_000 };
+
+    expect(omoProcessIdentity(process, cwd, home, () => [])?.heldIds).toEqual([id]);
+    expect(omoProcessIdentity({ ...process, startedAt: 20_000 }, cwd, home, () => [])?.heldIds).toEqual([]);
+    writeFileSync(record, JSON.stringify({ pid, processStartedAtMs: 10_000, cwd: join(root, "other") }));
+    expect(omoProcessIdentity(process, cwd, home, () => [])?.heldIds).toEqual([]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 it("does not turn an ordinary pi into OmO or borrow another pane's OmO", () => {
-  expect(withOmoDescendants(launcherInfo, launcherRows.filter((entry) => entry.pid !== 12))).toEqual(launcherInfo);
+  const ordinary = withOmoDescendants(launcherInfo, launcherRows.filter((entry) => entry.pid !== 12));
+  expect(ordinary?.process_info?.foreground_processes?.map((entry) => entry.pid)).toEqual([11]);
+  const withoutShell = withOmoDescendants(launcherInfo, launcherRows.filter((entry) => entry.pid !== 10));
+  expect(withoutShell?.process_info?.foreground_processes?.map((entry) => entry.pid)).toEqual([11]);
   expect(withOmoDescendants(launcherInfo, [])).toEqual(launcherInfo);
   expect(withOmoDescendants({ process_info: { foreground_processes: [] } }, launcherRows)).toEqual({ process_info: { foreground_processes: [] } });
   expect(withOmoDescendants(null, launcherRows)).toBeNull();
@@ -252,6 +276,20 @@ const writeSession = (dir: string, id: string, cwd: string): string => {
   return path;
 };
 
+it("normalizes the pane cwd before matching native OmO holders", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-omo-cwd-")));
+  try {
+    const home = join(root, "home"), cwd = join(root, "project"), id = "held-session", pid = 2 ** 30, startedAt = 10_000;
+    const dir = join(home, ".omo", "agent", "sessions", omoSessionFolder(cwd));
+    holdRecord(dir, id, pid, { pid, processStartedAtMs: startedAt, cwd });
+    const path = writeSession(dir, id, cwd);
+    const pane = { pane_id: "w:p1", cwd: `${cwd}${sep}` } as HerdrPane;
+    const infos = new Map([[pane.pane_id, { process_info: { foreground_processes: [{ pid, argv: ["C:\\tools\\omo.exe"], startedAt }] } }]]);
+
+    expect(omoTranscriptsOfCwd(cwd, [pane], infos, home, () => []).get(pane.pane_id)?.path).toBe(realpathSync(path));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 it("identifies an argv-silent omo runtime only through verified native holders", () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-omo-custom-")));
   try {
@@ -261,22 +299,24 @@ it("identifies an argv-silent omo runtime only through verified native holders",
     const dir = join(agentDir, "sessions", omoSessionFolder(cwd));
     mkdirSync(dir, { recursive: true });
     const pid = process.pid;
+    const startedAt = processStartedAt(pid) ?? Date.now();
     const neutral = ["/opt/team-ai/bin/run", "--profile", "work"];
     const env = [`OMO_CODING_AGENT_DIR=${agentDir}`];
-    holdRecord(dir, "sess-1", pid, { pid, processStartedAtMs: processStartedAt(pid), cwd });
+    holdRecord(dir, "sess-1", pid, { pid, processStartedAtMs: startedAt, cwd });
+    const runtime = { pid, argv: neutral, cwd, startedAt };
     // a launcher whose name and argv say nothing about omo still binds, by its store
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => env))
+    expect(omoProcessIdentity(runtime, cwd, home, () => env))
       .toEqual({ agentDir, heldIds: ["sess-1"], custom: true });
     // the process's own cwd counts when the caller does not supply the pane's
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, "", home, () => env)?.custom).toBeTrue();
+    expect(omoProcessIdentity(runtime, "", home, () => env)?.custom).toBeTrue();
     // the same holder in the default store needs no environment entry at all
     const defaultDir = join(home, ".omo", "agent", "sessions", omoSessionFolder(cwd));
-    holdRecord(defaultDir, "home-sess", pid, { pid, processStartedAtMs: processStartedAt(pid), cwd });
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => ["PATH=/bin"]))
+    holdRecord(defaultDir, "home-sess", pid, { pid, processStartedAtMs: startedAt, cwd });
+    expect(omoProcessIdentity(runtime, cwd, home, () => ["PATH=/bin"]))
       .toEqual({ agentDir: join(home, ".omo", "agent"), heldIds: ["home-sess"], custom: true });
     // a store moved only by senpi's or pi's variable is not an omo identity
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => [`SENPI_CODING_AGENT_DIR=${agentDir}`])).toBeNull();
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => [`PI_CODING_AGENT_DIR=${agentDir}`])).toBeNull();
+    expect(omoProcessIdentity(runtime, cwd, home, () => [`SENPI_CODING_AGENT_DIR=${agentDir}`])).toBeNull();
+    expect(omoProcessIdentity(runtime, cwd, home, () => [`PI_CODING_AGENT_DIR=${agentDir}`])).toBeNull();
     // recognized argv stays the legacy identity, no holder required
     const legacy = omoProcessIdentity({ pid, argv: ["node", `${OMO_AI}/bin/omo.js`], cwd }, cwd, home, () => null);
     expect(legacy?.custom).toBeFalse();
@@ -296,25 +336,27 @@ it("never takes an env marker, an argv mention, a wrong cwd or a stale start for
     const dir = join(agentDir, "sessions", omoSessionFolder(cwd));
     mkdirSync(dir, { recursive: true });
     const pid = process.pid;
+    const startedAt = processStartedAt(pid) ?? Date.now();
     const neutral = ["/opt/team-ai/bin/run"];
     const env = [`OMO_CODING_AGENT_DIR=${agentDir}`];
+    const runtime = { pid, argv: neutral, cwd, startedAt };
     // the environment entry alone proves nothing without a holder
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => env)).toBeNull();
+    expect(omoProcessIdentity(runtime, cwd, home, () => env)).toBeNull();
     // a holder another pid wrote, a foreign cwd and a start that is not this
     // process's own each fail closed
-    holdRecord(dir, "other-pid", pid, { pid: pid + 1, processStartedAtMs: processStartedAt(pid), cwd });
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => env)).toBeNull();
+    holdRecord(dir, "other-pid", pid, { pid: pid + 1, processStartedAtMs: startedAt, cwd });
+    expect(omoProcessIdentity(runtime, cwd, home, () => env)).toBeNull();
     rmSync(join(dir, "session-holders", "other-pid"), { recursive: true });
-    holdRecord(dir, "foreign", pid, { pid, processStartedAtMs: processStartedAt(pid), cwd: "/elsewhere" });
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => env)).toBeNull();
+    holdRecord(dir, "foreign", pid, { pid, processStartedAtMs: startedAt, cwd: "/elsewhere" });
+    expect(omoProcessIdentity(runtime, cwd, home, () => env)).toBeNull();
     rmSync(join(dir, "session-holders", "foreign"), { recursive: true });
-    holdRecord(dir, "stale", pid, { pid, processStartedAtMs: (processStartedAt(pid) ?? 0) - 60_000, cwd });
-    expect(omoProcessIdentity({ pid, argv: neutral, cwd }, cwd, home, () => env)).toBeNull();
+    holdRecord(dir, "stale", pid, { pid, processStartedAtMs: startedAt - 60_000, cwd });
+    expect(omoProcessIdentity(runtime, cwd, home, () => env)).toBeNull();
     rmSync(join(dir, "session-holders", "stale"), { recursive: true });
     // a pid nothing runs has no start to match a holder to
     expect(omoProcessIdentity({ pid: 2 ** 30, argv: neutral }, cwd, home, () => env)).toBeNull();
     // argv words that mention omo are still nothing without the holders
-    expect(omoProcessIdentity({ pid, argv: ["grep", "-q", `${OMO_AI}/x`], cwd }, cwd, home, () => env)).toBeNull();
+    expect(omoProcessIdentity({ ...runtime, argv: ["grep", "-q", `${OMO_AI}/x`] }, cwd, home, () => env)).toBeNull();
     // and without a resolvable cwd a custom identity cannot be verified at all
     expect(omoProcessIdentity({ pid: 2 ** 30, argv: neutral }, "", home, () => env)).toBeNull();
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -333,14 +375,15 @@ it("binds same-id sessions in different stores to the pane that owns each store"
     const dirB = join(storeB, "sessions", omoSessionFolder(cwd));
     const pidA = process.pid;
     const pidB = process.ppid;
-    holdRecord(dirA, "dup", pidA, { pid: pidA, processStartedAtMs: processStartedAt(pidA), cwd });
-    holdRecord(dirB, "dup", pidB, { pid: pidB, processStartedAtMs: processStartedAt(pidB), cwd });
+    const startedA = processStartedAt(pidA) ?? Date.now() - 1000, startedB = processStartedAt(pidB) ?? Date.now() - 2000;
+    holdRecord(dirA, "dup", pidA, { pid: pidA, processStartedAtMs: startedA, cwd });
+    holdRecord(dirB, "dup", pidB, { pid: pidB, processStartedAtMs: startedB, cwd });
     const fileA = writeSession(dirA, "dup", cwd);
     const panes = [{ pane_id: "w:p1", cwd } as HerdrPane, { pane_id: "w:p2", cwd } as HerdrPane];
     const launcher = ["/opt/team-ai/bin/run"];
     const infos = new Map([
-      ["w:p1", { process_info: { foreground_processes: [{ pid: pidA, argv: launcher, cwd }] } }],
-      ["w:p2", { process_info: { foreground_processes: [{ pid: pidB, argv: launcher, cwd }] } }],
+      ["w:p1", { process_info: { foreground_processes: [{ pid: pidA, argv: launcher, cwd, startedAt: startedA }] } }],
+      ["w:p2", { process_info: { foreground_processes: [{ pid: pidB, argv: launcher, cwd, startedAt: startedB }] } }],
     ]);
     const envOf = (pid: number) => pid === pidA ? [`OMO_CODING_AGENT_DIR=${storeA}`] : pid === pidB ? [`OMO_CODING_AGENT_DIR=${storeB}`] : null;
     const first = omoTranscriptsOfCwd(cwd, panes, infos, home, envOf);
@@ -371,13 +414,14 @@ it("fails closed when two panes hold the same session file", () => {
     const dir = join(agentDir, "sessions", omoSessionFolder(cwd));
     const pidA = process.pid;
     const pidB = process.ppid;
-    holdRecord(dir, "contested", pidA, { pid: pidA, processStartedAtMs: processStartedAt(pidA), cwd });
-    holdRecord(dir, "contested", pidB, { pid: pidB, processStartedAtMs: processStartedAt(pidB), cwd });
+    const startedA = processStartedAt(pidA) ?? Date.now() - 1000, startedB = processStartedAt(pidB) ?? Date.now() - 2000;
+    holdRecord(dir, "contested", pidA, { pid: pidA, processStartedAtMs: startedA, cwd });
+    holdRecord(dir, "contested", pidB, { pid: pidB, processStartedAtMs: startedB, cwd });
     writeSession(dir, "contested", cwd);
     const panes = [{ pane_id: "w:p1", cwd } as HerdrPane, { pane_id: "w:p2", cwd } as HerdrPane];
     const infos = new Map([
-      ["w:p1", { process_info: { foreground_processes: [{ pid: pidA, argv: ["/opt/team-ai/run"], cwd }] } }],
-      ["w:p2", { process_info: { foreground_processes: [{ pid: pidB, argv: ["/opt/team-ai/run"], cwd }] } }],
+      ["w:p1", { process_info: { foreground_processes: [{ pid: pidA, argv: ["/opt/team-ai/run"], cwd, startedAt: startedA }] } }],
+      ["w:p2", { process_info: { foreground_processes: [{ pid: pidB, argv: ["/opt/team-ai/run"], cwd, startedAt: startedB }] } }],
     ]);
     const out = omoTranscriptsOfCwd(cwd, panes, infos, home, () => [`OMO_CODING_AGENT_DIR=${agentDir}`]);
     expect(out.get("w:p1")?.path).toBeNull();
@@ -393,14 +437,15 @@ it("returns a custom pane's pending session and nothing once its holder is gone"
     const agentDir = join(root, "agent");
     const dir = join(agentDir, "sessions", omoSessionFolder(cwd));
     const pid = process.pid;
+    const startedAt = processStartedAt(pid) ?? Date.now();
     const pane = { pane_id: "w:p1", cwd } as HerdrPane;
-    const infos = new Map([[pane.pane_id, { process_info: { foreground_processes: [{ pid, argv: ["/opt/team-ai/run"], cwd }] } }]]);
+    const infos = new Map([[pane.pane_id, { process_info: { foreground_processes: [{ pid, argv: ["/opt/team-ai/run"], cwd, startedAt }] } }]]);
     const env = () => [`OMO_CODING_AGENT_DIR=${agentDir}`];
     const run = () => omoTranscriptsOfCwd(cwd, [pane], infos, home, env);
     // no holder: the launcher is not omo, and no file inference rescues it
     writeSession(dir, "older-session", cwd);
     expect(run().has(pane.pane_id)).toBeFalse();
-    holdRecord(dir, "first-session", pid, { pid, processStartedAtMs: processStartedAt(pid), cwd });
+    holdRecord(dir, "first-session", pid, { pid, processStartedAtMs: startedAt, cwd });
     const pending = run().get(pane.pane_id);
     expect(pending?.path).toBeNull();
     expect(pending?.pending).toBe("first-session");
@@ -408,7 +453,7 @@ it("returns a custom pane's pending session and nothing once its holder is gone"
     expect(run().get(pane.pane_id)?.path).toBe(realpathSync(written));
     // /new: the next held id is pending; the file it left is not resurrected
     rmSync(join(dir, "session-holders", "first-session"), { recursive: true });
-    holdRecord(dir, "after-new", pid, { pid, processStartedAtMs: processStartedAt(pid), cwd });
+    holdRecord(dir, "after-new", pid, { pid, processStartedAtMs: startedAt, cwd });
     const afterNew = run().get(pane.pane_id);
     expect(afterNew?.path).toBeNull();
     expect(afterNew?.pending).toBe("after-new");
