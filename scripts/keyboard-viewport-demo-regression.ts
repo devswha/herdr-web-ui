@@ -3,12 +3,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
-import panes from "../site/demo/fixtures/panes.json";
+import panes from "./demo/fixtures/panes.json";
 import { checkMobileViewport } from "./mobile-viewport-regression.ts";
 import { buildDemoApp } from "./demo-build.ts";
 import { chromePath } from "./chrome-path.ts";
 
-// Build the real app with the demo's fixture transport, without the website build's
+// Build the real app with the demo's fixture transport, without
 // media downloads or a live herdr server. Keep every output in a disposable directory.
 const repo = join(import.meta.dir, "..");
 const app = mkdtempSync(join(tmpdir(), "herdr-viewport-demo-"));

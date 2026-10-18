@@ -109,7 +109,7 @@ compatibility signal. A screen frame alone does not establish readiness on a new
 `input_not_ready` reports a rejected PTY input. `input_failed` reports an RPC or local sidecar
 write failure; the UI displays it outside the terminal stream. These are not acknowledgements
 that the application consumed individual keystrokes. Failed input is never automatically retried.
-The new readiness frame is also implemented in the website demo transport.
+The new readiness frame is also implemented in the browser-test fixture transport (`scripts/demo/transport.ts`).
 
 ## Verification
 

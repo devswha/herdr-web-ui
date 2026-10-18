@@ -18,7 +18,8 @@ function Fixture() {
     resize: (by) => setHeights((list) => list.map((value, index) => index === list.length - 1 ? Math.max(30, value + by) : value)),
   };
   return <LegendList
-    style={{ height: 600, overflow: "auto" }}
+    // Keep labels inside the fixed-height boxes, independent of the host's fallback font metrics.
+    style={{ height: 600, overflow: "auto", fontSize: 12, lineHeight: "16px" }}
     className="padding-qa-scroller"
     contentContainerClassName="padding-qa-content"
     data={heights.map((height, index) => ({ height, key: `row-${index}` }))}

@@ -1,20 +1,20 @@
 /**
- * Captures what the browser demo (site/demo/transport.ts) serves in place of a server: the machine
+ * Captures what the browser demo (scripts/demo/transport.ts) serves in place of a server: the machine
  * roster with herdr's real snapshot shapes, the agent kinds, one pane's slash commands, and the
  * shell pane's terminal output for `git log` and `bun test`, on an 80×24 grid so the recording
- * replays on a phone. Everything comes from the staged, fictional README session
- * (scripts/readme-media/stage.ts), never from the herdr you work in, and the real hostname and
- * login are replaced before anything is written to site/demo/fixtures/.
+ * replays on a phone. Everything comes from an isolated, fictional session
+ * (scripts/demo/stage.ts), never from the herdr you work in, and the real hostname and
+ * login are replaced before anything is written to scripts/demo/fixtures/.
  *
  *   bun scripts/demo-fixtures.ts
  */
 import { hostname, userInfo } from "node:os";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { stage } from "./readme-media/stage.ts";
+import { stage } from "./demo/stage.ts";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
 
-const OUT = join(import.meta.dir, "../site/demo/fixtures");
+const OUT = join(import.meta.dir, "./demo/fixtures");
 const REAL_HOST = hostname();
 const REAL_USER = userInfo().username;
 const demo = await stage();
@@ -25,12 +25,13 @@ const get = async (path: string): Promise<unknown> => JSON.parse(scrub(await (aw
 
 try {
   mkdirSync(OUT, { recursive: true });
-  save("machines.json", { machines: [{ id: "local", name: "Host", kind: "local", enabled: true, state: "connected", error: null, snapshot: (await get("/api/session") as { snapshot: unknown }).snapshot }] });
+  const machines = [{ id: "local", name: "Host", kind: "local", enabled: true, state: "connected", error: null, snapshot: (await get("/api/session") as { snapshot: unknown }).snapshot }];
+  save("machines.json", { machines });
   save("agents.json", await get("/api/agents"));
   save("commands.json", await get(`/api/pane/commands?pane_id=${encodeURIComponent(demo.pane("api").pane)}`));
   save("panes.json", Object.fromEntries(demo.panes.map((p) => [p.key, p.pane])));
 
-  // the shell pane, driven the way the README terminal shot is: real git history, real tests
+  // the shell pane's terminal fixture: real git history, real tests
   const shell = demo.pane("shell").pane;
   const frames: Array<{ at: number; data: string }> = [];
   const started = Date.now();
@@ -52,7 +53,7 @@ try {
     socket.addEventListener("error", () => reject(new Error("websocket failed")));
   });
   save("terminal.json", { pane: "shell", cols: 80, rows: 24, frames });
-  console.log(`${roster.machines.length} machine(s), ${frames.length} terminal frames -> ${OUT}`);
+  console.log(`${machines.length} machine(s), ${frames.length} terminal frames -> ${OUT}`);
 } finally {
   await demo.teardown();
 }

@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { failureSite, scriptOutcome, selectBrowserScripts, serialBrowserScripts } from "./ci-browser-parallel.ts";
 
-const pages = readFileSync(new URL("../.github/workflows/pages.yml", import.meta.url), "utf8");
 const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 
 describe("Browser failure sites", () => {
@@ -49,106 +48,14 @@ function indentedSection(source: string, parent: string, name: string, indent: n
   return lines.slice(start, end).join("\n");
 }
 
-const pageJob = (name: string): string => indentedSection(pages, "jobs", name, 2);
 const ciJob = (name: string): string => indentedSection(ci, "jobs", name, 2);
 
-describe("Pages deployment gate", () => {
-  it("runs reusable CI only for a manual main dispatch, alongside the site build", () => {
-    const validate = pageJob("validate");
-    const build = pageJob("build");
-    const deploy = pageJob("deploy");
-    expect(validate).toContain("uses: ./.github/workflows/ci.yml");
-    expect(validate).toContain("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'");
-    expect(build).not.toContain("needs:");
-    expect(deploy).toMatch(/needs:\s*\[validate, build\]/);
-  });
-
-  it("only runs on main, pins checkout to the triggering SHA, and serializes without canceling deployments", () => {
-    expect(pages).toMatch(/workflow_dispatch:\n/);
-    for (const name of ["validate", "build", "deploy"]) {
-      expect(pageJob(name)).toContain("github.ref == 'refs/heads/main'");
-    }
-    expect(pages).toMatch(/^  group: pages$/m);
-    expect(pages).toContain("cancel-in-progress: false");
+describe("CI validation", () => {
+  it("serializes validation and pins each checkout to the triggering SHA", () => {
     expect(ci).toMatch(/group: validation-/);
-    expect(pageJob("validate")).toContain("permissions:\n      contents: read");
     for (const name of ["windows-install", "fast", "integration", "browser-main", "browser-other"]) {
       expect(ciJob(name)).toContain("ref: ${{ github.sha }}");
     }
-  });
-
-  for (const [name, pattern] of [
-    ["CI workflow completion", /workflow_run:\n\s+workflows: \[CI\]/],
-    ["completed runs only", /workflow_run:\n\s+workflows: \[CI\]\n\s+types: \[completed\]/],
-    ["main runs only", /workflow_run:\n\s+workflows: \[CI\]\n\s+types: \[completed\]\n\s+branches: \[main\]/],
-  ] as const) {
-    it(`triggers on ${name}`, () => {
-      expect(pages).toMatch(pattern);
-    });
-  }
-
-  it("does not trigger another Website run directly on push", () => {
-    expect(pages).not.toMatch(/^  push:/m);
-  });
-
-  for (const job of ["build", "deploy"]) {
-    for (const condition of [
-      "github.event_name == 'workflow_dispatch' ||",
-      "(github.event_name == 'workflow_run' &&",
-      "github.event.workflow_run.conclusion == 'success' &&",
-      "github.event.workflow_run.event == 'push' &&",
-      "github.event.workflow_run.head_repository.full_name == github.repository))",
-    ]) {
-      it(`gates ${job} on ${condition}`, () => {
-        expect(pageJob(job)).toContain(condition);
-      });
-    }
-  }
-
-  for (const condition of [
-    "always() &&",
-    "needs.build.result == 'success' &&",
-    "(needs.validate.result == 'success' ||",
-    "(needs.validate.result == 'skipped' &&",
-    "github.event_name == 'workflow_run' &&\n      github.event.workflow_run.conclusion == 'success')) &&",
-  ]) {
-    it(`requires deployment dependency result ${condition}`, () => {
-      expect(pageJob("deploy")).toContain(condition);
-    });
-  }
-
-  for (const [job, field] of [
-    ["build", "ref"],
-    ["deploy", "EXPECTED_SHA"],
-    ["deploy", "VALIDATED_SHA"],
-    ["deploy", "DEPLOYED_SHA"],
-  ]) {
-    it(`uses the completed CI head SHA for ${field}`, () => {
-      expect(pageJob(job)).toContain(`${field}: \${{ github.event.workflow_run.head_sha || github.sha }}`);
-    });
-  }
-
-  it("records the checked-out commit rather than workflow_run's default-branch SHA", () => {
-    expect(pageJob("build")).toContain('echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"');
-  });
-
-  it("fails closed on a current-main API error and refuses an outdated build before deployment", () => {
-    const deploy = pageJob("deploy");
-    expect(deploy).toContain("contents: read");
-    expect(deploy).toContain("pages: write");
-    expect(deploy).toContain("id-token: write");
-    expect(deploy).toContain("set -euo pipefail");
-    expect(deploy).toContain('gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq \'.sha\'');
-    expect(deploy).toContain('if [[ "$latest_sha" != "$EXPECTED_SHA" ]]');
-    expect(deploy.indexOf("Verify deployment SHA is current")).toBeLessThan(deploy.indexOf("actions/deploy-pages@v5"));
-  });
-
-  it("summarizes the validated, built, and deployed source SHAs", () => {
-    const deploy = pageJob("deploy");
-    expect(deploy).toContain("Validated SHA:");
-    expect(deploy).toContain("Built SHA:");
-    expect(deploy).toContain("Deployed SHA:");
-    expect(deploy).toContain("${{ needs.build.outputs.sha }}");
   });
 
   it("keeps reports and nested verification evidence for CI jobs on success or failure", () => {
@@ -304,44 +211,6 @@ describe("Extracted UI checks", () => {
         expect(result.status).not.toBe(0);
         expect(result.stderr.toLowerCase()).toContain(mode);
         expect(existsSync(invoked)).toBe(false);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    });
-  }
-});
-
-describe.skipIf(process.platform === "win32")("Pages SHA guard execution", () => {
-  const guard = pageJob("deploy").match(/        run: \|\n([\s\S]*?)(?=\n      -)/)?.[1]
-    .split("\n").map((line) => line.replace(/^          /, "")).join("\n");
-  if (!guard) throw new Error("Missing deployment guard shell");
-  const sha = "a".repeat(40);
-
-  for (const scenario of [
-    { name: "accepts the validated build at current main", built: sha, latest: sha, api: "0", code: 0 },
-    { name: "rejects an older rerun", built: sha, latest: "b".repeat(40), api: "0", code: 1 },
-    { name: "rejects an artifact from another commit", built: "b".repeat(40), latest: sha, api: "0", code: 1 },
-    { name: "fails closed when GitHub denies the lookup", built: sha, latest: sha, api: "1", code: 1 },
-    { name: "rejects a malformed API response", built: sha, latest: "null", api: "0", code: 1 },
-  ]) {
-    it(scenario.name, () => {
-      const root = mkdtempSync(join(tmpdir(), "pages-guard-"));
-      try {
-        writeFileSync(join(root, "gh"), '#!/usr/bin/env bash\nif [[ "$CASE_API" != 0 ]]; then exit "$CASE_API"; fi\nprintf "%s\\n" "$CASE_LATEST"\n', { mode: 0o700 });
-        const result = spawnSync("bash", ["-c", guard], {
-          encoding: "utf8",
-          timeout: 5_000,
-          env: {
-            PATH: `${root}:${process.env.PATH}`,
-            GITHUB_REPOSITORY: "fixture/repository",
-            EXPECTED_SHA: sha,
-            BUILT_SHA: scenario.built,
-            CASE_API: scenario.api,
-            CASE_LATEST: scenario.latest,
-          },
-        });
-        expect(result.error).toBeUndefined();
-        expect(result.status).toBe(scenario.code);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

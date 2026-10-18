@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { displayText, glyphFit, iconScale, oversizedIcon, textPresentation } from "./terminalGlyphs.ts";
+import { compositionGlyphFit, displayText, glyphFit, iconScale, oversizedIcon, textPresentation } from "./terminalGlyphs.ts";
 
 // iPhone Safari at 13px: Menlo cells are 7.84px, Hangul from Apple SD Gothic Neo 11.24px
 const IOS_CELL = 7.8367;
@@ -32,6 +32,18 @@ describe("glyphFit", () => {
   it("leaves rounding-level spacing and glyphs wider than their cells alone", () => {
     expect(glyphFit(0.6, 4, 4.6)).toBeNull();
     expect(glyphFit(2 * IOS_CELL - 17, 17, IOS_CELL)).toBeNull();
+  });
+});
+
+describe("compositionGlyphFit", () => {
+  it("enlarges pending Hangul to its two Unicode cells even when the font draws it narrower than one", () => {
+    // Synthetic metrics: no installed font or browser is needed to exercise the narrow fallback.
+    expect(compositionGlyphFit("한", 6, 6, 8)).toEqual({ scale: 1.2, spacing: 8.8 });
+  });
+
+  it("centers a one-cell glyph without enlarging it and gives no cells to a combining mark", () => {
+    expect(compositionGlyphFit("a", 3, 3, 8)).toEqual({ scale: 1, spacing: 5 });
+    expect(compositionGlyphFit("\u0301", 1, 1, 8)).toBeNull();
   });
 });
 

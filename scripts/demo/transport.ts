@@ -1,7 +1,7 @@
 /**
- * The browser demo's stand-in for the server. Loaded before the app on the demo page, it answers
+ * The browser demo's stand-in for the server. Loaded before the app in browser checks, it answers
  * `fetch("/api/…")`, `new EventSource("/api/events")` and `new WebSocket("…/ws")` from
- * fixtures (site/demo/fixtures/, captured by scripts/demo-fixtures.ts from the staged fictional
+ * fixtures (scripts/demo/fixtures/, captured by scripts/demo-fixtures.ts from the staged fictional
  * session) instead of the network. The app's own code is unchanged: it believes it talks to a
  * herdr web ui server on a PC called "workstation".
  *

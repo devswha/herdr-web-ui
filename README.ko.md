@@ -13,7 +13,6 @@
 <p align="center">
   <a href="https://github.com/tomrutsaert/herdr-web-ui">저장소</a> ·
   <a href="#install">설치</a> ·
-  <a href="https://github.com/tomrutsaert/herdr-web-ui/tree/main/site/demo">데모 소스</a> ·
   <a href="docs/guide.md#quick-start">빠른 시작</a> ·
   <a href="#faq">자주 묻는 질문</a> ·
   <a href="#docs">문서</a>

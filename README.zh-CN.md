@@ -13,7 +13,6 @@
 <p align="center">
   <a href="https://github.com/tomrutsaert/herdr-web-ui">仓库</a> ·
   <a href="#install">安装</a> ·
-  <a href="https://github.com/tomrutsaert/herdr-web-ui/tree/main/site/demo">演示源码</a> ·
   <a href="docs/guide.md#quick-start">快速入门</a> ·
   <a href="#faq">常见问题</a> ·
   <a href="#docs">文档</a>

@@ -41,8 +41,6 @@ https://github.com/user-attachments/assets/2f030569-1004-425e-835d-9e775ec6e4c8
 
 ## Quick start
 
-> The local demo uses a fictional session. Build it with `bun run build:site`; nothing in it is live.
-
 > **Setting it up with a coding agent?** Point it at [INSTALL.md](../INSTALL.md), a step-by-step guide written for agents.
 
 Install prerequisites separately, then follow [operator installation](../INSTALL.md). A source deployment

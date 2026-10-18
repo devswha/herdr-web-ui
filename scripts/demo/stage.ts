@@ -1,28 +1,25 @@
 /**
- * A staged, fictional herdr session for the README media (capture.ts): its own named herdr
- * session (never the one you work in), the demo's two repositories under /tmp/herdr-demo with
- * their agent worktrees and the release shell tab, and curated chats served in place of real
- * transcripts. The real hostname never reaches the page.
+ * An isolated, fictional herdr session for refreshing browser-test fixtures: two repositories
+ * under /tmp/herdr-demo with agent worktrees and a release shell tab. Never uses the session
+ * the developer works in.
  */
 process.env["HERDR_TEST_SESSION"] = "herdr-web-ui-demo";
-await import("../test-herdr.ts");
+const { TEST_SESSION, testSocketPath } = await import("../test-herdr.ts");
+if (TEST_SESSION !== "herdr-web-ui-demo" || process.env["HERDR_SOCKET"] !== testSocketPath()) {
+  throw new Error("Fixture staging requires the isolated demo session; no staging changes were made");
+}
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const { createServer } = await import("../../server/index.ts");
 const { herdrRpc, workspaceCreate, workspaceClose, sessionSnapshot, tabCreate, worktreeCreate } = await import("../../server/herdr/client.ts");
-const { hostname } = await import("node:os");
-
-const REAL_HOST = hostname();
-const HOST = "workstation";
 const ROOT = "/tmp/herdr-demo";
 
-import { SPECS, CHATS, PROMPT, type DemoSpec } from "../../site/demo/fixtures.ts";
-export { CHATS, PROMPT };
+import { SPECS, type DemoSpec } from "./fixtures.ts";
 
 export interface DemoPane extends DemoSpec { pane: string; workspace: string }
 
-/** A small fictional project for the terminal shot: real git history, real tests. */
+/** A small fictional project for the terminal fixture: real git history, real tests. */
 function releaseRepo(dir: string) {
   const sh = (cmd: string) => { const r = Bun.spawnSync(["bash", "-c", cmd], { cwd: dir, env: { ...process.env, GIT_AUTHOR_NAME: "demo", GIT_AUTHOR_EMAIL: "demo@example.com", GIT_COMMITTER_NAME: "demo", GIT_COMMITTER_EMAIL: "demo@example.com" } }); if (r.exitCode !== 0) throw new Error(cmd + ": " + r.stderr.toString()); };
   rmSync(dir, { recursive: true, force: true });
@@ -79,6 +76,7 @@ export async function stage() {
     // a plain prompt: no user, host or home path on screen
     await herdrRpc("pane.send_text", { pane_id: pane, text: `exec env -i HOME=${cwd} TERM=xterm-256color PATH=$PATH bash --norc --noprofile\n` });
   }
+  // fixed wait: let each pane exec its clean shell before sending shell configuration.
   await Bun.sleep(800);
   for (const p of panes) {
     await herdrRpc("pane.send_text", { pane_id: p.pane, text: `PS1='\\[\\e[38;5;214m\\]${p.label}\\[\\e[0m\\] \\$ '; clear\n` });
@@ -91,47 +89,10 @@ export async function stage() {
   const stateDir = mkdtempSync(join(tmpdir(), "herdr-demo-state-"));
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir });
   const base = `http://127.0.0.1:${server.port}`;
-  const byPane = new Map(panes.map((p) => [p.pane, p]));
-  let promptAnswered = false;
-
-  async function routes(page: any) {
-    const scrub = (text: string) => text.split(REAL_HOST).join(HOST);
-    // the live event stream cannot be rewritten; the 5 s machines poll carries the same data
-    await page.route("**/api/events", (route: any) => route.abort());
-    await page.route("**/api/session", async (route: any) => {
-      try {
-        const response = await route.fetch();
-        await route.fulfill({ response, body: scrub(await response.text()) });
-      } catch { /* the page closed mid-request */ }
-    });
-    await page.route("**/api/pane/conversation?*", async (route: any) => {
-      const id = new URL(route.request().url()).searchParams.get("pane_id") ?? "";
-      const chat = CHATS[byPane.get(id)?.key ?? ""];
-      if (!chat) return route.fallback();
-      await route.fulfill({ json: { source: "claude-transcript", turns: chat.turns, metadata: chat.metadata, cursor: null, version: "demo-1" } });
-    });
-    await page.route("**/api/pane/prompt?*", async (route: any) => {
-      const id = new URL(route.request().url()).searchParams.get("pane_id") ?? "";
-      await route.fulfill({ json: { prompt: byPane.get(id)?.key === "web" && !promptAnswered ? PROMPT : null } });
-    });
-    await page.route("**/api/pane/prompt/answer", async (route: any) => {
-      promptAnswered = true;
-      const web = panes.find((p) => p.key === "web")!;
-      await herdrRpc("pane.report_agent", { pane_id: web.pane, source: "manual", agent: "codex", state: "working" });
-      await route.fulfill({ json: { ok: true } });
-    });
-  }
-
   async function teardown() {
     server.stop();
     for (const workspace of new Set(panes.map((p) => p.workspace))) await workspaceClose(workspace).catch(() => {});
     rmSync(stateDir, { recursive: true, force: true });
   }
-  /** Codex asks again: each capture starts from the same state. */
-  async function reset() {
-    promptAnswered = false;
-    const web = panes.find((p) => p.key === "web")!;
-    await herdrRpc("pane.report_agent", { pane_id: web.pane, source: "manual", agent: "codex", state: "blocked" });
-  }
-  return { base, panes, routes, reset, teardown, pane: (key: string) => panes.find((p) => p.key === key)! };
+  return { base, panes, teardown, pane: (key: string) => panes.find((p) => p.key === key)! };
 }

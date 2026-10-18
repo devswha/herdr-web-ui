@@ -2,7 +2,7 @@ name: Set up CI toolchain
 description: Bun (with its dependency cache), and optionally Node 22 and the checksum-pinned herdr. Callers check out the repository first.
 inputs:
   bun-version:
-    description: Bun version for ci.yml, pages.yml and release.yml; the one place it is set.
+    description: Bun version for ci.yml and release.yml; the one place it is set.
     required: false
     default: '1.4.2'
   node:
