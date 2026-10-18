@@ -272,4 +272,22 @@ describe("preferences sync real send path", () => {
     await windows(3);
     expect(revisions).toEqual([1]);
   });
+
+  it("clears a save error when the server stops accepting saves", async () => {
+    const client = await open();
+    refuse = Response.json({ error: { code: "preferences_unwritable" } }, { status: 500 });
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await send();
+    expect(client.saveError).not.toBeNull();
+
+    refuse = Response.json({ error: { code: "forbidden" } }, { status: 403 });
+    await act(async () => { jest.advanceTimersByTime(5_000); });
+    await send();
+    expect(client.saveError).toBeNull();
+
+    refuse = Response.json({ error: { code: "not_found" } }, { status: 404 });
+    await act(async () => { client.update({ darkTheme: "gruvbox" }); });
+    await windows();
+    expect(client.saveError).toBeNull();
+  });
 });

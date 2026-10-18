@@ -193,9 +193,13 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
         setAttempt((count) => count + 1);
       }).catch((error: unknown) => {
         settled();
-        if (error instanceof ApiError && error.status === 403) readOnly.current = true;
-        else if (error instanceof ApiError && error.status === 404) off.current = true;
-        else {
+        if (error instanceof ApiError && error.status === 403) {
+          readOnly.current = true;
+          setSaveError(null);
+        } else if (error instanceof ApiError && error.status === 404) {
+          off.current = true;
+          setSaveError(null);
+        } else {
           // the same refusal every RETRY_MS is one state, not a render each time
           const next = userErrorMessage(error);
           setSaveError((before) => before !== null && before.message === next.message && before.detail === next.detail ? before : next);
