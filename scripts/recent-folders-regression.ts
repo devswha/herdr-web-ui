@@ -9,6 +9,7 @@ import type { WorkspaceCreated } from "../shared/protocol.ts";
 import { sessionSnapshot, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { passingFolder } from "../src/lib/recent-directories.ts";
 import { chromePath } from "./chrome-path.ts";
+import { routeDrained } from "./drained-route.ts";
 
 await import("./test-herdr.ts");
 const { createServer } = await import("../server/index.ts");
@@ -44,6 +45,7 @@ try {
           viewport: { width, height: 900 }, locale: "ko-KR", reducedMotion: "reduce",
         });
         const gate = Promise.withResolvers<void>();
+        const unroutes: Array<() => Promise<void>> = [];
         try {
           await context.addInitScript(({ theme, project }) => {
             const setItem = Storage.prototype.setItem;
@@ -60,9 +62,10 @@ try {
               localStorage.setItem("herdr-web-ui:recent-directories:local", '["/older/one"]');
             }
           }, { theme, project });
+          const page = await context.newPage();
           await context.route("**/api/agents", (route) => route.fulfill({ json: { agents: [{ kind: "codex", label: "Codex" }] } }));
           await context.route("**/api/events", (route) => route.abort());
-          await context.route("**/api/session", async (route) => {
+          unroutes.push(await routeDrained(page, "**/api/session", async (route) => {
             const response = await route.fetch();
             const body: { snapshot: SessionSnapshot } = await response.json();
             const local = body;
@@ -76,11 +79,11 @@ try {
                 workspaces: local.snapshot.workspaces.filter((workspace) => owned.has(workspace.workspace_id)),
               },
             } });
-          });
+          }));
           let requests = 0;
           let failCreate = false;
           let partialFailure = false;
-          await context.route("**/api/workspace/create", async (route) => {
+          unroutes.push(await routeDrained(page, "**/api/workspace/create", async (route) => {
             requests++;
             const body: { cwd: string; label: string | null; agent: { kind: string } | null } = route.request().postDataJSON();
             assert.equal(body.agent?.kind, "codex");
@@ -96,8 +99,7 @@ try {
             owned.add(result.workspace_id);
             await route.fulfill({ json: { ...result, agent_started: !partialFailure,
               ...(partialFailure ? { error: { code: "agent_start_failed", message: "Controlled agent failure" } } : {}) } });
-          });
-          const page = await context.newPage();
+          }));
           page.setDefaultTimeout(10_000);
           const errors: string[] = [];
           page.on("pageerror", (error) => errors.push(error.message));
@@ -221,10 +223,17 @@ try {
           console.log(`PASS recent folders ${width} ${theme}: snapshot seed behind kept folders, closed workspace, reload, PC isolation, worktrees and temporary folders left out, one swiped row on a phone, one row and +N on a wider screen, chip fills Directory, a start moves its folder first, pending, focus trap, failed-start order`);
         } finally {
           gate.resolve();
-          await context.close();
-          for (const workspaceId of [...owned]) {
-            await workspaceClose(workspaceId);
-            owned.delete(workspaceId);
+          try {
+            // Polls and gated creates must finish before their request context is disposed.
+            const drained = await Promise.allSettled(unroutes.map((unroute) => unroute()));
+            const failures = drained.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+            if (failures.length > 0) throw new AggregateError(failures, "Route handlers did not drain");
+          } finally {
+            await context.close();
+            for (const workspaceId of [...owned]) {
+              await workspaceClose(workspaceId);
+              owned.delete(workspaceId);
+            }
           }
         }
       }
