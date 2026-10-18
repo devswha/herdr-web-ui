@@ -81,6 +81,7 @@ export const ZH: Record<string, string> = {
   "Dracula": "Dracula",
   "Nord": "Nord",
   "Vesper": "Vesper",
+  "OLED": "OLED",
   "Pin agent": "固定 Agent",
   "Unpin agent": "取消固定 Agent",
   "Pin workspace": "固定工作区",

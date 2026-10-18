@@ -77,6 +77,7 @@ export const KO: Record<string, string> = {
   "Dracula": "Dracula",
   "Nord": "Nord",
   "Vesper": "Vesper",
+  "OLED": "OLED",
   "Pin agent": "에이전트 고정",
   "Unpin agent": "에이전트 고정 해제",
   "Pin workspace": "워크스페이스 고정",
