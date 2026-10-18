@@ -17,7 +17,7 @@ const REAL_HOST = hostname();
 const HOST = "workstation";
 const ROOT = "/tmp/herdr-demo";
 
-import { SPECS, CHATS, PROMPT, type DemoSpec } from "../../site/demo/fixtures.ts";
+import { SPECS, CHATS, PROMPT, type DemoSpec } from "../demo/fixtures.ts";
 export { CHATS, PROMPT };
 
 export interface DemoPane extends DemoSpec { pane: string; workspace: string }

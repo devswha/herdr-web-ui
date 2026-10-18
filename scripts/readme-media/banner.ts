@@ -1,15 +1,16 @@
 /**
- * Renders the README banner, the site's Open Graph card and the README's framed "A look around"
+ * Renders the README banner and the user guide's framed "A look around"
  * shots from banner.html in headless Chrome: the graphite stage, the logo mark, and the real app
- * (the film's stills) in a window object and a phone object. Every image is an opaque rectangle
+ * (supplied stills) in a window object and a phone object. Every image is an opaque rectangle
  * (the README loop GIF cannot carry soft alpha, so nothing next to it is rounded either). Each PNG
  * is then quantized to 256 colours with ffmpeg, since the README must stay light.
  *
- *   bun scripts/readme-media/banner.ts [banner] [og] [look]
+ *   STILLS=/path/to/stills bun scripts/readme-media/banner.ts [banner] [look]
  *
- * Inputs: the stills in _film/footage/stills (bun scripts/film/capture.ts), the brand fonts in
- * _film/fonts (falls back to the CDN copies), docs/brand/icon-source.png. Needs ffmpeg.
- * Outputs: docs/media/banner.png (1920x800, shown at 960), site/assets/og.png (1280x640),
+ * Inputs: STILLS names a directory of isolated app captures; FONTS optionally names a directory
+ * of brand fonts (defaults to STILLS/fonts, then falls back to CDN copies). Also uses
+ * docs/brand/icon-source.png. Needs ffmpeg.
+ * Outputs: docs/media/banner.png (1920x800, shown at 960),
  * docs/media/look-{chat,prompt,terminal}.png (1760x1150, shown at 880 or 440): chat is the whole
  * window, centred; prompt and terminal are details on one rule (top-left corner 96px in, 1.25 px per
  * CSS px, so dots, pane title and sidebar stay in frame), bleeding off the right and bottom.
@@ -21,8 +22,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = join(import.meta.dir, "../..");
-const stills = process.env["STILLS"] ?? join(root, "_film/footage/stills");
-const fonts = process.env["FONTS"] ?? join(root, "_film/fonts");
+const stills = process.env["STILLS"];
+if (!stills) throw new Error("Set STILLS to a directory of isolated app captures (see docs/development.md)");
+const fonts = process.env["FONTS"] ?? join(stills, "fonts");
 const tmp = mkdtempSync(join(tmpdir(), "herdr-banner-"));
 const what = process.argv.slice(2);
 const want = (part: string) => what.length === 0 || what.includes(part);
@@ -33,7 +35,7 @@ function ffmpeg(args: string[]) {
   if (proc.exitCode !== 0) throw new Error(`ffmpeg: ${proc.stderr.toString()}`);
 }
 
-// the mark in #f2ebdf on transparent and the grain tile: the same derivation as site/assets (brief section 1)
+// The mark in #f2ebdf on transparent, and a grain tile for the backdrop.
 const mark = join(tmp, "mark-paper.png");
 const grain = join(tmp, "grain.png");
 ffmpeg(["-i", join(root, "docs/brand/icon-source.png"), "-vf", "crop=1040:1040:145:127,scale=512:512:flags=lanczos,format=rgba,geq=r=242:g=235:b=223:a='clip((200-r(X,Y))*2.5,0,255)'", mark]);
@@ -46,7 +48,7 @@ const copy = `<div class="copy"><img class="mark" src="${url(mark)}" alt=""><div
 const hero = `${copy}<div class="scene">${windowObject("03-desktop-todo-open.png")}${phoneObject("14-phone-codex-approval.png")}</div>`;
 
 // look: the window's width in px, and "whole" (centred) or "detail" (top-left corner at 96,96)
-interface Job { out: string; kind: "banner" | "og" | "look"; w: number; h: number; content: string; look?: { w: number; anchor: "whole" | "detail" }; maxBytes: number }
+interface Job { out: string; kind: "banner" | "look"; w: number; h: number; content: string; look?: { w: number; anchor: "whole" | "detail" }; maxBytes: number }
 // the stills are 2x, so 1.25 px per CSS px is still below 1 output px per source px
 const looks = [
   { name: "chat", still: "02-desktop-chat-worked-open", look: { w: 1540, anchor: "whole" } },
@@ -55,7 +57,6 @@ const looks = [
 ] as const;
 const jobs = ([
   { out: "docs/media/banner.png", kind: "banner" as const, w: 1920, h: 800, content: hero, maxBytes: 600_000 },
-  { out: "site/assets/og.png", kind: "og" as const, w: 1280, h: 640, content: hero, maxBytes: 400_000 },
   ...looks.map((x): Job => ({ out: `docs/media/look-${x.name}.png`, kind: "look", w: 1760, h: 1150, content: windowObject(`${x.still}.png`), look: x.look, maxBytes: 700_000 })),
 ] satisfies Job[] as Job[]).filter((job) => want(job.kind));
 

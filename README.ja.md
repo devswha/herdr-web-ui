@@ -11,9 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tomrutsaert/herdr-web-ui">公式サイト</a> ·
+  <a href="https://github.com/tomrutsaert/herdr-web-ui">リポジトリ</a> ·
   <a href="#install">インストール</a> ·
-  <a href="https://github.com/tomrutsaert/herdr-web-ui/tree/main/site/demo">デモのソース</a> ·
   <a href="docs/guide.md#quick-start">クイックスタート</a> ·
   <a href="#faq">よくある質問</a> ·
   <a href="#docs">ドキュメント</a>

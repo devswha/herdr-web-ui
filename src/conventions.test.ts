@@ -176,7 +176,7 @@ describe("UI wording", () => {
   // "Session" means the herdr server session or an agent's history; the dialog that makes a
   // workspace says "New workspace" (AGENTS.md).
   it("says New workspace, never New session", () => {
-    const offenders = [...scan("src/**/*.{ts,tsx}"), ...scan("site/**/*.{ts,tsx,html}"), "index.html"]
+    const offenders = [...scan("src/**/*.{ts,tsx}"), ...scan("scripts/demo/**/*.{ts,tsx}"), "index.html"]
       .filter((file) => !file.endsWith(".test.ts"))
       .flatMap((file) => read(file).split("\n").flatMap((line, index) =>
         /^\s*(?:\/\/|\/?\*)/.test(line) || !/\bNew [Ss]ession\b/.test(line) ? [] : [`${file}:${index + 1}: ${line.trim()}`]));
