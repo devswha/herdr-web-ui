@@ -41,6 +41,16 @@ export type GjcSdkCommandRunner = (command: string, args: string[], options: Gjc
 
 export type GjcSdkWorktreeRootResolver = (cwd: string, timeoutMs: number) => Promise<string | null>;
 
+export interface GjcSdkBinding {
+  sessionId: string;
+  pid: number;
+  path: string;
+  hostIncarnation: string;
+  endpointGeneration: number;
+  /** Includes retired/fence rows: a heartbeat may revive a same-pid session without registering it. */
+  guardSessionIds: string[];
+}
+
 const execFileAsync = promisify(execFile);
 
 const runGjcSdkCommand: GjcSdkCommandRunner = async (command, args, options) => {
@@ -103,6 +113,14 @@ function definitivelyRetired(row: Record<string, unknown>): boolean {
   return row.live === false
     || row.deleted === true
     || (row.terminal === true && row.terminalUncertain === false);
+}
+
+function collectGuardSessionIds(rows: readonly unknown[], pids: ReadonlySet<number>, sessionIds: Set<string>): void {
+  for (const row of rows) {
+    if (isRecord(row) && typeof row.pid === "number" && pids.has(row.pid) && nonEmptyString(row.sessionId)) {
+      sessionIds.add(row.sessionId);
+    }
+  }
 }
 
 /**
@@ -287,7 +305,7 @@ async function resolveTranscript(
   agentDir: string,
   runner: GjcSdkCommandRunner,
   worktreeRootResolver: GjcSdkWorktreeRootResolver,
-): Promise<{ sessionId: string; pid: number; path: string; hostIncarnation: string; endpointGeneration: number } | null> {
+): Promise<GjcSdkBinding | null> {
   try {
     if (!Array.isArray(pids) || pids.length === 0 || pids.some((pid) => !Number.isSafeInteger(pid) || pid <= 0)
       || typeof cwd !== "string" || cwd === ""
@@ -301,6 +319,7 @@ async function resolveTranscript(
     const wantedPids = new Set(pids);
     const seenCursors = new Set<string>();
     const rows: unknown[] = [];
+    const guardSessionIds = new Set<string>();
     let indexSeq: number | null = null;
     let cursor: string | null = null;
     const scope = {
@@ -318,6 +337,7 @@ async function resolveTranscript(
       indexSeq = response.indexSeq;
       if (rows.length + response.sessions.length > MAX_ROWS) return null;
       rows.push(...response.sessions);
+      collectGuardSessionIds(response.sessions, wantedPids, guardSessionIds);
 
       cursor = response.continuationCursor;
       if (cursor === null) break;
@@ -342,6 +362,7 @@ async function resolveTranscript(
     const exact = parseBrokerPage(lookup);
     if (exact === null || exact.continuationCursor !== null || indexSeq === null || exact.indexSeq < indexSeq) return null;
 
+    collectGuardSessionIds(exact.sessions, wantedPids, guardSessionIds);
     const samePidRows = exact.sessions.filter((row) => isRecord(row)
       && row.pid === expected.pid
       && !definitivelyRetired(row) && !directSessionFence(row, agentDir));
@@ -350,12 +371,14 @@ async function resolveTranscript(
     if (!isRecord(exact.savedSession) || exact.savedSession.id !== expected.sessionId
       || typeof exact.savedSession.path !== "string" || !nodePath.isAbsolute(exact.savedSession.path)) return null;
 
+    guardSessionIds.add(expected.sessionId);
     return {
       sessionId: expected.sessionId,
       pid: expected.pid,
       path: exact.savedSession.path,
       hostIncarnation: expected.hostIncarnation,
       endpointGeneration: expected.endpointGeneration,
+      guardSessionIds: [...guardSessionIds],
     };
   } catch (error) {
     if (error instanceof GjcSdkLookupError) throw error;
@@ -369,7 +392,7 @@ export function gjcSdkTranscript(
   pids: readonly number[],
   cwd: string,
   agentDir: string,
-): Promise<{ sessionId: string; pid: number; path: string; hostIncarnation: string; endpointGeneration: number } | null> {
+): Promise<GjcSdkBinding | null> {
   return resolveTranscript(pids, cwd, agentDir, runGjcSdkCommand, gitWorktreeRoot);
 }
 
@@ -380,6 +403,6 @@ export function gjcSdkTranscriptWithRunner(
   agentDir: string,
   runner: GjcSdkCommandRunner,
   worktreeRootResolver: GjcSdkWorktreeRootResolver = gitWorktreeRoot,
-): Promise<{ sessionId: string; pid: number; path: string; hostIncarnation: string; endpointGeneration: number } | null> {
+): Promise<GjcSdkBinding | null> {
   return resolveTranscript(pids, cwd, agentDir, runner, worktreeRootResolver);
 }
