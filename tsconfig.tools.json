@@ -15,6 +15,7 @@
     "scripts/release-guards.ts",
     "scripts/changelog-fold.ts",
     "scripts/demo/transport.ts",
+    "scripts/demo-fixtures.ts",
     "scripts/file-viewer-regression.ts",
     "scripts/pwa-update-browser-qa.ts",
     "scripts/chat-fallback-browser-qa.ts",

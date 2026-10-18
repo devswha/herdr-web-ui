@@ -4,7 +4,10 @@
  * the developer works in.
  */
 process.env["HERDR_TEST_SESSION"] = "herdr-web-ui-demo";
-await import("../test-herdr.ts");
+const { TEST_SESSION, testSocketPath } = await import("../test-herdr.ts");
+if (TEST_SESSION !== "herdr-web-ui-demo" || process.env["HERDR_SOCKET"] !== testSocketPath()) {
+  throw new Error("Fixture staging requires the isolated demo session; no staging changes were made");
+}
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

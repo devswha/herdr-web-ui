@@ -25,7 +25,8 @@ const get = async (path: string): Promise<unknown> => JSON.parse(scrub(await (aw
 
 try {
   mkdirSync(OUT, { recursive: true });
-  save("machines.json", { machines: [{ id: "local", name: "Host", kind: "local", enabled: true, state: "connected", error: null, snapshot: (await get("/api/session") as { snapshot: unknown }).snapshot }] });
+  const machines = [{ id: "local", name: "Host", kind: "local", enabled: true, state: "connected", error: null, snapshot: (await get("/api/session") as { snapshot: unknown }).snapshot }];
+  save("machines.json", { machines });
   save("agents.json", await get("/api/agents"));
   save("commands.json", await get(`/api/pane/commands?pane_id=${encodeURIComponent(demo.pane("api").pane)}`));
   save("panes.json", Object.fromEntries(demo.panes.map((p) => [p.key, p.pane])));
@@ -52,7 +53,7 @@ try {
     socket.addEventListener("error", () => reject(new Error("websocket failed")));
   });
   save("terminal.json", { pane: "shell", cols: 80, rows: 24, frames });
-  console.log(`${roster.machines.length} machine(s), ${frames.length} terminal frames -> ${OUT}`);
+  console.log(`${machines.length} machine(s), ${frames.length} terminal frames -> ${OUT}`);
 } finally {
   await demo.teardown();
 }
