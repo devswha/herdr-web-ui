@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { forgetTranscriptState, HistoryChanged, transcriptPage } from "./conversation.ts";
 import { grokToolOutput, grokProjection, GrokUnavailable, parseGrokTranscript } from "./grok.ts";
-import { grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath, isGrokExecutable } from "./grok-store.ts";
+import { grokHeldSessions, grokHoldsReportedSession, grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath, isGrokExecutable } from "./grok-store.ts";
 import type { ConversationPart } from "../shared/protocol.ts";
 
 const session = "fictional-session";
@@ -220,6 +220,29 @@ describe("exact store lookup", () => {
     for (const exe of rejected) {
       expect(isGrokExecutable(exe)).toBe(false);
       expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: [exe] }] })).toEqual([]);
+    }
+  });
+  test("Herdr's session stays bound while older events files stay open", () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-grok-held-")));
+    const current = join(home, "sessions", "group", "sess-current", "events.jsonl");
+    const older = join(home, "sessions", "group", "sess-older", "events.jsonl");
+    const outside = join(home, "events.jsonl");
+    mkdirSync(dirname(current), { recursive: true });
+    mkdirSync(dirname(older), { recursive: true });
+    writeFileSync(current, "");
+    writeFileSync(older, "");
+    writeFileSync(outside, "");
+    const fds = [openSync(current, "r"), openSync(older, "r"), openSync(outside, "r")];
+    try {
+      const held = grokHeldSessions(process.pid, home);
+      expect(grokHoldsReportedSession(held, dirname(current))).toBe(true);
+      expect(grokHoldsReportedSession(held, dirname(older))).toBe(true);
+      expect(grokHoldsReportedSession(held, join(home, "sessions", "group", "sess-closed"))).toBe(false);
+      expect(grokHoldsReportedSession(null, dirname(current))).toBe(false);
+      expect(held?.has(dirname(outside))).toBe(false);
+    } finally {
+      for (const fd of fds) closeSync(fd);
+      rmSync(home, { recursive: true, force: true });
     }
   });
   test("discovery checks a script only behind bun or node, never arbitrary arguments", () => {

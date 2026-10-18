@@ -161,7 +161,7 @@ Every agent herdr runs shows up with its live status, terminal and alerts. The c
 | **pi** | Native session file, resolved through herdr; after `/tree`, the branch in play | ✓ its dialogs: a question, a confirmation, an answer typed in |
 | **OpenCode** | Native session in OpenCode 2's own database, resolved through herdr: `~/.local/share/opencode/opencode.db` (`%USERPROFILE%\.local\share\opencode\opencode.db` on Windows), or where the server's `XDG_DATA_HOME` or `OPENCODE_DB` puts it | — use Terminal |
 | **Devin CLI** | Native SQLite session, showing the active branch when herdr or the live process explicitly identifies the session; otherwise terminal text | — use Terminal |
-| **Grok** | Linux native update log. Any Grok executable named `grok` or `grok-…` whose one held session matches Herdr; macOS, Windows, and an ambiguous hold use Terminal. See [Grok setup and limits](grok-chat.md). | — use Terminal |
+| **Grok** | Linux native update log. Any Grok executable named `grok` or `grok-…` that holds the `events.jsonl` for the session Herdr reported. Other open session files do not hide it. macOS, Windows, and a session whose file is not open use Terminal. See [Grok setup and limits](grok-chat.md). | — use Terminal |
 | **Hermes** | Native SQLite session store | — use Terminal |
 | **Antigravity (agy)** | **Experimental; macOS untested.** Native ledger, selected by the running process’s held conversation lock. Linux native-tested; Windows uses terminal text. See [Agy behavior and limits](agy-chat.md). | — use Terminal |
 | **Anything else** | The terminal's text | — use Terminal |

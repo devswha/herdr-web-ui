@@ -25,13 +25,14 @@ packaging suffixes removed; neither requires a particular build number or a nume
 A reported ID is looked up exactly, including hashed directory names for long paths;
 directory or modification time never chooses a conversation.
 
-Grok 1.0.50 does not fire `SessionStart` on an in-TUI `/resume`, so Herdr can keep an old ID.
-`active_sessions.json` and open file descriptors can contain several sessions; neither
-identifies which of them is on screen. Chat is therefore shown only when the process's sole
-held `events.jsonl` session agrees with Herdr's ID. After a `/resume` that leaves them apart,
-or any other ambiguity, the pane uses the terminal view. That same rule applies to every
-Grok executable. Builds other than 1.0.50 were not each re-checked; an ambiguous hold still
-stays on the terminal view.
+Grok keeps `events.jsonl` open for earlier sessions as well as the one on screen, and an
+in-TUI `/resume` on Grok 1.0.50 does not fire `SessionStart`, so Herdr can keep an old ID.
+`active_sessions.json` does not say which session is on screen, and neither does the newest
+file. Chat follows the session Herdr reported when that process holds its `events.jsonl`.
+Other open session files do not hide it and are not a second guess. When Herdr's file is not
+open, the pane uses the terminal view. A `/resume` that leaves Herdr on the previous ID keeps
+showing that session for as long as its file stays open. The same rule applies to every Grok
+executable. Builds other than 1.0.50 were not each re-checked.
 
 ## History and limits
 

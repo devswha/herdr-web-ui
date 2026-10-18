@@ -22,7 +22,8 @@ export function grokPaneProcesses(info: GrokProcessInfo): { pid: number }[] {
 }
 
 /** True when this path's file name is Grok: `grok`, or `grok-` plus anything else
- * (`grok-1.0.52-linux-x86_64`, `grok.exe`). The session is still the one held events.jsonl. */
+ * (`grok-1.0.52-linux-x86_64`, `grok.exe`). The session is the one Herdr reported, when that
+ * events.jsonl is open. */
 export function isGrokExecutable(exePath: string): boolean {
   const slash = Math.max(exePath.lastIndexOf("/"), exePath.lastIndexOf("\\"));
   let name = slash >= 0 ? exePath.slice(slash + 1) : exePath;
@@ -78,10 +79,9 @@ export function grokHomeFromEnvironment(environment: string): string | null {
   return home && isAbsolute(home) ? home : null;
 }
 
-/** Grok 1.0.50 holds the active events.jsonl and can retain earlier sessions. Its /resume
- * picker does NOT refresh Herdr's SessionStart identity. Multiple held sessions therefore
- * make the current one unknowable; do not select the newest or most recently written. */
-export function grokHeldSession(pid: number, home: string): string | null {
+/** Directories of real events.jsonl files this process holds. Null when that table cannot be
+ * trusted: it could not be read, it is too large, or a held events.jsonl is not the real file. */
+export function grokHeldSessions(pid: number, home: string): Set<string> | null {
   try {
     const store = realpathSync(join(home, "sessions"));
     const fds = opendirSync(`/proc/${pid}/fd`);
@@ -99,16 +99,22 @@ export function grokHeldSession(pid: number, home: string): string | null {
         sessions.add(dirname(target));
       }
     } finally { fds.closeSync(); }
-    return sessions.size === 1 ? [...sessions][0]! : null;
+    return sessions;
   } catch { return null; }
 }
 
-/** Bind a Linux Grok pane only when its sole held session agrees with Herdr's exact ID. */
+/** Herdr names the session. Other events.jsonl files Grok has not closed do not hide it,
+ * and they do not select a different conversation. */
+export function grokHoldsReportedSession(held: ReadonlySet<string> | null, sessionDir: string): boolean {
+  return held !== null && held.has(sessionDir);
+}
+
+/** Bind a Linux Grok pane when the process holds the events.jsonl for Herdr's exact ID. */
 export async function resolveGrokStore(pane: HerdrPane, configuredHome?: string): Promise<string | null> {
   const session = pane.agent_session;
   if (pane.agent !== "grok" || session?.agent !== "grok" || session.kind !== "id" || session.source !== "herdr:grok" || !SESSION.test(session.value)) return null;
   // The held file is read from /proc, so this shortcut is Linux-only. The executable may be
-  // any Grok build. The session is the sole held events.jsonl, not a version string.
+  // any Grok build. Herdr's id chooses the session; an events.jsonl it did not name does not.
   if (process.platform !== "linux") return null;
   try {
     const processes = grokPaneProcesses((await paneProcessInfo(pane.pane_id)) ?? {});
@@ -117,8 +123,7 @@ export async function resolveGrokStore(pane: HerdrPane, configuredHome?: string)
     if (!isGrokExecutable(readlinkSync(`/proc/${owner.pid}/exe`))) return null;
     const home = configuredHome ?? grokHomeFromEnvironment(readFileSync(`/proc/${owner.pid}/environ`, "utf8"));
     if (!home) return null;
-    const held = grokHeldSession(owner.pid, home);
     const path = grokTranscriptPath(home, session.value);
-    return held !== null && path !== null && dirname(path) === held ? path : null;
+    return path !== null && grokHoldsReportedSession(grokHeldSessions(owner.pid, home), dirname(path)) ? path : null;
   } catch { return null; }
 }
