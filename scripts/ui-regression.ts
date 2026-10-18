@@ -71,9 +71,12 @@ async function until(check: () => boolean | Promise<boolean>, label: string): Pr
 }
 
 try {
+  // Folder browsing owns a directory separate from application state and other fixtures.
+  const folders = join(root, "folders");
+  mkdirSync(folders);
   const panes: string[] = [];
   for (const suffix of ["a", "b"]) {
-    const cwd = join(root, suffix);
+    const cwd = join(folders, suffix);
     mkdirSync(cwd);
     const result = await workspaceCreate({ cwd, label: `herdr-web-ui-test-browser-${suffix}` });
     workspaces.push(result.workspace.workspace_id);
@@ -1311,10 +1314,10 @@ try {
   await dialog.locator(".dir-browser-item").first().waitFor();
   assert.equal(await dialog.getByLabel(/^Directory/).inputValue(), "~", "Browse keeps the home-relative form");
   await dialog.getByRole("button", { name: "Browse", exact: true }).click();
-  await dialog.getByLabel(/^Directory/).fill(root);
+  await dialog.getByLabel(/^Directory/).fill(folders);
   await checkFolderFilter(page, dialog, () => createRequests);
   // Browse into a child and Start without Use this folder: create must use that child (#1162).
-  // root/a and root/b already exist from the owned panes at the top of this script.
+  // The folder fixture contains only a and b, created for the owned panes above.
   await dialog.getByRole("button", { name: "Browse", exact: true }).click();
   await dialog.getByRole("searchbox", { name: "Filter folders" }).waitFor();
   await dialog.locator(".dir-browser-item", { hasText: /^a$/ }).click();
@@ -1324,7 +1327,7 @@ try {
   await dialog.getByLabel(/^Name/).fill("herdr-web-ui-test-browser-created");
   await dialog.getByRole("button", { name: "Start", exact: true }).click();
   await until(() => createRequests === 1, "creation started");
-  assert.equal(createCwd, join(root, "a", "made-here"), "Start uses the folder Browse is showing");
+  assert.equal(createCwd, join(folders, "a", "made-here"), "Start uses the folder Browse is showing");
   await page.keyboard.press("Escape");
   assert.equal(await dialog.isVisible(), true, "in-flight creation cannot be dismissed");
   assert.equal(await dialog.getByRole("button", { name: "Close dialog" }).isDisabled(), true);
@@ -1573,7 +1576,7 @@ try {
   await openAgentTab();
   const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
   await tabDialog.waitFor();
-  assert.equal(await tabDialog.locator(".new-session-folder").textContent(), join(root, "a", "made-here"), "the folder is the workspace's, shown");
+  assert.equal(await tabDialog.locator(".new-session-folder").textContent(), join(folders, "a", "made-here"), "the folder is the workspace's, shown");
   assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 0, "the folder is not asked for");
   const tabNameField = tabDialog.getByLabel(/^Name/);
   await tabNameField.fill("second");
@@ -1691,7 +1694,7 @@ try {
   const terminalResponse = page.waitForResponse((response) => response.url().endsWith("/api/tab/create"));
   await page.locator(".tab-strip-add").click();
   const terminalAnswer = await terminalResponse;
-  assert.deepEqual(terminalAnswer.request().postDataJSON(), { workspace_id: created.workspace_id, cwd: join(root, "a", "made-here"), label: null, agent: null }, "the + asks for a shell tab in the workspace's folder");
+  assert.deepEqual(terminalAnswer.request().postDataJSON(), { workspace_id: created.workspace_id, cwd: join(folders, "a", "made-here"), label: null, agent: null }, "the + asks for a shell tab in the workspace's folder");
   const terminalTab = await terminalAnswer.json() as WorkspaceCreated;
   assert.equal(terminalTab.workspace_id, created.workspace_id, "the shell tab joins the workspace");
   assert.equal(terminalTab.agent_started, false, "no agent is started");
