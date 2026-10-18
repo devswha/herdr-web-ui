@@ -1,4 +1,6 @@
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
+import { blockedOnlyByCodexQueue, claudeBoxReads, closeMention, freeClaudeBox, freeHermesInput, InputDraftError, pendingFault, pendingIdentity, pendingText } from "./core/composer.ts";
+import { type Client, presenceOf, send, type SocketData } from "./core/connections.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { randomBytes } from "node:crypto";
@@ -6,7 +8,7 @@ import { accessSync, constants, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PlanSummary, PluginActionsResponse, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ClientMessage, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PlanSummary, PluginActionsResponse, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { alertStatus, paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -43,7 +45,6 @@ import {
   paneGet,
   paneProcessInfo,
   paneRead,
-  paneScrollInfo,
   paneSendKeys,
   paneSendText,
   ping,
@@ -55,7 +56,7 @@ import {
   sessionSnapshot,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeInputDraft, hermesInputDraft, shownInputBox, claudeInputEmpty, viewportShowsLive, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded, claudeRestoredDraft, lastChatSubmitted } from "./prompt.ts";
+import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeHeldIsGrey, claudeInputBoxContent, claudeInputDraft, shownInputBox, claudeInputEmpty, codexQuestionsCollapsed, handlePromptRequest, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PtySession } from "./pty/session.ts";
 import { PaneWatch } from "./watch.ts";
@@ -63,7 +64,7 @@ import { AttachOutputTail, AttachStartupProbes, isTakeoverExit } from "./attach-
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { mirrorInput } from "./mirror-input.ts";
-import { PendingInputs, PendingInputError, samePendingIdentity, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
+import { PendingInputs, samePendingIdentity, type PendingIdentity, type PendingRecord } from "./pending-input.ts";
 import { processStartedAt } from "./process-start.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
@@ -177,30 +178,10 @@ const MAX_WAITING_KEYS = 256;
  * reaches the pane later.
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
-const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
-const HERMES_INPUT_DRAFT_MESSAGE = "Hermes' input in the terminal is not empty (a draft, or an input that could not be read); send or clear it there, then send this message";
 /** How long a cleared Claude input box may take to read empty before the send is refused after all. */
 const DRAFT_CLEAR_WAIT_MS = 1_500;
 const DRAFT_CLEAR_POLL_MS = 50;
 
-/**
- * input_draft, naming the one-row draft the chat may offer to clear (claudeClearableDraft), or none.
- * `box`: the input box as read, whole (claudeInputBoxContent; the client is shown it cut), which a refusal naming no draft shows so the
- * user may send anyway; null where the refusal offers nothing (after a clear began).
- */
-class InputDraftError extends HerdrError {
-  readonly draft: string | null;
-  constructor(draft: string | null, readonly identity?: PendingIdentity, readonly box: string | null = null, message = CLAUDE_INPUT_DRAFT_MESSAGE) {
-    super("input_draft", message);
-    this.draft = draft;
-  }
-}
-/** between the two Esc presses that empty Claude Code's restored copy of the chat's message */
-const RESTORED_CLEAR_GAP_MS = 200;
-/** after them, before the box is read again */
-const RESTORED_CLEAR_SETTLE_MS = 300;
-/** what a send must still have of its deadline before the copy is cleared: the clear, the box read again, then the send */
-const RESTORED_CLEAR_RESERVE_MS = 2_000;
 const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch", "ping"];
 
 
@@ -228,38 +209,6 @@ async function claudeTempFolder(paneId: string): Promise<string | null> {
     return session === null ? null : await claudeSessionTempDir(session.path);
   } catch { return null; /* herdr busy or the pane gone: the path stays not found */ }
 }
-
-interface SocketData {
-  deviceId?: string;
-  readOnly?: boolean;
-  revoked?: boolean;
-  unwatchDevice?: () => void;
-  relay?: MachineRelay;
-  /** A fresh claim per attach lifetime; deleting it invalidates queued terminal keys. */
-  attached: Map<string, { keepSize: boolean }>;
-  conversationInterests: Set<string>;
-  watches: Map<string, PaneWatch>;
-  output: Map<string, OutputWindow>;
-  closing: boolean;
-  /** the connection's authority: observe connections cannot type or resize */
-  mode: ClientRole;
-  /** how often `mode` changed: a switch away and back during an await is still a change */
-  roles: number;
-}
-
-/** A `presence` frame's answer, or null for any other frame. A relayed frame is only parsed when it can be one. */
-function presenceOf(raw: string | Buffer): boolean | null {
-  const text = String(raw);
-  if (!text.includes("\"presence\"")) return null;
-  try {
-    const message = JSON.parse(text) as { type?: unknown; active?: unknown };
-    return message?.type === "presence" ? message.active === true : null;
-  } catch {
-    return null;
-  }
-}
-
-type Client = ServerWebSocket<SocketData>;
 
 /**
  * What Bun.serve admits before a route runs (64 MiB). The ~55.9 MB body of a 40 MiB file is under it,
@@ -305,26 +254,6 @@ interface PaneAttachment {
   repaint?: ReturnType<typeof setTimeout>;
   /** when herdr was last asked to repaint (or redrew for a resize), for REPAINT_MIN_INTERVAL_MS */
   repaintedAt?: number;
-}
-
-function send(client: Client, message: ServerMessage): number {
-  if (client.data.closing) return 0;
-  try {
-    const encoded = JSON.stringify(message);
-    // Include JSON escaping in the transport budget, before Bun could drop a
-    // frame at its own cap. An overload close is explicit and never auto-replayed.
-    if (client.getBufferedAmount() + Buffer.byteLength(encoded) > OUTPUT_HARD_BYTES) {
-      client.close(OUTPUT_STALLED_CLOSE_CODE, "terminal output transport stalled");
-      return 0;
-    }
-    // -1 means ALREADY queued. Never retry that frame, or terminal bytes repeat.
-    const result = client.send(encoded);
-    if (result === 0) client.close(OUTPUT_STALLED_CLOSE_CODE, "output delivery failed");
-    return result;
-  } catch {
-    /* client vanished mid-send */
-    return 0;
-  }
 }
 
 export interface ServerInstance {
@@ -520,18 +449,6 @@ export function createServer(
    * the bytes, so the pane sees the whole gap. So does a Codex "blocked" only by questions
    * waiting collapsed in its queue: its main prompt still takes the message.
    */
-  /**
-   * A message whose last word is an `@file` mention leaves the agent's file suggestions open over
-   * it, and the Enter after the paste takes the suggestion instead of sending: the message stays in
-   * the input box (Claude Code 2.1.295, #404). A space after the mention closes them first; a
-   * payload already in bracketed-paste markers gets it inside them.
-   */
-  const closeMention = (text: string): string => {
-    const open = text.startsWith("\u001b[200~") ? "\u001b[200~" : "";
-    const close = open && text.endsWith("\u001b[201~") ? "\u001b[201~" : "";
-    const body = text.slice(open.length, text.length - close.length);
-    return /(?:^|\s)@\S+$/.test(body) ? `${open}${body} ${close}` : text;
-  };
 
   /**
    * `clearDraft`: the draft an input_draft refusal named, which the user asked to clear and send
@@ -696,28 +613,6 @@ export function createServer(
     if (client.data.readOnly || client.data.mode === "observe") throw new HerdrError("read_only", "this connection can only watch");
   }
 
-  /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
-  async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> {
-    const pane = await paneGet(paneId).catch((error: unknown) => {
-      if (error instanceof HerdrError && error.code === "pane_not_found") return undefined;
-      throw error;
-    });
-    if ((pane?.agent ?? pane?.agent_session?.agent) !== "codex") return false;
-    // A collapsed queue in scrollback must not bypass an approval on the live screen.
-    return codexQuestionsCollapsed((await paneRead({ paneId, source: "detection", format: "text" })).text);
-  }
-
-  const pendingIdentity = (pane: HerdrPane): PendingIdentity => ({
-    agent: pane.agent ?? pane.agent_session?.agent ?? null, terminalId: pane.terminal_id,
-    session: pane.agent_session ? `${pane.agent_session.kind}:${pane.agent_session.source}:${pane.agent_session.value}` : null,
-  });
-  const pendingText = (text: string): string => {
-    const normalized = text.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n");
-    if (!normalized.trim() || normalized.length > 20_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(normalized)) {
-      throw new HerdrError("invalid_submit_text", "A pending chat message must be nonempty text, at most 20000 characters, without terminal control characters");
-    }
-    return normalized;
-  };
   function pendingLease(owner: Client, paneId: string): PendingLease {
     const attachment = attachments.get(paneId);
     if (!attachment) throw new HerdrError("input_not_ready", "The pane is not attached and ready");
@@ -799,71 +694,11 @@ export function createServer(
     authorizePending(owner, paneId, lease);
     return { pane, identity: current, working: current.agent !== null && (pane.agent_status === "working" || collapsed), screen };
   }
-  const pendingFault = (error: unknown) => ({
-    code: error instanceof HerdrError || error instanceof PendingInputError ? error.code : "submit_failed",
-    message: error instanceof Error ? error.message : String(error),
-  });
   /**
    * The live screen for claudeInputDraft, and the viewport's colors when viewportShowsLive verifies
    * they show it. Read last, the live screen holds anything typed meanwhile. An empty box (or none)
    * needs no colors.
    */
-  /**
-   * Hermes' input, refused with input_draft unless hermesInputDraft knows it empty. As claudeBoxReads,
-   * the viewport's colors are read only for an input row with text, and count only once
-   * viewportShowsLive verifies them; the live read comes last, so text typed meanwhile is in it.
-   * Hermes offers nothing to clear from here: the user sends or clears it in the terminal.
-   */
-  async function freeHermesInput(paneId: string, identity?: PendingIdentity): Promise<void> {
-    const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    if (!hermesInputDraft(before, null)) return;
-    const scrollBefore = await paneScrollInfo(paneId);
-    const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
-    const scrollAfter = await paneScrollInfo(paneId);
-    const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    if (hermesInputDraft(live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null)) {
-      throw new InputDraftError(null, identity, null, HERMES_INPUT_DRAFT_MESSAGE);
-    }
-  }
-
-  async function claudeBoxReads(paneId: string): Promise<[string, string | null]> {
-    const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    if (!claudeInputDraft(before, null)) return [before, null];
-    const scrollBefore = await paneScrollInfo(paneId);
-    const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
-    const scrollAfter = await paneScrollInfo(paneId);
-    const live = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-    return [live, viewportShowsLive(scrollBefore, scrollAfter, colors, before, live) ? colors : null];
-  }
-
-  /**
-   * The box check both chat sends share: a Claude Code input box that is not known to be empty is
-   * refused, except the chat's own last message, which Claude puts back as typed text when the send
-   * right after it is cancelled. That copy, while the agent is not working, two Esc presses empty
-   * again — never Ctrl+C, which would arm "press Ctrl-C again to exit" — then the box is read once
-   * more before the send. Every other draft, and a box still not empty after them, refuses as before.
-   * `authorize` throws once the sender may no longer send: it is asked before each Esc, and again
-   * right before herdr is written to. A send with less than RESTORED_CLEAR_RESERVE_MS left before its
-   * `deadline` clears nothing: it would erase the copy, then time out without sending.
-   */
-  async function freeClaudeBox(paneId: string, working: boolean, authorize: () => void, deadline: number): Promise<void> {
-    const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
-    const [live, colors] = await claudeBoxReads(paneId);
-    if (!claudeInputDraft(live, colors)) return;
-    if (working || claudeRestoredDraft(live, colors, lastChatSubmitted(paneId)) === null) {
-      throw new InputDraftError(claudeClearableDraft(live, colors), undefined, claudeInputBoxContent(live));
-    }
-    if (deadline - Date.now() < RESTORED_CLEAR_RESERVE_MS) throw new HerdrError("submit_timeout", "Too little time was left to clear Claude Code's input box and send; nothing was typed");
-    // the read proved the box holds the copy: a lone Esc on an EMPTY box would open Claude's
-    // rewind dialog instead
-    authorize();
-    await paneSendKeys(paneId, ["esc"], undefined, allowed);
-    await Bun.sleep(RESTORED_CLEAR_GAP_MS);
-    authorize();
-    await paneSendKeys(paneId, ["esc"], undefined, allowed);
-    await Bun.sleep(RESTORED_CLEAR_SETTLE_MS);
-    if (claudeInputDraft(...await claudeBoxReads(paneId))) throw new HerdrError("input_draft", CLAUDE_INPUT_DRAFT_MESSAGE);
-  }
 
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean, restarting?: boolean) => void = () => {}, interruptWorkingCodex = false): Promise<SubmitReply> {
