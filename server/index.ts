@@ -2962,8 +2962,9 @@ if (import.meta.main) {
   try {
     instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true, herdrProfiles: readHerdrProfiles });
   } catch (err) {
-    const code = (err as { code?: string }).code;
-    if (code !== "EADDRINUSE" && code !== "EADDRNOTAVAIL" && code !== "EACCES") throw err;
+    const { code, syscall } = err as { code?: string; syscall?: string };
+    // only the bind itself: a permission error reading a state file keeps its own message and path
+    if (syscall !== "listen" || (code !== "EADDRINUSE" && code !== "EADDRNOTAVAIL" && code !== "EACCES")) throw err;
     const host = process.env["HOST"] ?? "127.0.0.1";
     const port = process.env["PORT"] || DEFAULT_PORT;
     const reason = code === "EADDRINUSE"
