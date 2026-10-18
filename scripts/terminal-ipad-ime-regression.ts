@@ -134,6 +134,13 @@ export async function checkIpadIme(browser: Browser, origin: string, pane: strin
         await check("한" + expected, `iPad commit precedes ${press}`);
       }
 
+      // the key bar's keys reach xterm through term.input, not a keydown: they follow the syllable too
+      await reset(); await fresh("ㅎ"); await replace("ㅏ", "하"); await replace("ㄴ", "한");
+      const escape = page.locator('.key-bar .key[data-key="Escape"]');
+      await until(() => escape.evaluate((node) => !(node as HTMLButtonElement).disabled).catch(() => false));
+      await escape.evaluate((node: HTMLElement) => node.click());
+      await check("한\x1b", "the pending syllable precedes a key-bar key");
+
       await reset(); await fresh("ㅎ"); await replace("ㅏ", "하"); await replace("ㄴ", "한");
       await input.evaluate((box) => (box as HTMLTextAreaElement).blur());
       await until(() => sent.length > 0);
