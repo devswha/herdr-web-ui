@@ -89,7 +89,7 @@ seed the states below, record/export them, update to absent metadata, and reopen
 without removal. Compare a separate fresh install. A removal/re-add comparison
 belongs only to that disposable QA install after its saved data has been checked.
 Do not clear user website data, erase a Simulator, revoke real pairings or reset
-server credentials/push keys as a workaround.
+server credentials as a workaround.
 
 | State | Storage/recovery boundary | Owned QA check before and after each transition |
 | --- | --- | --- |

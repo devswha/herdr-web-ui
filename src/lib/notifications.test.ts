@@ -71,7 +71,7 @@ describe("tab alerts shown through the worker", () => {
     return shown;
   }
 
-  it("names the pane's workspace, as the server's push does, so a tap after the pane ends opens it (public/sw.js)", async () => {
+  it("names the pane's workspace so a tap after the pane ends opens it (public/sw.js)", async () => {
     const shown = hiddenTabWithWorker();
     showPaneEndedNotification("w1:p9", "Mac · claude", undefined, "local", "w1");
     showPaneStatusNotification("w2:p1", "Mac · codex", "blocked", undefined, "pc-2", "w2");

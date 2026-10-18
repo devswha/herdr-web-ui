@@ -63,7 +63,11 @@ export class SessionEvents {
           const open = new Set(snapshot.panes.map((pane) => pane.pane_id));
           for (const id of this.heardAgents.keys()) if (!open.has(id)) this.heardAgents.delete(id);
           this.emit({ type: "snapshot", snapshot });
-        } catch { /* HTTP polling reports herdr errors; keep the stream for recovery. */ }
+        } catch {
+          // Do not give a newly connected browser a cached healthy roster after a failed read.
+          this.snapshot = null;
+          // HTTP polling reports the failure; keep the stream open for recovery.
+        }
       } while (this.queued && !this.stopped);
     } finally { this.busy = false; }
   }

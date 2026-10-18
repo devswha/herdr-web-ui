@@ -86,7 +86,7 @@ it.skipIf(process.platform !== "win32")("starts after its launcher exits, stops 
   const transcript = join(scratch, ".omp", "agent", "sessions", "history.jsonl");
   mkdirSync(dirname(transcript), { recursive: true });
   writeFileSync(transcript, JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "saved history" }] } }) + "\n");
-  // An isolated Herdr wire peer: no real sessions, panes, plugin registry or push keys.
+  // An isolated Herdr wire peer: no real sessions, panes, plugin registry or paired devices.
   const peer = createServer(connection => {
     let buffer = "";
     connection.on("error", error => {

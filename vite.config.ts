@@ -4,13 +4,9 @@ import { serviceWorkerBuild } from "./scripts/service-worker-build.ts";
 import { defineConfig, normalizePath, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const xtermSource = normalizePath(buildXtermSource(fileURLToPath(new URL(".", import.meta.url))));
-
-let revision: string | null = null;
-try { revision = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { /* non-Git build */ }
 
 // agentSvgMarks.ts carries LobeHub Icons paths (MIT): their notice ships with every built client
 const thirdPartyNotices: Plugin = {
@@ -20,19 +16,9 @@ const thirdPartyNotices: Plugin = {
   },
 };
 
-// the commit this client was built from, read by the managed bridge that serves it (server/update-api.ts):
-// a checkout rebuilt under a running server serves this build before the server runs it
-const buildRevision: Plugin = {
-  name: "build-revision",
-  generateBundle() {
-    if (revision !== null) this.emitFile({ type: "asset", fileName: "build.json", source: `${JSON.stringify({ revision })}\n` });
-  },
-};
-
 export default defineConfig({
-  plugins: [react(), thirdPartyNotices, buildRevision, compressedAssets(), serviceWorkerBuild()],
+  plugins: [react(), thirdPartyNotices, compressedAssets(), serviceWorkerBuild()],
   define: {
-    __APP_REVISION__: JSON.stringify(revision),
     __APP_VERSION__: JSON.stringify((JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version),
     // test hooks (src/lib/crashProbe.ts): on only in the browser lane's demo build (scripts/demo-build.ts)
     __HERDR_TEST_HOOKS__: JSON.stringify(process.env["HERDR_TEST_HOOKS"] === "1"),

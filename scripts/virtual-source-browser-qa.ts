@@ -4,7 +4,7 @@
  * middle and the end; a far line marked and in view with wrap off and on and across a resize;
  * native selection and a real copy that keep blank and trailing lines and leave the gutter out;
  * the whole source copied from the text; truthful byte and line cuts and the colors notice; the
- * highlight, wrap and theme settings; close and reopen; and a remote PC's file.
+ * highlight, wrap and theme settings; close and reopen.
  *
  * The browser is Playwright's headless shell, whose clipboard is its own: a real Cmd+C here never
  * touches the clipboard of the PC running the check.
@@ -502,8 +502,7 @@ try {
 
   assert.deepEqual(errors, [], "no errors at the end");
   await context.close();
-  console.log("PASS a remote PC's source reads through its bridge");
-  console.log("virtual source: browser OK (bounded rows, far line, wrap and resize, native selection and real copy, whole copy and its fallback, cuts, settings, Markdown, remote)");
+  console.log("virtual source: browser OK (bounded rows, far line, wrap and resize, native selection and real copy, whole copy and its fallback, cuts, settings, Markdown)");
 } finally {
   await browser?.close(); server?.stop(true); rmSync(root, { recursive: true, force: true });
 }

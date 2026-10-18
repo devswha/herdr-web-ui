@@ -747,17 +747,12 @@ try {
   // before the permission question is answered the item already reads as on: in-app alerts show
   assert.equal(await alertsState(page), "On in the app");
   assert.equal(await alertsOffMarked(page), false, "alerts that are on leave the More button unmarked");
-  await context.grantPermissions(["notifications"], { origin });
   await runMoreItem(page, "Alerts");
-  await until(async () => await alertsState(page) !== "On in the app", "the item's tap takes the permission");
-  assert.match(await alertsState(page), /^On[ ,]/);
-  assert.equal(await alertsOffMarked(page), false);
-  await runMoreItem(page, "Alerts");
-  await until(async () => await alertsState(page) === "Off on this device", "alerts off");
+  await until(async () => await alertsState(page) === "Off on this device", "default-permission in-app alerts off");
   assert.equal(await alertsOffMarked(page), true, "alerts that are off mark the More button, in its dot and its name");
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
   await runMoreItem(page, "Alerts");
-  await until(async () => /^On[ ,]/.test(await alertsState(page)), "alerts on again");
+  await until(async () => await alertsState(page) === "On in the app", "default-permission in-app alerts on again");
   assert.equal(await alertsOffMarked(page), false);
   console.log("PASS the Alerts item turns alerts off and on again");
 

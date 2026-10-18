@@ -2146,7 +2146,7 @@ button {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   white-space: nowrap;
-  text-decoration: none; /* a link styled as a button (Reconnect, Star on GitHub) */
+  text-decoration: none; /* a link styled as a button (Reconnect) */
   cursor: pointer;
   transition:
     background-color var(--dur-fast) var(--ease-out),

@@ -4,12 +4,12 @@ import { MachineSessionRegistry } from "./machineSession.ts";
 const MachineSessionsContext = createContext<MachineSessionRegistry | null>(null);
 export const useMachineSessions = () => useContext(MachineSessionsContext);
 
-/** Authenticated app lifetime, across PC and pane switches. A terminal owns only its attach. */
+/** Authenticated app lifetime, across pane switches. A terminal owns only its attach. */
 export function MachineSessionsProvider({ machineIds, children }: { machineIds: readonly string[]; children: ReactNode }) {
   const [sessions] = useState(() => new MachineSessionRegistry());
   const ids = JSON.stringify(machineIds);
   useEffect(() => {
-    // An initial empty roster is not evidence that every PC was removed.
+    // An initial empty roster is not evidence that the workstation key is invalid.
     if (machineIds.length) sessions.retainMachines(new Set(machineIds));
   }, [sessions, ids]);
   useEffect(() => () => sessions.closeAll(), [sessions]);

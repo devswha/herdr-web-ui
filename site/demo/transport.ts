@@ -10,7 +10,7 @@
  * command palette, settings, and the terminal: the release shell tab replays a recording of `git log` and `bun test`, then a small pretend shell answers what you
  * type. `demo logs` loads fictional retained history for scrolling and search; agent panes show
  * one notice instead of a TUI. A message sent from a chat gets a demo answer.
- * What does not: files, images, push and remote PCs, which need a real machine.
+ * Native terminal processes and workstation files are not available in the fictional demo.
  */
 import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, SessionEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, ServerMessage, SessionSnapshot, TabMoved, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope } from "../../shared/protocol.ts";
@@ -21,6 +21,7 @@ import { rollupStatus } from "../../src/lib/status.ts";
 import { movedTabOrder } from "../../src/lib/tabOrder.ts";
 import { CHATS, PROMPT, SPECS, type DemoSpec } from "./fixtures.ts";
 import { DemoHistory } from "./history.ts";
+import { DISTRIBUTION_REPOSITORY } from "../../shared/distribution.ts";
 import type { Machine } from "../../shared/machines.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
@@ -28,7 +29,6 @@ import commandsFixture from "./fixtures/commands.json";
 import panesFixture from "./fixtures/panes.json";
 import terminalFixture from "./fixtures/terminal.json";
 
-const DEMO_VERSION = "demo";
 /** Only an explicit `demo logs` command starts this fictional retained history. */
 const histories = new Map<string, DemoHistory>();
 const terminalGrids = new Map<string, { cols: number; rows: number }>();
@@ -483,7 +483,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/access") return json({ auth: { required: false, authenticated: true } });
   if (path === "/api/health") {
     const auth = { required: false, authenticated: true };
-    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { boot_id: DEMO_VERSION, revision: null } });
+    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { distribution: DISTRIBUTION_REPOSITORY } });
   }
   if (path === "/api/session") return json({ snapshot: snapshot() });
   if (path === "/api/agents") return json(agentsFixture);

@@ -38,8 +38,8 @@ export function statusNotificationBody(status: AgentStatus): string {
 export const ENDED_NOTIFICATION_BODY = "terminal ended";
 
 /** One notification slot per pane: a newer one replaces the older, whichever path showed it. */
-export function paneNotificationTag(paneId: string, machineId = "local"): string {
-  return machineId === "local" ? `herdr-pane-${paneId}` : `herdr-remote-${encodeURIComponent(machineId)}-${encodeURIComponent(paneId)}`;
+export function paneNotificationTag(paneId: string): string {
+  return `herdr-pane-${paneId}`;
 }
 
 /**
@@ -52,18 +52,6 @@ export interface AlertPrefs {
   input: boolean;
   done: DoneAlerts;
 }
-export const DEFAULT_ALERTS: AlertPrefs = { input: true, done: "long" };
-
-/** Only known values survive; anything else is the default, so a device never loses its alerts to a typo. */
-export function parseAlerts(value: unknown): AlertPrefs {
-  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  const done = record["done"];
-  return {
-    input: typeof record["input"] === "boolean" ? record["input"] : DEFAULT_ALERTS.input,
-    done: done === "off" || done === "long" || done === "always" ? done : DEFAULT_ALERTS.done,
-  };
-}
-
 /** Whether a device with these preferences hears about this status at all (timing aside). */
 export function alertsAllow(prefs: AlertPrefs, status: AgentStatus): boolean {
   if (status === "blocked") return prefs.input;

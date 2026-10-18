@@ -1272,7 +1272,7 @@ try {
   assert.deepEqual(errors, []);
   console.log("PASS A file path in a plain code block opens the file, and the block's text is unchanged");
 
-  // the file found, then its body refused (the file gone since, a remote PC dropped): the error's
+  // the file found, then its body refused (the file gone since, a workstation disconnected): the error's
   // JSON must never show as the file's text
   await page.route("**/api/fs/file?**", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: { code: "machine_unavailable", message: "The PC connection was interrupted" } }) }), { times: 1 });
   await page.getByRole("button", { name: "notes", exact: true }).click();

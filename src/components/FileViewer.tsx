@@ -12,7 +12,7 @@ import { MarkdownImageContext } from "./Markdown.tsx";
 import type { FileInfo } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
 import { formatBytes } from "../lib/formatBytes.ts";
-import { LOCAL_MACHINE, paneStorageId } from "../../shared/machines.ts";
+import { paneStorageId } from "../../shared/machines.ts";
 import { useOpeningPaneLane } from "../lib/chatLane.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { copyText, selectContents } from "../lib/clipboard.ts";
@@ -148,10 +148,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
   const t = useT();
   const locale = useLocale();
   const { fetchFileInfo, fileUrl, fetchDirectories } = useMachineApi();
-  // a remote PC's bridge reads a relative folder from the pane's folder only from its next bundle
-  // on; until then it would list the bridge's own folder, so only an absolute or ~/ one is listed there
   const machineId = useMachineId();
-  const remote = machineId !== LOCAL_MACHINE;
   const [directory, setDirectory] = useState<string | null>(null);
   // the path as given, until a choice among files of that name replaces it
   const [path, setPath] = useState(asked);
@@ -232,7 +229,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
     }).catch(async (reason: unknown) => {
       if (cancelled) return;
       // a folder is listed from the pane's folder, as a file is found from it
-      if (reason instanceof ApiError && reason.status === 404 && (!remote || /^(?:\/|~(?:\/|$)|[A-Za-z]:[\\/])/.test(target.path))) {
+      if (reason instanceof ApiError && reason.status === 404) {
         try {
           const listing = await fetchDirectories(target.path, false, true, paneId);
           if (!cancelled) setDirectory(listing.path);
@@ -243,7 +240,7 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen, keyboardActiv
       setError(reason instanceof ApiError && reason.status === 404 ? "missing" : "unreadable");
     });
     return () => { cancelled = true; clearTimeout(deadline); abort.abort(); };
-  }, [target.path, paneId, fetchFileInfo, fileUrl, fetchDirectories, remote]);
+  }, [target.path, paneId, fetchFileInfo, fileUrl, fetchDirectories]);
 
   useEffect(() => {
     if ((info === null && directory === null) || reportedKind.current === path) return;

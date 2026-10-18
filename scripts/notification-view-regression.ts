@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { openSettingsPage } from "./settings-page.ts";
 import type { Browser } from "playwright-core";
 import { herdrRpc, paneClose, paneFocus, paneSplit, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
@@ -111,4 +112,40 @@ export async function checkNotificationView(browser: Browser, origin: string): P
     for (const workspace of workspaces) await workspaceClose(workspace).catch(() => undefined);
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+/** In-app alerts toggle independently of the browser's unanswered notification permission. */
+export async function checkAlertToggle(browser: Browser, origin: string): Promise<void> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
+  try {
+    await context.addInitScript(() => {
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: true, alertInApp: true }));
+      let permission: NotificationPermission = "default";
+      Object.defineProperty(Notification, "permission", { configurable: true, get: () => permission });
+      Object.defineProperty(Notification, "requestPermission", { configurable: true, value: async () => {
+        sessionStorage.setItem("notification-requests", String(Number(sessionStorage.getItem("notification-requests")) + 1));
+        permission = "granted";
+        return permission;
+      } });
+    });
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.locator(".machine-name").waitFor();
+    const toggle = async (enabled: boolean) => {
+      await page.locator(".header-more-button").click();
+      const item = page.getByRole("menuitemcheckbox", { name: /^Alerts/ });
+      assert.equal(await item.getAttribute("aria-checked"), String(!enabled));
+      await item.click();
+      await page.waitForFunction((value) => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn === value, enabled, { timeout: 4000 });
+    };
+    await toggle(false);
+    await toggle(true);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("notification-requests")), null, "toggling in-app alerts does not ask for OS permission");
+    await page.keyboard.press("ControlOrMeta+Shift+Comma");
+    await openSettingsPage(page, "Alerts");
+    await page.getByRole("button", { name: "Enable notifications", exact: true }).click();
+    await page.waitForFunction(() => Notification.permission === "granted");
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("notification-requests")), "1", "Settings explicitly enables OS notifications");
+    console.log("PASS default-permission in-app alerts toggle off/on without a prompt; Settings explicitly enables tab notifications");
+  } finally { await context.close(); }
 }

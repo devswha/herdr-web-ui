@@ -55,9 +55,8 @@ function cacheControlFor(pathname: string): string {
  *
  * - `default-src 'self'`: the fallback for anything not named below. Nothing is fetched
  *   from another host: the API, the terminal socket, the local session event stream, the
- *   fonts (bundled woff2, `src/fonts/`), the PC bundle and the push endpoints are all
- *   same-origin, and the workstation is reached through this server's local API
- *   proxy rather than from the browser.
+ *   bundled fonts (`src/fonts/`) and file views are all same-origin. The browser reaches
+ *   the workstation only through this server's local API and terminal connection.
  * - `script-src 'self'`: both entry points are Vite modules (index.html), nothing in the
  *   app evaluates a string, and there is no inline handler attribute. This is the
  *   directive that matters: KaTeX output and the agent marks are the two places that put

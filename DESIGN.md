@@ -740,10 +740,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   A destructive action that asks twice (Settings → Phone & devices, Revoke) is a neutral
   `.icon-button` (the trash glyph, named "Revoke {name}") at rest and becomes `.btn-danger` with
   its "Revoke?" label only while it asks to confirm; the same element through both steps, so focus
-  stays on it. A trust decision (the SSH host key) shows the fingerprint to compare
-  (`.machine-fingerprint`: `--font-mono`, `--fs-md`, `--text-strong`, under a dim "Fingerprint of
-  {host}" label) over one sentence, "Trust it only if it matches the fingerprint shown on the PC.";
-  ssh's own words wait behind a Show SSH output fold, and no status box sits above the question.
+  stays on it.
 - `.icon-button` is a square unlabeled visual control with mandatory `aria-label`; `.is-outlined`
   adds the border. Both families use `--control-h`, `--radius-md`, focus ring, hover and disabled.
 - Coarse pointers grow controls to `--touch-target`.
@@ -873,9 +870,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - Mono metadata at `--chip-h`. Offline is the one header pill that stays, and uses danger tokens. A deep link waiting for its PC's roster says **Opening link…** in the same `.header-note` pill (`role="status"`) until it lands or its failure note replaces it. That status stays in the document while there is no note, clipped and empty (`.visually-hidden`, never `display: none`, as `.conn-live`), and the words of a page that opens with a link land a frame after it: a live region that appears together with its content is not announced. The `.header-note` pill carries a sentence, so it is set in the interface face (`--font-ui`), not the mono one. A deep link that could not open what it named, and Copy link, say so in a plain `.header-note` pill for a moment (8 s, 1.6 s for Link copied). The note takes the flexible context's place and ellipsizes when narrow, keeping the lens and More controls in view.
 
 ### Sidebar roster row and footer
-- No top bar. The sidebar opens with the plan panel (when Settings puts it there), the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**
-  button in the dashed **No workspaces yet** box of an empty PC. **Add PC** lives in Settings →
-  the command palette. Search lives in the command palette, not the roster.
+- No top bar. The sidebar opens with the local workstation's workspace groups and a separate
+  **Agents** list. A workspace starts from the `+` on the workstation header, or from the
+  **New workspace** button in the dashed **No workspaces yet** box. Search lives in the command
+  palette, not the roster. Native agent plan progress stays beside its pane, not in a provider panel.
 - Every row sits on one grid, built from existing tokens as `--side-*` aliases on `.sidebar-shell`:
   a `--control-h` leading cell, the title, and a `--control-h` trailing status cell, the same two
   columns as the header zone's buttons above the list. One-line rows and section heads are
@@ -888,8 +886,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   workspace list has the rest. The Agents heading stays outside its scroll area and shows its
   count only while folded. A list that is cut fades out at its lower edge. An empty or folded
   Agents list gives its space back; PC and workspace folds do not hide agent rows. In the drawer
-  (`max-width: 768px`) the list starts folded. Until the PCs are in and every connected PC's
-  panes have come, an empty list says **Loading agents…**, never "No agents running".
+  (`max-width: 768px`) the list starts folded. Until the local session snapshot arrives, an empty
+  list says **Loading agents…**, never "No agents running".
 - A PC's header is the head of its workspaces, and the caret beside its `+` is the one fold over
   them. The roster has no label or fold of its own.
 - A repository's parent row keeps `workspace.label`; its opened linked
@@ -927,16 +925,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - **Agents** is an independent pane list: agents from each PC's `snapshot.agents`
   join the matching pane in `snapshot.panes`; pane agent metadata supplies entries missing
   from that list, including a recognized OmO pane. Each row opens that agent's pane: the agent's
-  bare brand mark, the pane's title, and one dim line naming the agent, then the PC (only when two
-  or more are registered), the workspace and the tab (only when the workspace has two or more tabs
+  bare brand mark, the pane's title, and one dim line naming the agent, the workspace and the tab
+  (only when the workspace has two or more tabs
   or the tab was renamed, and never when it repeats the workspace). An agent with a live name
   leads that line with it in `--font-mono` and `--text` (`.agent-name`); the kind takes the label's
   place beside it, and the tooltip keeps the name. Its background-task count and
   compact status sit at the right. A pane that waits for an answer is not listed apart or moved
   up: its state shows on its workspace row and its agent row, and the alerts say the rest. Pane state is
   authoritative when the agent roster and pane status differ. The workspace and agent lists
-  share the existing combined machine roster and its SSE updates; neither adds a status subscription.
-  A disconnected PC's saved workspace and agent rows are dimmed, inert and draw no state until that PC reconnects.
+  share the local session roster and its SSE updates; neither adds a status subscription.
+  The workstation's saved workspace and agent rows are dimmed, inert and draw no state until it reconnects.
 - The Agents list is flat and every row names its own place. Pinned agents (pinned from a row's
   menu) stand first, in the order they were pinned, in a card (a `--hairline` `--border` edge,
   `--radius-lg`, no fill, so hover and selection read inside it as elsewhere),
@@ -1002,15 +1000,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   agent rows show their pane's own title. Each row's
   place is available to screen readers, without repeating what its title already says. The
   palette, which has no header, names the workspace and folder once when they are the same.
-- A PC group header is a monitor icon in the leading cell, the name in `--text-strong` semibold, “Host” for
-  the local machine (also when it is the only PC: the name alone does not say which computer it
-  is), and a state dot (done = connected, working pulse = connecting/reconnecting, blocked =
-  error, idle = disconnected), then the fold's caret (`.machine-toggle`, always shown; the name
-  itself is not a control) and a `+` in the status column that starts a workspace on that
-  PC (disabled while it is offline). An SSH PC's manage button sits before the
-  caret and shows on hover, focus, while its panel is open, while the PC is not connected, and always
-  on touch. Connected is the dot alone; every other state is also written under the name, with the server's
-  error clamped to two lines and complete in the tooltip.
+- The workstation header is a monitor icon, the localized **Host** label once in
+  `--text-strong` semibold, a state dot, the fold's caret (`.machine-toggle`, always shown),
+  and a `+` that starts a workspace. The name itself is not a control. Connected is the quiet
+  default, shown by its dot alone; connecting and connection errors also write their state under
+  the name. A failed session read preserves the last snapshot but disables workspace actions
+  until a successful read or live snapshot restores the connection state.
 - A repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
   sit indented under the row of the workspace on its main checkout (`.worktree-children`), without
   a tree hairline; a worktree whose repository workspace is not open stays at the top level.
@@ -1204,7 +1199,11 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   this device's state in words after its label ("On in the app", "On in this tab", "Off on this device") and switches it: it is a `menuitemcheckbox` with
   `aria-checked` in the popover and a button with `aria-pressed` in the sheet. While alerts are off on this device the
   More button carries a `--dot-size` `--accent` dot and its name says "alerts are off": the dot
-  marks the state that needs a look, never "on".
+  marks the state that needs a look, never "on". In-app alerts use ordinary switch semantics,
+  independently of the browser permission prompt: turning them off never asks for permission.
+  This uses the browser's standard permission model rather than borrowing Codex's native-app UI:
+  OS notifications are a separate platform capability. **Settings → Alerts → Tab notifications →
+  Enable notifications** is their explicit permission action.
 - The segmented Chat/Terminal view switch lives in the header. There is no floating view-toggle pill.
   Files is an action, not a third lens: it opens the Files dialog and never joins the switch.
 - At `<=768px` the drawer toggle, the lens buttons and More are `--touch-target-header` squares
@@ -1504,9 +1503,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   over the transcript).
 - Empty chat (`.composer-greeting`): one line on the composer's column, directly over it,
   `What should <agent> do in <folder>?` in `--text-strong`, `--fs-display`, `--fw-semibold`, `--tracking-display`, centred,
-  and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. While dictation's
-  recording pill is open over the composer the greeting is hidden (its box stays). No suggestion
-  chips or starter prompts. The greeting is out of the flow, so it takes no row from the terminal
+  and under it `PC · full path` in `--text-dim`, `--fs-sm`. Both wrap anywhere. There are no
+  suggestion chips or starter prompts. The greeting is out of the flow, so it takes no row from the terminal
   surface. In a mouse-driven window from `769px` the composer is moved up (a transform, nothing
   else changes size) so the greeting and the input card sit at the pane's vertical centre; a
   phone keeps the composer docked with the greeting above it. The first message sent removes the
@@ -1683,8 +1681,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   actions**, opens it by touch, and a connected keyboard still opens it with `Mod+Shift+K` (or
   the configured binding). A folder listing that fails says so in the empty list with a **Try
   again** button that asks for the same folder again.
-- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes across all connected PCs
-  and the selected PC's actions. PC names participate in search. Recent panes
+- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching the workstation's panes
+  and actions. Recent panes
   lead an empty query; arrows in the search field cycle through visible results, Enter activates
   and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
   with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
@@ -1693,29 +1691,23 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   With a pane selected they add herdr's **Split pane right / down**, the same **and open it**
   (herdr's `--focus`: the new pane is opened here only then) and, in a tab of several panes,
   **Zoom pane** / **Unzoom pane**.
-- Rows are grouped as herdr's Goto picker groups them: a `.menu-heading` per PC/workspace (PC
-  name when multiple PCs are registered, workspace name, a linked worktree's branch in mono when
-  the name does not say it, the row count), Recent (up to
-  three, an unsearched and unfiltered list only) before the workspaces, Actions last. The
-  workspaces stand in PC then roster order (a move in the sidebar moves the section); a search puts
-  the best match's workspace first, and finds a tab by the name the strip shows it under ("Tab 2").
-  A row's subtitle is "tab · folder" (the tab only in a workspace with several), "workspace · folder"
-  under Recent, with the owning PC shown when more than one is registered. A result selects its
-  captured PC and pane together. Disconnected PCs and stale recent targets are omitted.
-- Branch inventories are read only while the palette is open, under each connected PC's own
-  `MachineContext`, and accepted only for that PC's current workspace signature. Recent entries
-  store both machine and pane IDs; existing per-PC history migrates into the combined list.
-  New workspace, pane operations and plugin actions keep the selected PC's context and are not
-  retargeted by hovering or searching another PC's panes.
+- Rows follow herdr's Goto grouping: a `.menu-heading` per workspace, its name and row count,
+  and a linked worktree's branch in mono when the name does not say it. Recent (up to three,
+  unsearched and unfiltered) comes first, Actions last. Workspaces follow roster order; a search
+  puts the best match's workspace first and finds a tab by its strip label ("Tab 2"). A row's
+  subtitle is "tab · folder" (the tab only in a workspace with several), or "workspace · folder"
+  under Recent. Offline and stale targets are omitted.
+- Branch inventories are read only while the palette is open and accepted only for the current
+  workspace signature. Recent entries retain their local workstation/pane storage keys. Pane
+  operations and plugin actions keep the captured target across asynchronous reads.
 - Status chips (`.palette-filter`, a `radiogroup`) sit between the search and the list: All, then
-  INPUT, RUN, READY, DONE, BG in `STATUS_WORD`'s words with counts over all connected PCs. The
+  INPUT, RUN, READY, DONE, BG in `STATUS_WORD`'s words with counts over the local session. The
   checked chip takes its badge's tint and text (All and READY the neutral hover fill); a chip no
   pane answers to keeps a dashed edge. A chip is `--control-h` minus `--space-2` tall, and on a
   coarse pointer `--control-h` minus 2px with a `--touch-target` hit area. The row scrolls sideways
   without a scrollbar where it does not fit. A status filter leaves the actions out; `>` at the
   start of the query shows the actions alone and hides the chips.
-- The footer (`.palette-footer`) names the picked row's place (PC › workspace › tab, omitting
-  the PC for a single-PC roster) and its path in
+- The footer (`.palette-footer`) names the picked row's workspace and tab, and its path in
   mono; on a desktop it also carries the `.kbd` hints for Left/Right (workspace) and `>` (actions).
 - Keys: Left and Right step to the previous or next section from a row, or from the search field
   while the caret sits at the text's edge; inside the text they move the caret. herdr's picker

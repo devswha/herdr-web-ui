@@ -1,4 +1,4 @@
-/** Lexical paths only: the browser cannot resolve a remote PC's symlinks or filesystem case. */
+/** Lexical paths only: the browser cannot resolve the workstation's symlinks or filesystem case. */
 function directoryPath(cwd: string | null | undefined): string | null {
   if (!cwd) return null;
   const path = /^[A-Za-z]:[\\/]|^\\\\/u.test(cwd) ? cwd.replace(/\\/g, "/") : cwd;

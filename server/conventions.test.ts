@@ -149,11 +149,8 @@ describe("herdr socket", () => {
   // subscription (AGENTS.md, Bridge invariants).
   const UNIX_CONNECT_ALLOWED: Record<string, string> = {
     "server/herdr/client.ts": "the one herdr RPC client: one connection per call, plus subscribeEvents",
-    "server/herdr-marker.ts": "a liveness probe: connects and ends at once, sends no request",
   };
-  const NET_CONNECT_ALLOWED: Record<string, string> = {
-    "server/ssh-askpass.ts": "the SSH askpass helper's own private socket, not herdr's",
-  };
+  const NET_CONNECT_ALLOWED: Record<string, string> = {};
 
   it("opens herdr's socket only in server/herdr/client.ts", () => {
     const uses = serverCode().flatMap((file) => unixConnects(file, stripComments(read(file))));

@@ -170,7 +170,7 @@ try {
     } else await selectWorkspace(away.workspace.workspace_id, away.root_pane.pane_id);
     assert.ok(sent.slice(sentAt).some(({ socket, frame }) => socket === originalSocket && frame.type === "detach" && frame.pane_id === pane), "navigation gives up the old pane's input lease");
     assert.equal(originalSocket.isClosed(), false, "navigation keeps the receipt-owning connection alive");
-    assert.equal(sockets.length, 1, "changing tabs and workspaces does not open another PC connection");
+    assert.equal(sockets.length, 1, "changing tabs and workspaces does not open another workstation connection");
     await report("idle");
     await noBytes(delivered, "a ready agent cannot auto-send a held message while away");
     if (destination === "workspace") await selectWorkspace(owner.workspace.workspace_id, pane);

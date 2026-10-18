@@ -96,6 +96,41 @@ async function launcherFixture(body = 'process.on("SIGTERM", () => setTimeout(()
   return { root, child };
 }
 
+it("the managed server exits when its launcher unexpectedly dies", async () => {
+  const root = join(scratch, "managed-root");
+  mkdirSync(join(root, "server"), { recursive: true });
+  copyFileSync(join(ROOT, "server", "managed.ts"), join(root, "server", "managed.ts"));
+  // The server's existing parent-disconnect shutdown, without opening herdr or user state.
+  writeFileSync(join(root, "server", "index.ts"), `
+    if (process.env.HERDR_WEB_MANAGED === "1") process.on("disconnect", () => process.exit(0));
+    setInterval(() => {}, 1000);
+    console.log(process.pid);
+  `);
+  const launcher = Bun.spawn([process.execPath, join(root, "server", "managed.ts")], { stdout: "pipe", stderr: "ignore" });
+  const output = launcher.stdout.getReader();
+  let serverPid = 0;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const ready = await output.read();
+    serverPid = Number(new TextDecoder().decode(ready.value).trim());
+    expect(serverPid).toBeGreaterThan(0);
+    launcher.kill("SIGKILL");
+    await launcher.exited;
+    const closed = await Promise.race([
+      output.read().then((result) => result.done),
+      new Promise<boolean>((resolve) => { deadline = setTimeout(() => resolve(false), 1000); }),
+    ]);
+    expect(closed, "the owned server must exit and release its stdout after its launcher dies").toBe(true);
+  } finally {
+    clearTimeout(deadline);
+    if (launcher.exitCode === null) launcher.kill("SIGKILL");
+    await launcher.exited;
+    if (serverPid > 0) try { process.kill(serverPid, "SIGKILL"); } catch { /* already exited */ }
+    await output.cancel();
+    output.releaseLock();
+  }
+});
+
 describe("port", () => {
   const keep = (port: number) => {
     mkdirSync(join(scratch, ".config", "herdr-web-ui"), { recursive: true });

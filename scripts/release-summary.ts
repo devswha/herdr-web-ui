@@ -46,4 +46,3 @@ export function releaseSummaries(text: string): Map<string, ReleaseSummary> {
   }
   return found;
 }
-

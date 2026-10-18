@@ -117,8 +117,8 @@ function storedSelection(): StoredSelection | null {
   return null;
 }
 
-function localMachine(snapshot: SessionSnapshot): Machine {
-  return { id: LOCAL_MACHINE, name: "Host", kind: "local", enabled: true, state: "connected", error: null, snapshot };
+function localMachine(snapshot: SessionSnapshot | null, name: string, error: string | null = null): Machine {
+  return { id: LOCAL_MACHINE, name, kind: "local", enabled: true, state: error === null ? "connected" : "error", error, snapshot };
 }
 
 function storeSelection(machineId: string, paneId: string | null): void {
@@ -535,7 +535,7 @@ export function App() {
   const snapshotRequests = useRef(new SnapshotRequests());
   const load = useCallback(async () => {
     try {
-      await snapshotRequests.current.read(async () => [localMachine(await fetchSession())], (next) => {
+      await snapshotRequests.current.read(async () => [localMachine(await fetchSession(), t("Host"))], (next) => {
         setMachines((previous) => sameData(previous, next) ? previous : next);
         rosterIn();
         setMachineRosterLoaded(true);
@@ -544,9 +544,11 @@ export function App() {
     }
     catch (err) {
       if (err instanceof ApiError && err.status === 401) { setLocked(true); return; }
-      setError(err instanceof Error ? err.message : String(err));
+      const detail = err instanceof Error ? err.message : String(err);
+      setError(detail);
+      setMachines((previous) => [localMachine(previous[0]?.snapshot ?? null, t("Host"), detail)]);
     }
-  }, [rosterIn]);
+  }, [rosterIn, t]);
 
   useEffect(() => {
     const tick = (): void => {
@@ -653,11 +655,12 @@ export function App() {
       // A poll started before this event can carry an older roster or pane status.
       snapshotRequests.current.invalidate();
       if (payload.type === "snapshot") {
-        const next = [localMachine(payload.snapshot)];
+        const next = [localMachine(payload.snapshot, t("Host"))];
         seedStatuses(statusRef.current, alerting(next), { started: turnStartRef.current, lasted: lastTurnRef.current });
         setMachines((previous) => sameData(previous, next) ? previous : next);
         rosterIn();
         setMachineRosterLoaded(true);
+        setError(null);
         return;
       }
       const machine = machinesRef.current.find((m) => m.id === LOCAL_MACHINE);
@@ -704,11 +707,13 @@ export function App() {
       if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
     };
     return () => events.close();
-  }, [locked, scheduleRefetch, dropIn, chime]);
+  }, [locked, scheduleRefetch, dropIn, chime, t]);
 
   const handleServerMessage = useCallback((message: ServerMessage) => {
     if (message.type === "error" && message.code === "output_stalled") setOutputStopped(true);
   }, []);
+
+  const enableAlerts = useCallback(async () => { updateSettings({ alertsOn: true }); }, [updateSettings]);
 
   const enableNotifications = useCallback(async () => {
     // in-app alerts need no permission: the switch goes on whatever the browser answers
@@ -747,8 +752,6 @@ export function App() {
 
   const lock = useCallback(async () => {
     setDrawerOpen(false);
-    // before signOut: the unsubscribe call needs the cookie, and a locked device must stop
-    // receiving pane titles
     try {
       await signOut();
     } catch {
@@ -762,9 +765,7 @@ export function App() {
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
   const selectTarget = useCallback((machineId: string, paneId: string | null, view?: PaneView) => {
-    // Only another PC mounts a new terminal (and socket), which reports its own state. A pane
-    // on the same PC keeps the connected socket, which never reports again: resetting here
-    // left the header on "reconnecting" after every pane switch.
+    // Pane switches retain the workstation connection and its reported state.
     if (machineId !== selectedMachineRef.current) { setConnected(false); setConnectedBefore(false); }
     // the active half alone takes the pick, whatever the other half shows (lib/split.ts)
     setSelectedMachineId(machineId); setSelectedPaneId(paneId); setAutoSelected(false); setDrawerOpen(false);
@@ -907,7 +908,7 @@ export function App() {
     }
     // a pick of another pane of a zoomed tab lands on herdr's zoomed one too: herdr shows only it
   }, [selectedMachineId, selectedPaneId, selectedLayout?.zoomed, selectedLayout?.focused_pane_id]);
-  const targetHerdr = selectedMachineId === "local" ? health?.herdr : selectedMachine?.herdr;
+  const targetHerdr = health?.herdr;
   const selectedTitle = selectedPane ? displayPaneTitle(selectedPane) : null;
   // the tab that governs the pane region, so the strip's tabs and the pane they select are
   // one thing to a screen reader (A4); null while no tab owns this pane
@@ -968,7 +969,7 @@ export function App() {
     && split.other.machineId === selectedMachineId && otherPane.tab_id === selectedPane.tab_id;
   splitShownRef.current = splitOn;
   const otherWorkspace = otherPane ? otherMachine?.snapshot?.workspaces.find((workspace) => workspace.workspace_id === otherPane.workspace_id) ?? null : null;
-  const otherHerdr = split?.other.machineId === "local" ? health?.herdr : otherMachine?.herdr;
+  const otherHerdr = health?.herdr;
   const otherAttach = otherHerdr?.terminal_attach !== false || otherHerdr?.terminal_mirror === true;
 
   // the other half's pane closed: another pane of its tab takes its place, else back to one pane.
@@ -1004,7 +1005,7 @@ export function App() {
   }, [split, machineRosterLoaded, otherMachine, otherRosterTick, endSplit, setSplit]);
 
   /** A split change and the pane it selects. The half that becomes active keeps its terminals: only
-   *  a half whose pane moves to another PC attaches again and reports its connection. */
+   *  a changed connection identity attaches again and reports its connection. */
   // `keepFocus`: the focus already went somewhere in the half made active (a Tab onto one of its
   // buttons): the half's terminal and composer must not take the keyboard from it (autoSelected)
   const applySplit = (next: SplitState | null, select: SplitTarget, keepFocus = false): void => {
@@ -1216,17 +1217,14 @@ export function App() {
 
 
   // The Alerts item says what this device does, whatever the browser's permission: in-app alerts
-  // need none, so they count as on. A device that has not answered the permission question is
-  // asked by the item; one that has answered gets a plain switch.
+  // need none, so an enabled in-app channel always switches off without asking for OS permission.
   const bell: { state: string; title: string; on: boolean; run: () => Promise<unknown> } =
     !alertsOn
-      ? { state: t("Off on this device"), title: t("Alerts off on this device. Tap to turn them on"), on: false, run: enableNotifications }
+      ? { state: t("Off on this device"), title: t("Alerts off on this device. Tap to turn them on"), on: false, run: enableAlerts }
       : notifications !== "granted"
         ? !settings.alertInApp
           ? { state: t("Off on this device"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
-          : notifications === "default"
-            ? { state: t("On in the app"), title: t("Alerts on in the app. Tap to turn them off"), on: true, run: enableNotifications }
-            : { state: t("On in the app"), title: t("Alerts on in the app. Tap to turn them off"), on: true, run: disableNotifications }
+          : { state: t("On in the app"), title: t("Alerts on in the app. Tap to turn them off"), on: true, run: disableNotifications }
         : { state: t("On in this tab"), title: t("Alerts on while this tab is open. Tap to turn them off"), on: true, run: disableNotifications };
   // hidden only where it could do nothing: no system notifications and in-app alerts off
   const bellVisible = notifications === "default" || notifications === "granted" || settings.alertInApp;
@@ -1360,7 +1358,7 @@ export function App() {
     pendingLink.current = null; pendingFile.current = null;
     setLinkLanded(true);
     setHeaderNote("machine-missing");
-    // no pane: the link's pane id means nothing on another PC, so the pane herdr has in front opens
+    // A legacy link to another workstation cannot name a local pane; open the local default.
     selectTargetRef.current("local", null);
   }, [machines, rosterTick, linkTick]);
 

@@ -12,7 +12,6 @@ export interface Machine {
   state: MachineState;
   error: string | null;
   snapshot: SessionSnapshot | null;
-  herdr?: HerdrIdentity;
 }
 export interface HerdrIdentity {
   version: string;

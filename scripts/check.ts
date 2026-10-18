@@ -181,7 +181,7 @@ export const MAX_RUNS_LIMIT = 8;
 /**
  * How many herdr-backed runs may share this PC: CHECK_MAX_RUNS (1 to 8), else one per eight cores,
  * at least one and at most two. On a 32-core PC two side by side stayed green; with three,
- * machine-conflict-regression.ts lost Chromium screenshots, and with four integration tests
+ * browser checks lost Chromium screenshots, and with four integration tests
  * that wait on live processes failed (measured for the PR that added slots).
  */
 export function maxRuns(env: Record<string, string | undefined>, cores = availableParallelism()): number {

@@ -23,9 +23,8 @@ const SUBMIT_TIMEOUT_MS = 90_000;
  * A connect attempt that has neither opened nor failed by now is given up and retried: a phone
  * that wakes on a dead network (or a tunnel that drops the handshake) can leave a socket in
  * CONNECTING for minutes, and nothing else would ever start a new attempt. Each attempt given up
- * doubles the next one's deadline up to CONNECT_TIMEOUT_MAX_MS, so a slow path that does work (a
- * remote PC, where the server waits up to 15s for the machine relay before it upgrades; a slow
- * cellular or tunnel handshake) still connects; an attempt that opens starts it over.
+ * doubles the next one's deadline up to CONNECT_TIMEOUT_MAX_MS, so a slow cellular or
+ * operator-proxy handshake still connects; an attempt that opens starts it over.
  */
 const CONNECT_TIMEOUT_MS = 8_000;
 const CONNECT_TIMEOUT_MAX_MS = 30_000;
@@ -39,7 +38,7 @@ const STABLE_CONNECTION_MS = 10_000;
  * flight answers it: a frame buffered before the sleep proves nothing. With no pong by
  * PROBE_TIMEOUT_MS it pings once more, and drops the socket when that one is not answered either;
  * each probe that ends in a drop doubles the next one's deadline up to PROBE_TIMEOUT_MAX_MS, so a
- * slow link (a relay, a remote PC) is not dropped over and over. A deadline that fires
+ * slow cellular or proxy link is not dropped over and over. A deadline that fires
  * PROBE_OVERDUE_MS late was frozen with the page, not waiting: the probe starts over.
  */
 const PROBE_TIMEOUT_MS = 3_000;

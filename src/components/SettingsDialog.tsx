@@ -29,6 +29,7 @@ import { DevicesPanel } from "./DevicesPanel.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { copyText } from "../lib/clipboard.ts";
+import { notificationState } from "../lib/notifications.ts";
 import { previewAlertSound, unlockAlertSound } from "../lib/alertSound.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
@@ -448,13 +449,19 @@ function TerminalPage({ keyBarButtonRef, onEditKeyBar }: { keyBarButtonRef: RefO
 function AlertsPage({ onEnableNotifications }: { onEnableNotifications: () => Promise<boolean> }) {
   const { settings, update } = useSettings();
   const t = useT();
+  const permission = notificationState();
   // the Sound switch as last set: the preview waits for the audio, and must not play once it is off
   const alertSoundWanted = useRef(settings.alertSound);
   return (
     <SettingsGroup>
       <SettingsRow label={t("Alerts")}>
-        <Toggle label={t("Alerts")} checked={settings.alertsOn} onChange={(enabled) => { if (enabled) void onEnableNotifications(); else update({ alertsOn: false }); }} />
+        <Toggle label={t("Alerts")} checked={settings.alertsOn} onChange={(alertsOn) => update({ alertsOn })} />
       </SettingsRow>
+      {permission !== "unsupported" && <SettingsRow label={t("Tab notifications")}>
+        {permission === "default"
+          ? <button type="button" className="btn" onClick={() => void onEnableNotifications()}>{t("Enable notifications")}</button>
+          : <span>{permission === "granted" && settings.alertsOn ? t("On in this tab") : t("Off on this device")}</span>}
+      </SettingsRow>}
       <SettingsRow label={t("Needs input")} description={t("An agent waits for an answer or a permission")}>
         <Toggle label={t("Needs input")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
       </SettingsRow>

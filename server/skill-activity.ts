@@ -4,7 +4,7 @@ import type { SkillActivity } from "../shared/protocol.ts";
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const label = (value: unknown): string | null => typeof value === "string" && value.length > 0 && value.length <= 200 && !/[\r\n<>]/.test(value) ? value : null;
 
-/** No filesystem lookup: evidence belongs to the bound transcript, including remote PCs. */
+/** No filesystem lookup: evidence belongs to the bound transcript. */
 export function skillDocument(path: unknown): SkillActivity | null {
   if (typeof path !== "string" || path.length > 4096 || /[\r\n]/.test(path)) return null;
   const normalized = path.replaceAll("\\", "/");

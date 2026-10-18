@@ -93,8 +93,8 @@ export class MachineSession {
   }
 }
 
-/** Owned by the unlocked app, outside its PC-keyed canvas. Clearing it is reusable for
- * React's effect restart; selecting another PC does not close any existing connection. */
+/** Owned by the unlocked app, outside pane views. Clearing it is reusable for
+ * React's effect restart; changing panes does not close the workstation connection. */
 export class MachineSessionRegistry {
   private readonly sessions = new Map<string, MachineSession>();
   constructor(private readonly makeSession: (machineId: string) => MachineSession = (machineId) => new MachineSession(machineId)) {}
