@@ -135,7 +135,7 @@ export function createStatusHub<Lease>({ options, devices, clients, present, pen
         const plan = plans.summaryOf(pane.pane_id);
         return background > 0 || waiting || plan !== null ? { ...pane, ...(background > 0 ? { background_tasks: background } : {}), ...(waiting ? { background_wait: true as const } : {}), ...(plan !== null ? { plan } : {}) } : pane;
       }),
-    });
+    }, completions);
   };
   /**
    * A browser visit for the daily active message: the call is made now so the visit's day is the

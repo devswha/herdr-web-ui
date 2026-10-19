@@ -180,7 +180,7 @@ describe("OmO panes' status in place of herdr's", () => {
       for (const agent of raw.agents) agent.state_change_seq = 5;
       await omo.refresh(raw.panes);
       return omo.apply(raw);
-    }));
+    }), completions);
     expect((await served()).panes.find((pane) => pane.pane_id === "omo")).toMatchObject({ agent_status: "working", finish_id: 0 });
     append(message("assistant", "stop", LATER));
     omo.poll();

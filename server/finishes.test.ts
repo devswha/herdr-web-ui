@@ -18,7 +18,7 @@ function snapshot(status: AgentStatus): SessionSnapshot {
 it("counts the completion tracker's displayed DONE with an unchanged herdr sequence", async () => {
   const tracker = new CompletionTracker();
   const finishes = new Finishes(() => "daemon-a");
-  const shown = async (status: AgentStatus) => finishes.snapshot(await tracker.readSnapshot(async () => snapshot(status)));
+  const shown = async (status: AgentStatus) => finishes.snapshot(await tracker.readSnapshot(async () => snapshot(status)), tracker);
   expect((await shown("working")).panes[0]?.finish_id).toBe(0);
   const done = await shown("unknown");
   expect(done.agents[0]?.state_change_seq).toBe(5);
@@ -38,6 +38,24 @@ it("counts only the post-launch status, not startup's raw WORKING and DONE", () 
   expect(finishes.status("p", launched.settle("p", "done", 103)).finish_id).toBe(1);
 });
 
+it("keeps a newer live finish when an older empty roster completes, but retires a fresh absence", async () => {
+  const tracker = new CompletionTracker();
+  const finishes = new Finishes(() => "daemon-a");
+  const empty = { ...snapshot("done"), panes: [], agents: [] };
+  const held = Promise.withResolvers<SessionSnapshot>();
+  const older = tracker.readSnapshot(() => held.promise).then((read) => finishes.snapshot(read, tracker));
+  finishes.status("p", tracker.observe("p", "working", "codex"));
+  const opened = finishes.status("p", tracker.observe("p", "done", "codex"));
+  finishes.snapshot(await tracker.readSnapshot(async () => snapshot("done")), tracker);
+  held.resolve(empty);
+  await older;
+  expect(tracker.current("p")).toBe("done");
+  expect(finishes.status("p", "done")).toEqual(opened);
+  finishes.snapshot(await tracker.readSnapshot(async () => empty), tracker);
+  expect(tracker.current("p")).toBeUndefined();
+  expect(finishes.status("p", "done").finish_id).toBe(opened.finish_id + 1);
+});
+
 it("dates a resync-observed turn before a held refresh resolves over its completion", async () => {
   const completions = new CompletionTracker();
   const finishes = new Finishes(() => "daemon-a");
@@ -46,7 +64,7 @@ it("dates a resync-observed turn before a held refresh resolves over its complet
   const opened = report("done");
   finishes.resync(completions, snapshot("working").panes, new Set());
   const held = Promise.withResolvers<SessionSnapshot>();
-  const refresh = completions.readSnapshot(() => held.promise).then((read) => finishes.snapshot(read));
+  const refresh = completions.readSnapshot(() => held.promise).then((read) => finishes.snapshot(read, completions));
   const next = report("done");
   held.resolve(snapshot("working"));
   const read = await refresh;
@@ -78,7 +96,7 @@ it("shares one counter between status frames and snapshots, including repeats an
   finishes.status("p", "working");
   const event = finishes.status("p", "done");
   expect(event.finish_id).toBe(1);
-  expect(finishes.snapshot(snapshot("done"))).toMatchObject({ finish_epoch: event.finish_epoch, panes: [{ finish_id: 1 }] });
+  expect(finishes.snapshot(snapshot("done"), new CompletionTracker())).toMatchObject({ finish_epoch: event.finish_epoch, panes: [{ finish_id: 1 }] });
   expect(finishes.status("p", "done")).toEqual(event);
   finishes.ended("p");
   expect(finishes.status("p", "done").finish_id).toBe(2);
@@ -97,7 +115,7 @@ it("starts with a random epoch per server and rotates on proven herdr identity c
   const restarted = finishes.status("p", "done");
   expect(restarted.finish_epoch).not.toBe(first.finish_epoch);
   expect(restarted.finish_id).toBe(1);
-  expect(finishes.snapshot(snapshot("done")).finish_epoch).toBe(restarted.finish_epoch);
+  expect(finishes.snapshot(snapshot("done"), new CompletionTracker()).finish_epoch).toBe(restarted.finish_epoch);
 });
 
 it("recognizes a replaced socket file and Windows marker incarnation, never just a reused PID", () => {

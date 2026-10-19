@@ -50,10 +50,14 @@ export class Finishes {
     return finish_id;
   }
 
-  snapshot(snapshot: SessionSnapshot): SessionSnapshot {
+  snapshot(snapshot: SessionSnapshot, completions: CompletionTracker): SessionSnapshot {
     const finish_epoch = this.epoch;
     const live = new Set(snapshot.panes.map((pane) => pane.pane_id));
-    for (const paneId of this.panes.keys()) if (!live.has(paneId)) this.ended(paneId);
+    // readSnapshot retains observations newer than its read, including panes absent from an
+    // older roster. Only an absence reconciled by that tracker is an authoritative ending.
+    for (const paneId of this.panes.keys()) {
+      if (!live.has(paneId) && completions.current(paneId) === undefined) this.ended(paneId);
+    }
     return { ...snapshot, finish_epoch, panes: snapshot.panes.map((pane) => ({
       ...pane, finish_id: this.observe(pane.pane_id, pane.agent_status),
     })) };

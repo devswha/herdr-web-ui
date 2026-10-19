@@ -162,7 +162,7 @@ describe("a GJC pane's status in place of herdr's provider-child status", () => 
       for (const agent of raw.agents) agent.state_change_seq = 5;
       await gjc.refresh(raw.panes);
       return gjc.apply(raw);
-    }));
+    }), completions);
     expect((await served()).panes[0]).toMatchObject({ agent_status: "working", finish_id: 0 });
     append(message("assistant", "stop"));
     gjc.poll();
