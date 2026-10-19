@@ -27,7 +27,7 @@ import { createTerminalRegistry } from "./terminals.ts";
 type CoreOptions = Parameters<typeof createTerminalRegistry>[0]["options"] & Parameters<typeof createSubmitText>[0]["options"]
   & Parameters<typeof createPendingDelivery>[0]["options"] & Parameters<typeof createStatusHub>[0]["options"] & {
     terminalAttach?: boolean | (() => Promise<boolean>);
-    sidecar?: boolean;
+    sidecar?: boolean | (() => boolean);
     attachRetryForMs?: number;
     attachHeldRetryMs?: number;
     attachRelookupForMs?: number;
@@ -48,7 +48,7 @@ export function createCore({ options, devices, usage, usageLogin, TYPED_SETTLE_M
 }) {
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
   /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
-  const sidecar = options.sidecar ?? (options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
+  const sidecar = typeof options.sidecar === "function" ? options.sidecar() : options.sidecar ?? (options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
   let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
   const terminalAttach = async (): Promise<boolean> => {
     if (terminalAttachKnown === null) {
@@ -74,7 +74,25 @@ export function createCore({ options, devices, usage, usageLogin, TYPED_SETTLE_M
 
   const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending, devices, detachClaimed, dropClaims });
   const { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin });
-  const websocket = createSocket({ clients, present, stopped: () => stopped, admit, setRole, watchPane, unwatchPane, end, holdPending, attachments, clientSnapshot, countVisit, drainOutput, frames: { ...terminalFrames, ...inputFrames, ...pendingFrames } });
+  const websocket = createSocket({
+    clients, present, stopped: () => stopped, admit, setRole, watchPane, unwatchPane, end, holdPending, attachments, clientSnapshot, countVisit, drainOutput,
+    // each frame type by name, with the handler of the module that owns it: anything else on a frame object never
+    // becomes a frame a client can send, and a type named twice fails the build instead of replacing a handler
+    frames: {
+      attach: terminalFrames.attach,
+      "take-over": terminalFrames["take-over"],
+      detach: terminalFrames.detach,
+      "conversation-watch": terminalFrames["conversation-watch"],
+      "pty-ack": terminalFrames["pty-ack"],
+      resize: terminalFrames.resize,
+      "release-size": terminalFrames["release-size"],
+      input: inputFrames.input,
+      keys: inputFrames.keys,
+      secret: inputFrames.secret,
+      submit: pendingFrames.submit,
+      "pending-action": pendingFrames["pending-action"],
+    },
+  });
   let outputTimer: ReturnType<typeof setInterval> | undefined;
 
   return {

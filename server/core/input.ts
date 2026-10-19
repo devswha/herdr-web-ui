@@ -5,7 +5,7 @@
  */
 import { type Client, connectionOf, send } from "./connections.ts";
 import { ATTACH_HELD_MESSAGE } from "./terminal-process.ts";
-import { paneContext } from "../pane-routes.ts";
+import { paneContext } from "../pane-context.ts";
 import type { TerminalSighting } from "./terminals.ts";
 import type { ClientMessage } from "../../shared/protocol.ts";
 import { isMouseReport, typingGuards } from "../input-guard.ts";
