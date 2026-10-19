@@ -33,8 +33,9 @@ async function d1(sql: string): Promise<Array<Record<string, unknown>> | null> {
   const [out, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) return null;
   try {
-    const parsed = JSON.parse(out) as Array<{ results?: Array<Record<string, unknown>> }>;
-    return parsed[0]?.results ?? null;
+    const parsed = JSON.parse(out) as Array<{ success?: boolean; results?: Array<Record<string, unknown>> }>;
+    const result = parsed[0];
+    return result?.success === true ? result.results ?? null : null;
   } catch {
     return null;
   }
