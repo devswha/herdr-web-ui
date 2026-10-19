@@ -145,6 +145,7 @@ bun scripts/composer-fit-demo-regression.ts   # one Send/Stop control, pending S
 bun scripts/held-rows-demo-regression.ts      # held messages: the fold under an approval card, its button, a row's error
 bun scripts/sidebar-activity-demo-regression.ts # Agents order Activity and pins: blocked pinned, recency, Pin agent / Unpin agent and Pin workspace / Unpin workspace from a right-click and the context-menu key, and the ⋯ on a phone
 bun scripts/sidebar-branch-line-demo-regression.ts # herdr's branch line: a repository and an unmarked git folder say their branch under the name, worktrees and folders outside git stay one line, desktop and phone, dark and light
+bun scripts/sidebar-tokens-demo-regression.ts # herdr plugin tokens on agent rows: a dim line of their own on One line and Two lines, cut with the whole text in the tooltip and a phone's sheet, as text, following herdr's `$name` rows, and changing live
 bun scripts/prompt-dock-demo-regression.ts    # the prompt card docked over the input card: its place, its height on a short phone, the grip, a typed pick
 bun scripts/plugin-actions-demo-regression.ts # a plugin action that ends after the server stopped waiting: the late failure said, a traceback's height on a phone with its keyboard up
 bun scripts/font-swap-demo-regression.ts      # the app's faces arriving late on a slow link: a reader at the end of a chat stays there, a tab strip the user scrolled stays put
@@ -466,6 +467,46 @@ one is not published yet (Release only), when `telemetry/worker.ts` or `shared/t
 since the deploy recorded in `telemetry/deployed.json` ([telemetry/README.md](../telemetry/README.md#deploy)),
 or when the step 1 metadata is incomplete. In CI only the change that bumps the version is checked;
 PRs merged before the Release run pass, and the Release run checks the whole tree again.
+
+## Growth snapshot
+
+GitHub shows a repository's traffic (views, clones, referring sites, popular pages) for the last 14
+days only. `.github/workflows/growth-snapshot.yml` saves it every Monday, with the stars and the day
+each was given (never who gave it), through `scripts/growth-snapshot.ts`. Anyone signed in to
+GitHub can download the artifacts of a public repository, so the workflow encrypts the snapshot
+before it uploads it, and its log shows totals only.
+
+It needs two repository secrets (Settings → Secrets and variables → Actions); without them the run
+says so and ends green:
+
+- `GROWTH_METRICS_TOKEN`: a fine-grained personal access token for devswha/herdr-web-ui only, with
+  the repository permissions **Administration: Read-only** (the traffic endpoints need it) and
+  **Metadata: Read-only**. Such a token expires within a year: put the expiry date in the token's
+  name. An expired or wrong token turns the run red (exit 1 for no access to the repository, exit
+  2 when every traffic endpoint is refused, exit 3 when a stargazer page fails), and GitHub emails
+  the failure.
+- `GROWTH_SNAPSHOT_KEY`: the encryption password, for example from `openssl rand -base64 32`.
+  Keep a copy outside GitHub: without it the artifacts cannot be read.
+
+Artifacts are kept 90 days. To read one:
+
+```sh
+gh run download <run-id> -R devswha/herdr-web-ui -n growth-snapshot-<run-id>
+GROWTH_SNAPSHOT_KEY=… openssl enc -d -aes-256-cbc -pbkdf2 -pass env:GROWTH_SNAPSHOT_KEY -in growth.tar.gz.enc | tar xzf -
+```
+
+which gives `growth/snapshot-<day>.json` and `growth/stars-by-day.csv`. The same script runs
+locally from the repository root with your own `gh` sign-in:
+`bun scripts/growth-snapshot.ts --out <dir>`. Exit 0 allows individual traffic errors in the JSON;
+exit 2 still writes both files when every traffic endpoint fails. Exit 3 writes neither file,
+including no traffic-only snapshot, and preserves any previous output unchanged. This takes
+precedence over exit 2 if both stars and traffic fail. Exit 1 covers usage, repository access and
+output errors. Both files are staged before publication; a CSV write or replacement failure
+does not publish new JSON. No failed run reaches encryption or upload in the workflow. Installs and
+daily actives by country come from the telemetry database instead:
+run `bunx wrangler login` from `telemetry/` once, then
+`bun scripts/telemetry-report.ts --out <file.md>` from the repository root
+([telemetry/README.md](../telemetry/README.md#reading-the-counts)).
 
 ## Pull requests and CI
 
