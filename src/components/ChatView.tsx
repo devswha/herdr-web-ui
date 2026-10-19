@@ -841,6 +841,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
   const [loaded, setLoaded] = useState(false);
   const presentationRef = useRef(presentationKey); presentationRef.current = presentationKey;
   const [readPresentation, setReadPresentation] = useState<string>();
+  const [endPresentation, setEndPresentation] = useState<{ state: ChatState; key: string | undefined } | null>(null);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
   // Each prompt that appears is an occurrence of its own, and gets a card of its own. The prompt's
   // id is a hash of what it says, so the same question asked twice shares it: the read below keeps
@@ -1228,6 +1229,28 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
     if (!visible) onPendingAnswerDone?.(paneId);
   }, [visible, onPendingAnswerDone, paneId]);
 
+  // Following is intent; only measured content at the endpoint proves presentation. In
+  // particular scrollToEnd may still be pending, or superseded by another navigation.
+  const measureEnd = (): void => {
+    const node = scroller.current;
+    if (!node) return;
+    const lastKey = timelineRows.at(-1)?.key;
+    const last = lastKey === undefined ? null : node.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(lastKey)}"]`);
+    const viewport = node.getBoundingClientRect();
+    const bottom = last?.getBoundingClientRect().bottom;
+    const atEnd = node.clientHeight > 0 && node.scrollHeight - node.clientHeight - node.scrollTop <= 1
+      && (lastKey === undefined || (bottom !== undefined && bottom >= viewport.top && bottom <= viewport.bottom + 1));
+    setEndPresentation((before) => atEnd
+      ? before?.state === state && before.key === presentationKey ? before : { state, key: presentationKey }
+      : null);
+    if (atEnd) {
+      pagingAway.current = false; stickToBottom.current = true;
+      setAway(false); setNewMessages(false);
+    }
+  };
+  const measureEndRef = useRef(measureEnd);
+  measureEndRef.current = measureEnd;
+
   // Before paint and without animation: an opened conversation starts at its end
   // instead of scrolling there from the top.
   useLayoutEffect(() => {
@@ -1264,10 +1287,15 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
         node.scrollTop = node.scrollHeight;
         if (timeline.current) timeline.current.scrollToEnd({ animated: false });
       }
+      measureEndRef.current();
     });
     observer.observe(node);
     if (node.firstElementChild !== null) observer.observe(node.firstElementChild);
-    return () => observer.disconnect();
+    // The list can mount/position its rows after the parent's layout without resizing a
+    // short scroll container. Those commits, including retry recovery, also prove geometry.
+    const content = new MutationObserver(() => measureEndRef.current());
+    content.observe(node, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["style"] });
+    return () => { observer.disconnect(); content.disconnect(); };
   }, [state.source, ChatTimeline]);
   // One of the app's faces arrived (font-display: swap; a unicode-range chunk on the first Korean
   // answer): the conversation rewraps with no width, size or family string changed, so the
@@ -1301,7 +1329,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
       stickToBottom.current = distanceFromBottom <= (pagingAway.current ? 0 : 48);
     }
     setAway(!stickToBottom.current);
-    if (stickToBottom.current) setNewMessages(false);
+    measureEnd();
     if (loaded && restoring.current === null && state.source === "conversation") rememberPlace(node);
     if (node.scrollTop < LOAD_OLDER_PX && olderState === "idle") void loadOlder();
   };
@@ -1326,7 +1354,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
     if (node === null) return;
     if (timeline.current) timeline.current.scrollToEnd({ animated: false });
     else node.scrollTo({ top: node.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    pagingAway.current = false; stickToBottom.current = true; setNewMessages(false); setAway(false);
+    pagingAway.current = false; stickToBottom.current = true;
+    measureEnd();
   };
   useLayoutEffect(() => {
     if (!pageScroll) return;
@@ -1439,6 +1468,14 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
     stopRestore.current = stop;
     frame = requestAnimationFrame(settle);
   }, [loaded, error, state.source, timelineRows]);
+  // Covers first layout, restored short chats and a fresh read that changes no scroll offset.
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    // A restored position or minimap request can still be pending at the old endpoint.
+    // Short content cannot move; otherwise its scroll/resize event must prove arrival.
+    if (!pagingAway.current || (node && node.scrollHeight <= node.clientHeight)) measureEnd();
+    else setEndPresentation(null);
+  });
   useEffect(() => () => stopRestore.current?.(), []);
   const minimap = useMemo(() => minimapTurns(shownTurns), [shownTurns]);
   const rowKeys = useMemo(() => timelineRows.map((row) => row.key), [timelineRows]);
@@ -1513,6 +1550,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><ImageViewerContext.Provider value={openViewer}>
     {/* a reader away from the end has not seen the answer a finish lands there: presented only at the end */}
     <div className="chat-frame" data-pane-content={active && visible && connected && !ended && loaded && error === null && !away && !newMessages
+      && endPresentation?.state === state && endPresentation.key === presentationKey
       && readPresentation === presentationKey && (state.source === "conversation" ? ChatTimeline !== null : agent === null) ? presentationKey : undefined}>
     <div className="chat-frame-body">
     {state.source === "conversation" ? ChatTimeline === null

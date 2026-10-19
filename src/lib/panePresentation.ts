@@ -4,6 +4,13 @@ import type { PaneView } from "./actions.ts";
 
 export const PANE_COVER_SELECTOR = '[role="dialog"],[role="alertdialog"],[aria-modal="true"],[role="menu"],dialog[open],.menu.composer-menu';
 
+/** Retained phone siblings keep their suggestions, but invisible content covers no pane. */
+export function paneCovered(): boolean {
+  return [...document.querySelectorAll(PANE_COVER_SELECTOR)].some((node) =>
+    !node.closest('[hidden],[inert],[aria-hidden="true"],.is-hidden')
+      && node.getClientRects().length > 0 && getComputedStyle(node).visibility === "visible");
+}
+
 /** A rendered content lifetime, not merely a selected pane slot. */
 export function paneContentKey(machine: Machine | undefined, pane: HerdrPane | null, view: PaneView): string | undefined {
   return machine && pane ? JSON.stringify([machine.id, pane.pane_id, pane.terminal_id, view, machine.snapshot?.finish_epoch, pane.finish_id]) : undefined;

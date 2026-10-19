@@ -14,6 +14,7 @@ declare global {
     sidebarFixture: {
       finish(paneId: string, status: AgentStatus, seq: number): Promise<void>;
       zoom(paneId: string, focusedId: string): Promise<void>;
+      split(paneId: string, focusedId: string): Promise<void>;
       block(paneId: string, kind: "loading" | "failed" | "held" | "unattached" | "files"): void;
       unblock(): void;
       blockedReads: number;
@@ -30,7 +31,7 @@ declare global {
 function installSidebarFixture(): void {
   const key = "sidebar-regression:roster";
   const stored = sessionStorage.getItem(key);
-  const state: { finishes: Record<string, { status: AgentStatus; seq: number }>; zoom: { paneId: string; focusedId: string } | null; blocked?: { paneId: string; kind: string }; padded?: Record<string, number> } =
+  const state: { finishes: Record<string, { status: AgentStatus; seq: number }>; zoom: { paneId: string; focusedId: string; split?: boolean } | null; blocked?: { paneId: string; kind: string }; padded?: Record<string, number> } =
     stored ? JSON.parse(stored) : { finishes: {}, zoom: null };
   const sources = new Set<EventSource>();
   const patch = (machines: Machine[]): Machine[] => {
@@ -53,7 +54,7 @@ function installSidebarFixture(): void {
         if (target && focused && layout) {
           target.workspace_id = focused.workspace_id;
           target.tab_id = focused.tab_id;
-          layout.zoomed = true;
+          layout.zoomed = !state.zoom.split;
           layout.focused_pane_id = focused.pane_id;
           if (!layout.panes.some((pane) => pane.pane_id === target.pane_id)) {
             layout.panes.push({ pane_id: target.pane_id, focused: false, rect: { ...layout.area } });
@@ -154,6 +155,7 @@ function installSidebarFixture(): void {
     unblock() { delete state.blocked; sessionStorage.setItem(key, JSON.stringify(state)); for (const resolve of pendingReads.splice(0)) resolve(); },
     async finish(paneId, status, seq) { state.finishes[paneId] = { status, seq }; await publish(); },
     async zoom(paneId, focusedId) { state.zoom = { paneId, focusedId }; await publish(); },
+    async split(paneId, focusedId) { state.zoom = { paneId, focusedId, split: true }; await publish(); },
     pad(paneId, turns) { state.padded = { ...state.padded, [paneId]: turns }; sessionStorage.setItem(key, JSON.stringify(state)); },
   };
 }
@@ -317,6 +319,37 @@ try {
         }, true);
         console.log("PASS a phone drawer covering the selected pane preserves both DONE dots until uncovered");
       }
+      if (!finishCase || finishCase === "hidden-composer") {
+        await withPage(browser, {}, async (page) => {
+          await page.evaluate(({ a, b }) => window.sidebarFixture.split(b, a), { a: panes.omp, b: panes.api });
+          await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}`);
+          await page.getByRole("textbox", { name: "Message", exact: true }).fill("/");
+          await page.locator(".menu.composer-menu").waitFor();
+          // The same tab keeps the first pane mounted. Selecting through its real sidebar
+          // handler avoids navigating/reloading, which would silently discard the popup.
+          await agent(page, API).locator(".agent-select").evaluate((button: HTMLElement) => button.click());
+          const hidden = page.locator(`[data-layout-pane="${panes.omp}"].is-hidden`);
+          await hidden.waitFor({ state: "attached" });
+          assert.equal(await hidden.locator(".menu.composer-menu").count(), 1);
+          await page.locator(`[data-layout-pane="${panes.api}"]:not(.is-hidden)`).waitFor();
+          await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 103), panes.api);
+          await page.waitForFunction((id) => [...document.querySelectorAll("[data-pane-content]")].some((node) => {
+            const key = JSON.parse(node.getAttribute("data-pane-content") ?? "null");
+            return key?.[1] === id && key[5] === 103;
+          }), panes.api);
+          await agent(page, API).locator('.sidebar-status[data-status="idle"]').waitFor({ state: "attached", timeout: 10_000 });
+          assert.equal(await hidden.locator(".menu.composer-menu").count(), 1, "the retained invisible popup cannot block its visible sibling");
+          const evidence = process.env["UI_EVIDENCE_DIR"];
+          if (evidence) {
+            mkdirSync(evidence, { recursive: true });
+            for (const theme of ["dark", "light"]) {
+              await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+              await page.screenshot({ path: join(evidence, `finish-hidden-sibling-phone-${theme}.png`) });
+            }
+          }
+        }, true);
+        console.log("PASS a hidden phone split sibling's retained suggestions do not cover the visible finish");
+      }
       if (!finishCase || finishCase === "zoom") {
         await withPage(browser, {}, async (page) => {
           await page.evaluate(async ({ hidden, focused }) => {
@@ -396,7 +429,10 @@ try {
         console.log("PASS a phone file viewer preserves an underlying finish until the pane is uncovered");
       }
       if (!finishCase || finishCase === "scrolled") {
+        for (const arrival of ["jump", "resize", "restore"] as const) {
+        if (process.env["SIDEBAR_SCROLL_ARRIVAL"] && process.env["SIDEBAR_SCROLL_ARRIVAL"] !== arrival) continue;
         await withPage(browser, {}, async (page) => {
+          await page.emulateMedia({ reducedMotion: "reduce" });
           await page.evaluate((id) => window.sidebarFixture.pad(id, 30), panes.omp);
           await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}`);
           await page.locator(".chat-turn").first().waitFor();
@@ -410,6 +446,23 @@ try {
           assert.ok((room[0] as number) - (room[1] as number) > 200, `the fixture chat must be long enough to scroll away: ${JSON.stringify(room)}`);
           await log.evaluate((node) => { node.scrollTop = 0; });
           await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+          if (arrival === "restore") {
+            const height = await log.evaluate((node) => node.scrollHeight * 3 + 2000);
+            await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+            await page.setViewportSize({ width: 390, height });
+            await page.evaluate(() => document.addEventListener("scroll", (event) => {
+              if (event.target instanceof Element && event.target.matches('[role="log"]')) event.stopImmediatePropagation();
+            }, true));
+            await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+            await page.locator(".chat-turn").first().waitFor();
+            await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 101), panes.omp);
+            await statusIs("idle");
+            assert.equal(await log.evaluate((node) => node.scrollTop), 0);
+            assert.ok(await log.evaluate((node) => node.scrollHeight <= node.clientHeight));
+            assert.equal(await page.getByRole("button", { name: "Jump to latest", exact: true }).count(), 0,
+              "restoring a saved non-end position does not leave a fully visible chat away");
+            return;
+          }
           const before = await page.evaluate((id) => window.sidebarFixture.reads[id] ?? 0, panes.omp);
           await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 101), panes.omp);
           await statusIs("done");
@@ -421,10 +474,72 @@ try {
           assert.equal(await page.evaluate((key) => localStorage.getItem(key), key), null,
             "a finish whose end is scrolled out of view is not recorded as seen");
           assert.equal(await agent(page, INFRA).locator(".sidebar-status").getAttribute("data-status"), "done");
+          if (arrival === "resize") {
+            // Grow the actual scroll owner until all content fits. scrollTop remains zero,
+            // so this supplies ResizeObserver/layout evidence without a scroll event.
+            const height = await log.evaluate((node) => {
+              // Browsers/list anchoring can emit a zero-offset scroll during resize.
+              // Suppress delivery before React so this case must work without that signal.
+              document.addEventListener("scroll", (event) => {
+                if (event.target === node) event.stopImmediatePropagation();
+              }, true);
+              node.addEventListener("scroll", () => { node.dataset.unexpectedScroll = "true"; });
+              // Virtual rows not drawn yet still have estimates; leave enough room for
+              // their actual wrapped heights when the enlarged viewport renders them all.
+              return node.scrollHeight * 3 + 2000;
+            });
+            await page.setViewportSize({ width: 390, height });
+            await statusIs("idle");
+            assert.equal(await log.evaluate((node) => node.scrollTop), 0);
+            assert.equal(await log.getAttribute("data-unexpected-scroll"), null, "geometry alone proves the fully visible chat");
+            return;
+          }
+          // Hold the browser scroll operation, preserving the virtual list's async contract.
+          // A requested jump is not proof that its deferred destination was ever shown.
+          await log.evaluate((node) => {
+            node.scrollTo({ top: 0, behavior: "instant" });
+            node.dispatchEvent(new Event("scroll"));
+            // Clipping holds the real viewport even if browser-native focus/scroll anchoring
+            // bypasses JS scroll methods. Heights and rendered row geometry remain real.
+            node.dataset.scrollOverflow = node.style.overflow;
+            node.style.overflow = "clip";
+            node.scrollTo = () => { node.dataset.deferredScroll = "true"; };
+          });
+          await page.getByRole("button", { name: "Jump to latest", exact: true }).click();
+          await page.waitForFunction(() => document.querySelector('[role="log"]')?.getAttribute("data-deferred-scroll") === "true");
+          const pendingPosition = await log.evaluate((node) => ({
+            height: node.clientHeight, content: node.scrollHeight, top: node.scrollTop,
+            overflow: getComputedStyle(node).overflow,
+          }));
+          assert.ok(pendingPosition.content - pendingPosition.height - pendingPosition.top > 200,
+            `the pending jump must still be away: ${JSON.stringify(pendingPosition)}`);
+          assert.equal(await page.evaluate((key) => localStorage.getItem(key), key), null,
+            "a pending jump cannot acknowledge an answer still outside the viewport");
+          const evidence = process.env["UI_EVIDENCE_DIR"];
+          if (evidence) {
+            mkdirSync(evidence, { recursive: true });
+            await page.screenshot({ path: join(evidence, "finish-deferred-jump-desktop.png") });
+          }
+          // A newer minimap request supersedes the pending jump. Releasing scroll interception
+          // must not restore that old jump's claim of presentation.
+          await page.locator(".chat-minimap-tick").first().click();
+          await log.evaluate((node) => {
+            Reflect.deleteProperty(node, "scrollTo");
+            node.style.overflow = node.dataset.scrollOverflow ?? "";
+            delete node.dataset.scrollOverflow;
+          });
+          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+          assert.equal(await page.evaluate((key) => localStorage.getItem(key), key), null,
+            "a superseded jump leaves the finish unread");
           // Back at the end, the answer is in view: now it reads as seen.
           await page.getByRole("button", { name: "Jump to latest", exact: true }).click();
           await statusIs("idle");
-        }, true);
+          assert.ok(await log.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop <= 1),
+            "READY requires the real endpoint, not just following intent");
+          if (evidence) await page.screenshot({ path: join(evidence, "finish-presented-end-desktop.png") });
+        }, arrival !== "jump");
+        console.log(`PASS ${arrival}: finish acknowledgement follows actual end geometry`);
+        }
         console.log("PASS a chat read away from its end keeps the finish unread until the end is in view");
       }
       if (!finishCase) {
