@@ -74,7 +74,25 @@ export function createCore({ options, devices, usage, usageLogin, TYPED_SETTLE_M
 
   const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending, devices, detachClaimed, dropClaims });
   const { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin });
-  const websocket = createSocket({ clients, present, stopped: () => stopped, admit, setRole, watchPane, unwatchPane, end, holdPending, attachments, clientSnapshot, countVisit, drainOutput, frames: { ...terminalFrames, ...inputFrames, ...pendingFrames } });
+  const websocket = createSocket({
+    clients, present, stopped: () => stopped, admit, setRole, watchPane, unwatchPane, end, holdPending, attachments, clientSnapshot, countVisit, drainOutput,
+    // each frame type by name, with the handler of the module that owns it: anything else on a frame object never
+    // becomes a frame a client can send, and a type named twice fails the build instead of replacing a handler
+    frames: {
+      attach: terminalFrames.attach,
+      "take-over": terminalFrames["take-over"],
+      detach: terminalFrames.detach,
+      "conversation-watch": terminalFrames["conversation-watch"],
+      "pty-ack": terminalFrames["pty-ack"],
+      resize: terminalFrames.resize,
+      "release-size": terminalFrames["release-size"],
+      input: inputFrames.input,
+      keys: inputFrames.keys,
+      secret: inputFrames.secret,
+      submit: pendingFrames.submit,
+      "pending-action": pendingFrames["pending-action"],
+    },
+  });
   let outputTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
