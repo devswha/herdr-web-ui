@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { forgetTranscriptState, HistoryChanged, transcriptPage } from "./conversation.ts";
@@ -232,26 +232,33 @@ describe("exact store lookup", () => {
     { name: "/resume writes a newer session", otherGroup: "group", otherSession: "resumed-session", otherMtime: 300, binds: false },
     { name: "the reported id is held in two directories", otherGroup: "other-group", otherSession: session, otherMtime: 100, binds: false },
     { name: "held sessions have tied write times", otherGroup: "group", otherSession: "tied-session", otherMtime: 200, binds: false },
+    { name: "the newest held events file is unlinked", otherGroup: "group", otherSession: "resumed-session", otherMtime: 300, binds: false, change: "unlink" },
+    { name: "the newest held events file is renamed", otherGroup: "group", otherSession: "resumed-session", otherMtime: 300, binds: false, change: "rename" },
   ]) {
     test.skipIf(process.platform !== "linux" || !existsSync("/proc/self/fd"))(`resolves Herdr's session safely when ${scenario.name}`, async () => {
       const home = realpathSync(root);
       const transcript = join(home, "sessions", "%2Ffiction", session, "updates.jsonl");
       const current = join(dirname(transcript), "events.jsonl");
       const other = join(home, "sessions", scenario.otherGroup, scenario.otherSession, "events.jsonl");
+      const retained = join(home, "sessions", "group", "retained-session", "events.jsonl");
       const outside = join(home, "events.jsonl");
       mkdirSync(dirname(other), { recursive: true });
+      mkdirSync(dirname(retained), { recursive: true });
       writeFileSync(transcript, user(0));
       writeFileSync(current, "");
       writeFileSync(other, "");
+      writeFileSync(retained, "");
       writeFileSync(outside, "");
       utimesSync(current, 200, 200);
       utimesSync(other, scenario.otherMtime, scenario.otherMtime);
+      utimesSync(retained, 50, 50);
       utimesSync(outside, 400, 400);
       // Only the reported directory has updates.jsonl, including the duplicate-id case.
       const executable = join(home, "grok");
-      copyFileSync("/bin/sleep", executable);
-      const fds = [current, other, outside].map((file) => openSync(file, "r"));
-      const child = spawn(executable, ["600"], { stdio: ["ignore", "ignore", "ignore", ...fds] });
+      // Use our runtime, not a sleep executable that may dispatch by its copied name.
+      copyFileSync(process.execPath, executable);
+      const fds = [current, other, retained, outside].map((file) => openSync(file, "r"));
+      const child = spawn(executable, ["-e", "process.stdin.resume()"], { stdio: ["pipe", "ignore", "ignore", ...fds] });
       const pane: HerdrPane = {
         pane_id: "grok-fixture", agent: "grok", agent_status: "ready", focused: false,
         revision: 0, tab_id: "tab-fixture", terminal_id: "terminal-fixture", workspace_id: "workspace-fixture",
@@ -262,6 +269,10 @@ describe("exact store lookup", () => {
       });
       try {
         await once(child, "spawn", { signal: AbortSignal.timeout(2000) });
+        if ("change" in scenario) {
+          if (scenario.change === "unlink") unlinkSync(other);
+          else renameSync(other, `${other}.old`);
+        }
         expect(await resolveGrokStore(pane, home)).toBe(scenario.binds ? transcript : null);
       } finally {
         info.mockRestore();

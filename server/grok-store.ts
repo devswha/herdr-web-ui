@@ -80,7 +80,8 @@ export function grokHomeFromEnvironment(environment: string): string | null {
 }
 
 /** Directories of real events.jsonl files this process holds. Null when that table cannot be
- * trusted: it could not be read, it is too large, or a held events.jsonl is not the real file. */
+ * trusted: it could not be read, it is too large, or a held events file is deleted, renamed
+ * or cannot be resolved as a real file. Only a complete set can confirm Herdr's ID. */
 export function grokHeldSessions(pid: number, home: string): Set<string> | null {
   try {
     const store = realpathSync(join(home, "sessions"));
@@ -91,11 +92,14 @@ export function grokHeldSessions(pid: number, home: string): Set<string> | null 
       for (let fd = fds.readSync(); fd; fd = fds.readSync()) {
         if (++count > 4096) return null;
         let target: string;
+        // a descriptor closed since the listing is not a held file
         try { target = readlinkSync(`/proc/${pid}/fd/${fd.name}`); } catch { continue; }
-        if (basename(target) !== "events.jsonl" || !inside(store, target)) continue;
+        if (!inside(store, target) || !basename(target).startsWith("events.jsonl")) continue;
         const parts = relative(store, target).split(sep);
         if (parts.length !== 3 || !SESSION.test(parts[1]!)) continue;
-        if (realpathSync(target) !== target) return null;
+        // Do not silently drop events.jsonl (deleted) or events.jsonl.old: that could
+        // make an older held session look newest after an unreported /resume.
+        if (basename(target) !== "events.jsonl" || realpathSync(target) !== target || !statSync(target).isFile()) return null;
         sessions.add(dirname(target));
       }
     } finally { fds.closeSync(); }
