@@ -6,8 +6,10 @@ import { promisify } from "node:util";
 const PAGE_LIMIT = 100;
 const MAX_PAGES = 8;
 const MAX_ROWS = PAGE_LIMIT * MAX_PAGES;
-const COMMAND_TIMEOUT_MS = 2_000;
-const TOTAL_TIMEOUT_MS = 8_000;
+// A full `gjc sdk session raw global --op session.list` call measured 1.0-2.0 s on a
+// loaded Apple M1 Pro, so 2 s cut off many cold lookups. 12 s stays within the local 15 s deadline.
+const COMMAND_TIMEOUT_MS = 5_000;
+const TOTAL_TIMEOUT_MS = 12_000;
 const MAX_BUFFER = 1024 * 1024;
 const MAX_CURSOR_LENGTH = 4096;
 

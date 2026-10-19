@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it, jest } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,6 +80,10 @@ function fakeRunner(
     return response;
   };
   return { calls, runner };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 10; index += 1) await Promise.resolve();
 }
 
 const commandArgs = [
@@ -274,7 +278,7 @@ describe("GJC SDK transcript identity binding", () => {
     await expect(gjcSdkTranscriptWithRunner([321], nestedCwd, agentDir, runner, rootResolver)).resolves.toMatchObject({ sessionId: "session-1" });
     expect(receivedCwd).toBe(nestedCwd);
     expect(receivedTimeout).toBeGreaterThan(0);
-    expect(receivedTimeout).toBeLessThanOrEqual(2_000);
+    expect(receivedTimeout).toBeLessThanOrEqual(5_000);
     expect(calls[0]!.args).toEqual([
       ...commandArgs,
       "--json-input",
@@ -406,6 +410,27 @@ describe("GJC SDK transcript identity binding", () => {
     await expect(gjcSdkTranscriptWithRunner([321], cwd, agentDir, runner)).resolves.toBeNull();
   });
 
+  it("resolves a two-call lookup when each SDK call takes longer than the old command deadline", async () => {
+    jest.useFakeTimers();
+    try {
+      const { calls, runner } = fakeRunner(async (_args, call) => {
+        // fixed wait: exceeds the old command deadline so the regression fails on main.
+        await new Promise((resolve) => setTimeout(resolve, 2_300));
+        return call === 0 ? page([session()]) : saved();
+      });
+      const lookup = gjcSdkTranscriptWithRunner([321], cwd, agentDir, runner);
+      await flushMicrotasks();
+      jest.advanceTimersByTime(2_300);
+      await flushMicrotasks();
+      jest.advanceTimersByTime(2_300);
+      await flushMicrotasks();
+      await expect(lookup).resolves.toMatchObject({ sessionId: "session-1" });
+      expect(calls).toHaveLength(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  }, 15_000);
+
   it("ends a hung SDK lookup at its deadline", async () => {
     let calls = 0;
     const runner: GjcSdkCommandRunner = () => {
@@ -415,7 +440,7 @@ describe("GJC SDK transcript identity binding", () => {
     await expect(gjcSdkTranscriptWithRunner([321], cwd, agentDir, runner))
       .rejects.toEqual(new GjcSdkLookupError("timeout"));
     expect(calls).toBe(1);
-  });
+  }, 15_000);
 
   it.each([
     { killed: true },
@@ -447,7 +472,7 @@ describe("GJC SDK transcript identity binding", () => {
     await expect(gjcSdkTranscriptWithRunner([321], cwd, agentDir, runner, () => new Promise(() => {})))
       .rejects.toEqual(new GjcSdkLookupError("timeout"));
     expect(calls).toHaveLength(0);
-  });
+  }, 15_000);
 
   it("propagates subprocess timeouts from the worktree probe", async () => {
     const { calls, runner } = fakeRunner([page([session()]), saved()]);
@@ -494,7 +519,7 @@ describe("GJC SDK transcript identity binding", () => {
     expect(captured?.options).not.toHaveProperty("stdio");
     expect(captured?.options.maxBuffer).toBe(1024 * 1024);
     expect(captured?.options.timeout).toBeGreaterThan(0);
-    expect(captured?.options.timeout).toBeLessThanOrEqual(2_000);
+    expect(captured?.options.timeout).toBeLessThanOrEqual(5_000);
     expect(captured?.options.killSignal).toBe("SIGKILL");
   });
 });
