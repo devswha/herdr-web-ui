@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { createServer } from "./index.ts";
 import { herdrRpc, sessionSnapshot, subscribeEvents, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import { opencodeAuthHeader, type OpenCodeFormInfo } from "./opencode-service.ts";
 import type { InteractivePrompt } from "../shared/protocol.ts";
+import { OpenCodePromptState } from "./prompt.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-opencode-prompt-contract-"));
 const fakeOpencode = join(root, "bin", "opencode");
@@ -151,6 +152,31 @@ async function readCard(paneId: string): Promise<InteractivePrompt> {
 }
 
 describe("opencode prompt contract", () => {
+  it("exposes optional questions and sends empty answers through the native service", async () => {
+    const sessionID = "ses_opencodeOptional";
+    pendingForms[sessionID] = [{
+      id: "form_optional", sessionID, title: "Optional", metadata: { kind: "question" },
+      fields: [
+        { key: "text", type: "string", required: false },
+        { key: "choice", type: "select", required: false, options: [{ value: "a", label: "A" }] },
+        { key: "checks", type: "multiselect", required: false, options: [{ value: "a", label: "A" }] },
+      ],
+    }];
+    const paneId = await setupOpencodePane(sessionID, "optional");
+    receivedReplies = [];
+    for (const multi of [false, false, true]) {
+      const prompt = await readCard(paneId);
+      expect(prompt.optional).toBe(true);
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/prompt/answer`, {
+        method: "POST", body: JSON.stringify({
+          pane_id: paneId, prompt_id: prompt.id, ...(multi ? { option_indices: [] } : { custom_text: "" }),
+        }),
+      });
+      expect(response.status).toBe(200);
+    }
+    expect(receivedReplies.map((reply) => reply.answer)).toEqual([{ text: "", choice: "", checks: [] }]);
+  });
+
   it("drops buffered answers when the server stops", async () => {
     const sessionID = "ses_opencodeRestart";
     pendingForms[sessionID] = [{
@@ -164,13 +190,18 @@ describe("opencode prompt contract", () => {
     });
     expect(response.status).toBe(200);
     expect((await readCard(paneId)).steps?.[1]?.current).toBe(true);
-    server.stop();
+    const clear = spyOn(OpenCodePromptState.prototype, "clear");
+    try {
+      server.stop();
+      expect(clear).toHaveBeenCalledTimes(1);
+    } finally { clear.mockRestore(); }
     server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "server-state"), openCodeStateDir: root });
     await server.statusReady;
     expect((await readCard(paneId)).steps?.[0]?.current).toBe(true);
   });
 
   it("detects single question form and answers it via native HTTP API", async () => {
+    receivedReplies = [];
     pendingForms[SESSION_SINGLE] = [
       {
         id: "form_single_1",
@@ -555,7 +586,7 @@ describe("opencode prompt contract", () => {
     });
   });
 
-  it("preserves form draft when reply fails with non-409 error and allows retry", async () => {
+  it("preserves form identity when reply fails with non-409 error and allows retry", async () => {
     const SESSION_RETRY = "ses_opencodeRetry";
     pendingForms[SESSION_RETRY] = [
       {
@@ -595,10 +626,11 @@ describe("opencode prompt contract", () => {
     });
     expect(failRes.status).toBe(502);
 
-    // Prompt is still available and previous draft wasn't deleted
+    // A failed submission does not become defaults and remount over the client's later edits.
     const retryPrompt = await readCard(paneId);
     expect(retryPrompt).not.toBeNull();
-    expect(retryPrompt!.default_option_index).toBe(0);
+    expect(retryPrompt!.id).toBe(prompt!.id);
+    expect(retryPrompt!.default_option_index).toBeUndefined();
 
     // Retry succeeds
     const successRes = await fetch(`http://127.0.0.1:${server.port}/api/pane/prompt/answer`, {
@@ -606,7 +638,7 @@ describe("opencode prompt contract", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pane_id: paneId,
-        prompt_id: retryPrompt!.id,
+        prompt_id: prompt!.id,
         option_index: 0,
       }),
     });

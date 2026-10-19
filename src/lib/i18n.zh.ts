@@ -643,6 +643,7 @@ export const ZH: Record<string, string> = {
 
   // ---- prompt card ----
   "Submit": "提交",
+  "Skip question": "跳过问题",
   "Submit ({n})": "提交 ({n})",
   "Recommended": "推荐",
   "More than one could be picked": "可多选",

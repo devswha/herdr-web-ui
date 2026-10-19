@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer, type Socket } from "node:net";
 
 import {
   listPendingQuestionForms,
@@ -20,6 +21,45 @@ async function withService(handler: (request: Request) => Response | Promise<Res
 }
 
 describe("opencode-service", () => {
+  it.skipIf(process.platform !== "linux")("closes connections after a timeout before response headers", async () => {
+    const sockets = new Set<Socket>();
+    const connected = Promise.withResolvers<void>();
+    const ended = Promise.withResolvers<void>();
+    let requests = 0;
+    let disconnects = 0;
+    const socketCount = () => readdirSync("/proc/self/fd").filter((fd) => {
+      try { return readlinkSync(`/proc/self/fd/${fd}`).startsWith("socket:"); }
+      catch { return false; } // The directory read's own descriptor has already closed.
+    }).length;
+    // A wedged service does not send its half of the FIN handshake.
+    const service = createServer({ allowHalfOpen: true }, (socket) => {
+      sockets.add(socket);
+      socket.once("data", () => { if (++requests === 5) connected.resolve(); });
+      socket.once("end", () => { if (++disconnects === 5) ended.resolve(); });
+    });
+    await new Promise<void>((resolve) => service.listen(0, "127.0.0.1", resolve));
+    const address = service.address();
+    if (!address || typeof address === "string") throw new Error("Missing fixture port");
+    const before = socketCount();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const config = { baseUrl: `http://127.0.0.1:${address.port}`, port: address.port, pid: process.pid, password: "fixture" };
+      const result = Promise.all(Array.from({ length: 5 }, () => listPendingQuestionForms(config, "session")));
+      await connected.promise;
+      expect(socketCount() - before - sockets.size).toBe(5);
+      expect(await result).toEqual([null, null, null, null, null]);
+      // Subscribe before the request; the bound is a failure deadline, not a delay.
+      await Promise.race([ended.promise, new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => reject(new Error("Timed-out client did not disconnect")), 500);
+      })]);
+      // Discount the fixture's accepted socket, which deliberately stays half open.
+      expect(socketCount() - before - sockets.size).toBe(0);
+    } finally {
+      clearTimeout(deadline);
+      for (const socket of sockets) socket.destroy();
+      service.close();
+    }
+  }, 4_000);
   it("sends native credentials and answers directly despite proxy environment variables", async () => {
     const direct: string[] = [];
     const proxied: string[] = [];
@@ -56,7 +96,7 @@ describe("opencode-service", () => {
       expect(direct).toEqual(["GET", "POST"]);
     } finally { service.stop(true); proxy.stop(true); }
   });
-  it.each(["https://127.0.0.1:4000", "http://example.com:4000", "file:///tmp/service", "not a URL"])("rejects untrusted service URL %s even with a port", (url) => {
+  it.each(["http://localhost:4000", "https://127.0.0.1:4000", "http://example.com:4000", "file:///tmp/service", "not a URL"])("rejects untrusted service URL %s even with a port", (url) => {
     const tmp = mkdtempSync(join(tmpdir(), "opencode-service-test-"));
     try {
       writeFileSync(join(tmp, "service.json"), JSON.stringify({ url, port: 4000, pid: process.pid, password: "fixture" }));

@@ -57,7 +57,7 @@ try {
   const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   try {
     if (shots) mkdirSync(shots, { recursive: true });
-    for (const width of [390, 1440]) for (const theme of ["light", "dark"]) for (const navigation of ["back", "chip"]) {
+    if (!process.env.OPENCODE_FOLLOWUP) for (const width of [390, 1440]) for (const theme of ["light", "dark"]) for (const navigation of ["back", "chip"]) {
       const language = width === 390 ? (theme === "light" ? "ko" : "ja") : (theme === "light" ? "zh" : "en");
       const context = await browser.newContext({
         viewport: { width, height: 900 }, isMobile: width === 390, hasTouch: width === 390, deviceScaleFactor: width === 390 ? 3 : 1,
@@ -106,6 +106,50 @@ try {
         assert.equal(await page.locator(".prompt-card-error").textContent(), translations[language]?.[unconfirmedKey] ?? unconfirmedKey, "show the shipped translation rather than the server's detail");
         if (shots) await page.screenshot({ path: join(shots, `${width}-${theme}-${navigation}-${language}-unconfirmed.png`) });
         console.log(`PASS ${width} ${theme} ${navigation} ${language}: drafts, combined answers and localized delivery advice`);
+      } finally { await context.close(); }
+    }
+    for (const width of [390, 1440]) for (const theme of ["light", "dark"]) {
+      const language = "ko";
+      const context = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width === 390, hasTouch: width === 390 });
+      try {
+        await context.addInitScript((settings) => localStorage.setItem("herdr-web-ui:settings", JSON.stringify(settings)), { language, theme });
+        const page = await context.newPage();
+        await page.goto(`${server.url.origin}/herdr-web-ui/demo/app/?pane=${encodeURIComponent(panes.web)}`);
+        await page.locator(".prompt-card").waitFor();
+        await appFaces(page);
+        if (process.env.OPENCODE_FOLLOWUP !== "optional") {
+          await page.evaluate(() => { Object.assign(window, { nativeUnconfirmed: true }); });
+          await page.locator(".composer-text").fill("A composer answer");
+          await page.locator(".composer-text").press("Enter");
+          await page.locator(".composer-note").waitFor();
+          assert.equal(await page.locator(".composer-note").textContent(), KO[unconfirmedKey], "composer must show the shipped unconfirmed translation");
+          if (shots) await page.screenshot({ path: join(shots, `${width}-${theme}-composer-unconfirmed.png`) });
+        }
+        if (process.env.OPENCODE_FOLLOWUP !== "composer") {
+          for (const type of ["multiselect", "select", "string"]) {
+            await page.evaluate(({ next, type }) => {
+              Object.assign(window, { nativeUnconfirmed: false, nativeAnswers: [], nativePrompt: {
+                ...next, id: `optional-${type}`, title: `optional-${type}`, optional: true, multi_select: type === "multiselect",
+                custom_option_index: type === "string" ? 0 : null,
+                options: type === "string" ? [{ label: "Your answer", description: null }] : next.options.slice(0, 2),
+              } });
+            }, { next: prompt, type });
+            await page.getByRole("heading", { name: `optional-${type}`, exact: true }).waitFor();
+            await page.locator(type === "multiselect" ? ".prompt-card-submit" : ".prompt-card-skip").waitFor();
+            const submit = page.locator(type === "multiselect" ? ".prompt-card-submit" : ".prompt-card-skip");
+            assert.equal(await submit.isEnabled(), true, `optional ${type} must allow an empty answer`);
+            if (shots) await page.screenshot({ path: join(shots, `${width}-${theme}-optional-${type}.png`) });
+            const sent = page.waitForFunction(() => (window as unknown as { nativeAnswers: unknown[] }).nativeAnswers.length === 1);
+            await submit.click();
+            await sent;
+            const answer = await page.evaluate(() => (window as unknown as { nativeAnswers: { option_indices?: number[]; custom_text?: string }[] }).nativeAnswers[0]);
+            assert.deepEqual(answer, type === "multiselect"
+              ? { pane_id: panes.web, prompt_id: `optional-${type}`, option_indices: [] }
+              : { pane_id: panes.web, prompt_id: `optional-${type}`, custom_text: "" });
+            await page.locator(".prompt-card").waitFor({ state: "hidden" });
+          }
+        }
+        console.log(`PASS followups ${width} ${theme}: ${process.env.OPENCODE_FOLLOWUP ?? "composer and optional questions"}`);
       } finally { await context.close(); }
     }
   } finally {

@@ -67,7 +67,7 @@ export function readOpenCodeService(stateDir?: string, env: Record<string, strin
     if (url !== undefined) {
       if (typeof url !== "string") return null;
       const u = new URL(url);
-      if (u.protocol !== "http:" || !["127.0.0.1", "[::1]", "localhost"].includes(u.hostname) || u.username || u.password) return null;
+      if (u.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(u.hostname) || u.username || u.password) return null;
       baseUrl = u.origin;
       resolvedPort = u.port ? Number(u.port) : 80;
     } else if (typeof port === "number" && Number.isInteger(port) && port > 0 && port <= 65535) {

@@ -639,6 +639,7 @@ export const KO: Record<string, string> = {
 
   // ---- prompt card ----
   "Submit": "제출",
+  "Skip question": "질문 건너뛰기",
   "Submit ({n})": "제출 ({n})",
   "Recommended": "추천",
   "More than one could be picked": "여러 개를 고를 수 있었음",

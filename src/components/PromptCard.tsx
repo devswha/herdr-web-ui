@@ -87,7 +87,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
     // Both buttons and Enter submit the whole field, including edits restored by Back.
     if (prompt.agent === "opencode" && !prompt.fallback && prompt.multi_select && (choice.option_indices !== undefined || choice.custom_text !== undefined)) {
       choice = {
-        ...(selected.size > 0 ? { option_indices: [...selected].sort((a, b) => a - b) } : {}),
+        option_indices: [...selected].sort((a, b) => a - b),
         ...(custom.trim() ? { custom_text: custom.trim() } : {}),
       };
     }
@@ -279,7 +279,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
         </div>
       )}
       {prompt.multi_select && (
-        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || (selected.size === 0 && !(prompt.agent === "opencode" && custom.trim()))} onClick={(event) => void answer({ option_indices: [...selected].sort((a, b) => a - b) }, event)}>
+        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || (selected.size === 0 && !prompt.optional && !(prompt.agent === "opencode" && custom.trim()))} onClick={(event) => void answer({ option_indices: [...selected].sort((a, b) => a - b) }, event)}>
           {selected.size > 0 ? t("Submit ({n})", { n: selected.size }) : t("Submit")}
         </button>
       )}
@@ -296,6 +296,11 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
             </button>
           </div>
         </div>
+      )}
+      {prompt.optional && !prompt.multi_select && (
+        <button type="button" className="btn prompt-card-skip" disabled={pending} onClick={(event) => void answer({ custom_text: "" }, event)}>
+          {t("Skip question")}
+        </button>
       )}
       {typedAnswer?.option_index !== undefined && (
         <div className="prompt-card-confirm" role="alert" ref={confirmRef}>

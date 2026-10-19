@@ -641,6 +641,7 @@ export const JA: Record<string, string> = {
 
   // ---- prompt card ----
   "Submit": "送信",
+  "Skip question": "質問をスキップ",
   "Submit ({n})": "送信 ({n})",
   "Recommended": "推奨",
   "More than one could be picked": "複数選択可",

@@ -119,6 +119,70 @@ async function fixture(run: (f: {
 }
 
 describe("OpenCode answer ordering", () => {
+  it("keeps the prompt id and defaults after a failed reply and allows immediate retry", async () => {
+    await fixture(async (f) => {
+      f.forms[0]!.fields.length = 1;
+      const prompt = await f.read();
+      f.replying = async () => new Response(null, { status: 503 });
+      expect((await f.answer(prompt, { custom_text: "submitted" })).status).toBe(502);
+      const polled = await f.read();
+      expect(polled.id).toBe(prompt.id);
+      expect(polled.default_custom_text).toBeUndefined();
+      f.replying = undefined;
+      expect((await f.answer(prompt, { custom_text: "later correction" })).status).toBe(200);
+      expect(f.replies).toEqual([{ answer: { q0: "submitted" } }, { answer: { q0: "later correction" } }]);
+    });
+  });
+
+  it.each(["string", "select", "multiselect"])("allows an optional %s question to be skipped", async (type) => {
+    await fixture(async (f) => {
+      f.forms[0]!.fields = [{ key: "q0", type, required: false, options: type === "string" ? [] : [{ value: "a", label: "A" }] }];
+      const prompt = await f.read();
+      expect(prompt.optional).toBe(true);
+      expect((await f.answer(prompt, type === "multiselect" ? { option_indices: [] } : { custom_text: "" })).status).toBe(200);
+      expect(f.replies).toEqual([{ answer: { q0: type === "multiselect" ? [] : "" } }]);
+    });
+  });
+
+  it.each(["string", "select", "multiselect"])("still requires an answer for a required %s question", async (type) => {
+    await fixture(async (f) => {
+      f.forms[0]!.fields = [{ key: "q0", type, required: true, options: type === "string" ? [] : [{ value: "a", label: "A" }] }];
+      const prompt = await f.read();
+      expect((await f.answer(prompt, type === "multiselect" ? { option_indices: [] } : { custom_text: "" })).status).toBe(400);
+      expect(f.replies).toEqual([]);
+    });
+  });
+
+  it("uses an empty array when skipping an optional multiselect with empty custom text", async () => {
+    await fixture(async (f) => {
+      f.forms[0]!.fields = [{ key: "q0", type: "multiselect", required: false }];
+      expect((await f.answer(await f.read(), { custom_text: "" })).status).toBe(200);
+      expect(f.replies).toEqual([{ answer: { q0: [] } }]);
+    });
+  });
+
+  it("keeps drafts when unrelated upstream fields change", async () => {
+    await fixture(async (f) => {
+      expect((await f.answer(await f.read(), { custom_text: "saved first" })).status).toBe(200);
+      const prompt = await f.read();
+      f.forms[0]!.metadata = { kind: "question", timestamp: 123 };
+      expect((await f.read()).id).toBe(prompt.id);
+      expect((await f.read()).steps?.[1]?.current).toBe(true);
+    });
+  });
+
+  it("invalidates drafts when a reused form changes its fields", async () => {
+    await fixture(async (f) => {
+      expect((await f.answer(await f.read(), { custom_text: "saved first" })).status).toBe(200);
+      const prompt = await f.read();
+      f.forms[0]!.fields[0]!.key = "replacement";
+      const replacement = await f.read();
+      expect(replacement.id).not.toBe(prompt.id);
+      expect(replacement.steps?.[0]?.current).toBe(true);
+      expect(replacement.default_custom_text).toBeUndefined();
+    });
+  });
+
   it("never returns service credentials or location in GET and POST responses", async () => {
     await fixture(async (f) => {
       f.forms[0]!.fields.length = 1;

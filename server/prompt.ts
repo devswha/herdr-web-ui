@@ -471,6 +471,7 @@ function publicPrompt(parsed: ParsedPrompt): InteractivePrompt {
     body: parsed.body,
     options: parsed.options,
     multi_select: parsed.multi_select,
+    ...(parsed.optional ? { optional: true as const } : {}),
     custom_option_index: parsed.custom_option_index,
     ...(parsed.queued ? { queued: parsed.queued } : {}),
     ...(parsed.steps ? { steps: parsed.steps } : {}),
@@ -3763,7 +3764,13 @@ async function readKnownPrompt(
     if (form.fields.length === 0) return { prompt: null };
 
     // Schema changes under a reused form id are a replacement too.
-    const identity = JSON.stringify(form);
+    const identity = JSON.stringify({
+      id: form.id, title: form.title,
+      fields: form.fields.map(({ key, type, title, description, required, custom, options }) => ({
+        key, type, title, description, required, custom,
+        options: options?.map(({ value, label, description }) => ({ value, label, description })),
+      })),
+    });
     if (state.form !== identity) {
       state.draft = undefined;
       state.form = identity;
@@ -3838,6 +3845,7 @@ async function readKnownPrompt(
         body: null,
         options,
         multi_select: multiSelect,
+        ...(field.required === false ? { optional: true as const } : {}),
         custom_option_index: customOptionIndex,
         steps,
         can_step_back: stepIndex > 0,
@@ -4163,11 +4171,11 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         if (body.custom_text !== undefined && body.option_indices === undefined) {
           if (typeof body.custom_text !== "string") return badRequest("invalid_answer", "Custom text must be a string.");
           const text = body.custom_text.trim();
-          if (!text || text.length > 12_000 || parsedPrompt.custom_option_index === null) return badRequest("invalid_answer", "This prompt does not accept a custom answer.");
-          answerValue = parsedPrompt.multi_select ? [text] : text;
+          if ((!text && !parsedPrompt.optional) || text.length > 12_000 || (text && parsedPrompt.custom_option_index === null)) return badRequest("invalid_answer", "This prompt does not accept a custom answer.");
+          answerValue = parsedPrompt.multi_select ? (text ? [text] : []) : text;
         } else if (body.option_indices !== undefined) {
           if (!Array.isArray(body.option_indices)) return badRequest("invalid_answer", "Option indices must be an array.");
-          if (!parsedPrompt.multi_select || (body.option_indices.length === 0 && !combined)) return badRequest("invalid_answer", "This prompt requires one or more selections.");
+          if (!parsedPrompt.multi_select || (body.option_indices.length === 0 && !combined && !parsedPrompt.optional)) return badRequest("invalid_answer", "This prompt requires one or more selections.");
           const choices = [...new Set(body.option_indices)];
           if (choices.some((c) => !Number.isInteger(c) || c < 0 || c >= openCodeForm.options.length)) {
             return badRequest("invalid_answer", "An option index is outside the displayed range.");
@@ -4235,8 +4243,6 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           state.revision++;
           return jsonResponse({ error: { code: "prompt_changed", message: "The form has already been settled." } }, 409);
         }
-        state.draft = draft;
-        state.revision++;
         return jsonResponse({ error: { code: "reply_failed", message: `Failed to reply to OpenCode form (HTTP ${replyResult.status}).` } }, 502);
       }
 
