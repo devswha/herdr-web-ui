@@ -70,7 +70,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
 
   function reconcileOutput(paneId: string): void {
     const attachment = attachments.get(paneId);
-    if (!attachment?.pty) return;
+    if (!attachment?.process) return;
     let paused = false;
     for (const client of attachment.clients) {
       const window = client.data.output.get(paneId);
@@ -97,8 +97,8 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       }
     }
     if (attachments.get(paneId) !== attachment) return;
-    if (paused) attachment.pty.pause();
-    else attachment.pty.resume();
+    if (paused) attachment.process.pause();
+    else attachment.process.resume();
   }
 
   function sendOutput(client: Client, paneId: string, data: string): void {
@@ -137,11 +137,11 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     for (const member of attachment.clients) member.data.conversationInterests.delete(paneId);
     for (const member of attachment.clients) member.data.output.delete(paneId);
     releaseConversation(paneId);
-    const retired = attachment.pty.exited.finally(() => {
+    const retired = attachment.process.exited.finally(() => {
       if (retiringAttachments.get(paneId) === retired) retiringAttachments.delete(paneId);
     });
     retiringAttachments.set(paneId, retired);
-    attachment.pty.kill();
+    attachment.process.kill();
   }
 
   /** An interact client's terminal sizes the pty: the grid is remembered as this client's, and it drives. */
@@ -171,7 +171,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       attachment.repaint = undefined;
       if (attachments.get(paneId) !== attachment || !attachment.ready || attachment.held || attachment.mirror) return;
       attachment.repaintedAt = Date.now();
-      (attachment.pty as PtySession).winch();
+      (attachment.process as PtySession).winch();
     }, Math.max(REPAINT_COALESCE_MS, cooldown));
   }
 
@@ -181,7 +181,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     if (!attachment || attachment.mirror || (attachment.cols === cols && attachment.rows === rows)) return;
     attachment.cols = cols;
     attachment.rows = rows;
-    attachment.pty.resize(cols, rows);
+    attachment.process.resize(cols, rows);
     // herdr redraws the whole screen for a new size: a repaint still waiting would send it twice
     clearTimeout(attachment.repaint);
     attachment.repaint = undefined;

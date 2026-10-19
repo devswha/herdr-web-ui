@@ -297,7 +297,7 @@ export function createServer(
     if (!authorities) { authorities = new Map(); pendingAuthorities.set(owner, authorities); }
     let authority = authorities.get(paneId);
     if (!authority) { authority = {}; authorities.set(paneId, authority); }
-    const lease = { attachment, pty: attachment.pty, authority };
+    const lease = { attachment, pty: attachment.process, authority };
     authorizePending(owner, paneId, lease);
     return lease;
   }
@@ -318,7 +318,7 @@ export function createServer(
     if (pendingAuthorities.get(owner)?.get(paneId) !== lease.authority) throw new HerdrError("pending_lease_lost", "The pending message's authority changed; review it before sending again");
     const attachment = attachments.get(paneId);
     if (attachment?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
-    if (attachment !== lease.attachment || attachment.pty !== lease.pty || !owner.data.attached.has(paneId)
+    if (attachment !== lease.attachment || attachment.process !== lease.pty || !owner.data.attached.has(paneId)
       || !attachment.clients.has(owner) || !attachment.ready) throw new HerdrError("input_not_ready", "The pending message's pane connection changed");
   }
   async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean; screen: string }> {
@@ -1040,16 +1040,16 @@ export function createServer(
                 // herdr encodes it for the program's mouse mode, send_text would type its bytes (#667)
                 const mouse = isMouseReport(text);
                 // typed into this attach: one that ended meanwhile (and was attached again) takes none of it
-                const pty = attachment.pty;
+                const pty = attachment.process;
                 const claim = client.data.attached.get(message.pane_id);
                 const roles = connectionOf(client).roles;
-                const allowed = () => mayType(client) && connectionOf(client).roles === roles && attachments.get(message.pane_id) === attachment && attachment.pty === pty
+                const allowed = () => mayType(client) && connectionOf(client).roles === roles && attachments.get(message.pane_id) === attachment && attachment.process === pty
                   && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client) && attachment.ready && !attachment.held;
                 void serialize(message.pane_id, async () => {
                   // behind typing still in the sidecar, as a terminal key waits for it
                   if (stop) await settleAfterTyping(message.pane_id);
                   // held while this waited its turn: it goes nowhere, as unqueued typing would
-                  if (attachments.get(message.pane_id) !== attachment || attachment.pty !== pty
+                  if (attachments.get(message.pane_id) !== attachment || attachment.process !== pty
                     || client.data.attached.get(message.pane_id) !== claim
                     || !attachment.clients.has(client) || !attachment.ready || attachment.held) { inputFailed(); return; }
                   // nothing typed outlives its connection
@@ -1066,7 +1066,7 @@ export function createServer(
                   if (stop) typedIntoPty(text);
                 }).catch(inputFailed);
               } else {
-                if (!attachment.pty.write(message.text)) { inputFailed(); break; }
+                if (!attachment.process.write(message.text)) { inputFailed(); break; }
                 typedIntoPty(message.text);
               }
               break;
@@ -1086,7 +1086,7 @@ export function createServer(
               // Terminal chords belong to the attachment that accepted them, just like input.
               // Unattached RPC keys retain their existing path (including native Windows).
               const origin = attachment?.clients.has(client) ? attachment : undefined;
-              const pty = origin?.pty;
+              const pty = origin?.process;
               const claim = client.data.attached.get(message.pane_id);
               const roles = connectionOf(client).roles;
               if (attachment?.held) {
@@ -1125,7 +1125,7 @@ export function createServer(
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
                 // pane's readiness, and the attach it holds by now has already been told it is ready
-                if (origin && (attachments.get(message.pane_id) !== origin || origin.pty !== pty
+                if (origin && (attachments.get(message.pane_id) !== origin || origin.process !== pty
                   || client.data.attached.get(message.pane_id) !== claim || !origin.clients.has(client))) {
                   if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
                   return;
@@ -1144,7 +1144,7 @@ export function createServer(
                 authorizeSocket(client);
                 // the same checks once more right before herdr is written to: its connect is awaited (#545)
                 const allowed = () => mayType(client) && connectionOf(client).roles === roles && !attachments.get(message.pane_id)?.held
-                  && (!origin || (attachments.get(message.pane_id) === origin && origin.pty === pty && origin.ready
+                  && (!origin || (attachments.get(message.pane_id) === origin && origin.process === pty && origin.ready
                     && client.data.attached.get(message.pane_id) === claim && origin.clients.has(client)));
                 batch.sent = true;
                 try {
@@ -1185,7 +1185,7 @@ export function createServer(
                 const claim = client.data.attached.get(message.pane_id);
                 // and the pty it saw, and the role it had: a live handoff or a switch away and back
                 // during the screen read takes the secret back too (#589)
-                const pty = attachment.pty;
+                const pty = attachment.process;
                 const roles = connectionOf(client).roles;
                 await serialize(message.pane_id, async () => {
                   // A viewport scrolled into history can still show an old password prompt.
@@ -1195,14 +1195,14 @@ export function createServer(
                   authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment
                     || client.data.attached.get(message.pane_id) !== claim) { result(false, "not_attached"); return; }
-                  if (!attachment.ready || attachment.held || attachment.pty !== pty) { result(false, "input_not_ready"); return; }
+                  if (!attachment.ready || attachment.held || attachment.process !== pty) { result(false, "input_not_ready"); return; }
                   if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
                   if (attachment.mirror) {
                     // A mirrored pane has no pty to type into: the secret is herdr's text, then the
                     // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,
                     // so a send herdr refused is answered as failed, not as entered.
                     const allowed = () => mayType(client) && connectionOf(client).roles === roles && attachments.get(message.pane_id) === attachment
-                      && attachment.pty === pty && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client);
+                      && attachment.process === pty && client.data.attached.get(message.pane_id) === claim && attachment.clients.has(client);
                     try {
                       await paneSendText(message.pane_id, message.secret, undefined, allowed);
                     } catch (error) {
@@ -1223,7 +1223,7 @@ export function createServer(
                     }
                   } else {
                     // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
-                    if (!attachment.pty.write(`${message.secret}\r`)) { result(false, "input_not_ready"); return; }
+                    if (!attachment.process.write(`${message.secret}\r`)) { result(false, "input_not_ready"); return; }
                   }
                   result(true);
                 });

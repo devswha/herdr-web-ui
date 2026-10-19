@@ -73,7 +73,7 @@ const PANE_GONE_CODES = new Set(["pane_not_found", "pane_not_restored", "no_term
  */
 export interface PaneAttachment {
   ready: boolean;
-  pty: PtySession | MirrorSession;
+  process: PtySession | MirrorSession;
   /** set when herdr cannot attach here: `pty` repaints the pane's screen (server/mirror.ts), on the pane's own grid */
   mirror?: MirrorSession;
   clients: Set<Client>;
@@ -149,7 +149,7 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
     const spawnRows = forObserver || mirrored ? (rect?.height ?? 24) : rows;
     const attachment: PaneAttachment = {
       ready: mirrored,
-      pty: undefined as unknown as PtySession,
+      process: undefined as unknown as PtySession,
       clients: new Set<Client>(),
       cols: spawnCols,
       rows: spawnRows,
@@ -187,7 +187,7 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
           closeAttachment(paneId);
         },
       });
-      attachment.pty = mirror;
+      attachment.process = mirror;
       attachment.mirror = mirror;
       return attachment;
     }
@@ -226,7 +226,7 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
         return;
       }
       try {
-        attachment.pty = start();
+        attachment.process = start();
       } catch (error) {
         const message = spawnFailure(paneId, error);
         broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
@@ -382,7 +382,7 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
             refusedSince = null;
             retries = 0;
             try {
-              attachment.pty = start();
+              attachment.process = start();
             } catch (error) {
               const message = spawnFailure(paneId, error);
               broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
@@ -447,7 +447,7 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
       again();
     };
     try {
-      attachment.pty = start();
+      attachment.process = start();
     } catch (error) {
       // Bun.spawn throws synchronously (node missing from PATH, fd or process limits): the
       // placeholder must go with it, or the next attach joins a record with no pty and
