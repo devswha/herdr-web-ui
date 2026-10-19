@@ -1511,7 +1511,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
   const jump = newMessages ? <button type="button" className="btn chat-new-messages chat-virtual-jump" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
     : away && <button type="button" className="btn chat-new-messages chat-virtual-jump is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>;
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><ImageViewerContext.Provider value={openViewer}>
-    <div className="chat-frame" data-pane-content={active && visible && connected && !ended && loaded && error === null
+    {/* a reader away from the end has not seen the answer a finish lands there: presented only at the end */}
+    <div className="chat-frame" data-pane-content={active && visible && connected && !ended && loaded && error === null && !away && !newMessages
       && readPresentation === presentationKey && (state.source === "conversation" ? ChatTimeline !== null : agent === null) ? presentationKey : undefined}>
     <div className="chat-frame-body">
     {state.source === "conversation" ? ChatTimeline === null

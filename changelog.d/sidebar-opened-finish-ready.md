@@ -4,7 +4,8 @@
   is kept in each browser, so a finish opened on one device keeps its dot on another.
 - A finish behind a drawer, popup viewer, Settings or another dialog keeps its dot, as does a
   hidden zoom target or composer suggestion popup. Crashed panes, loading or failed chats and
-  terminals without usable output keep the dot until their content is actually presented.
+  terminals without usable output keep the dot until their content is actually presented. A chat
+  scrolled back to older turns keeps it until you return to its end.
 - The server identifies finishes after native-agent status overrides and authoritative recovery
   reads, so viewing a working pane does not acknowledge its later finish. Activity order still
   resets obsolete recency counters on older PC bridges.

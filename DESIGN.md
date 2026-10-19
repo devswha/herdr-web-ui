@@ -988,7 +988,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   The pane's content must also report readiness for its rendered lifetime. A terminal needs
   parsed output for its current pane/terminal and an active, unheld connection. A native chat
   needs a successful fresh read for the displayed finish and a loaded timeline, not just cached
-  turns or a loading/error placeholder. Error boundaries remove readiness with the subtree;
+  turns or a loading/error placeholder, and the reader at its end: a chat scrolled back to older
+  turns, or showing New messages, keeps the dot until the end is in view. Error boundaries remove readiness with the subtree;
   a failed message renderer also prevents acknowledgement. Agent scrollback fallbacks keep
   the dot until the terminal is opened rather than claim native conversation readiness.
 - Each PC's bridge assigns `finish_id` after all status overrides, incrementing on each observed

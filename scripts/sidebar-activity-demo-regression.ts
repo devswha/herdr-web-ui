@@ -17,6 +17,10 @@ declare global {
       block(paneId: string, kind: "loading" | "failed" | "held" | "unattached" | "files"): void;
       unblock(): void;
       blockedReads: number;
+      /** conversation reads answered, per pane: a read for a new finish has reached the app */
+      reads: Record<string, number>;
+      /** older turns put ahead of a pane's demo chat, so it is long enough to scroll away from its end */
+      pad(paneId: string, turns: number): void;
     };
   }
 }
@@ -26,7 +30,7 @@ declare global {
 function installSidebarFixture(): void {
   const key = "sidebar-regression:roster";
   const stored = sessionStorage.getItem(key);
-  const state: { finishes: Record<string, { status: AgentStatus; seq: number }>; zoom: { paneId: string; focusedId: string } | null; blocked?: { paneId: string; kind: string } } =
+  const state: { finishes: Record<string, { status: AgentStatus; seq: number }>; zoom: { paneId: string; focusedId: string } | null; blocked?: { paneId: string; kind: string }; padded?: Record<string, number> } =
     stored ? JSON.parse(stored) : { finishes: {}, zoom: null };
   const sources = new Set<EventSource>();
   const patch = (machines: Machine[]): Machine[] => {
@@ -62,8 +66,23 @@ function installSidebarFixture(): void {
   const fetchDemo = window.fetch;
   const pendingReads: (() => void)[] = [];
   window.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const response = await fetchDemo(input, init);
+    let response = await fetchDemo(input, init);
     const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+    if (url.pathname === "/api/pane/conversation") {
+      const id = url.searchParams.get("pane_id") ?? "";
+      const padding = state.padded?.[id] ?? 0;
+      if (padding > 0 && response.ok) {
+        const body = await response.json();
+        const turns = body.turns as { parts: unknown[] }[];
+        if (turns.length > 0) {
+          body.turns = [...Array.from({ length: padding }, (_, index) => ({ ...turns[index % turns.length], parts: [
+            { kind: "text", text: `Earlier note ${index + 1}: ${"a line of fixture text that fills the screen. ".repeat(4)}` },
+          ] })), ...turns];
+        }
+        response = Response.json(body);
+      }
+      window.sidebarFixture.reads[id] = (window.sidebarFixture.reads[id] ?? 0) + 1;
+    }
     if (url.searchParams.get("pane_id") === state.blocked?.paneId) {
       if (url.pathname === "/api/pane/conversation" && ["loading", "failed"].includes(state.blocked.kind)) {
         window.sidebarFixture.blockedReads++;
@@ -130,10 +149,12 @@ function installSidebarFixture(): void {
   };
   window.sidebarFixture = {
     blockedReads: 0,
+    reads: {},
     block(paneId, kind) { state.blocked = { paneId, kind }; sessionStorage.setItem(key, JSON.stringify(state)); },
     unblock() { delete state.blocked; sessionStorage.setItem(key, JSON.stringify(state)); for (const resolve of pendingReads.splice(0)) resolve(); },
     async finish(paneId, status, seq) { state.finishes[paneId] = { status, seq }; await publish(); },
     async zoom(paneId, focusedId) { state.zoom = { paneId, focusedId }; await publish(); },
+    pad(paneId, turns) { state.padded = { ...state.padded, [paneId]: turns }; sessionStorage.setItem(key, JSON.stringify(state)); },
   };
 }
 
@@ -373,6 +394,38 @@ try {
           await agent(page, INFRA).locator('.sidebar-status[data-status="idle"]').waitFor({ state: "attached" });
         }, true);
         console.log("PASS a phone file viewer preserves an underlying finish until the pane is uncovered");
+      }
+      if (!finishCase || finishCase === "scrolled") {
+        await withPage(browser, {}, async (page) => {
+          await page.evaluate((id) => window.sidebarFixture.pad(id, 30), panes.omp);
+          await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}`);
+          await page.locator(".chat-turn").first().waitFor();
+          // the phone's drawer is closed: its rows are in the page, not on screen
+          const statusIs = (status: string) => agent(page, INFRA).locator(`.sidebar-status[data-status="${status}"]`).waitFor({ state: "attached", timeout: 10_000 });
+          await page.evaluate((id) => window.sidebarFixture.finish(id, "working", 100), panes.omp);
+          await statusIs("working");
+          // Reading older turns: the end, where this finish's answer lands, is out of view.
+          const log = page.getByRole("log");
+          const room = await log.evaluate((node) => [node.scrollHeight, node.clientHeight, node.className, document.querySelectorAll(".chat-turn").length]);
+          assert.ok((room[0] as number) - (room[1] as number) > 200, `the fixture chat must be long enough to scroll away: ${JSON.stringify(room)}`);
+          await log.evaluate((node) => { node.scrollTop = 0; });
+          await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+          const before = await page.evaluate((id) => window.sidebarFixture.reads[id] ?? 0, panes.omp);
+          await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 101), panes.omp);
+          await statusIs("done");
+          // The read for this finish has come back and two frames have drawn it: without the
+          // reading-position gate, the finish would be recorded by now.
+          await page.waitForFunction(([id, count]) => (window.sidebarFixture.reads[id as string] ?? 0) > (count as number), [panes.omp, before] as const);
+          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+          const key = `herdr-web-ui:finish:local:${encodeURIComponent("sidebar-fixture:local:1")}:${encodeURIComponent(panes.omp)}`;
+          assert.equal(await page.evaluate((key) => localStorage.getItem(key), key), null,
+            "a finish whose end is scrolled out of view is not recorded as seen");
+          assert.equal(await agent(page, INFRA).locator(".sidebar-status").getAttribute("data-status"), "done");
+          // Back at the end, the answer is in view: now it reads as seen.
+          await page.getByRole("button", { name: "Jump to latest", exact: true }).click();
+          await statusIs("idle");
+        }, true);
+        console.log("PASS a chat read away from its end keeps the finish unread until the end is in view");
       }
       if (!finishCase) {
       // Workspace menus no longer mix in pane operations; header More keeps pane movement.
