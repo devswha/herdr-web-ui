@@ -1367,7 +1367,9 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     // A downward automatic scroll may arrive before the next measured layout.
     // Only upward movement can turn an existing follow intent into reading intent.
     if (!stickToBottom.current || scrollingUp || pagingAway.current) {
-      stickToBottom.current = !pagingAway.current && distanceFromBottom <= 1;
+      // Follow intent keeps main's 48 px allowance: a growing composer shrinks the viewport before
+      // the bottom correction lands. The end presentation is measured exactly in measureEnd.
+      stickToBottom.current = !pagingAway.current && distanceFromBottom <= 48;
     }
     setAway(!stickToBottom.current);
     measureEnd();
