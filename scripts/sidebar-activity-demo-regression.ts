@@ -6,6 +6,7 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import panes from "../site/demo/fixtures/panes.json";
 import { buildDemoApp } from "./demo-build.ts";
 import { chromePath } from "./chrome-path.ts";
+import { contextMenuKey } from "./context-menu-key.ts";
 
 // Settings → Agents order (Activity) and the Agents list's pins, on the unmodified app over the
 // demo's fixture transport, whose agents carry herdr's state_change_seq and bump it on every state
@@ -26,16 +27,6 @@ const agentStatus = (page: Page, title: string) => agent(page, title).locator(".
 const waitStatus = (page: Page, title: string, status: string) => agent(page, title).locator(`.sidebar-status[data-status="${status}"]`).waitFor({ timeout: 10_000 });
 const waitAgentAt = (page: Page, index: number, title: string) => page.waitForFunction(([at, name]) =>
   [...document.querySelectorAll(".agents-sidebar .agent-item .agent-title")][at as number]?.textContent === name, [index, title] as const, { timeout: 5_000 });
-
-/**
- * The keyboard's context-menu key on the focused row. macOS has no such key and Chrome there
- * ignores Shift+F10 (#1371), so on a Mac the test fires the event that key makes: a
- * `contextmenu` with no pointer position, on the focused element.
- */
-async function contextMenuKey(page: Page): Promise<void> {
-  if (process.platform !== "darwin") return page.keyboard.press("Shift+F10");
-  await page.evaluate(() => document.activeElement?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
-}
 
 async function withPage(browser: Browser, settings: object, run: (page: Page) => Promise<void>, mobile = false): Promise<void> {
   const context = await browser.newContext({
