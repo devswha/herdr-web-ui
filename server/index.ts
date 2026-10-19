@@ -3,7 +3,7 @@ import { createSubmitText } from "./core/composer.ts";
 import { createInputLane } from "./core/input.ts";
 import { type Client, connectionData, connectionOf, createConnections, presenceOf, send, type SocketData } from "./core/connections.ts";
 import { createStatusHub } from "./core/status.ts";
-import { ATTACH_HELD_MESSAGE, ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS } from "./core/terminal-process.ts";
+import { ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS } from "./core/terminal-process.ts";
 import { createPendingDelivery } from "./core/pending.ts";
 import { createTerminalRegistry, validGeometry } from "./core/terminals.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
@@ -23,7 +23,6 @@ import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
 import { badRequest, errorResponse, jsonResponse, readJsonObject } from "./http.ts";
 import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
-import { isMouseReport, typingGuards } from "./input-guard.ts";
 import { claudePaneSession } from "./conversation.ts";
 import { processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
@@ -38,9 +37,6 @@ import {
   herdrSocketPath,
   integrationList,
   paneGet,
-  paneRead,
-  paneSendKeys,
-  paneSendText,
   ping,
   pluginActionInvoke,
   pluginActionList,
@@ -51,9 +47,7 @@ import {
 } from "./herdr/client.ts";
 import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts";
 import { handlePromptRequest } from "./prompt.ts";
-import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
-import { mirrorInput } from "./mirror-input.ts";
 import { OUTPUT_HARD_BYTES } from "./output-window.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
@@ -93,8 +87,6 @@ const TYPED_SETTLE_MS = 300;
  * herdr may still be holding. Short enough that a held arrow between typed letters shows no lag.
  */
 const KEY_SETTLE_MS = 40;
-/** Keys that may wait to join one `pane.send_keys` while herdr answers the one before (a held arrow repeats ~30/s). */
-const MAX_WAITING_KEYS = 256;
 /**
  * Nothing of a composer message is typed once this long has passed since it reached the
  * server (it can wait behind a stalled one in the pane's queue): it answers submit_timeout
@@ -244,9 +236,7 @@ export function createServer(
   let stopped = false;
   const { attachments, conversations, reconcileOutput, closeAttachment, detachClaimed, dropClaims, sight, poke, drainOutput, terminalFrames } = createTerminalRegistry({ options, clients, stopped: () => stopped, terminalAttach, holdFor, heldRetry, retryFor, relookupFor, holdPending: (owner, paneId) => holdPending(owner, paneId), holdPendingPane: (paneId, fault) => holdPendingPane(paneId, fault), end: (client, reason) => end(client, reason) });
 
-  const { serialize, settleAfterTyping, paneQueues, lastTyped, typedEscape } = createInputLane({ TYPED_SETTLE_MS, KEY_SETTLE_MS });
-  /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
-  const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; roles: number; run: Promise<unknown> | null; sent: boolean }>();
+  const { serialize, lastTyped, inputFrames } = createInputLane({ TYPED_SETTLE_MS, KEY_SETTLE_MS, clients, sight, poke, terminalAttach, terminalAttachKnown: () => terminalAttachKnown, mayType: (client) => mayType(client), authorizeSocket: (client) => authorizeSocket(client) });
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
@@ -775,257 +765,21 @@ export function createServer(
             case "pty-ack":
               terminalFrames["pty-ack"](client, message);
               break;
-            case "input": {
-              if (connectionOf(client).mode === "observe") {
-                send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
-                break;
-              }
-              // typing goes straight through the pty, unless a composer message is still in
-              // flight: then it waits its turn and goes the message's own way (send_text), since
-              // the pty holds a lone ESC ~150ms and a Stop would overtake nothing
-              // typing reaches an attached pane only, queued or not
-              const sighting = sight(client, message.pane_id);
-              const seen = sighting.facts();
-              const inputFailed = () => {
-                if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
-              };
-              // without a pty (Windows: no terminal, or a mirrored one) typing, the key bar's Enter,
-              // Stop and arrows go through herdr itself, each in its turn behind a message in flight.
-              // The turn is taken before herdr is asked what it can do: a message sent while
-              // that answer is on its way must not overtake the typing.
-              if (terminalAttachKnown === false || (!seen.attached && terminalAttachKnown === null)) {
-                // an attach this client is not a member of owns this pane's screen, and typing
-                // here would reach past it — the same refusal the pty branch below makes. A
-                // pane with no attachment at all is left as it was: that is the key bar, and
-                // an older bridge's composer send, neither of which attaches first.
-                if (seen.attached && !seen.member) {
-                  send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
-                  break;
-                }
-                const text = message.text;
-                // typed into the attach it saw, or into none: one left meanwhile (even attached again) takes none of it
-                const roles = connectionOf(client).roles;
-                // checked again right before herdr is written to: its connect is awaited (#545)
-                // and into the same attach, or still none: one made while this waited is someone else's (#732)
-                const allowed = () => mayType(client) && connectionOf(client).roles === roles && typingGuards.herdrTyping(sighting.facts());
-                void serialize(message.pane_id, async () => {
-                  // a herdr that attaches: typing reaches an attached pane only
-                  if (await terminalAttach()) { inputFailed(); return; }
-                  // a pasted block asks herdr what the pane runs, so it is shaped before the checks below
-                  const shaped = await mirrorInput(text, async () => (await paneContext(message.pane_id)).agent);
-                  if (!typingGuards.herdrTyping(sighting.facts())) { inputFailed(); return; }
-                  // nothing typed outlives its connection
-                  if (!clients.has(client)) return;
-                  authorizeSocket(client);
-                  await paneSendText(message.pane_id, shaped, undefined, allowed);
-                  // the echo is read at once, not at the mirror's next idle read
-                  poke(message.pane_id);
-                }).catch(inputFailed);
-                break;
-              }
-              // another web bridge has this pane's terminal: nothing typed here reaches it
-              if (!seen.member || !seen.ready || seen.held) {
-                send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
-                break;
-              }
-              const typedIntoPty = (text: string) => {
-                lastTyped.set(message.pane_id, Date.now());
-                if (text.endsWith("\x1b")) typedEscape.add(message.pane_id); else typedEscape.delete(message.pane_id);
-                if (lastTyped.size > 64) {
-                  for (const [pane, at] of lastTyped) if (Date.now() - at > TYPED_SETTLE_MS) { lastTyped.delete(pane); typedEscape.delete(pane); }
-                }
-              };
-              // the composer's Stop: a message sent right after it must not reach the agent first, and a
-              // pty write only queues the ESC in the sidecar, so it goes the message's own way (send_text)
-              // in the pane's turn. Plain typing, a terminal ESC included, keeps the pty's FIFO order.
-              const stop = message.stop === true && message.text === "\u001b";
-              if (paneQueues.has(message.pane_id) || stop) {
-                const text = message.text;
-                // a click or a wheel (a click replayed behind a held arrow) is the attach's own mouse:
-                // herdr encodes it for the program's mouse mode, send_text would type its bytes (#667)
-                const mouse = isMouseReport(text);
-                // typed into the attach it saw: one that ended meanwhile (and was attached again) takes none of it
-                const roles = connectionOf(client).roles;
-                const allowed = () => mayType(client) && connectionOf(client).roles === roles && typingGuards.queuedTyping(sighting.facts());
-                void serialize(message.pane_id, async () => {
-                  // behind typing still in the sidecar, as a terminal key waits for it
-                  if (stop) await settleAfterTyping(message.pane_id);
-                  // held while this waited its turn: it goes nowhere, as unqueued typing would
-                  if (!typingGuards.queuedTyping(sighting.facts())) { inputFailed(); return; }
-                  // nothing typed outlives its connection
-                  if (!clients.has(client)) return;
-                  authorizeSocket(client);
-                  if (mouse) {
-                    if (!allowed() || !sighting.write(text)) { inputFailed(); return; }
-                    typedIntoPty(text);
-                    return;
-                  }
-                  await paneSendText(message.pane_id, text, undefined, allowed);
-                  // herdr still holds a lone ESC a moment: a message after the Stop waits out the same
-                  // settling gap as after a typed one, and checks again for a question before pasting
-                  if (stop) typedIntoPty(text);
-                }).catch(inputFailed);
-              } else {
-                if (!sighting.write(message.text)) { inputFailed(); break; }
-                typedIntoPty(message.text);
-              }
+            case "input":
+              inputFrames.input(client, message);
               break;
-            }
             case "resize":
               await terminalFrames.resize(client, message);
               break;
             case "release-size":
               terminalFrames["release-size"](client, message);
               break;
-            case "keys": {
-              if (connectionOf(client).mode === "observe") {
-                send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
-                break;
-              }
-              // Terminal chords belong to the attachment that accepted them, just like input.
-              // Unattached RPC keys retain their existing path (including native Windows).
-              const sighting = sight(client, message.pane_id);
-              const seen = sighting.facts();
-              const roles = connectionOf(client).roles;
-              if (seen.currentHeld) {
-                send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
-                break;
-              }
-              // an attach still being looked up: its chord has no attachment to belong to yet, and must
-              // not take the unattached RPC path around the claim it will be checked against
-              if (!seen.origin && seen.claimed) {
-                send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
-                break;
-              }
-              // A key behind keys of the same sender that have not gone out yet joins them, as long as
-              // nothing else was queued since: one RPC carries them all, so keys held faster than herdr
-              // answers (a slow herdr, a busy PC) never queue up an RPC each, and keep their order.
-              const waiting = waitingKeys.get(message.pane_id);
-              if (waiting && !waiting.sent && waiting.client === client && waiting.origin === sighting.origin && waiting.pty === sighting.pty && waiting.claim === sighting.claim
-                // a key pressed after the sender watched and came back is checked on its own: joined, the
-                // batch's older role would refuse it with the rest
-                && waiting.roles === roles
-                && waiting.run !== null && paneQueues.get(message.pane_id) === waiting.run) {
-                // a herdr that stopped answering does not collect keys without end: past this, they are refused
-                if (waiting.keys.length + message.keys.length > MAX_WAITING_KEYS) {
-                  send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
-                  break;
-                }
-                waiting.keys.push(...message.keys);
-                break;
-              }
-              const batch = { keys: [...message.keys], client: client as unknown, origin: sighting.origin, pty: sighting.pty, claim: sighting.claim, roles, run: null as Promise<unknown> | null, sent: false };
-              const run = serialize(message.pane_id, async () => { try {
-                // A key goes through herdr's RPC, around the attach pty that typing just went into: it
-                // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
-                // held there ~150ms). The checks below run after the wait.
-                if (seen.origin && !seen.mirror) await settleAfterTyping(message.pane_id);
-                // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
-                // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
-                // pane's readiness, and the attach it holds by now has already been told it is ready
-                const facts = sighting.facts();
-                if (facts.origin && (!facts.sameAttachment || !facts.samePty || !facts.sameClaim || !facts.member)) {
-                  if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
-                  return;
-                }
-                if (facts.origin && !facts.ready) {
-                  if (clients.has(client)) send(client, { type: "error", code: "input_not_ready", message: "Terminal input is not ready. Nothing was sent.", pane_id: message.pane_id });
-                  return;
-                }
-                // held while this waited its turn (the attach was refused after the check above)
-                if (facts.currentHeld) {
-                  send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
-                  return;
-                }
-                // a key pressed by a connection that has gone since is not pressed
-                if (!clients.has(client)) return;
-                authorizeSocket(client);
-                // the same checks once more right before herdr is written to: its connect is awaited (#545)
-                const allowed = () => mayType(client) && connectionOf(client).roles === roles && typingGuards.keys(sighting.facts());
-                batch.sent = true;
-                try {
-                  await paneSendKeys(message.pane_id, batch.keys, undefined, allowed);
-                } catch (error) {
-                  if (!(error instanceof HerdrError && error.code === "cancelled")) throw error;
-                  if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
-                  return;
-                }
-                poke(message.pane_id);
-              } finally {
-                batch.sent = true;
-                if (waitingKeys.get(message.pane_id) === batch) waitingKeys.delete(message.pane_id);
-              } });
-              batch.run = run;
-              waitingKeys.set(message.pane_id, batch);
-              await run;
+            case "keys":
+              await inputFrames.keys(client, message);
               break;
-            }
-            case "secret": {
-              // Refuse busy panes instead of retaining the secret behind another send.
-              const result = (ok: boolean, code?: string) => send(client, {
-                type: "secret-result", id: message.id, pane_id: message.pane_id, ok, ...(code ? { code } : {}),
-              });
-              try {
-                if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string"
-                  || typeof message.prompt !== "string" || secretPrompt(message.prompt) !== message.prompt || !validSecret(message.secret)) {
-                  result(false, "invalid_secret"); break;
-                }
-                if (connectionOf(client).mode === "observe") { result(false, "read_only"); break; }
-                // the attach this secret was sent from: leaving it (even joining again) takes the secret back,
-                // and so do a new pty or role: a live handoff or a switch away and back during the screen read (#589)
-                const sighting = sight(client, message.pane_id);
-                const seen = sighting.facts();
-                if (!seen.member) { result(false, "not_attached"); break; }
-                // Mirrored cleanup uses Backspace on Windows too: only printable ASCII erases reliably.
-                if (seen.mirror && /[^\x20-\x7e]/.test(message.secret)) { result(false, "invalid_secret"); break; }
-                if (!seen.ready || seen.held) { result(false, "input_not_ready"); break; }
-                if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
-                const roles = connectionOf(client).roles;
-                await serialize(message.pane_id, async () => {
-                  // A viewport scrolled into history can still show an old password prompt.
-                  // Validate the live screen before typing a secret into the current program.
-                  const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
-                  if (connectionOf(client).closing || connectionOf(client).mode === "observe" || connectionOf(client).roles !== roles) { result(false, "read_only"); return; }
-                  authorizeSocket(client);
-                  const facts = sighting.facts();
-                  if (!facts.member || !facts.sameAttachment || !facts.sameClaim) { result(false, "not_attached"); return; }
-                  if (!facts.ready || facts.held || !facts.samePty) { result(false, "input_not_ready"); return; }
-                  if (secretPrompt(screen.text, facts.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
-                  if (facts.mirror) {
-                    // A mirrored pane has no pty to type into: the secret is herdr's text, then the
-                    // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,
-                    // so a send herdr refused is answered as failed, not as entered.
-                    const allowed = () => mayType(client) && connectionOf(client).roles === roles && typingGuards.mirrorSecret(sighting.facts());
-                    try {
-                      await paneSendText(message.pane_id, message.secret, undefined, allowed);
-                    } catch (error) {
-                      if (error instanceof HerdrError && error.code === "cancelled") { result(false, "not_attached"); return; }
-                      throw error;
-                    }
-                    try {
-                      // Typing finished; recheck authority after the Enter RPC connects (#900).
-                      await paneSendKeys(message.pane_id, ["Enter"], undefined, allowed);
-                    } catch (error) {
-                      if (!(error instanceof HerdrError && error.code === "cancelled")) throw error;
-                      // Cleanup is deliberately unguarded: do not leave the secret for another Enter.
-                      // Raw-mode readers may receive these bytes without erasing their own buffer.
-                      await paneSendKeys(message.pane_id, Array(message.secret.length).fill("Backspace"));
-                      result(false, connectionOf(client).closing || connectionOf(client).roles !== roles
-                        ? "read_only" : "not_attached");
-                      return;
-                    }
-                  } else {
-                    // Direct attach keystrokes: no agent transcript, RPC payload or delayed Enter.
-                    if (!sighting.write(`${message.secret}\r`)) { result(false, "input_not_ready"); return; }
-                  }
-                  result(true);
-                });
-              } catch {
-                // Never forward an exception that might include submitted bytes.
-                result(false, "secret_failed");
-              } finally { message.secret = ""; }
+            case "secret":
+              await inputFrames.secret(client, message);
               break;
-            }
             case "submit":
               await pendingFrames.submit(client, message);
               break;
