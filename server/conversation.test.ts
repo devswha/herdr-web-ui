@@ -1906,13 +1906,11 @@ describe("a Codex pane that reported no session yet", () => {
       // switched with /model: the status line says the new one
       screen = FRESH.replace("GPT-6.1-Sol low", "GPT-6-Sol high");
       await expect(paneConversation(pane.pane_id, join(root, ".codex"))).rejects.toMatchObject({ screen: { model: "gpt-6-sol", reasoning_effort: "high" } });
-      // The picker owns its current option, not ordinary text resembling the hidden footer.
-      screen = "  >_ OpenAI Codex (v0.163.0)\n  Select Model and Reasoning\n› 1. gpt-6.1-sol (current)\n  GPT-6-Sol high · /tmp/project";
-      await expect(paneConversation(pane.pane_id, join(root, ".codex"))).rejects.toMatchObject({ screen: { model: "gpt-6.1-sol", reasoning_effort: null } });
-      screen = screen.replace(" (current)", "");
-      const pickerWithoutCurrent = await paneConversation(pane.pane_id, join(root, ".codex")).catch((error: unknown) => error);
-      expect(pickerWithoutCurrent).toBeInstanceOf(ConversationUnavailable);
-      expect((pickerWithoutCurrent as ConversationUnavailable).screen).toBeUndefined();
+      // a picker hiding the footer leaves the model unknown, whatever its options say
+      screen = "  >_ OpenAI Codex (v0.163.0)\n  Select Model and Effort\n› 1. GPT-6.1-Sol (default) (current)\n  GPT-6-Sol high · /tmp/project";
+      const picker = await paneConversation(pane.pane_id, join(root, ".codex")).catch((error: unknown) => error);
+      expect(picker).toBeInstanceOf(ConversationUnavailable);
+      expect((picker as ConversationUnavailable).screen).toBeUndefined();
       // a screen that does not say leaves the scrollback as it was, and so does a page of history
       screen = "$ ";
       const unknown = await paneConversation(pane.pane_id, join(root, ".codex")).catch((error: unknown) => error);

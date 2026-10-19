@@ -29,20 +29,13 @@ function claudeScreen(lines: string[]): Screen {
   return { model: `claude-${named[1]!.toLowerCase()}-${named[2]}${named[3] === undefined ? "" : `-${named[3]}`}`, reasoning_effort: null };
 }
 
-/** Only a current-model picker option or the live composer footer owns a Codex model. */
+/** Only the live composer footer owns a Codex model. Text above it (an answer quoting the
+ * /model picker, a draft) never does, and while a popup hides the footer the model is unknown. */
 function codexScreen(lines: string[]): Screen {
   let header = lines.length - 1;
   while (header >= 0 && !lines[header]!.includes("OpenAI Codex (v")) header--;
   if (header < 0) return NOTHING;
   const visible = lines.slice(header + 1);
-  const picker = visible.findIndex((line) => /^\s*Select Model(?: and Reasoning(?: Effort)?)?\s*$/iu.test(line));
-  if (picker >= 0) {
-    const current = visible.slice(picker + 1).flatMap((line) => {
-      const option = /^\s*(?:›\s*)?\d+\.\s+([\w.-]+)\s+\(current\)(?:\s|$)/iu.exec(line);
-      return option ? [option[1]!.toLowerCase()] : [];
-    });
-    return current.length === 1 ? { model: current[0]!, reasoning_effort: null } : NOTHING;
-  }
   const footer = new RegExp(`^\\s*(GPT-[\\w.-]+) (${EFFORT})(?: \\w+)? · `, "u");
   let end = visible.length - 1;
   while (end >= 0 && visible[end]!.trim() === "") end--;

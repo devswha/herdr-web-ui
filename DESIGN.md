@@ -1598,8 +1598,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   status line of Codex and gjc. omp waits for its transcript to record the model: resolving its
   screen's catalog names would require `omp models`, whose discovery can refresh OAuth tokens.
   The bridge never runs that command or infers an omp model from its status line or directory.
-  Codex is read only from the live footer beneath its composer or the model picker's numbered
-  `(current)` option; ordinary model-looking text beneath the banner cannot supply a model.
+  Codex is read only from the live footer beneath its composer; an answer quoting the /model
+  picker or a draft cannot supply a model, and while a popup hides the footer the model is unknown.
   A Codex started in a terminal
   reports no session, so its terminal-output fallback carries the status line's model. Such an
   answer is marked `screen`, and the chat re-reads it on terminal output, so a switch made in the

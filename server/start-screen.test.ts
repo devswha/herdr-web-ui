@@ -51,18 +51,15 @@ describe("startScreenMetadata", () => {
     expect(startScreenMetadata("codex-transcript", "  >_ OpenAI Codex (v0.162.1)\n  Trust this folder?\n› 1. Trust and continue")).toEqual({ model: null, reasoning_effort: null });
   });
 
-  it("takes only the Codex picker's current model, not ordinary model-looking text", () => {
-    const picker = [
-      "  >_ OpenAI Codex (v0.163.0)",
-      "  GPT-6-Sol high · /tmp/project",
-      "  Select Model and Reasoning",
-      "› 1. gpt-6-sol",
-      "  2. gpt-6.1-sol (current)",
-      "  GPT-6-Sol high · /tmp/project",
-    ].join("\n");
-    expect(startScreenMetadata("codex-transcript", picker)).toEqual({ model: "gpt-6.1-sol", reasoning_effort: null });
-    expect(startScreenMetadata("codex-transcript", picker.replace(" (current)", ""))).toEqual({ model: null, reasoning_effort: null });
-    expect(startScreenMetadata("codex-transcript", "  >_ OpenAI Codex (v0.163.0)\n  GPT-6-Sol high · /tmp/project")).toEqual({ model: null, reasoning_effort: null });
+  it("takes the model only from the live footer, never from a quoted picker, a draft or a popup", () => {
+    const header = "  >_ OpenAI Codex (v0.162.1)";
+    const quoted = CODEX.replace(header, `${header}\n• Run /model. You will see:\n  Select Model\n  1. gpt-evil (current)`);
+    expect(startScreenMetadata("codex-transcript", quoted)).toEqual({ model: "gpt-6-luna", reasoning_effort: "medium" });
+    const draft = CODEX.replace("› Ask Codex to do anything", "› note\n  Select Model\n  1. gpt-typed (current)");
+    expect(startScreenMetadata("codex-transcript", draft)).toEqual({ model: "gpt-6-luna", reasoning_effort: "medium" });
+    const picker = [header, "  Select Model and Effort", "› 1. GPT-6.1-Sol (default) (current)", "  2. GPT-6-Astra", "  Press enter to select · esc to go back"].join("\n");
+    expect(startScreenMetadata("codex-transcript", picker)).toEqual({ model: null, reasoning_effort: null });
+    expect(startScreenMetadata("codex-transcript", `${header}\n  GPT-6-Sol high · /tmp/project`)).toEqual({ model: null, reasoning_effort: null });
   });
 
   it("reads gjc's status line, keeping a model it has no id for as gjc wrote it", () => {
@@ -79,24 +76,3 @@ describe("startScreenMetadata", () => {
   });
 });
 
-describe("omp's status line", () => {
-  // Supply the retired catalog argument deliberately: these fixtures also prove the bad
-  // interpretations on 2271eed9, without retaining an unused production parameter.
-  const omp = (screen: string): unknown => Reflect.apply(startScreenMetadata, undefined, [
-    "omp-transcript", screen, [{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }],
-  ]);
-  const unknown = { model: null, reasoning_effort: null };
-  const oldComposer = " π > ⟳ Opus 5.5 > 🗑 project ▶─2%────┃─1M─\n╰─";
-
-  it("never takes a model from a directory segment", () => {
-    expect(omp(" π > ⟳ Unknown Model > 🗑 ⟳ Opus 5.5 ▶─2%────┃─1M─\n╰─")).toEqual(unknown);
-  });
-
-  it("never revives an older composer when the current layout is unrecognized", () => {
-    expect(omp(`${oldComposer}\n π > ⟳ Sonnet 5.5 > 🗑 project\n╰─`)).toEqual(unknown);
-  });
-
-  it("leaves even a recognized omp model unknown until the transcript exists", () => {
-    expect(omp(oldComposer)).toEqual(unknown);
-  });
-});
