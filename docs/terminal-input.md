@@ -233,6 +233,12 @@ no longer counts as an applied edit: the same keys now send one DEL (`한` + fou
 Space delivered `\x7f\x20`, before the change `\x20`; `한글` + four delivered `한\x7f\x20`). The
 Safari replay covers it with the recorded order.
 
+When blur or paste commits an active replacement before its keydown arrives, that commit also
+clears the pending-edit key marker, so the next real Backspace/Delete is not swallowed. This
+does not clear the marker when deletion already emptied the preedit: its following keydown
+must still be cancelled. Normal Safari ordering is unchanged: each edit's keydown consumes the
+marker before the next key's beforeinput.
+
 The remote-PC relay (`server/machine-relay.ts`) forwards a browser's input frames unchanged, so
 these local results apply to a remote pane's client side; the remote path itself was not rerun.
 

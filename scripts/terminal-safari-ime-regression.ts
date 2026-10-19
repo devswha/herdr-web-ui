@@ -48,7 +48,7 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
   // recorded trace fixes them for typing, not for Backspace, Delete or punctuation.
   // "commit" is Safari 27.0.1's Backspace on a single jamo: the input method's unchanged
   // replacement first, then a keyCode 8 keydown whose default action deletes the jamo.
-  const edit = async (type: string, data: string, start: number, end = start, keyCode = 229, order: "after" | "before" | "commit" = "after") => {
+  const edit = async (type: string, data: string, start: number, end = start, keyCode = 229, order: "after" | "before" | "commit" | "blur" = "after") => {
     await input.evaluate(async (element, { type, data, start, end, keyCode, order }) => {
       const box = element as HTMLTextAreaElement;
       const key = keyCode === 8 ? "Backspace" : keyCode === 46 ? "Delete" : data;
@@ -64,6 +64,7 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
         change(type, data, start, end);
         if (order === "after") keydown();
         if (order === "commit" && keydown()) change("deleteContentBackward", "", start, start + data.length);
+        if (order === "blur") box.blur();
       }
       box.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key, keyCode: keyCode === 229 ? 71 : keyCode, isComposing: false }));
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -116,6 +117,22 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
     await input.press("Backspace");
     await input.press("Space");
     await check("\x7f ", "Backspace past an emptied syllable sends one DEL");
+
+    await reset(); await syllable(["ㅎ", "하", "한"]);
+    await syllable(["ㄱ", "그", "글"], 1);
+    await edit("insertReplacementText", "그", 1, 2);
+    await edit("insertReplacementText", "ㄱ", 1, 2);
+    await edit("insertReplacementText", "ㄱ", 1, 2, 8, "commit");
+    await input.press("Backspace");
+    await input.press("Space");
+    await check("한\x7f ", "four Backspaces after 한글 preserve the committed prefix and send one DEL");
+
+    // Blur commits a changed replacement before its keydown arrives; the next key is a new edit.
+    await reset(); await syllable(["ㅎ", "하", "한"]);
+    await edit("insertReplacementText", "하", 0, 1, 229, "blur");
+    await input.focus();
+    await input.press("Backspace");
+    await check("하\x7f", "Backspace after blur finalizes an edit awaiting keydown sends one DEL");
 
     // Backspace and Delete may report their own keyCode, before or after Safari's edit.
     // Every case runs and every failure is reported together.
