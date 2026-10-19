@@ -467,11 +467,15 @@ describe("providers", () => {
     expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_test");
   });
 
-  /** OpenCode 2's own credential store, the `credential` table of the DB `server/opencode.ts` reads. */
-  function opencodeStore(rows: Array<{ id?: string; integration?: string; value: unknown; active?: number; updated?: number }>, dir = join(home, ".local", "share", "opencode")) {
+  /**
+   * OpenCode 2's own credential store, the `credential` table of the DB `server/opencode.ts` reads;
+   * `v1` leaves out `session_v2`, as in a 1.x store, whose `credential` table stays empty.
+   */
+  function opencodeStore(rows: Array<{ id?: string; integration?: string; value: unknown; active?: number | null; updated?: number }>, dir = join(home, ".local", "share", "opencode"), v1 = false) {
     mkdirSync(dir, { recursive: true });
     const db = new Database(join(dir, "opencode.db"));
     db.exec("create table credential (id text primary key, integration_id text, label text, value text, active integer, time_created integer, time_updated integer)");
+    if (!v1) db.exec("create table session_v2 (id text primary key)");
     const insert = db.query("insert into credential values (?, ?, ?, ?, ?, ?, ?)");
     rows.forEach((row, i) => insert.run(row.id ?? `cred_${i}`, row.integration ?? "opencode-go", "OpenCode Go", JSON.stringify(row.value), row.active === undefined ? 1 : row.active, i, row.updated ?? i));
     db.close();
@@ -500,14 +504,22 @@ describe("providers", () => {
     expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_go_active");
   });
 
-  it("reads auth.json when OpenCode's store holds no key of its own", async () => {
-    // an OAuth sign-in: a credential row, but no API key the Go endpoint takes
-    opencodeStore([{ value: { type: "oauth", methodID: "browser", refresh: "rt" } }]);
+  // OpenCode 2 imports auth.json once, when it takes over a 1.x store, and leaves the file standing:
+  // signed out of OpenCode 2, or signed in by OAuth, the file's key is one OpenCode no longer uses
+  it("leaves out the auth.json OpenCode 2 no longer reads when its store holds no key", async () => {
+    opencodeStore([{ value: { type: "oauth", methodID: "browser", refresh: "rt" }, active: null }]);
+    write(join(home, ".local", "share", "opencode", "auth.json"), { "opencode-go": { type: "api", key: "oc_sk_signed_out" } });
+    expect((await new UsageService(context("linux"), only("opencode")).report()).providers).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it("reads auth.json beside an OpenCode 1 store", async () => {
+    opencodeStore([], undefined, true);
     write(join(home, ".local", "share", "opencode", "auth.json"), { "opencode-go": { type: "api", key: "oc_sk_file" } });
     replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 7 } } } });
     const [usage] = (await new UsageService(context("linux"), only("opencode")).report()).providers;
     expect(usage).toMatchObject({ id: "opencode", windows: [{ kind: "week", scope: null, used_percent: 7 }] });
-    expect((requests.at(-1)!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_file");
+    expect((requests[0]!.init.headers as Record<string, string>)["authorization"]).toBe("Bearer oc_sk_file");
   });
 
   // OpenCode keeps every sign-in in one file, <XDG data>/opencode/auth.json (xdg-basedir: on macOS
