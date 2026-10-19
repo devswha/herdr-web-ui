@@ -5,11 +5,10 @@ import { join } from "node:path";
 
 import { createServer } from "./index.ts";
 import { herdrRpc, sessionSnapshot, subscribeEvents, workspaceClose, workspaceCreate } from "./herdr/client.ts";
-import { paneOmpCatalog } from "./omp-catalog.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
 
 // Before its first message omp has written no session and a Codex started in a terminal has
-// reported none: the model is read off their own status lines, through real herdr screens.
+// reported none: omp waits for its transcript; Codex can name its model through its live footer.
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-start-screen-contract-"));
 const fresh = join(root, ".omp", "agent", "sessions", "-start-screen", "2026-10-19T00-00-00-000Z_omp-fresh.jsonl");
 const originalHome = process.env["HOME"];
@@ -19,14 +18,8 @@ let codexPane: string;
 let server: ReturnType<typeof createServer>;
 let seq = Date.now() * 1000;
 
-// a stand-in omp: `models --json` lists its catalog; otherwise it draws omp's status line, and
-// draws another model on `s`, as `/switch` does
+// A stand-in omp draws another model on `s`, as `/switch` does, without writing a transcript.
 const FAKE_OMP = `
-const catalog = { models: [
-  { provider: "anthropic", kind: "chat", id: "claude-opus-5-5", name: "Claude Opus 5.5" },
-  { provider: "openai-codex", kind: "chat", id: "gpt-6.1-sol", name: "GPT 6.1 Sol" },
-] };
-if (process.argv.includes("models")) { console.log(JSON.stringify(catalog)); process.exit(0); }
 const draw = (model) => process.stdout.write("\\x1b[2J\\x1b[H π > " + model + " > 🗑 project ▶─2%─┃─1M─\\r\\n╰─\\r\\n");
 draw("◔ GPT 6.1 Sol");
 console.log("omp_ready_contract");
@@ -73,12 +66,8 @@ beforeAll(async () => {
   const codexReady = herdrRpc("pane.wait_for_output", {
     pane_id: codexPane, source: "visible", match: { type: "substring", value: "codex_ready_contract" }, timeout_ms: 10000,
   }, undefined, 12000);
-  await herdrRpc("pane.send_text", { pane_id: codexPane, text: `clear; printf '%s\\n' '  >_ OpenAI Codex (v0.163.0)' '' '› Ask Codex to do anything' '' '  GPT-6.1-Sol low · /tmp/project'; printf 'codex_%s\\n' ready_contract; exec cat\n` });
+  await herdrRpc("pane.send_text", { pane_id: codexPane, text: `clear; printf '%s\\n' '  >_ OpenAI Codex (v0.163.0)' '' '› Ask Codex to do anything' '' '  GPT-6.1-Sol low · /tmp/project'; printf '? for shortcuts codex_%s\\n' ready_contract; exec cat\n` });
   await codexReady;
-  expect(await paneOmpCatalog(ompPane, root)).toEqual([
-    { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
-    { id: "gpt-6.1-sol", name: "GPT 6.1 Sol" },
-  ]);
   // The stand-in has no session integration; verify the report before reading its conversation.
   const agent = await herdrRpc<{ agent: { agent?: string; agent_session?: { value?: string } } }>("agent.get", { target: ompPane });
   expect(agent.agent.agent).toBe("omp");
@@ -101,16 +90,30 @@ const read = async (paneId: string): Promise<ConversationResponse> => {
   return await response.json() as ConversationResponse;
 };
 
-it.skipIf(process.platform !== "linux")("states the model an unwritten omp session's status line draws, and follows a switch there", async () => {
+it("leaves omp's screen model unknown, then reads the first transcript's model", async () => {
   expect(await read(ompPane)).toMatchObject({
-    source: "omp-transcript", turns: [], screen: true, metadata: { model: "gpt-6.1-sol", reasoning_effort: "low" },
+    source: "omp-transcript", turns: [], metadata: { model: null, reasoning_effort: null },
   });
   const switched = herdrRpc("pane.wait_for_output", {
     pane_id: ompPane, source: "visible", match: { type: "substring", value: "omp_switched_contract" }, timeout_ms: 10000,
   }, undefined, 12000);
   await herdrRpc("pane.send_text", { pane_id: ompPane, text: "s" });
   await switched;
-  expect((await read(ompPane)).metadata).toEqual({ model: "claude-opus-5-5", reasoning_effort: "high" });
+  const unwritten = await read(ompPane);
+  expect(unwritten.metadata).toEqual({ model: null, reasoning_effort: null });
+  expect(unwritten.screen).toBeUndefined();
+  writeFileSync(fresh, [
+    { type: "session", version: 3, id: "omp-fresh", cwd: root },
+    { type: "model_change", id: "m1", parentId: null, timestamp: "2026-10-19T00:00:00Z", modelId: "claude-opus-5-5" },
+    { type: "thinking_level_change", id: "l1", parentId: "m1", timestamp: "2026-10-19T00:00:00Z", thinkingLevel: "high" },
+    { type: "message", id: "u1", parentId: "l1", timestamp: "2026-10-19T00:00:00Z", message: { role: "user", content: [{ type: "text", text: "First prompt" }] } },
+    { type: "message", id: "a1", parentId: "u1", timestamp: "2026-10-19T00:00:00Z", message: { role: "assistant", content: [{ type: "text", text: "First answer" }] } },
+  ].map((record) => JSON.stringify(record)).join("\n") + "\n");
+  const written = await read(ompPane);
+  expect(written.source).toBe("omp-transcript");
+  expect(written.metadata).toEqual({ model: "claude-opus-5-5", reasoning_effort: "high" });
+  expect(written.screen).toBeUndefined();
+  expect(written.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
 });
 
 it("carries the model a Codex without a session states with the scrollback standing in", async () => {

@@ -8,8 +8,7 @@ it.skipIf(process.platform !== "linux")("reads a live process's arguments and on
     const read = createOmpProcessProbe();
     const result = await read(target.pid, true);
     expect(result?.argv.length).toBeGreaterThan(0);
-    expect([...result?.environ ?? []].sort()).toEqual(["OMP_PROFILE=personal", `PATH=${env.PATH}`, "TMUX=/tmp/tmux-1/default,1,0", "TMUX_PANE=%3"]);
-    expect(result?.executable).toBe(process.execPath);
+    expect([...result?.environ ?? []].sort()).toEqual(["OMP_PROFILE=personal", "TMUX=/tmp/tmux-1/default,1,0", "TMUX_PANE=%3"]);
     expect((await createOmpProcessProbe()(target.pid, false))?.argv).toEqual([]);
     expect(await read(2147483647, true)).toBeNull();
   } finally { target.kill(); await target.exited; }

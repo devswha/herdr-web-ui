@@ -65,7 +65,6 @@ import { agentTaskResult, claudePeerId, claudePeerNotice, isContextClear, MAX_TU
 import { forgetSubagents, lineNotifications, subagentDetails, taskNotification, type SubagentDetail } from "./claude-subagents.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { readsStartScreen, startScreenMetadata } from "./start-screen.ts";
-import { paneOmpCatalog } from "./omp-catalog.ts";
 
 export { isOmoProcess } from "./omo.ts";
 
@@ -1511,18 +1510,11 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   let resolved: NativeTranscript;
 
   // no transcript states the model yet: the agent's own screen does (start-screen.ts). A screen
-  // that cannot be read leaves it unknown, as it was. omp names its model there by catalog name,
-  // so its screen is read against the catalog of the omp the pane runs
+  // that cannot be read leaves it unknown. omp follows its transcript only: catalog discovery
+  // can refresh the CLI's OAuth credentials and is never initiated by the bridge.
   const screenMetadata = async (source: RecognizedConversation["source"]): Promise<ConversationMetadata> => {
-    const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
-    const cwd = pane?.foreground_cwd || pane?.cwd;
-    // A cold listing continues in the background; it must not delay an empty conversation.
-    const listing = source === "omp-transcript" && cwd ? paneOmpCatalog(paneId, cwd, 50) : Promise.resolve([]);
-    const [screen, catalog] = await Promise.all([
-      paneRead({ paneId, source: "visible", format: "text", timeoutMs: 2_000 }).then((read) => read.text, () => ""),
-      listing,
-    ]);
-    return startScreenMetadata(source, screen, catalog);
+    const screen = await paneRead({ paneId, source: "visible", format: "text", timeoutMs: 2_000 }).then((read) => read.text, () => "");
+    return startScreenMetadata(source, screen);
   };
   const notBegun = async (source: RecognizedConversation["source"], id: string): Promise<RecognizedConversation> => {
     // what the screen states can change with the pane's output, with no file to watch: the chat re-reads on it
