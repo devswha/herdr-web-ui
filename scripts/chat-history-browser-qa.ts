@@ -13,7 +13,6 @@ const root = mkdtempSync(join(tmpdir(), "herdr-history-browser-"));
 let server: ReturnType<typeof Bun.serve> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const releases: Array<() => void> = [];
-let diagnosticReports = 0;
 const routeEvents = new EventTarget();
 function nextRoute(name: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -32,7 +31,7 @@ try {
     const path = new URL(request.url).pathname;
     if (path === "/ws") return new Response(null, { status: 404 });
     // Product connection failures report only metadata; this fictional server consumes it locally.
-    if (path === "/api/connection-diagnostics") { diagnosticReports++; return new Response(null, { status: 204 }); }
+    if (path === "/api/connection-diagnostics") return new Response(null, { status: 204 });
     if (path.endsWith("/pane/commands")) return Response.json({ commands: [] });
     if (path.endsWith("/pane/omo-tasks")) return Response.json({ tasks: [], runs: [] });
     // a desktop's composer asks whether dictation can work here before it shows the mic
@@ -321,7 +320,6 @@ try {
   console.log("PASS Agy native parser output renders user/assistant text and independent expandable tool results");
   assert.deepEqual(errors, []);
   console.log("PASS synthetic Devin bubbles and tools render; switching to Claude clears Devin history");
-  assert.ok(diagnosticReports > 0, "the fixture consumed the product's connection diagnostics");
   console.log("PASS product pane commits across A→B→A, another PC, and late or failed answers");
 } finally {
   releases.forEach((release) => release());

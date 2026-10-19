@@ -51,8 +51,9 @@ export class ClientConnectionLog {
       if (this.peers.size >= 128) this.peers.delete(this.peers.keys().next().value!);
       quota = { at: now, count: 0 }; this.peers.set(peer, quota);
     }
-    if (quota.count >= 4 || this.global.count >= 16) return jsonResponse({ error: { code: "trace_rate_limited", message: "Connection diagnostics are rate limited" } }, 429, { "retry-after": "60" });
-    quota.count++; this.global.count++;
+    // The global quota is charged only once a report validates, so malformed POSTs cannot starve real ones.
+    if (quota.count >= 4) return jsonResponse({ error: { code: "trace_rate_limited", message: "Connection diagnostics are rate limited" } }, 429, { "retry-after": "60" });
+    quota.count++;
     if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return badRequest("invalid_trace", "Connection diagnostics must be JSON");
     const tooLarge = () => jsonResponse({ error: { code: "trace_too_large", message: "Connection diagnostics are too large" } }, 413);
     if (Number(request.headers.get("content-length")) > MAX_BYTES) return tooLarge();
@@ -75,6 +76,8 @@ export class ClientConnectionLog {
     try { trace = readTrace(JSON.parse(new TextDecoder().decode(bytes))); }
     catch { trace = null; }
     if (!trace) return badRequest("invalid_trace", "Invalid connection diagnostics");
+    if (this.global.count >= 16) return jsonResponse({ error: { code: "trace_rate_limited", message: "Connection diagnostics are rate limited" } }, 429, { "retry-after": "60" });
+    this.global.count++;
     try { this.write(JSON.stringify({ time: new Date(now).toISOString(), event: "client.connection_trace", client_reported: true, client_id: trace.client_id, target: trace.target, events: trace.events })); }
     catch { /* diagnostics must not affect the app's connection or delivery */ }
     return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });

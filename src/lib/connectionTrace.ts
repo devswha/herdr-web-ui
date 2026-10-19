@@ -23,6 +23,11 @@ function traceId(): string | null {
   } catch { return null; } // an unavailable diagnostic ID must never prevent the app connecting
 }
 
+const live = new Set<ConnectionTrace>();
+
+/** A sign-in on this page lifts the pause a 401 put on reporting; a 403/404 stays disabled. */
+export function resumeConnectionTraces(): void { for (const trace of live) trace.resume(); }
+
 /** A bounded breadcrumb trail, not telemetry: only incidents are sent to this app's own server. */
 export class ConnectionTrace {
   private readonly id = traceId();
@@ -34,12 +39,14 @@ export class ConnectionTrace {
   private reported = 0;
   private posting = false;
   private disabled = false;
+  private unauthorized = false;
   private stopped = false;
   private nextPost = -Infinity;
   private readonly target: "local" | "remote";
 
   constructor(url: string, private context: () => Context, private post: Post | null = browserPost(), private now: () => number = Date.now) {
     // Retain neither the URL nor machine/host names. One connection object already owns one PC.
+    live.add(this);
     try { const machine = new URL(url).searchParams.get("machine_id"); this.target = machine && machine !== "local" ? "remote" : "local"; }
     catch { this.target = "local"; }
   }
@@ -77,23 +84,28 @@ export class ConnectionTrace {
   }
 
   flush(): void {
-    if (this.stopped || this.disabled || !this.id || !this.post || this.posting || this.incident <= this.reported || this.now() < this.nextPost) return;
+    if (this.stopped || this.disabled || this.unauthorized || !this.id || !this.post || this.posting || this.incident <= this.reported || this.now() < this.nextPost) return;
     const incident = this.incident;
     const trace: ClientConnectionTrace = { client_id: this.id, target: this.target, events: [...this.incidentContext, ...this.following] };
     this.posting = true;
     this.nextPost = this.now() + 10_000;
     try {
       void this.post(trace).then((status) => {
-        if (status >= 200 && status < 300) {
+        // A 4xx other than 401/403/404/429 is a refusal of this batch: drop it, never re-post it.
+        const refused = status >= 400 && status < 500 && ![401, 403, 404, 429].includes(status);
+        if ((status >= 200 && status < 300) || refused) {
           this.reported = Math.max(this.reported, incident);
           if (this.incident <= this.reported) { this.incidentContext = []; this.following = []; }
         }
-        if ([401, 403, 404].includes(status)) this.disabled = true;
+        if (status === 401) this.unauthorized = true;
+        if (status === 403 || status === 404) this.disabled = true;
         if (status === 429) this.nextPost = this.now() + 60_000;
       }).catch(() => { /* retained metadata can go with the next connection event, never input */ })
         .finally(() => { this.posting = false; });
     } catch { this.posting = false; }
   }
 
-  close(): void { this.stopped = true; this.disabled = true; this.events.length = 0; this.incidentContext = []; this.following = []; }
+  resume(): void { this.unauthorized = false; }
+
+  close(): void { live.delete(this); this.stopped = true; this.disabled = true; this.events.length = 0; this.incidentContext = []; this.following = []; }
 }

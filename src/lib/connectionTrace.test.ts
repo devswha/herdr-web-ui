@@ -1,9 +1,10 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import type { ClientConnectionTrace } from "../../shared/protocol.ts";
-import { ConnectionTrace } from "./connectionTrace.ts";
+import { ConnectionTrace, resumeConnectionTraces } from "./connectionTrace.ts";
 
 const context = () => ({ connection: 1, socket_state: 1, visibility: "visible" as const, online: true });
-async function settle() { for (let i = 0; i < 5; i++) await Promise.resolve(); }
+// A macrotask turn: every promise continuation of the report has run, whatever its depth.
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 function fixture(status = 204) {
   let now = 1000;
   const sent: ClientConnectionTrace[] = [];
@@ -91,6 +92,34 @@ describe("client connection breadcrumbs", () => {
       const old = fixture(status); old.trace.record("close", {}, true); await settle();
       old.advance(60_000); old.trace.record("close", {}, true); expect(old.sent).toHaveLength(1);
     }
+  });
+
+  it("drops a batch the server refuses with another 4xx instead of re-posting it", async () => {
+    for (const status of [400, 405, 413]) {
+      const refused = fixture(status);
+      refused.trace.record("close", {}, true); await settle();
+      for (let i = 0; i < 5; i++) { refused.advance(10_000); refused.trace.record("open"); await settle(); }
+      expect(refused.sent).toHaveLength(1);
+      refused.advance(10_000); refused.trace.record("close", {}, true);
+      expect(refused.sent).toHaveLength(2);
+    }
+  });
+
+  it("resumes after signing in again on the same page, but a 403/404 stays disabled", async () => {
+    const signedOut = fixture(401);
+    signedOut.trace.record("close", {}, true); await settle();
+    signedOut.advance(60_000); signedOut.trace.record("close", {}, true);
+    expect(signedOut.sent).toHaveLength(1);
+    resumeConnectionTraces();
+    signedOut.trace.record("close", {}, true);
+    expect(signedOut.sent).toHaveLength(2);
+    for (const status of [403, 404]) {
+      const gone = fixture(status);
+      gone.trace.record("close", {}, true); await settle();
+      resumeConnectionTraces(); gone.advance(60_000); gone.trace.record("close", {}, true);
+      expect(gone.sent).toHaveLength(1);
+    }
+    signedOut.trace.close();
   });
 
   it("does not throw into the socket when a reporter fails synchronously", () => {

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it, jest } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, it, jest } from "bun:test";
 import { HerdrSocket } from "./ws.ts";
 import type { ClientConnectionTrace, PendingMessage } from "../../shared/protocol.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
@@ -1806,11 +1806,16 @@ it("ends the connection when the page is left, and connects again only when it i
 });
 
 /** Capture metadata only, retaining the actual socket/lifecycle code and its context callback. */
+const traceGlobals = globalThis as unknown as { document?: unknown; fetch?: unknown };
+const traceBefore = { document: traceGlobals.document, fetch: traceGlobals.fetch };
+afterEach(() => { traceGlobals.document = traceBefore.document; traceGlobals.fetch = traceBefore.fetch; });
+
 function tracedClient(features: string[]) {
-  const client = new HerdrSocket("ws://test/ws?machine_id=local");
   const reports: ClientConnectionTrace[] = [];
-  const trace = (client as unknown as { trace: { post: (body: ClientConnectionTrace) => Promise<number> } }).trace;
-  trace.post = async (body) => { reports.push(body); return 204; };
+  // The public browser transport: a document makes the trace POST through window.fetch (here the global).
+  traceGlobals.document = { createElement() {}, visibilityState: "visible", addEventListener() {}, removeEventListener() {} };
+  traceGlobals.fetch = async (_url: string, init: RequestInit) => { reports.push(JSON.parse(init.body as string)); return new Response(null, { status: 204 }); };
+  const client = new HerdrSocket("ws://test/ws?machine_id=local");
   client.connect();
   const socket = FakeSocket.last;
   socket.open(); socket.receive(snapshot(features));

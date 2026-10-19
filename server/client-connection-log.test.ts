@@ -51,6 +51,15 @@ describe("operator-local client diagnostic endpoint", () => {
     expect((await log.handle(request(body()), "same-peer")).status).toBe(204);
   });
 
+  it("charges the global quota only for reports that pass validation", async () => {
+    const lines: string[] = [];
+    const log = new ClientConnectionLog((line) => lines.push(line), () => 1000);
+    for (let i = 0; i < 100; i++) expect((await log.handle(request({ ...body(), target: "x" }), `noisy-${i}`)).status).toBe(400);
+    for (let i = 0; i < 16; i++) expect((await log.handle(request(body()), `real-${i}`)).status).toBe(204);
+    expect((await log.handle(request(body()), "real-16")).status).toBe(429);
+    expect(lines).toHaveLength(16);
+  });
+
   it("returns method/JSON refusals and never fails a client because the log writer threw", async () => {
     const log = new ClientConnectionLog(() => { throw new Error("write failed"); });
     expect((await log.handle(new Request("http://fixture/api/connection-diagnostics"), "one")).status).toBe(405);

@@ -1,4 +1,5 @@
 import type { PreferencesChange, SharedPreferences } from "../../shared/preferences.ts";
+import { resumeConnectionTraces } from "./connectionTrace.ts";
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
@@ -363,12 +364,14 @@ export async function authenticate(token: string): Promise<void> {
     body: JSON.stringify({ token }),
   });
   if (!response.ok) throw await errorFrom("/api/auth", response);
+  resumeConnectionTraces();
 }
 
 /** POST /api/devices/pair: the code shown on the PC, once; the server answers with this device's own HttpOnly cookie. */
 export async function pairDevice(code: string, label: string): Promise<void> {
   const response = await fetch("/api/devices/pair", { method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ code, label }) });
   if (!response.ok) throw await errorFrom("/api/devices/pair", response);
+  resumeConnectionTraces();
 }
 
 export async function fetchDevices(): Promise<PairedDevice[]> {
