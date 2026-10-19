@@ -14,7 +14,7 @@ export function shell(method, options = {}) {
 export function parseAddress(text) {
   let value = String(text).trim();
   if (value === "") return null;
-  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) value = (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(value) ? "http://" : "https://") + value;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) value = (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#]|$)/.test(value) ? "http://" : "https://") + value;
   let url;
   try { url = new URL(value); } catch { return null; }
   if ((url.protocol !== "http:" && url.protocol !== "https:") || url.hostname === "") return null;

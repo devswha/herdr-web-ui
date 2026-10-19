@@ -25,11 +25,9 @@ enum PCStore {
         set { defaults.set(newValue, forKey: "herdr.last") }
     }
 
-    /// The address to open once instead of the bare origin: a pairing link keeps its `?pair=` code.
-    static var pendingStart: String? {
-        get { defaults.string(forKey: "herdr.pendingStart") }
-        set { defaults.set(newValue, forKey: "herdr.pendingStart") }
-    }
+    /// The address to open instead of the bare origin until a PC page loads: a pairing link keeps
+    /// its `?pair=` code through Try again. In memory only, as it can hold that code.
+    static var pendingStart: String?
 
     /// Why the last load failed, for the error page.
     static var failure: String?
@@ -62,9 +60,8 @@ class HerdrBridgeViewController: CAPBridgeViewController {
     override func instanceDescriptor() -> InstanceDescriptor {
         let descriptor = super.instanceDescriptor()
         if let origin = PCStore.current, let host = URL(string: origin)?.host {
-            // what server.url sets; the pairing link is used once, the origin after it
+            // what server.url sets; the pairing link until a PC page has loaded, the origin after it
             descriptor.serverURL = PCStore.pendingStart ?? origin + "/"
-            PCStore.pendingStart = nil
             // the whole PC is the app: its own links stay in the WebView, others go to Safari
             descriptor.allowedNavigationHostnames = descriptor.allowedNavigationHostnames + [host]
         }
@@ -140,6 +137,12 @@ final class NavigationFailureProxy: NSObject, WKNavigationDelegate {
 
     override func forwardingTarget(for aSelector: Selector!) -> Any? {
         inner?.responds(to: aSelector) == true ? inner : nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        inner?.webView?(webView, didFinish: navigation)
+        // the PC's page is up: a pairing link has done its work
+        if let scheme = webView.url?.scheme, scheme == "http" || scheme == "https" { PCStore.pendingStart = nil }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
