@@ -8,6 +8,12 @@
   scrolled back to older turns keeps it until its end is actually visible, not merely when a
   jump is requested. Resized or restored short chats need no scroll event; invisible popups
   in hidden split siblings do not block the visible pane.
+- A terminal attachment recovering on an open connection keeps a new finish unread until fresh
+  output arrives, for observers too. Claude/Codex chat waits for native final-answer evidence
+  instead of acknowledging a transcript read that beat the answer to disk.
+- A pending jump to older chat stays in control through resize and mutation callbacks.
+  Small scrolls above the end show the jump affordance, and fractional PageUp/PageDown keeps
+  the reader's intent instead of returning to following.
 - The server identifies finishes after native-agent status overrides and authoritative recovery
   reads, so viewing a working pane does not acknowledge its later finish. Activity order still
   resets obsolete recency counters on older PC bridges. An older roster missing a newly
@@ -15,4 +21,4 @@
 - Read records are scoped to each PC and server epoch, replaced on server startup or an observed
   herdr restart. Tabs save separate pane keys instead of overwriting a shared roster. Older PC
   bridges without finish identifiers keep their DONE dots until the bridge is updated. Read
-  finishes stay read in cached offline rosters, without acknowledging unseen offline content.
+  records survive reconnects without acknowledging unseen offline content.
