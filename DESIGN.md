@@ -1025,6 +1025,11 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   caret and shows on hover, focus, while its panel is open, while the PC is not connected, and always
   on touch. Connected is the dot alone; every other state is also written under the name, with the server's
   error clamped to two lines and complete in the tooltip.
+- SSH PC management stays inline: its rename form and action buttons reflow within the sidebar
+  instead of floating over it. Shrinkable grid tracks and wrapping button labels keep controls
+  contained at narrow widths, with touch-sized buttons on coarse pointers. This follows the
+  width-constrained responsive sidebar in [T3 Code](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/ui/sidebar.tsx)
+  but keeps herdr's existing inline panel instead of adopting its mobile sheet; no code is borrowed.
 - A repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
   sit indented under the row of the workspace on its main checkout (`.worktree-children`), without
   a tree hairline; a worktree whose repository workspace is not open stays at the top level.
