@@ -14,6 +14,7 @@ import { prepareMachineControlsDemo } from "./sidebar-machine-controls-fixture.t
 const app = mkdtempSync(join(tmpdir(), "herdr-sidebar-machine-removal-"));
 const evidenceDir = process.env.UI_EVIDENCE_DIR;
 const REMOTE_NAME = "Demo remote PC";
+const RENAME_LABEL = "Rename";
 const REMOVE_LABEL = "Remove PC";
 const CONFIRM_LABEL = "Confirm remove PC";
 const REMOVE_EXPLANATION = "Removes this registration. Remote sessions keep running.";
@@ -117,6 +118,8 @@ async function dangerStyle(button: Locator): Promise<DangerStyle> {
   });
 }
 
+const opacityOf = (button: Locator): Promise<number> => button.evaluate((element) => Number.parseFloat(getComputedStyle(element).opacity));
+
 async function settleButton(button: Locator): Promise<void> {
   await button.evaluate(async (element) => {
     // Flush the interaction's style change before discovering its CSS transitions.
@@ -152,18 +155,34 @@ async function checkDangerPresentation(page: Page, theme: Scenario["theme"], sta
   assert.ok(focus.focusVisible && (focus.outlineStyle !== "none" && focus.outlineWidth > 0 || focus.boxShadow !== "none"), `${theme} ${stage} danger button has a visible keyboard focus indicator: ${JSON.stringify(focus)}`);
 }
 
-async function checkDisabledDanger(button: Locator, theme: Scenario["theme"]): Promise<void> {
+async function checkDisabledDanger(button: Locator, neighbour: Locator, theme: Scenario["theme"]): Promise<void> {
   assert.equal(await button.isDisabled(), true, `${theme} confirmation stays disabled while DELETE is held`);
   assert.equal(await button.getAttribute("class"), "btn btn-danger", `${theme} disabled confirmation keeps its danger class`);
+  assert.equal(await button.getAttribute("aria-busy"), "true", `${theme} the removal in flight is marked busy`);
   await settleButton(button);
+  await settleButton(neighbour);
   const style = await dangerStyle(button);
+  const neighbourOpacity = await opacityOf(neighbour);
   assert.ok(style.tintMatches, `${theme} disabled confirmation keeps the danger tint token: ${JSON.stringify(style)}`);
   assert.ok(style.borderMatches, `${theme} disabled confirmation keeps the blocked border token: ${JSON.stringify(style)}`);
   assert.ok(style.textMatches, `${theme} disabled confirmation keeps the danger text token: ${JSON.stringify(style)}`);
-  assert.equal(style.opacity, 0.85, `${theme} pending removal remains muted without obscuring its warning`);
+  assert.ok(style.opacity < 1 && style.opacity > neighbourOpacity, `${theme} pending removal is dimmed, but less than the disabled Rename beside it (${neighbourOpacity}): ${style.opacity}`);
   assert.ok(style.textContrast >= 4.5, `${theme} disabled confirmation text stays readable: ${style.textContrast.toFixed(2)}:1`);
   assert.ok(style.borderContrast >= 3, `${theme} disabled confirmation border stays visible: ${style.borderContrast.toFixed(2)}:1`);
-  console.log(`CONTRAST ${theme} disabled (opacity ${style.opacity}): actual text ${style.textContrast.toFixed(2)}:1, border ${style.borderContrast.toFixed(2)}:1`);
+  console.log(`CONTRAST ${theme} disabled (opacity ${style.opacity}, Rename ${neighbourOpacity}): actual text ${style.textContrast.toFixed(2)}:1, border ${style.borderContrast.toFixed(2)}:1`);
+}
+
+/** Disabled only because a rename runs, Remove PC dims exactly like the Rename button that runs it. */
+async function checkDimmedLikeNeighbour(remove: Locator, neighbour: Locator, theme: Scenario["theme"]): Promise<void> {
+  assert.equal(await remove.isDisabled(), true, `${theme} Remove PC is disabled while a rename runs`);
+  assert.notEqual(await remove.getAttribute("aria-busy"), "true", `${theme} a rename in flight does not mark Remove PC busy`);
+  await settleButton(remove);
+  await settleButton(neighbour);
+  const removeOpacity = await opacityOf(remove);
+  const neighbourOpacity = await opacityOf(neighbour);
+  assert.ok(removeOpacity < 1, `${theme} Remove PC is dimmed while a rename runs: ${removeOpacity}`);
+  assert.equal(removeOpacity, neighbourOpacity, `${theme} Remove PC dims like the Rename that runs: ${removeOpacity} vs ${neighbourOpacity}`);
+  console.log(`DIM ${theme} rename in flight: Remove PC ${removeOpacity}, Rename ${neighbourOpacity}`);
 }
 
 async function capture(controls: Locator, scenario: Scenario, state: "initial" | "armed" | "disabled"): Promise<void> {
@@ -219,6 +238,15 @@ async function withScenario(browser: Awaited<ReturnType<typeof chromium.launch>>
     assert.equal(await group.getByRole("button", { name: REMOVE_LABEL, exact: true }).count(), 1, `${scenario.theme} closing and reopening Manage resets confirmation`);
     assert.equal(await group.getByRole("button", { name: CONFIRM_LABEL, exact: true }).count(), 0, `${scenario.theme} reopened removal starts unarmed`);
     const reopenedRemove = group.getByRole("button", { name: REMOVE_LABEL, exact: true });
+    const rename = controls.getByRole("button", { name: RENAME_LABEL, exact: true });
+    await page.evaluate(() => (window as unknown as { machineControlsFixture: { holdNextMutation(): void } }).machineControlsFixture.holdNextMutation());
+    await rename.click();
+    await controls.locator("form button:disabled").waitFor();
+    await page.waitForFunction(() => (window as unknown as { machineControlsFixture: { calls: { mutations: unknown[] } } }).machineControlsFixture.calls.mutations.length === 1);
+    await checkDimmedLikeNeighbour(reopenedRemove, rename, scenario.theme);
+    await page.evaluate(() => (window as unknown as { machineControlsFixture: { releaseMutation(success: boolean): void } }).machineControlsFixture.releaseMutation(true));
+    await controls.locator("form button:enabled").waitFor();
+    assert.equal(await fixtureValue(page, "calls.deleteAttempts"), 0, `${scenario.theme} a rename sends no DELETE`);
     await reopenedRemove.focus();
     await page.keyboard.press("Enter");
     const destructive = group.getByRole("button", { name: CONFIRM_LABEL, exact: true });
@@ -228,7 +256,7 @@ async function withScenario(browser: Awaited<ReturnType<typeof chromium.launch>>
     await page.evaluate(() => (window as unknown as { machineControlsFixture: { holdNextMutation(): void } }).machineControlsFixture.holdNextMutation());
     await destructive.click();
     await page.waitForFunction(() => (window as unknown as { machineControlsFixture: { calls: { deleteAttempts: number } } }).machineControlsFixture.calls.deleteAttempts === 1);
-    await checkDisabledDanger(destructive, scenario.theme);
+    await checkDisabledDanger(destructive, rename, scenario.theme);
     await capture(controls, scenario, "disabled");
     await destructive.evaluate((button) => {
       button.dispatchEvent(new MouseEvent("click", { bubbles: true }));

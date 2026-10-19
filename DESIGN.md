@@ -39,8 +39,10 @@ Messages say only what the person needs now, not everything the app knows:
   stay visible before and after the first click arms the second, so the destructive consequence is
   clear before confirmation. T3 Code's [outlined destructive button](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/ui/button.tsx)
   is a reference for restrained destructive treatment and focus feedback; this uses herdr's
-  existing danger tokens and borrows no code. A pending PC removal is only lightly dimmed so
-  its warning text and border stay readable in both light and dark themes.
+  existing danger tokens and borrows no code. A hovered danger button keeps its tint and border
+  everywhere in the app, never the neutral hover fill. A pending PC removal is only lightly dimmed
+  so its warning text and border stay readable in both light and dark themes; disabled because
+  another action of the panel is running, Remove PC dims like its neighbours.
 
 ## 2. Color
 
@@ -1038,8 +1040,11 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   on touch. Connected is the dot alone; every other state is also written under the name, with the server's
   error clamped to two lines and complete in the tooltip.
 - SSH PC management stays inline: its rename form and action buttons reflow within the sidebar
-  instead of floating over it. Shrinkable grid tracks and wrapping button labels keep controls
-  contained at narrow widths, with touch-sized buttons on coarse pointers. This follows the
+  instead of floating over it. Rename shares the name field's row where both fit and goes under
+  the field in a narrow sidebar; the action buttons wrap into rows that share a height. A
+  one-line button is `--control-h` tall, as the field beside it, and only a wrapped label grows
+  its button. Wrapping labels keep controls contained at narrow widths, with touch-sized buttons
+  on coarse pointers. This follows the
   width-constrained responsive sidebar in [T3 Code](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/ui/sidebar.tsx)
   but keeps herdr's existing inline panel instead of adopting its mobile sheet; no code is borrowed.
 - A repository's worktree workspaces (`workspace.worktree.is_linked_worktree`)
