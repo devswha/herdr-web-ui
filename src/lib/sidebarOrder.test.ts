@@ -14,6 +14,41 @@ const snap = (statuses: Record<string, AgentStatus>, seqs: Record<string, number
 });
 
 describe("activity counters, independent of opened finishes", () => {
+  it("ignores absent, nonnumeric and nonfinite counters", () => {
+    const snapshot = snap({}, { valid: 7, text: 1, missing: 1, infinite: Infinity, nan: NaN });
+    Object.assign(snapshot.agents[1]!, { state_change_seq: "9" });
+    delete snapshot.agents[2]!.state_change_seq;
+    expect([...stateSeqs(snapshot)]).toEqual([["valid", 7]]);
+  });
+
+  it("accepts a null snapshot", () => { expect([...stateSeqs(null)]).toEqual([]); });
+
+  it("keeps rows without counters at the end in their supplied order", () => {
+    const rows = [pane("missing-a", "done"), pane("dated", "done"), pane("missing-b", "working")];
+    expect(activityOrder(rows, (p) => p, new Map([["dated", 0]])).map((p) => p.pane_id)).toEqual(["dated", "missing-a", "missing-b"]);
+  });
+
+  it("drops stand-ins when herdr's real counter arrives without another status change", () => {
+    const memory = newSeqMemory();
+    liveSeqs(snap({ a: "working" }, { a: 1 }), memory);
+    liveSeqs(snap({ a: "done" }, { a: 1 }), memory);
+    expect(memory.bumped.size).toBe(1);
+    expect([...liveSeqs(snap({ a: "done" }, { a: 2 }), memory)]).toEqual([["a", 2]]);
+    expect(memory.bumped.size).toBe(0);
+  });
+
+  it("drops real counters and bumps on an empty roster, so a returning pane is not falsely recent", () => {
+    const memory = newSeqMemory();
+    liveSeqs(snap({ a: "working" }, { a: 10 }), memory);
+    liveSeqs(snap({ a: "done" }, { a: 10 }), memory);
+    liveSeqs(snap({}, {}), memory);
+    expect(memory.real.size).toBe(0);
+    expect(memory.bumped.size).toBe(0);
+    const returned = snap({ a: "working", b: "done" }, { a: 10, b: 20 });
+    const seqs = liveSeqs(returned, memory);
+    expect(activityOrder(returned.panes, (p) => p, seqs).map((p) => p.pane_id)).toEqual(["b", "a"]);
+  });
+
   it("reads agent counters and dates pushed changes until herdr catches up", () => {
     const memory = newSeqMemory();
     expect([...stateSeqs(snap({ a: "working", b: "done" }, { a: 5, b: 9 }))]).toEqual([["a", 5], ["b", 9]]);
