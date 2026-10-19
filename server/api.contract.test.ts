@@ -2014,7 +2014,7 @@ describe("WebSocket roles and status push", () => {
     const stranger = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     try {
       owner.send({ type: "attach", pane_id: qaPaneId!, cols: 100, rows: 30 });
-      await owner.waitFor((m) => m.type === "input-ready" && m.pane_id === qaPaneId, "input ready", 15_000);
+      await owner.waitFor((m) => m.type === "input-ready" && m.pane_id === qaPaneId && m.ready !== false, "input ready", 15_000);
       const captured = join(stateDir, "unicode-input.txt");
       owner.send({ type: "input", pane_id: qaPaneId!, text: `printf '%s' '한글😀' > '${captured}'\r` });
       const deadline = Date.now() + 5000;
@@ -2128,7 +2128,7 @@ describe("WebSocket roles and status push", () => {
       phone.send({ type: "resize", pane_id: paneId, cols: 91, rows: 27 });
       // the terminal lens's grid is the pty's, not the pane's own one the covered attach left it at
       expect(await phone.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 91, "the resize applied after creation", 15_000)).toMatchObject({ cols: 91, rows: 27 });
-      await phone.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
+      await phone.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId && m.ready !== false, "attach took", 15_000);
       // regression (fails on main): inspect the rendered screen, not diff-rendered PTY bytes
       phone.send({ type: "input", pane_id: paneId, text: "clear; echo size=$(stty size | tr ' ' x)\r" });
       const deadline = Date.now() + 15_000;
@@ -2175,7 +2175,7 @@ describe("WebSocket roles and status push", () => {
     };
     const attach = async (socket: RecordingSocket, paneId: string, cols: number, rows: number) => {
       socket.send({ type: "attach", pane_id: paneId, cols, rows });
-      await socket.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
+      await socket.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId && m.ready !== false, "attach took", 15_000);
     };
 
     it("returns the pty to the desktop's grid when the phone leaves the terminal lens", async () => {
@@ -2227,7 +2227,7 @@ describe("WebSocket roles and status push", () => {
         });
       try {
         await attach(desktop, paneId, 120, 40);
-        const ready = nextHidden((m) => m.type === "input-ready" && m.pane_id === paneId);
+        const ready = nextHidden((m) => m.type === "input-ready" && m.pane_id === paneId && m.ready !== false);
         hidden.attach(paneId, 100, 30);
         hidden.connect();
         await ready;
@@ -2304,7 +2304,7 @@ describe("WebSocket roles and status push", () => {
         await attach(phone, paneId, 53, 33);
         // the third client watches from the chat lens until it resizes
         third.send({ type: "attach", pane_id: paneId, cols: 30, rows: 10, keep_size: true });
-        await third.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "third attach took", 15_000);
+        await third.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId && m.ready !== false, "third attach took", 15_000);
         await desktop.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 53, "the phone took the grid", 5000);
 
         desktop.seen.length = 0;
@@ -2331,7 +2331,7 @@ describe("WebSocket roles and status push", () => {
       try {
         await attach(desktop, paneId, 120, 40);
         chat.send({ type: "attach", pane_id: paneId, cols: 53, rows: 33, keep_size: true });
-        await chat.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "chat attach took", 15_000);
+        await chat.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId && m.ready !== false, "chat attach took", 15_000);
         desktop.seen.length = 0;
         chat.seen.length = 0;
         chat.send({ type: "release-size", pane_id: paneId });
