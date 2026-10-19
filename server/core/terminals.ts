@@ -3,12 +3,12 @@
  * still being created, the one whose process is still exiting, and the output each client is
  * sent. The pane's agent conversation is watched while a client that shows the pane asks for it.
  */
-import type { ServerMessage } from "../../shared/protocol.ts";
+import type { ClientMessage, ServerMessage } from "../../shared/protocol.ts";
 import { ConversationMonitor } from "../conversation-monitor.ts";
-import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS, wireBytes } from "../output-window.ts";
+import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS, OutputWindow, wireBytes } from "../output-window.ts";
 import type { PtySession } from "../pty/session.ts";
 import { type Client, connectionOf, send } from "./connections.ts";
-import { createSpawnAttachment, type PaneAttachment } from "./terminal-process.ts";
+import { ATTACH_HELD_MESSAGE, createSpawnAttachment, type PaneAttachment } from "./terminal-process.ts";
 
 /** joins this close together share one repaint: a reconnect brings every tab back at once */
 const REPAINT_COALESCE_MS = 50;
@@ -17,6 +17,17 @@ const REPAINT_COALESCE_MS = 50;
  * and a joiner in the cooldown is served by the next one instead (a flapping phone, quick switches).
  */
 const REPAINT_MIN_INTERVAL_MS = 1000;
+
+type Frame<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
+
+/** Clamp surface for the shared pty, mirroring the sidecar's own limits. */
+export function validGeometry(cols: unknown, rows: unknown): { cols: number; rows: number } | null {
+  if (typeof cols !== "number" || typeof rows !== "number" || !Number.isInteger(cols) || !Number.isInteger(rows)) {
+    return null;
+  }
+  if (cols < 1 || cols > 1000 || rows < 1 || rows > 1000) return null;
+  return { cols, rows };
+}
 
 /**
  * The server's terminals. `stopped` is read through a getter, as `stop()` sets it later, and `end`
@@ -230,5 +241,178 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     closeAttachment(paneId);
   }
 
-  return { attachments, pendingAttachments, conversations, releaseConversation, reconcileOutput, sendOutput, closeAttachment, drivePty, requestRepaint, ensureAttachment, detach, detachClaimed, dropClaims, releaseUnclaimed };
+  /** A connection whose transport queue drained: its panes' output may flow again. */
+  function drainOutput(client: Client): void {
+    for (const paneId of client.data.attached.keys()) reconcileOutput(paneId);
+  }
+
+  /** The terminal frames a connection sends, each handled as its `case` in the socket's frame switch was. */
+  const terminalFrames = {
+    async attach(client: Client, message: Frame<"attach">): Promise<void> {
+      if (message.flow_control !== undefined && message.flow_control !== "ack") {
+        send(client, { type: "error", code: "invalid_flow_control", message: "flow_control must be ack" });
+        return;
+      }
+      const geometry = validGeometry(message.cols, message.rows);
+      if (!geometry) {
+        send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
+        return;
+      }
+      // record the pane before the await: a detach (switching panes) or a close
+      // that lands while the terminal is looked up must cancel this attach, and
+      // neither can see a client that only joins the attachment afterwards
+      const claim = client.data.attached.get(message.pane_id) ?? { keepSize: false };
+      claim.keepSize = message.keep_size === true;
+      if (!client.data.attached.has(message.pane_id)) client.data.attached.set(message.pane_id, claim);
+      let attachment: PaneAttachment;
+      try {
+        // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
+        attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, connectionOf(client).mode === "observe" || message.keep_size === true);
+      } catch (error) {
+        if (client.data.attached.get(message.pane_id) === claim) {
+          client.data.attached.delete(message.pane_id);
+          client.data.conversationInterests.delete(message.pane_id);
+          releaseConversation(message.pane_id);
+        }
+        throw error;
+      }
+      if (stopped() || connectionOf(client).closing || client.data.attached.get(message.pane_id) !== claim) {
+        releaseUnclaimed(message.pane_id, attachment);
+        return;
+      }
+      // A pane that ended during creation must not gain clients or revive interest.
+      if (attachments.get(message.pane_id) !== attachment) {
+        client.data.attached.delete(message.pane_id);
+        client.data.conversationInterests.delete(message.pane_id);
+        releaseConversation(message.pane_id);
+        send(client, { type: "pty-exit", pane_id: message.pane_id, code: null });
+        return;
+      }
+      // An idempotent attach must not replay terminal bytes a second time.
+      const alreadyAttached = attachment.clients.has(client);
+      attachment.clients.add(client);
+      if (!alreadyAttached && message.flow_control === "ack") client.data.output.set(message.pane_id, new OutputWindow());
+      // a mirrored screen is drawn for the pane's own grid: the client takes that size
+      // before the screen, or the rows would wrap in a grid of another width
+      if (attachment.mirror) send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
+      // hand the newcomer the current screen it would otherwise have missed
+      // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
+      const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
+      if (!alreadyAttached && replay) {
+        client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
+        sendOutput(client, message.pane_id, replay);
+        // a tail that lost the stream's start may miss what was drawn once: herdr draws it again
+        if (!attachment.mirror && attachment.ready && !attachment.held && attachment.replay.truncated) requestRepaint(message.pane_id);
+      }
+      // a pane waiting for another web bridge to let go says so to each newcomer, too
+      if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
+      reconcileOutput(message.pane_id);
+      if (connectionOf(client).closing) return;
+      if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
+      if (attachment.mirror) return;
+      if (connectionOf(client).mode === "interact" && !claim.keepSize) {
+        // an operator's viewport owns the shared grid
+        drivePty(message.pane_id, client, geometry.cols, geometry.rows);
+      } else {
+        // a covered grid is not a terminal showing: a release never hands the pty to it
+        attachment.grids.delete(client);
+        // an observer, or a grid the chat lens covers, adopts the grid the operators left behind
+        send(client, {
+          type: "pane-geometry",
+          pane_id: message.pane_id,
+          cols: attachment.cols,
+          rows: attachment.rows,
+        });
+      }
+      return;
+    },
+    "take-over"(client: Client, message: Frame<"take-over">): void {
+      if (connectionOf(client).mode === "observe") {
+        send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
+        return;
+      }
+      const attachment = attachments.get(message.pane_id);
+      if (attachment?.clients.has(client)) attachment.takeOver?.(client);
+      return;
+    },
+    detach(client: Client, message: Frame<"detach">): void {
+      client.data.attached.delete(message.pane_id);
+      detach(message.pane_id, client);
+      return;
+    },
+    "conversation-watch"(client: Client, message: Frame<"conversation-watch">): void {
+      if (typeof message.pane_id !== "string" || message.pane_id.trim() === "" || typeof message.enabled !== "boolean") {
+        send(client, { type: "error", code: "invalid_conversation_watch", message: "pane_id must be a nonempty string and enabled must be a boolean" });
+        return;
+      }
+      if (message.enabled) {
+        if (!client.data.attached.has(message.pane_id)) {
+          send(client, { type: "error", code: "not_attached", message: "conversation interest requires an attached pane", pane_id: message.pane_id });
+          return;
+        }
+        client.data.conversationInterests.add(message.pane_id);
+        conversations.watch(message.pane_id);
+      } else {
+        client.data.conversationInterests.delete(message.pane_id);
+        releaseConversation(message.pane_id);
+      }
+      return;
+    },
+    "pty-ack"(client: Client, message: Frame<"pty-ack">): void {
+      // Observers may acknowledge output, but never input or resize it.
+      const window = client.data.output.get(message.pane_id);
+      if (window && window.id === message.stream_id && !window.acknowledge(message.stream_id, message.offset)) {
+        send(client, { type: "error", code: "invalid_ack", message: "offset must acknowledge bytes already sent" });
+        return;
+      }
+      reconcileOutput(message.pane_id);
+      return;
+    },
+    async resize(client: Client, message: Frame<"resize">): Promise<void> {
+      if (connectionOf(client).mode === "observe") {
+        send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
+        return;
+      }
+      const geometry = validGeometry(message.cols, message.rows);
+      if (!geometry) {
+        send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
+        return;
+      }
+      // the pty is still being created (an attach from the chat lens, then the switch to the
+      // terminal lens before the terminal was looked up): the resize waits for it. Dropped,
+      // it would leave the pty at the pane's own grid under a terminal fitted to another.
+      const claim = client.data.attached.get(message.pane_id);
+      if (claim) claim.keepSize = false;
+      const creating = attachments.has(message.pane_id) ? undefined : pendingAttachments.get(message.pane_id);
+      if (creating && client.data.attached.has(message.pane_id)) {
+        try { await creating; } catch { return; }
+        if (connectionOf(client).closing || connectionOf(client).mode !== "interact" || client.data.attached.get(message.pane_id) !== claim || claim?.keepSize) return;
+      }
+      drivePty(message.pane_id, client, geometry.cols, geometry.rows);
+      return;
+    },
+    "release-size"(client: Client, message: Frame<"release-size">): void {
+      // this client's terminal is hidden, out of use or covered by Chat: if its grid is the pty's, the pty
+      // goes back to the latest grid of another interact client still showing the terminal (#472).
+      // Nothing to hand it to, or another client drove since: the size stays. Never an error, as
+      // an older server ignores the frame.
+      if (connectionOf(client).mode !== "interact") return;
+      const claim = client.data.attached.get(message.pane_id);
+      if (!claim) return;
+      // Remember the release before looking up the attachment: its initial creation can
+      // still be awaiting herdr, and must not revive this hidden grid when it completes.
+      claim.keepSize = true;
+      const attachment = typeof message.pane_id === "string" ? attachments.get(message.pane_id) : undefined;
+      if (!attachment || attachment.mirror) return;
+      attachment.grids.delete(client);
+      if (attachment.driver !== client) return;
+      attachment.driver = undefined;
+      const next = [...attachment.grids].reverse().find(([other]) => connectionOf(other).mode === "interact"
+        && attachment.clients.has(other) && other.data.attached.get(message.pane_id)?.keepSize === false);
+      if (next) drivePty(message.pane_id, next[0], next[1].cols, next[1].rows);
+      return;
+    },
+  };
+
+  return { attachments, pendingAttachments, conversations, releaseConversation, reconcileOutput, sendOutput, closeAttachment, drivePty, requestRepaint, ensureAttachment, detach, detachClaimed, dropClaims, releaseUnclaimed, drainOutput, terminalFrames };
 }

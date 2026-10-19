@@ -4,7 +4,7 @@ import { createInputLane } from "./core/input.ts";
 import { type Client, connectionData, connectionOf, createConnections, presenceOf, send, type SocketData } from "./core/connections.ts";
 import { createStatusHub } from "./core/status.ts";
 import { ATTACH_HELD_MESSAGE, ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS, type PaneAttachment } from "./core/terminal-process.ts";
-import { createTerminalRegistry } from "./core/terminals.ts";
+import { createTerminalRegistry, validGeometry } from "./core/terminals.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { randomBytes } from "node:crypto";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
@@ -60,7 +60,7 @@ import { PendingInputs, samePendingIdentity, type PendingIdentity, type PendingR
 import { processStartedAt } from "./process-start.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
-import { OutputWindow, OUTPUT_HARD_BYTES } from "./output-window.ts";
+import { OUTPUT_HARD_BYTES } from "./output-window.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 import { handlePortalRequest, PortalService } from "./portal.ts";
@@ -259,7 +259,7 @@ export function createServer(
   // the last input_draft refusal per pane: its named draft (Clear it and send), or none (Send anyway)
   const draftConfirmations = new WeakMap<Client, Map<string, { draft: string | null; identity: PendingIdentity; box?: string | null }>>();
   let stopped = false;
-  const { attachments, pendingAttachments, conversations, releaseConversation, reconcileOutput, sendOutput, closeAttachment, drivePty, requestRepaint, ensureAttachment, detach, detachClaimed, dropClaims, releaseUnclaimed } = createTerminalRegistry({ options, clients, stopped: () => stopped, terminalAttach, holdFor, heldRetry, retryFor, relookupFor, holdPending, holdPendingPane, end: (client, reason) => end(client, reason) });
+  const { attachments, conversations, reconcileOutput, closeAttachment, detachClaimed, dropClaims, drainOutput, terminalFrames } = createTerminalRegistry({ options, clients, stopped: () => stopped, terminalAttach, holdFor, heldRetry, retryFor, relookupFor, holdPending, holdPendingPane, end: (client, reason) => end(client, reason) });
 
   const { serialize, settleAfterTyping, paneQueues, lastTyped, typedEscape } = createInputLane({ TYPED_SETTLE_MS, KEY_SETTLE_MS });
   /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
@@ -468,15 +468,6 @@ export function createServer(
 
   const { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin });
   const bridgeToken = randomBytes(32).toString("hex");
-
-  /** Clamp surface for the shared pty, mirroring the sidecar's own limits. */
-  function validGeometry(cols: unknown, rows: unknown): { cols: number; rows: number } | null {
-    if (typeof cols !== "number" || typeof rows !== "number" || !Number.isInteger(cols) || !Number.isInteger(rows)) {
-      return null;
-    }
-    if (cols < 1 || cols > 1000 || rows < 1 || rows > 1000) return null;
-    return { cols, rows };
-  }
 
   type PortalStartup = { ok: true } | { ok: false; error: unknown };
   let settlePortalStartup!: (result: PortalStartup) => void;
@@ -904,7 +895,7 @@ export function createServer(
       backpressureLimit: OUTPUT_HARD_BYTES,
       closeOnBackpressureLimit: true,
       drain(client) {
-        for (const paneId of client.data.attached.keys()) reconcileOutput(paneId);
+        drainOutput(client);
       },
       async open(client) {
         if (!admit(client)) return;
@@ -961,126 +952,21 @@ export function createServer(
               unwatchPane(client, message.pane_id);
               break;
             }
-            case "attach": {
-              if (message.flow_control !== undefined && message.flow_control !== "ack") {
-                send(client, { type: "error", code: "invalid_flow_control", message: "flow_control must be ack" });
-                break;
-              }
-              const geometry = validGeometry(message.cols, message.rows);
-              if (!geometry) {
-                send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
-                break;
-              }
-              // record the pane before the await: a detach (switching panes) or a close
-              // that lands while the terminal is looked up must cancel this attach, and
-              // neither can see a client that only joins the attachment afterwards
-              const claim = client.data.attached.get(message.pane_id) ?? { keepSize: false };
-              claim.keepSize = message.keep_size === true;
-              if (!client.data.attached.has(message.pane_id)) client.data.attached.set(message.pane_id, claim);
-              let attachment: PaneAttachment;
-              try {
-                // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
-                attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, connectionOf(client).mode === "observe" || message.keep_size === true);
-              } catch (error) {
-                if (client.data.attached.get(message.pane_id) === claim) {
-                  client.data.attached.delete(message.pane_id);
-                  client.data.conversationInterests.delete(message.pane_id);
-                  releaseConversation(message.pane_id);
-                }
-                throw error;
-              }
-              if (stopped || connectionOf(client).closing || client.data.attached.get(message.pane_id) !== claim) {
-                releaseUnclaimed(message.pane_id, attachment);
-                break;
-              }
-              // A pane that ended during creation must not gain clients or revive interest.
-              if (attachments.get(message.pane_id) !== attachment) {
-                client.data.attached.delete(message.pane_id);
-                client.data.conversationInterests.delete(message.pane_id);
-                releaseConversation(message.pane_id);
-                send(client, { type: "pty-exit", pane_id: message.pane_id, code: null });
-                break;
-              }
-              // An idempotent attach must not replay terminal bytes a second time.
-              const alreadyAttached = attachment.clients.has(client);
-              attachment.clients.add(client);
-              if (!alreadyAttached && message.flow_control === "ack") client.data.output.set(message.pane_id, new OutputWindow());
-              // a mirrored screen is drawn for the pane's own grid: the client takes that size
-              // before the screen, or the rows would wrap in a grid of another width
-              if (attachment.mirror) send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
-              // hand the newcomer the current screen it would otherwise have missed
-              // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
-              const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
-              if (!alreadyAttached && replay) {
-                client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
-                sendOutput(client, message.pane_id, replay);
-                // a tail that lost the stream's start may miss what was drawn once: herdr draws it again
-                if (!attachment.mirror && attachment.ready && !attachment.held && attachment.replay.truncated) requestRepaint(message.pane_id);
-              }
-              // a pane waiting for another web bridge to let go says so to each newcomer, too
-              if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
-              reconcileOutput(message.pane_id);
-              if (connectionOf(client).closing) break;
-              if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
-              if (attachment.mirror) break;
-              if (connectionOf(client).mode === "interact" && !claim.keepSize) {
-                // an operator's viewport owns the shared grid
-                drivePty(message.pane_id, client, geometry.cols, geometry.rows);
-              } else {
-                // a covered grid is not a terminal showing: a release never hands the pty to it
-                attachment.grids.delete(client);
-                // an observer, or a grid the chat lens covers, adopts the grid the operators left behind
-                send(client, {
-                  type: "pane-geometry",
-                  pane_id: message.pane_id,
-                  cols: attachment.cols,
-                  rows: attachment.rows,
-                });
-              }
+            case "attach":
+              await terminalFrames.attach(client, message);
               break;
-            }
-            case "take-over": {
-              if (connectionOf(client).mode === "observe") {
-                send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
-                break;
-              }
-              const attachment = attachments.get(message.pane_id);
-              if (attachment?.clients.has(client)) attachment.takeOver?.(client);
+            case "take-over":
+              terminalFrames["take-over"](client, message);
               break;
-            }
-            case "detach": {
-              client.data.attached.delete(message.pane_id);
-              detach(message.pane_id, client);
+            case "detach":
+              terminalFrames.detach(client, message);
               break;
-            }
-            case "conversation-watch": {
-              if (typeof message.pane_id !== "string" || message.pane_id.trim() === "" || typeof message.enabled !== "boolean") {
-                send(client, { type: "error", code: "invalid_conversation_watch", message: "pane_id must be a nonempty string and enabled must be a boolean" });
-                break;
-              }
-              if (message.enabled) {
-                if (!client.data.attached.has(message.pane_id)) {
-                  send(client, { type: "error", code: "not_attached", message: "conversation interest requires an attached pane", pane_id: message.pane_id });
-                  break;
-                }
-                client.data.conversationInterests.add(message.pane_id);
-                conversations.watch(message.pane_id);
-              } else {
-                client.data.conversationInterests.delete(message.pane_id);
-                releaseConversation(message.pane_id);
-              }
+            case "conversation-watch":
+              terminalFrames["conversation-watch"](client, message);
               break;
-            }
-            case "pty-ack": {
-              // Observers may acknowledge output, but never input or resize it.
-              const window = client.data.output.get(message.pane_id);
-              if (window && window.id === message.stream_id && !window.acknowledge(message.stream_id, message.offset)) {
-                send(client, { type: "error", code: "invalid_ack", message: "offset must acknowledge bytes already sent" });
-                break;
-              }
-              reconcileOutput(message.pane_id);
+            case "pty-ack":
+              terminalFrames["pty-ack"](client, message);
               break;
-            }
             case "input": {
               if (connectionOf(client).mode === "observe") {
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
@@ -1185,50 +1071,12 @@ export function createServer(
               }
               break;
             }
-            case "resize": {
-              if (connectionOf(client).mode === "observe") {
-                send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
-                break;
-              }
-              const geometry = validGeometry(message.cols, message.rows);
-              if (!geometry) {
-                send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
-                break;
-              }
-              // the pty is still being created (an attach from the chat lens, then the switch to the
-              // terminal lens before the terminal was looked up): the resize waits for it. Dropped,
-              // it would leave the pty at the pane's own grid under a terminal fitted to another.
-              const claim = client.data.attached.get(message.pane_id);
-              if (claim) claim.keepSize = false;
-              const creating = attachments.has(message.pane_id) ? undefined : pendingAttachments.get(message.pane_id);
-              if (creating && client.data.attached.has(message.pane_id)) {
-                try { await creating; } catch { break; }
-                if (connectionOf(client).closing || connectionOf(client).mode !== "interact" || client.data.attached.get(message.pane_id) !== claim || claim?.keepSize) break;
-              }
-              drivePty(message.pane_id, client, geometry.cols, geometry.rows);
+            case "resize":
+              await terminalFrames.resize(client, message);
               break;
-            }
-            case "release-size": {
-              // this client's terminal is hidden, out of use or covered by Chat: if its grid is the pty's, the pty
-              // goes back to the latest grid of another interact client still showing the terminal (#472).
-              // Nothing to hand it to, or another client drove since: the size stays. Never an error, as
-              // an older server ignores the frame.
-              if (connectionOf(client).mode !== "interact") break;
-              const claim = client.data.attached.get(message.pane_id);
-              if (!claim) break;
-              // Remember the release before looking up the attachment: its initial creation can
-              // still be awaiting herdr, and must not revive this hidden grid when it completes.
-              claim.keepSize = true;
-              const attachment = typeof message.pane_id === "string" ? attachments.get(message.pane_id) : undefined;
-              if (!attachment || attachment.mirror) break;
-              attachment.grids.delete(client);
-              if (attachment.driver !== client) break;
-              attachment.driver = undefined;
-              const next = [...attachment.grids].reverse().find(([other]) => connectionOf(other).mode === "interact"
-                && attachment.clients.has(other) && other.data.attached.get(message.pane_id)?.keepSize === false);
-              if (next) drivePty(message.pane_id, next[0], next[1].cols, next[1].rows);
+            case "release-size":
+              terminalFrames["release-size"](client, message);
               break;
-            }
             case "keys": {
               if (connectionOf(client).mode === "observe") {
                 send(client, { type: "error", code: "read_only", message: "this connection is in observe mode" });
