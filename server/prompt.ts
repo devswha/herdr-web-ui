@@ -10,6 +10,7 @@ import { listPendingQuestionForms, readOpenCodeService, replyOpenCodeForm } from
 import { opencodeSessionId } from "./opencode.ts";
 import { registry } from "./dialogs/registry.ts";
 import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, type OpenCodePromptEntry, PI_MODEL_HINT_RE, type ParsedPrompt, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, keySteps, navigationKeys, normalizeText, parsedByPublicPrompt, publicPrompt, wrapped } from "./dialogs/shared.ts";
+import { executeInteractionPlan } from "./dialogs/interaction-plan.ts";
 import { CODEX_ASK_HINT_RE, CODEX_ASYNC_ASK_HINT_RE, CODEX_CONTINUE_HINT_RE, CODEX_QUEUE_HEADER_RE, codexModelListWaits } from "./dialogs/codex.ts";
 import { OMO_FOOTER_LINES, OMO_HINT_LINES, OMO_NOT_FOOTER_RE, OMO_OPTIONS_HINT_RE, OMO_PENDING_HINT_RE, OMO_REVIEW_HINT_RE, OMO_TYPING_HINT_RE, omoModelListWaits, sameText } from "./dialogs/omo.ts";
 import { CLAUDE_ASK_HINT_RE, CLAUDE_CONFIRM_HINT_RE, CLAUDE_EFFORT_GUARD_RE, CLAUDE_EFFORT_HINT_RE, INVISIBLE_CHAR_RE, claudeModelListWaits, withoutClaudeTasks } from "./dialogs/claude.ts";
@@ -1607,6 +1608,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const parsed = parsedByPublicPrompt.get(target)!;
         const responder = parsed.responder;
         const reader = registry.readerFor(responder);
+        const interaction = reader?.interaction?.(parsed);
         // where the moves sent so far leave the cursor (↑ stops at the first row: omoWalk)
         let cursor = parsed.selectedIndex;
         // Claude's unnumbered rows and pi's models are read with no number to aim at: looked at
@@ -1623,16 +1625,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const looked = (shown: ParsedPrompt | null): void => { seen = shown; lastSeen = shown?.id; };
         /** Whether the screen is the card's own menu, with the cursor on the row the moves were for. */
         const aimed = (shown: ParsedPrompt | null, screen: string): boolean => {
-          // pi's catalogue shows ten rows of a longer list and scrolls under the cursor, so the
-          // rows on screen, and with them the card's id, change on the way down: what must
-          // hold is the model under the cursor, by name. A wrong model, unlike a wrong menu
-          // entry, answers every later turn silently
-          if (responder === "pi-model" || responder === "omo-model") return shown?.responder === responder && shown.options[shown.selectedIndex]?.label === parsed.options[cursor]?.label;
-          // Claude's list is a window too, drawn with fewer rows in a pane made shorter meanwhile:
-          // the model under the cursor, by its number in the list, its name and what the row says
-          // Codex's lists the same way, the list's title with the row: the reasoning levels of
-          // another model are the same rows
-          if (list) return shown?.responder === responder && shown.menuLabels[shown.selectedIndex] === parsed.menuLabels[cursor];
+          if (interaction) return shown?.responder === responder && interaction.matches(screen);
           // a dialog of pi's has a card only with its cursor on the first row (parsePiDialog),
           // which the answer's own moves have just left: read off the screen itself
           if ((responder === "pi-question" || responder === "pi-confirm") && cursor !== 0) {
@@ -1646,6 +1639,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
          * so far leave it. False: the asking ended, nobody waits for the answer, or the menu did
          * not show so within SETTLE_MS.
          */
+        let matchedScreen: string | null = null;
         const onRow = async (): Promise<boolean> => {
           const deadline = Date.now() + SETTLE_MS;
           for (;;) {
@@ -1659,57 +1653,58 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
             const read = await Promise.race([reading, Bun.sleep(left).then(() => null)]);
             if (!read || Date.now() > deadline) return false;
             const shown = read.prompt ? parsedByPublicPrompt.get(read.prompt) ?? null : null;
-            if (asks() && aimed(shown, read.screen ?? "")) { looked(shown); return true; }
+            if (asks() && aimed(shown, read.screen ?? "")) { looked(shown); matchedScreen = read.screen ?? ""; return true; }
             await Bun.sleep(50);
           }
         };
-        // whether a move of this answer has gone out
-        let walked = false;
-        for (let index = 0; index < steps.length; index += 1) {
-          const step = steps[index]!;
-          const move = step.keys?.every((key) => key === KEY.up || key === KEY.down || (sideways && (key === KEY.left || key === KEY.right))) ?? false;
-          // the asking ended under the answer: no further key, whatever the screen shows
-          if (!asks()) return promptChanged();
-          // A model list can be nine rows from the cursor, and an Esc in the terminal hands its
-          // keys to the agent's own prompt, where an arrow walks the prompt's history: each move
-          // after the first goes only once the list shows the one before it
-          // GJC's selector the same: dismissed under the answer, its composer would take the moves
-          if (move && walked && (list || responder === "fallback-gjc-menu") && !(await onRow())) return promptChanged();
-          if (!move && !committed) {
-            // An answer is only as good as the menu and the cursor it moves from, and both are
-            // as old as the read above by the time its moves are done: the menu answered in the
-            // terminal, with another one in its place, would take the Enter meant for this one,
-            // and an arrow key typed there sends it to the wrong row. Moves change nothing; the
-            // first key that does (the Enter, a toggle, the row opened for typing) goes only
-            // once the screen shows this menu again, with the cursor on the row the moves were
-            // for. The keys after that one follow as they always did: the menu itself changes
-            // under them.
-            if (moved && !(await onRow())) return promptChanged();
-            // given up before anything that cannot be undone, with or without a move before it
-            if (request.signal.aborted) return promptChanged();
-          }
-          // before the key goes: herdr may press it and the reply still be lost, and a key that
-          // may have been pressed has ended the asking as much as one that was
-          // the menu's own key for the row the moves ended on, as the look just before showed it:
-          // none where no look was taken or the row names no key this reader knows
-          const key: AnswerStep | null = step.pick ? (seen as ParsedPrompt | null)?.rowKey ?? null : step;
-          if (key === null) return promptChanged();
+        const sendStep = async (step: AnswerStep, move: boolean, more: boolean): Promise<void> => {
           const first = !move && !committed;
           if (!move) committed = true;
           try {
-            if (key.keys) await paneSendKeys(body.pane_id, key.keys);
-            else if (key.text !== undefined) await paneSendText(body.pane_id, key.text);
+            if (step.keys) await paneSendKeys(body.pane_id, step.keys);
+            else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
           } catch (error) {
             // herdr was never reached, so nothing was pressed: the card is still to be answered
             if (first && error instanceof HerdrError && error.code === "connect_failed") committed = false;
             throw error;
           }
-          if (move) {
-            moved = true;
-            walked = true;
-            for (const key of step.keys!) cursor = key === KEY.down || key === KEY.right ? cursor + 1 : Math.max(0, cursor - 1);
+          if (more) await Bun.sleep(30);
+        };
+        if (interaction) {
+          const result = await executeInteractionPlan(interaction, body.option_index!, {
+            rereadMoves: list,
+            active: asks,
+            cancelled: () => request.signal.aborted,
+            read: async () => await onRow() ? matchedScreen : null,
+            send: (step, commit) => sendStep(step, !commit, !commit),
+          });
+          if (result === "prompt_changed") return promptChanged();
+        } else {
+          // whether a move of this answer has gone out
+          let walked = false;
+          for (let index = 0; index < steps.length; index += 1) {
+            const step = steps[index]!;
+            const move = step.keys?.every((key) => key === KEY.up || key === KEY.down || (sideways && (key === KEY.left || key === KEY.right))) ?? false;
+            // the asking ended under the answer: no further key, whatever the screen shows
+            if (!asks()) return promptChanged();
+            // GJC's selector can close under the answer: its composer must not take the moves.
+            if (move && walked && (list || responder === "fallback-gjc-menu") && !(await onRow())) return promptChanged();
+            if (!move && !committed) {
+              // The first irreversible step goes only once the menu shows the expected cursor.
+              // Later keys follow as before: the menu itself changes under them.
+              if (moved && !(await onRow())) return promptChanged();
+              if (request.signal.aborted) return promptChanged();
+            }
+            // herdr may press the key and lose its reply; a possibly pressed key ends the asking.
+            const key: AnswerStep | null = step.pick ? (seen as ParsedPrompt | null)?.rowKey ?? null : step;
+            if (key === null) return promptChanged();
+            await sendStep(key, move, index < steps.length - 1);
+            if (move) {
+              moved = true;
+              walked = true;
+              for (const key of step.keys!) cursor = key === KEY.down || key === KEY.right ? cursor + 1 : Math.max(0, cursor - 1);
+            }
           }
-          if (index < steps.length - 1) await Bun.sleep(30);
         }
         answered = true;
       } catch (error) {

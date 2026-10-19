@@ -1,4 +1,5 @@
 import type { DialogReader } from "./registry.ts";
+import { pickerPlan } from "./interaction-plan.ts";
 import { type InteractivePrompt } from "../../shared/protocol.ts";
 import { ANSI_RE, type AnswerStep, KEY, NUMBERED_OPTION_RE, type ParsedPrompt, cleanLine, findLastIndex, finishPrompt, isDivider, keySteps, listNames, listRows, menuRows, navigationKeys, nearestQuestion, normalizeText, parseNumberedRows, sequentialRows, wrapped } from "./shared.ts";
 
@@ -340,6 +341,7 @@ export const readers: readonly DialogReader[] = [
   {
     id: "codex-model", agents: ["codex"], priority: 50,
     reread: "before-commit", list: "letter-window",
+    interaction: (parsed) => pickerPlan(parsed, parseCodexModel, parsed.optionSteps ?? [], (shown, cursor) => shown.menuLabels[cursor]),
     parse: (screen) => {
       const parsed = parseCodexModel(screen);
       return parsed?.responder === "codex-model" ? parsed : null;

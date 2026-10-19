@@ -1,4 +1,5 @@
 import type { DialogReader, ReaderContext } from "./registry.ts";
+import { pickerPlan } from "./interaction-plan.ts";
 import { type InteractivePrompt } from "../../shared/protocol.ts";
 import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, PI_MODEL_TAIL_RE, type ParsedPrompt, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, joinWrapped, keySteps, navigationKeys, normalizeText, piModelRows, screenWidth, wrapped } from "./shared.ts";
 
@@ -557,6 +558,9 @@ export const readers: readonly DialogReader[] = [
   {
     id: "omo-model", agents: agents, priority: 80,
     reread: "before-commit", list: "none",
+    interaction: (parsed) => pickerPlan(parsed, parseOmoModel,
+      parsed.options.map((_, index) => keySteps([...navigationKeys(index - parsed.selectedIndex), KEY.enter])),
+      (shown, cursor) => shown.options[cursor]?.label),
     parse: (screen) => {
       const parsed = parseOmoModel(screen);
       return parsed?.responder === "omo-model" ? parsed : null;

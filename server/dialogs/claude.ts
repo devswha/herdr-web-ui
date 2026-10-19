@@ -1,4 +1,5 @@
 import type { DialogReader } from "./registry.ts";
+import { pickerPlan } from "./interaction-plan.ts";
 import { type InteractivePromptAnswer } from "../../shared/protocol.ts";
 import { ANSI_RE, KEY, NUMBERED_OPTION_RE, type ParsedPrompt, SELECTED_RE, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, joinWrapped, keySteps, listNames, listRows, menuRows, navigationKeys, nearestQuestion, normalizeText, parseNumberedRows, screenWidth, sequentialRows, sliderKeys, wrapped } from "./shared.ts";
 
@@ -745,6 +746,7 @@ export const readers: readonly DialogReader[] = [
   {
     id: "claude-model", agents: ["claude"], priority: 50,
     reread: "before-commit", list: "letter-window",
+    interaction: (parsed) => pickerPlan(parsed, parseClaudeModel, parsed.optionSteps ?? [], (shown, cursor) => shown.menuLabels[cursor]),
     parse: (screen) => {
       const parsed = parseClaudeModel(screen);
       return parsed?.responder === "claude-model" ? parsed : null;
@@ -753,6 +755,7 @@ export const readers: readonly DialogReader[] = [
   {
     id: "claude-effort", agents: ["claude"], priority: 60,
     reread: "before-commit", list: "slider",
+    interaction: (parsed) => pickerPlan(parsed, parseClaudeEffort, parsed.optionSteps ?? [], (shown, cursor) => shown.menuLabels[cursor]),
     parse: (screen) => {
       const parsed = parseClaudeEffort(screen);
       return parsed?.responder === "claude-effort" ? parsed : null;

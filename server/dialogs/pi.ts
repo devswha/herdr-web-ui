@@ -1,5 +1,6 @@
 import type { DialogReader } from "./registry.ts";
-import { ANSI_RE, PI_MODEL_HINT_RE, PI_ROW_RE, type ParsedPrompt, cleanLine, findLastIndex, finishPrompt, isDivider, piModelRows, wrapped } from "./shared.ts";
+import { pickerPlan } from "./interaction-plan.ts";
+import { ANSI_RE, KEY, PI_MODEL_HINT_RE, PI_ROW_RE, type ParsedPrompt, cleanLine, findLastIndex, finishPrompt, isDivider, keySteps, navigationKeys, piModelRows, wrapped } from "./shared.ts";
 
 /**
  * pi draws one menu widget for its dialogs — an extension's `ctx.ui.select`, `confirm` and
@@ -157,6 +158,9 @@ export const readers: readonly DialogReader[] = [
   {
     id: "pi-model", agents: ["pi"], priority: 10,
     reread: "before-commit", list: "none",
+    interaction: (parsed) => pickerPlan(parsed, parsePiModel,
+      parsed.options.map((_, index) => keySteps([...navigationKeys(index - parsed.selectedIndex), KEY.enter])),
+      (shown, cursor) => shown.options[cursor]?.label),
     parse: (screen) => {
       const parsed = parsePiModel(screen);
       return parsed?.responder === "pi-model" ? parsed : null;
