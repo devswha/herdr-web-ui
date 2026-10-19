@@ -5,15 +5,15 @@
  * while that connection may still type. A turn's end sends the pane's next message; losing the
  * lease holds it for the sender to review instead of sending it.
  */
-import { closeMention, freeClaudeBox, freeHermesInput, pendingFault, pendingIdentity } from "./composer.ts";
+import { closeMention, type createSubmitText, freeClaudeBox, freeHermesInput, InputDraftError, pendingFault, pendingIdentity, pendingText } from "./composer.ts";
 import { type Client, connectionOf, send } from "./connections.ts";
 import { ATTACH_HELD_MESSAGE } from "./terminal-process.ts";
-import type { TerminalSighting } from "./terminals.ts";
-import type { HerdrPane, PendingMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AttachmentView, TerminalSighting } from "./terminals.ts";
+import type { ClientMessage, HerdrPane, PendingMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import { typingGuards } from "../input-guard.ts";
 import { claudeForegroundSession } from "../claude-store.ts";
 import { HerdrError, paneProcessInfo, paneRead, paneSendKeys, paneSendText } from "../herdr/client.ts";
-import { claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt } from "../prompt.ts";
+import { claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, shownInputBox } from "../prompt.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { PendingInputs, samePendingIdentity, type PendingIdentity, type PendingRecord } from "../pending-input.ts";
 import { processStartedAt } from "../process-start.ts";
@@ -21,21 +21,25 @@ import { PendingRequestBook } from "../pending-requests.ts";
 import { interruptCodexSteering } from "../codex-steering.ts";
 import type { OmoStatus } from "../omo-status.ts";
 
+type Frame<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
+
 type PendingLease = { sighting: TerminalSighting; authority: object };
 type PendingItem = PendingRecord<Client, PendingLease>;
-export type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; message?: string };
+type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; message?: string };
 
 /**
  * The server's pending messages. `authorizeSocket`, `clientSnapshot` and `omo` belong to the
  * connections and the status hub, which are built after this (they take its store), so they are
  * called through: only a frame or a turn calls them, after `createServer` has returned.
  */
-export function createPendingDelivery({ options, clients, sight, serialize, lastTyped, authorizeSocket, clientSnapshot, omo, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS }: {
+export function createPendingDelivery({ options, clients, attachments, sight, serialize, lastTyped, submitText, authorizeSocket, clientSnapshot, omo, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS }: {
   options: { pendingStartTimeoutMs?: number; submitDeadlineMs?: number; submitDelayMs?: number };
   clients: Set<Client>;
+  attachments: ReadonlyMap<string, AttachmentView>;
   sight: (client: Client, paneId: string) => TerminalSighting;
   serialize: <T>(paneId: string, task: () => T | Promise<T>) => Promise<T>;
   lastTyped: ReadonlyMap<string, number>;
+  submitText: ReturnType<typeof createSubmitText>;
   authorizeSocket: (client: Client) => void;
   clientSnapshot: () => Promise<SessionSnapshot>;
   omo: Pick<OmoStatus, "sessionOf">;
@@ -229,5 +233,164 @@ export function createPendingDelivery({ options, clients, sight, serialize, last
     return true;
   }
 
-  return { pending, holdPending, holdPendingPane, drainPending, pendingLease, pendingContext, dispatchPendingText, dispatchPending, replayPendingOutcome, pendingRequests, draftConfirmations };
+  /** The pending frames a connection sends, each handled as its `case` in the socket's frame switch was. */
+  const pendingFrames = {
+    async submit(client: Client, message: Frame<"submit">): Promise<void> {
+      // every submit is answered: the composer keeps its text until it hears back
+      const result = (ok: boolean, code?: string, text?: string, accepted?: PendingMessage, draft?: string | null, box?: string | null) => send(client, {
+        type: "submit-result", id: message.id, pane_id: message.pane_id, ok, ...(accepted ? { pending: accepted } : {}), ...(code ? { code, message: text } : {}),
+        ...(draft ? { draft } : {}), ...(!draft && typeof box === "string" ? { box } : {}),
+      });
+      if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string" || !message.pane_id
+        || typeof message.text !== "string" || typeof message.payload !== "string") {
+        send(client, { type: "error", code: "invalid_submit", message: "id must be an integer, pane_id, text and payload strings" });
+        return;
+      }
+      const waits = message.delivery === "queue" || message.delivery === "hold";
+      if ((message.delivery !== undefined && message.delivery !== "immediate" && !waits)
+        || (waits && message.typed !== undefined && message.typed !== false)) {
+        result(false, "invalid_delivery", "Use immediate delivery, or queue or hold a chat message");
+        return;
+      }
+      if (message.clear_draft !== undefined && (typeof message.clear_draft !== "string" || !message.clear_draft
+        || waits || (message.typed !== undefined && message.typed !== false))) {
+        result(false, "invalid_delivery", "Clear a terminal draft only for a chat message sent at once");
+        return;
+      }
+      if (message.send_anyway !== undefined && (message.send_anyway !== true || waits || message.clear_draft !== undefined
+        || (message.typed !== undefined && message.typed !== false))) {
+        result(false, "invalid_delivery", "Send anyway only a chat message sent at once, without clearing a draft");
+        return;
+      }
+      if (message.resend_id !== undefined && (typeof message.resend_id !== "string" || !message.resend_id || message.resend_id.length > 128
+        || waits || message.typed === true || message.clear_draft !== undefined || message.send_anyway !== undefined)) {
+        result(false, "invalid_delivery", "Use a held-copy resend id only for an immediate chat message");
+        return;
+      }
+      if (message.resend_generation !== undefined && (!Number.isSafeInteger(message.resend_generation) || message.resend_generation < 0 || message.resend_id === undefined)) {
+        result(false, "invalid_delivery", "A resend generation must be a nonnegative integer with a held-copy id");
+        return;
+      }
+      if (connectionOf(client).mode === "observe") {
+        result(false, "read_only", "this connection is in observe mode");
+        return;
+      }
+      // another web bridge has this pane's terminal: its user types there, not this one
+      if (attachments.get(message.pane_id)?.held) {
+        result(false, "attach_held", ATTACH_HELD_MESSAGE);
+        return;
+      }
+      const arrivedAt = Date.now();
+      try {
+        if (waits) {
+          let book = pendingRequests.get(client);
+          if (!book) { book = new PendingRequestBook((reply: SubmitReply) => reply.pending !== undefined && pending.retains(client, reply.pending.id)); pendingRequests.set(client, book); }
+          // a digest, so a receipt kept for replay never holds a large request's bytes
+          const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify([message.pane_id, message.text, message.payload, message.delivery])).digest("hex");
+          const previous = book.get(message.id, fingerprint);
+          const lease = previous ? null : pendingLease(client, message.pane_id);
+          const reply = previous ?? book.run(message.id, fingerprint, () => serialize(message.pane_id, async (): Promise<SubmitReply> => {
+            const text = pendingText(message.text);
+            const mark = pending.mark(message.pane_id);
+            const context = await pendingContext(client, message.pane_id, lease!);
+            if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "This pending message waited too long; nothing was typed");
+            if (!context.working) {
+              // the agent left while the message was on its way: a chat follow-up is not typed into what is there now
+              if (context.identity.agent === null) throw new HerdrError("agent_not_ready", "No agent is in front of this pane now; nothing was typed");
+              // A request that raced the turn's finish still needs cancellable
+              // paste + Enter; agent.prompt commits its key inside herdr. With a message
+              // already waiting its turn here, this one takes its place behind it instead.
+              // A held message is never typed by arriving after the turn: it waits for Send now.
+              if (message.delivery === "queue" && !pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
+            }
+            pending.observe(message.pane_id, context.pane.agent_status, mark);
+            // hold: kept for the owner's Send now, never sent by the turn's end
+            const item = pending.enqueue(client, message.pane_id, message.id, text, lease!, context.identity, message.delivery === "hold");
+            return { ok: true, pending: item.message };
+          }).catch((error): SubmitReply => ({ ok: false, ...pendingFault(error) })));
+          const answer = await reply;
+          const accepted = answer.pending ? pending.get(client, message.pane_id, answer.pending.id)?.message : undefined;
+          if (answer.pending && !accepted) replayPendingOutcome(client, message.pane_id, answer.pending.id);
+          result(answer.ok, answer.code, answer.message, accepted);
+          drainPending(message.pane_id);
+          return;
+        }
+        const dispatch = () => {
+          // held while this waited its turn (the attach was refused after the check above)
+          if (attachments.get(message.pane_id)?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
+          return submitText(message.pane_id, message.text, message.payload, arrivedAt, message.typed === true, () => authorizeSocket(client), message.clear_draft,
+            draftConfirmations.get(client)?.get(message.pane_id), message.send_anyway === true);
+        };
+        if (message.resend_id !== undefined) {
+          authorizeSocket(client);
+          const answer = await serialize(message.pane_id, () => pending.resend(message.pane_id, message.resend_id!,
+            new Bun.CryptoHasher("sha256").update(message.text).digest("hex"), async () => {
+              try { await dispatch(); return { ok: true }; }
+              catch (error) { return { ok: false, ...pendingFault(error) }; }
+            }, message.resend_generation));
+          result(answer.ok, answer.code, answer.message);
+          return;
+        }
+        await serialize(message.pane_id, dispatch);
+        if (message.clear_draft !== undefined || message.send_anyway) draftConfirmations.get(client)?.delete(message.pane_id);
+        result(true);
+      } catch (error) {
+        if (message.clear_draft !== undefined || message.send_anyway) draftConfirmations.get(client)?.delete(message.pane_id);
+        // a refusal naming a draft confirms it for Clear it and send; one naming none, for Send anyway
+        if (error instanceof InputDraftError && error.identity && (error.draft || error.box !== null)) {
+          let confirmations = draftConfirmations.get(client);
+          if (!confirmations) { confirmations = new Map(); draftConfirmations.set(client, confirmations); }
+          confirmations.set(message.pane_id, { draft: error.draft, identity: error.identity, box: error.box });
+        }
+        const fault = pendingFault(error);
+        result(false, fault.code, fault.message, undefined, error instanceof InputDraftError ? error.draft : null,
+          error instanceof InputDraftError && error.identity && error.box !== null ? shownInputBox(error.box) : null);
+      }
+      return;
+    },
+    async "pending-action"(client: Client, message: Frame<"pending-action">): Promise<void> {
+      const result = (reply: SubmitReply) => send(client, { type: "pending-result", id: message.id, pane_id: message.pane_id, pending_id: message.pending_id, ...reply });
+      if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string" || !message.pane_id
+        || typeof message.pending_id !== "string" || !message.pending_id || !["steer", "discard"].includes(message.action)) {
+        result({ ok: false, code: "invalid_pending_action", message: "Use steer or discard with a pending-message id" }); return;
+      }
+      if (message.resend_generation !== undefined && (!Number.isSafeInteger(message.resend_generation) || message.resend_generation < 0)) {
+        result({ ok: false, code: "invalid_pending_action", message: "A resend generation must be a nonnegative integer" }); return;
+      }
+      const arrivedAt = Date.now();
+      try {
+        authorizeSocket(client);
+        const lease = message.action === "steer" ? pendingLease(client, message.pane_id) : null;
+        const answer = await serialize(message.pane_id, async (): Promise<SubmitReply> => {
+          authorizeSocket(client);
+          if (!clients.has(client) || connectionOf(client).closing) throw new HerdrError("disconnected", "This connection closed");
+          const item = pending.get(client, message.pane_id, message.pending_id);
+          if (!item) return replayPendingOutcome(client, message.pane_id, message.pending_id)
+            ? { ok: true } : { ok: false, code: "pending_not_found", message: "This pending message does not belong to this connection" };
+          if (message.action === "discard") return pending.discard(item) ? { ok: true } : { ok: false, code: "pending_busy", message: "This message is already being sent" };
+          if (item.message.state === "uncertain") return { ok: false, code: "pending_uncertain", message: "Check the terminal before sending this message again" };
+          let dispatched = false;
+          const reply = await pending.resend(item.paneId, item.message.id,
+            new Bun.CryptoHasher("sha256").update(item.message.text).digest("hex"), async (): Promise<SubmitReply> => {
+              try {
+                await pendingContext(client, item.paneId, lease!, item.identity);
+                if (!pending.claim(item, false)) return { ok: false, code: "pending_busy", message: "This message is already being sent" };
+                item.lease = lease!;
+                dispatched = true;
+                return await dispatchPending(item, false, arrivedAt, true);
+              } catch (error) { return { ok: false, ...pendingFault(error) }; }
+            }, message.resend_generation);
+          // A saved copy may already have completed this ID on another connection.
+          if (!dispatched && pending.get(client, item.paneId, item.message.id) === item && pending.claim(item, false))
+            pending.settle(item, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed");
+          return reply;
+        });
+        result(answer);
+        drainPending(message.pane_id);
+      } catch (error) { result({ ok: false, ...pendingFault(error) }); }
+      return;
+    },
+  };
+
+  return { pending, holdPending, holdPendingPane, drainPending, pendingFrames };
 }

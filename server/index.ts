@@ -1,10 +1,10 @@
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
-import { createSubmitText, InputDraftError, pendingFault, pendingText } from "./core/composer.ts";
+import { createSubmitText } from "./core/composer.ts";
 import { createInputLane } from "./core/input.ts";
 import { type Client, connectionData, connectionOf, createConnections, presenceOf, send, type SocketData } from "./core/connections.ts";
 import { createStatusHub } from "./core/status.ts";
 import { ATTACH_HELD_MESSAGE, ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS } from "./core/terminal-process.ts";
-import { createPendingDelivery, type SubmitReply } from "./core/pending.ts";
+import { createPendingDelivery } from "./core/pending.ts";
 import { createTerminalRegistry, validGeometry } from "./core/terminals.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { randomBytes } from "node:crypto";
@@ -13,7 +13,7 @@ import { accessSync, constants, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, ClientMessage, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PluginActionsResponse, ProjectFavicon, ServerFeature } from "../shared/protocol.ts";
+import type { AgentKind, ClientMessage, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PluginActionsResponse, ProjectFavicon, ServerFeature } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
@@ -50,11 +50,10 @@ import {
   sessionSnapshot,
 } from "./herdr/client.ts";
 import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts";
-import { shownInputBox, handlePromptRequest } from "./prompt.ts";
+import { handlePromptRequest } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { mirrorInput } from "./mirror-input.ts";
-import { PendingRequestBook } from "./pending-requests.ts";
 import { OUTPUT_HARD_BYTES } from "./output-window.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
@@ -272,7 +271,7 @@ export function createServer(
 
   const submitText = createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS });
 
-  const { pending, holdPending, holdPendingPane, drainPending, pendingLease, pendingContext, dispatchPendingText, dispatchPending, replayPendingOutcome, pendingRequests, draftConfirmations } = createPendingDelivery({ options, clients, sight, serialize, lastTyped, authorizeSocket: (client) => authorizeSocket(client), clientSnapshot: () => clientSnapshot(), omo: { sessionOf: (paneId) => omo.sessionOf(paneId) }, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS });
+  const { pending, holdPending, holdPendingPane, drainPending, pendingFrames } = createPendingDelivery({ options, clients, attachments, sight, serialize, lastTyped, submitText, authorizeSocket: (client) => authorizeSocket(client), clientSnapshot: () => clientSnapshot(), omo: { sessionOf: (paneId) => omo.sessionOf(paneId) }, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS });
 
   const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending, devices, detachClaimed, dropClaims });
   const { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin });
@@ -1027,161 +1026,12 @@ export function createServer(
               } finally { message.secret = ""; }
               break;
             }
-            case "submit": {
-              // every submit is answered: the composer keeps its text until it hears back
-              const result = (ok: boolean, code?: string, text?: string, accepted?: PendingMessage, draft?: string | null, box?: string | null) => send(client, {
-                type: "submit-result", id: message.id, pane_id: message.pane_id, ok, ...(accepted ? { pending: accepted } : {}), ...(code ? { code, message: text } : {}),
-                ...(draft ? { draft } : {}), ...(!draft && typeof box === "string" ? { box } : {}),
-              });
-              if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string" || !message.pane_id
-                || typeof message.text !== "string" || typeof message.payload !== "string") {
-                send(client, { type: "error", code: "invalid_submit", message: "id must be an integer, pane_id, text and payload strings" });
-                break;
-              }
-              const waits = message.delivery === "queue" || message.delivery === "hold";
-              if ((message.delivery !== undefined && message.delivery !== "immediate" && !waits)
-                || (waits && message.typed !== undefined && message.typed !== false)) {
-                result(false, "invalid_delivery", "Use immediate delivery, or queue or hold a chat message");
-                break;
-              }
-              if (message.clear_draft !== undefined && (typeof message.clear_draft !== "string" || !message.clear_draft
-                || waits || (message.typed !== undefined && message.typed !== false))) {
-                result(false, "invalid_delivery", "Clear a terminal draft only for a chat message sent at once");
-                break;
-              }
-              if (message.send_anyway !== undefined && (message.send_anyway !== true || waits || message.clear_draft !== undefined
-                || (message.typed !== undefined && message.typed !== false))) {
-                result(false, "invalid_delivery", "Send anyway only a chat message sent at once, without clearing a draft");
-                break;
-              }
-              if (message.resend_id !== undefined && (typeof message.resend_id !== "string" || !message.resend_id || message.resend_id.length > 128
-                || waits || message.typed === true || message.clear_draft !== undefined || message.send_anyway !== undefined)) {
-                result(false, "invalid_delivery", "Use a held-copy resend id only for an immediate chat message");
-                break;
-              }
-              if (message.resend_generation !== undefined && (!Number.isSafeInteger(message.resend_generation) || message.resend_generation < 0 || message.resend_id === undefined)) {
-                result(false, "invalid_delivery", "A resend generation must be a nonnegative integer with a held-copy id");
-                break;
-              }
-              if (connectionOf(client).mode === "observe") {
-                result(false, "read_only", "this connection is in observe mode");
-                break;
-              }
-              // another web bridge has this pane's terminal: its user types there, not this one
-              if (attachments.get(message.pane_id)?.held) {
-                result(false, "attach_held", ATTACH_HELD_MESSAGE);
-                break;
-              }
-              const arrivedAt = Date.now();
-              try {
-                if (waits) {
-                  let book = pendingRequests.get(client);
-                  if (!book) { book = new PendingRequestBook((reply: SubmitReply) => reply.pending !== undefined && pending.retains(client, reply.pending.id)); pendingRequests.set(client, book); }
-                  // a digest, so a receipt kept for replay never holds a large request's bytes
-                  const fingerprint = new Bun.CryptoHasher("sha256").update(JSON.stringify([message.pane_id, message.text, message.payload, message.delivery])).digest("hex");
-                  const previous = book.get(message.id, fingerprint);
-                  const lease = previous ? null : pendingLease(client, message.pane_id);
-                  const reply = previous ?? book.run(message.id, fingerprint, () => serialize(message.pane_id, async (): Promise<SubmitReply> => {
-                    const text = pendingText(message.text);
-                    const mark = pending.mark(message.pane_id);
-                    const context = await pendingContext(client, message.pane_id, lease!);
-                    if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "This pending message waited too long; nothing was typed");
-                    if (!context.working) {
-                      // the agent left while the message was on its way: a chat follow-up is not typed into what is there now
-                      if (context.identity.agent === null) throw new HerdrError("agent_not_ready", "No agent is in front of this pane now; nothing was typed");
-                      // A request that raced the turn's finish still needs cancellable
-                      // paste + Enter; agent.prompt commits its key inside herdr. With a message
-                      // already waiting its turn here, this one takes its place behind it instead.
-                      // A held message is never typed by arriving after the turn: it waits for Send now.
-                      if (message.delivery === "queue" && !pending.waiting(message.pane_id)) return dispatchPendingText(client, message.pane_id, text, lease!, context.identity, false, arrivedAt);
-                    }
-                    pending.observe(message.pane_id, context.pane.agent_status, mark);
-                    // hold: kept for the owner's Send now, never sent by the turn's end
-                    const item = pending.enqueue(client, message.pane_id, message.id, text, lease!, context.identity, message.delivery === "hold");
-                    return { ok: true, pending: item.message };
-                  }).catch((error): SubmitReply => ({ ok: false, ...pendingFault(error) })));
-                  const answer = await reply;
-                  const accepted = answer.pending ? pending.get(client, message.pane_id, answer.pending.id)?.message : undefined;
-                  if (answer.pending && !accepted) replayPendingOutcome(client, message.pane_id, answer.pending.id);
-                  result(answer.ok, answer.code, answer.message, accepted);
-                  drainPending(message.pane_id);
-                  break;
-                }
-                const dispatch = () => {
-                  // held while this waited its turn (the attach was refused after the check above)
-                  if (attachments.get(message.pane_id)?.held) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
-                  return submitText(message.pane_id, message.text, message.payload, arrivedAt, message.typed === true, () => authorizeSocket(client), message.clear_draft,
-                    draftConfirmations.get(client)?.get(message.pane_id), message.send_anyway === true);
-                };
-                if (message.resend_id !== undefined) {
-                  authorizeSocket(client);
-                  const answer = await serialize(message.pane_id, () => pending.resend(message.pane_id, message.resend_id!,
-                    new Bun.CryptoHasher("sha256").update(message.text).digest("hex"), async () => {
-                      try { await dispatch(); return { ok: true }; }
-                      catch (error) { return { ok: false, ...pendingFault(error) }; }
-                    }, message.resend_generation));
-                  result(answer.ok, answer.code, answer.message);
-                  break;
-                }
-                await serialize(message.pane_id, dispatch);
-                if (message.clear_draft !== undefined || message.send_anyway) draftConfirmations.get(client)?.delete(message.pane_id);
-                result(true);
-              } catch (error) {
-                if (message.clear_draft !== undefined || message.send_anyway) draftConfirmations.get(client)?.delete(message.pane_id);
-                // a refusal naming a draft confirms it for Clear it and send; one naming none, for Send anyway
-                if (error instanceof InputDraftError && error.identity && (error.draft || error.box !== null)) {
-                  let confirmations = draftConfirmations.get(client);
-                  if (!confirmations) { confirmations = new Map(); draftConfirmations.set(client, confirmations); }
-                  confirmations.set(message.pane_id, { draft: error.draft, identity: error.identity, box: error.box });
-                }
-                const fault = pendingFault(error);
-                result(false, fault.code, fault.message, undefined, error instanceof InputDraftError ? error.draft : null,
-                  error instanceof InputDraftError && error.identity && error.box !== null ? shownInputBox(error.box) : null);
-              }
+            case "submit":
+              await pendingFrames.submit(client, message);
               break;
-            }
-            case "pending-action": {
-              const result = (reply: SubmitReply) => send(client, { type: "pending-result", id: message.id, pane_id: message.pane_id, pending_id: message.pending_id, ...reply });
-              if (!Number.isSafeInteger(message.id) || typeof message.pane_id !== "string" || !message.pane_id
-                || typeof message.pending_id !== "string" || !message.pending_id || !["steer", "discard"].includes(message.action)) {
-                result({ ok: false, code: "invalid_pending_action", message: "Use steer or discard with a pending-message id" }); break;
-              }
-              if (message.resend_generation !== undefined && (!Number.isSafeInteger(message.resend_generation) || message.resend_generation < 0)) {
-                result({ ok: false, code: "invalid_pending_action", message: "A resend generation must be a nonnegative integer" }); break;
-              }
-              const arrivedAt = Date.now();
-              try {
-                authorizeSocket(client);
-                const lease = message.action === "steer" ? pendingLease(client, message.pane_id) : null;
-                const answer = await serialize(message.pane_id, async (): Promise<SubmitReply> => {
-                  authorizeSocket(client);
-                  if (!clients.has(client) || connectionOf(client).closing) throw new HerdrError("disconnected", "This connection closed");
-                  const item = pending.get(client, message.pane_id, message.pending_id);
-                  if (!item) return replayPendingOutcome(client, message.pane_id, message.pending_id)
-                    ? { ok: true } : { ok: false, code: "pending_not_found", message: "This pending message does not belong to this connection" };
-                  if (message.action === "discard") return pending.discard(item) ? { ok: true } : { ok: false, code: "pending_busy", message: "This message is already being sent" };
-                  if (item.message.state === "uncertain") return { ok: false, code: "pending_uncertain", message: "Check the terminal before sending this message again" };
-                  let dispatched = false;
-                  const reply = await pending.resend(item.paneId, item.message.id,
-                    new Bun.CryptoHasher("sha256").update(item.message.text).digest("hex"), async (): Promise<SubmitReply> => {
-                      try {
-                        await pendingContext(client, item.paneId, lease!, item.identity);
-                        if (!pending.claim(item, false)) return { ok: false, code: "pending_busy", message: "This message is already being sent" };
-                        item.lease = lease!;
-                        dispatched = true;
-                        return await dispatchPending(item, false, arrivedAt, true);
-                      } catch (error) { return { ok: false, ...pendingFault(error) }; }
-                    }, message.resend_generation);
-                  // A saved copy may already have completed this ID on another connection.
-                  if (!dispatched && pending.get(client, item.paneId, item.message.id) === item && pending.claim(item, false))
-                    pending.settle(item, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed");
-                  return reply;
-                });
-                result(answer);
-                drainPending(message.pane_id);
-              } catch (error) { result({ ok: false, ...pendingFault(error) }); }
+            case "pending-action":
+              await pendingFrames["pending-action"](client, message);
               break;
-            }
             case "role": {
               if (message.mode !== "interact" && message.mode !== "observe") {
                 send(client, { type: "error", code: "invalid_role", message: "mode must be interact or observe" });
