@@ -8,6 +8,7 @@ import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readlinkSync
 import nodePath, { join, type PlatformPath } from "node:path";
 
 import { GjcSdkLookupError, gjcSdkTranscript } from "./gjc-sdk.ts";
+import { captureGjcIndex, gjcIndexUnchanged, type GjcIndexStamp } from "./gjc-index.ts";
 import { herdrRpc } from "./herdr/client.ts";
 import { processStartedAt } from "./process-start.ts";
 import { descendantArgv, windowsProcessTable, type ProcessRow } from "./windows-processes.ts";
@@ -284,37 +285,15 @@ function sameLookupContext(a: GjcTranscriptOptions, b: GjcTranscriptOptions): bo
 }
 
 /**
- * The broker answers session.list from `sdk/sessions/index.jsonl` (and its compacted snapshot),
- * which it re-reads on every list; GJC appends a row there, synced, before its broker knows of
- * any session change: /new and /resume unregister the old session and register the new one
- * while the pid and the old transcript stay. GJC tells its own index changed by this same stat
- * fingerprint. null (no index, or a stat that failed): nothing may be kept.
- */
-function indexFingerprint(agentDir: string): string | null {
-  const parts: string[] = [];
-  for (const name of ["index.jsonl", "index.snapshot.json"]) {
-    try {
-      const stat = statSync(join(agentDir, "sdk", "sessions", name), { bigint: true });
-      parts.push(`${stat.size}:${stat.dev}:${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`);
-    } catch (error) {
-      if (name === "index.jsonl" || (error as NodeJS.ErrnoException).code !== "ENOENT") return null;
-      parts.push("-");
-    }
-  }
-  return parts.join("|");
-}
-
-/**
- * A binding the broker proved, kept while the index it came from is unchanged. Its liveness also
- * ages with the clock (a session whose heartbeats stop, about one a minute, stops counting as live
- * within two), so a kept binding lives well under that; age can only turn a binding into no
- * binding, never into another session.
+ * A binding the broker proved, kept while the index it came from is unchanged or only gains
+ * unrelated heartbeats. Its liveness also ages with the clock (a session whose heartbeats stop,
+ * about one a minute, stops counting as live within two), so age can only turn it into no binding.
  */
 const BINDING_TTL_MS = 30_000;
 
 type KeptBinding = {
   options: GjcTranscriptOptions;
-  fingerprint: string;
+  indexStamp: GjcIndexStamp;
   processes: GjcProcessIdentity[];
   binding: GjcSdkBinding;
   at: number;
@@ -330,9 +309,9 @@ const transcriptBindings = new Map<string, KeptBinding>();
  * Resolves only while the SDK-selected GJC process is still foreground in this pane with the
  * same birth identity. Optional I/O callbacks keep this race check fixture-testable. Overlapping
  * reads with the same lookup context share a lookup. A later read reuses the proven binding only
- * while the session index is unchanged, the pane's GJC processes are the same ones and the
- * transcript still names that session; anything else asks the broker again (a /new keeps the pid
- * and can keep the old file, but always writes the index).
+ * while the index is unchanged or has only unrelated heartbeats, the pane's GJC processes are the
+ * same ones and the transcript still names that session; anything else asks the broker again (a
+ * /new keeps the pid and can keep the old file, but always writes the index).
  */
 export function gjcTranscriptForPane(
   paneId: string,
@@ -416,15 +395,20 @@ async function lookupGjcTranscript(
     const initial = await processes(initialInfo, false);
     if (!initial || initial.length === 0) return forget();
     // Read before the lookup: a write that lands during it then makes the next read ask again.
-    const fingerprint = indexFingerprint(agentDir), checkedAt = now();
+    const indexStamp = captureGjcIndex(agentDir), checkedAt = now();
     const kept = transcriptBindings.get(key);
-    if (kept && fingerprint !== null && kept.fingerprint === fingerprint
+    if (kept && indexStamp !== null
       && sameLookupContext(kept.options, options) && checkedAt - kept.at < BINDING_TTL_MS) {
       // the kept table may be a few seconds old on Windows; the shared one is not proof enough
       const current = platform === "win32" ? await processes(initialInfo, true) : initial;
-      if (current && sameProcesses(current, kept.processes)) {
+      const guardSessionIds = [...new Set([...kept.binding.guardSessionIds, kept.binding.sessionId])];
+      if (current && sameProcesses(current, kept.processes)
+        && gjcIndexUnchanged(agentDir, kept.indexStamp, indexStamp, kept.processes.map(({ pid }) => pid), guardSessionIds)) {
         const path = validateGjcSdkTranscript(kept.binding, cwd, agentDir);
-        if (path) return path;
+        if (path) {
+          kept.indexStamp = indexStamp;
+          return path;
+        }
       }
     }
     transcriptBindings.delete(key);
@@ -439,10 +423,10 @@ async function lookupGjcTranscript(
     if (!finalInfo) return null;
     const final = await processes(finalInfo, true);
     if (!final?.some((process) => process.pid === owner.pid && sameBirth(process.birth, owner.birth))) return null;
-    if (fingerprint !== null) {
+    if (indexStamp !== null) {
       for (const [other, entry] of transcriptBindings) if (checkedAt - entry.at >= BINDING_TTL_MS) transcriptBindings.delete(other);
-      // aged from before the lookup, when the fingerprint was read
-      transcriptBindings.set(key, { options, fingerprint, processes: initial, binding, at: checkedAt });
+      // aged from before the lookup, when the index stamp was read
+      transcriptBindings.set(key, { options, indexStamp, processes: initial, binding, at: checkedAt });
     }
     return path;
   } catch (error) {

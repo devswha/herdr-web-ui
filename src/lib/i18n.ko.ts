@@ -256,6 +256,7 @@ export const KO: Record<string, string> = {
   "reconnecting": "재연결 중",
   "connecting": "연결 중",
   "herdr offline": "herdr 꺼짐",
+  "Start herdr on this PC, or check HERDR_SOCKET.": "이 PC에서 herdr를 시작하거나 HERDR_SOCKET을 확인하세요.",
   "Browse files": "파일 찾아보기",
   "Copy link": "링크 복사",
   "Link copied": "링크를 복사했습니다",
@@ -877,6 +878,7 @@ export const KO: Record<string, string> = {
   "Check it and try again.": "확인한 뒤 다시 시도하세요.",
   "Check your connection, then try again.": "연결을 확인한 뒤 다시 시도하세요.",
   "Try again; if it keeps failing, restart herdr web ui on the PC.": "다시 시도하고, 계속 실패하면 PC에서 herdr web ui를 다시 시작하세요.",
+  "The server cannot save settings: check that its state folder is writable.": "서버가 설정을 저장할 수 없습니다. 서버의 상태 폴더에 쓸 수 있는지 확인하세요.",
 
   // ---- sign-in ----
   "Enter all 6 digits of the pairing code.": "페어링 코드 6자리를 모두 입력하세요.",
@@ -1363,4 +1365,7 @@ export const KO: Record<string, string> = {
   "Conversation turns": "대화 턴",
   "Go to turn {n}": "{n}번째 턴으로 이동",
   "Show full message": "전체 메시지 보기",
+  "Change PC": "PC 바꾸기",
+  "This is the demo. Go back to the app's list of PCs to open yours.": "데모 화면입니다. 앱의 PC 목록으로 돌아가 내 PC를 여세요.",
+  "This app shows {address}. Go back to its list of PCs to open another.": "이 앱은 {address}를 보여 주고 있습니다. PC 목록으로 돌아가 다른 PC를 열 수 있습니다.",
 };

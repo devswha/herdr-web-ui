@@ -1199,7 +1199,9 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
           }
         }
       }
-      catch { if (!cancelled) { setPrompt(null); setRestored(null); onSuggestionRef.current?.(paneId, null); onRestoredRef.current?.(paneId, null); } }
+      // a read that failed (a network error, a server hiccup) says nothing about the screen: the card,
+      // the suggestion and the restored send stay as they are until the next read answers
+      catch { /* kept until the next read */ }
       finally { if (!cancelled) timer = window.setTimeout(() => void readPrompt(), PROMPT_POLL_MS); }
     };
     void readPrompt();

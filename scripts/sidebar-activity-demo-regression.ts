@@ -27,6 +27,16 @@ const waitStatus = (page: Page, title: string, status: string) => agent(page, ti
 const waitAgentAt = (page: Page, index: number, title: string) => page.waitForFunction(([at, name]) =>
   [...document.querySelectorAll(".agents-sidebar .agent-item .agent-title")][at as number]?.textContent === name, [index, title] as const, { timeout: 5_000 });
 
+/**
+ * The keyboard's context-menu key on the focused row. macOS has no such key and Chrome there
+ * ignores Shift+F10 (#1371), so on a Mac the test fires the event that key makes: a
+ * `contextmenu` with no pointer position, on the focused element.
+ */
+async function contextMenuKey(page: Page): Promise<void> {
+  if (process.platform !== "darwin") return page.keyboard.press("Shift+F10");
+  await page.evaluate(() => document.activeElement?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+}
+
 async function withPage(browser: Browser, settings: object, run: (page: Page) => Promise<void>, mobile = false): Promise<void> {
   const context = await browser.newContext({
     viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 },
@@ -191,7 +201,7 @@ try {
         await page.keyboard.press("Escape");
         assert.equal(await page.locator(".header-more-button").evaluate((button) => document.activeElement === button), true, "dismissal returns the prior keyboard focus");
         await workspace.focus();
-        await page.keyboard.press("Shift+F10");
+        await contextMenuKey(page);
         await menu.waitFor();
         assert.deepEqual(await menu.getByRole("menuitem").allTextContents(), ["Pin workspace", "Rename workspace", "Close group", "New worktree", "Open worktree…", "Collapse"], "the context-menu key and right-click have identical items");
         await page.keyboard.press("Escape");
@@ -235,7 +245,7 @@ try {
         assert.equal((await agentTitles(page))[0], INFRA, "the pin survives a reload");
         // the keyboard's context-menu key opens the same menu, now with Unpin
         await infraSelect.focus();
-        await page.keyboard.press("Shift+F10");
+        await contextMenuKey(page);
         await agentMenu.waitFor();
         assert.deepEqual(await agentMenu.getByRole("menuitem").allTextContents(), ["Unpin agent"], "a pinned agent's menu offers Unpin");
         // the menu focuses its first item on the next frame: Enter goes to it once it has the focus

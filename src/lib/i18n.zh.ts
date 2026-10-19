@@ -260,6 +260,7 @@ export const ZH: Record<string, string> = {
   "reconnecting": "正在重连",
   "connecting": "正在连接",
   "herdr offline": "herdr 离线",
+  "Start herdr on this PC, or check HERDR_SOCKET.": "请在此电脑上启动 herdr，或检查 HERDR_SOCKET。",
   "Browse files": "浏览文件",
   "Copy link": "复制链接",
   "Link copied": "已复制链接",
@@ -881,6 +882,7 @@ export const ZH: Record<string, string> = {
   "Check it and try again.": "请检查后重试。",
   "Check your connection, then try again.": "请检查网络连接后重试。",
   "Try again; if it keeps failing, restart herdr web ui on the PC.": "请重试；如果一直失败，请在电脑上重启 herdr web ui。",
+  "The server cannot save settings: check that its state folder is writable.": "服务器无法保存设置：请检查其状态文件夹是否可写。",
 
   // ---- sign-in ----
   "Enter all 6 digits of the pairing code.": "请输入配对码的全部 6 位数字。",
@@ -1367,4 +1369,7 @@ export const ZH: Record<string, string> = {
   "Conversation turns": "对话轮次",
   "Go to turn {n}": "跳到第 {n} 轮",
   "Show full message": "显示完整消息",
+  "Change PC": "切换电脑",
+  "This is the demo. Go back to the app's list of PCs to open yours.": "这是演示。回到应用的电脑列表即可打开你自己的电脑。",
+  "This app shows {address}. Go back to its list of PCs to open another.": "此应用正在显示 {address}。回到电脑列表可打开其他电脑。",
 };
