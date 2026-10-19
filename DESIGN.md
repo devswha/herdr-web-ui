@@ -1299,6 +1299,11 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   first copy drops its own left inset so its glyph stays on the prose edge (an overhang past the
   transcript's edge cannot be tapped). With a mouse the copy and format buttons keep their `--chip-h`
   look and take a `--pointer-target` hit area through an invisible `::before` expander.
+- Selecting text in chat copies the browser's rendered selection as plain text, not reconstructed
+  Markdown. Safe rich HTML accompanies it for formatted paste; the explicit MD and TXT actions
+  still copy the whole answer. This follows ordinary browser selection and the Claude/ChatGPT
+  distinction between selecting text and copying an answer, rather than T3 Code's Markdown-first
+  selection behavior. No extra setting is needed.
 - Markdown supports headings, lists (a task item `- [x]` / `- [ ]` shows a checked or empty box in
   place of its bullet, not clickable), links, quotes, tables, inline/fenced code and code-copy
   actions.
