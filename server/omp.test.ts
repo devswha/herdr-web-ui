@@ -9,6 +9,7 @@ import { forgetTranscriptState, paneConversation } from "./conversation.ts";
 import * as herdr from "./herdr/client.ts";
 import { terminalBreadcrumb } from "./gjc-runtime.ts";
 import { isOmpProcess, ompAgentDir, ompHeldTranscript } from "./omp.ts";
+import { forgetOmpCatalogs } from "./omp-catalog.ts";
 import * as ompProbe from "./omp-process.ts";
 import * as omo from "./omo.ts";
 
@@ -123,6 +124,30 @@ describe("an omp pane's chat", () => {
     symlinkSync(outside, path);
     agentSession = { agent: "omp", kind: "path", value: path };
     await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
+  });
+
+  it.skipIf(process.platform === "win32")("states the model an unwritten session's status line draws, and follows a switch there", async () => {
+    // omp names its file at start and writes it with the first answer; `/switch` writes nothing
+    const store = join(home, ".omp/agent/sessions/-project");
+    mkdirSync(store, { recursive: true });
+    agentSession = { agent: "omp", kind: "path", value: join(store, "2026-10-19_s2.jsonl") };
+    // the catalog comes from the pane's own omp: `omp models --json`
+    const bin = join(home, "omp");
+    const catalog = { models: [{ provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" }, { provider: "openai-codex", id: "gpt-6.1-sol", name: "GPT 6.1 Sol" }] };
+    writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${JSON.stringify(catalog)}\nEOF\n`, { mode: 0o755 });
+    processes = [{ pid: 1, argv: [bin, "--model", "openai-codex/gpt-6.1-sol"] }];
+    let screen = " π > ⟳ GPT 6.1 Sol > 🗑 …oject ▶─1%──────┃─1.1M─\n╰─                           ⇧⇥ to change thinking effort";
+    const read = spyOn(herdr, "paneRead").mockImplementation(async () => ({ text: screen }) as never);
+    restores.push(() => read.mockRestore(), forgetOmpCatalogs);
+    const started = await paneConversation(pane.pane_id);
+    expect(started).toMatchObject({ source: "omp-transcript", turns: [], screen: true, metadata: { model: "gpt-6.1-sol", reasoning_effort: "auto" } });
+    screen = " π > ◒ Opus 5.5 > 🗑 …oject > ⑂ main ▶─2%─┃1M─\n╰─                           ⇧⇥ to change thinking effort";
+    const switched = await paneConversation(pane.pane_id);
+    expect(switched.metadata).toEqual({ model: "claude-opus-5-5", reasoning_effort: "high" });
+    expect(switched.version).not.toBe(started.version);
+    // a name the catalog does not list leaves the model unknown, never a default
+    screen = " π > ◒ Opus 5.5 (1M) > 🗑 …oject";
+    expect((await paneConversation(pane.pane_id)).metadata).toEqual({ model: null, reasoning_effort: null });
   });
 
   it.skipIf(process.platform !== "linux")("reads the transcript the pane's omp process holds open when herdr names none", async () => {

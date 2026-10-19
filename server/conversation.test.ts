@@ -1878,3 +1878,42 @@ describe("Agy native ledger through shared paging", () => {
     } finally { store.mockRestore(); rpc.mockRestore(); }
   });
 });
+
+describe("a Codex pane that reported no session yet", () => {
+  // captured live 2026-10-19, Codex 0.163.0-alpha.10.2 started in a terminal, before any message
+  const FRESH = [
+    "  >_ OpenAI Codex (v0.163.0-alpha.10.2)",
+    "     /tmp/project",
+    "",
+    "› Ask Codex to do anything",
+    "",
+    "  GPT-6.1-Sol low · /tmp/project",
+    "  ? for shortcuts              ⚠ 3 warnings · f2 to view",
+  ].join("\n");
+
+  it("stands in with the terminal, carrying the model Codex's own status line states", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-codex-fresh-"));
+    const pane = { pane_id: "codex-fresh", cwd: root, foreground_cwd: root, agent: "codex", agent_status: "idle" } as HerdrPane;
+    let screen = FRESH;
+    const snapshot = spyOn(herdr, "sessionSnapshot").mockResolvedValue({ panes: [pane] } as SessionSnapshot);
+    const rpc = spyOn(herdr, "herdrRpc").mockImplementation(async (method: string) => (method === "agent.get"
+      ? { agent: { agent: "codex" } } : { process_info: { foreground_processes: [{ argv: ["codex"] }] } }) as never);
+    const read = spyOn(herdr, "paneRead").mockImplementation(async () => ({ text: screen }) as never);
+    try {
+      await expect(paneConversation(pane.pane_id, join(root, ".codex"))).rejects.toMatchObject({
+        name: "ConversationUnavailable", screen: { model: "gpt-6.1-sol", reasoning_effort: "low" },
+      });
+      // switched with /model: the status line says the new one
+      screen = FRESH.replace("GPT-6.1-Sol low", "GPT-6-Sol high");
+      await expect(paneConversation(pane.pane_id, join(root, ".codex"))).rejects.toMatchObject({ screen: { model: "gpt-6-sol", reasoning_effort: "high" } });
+      // a screen that does not say leaves the scrollback as it was, and so does a page of history
+      screen = "$ ";
+      const unknown = await paneConversation(pane.pane_id, join(root, ".codex")).catch((error: unknown) => error);
+      expect(unknown).toBeInstanceOf(ConversationUnavailable);
+      expect((unknown as ConversationUnavailable).screen).toBeUndefined();
+      screen = FRESH;
+      const page = await paneConversation(pane.pane_id, join(root, ".codex"), { before: "x:0" }).catch((error: unknown) => error);
+      expect((page as ConversationUnavailable).screen).toBeUndefined();
+    } finally { snapshot.mockRestore(); rpc.mockRestore(); read.mockRestore(); forgetTranscriptState(); rmSync(root, { recursive: true, force: true }); }
+  });
+});

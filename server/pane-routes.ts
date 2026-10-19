@@ -223,8 +223,9 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
         return jsonResponse({ error: { code: `gjc_sdk_${error.reason}`, message: error.message } }, error.reason === "timeout" ? 504 : 503, { "cache-control": "no-store" });
       }
       // an unrecognized pane is not an error: the client falls back to the
-      // scrollback transcript, exactly like chatmux's terminal fallback
-      if (error instanceof ConversationUnavailable) return jsonResponse({ source: "scrollback", turns: [] });
+      // scrollback transcript, exactly like chatmux's terminal fallback. Its metadata is only
+      // ever what the agent's own status line states
+      if (error instanceof ConversationUnavailable) return jsonResponse({ source: "scrollback", turns: [], ...(error.screen ? { metadata: error.screen, screen: true } : {}) });
       return errorResponse(error);
     }
   }

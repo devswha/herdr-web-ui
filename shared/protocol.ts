@@ -601,6 +601,12 @@ export interface ConversationResponse {
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**
+   * `metadata` was read off the agent's own screen: a conversation not begun, or a Codex that has
+   * reported no session (whose scrollback answer carries `metadata` only so). No file records it
+   * and the pane's output can change it, so the chat re-reads on terminal output.
+   */
+  screen?: true;
+  /**
    * Where the first turn sits in the transcript: pass it as `before` for the page
    * of turns before these (with `since`, never reaching back past that cursor), or
    * as `from` to keep polling from it. A `from` answer starts later than `from` when

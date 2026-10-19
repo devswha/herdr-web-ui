@@ -1575,6 +1575,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   sentence; behind a name the id is also repeated as `.visually-hidden` text, since a touch
   cannot reach a title. A pane that names no model draws no pill: the mark and the ring stand
   alone, with a dim `Model —` and the level between them if the pane records only a level.
+- Before a session's first message no transcript names its model, so the pill takes it from the
+  agent's own screen (`server/start-screen.ts`), as the Codex and Claude apps show the model in
+  their composers before anything is sent: Claude Code's model under its title, and the live
+  status line of Codex, gjc and omp. omp draws its model there by catalog name, taken only when
+  it names exactly one id in the pane's own `omp models --json` catalog (listed with the pane's
+  omp and profile, never its extensions, at most once a minute). A Codex started in a terminal
+  reports no session, so its terminal-output fallback carries the status line's model. Such an
+  answer is marked `screen`, and the chat re-reads it on terminal output, so a switch made in the
+  terminal shows once the agent draws it. A name the screen cannot tie to one id draws no pill,
+  and an agent's default model never stands in for the session's.
 - The model is drawn by name only where its id is one `modelLabel` (`src/lib/modelName.ts`) can
   name for certain, from the vendor's own regular naming and matched whole:
   `claude-<family>-<major>[-<minor>]`, also behind `anthropic/`, is `<Family> <major>.<minor>`

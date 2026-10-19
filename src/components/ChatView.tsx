@@ -819,6 +819,8 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
   const onMetadataRef = useRef(onMetadata);
   onMetadataRef.current = onMetadata;
   const [state, setState] = useState<ChatState>(EMPTY_STATE);
+  /** the answer shown states settings read off the agent's own screen (ConversationResponse.screen) */
+  const [screenRead, setScreenRead] = useState(false);
   // Native Grok/Agy events can arrive while Herdr still reports ready/done. This is display
   // feedback only: sending, queuing and stopping retain the server's input authority.
   const activity = state.activity ?? (agentStatus === "working" ? "working" : "idle");
@@ -914,7 +916,9 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
   /** What an answer says beside its turns: where older pages start, its metadata, abandoned turns. */
   const showAnswerDetails = (conversation: ConversationResponse): void => {
     if (heldFrom.current === null) setOlderCursor(conversation.source === "scrollback" ? undefined : conversation.cursor);
-    onMetadataRef.current?.(paneId, conversation.source === "scrollback" ? null : conversation.metadata ?? null);
+    // a scrollback stand-in carries metadata only as the agent's own status line states it
+    onMetadataRef.current?.(paneId, conversation.metadata ?? null);
+    setScreenRead(conversation.screen === true);
     setAbandoned(conversation.abandoned ?? null);
   };
 
@@ -947,7 +951,7 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
     stopRestore.current?.();
     restoring.current = readChatPosition(paneStorageId(machineId, paneId)) ?? null;
     history.current = undefined; setHistoryId(undefined);
-    pagingAway.current = false; stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setFailures(0); setPrompt(null); setAbandoned(null); setRestored(null);
+    pagingAway.current = false; stickToBottom.current = true; signature.current = ""; setState(EMPTY_STATE); setNewMessages(false); setAway(false); setLoaded(false); setError(null); setErrorStatus(null); setFailures(0); setPrompt(null); setAbandoned(null); setRestored(null); setScreenRead(false);
     dropOlder();
     lastAnswer.current = null;
     setSentOver(null);
@@ -1101,13 +1105,15 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
 
   useEffect(() => { conversationRefresh.setPushes(conversationPushes); }, [conversationPushes, conversationRefresh]);
 
-  // A scrollback stand-in has no native file for the server to watch. Its source is the
-  // pane's own screen, so terminal output is the invalidation, under the same 1s bound.
+  // A scrollback stand-in has no native file for the server to watch, and neither have settings
+  // read off the agent's screen (a conversation not begun). Their source is the pane's own
+  // screen, so terminal output is the invalidation, under the same 1s bound: a model switched in
+  // the terminal shows once the agent draws it.
   useEffect(() => {
-    if (state.source !== "scrollback" || !visible || onTerminalOutput === undefined) return;
+    if ((state.source !== "scrollback" && !screenRead) || !visible || onTerminalOutput === undefined) return;
     onTerminalOutput(() => conversationRefresh.invalidate());
     return () => onTerminalOutput(null);
-  }, [state.source, visible, onTerminalOutput, conversationRefresh]);
+  }, [state.source, screenRead, visible, onTerminalOutput, conversationRefresh]);
 
   // Catch writes made offline as soon as the existing socket is connected again. The first
   // connection after the pane shows (a fresh attach) is no reconnect: while the mount read is
