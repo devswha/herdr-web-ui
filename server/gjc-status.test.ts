@@ -649,13 +649,13 @@ describe("the gjc process a pane's transcript and start are read from", () => {
   const transcript = async (id: string, _cwd: string) => `/t/${id}.jsonl`;
 
   it("binds the pane's current runtime cwd, not where it started", async () => {
-    const asked: { cwd: string; purpose: "status" }[] = [];
+    const asked: string[] = [];
     const panes = await gjcPanes([gjcPane("p", { foreground_cwd: "/work/now" }), gjcPane("q")], {
       processInfo: async () => null,
-      transcript: async (_id, cwd, purpose) => { asked.push({ cwd, purpose }); return null; },
+      transcript: async (_id, cwd) => { asked.push(cwd); return null; },
       underShell: async () => null,
     });
-    expect(asked).toEqual([{ cwd: "/work/now", purpose: "status" }, { cwd: "/work", purpose: "status" }]);
+    expect(asked.sort()).toEqual(["/work", "/work/now"]);
     // a transcript nobody could tell is still the pane's own record: herdr's word stands for it
     expect([...panes.values()]).toEqual([{ path: null, startedAt: null }, { path: null, startedAt: null }]);
   });

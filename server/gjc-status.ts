@@ -99,7 +99,7 @@ type ProcessInfo = { process_info?: { shell_pid?: unknown; foreground_processes?
  */
 export interface GjcDiscovery {
   processInfo?: (paneId: string) => Promise<ProcessInfo>;
-  transcript?: (paneId: string, cwd: string, purpose: "status") => Promise<string | null>;
+  transcript?: (paneId: string, cwd: string) => Promise<string | null>;
   startedAt?: (pid: number) => number | null;
   underShell?: (shellPid: unknown) => Promise<GjcProcess | null | undefined>;
   platform?: string;
@@ -116,7 +116,7 @@ export interface GjcDiscovery {
  */
 export async function gjcPanes(panes: HerdrPane[], deps: GjcDiscovery = {}): Promise<Map<string, OmoPane>> {
   const processInfo = deps.processInfo ?? ((paneId: string) => herdrRpc<NonNullable<ProcessInfo>>("pane.process_info", { pane_id: paneId }).catch(() => null));
-  const transcript = deps.transcript ?? ((paneId: string, cwd: string, purpose: "status") => gjcTranscriptForPane(paneId, cwd, undefined, { purpose }).catch(() => null));
+  const transcript = deps.transcript ?? ((paneId: string, cwd: string) => gjcTranscriptForPane(paneId, cwd, undefined, { purpose: "status" }).catch(() => null));
   const startedAt = deps.startedAt ?? processStartedAt;
   const underShell = deps.underShell ?? ((shellPid: unknown) => gjcPidUnderShell(shellPid, deps.platform));
   const found = new Map<string, OmoPane>();
@@ -131,7 +131,7 @@ export async function gjcPanes(panes: HerdrPane[], deps: GjcDiscovery = {}): Pro
       const native = await underShell(info?.process_info?.shell_pid).catch(() => undefined);
       if (native) started = native.started;
     }
-    const path = await transcript(pane.pane_id, pane.foreground_cwd || pane.cwd || "", "status");
+    const path = await transcript(pane.pane_id, pane.foreground_cwd || pane.cwd || "");
     found.set(pane.pane_id, { path, startedAt: started });
   }));
   return found;

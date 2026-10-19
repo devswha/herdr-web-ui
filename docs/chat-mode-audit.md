@@ -188,8 +188,9 @@ and after it; those other operations have their own timeouts, not a shared end-t
 An incomplete or ambiguous answer is not used; unrelated workspaces' retired
 sessions do not consume the page budget.
 
-Overlapping reads of the same pane and purpose share one lookup. A proven binding is kept for
-at most 30 seconds while the pane's process identity and transcript header still
+Overlapping reads of the same pane and purpose share one lookup. A proven binding found by
+either status discovery or chat serves both purposes; changing the SDK budget never evicts it.
+It is kept for at most 30 seconds while the pane's process identity and transcript header still
 match. The shared SDK index normally invalidates it, except for bounded,
 checksum-valid, sequential version-4 heartbeat appends belonging to other
 processes and sessions. The guard includes every session the SDK listed for the
@@ -208,10 +209,16 @@ message after `/new` is discoverable without another index change.
 Session snapshots retain the shorter status budget, including the worktree probe,
 so `/api/session`, WebSocket connect snapshots and collector resyncs do not inherit
 the longer cold-chat SDK wait. An unresolved transcript keeps herdr's status.
-SDK execution failures and unresolved results are kept for 30 seconds for status discovery
-only, avoiding repeated hung lookups on successive snapshots. Chat reads bypass that
-failure cache and may retry. Status and chat use separate single flights, so neither
-inherits the other's SDK deadline. Successful lookups clear the recent failure.
+Only an actual SDK lookup's execution failure or unresolved result is kept for up to 30
+seconds for status discovery. A failed herdr RPC, missing foreground GJC process or rejected
+transcript is not a cached SDK failure. A status retry reads the pane's process identity
+(fresh on Windows) and index stamp before reusing a failure; a changed PID, process birth,
+index, pane or cwd invalidates it. Any index change invalidates a failed lookup, unlike the
+narrow unrelated-heartbeat exception for a proven binding above.
+Chat reads bypass the failure cache and may retry. Status and chat use separate single
+flights, so neither inherits the other's SDK deadline. Successful reads clear the recent
+failure, and an older overlapping flight cannot reinstate a failure after that success,
+even when no readable index lets the successful binding be kept.
 
 The native transcript must remain inside the canonical `~/.gjc/agent/sessions/`
 store and its header must identify the selected session and workspace. The pane's
