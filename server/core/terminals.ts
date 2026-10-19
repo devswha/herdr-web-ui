@@ -20,6 +20,9 @@ const REPAINT_MIN_INTERVAL_MS = 1000;
 
 type Frame<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
 
+/** What the server outside the registry reads of a pane's attachment: its grid, and whether another web bridge holds its terminal. */
+export type AttachmentView = { readonly cols: number; readonly rows: number; readonly held?: boolean };
+
 /**
  * What a connection saw of a pane's terminal before an await, held as references and never
  * copied: `facts()` compares them with the pane's terminal now, so an attach or a session that
@@ -454,5 +457,8 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     },
   };
 
-  return { attachments, pendingAttachments, conversations, releaseConversation, reconcileOutput, sendOutput, closeAttachment, drivePty, requestRepaint, ensureAttachment, detach, detachClaimed, dropClaims, releaseUnclaimed, sight, poke, drainOutput, terminalFrames };
+  // the same live records, read through their grid and held state only: the server outside reaches a
+  // pane's terminal through `sight`, `poke` and the frames
+  const views: ReadonlyMap<string, AttachmentView> = attachments;
+  return { attachments: views, conversations, reconcileOutput, closeAttachment, detachClaimed, dropClaims, sight, poke, drainOutput, terminalFrames };
 }
