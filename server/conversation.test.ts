@@ -1088,8 +1088,8 @@ describe("gjc sessions", () => {
     ].join("\n");
     const turns = parseOmpTranscript(text);
     expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant", "assistant"]);
-    expect(turns[1]!.parts.at(-1)).toEqual({ kind: "text", text: "The full review." });
-    expect(turns[2]).toEqual({ role: "assistant", ts: "2026-10-05T22:14:58.000Z", end_ts: "2026-10-05T22:14:58.000Z", parts: [{ kind: "thinking", text: "nothing new" }, { kind: "text", text: "Nothing new to do." }] });
+    expect(turns[1]!.parts.at(-1)).toEqual({ kind: "text", text: "The full review.", phase: "final_answer" });
+    expect(turns[2]).toEqual({ role: "assistant", ts: "2026-10-05T22:14:58.000Z", end_ts: "2026-10-05T22:14:58.000Z", parts: [{ kind: "thinking", text: "nothing new" }, { kind: "text", text: "Nothing new to do.", phase: "final_answer" }] });
   });
 
   it("says which kind of notice the runtime delivered, and nothing where the runtime named none", () => {

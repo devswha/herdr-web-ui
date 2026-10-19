@@ -51,7 +51,7 @@ describe("Grok native event adapter", () => {
     expect(part.name).toBe("run_terminal_command");
     expect(JSON.parse(part.input).variant).toBe("Bash");
     expect(part.output).toBe("FICTIONAL_TOOL_OUTPUT\n");
-    expect(page().turns.at(-1)!.parts.at(-1)).toEqual({ kind: "text", text: "FICTIONAL_AFTER_TOOL" });
+    expect(page().turns.at(-1)!.parts.at(-1)).toEqual({ kind: "text", text: "FICTIONAL_AFTER_TOOL", phase: "final_answer" });
   });
   test("text chunks, hidden boundaries and synthetic prompts", () => {
     const turns = parseGrokTranscript(user(0, "hello ") + user(0, "world") + answer("one ") + answer("two") + user(1, "hidden", { hideFromScrollback: true }) + answer("separate answer") + user(2, "visible", { syntheticPrompt: true }));
@@ -92,7 +92,7 @@ describe("Grok native event adapter", () => {
   });
   test("turn completion separates assistant activity without dropping earlier messages", () => {
     const turns = parseGrokTranscript(user(0) + answer("first") + event({ sessionUpdate: "turn_completed" }, true) + answer("later"));
-    expect(turns.map((t) => t.parts)).toEqual([[{ kind: "text", text: "prompt 0" }], [{ kind: "text", text: "first" }], [{ kind: "text", text: "later" }]]);
+    expect(turns.map((t) => t.parts)).toEqual([[{ kind: "text", text: "prompt 0" }], [{ kind: "text", text: "first", phase: "final_answer" }], [{ kind: "text", text: "later" }]]);
   });
   test("native tool metadata, search variants and historical diffs survive output replacement", () => {
     const native = event({ sessionUpdate: "tool_call", toolCallId: "edit-1", _meta: { "x.ai/tool": { name: "edit_file" } }, content: [{ type: "diff", path: "fiction.txt", oldText: "before", newText: "after" }] });
