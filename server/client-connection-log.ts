@@ -3,6 +3,8 @@ import { badRequest, jsonResponse } from "./http.ts";
 
 const KINDS: readonly ClientConnectionEventKind[] = ["connect", "open", "connect_timeout", "close", "socket_error", "pagehide", "pageshow", "hidden", "visible", "online", "probe", "probe_retry", "probe_overdue", "probe_drop", "pong", "submit_sent", "submit_result", "submit_timeout", "submit_disconnect", "input_held", "probe_input_blocked", "closing_wait"];
 const MAX_BYTES = 8192;
+// Report bodies read at once, server-wide: 16 x 8 KiB at most, whatever peer keys callers rotate.
+const MAX_READING = 16;
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const integer = (value: unknown, max = Number.MAX_SAFE_INTEGER): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= max;
 
@@ -40,6 +42,7 @@ function readTrace(value: unknown): ClientConnectionTrace | null {
 export class ClientConnectionLog {
   private peers = new Map<string, { at: number; count: number }>();
   private global = { at: 0, count: 0 };
+  private reading = 0;
   constructor(private write: (line: string) => void = (line) => console.warn(line), private now: () => number = Date.now) {}
 
   async handle(request: Request, peer: string): Promise<Response> {
@@ -54,6 +57,15 @@ export class ClientConnectionLog {
     // The global quota is charged only once a report validates, so malformed POSTs cannot starve real ones.
     if (quota.count >= 4) return jsonResponse({ error: { code: "trace_rate_limited", message: "Connection diagnostics are rate limited" } }, 429, { "retry-after": "60" });
     quota.count++;
+    // Bodies being read are bounded server-wide, whatever peer key a caller rotates; the report
+    // quota below is charged only after validation, so sequential malformed POSTs starve nothing.
+    if (this.reading >= MAX_READING) return jsonResponse({ error: { code: "trace_rate_limited", message: "Connection diagnostics are rate limited" } }, 429, { "retry-after": "60" });
+    this.reading++;
+    try { return await this.accept(request, now); }
+    finally { this.reading--; }
+  }
+
+  private async accept(request: Request, now: number): Promise<Response> {
     if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return badRequest("invalid_trace", "Connection diagnostics must be JSON");
     const tooLarge = () => jsonResponse({ error: { code: "trace_too_large", message: "Connection diagnostics are too large" } }, 413);
     if (Number(request.headers.get("content-length")) > MAX_BYTES) return tooLarge();

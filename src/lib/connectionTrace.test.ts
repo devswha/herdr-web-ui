@@ -122,6 +122,19 @@ describe("client connection breadcrumbs", () => {
     signedOut.trace.close();
   });
 
+  it("ignores a 401 that answers a report sent before signing in again", async () => {
+    let finish!: (status: number) => void; let now = 0;
+    const sent: ClientConnectionTrace[] = [];
+    const trace = new ConnectionTrace("ws://fixture/ws", context, (batch) => { sent.push(batch); return new Promise((resolve) => { finish = resolve; }); }, () => now);
+    trace.record("close", {}, true);
+    resumeConnectionTraces();
+    finish(401); await settle();
+    now += 60_000; trace.record("close", {}, true);
+    expect(sent).toHaveLength(2);
+    finish(204); await settle();
+    trace.close();
+  });
+
   it("does not throw into the socket when a reporter fails synchronously", () => {
     const trace = new ConnectionTrace("ws://fixture/ws", context, () => { throw new Error("reporter failed"); });
     expect(() => trace.record("close", {}, true)).not.toThrow();

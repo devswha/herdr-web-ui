@@ -60,6 +60,22 @@ describe("operator-local client diagnostic endpoint", () => {
     expect(lines).toHaveLength(16);
   });
 
+  it("bounds report bodies read at once, whatever peer key a caller rotates", async () => {
+    const log = new ClientConnectionLog(() => {}, () => 1000);
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const open = (i: number) => log.handle(new Request("http://fixture/api/connection-diagnostics", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({ start(controller) { controllers.push(controller); } }),
+    }), `rotating-${i}`);
+    const reading = Array.from({ length: 16 }, (_, i) => open(i));
+    expect((await open(16)).status).toBe(429);
+    const data = new TextEncoder().encode(JSON.stringify(body()));
+    for (const controller of controllers.slice(0, 16)) { controller.enqueue(data); controller.close(); }
+    expect((await Promise.all(reading)).map((response) => response.status)).toEqual(Array(16).fill(204));
+    // the slots are free again: a malformed body is read and refused, not rate limited
+    expect((await log.handle(request({ ...body(), target: "x" }), "after")).status).toBe(400);
+  });
+
   it("returns method/JSON refusals and never fails a client because the log writer threw", async () => {
     const log = new ClientConnectionLog(() => { throw new Error("write failed"); });
     expect((await log.handle(new Request("http://fixture/api/connection-diagnostics"), "one")).status).toBe(405);

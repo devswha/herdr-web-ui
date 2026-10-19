@@ -40,6 +40,8 @@ export class ConnectionTrace {
   private posting = false;
   private disabled = false;
   private unauthorized = false;
+  // Bumped by each sign-in, so a 401 answering a report sent before it cannot pause reporting again.
+  private signIn = 0;
   private stopped = false;
   private nextPost = -Infinity;
   private readonly target: "local" | "remote";
@@ -89,6 +91,7 @@ export class ConnectionTrace {
     const trace: ClientConnectionTrace = { client_id: this.id, target: this.target, events: [...this.incidentContext, ...this.following] };
     this.posting = true;
     this.nextPost = this.now() + 10_000;
+    const signIn = this.signIn;
     try {
       void this.post(trace).then((status) => {
         // A 4xx other than 401/403/404/429 is a refusal of this batch: drop it, never re-post it.
@@ -97,7 +100,7 @@ export class ConnectionTrace {
           this.reported = Math.max(this.reported, incident);
           if (this.incident <= this.reported) { this.incidentContext = []; this.following = []; }
         }
-        if (status === 401) this.unauthorized = true;
+        if (status === 401 && signIn === this.signIn) this.unauthorized = true;
         if (status === 403 || status === 404) this.disabled = true;
         if (status === 429) this.nextPost = this.now() + 60_000;
       }).catch(() => { /* retained metadata can go with the next connection event, never input */ })
@@ -105,7 +108,7 @@ export class ConnectionTrace {
     } catch { this.posting = false; }
   }
 
-  resume(): void { this.unauthorized = false; }
+  resume(): void { this.unauthorized = false; this.signIn++; }
 
   close(): void { live.delete(this); this.stopped = true; this.disabled = true; this.events.length = 0; this.incidentContext = []; this.following = []; }
 }
