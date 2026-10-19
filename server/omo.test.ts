@@ -237,6 +237,8 @@ it("finds the OmO a Windows launcher started below the pane's shell, with its se
 
 it("matches OmO holder records to the process start and cwd", () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-omo-holder-identity-")));
+  const platform = process.platform;
+  Object.defineProperty(process, "platform", { value: "win32" });
   try {
     const home = join(root, "home"), cwd = join(root, "project"), pid = 2 ** 30;
     const id = "owned-session";
@@ -250,7 +252,10 @@ it("matches OmO holder records to the process start and cwd", () => {
     expect(omoProcessIdentity({ ...process, startedAt: 20_000 }, cwd, home, () => [])?.heldIds).toEqual([]);
     writeFileSync(record, JSON.stringify({ pid, processStartedAtMs: 10_000, cwd: join(root, "other") }));
     expect(omoProcessIdentity(process, cwd, home, () => [])?.heldIds).toEqual([]);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    Object.defineProperty(process, "platform", { value: platform });
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 it("does not turn an ordinary pi into OmO or borrow another pane's OmO", () => {
@@ -278,7 +283,7 @@ it("does not give a reused Pi pid the old OmO process start", () => {
   expect(result?.process_info?.foreground_processes).toEqual(info.process_info.foreground_processes);
 });
 
-it("reads a fresh Windows identity instead of a cached pre-reuse start", async () => {
+it("never enriches a foreground PID from a cached pre-reuse start", async () => {
   const platform = process.platform;
   const pid = 2 ** 30;
   const old: ProcessRow[] = [
@@ -294,7 +299,8 @@ it("reads a fresh Windows identity instead of a cached pre-reuse start", async (
   Object.defineProperty(process, "platform", { value: "win32" });
   try {
     const result = await omoProcessInfo("reused-pid");
-    expect(result?.process_info?.foreground_processes?.[0]?.startedAt).toBe(20_000);
+    expect(result?.process_info?.foreground_processes?.[0]?.startedAt).toBeUndefined();
+    expect(table).not.toHaveBeenCalled();
   } finally {
     Object.defineProperty(process, "platform", { value: platform });
     table.mockRestore();
@@ -309,6 +315,17 @@ it("rejects an OmO child older than any ancestor in the pane shell chain", () =>
     const result = withOmoDescendants(launcherInfo, rows);
     expect(result?.process_info?.foreground_processes?.map((entry) => entry.pid)).toEqual([11]);
   }
+});
+
+it.skipIf(process.platform === "win32")("keeps Unix legacy holders that omit cwd", () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-omo-unix-holder-")));
+  const cwd = home, pid = process.pid;
+  const holders = join(home, ".omo", "agent", "sessions", omoSessionFolder(cwd), "session-holders", "legacy");
+  mkdirSync(holders, { recursive: true });
+  writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, processStartedAtMs: processStartedAt(pid) }));
+  try {
+    expect(omoProcessIdentity({ pid, cwd, argv: ["omo"] }, cwd, home, () => [])?.heldIds).toEqual(["legacy"]);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 it("accepts Windows legacy holders with equivalent folders and no start time", () => {

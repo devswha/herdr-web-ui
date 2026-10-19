@@ -4,7 +4,8 @@ import type { HerdrPane } from "../shared/protocol.ts";
 import { herdrRpc } from "./herdr/client.ts";
 import { cachedProcessTable, recentProcessTable } from "./gjc-runtime.ts";
 import { processStartedAt } from "./process-start.ts";
-import { descendantProcesses, windowsArgv, type ProcessRow } from "./windows-processes.ts";
+import { isPiProcess } from "./pi.ts";
+import { descendantProcesses, windowsArgv, windowsProcessTable, type ProcessRow } from "./windows-processes.ts";
 
 const OMO_PROCESS = /(^|\/)omo(\.js)?$|\/omo-ai\//;
 /** node and bun run a script: the program is then the script, the first word that is not a flag */
@@ -201,7 +202,8 @@ export function omoProcessIdentity(
   const agentDir = omoAgentDir(environ, home, dir);
   const startedAt = process.startedAt ?? processStartedAt(process.pid);
   if (isOmoProcess(process.argv ?? [])) {
-    return { agentDir, heldIds: heldSessionIds(sessionDir(dir, agentDir), process.pid, startedAt, dir, globalThis.process.platform === "win32"), custom: false };
+    const windows = globalThis.process.platform === "win32";
+    return { agentDir, heldIds: heldSessionIds(sessionDir(dir, agentDir), process.pid, startedAt, windows ? dir : undefined, windows), custom: false };
   }
   if (!dir || startedAt === null) return null;
   const omoStore = environ?.some((word) => word.startsWith("OMO_CODING_AGENT_DIR=")) === true || agentDir === defaultOmoAgentDir(home);
@@ -322,14 +324,20 @@ export type ProcessInfo = { process_info?: { shell_pid?: number; foreground_proc
 
 /**
  * herdr on Windows names only the pane's launcher in foreground_processes, not what the launcher
- * starts (windows-processes.ts). The OmO below the pane's shell joins the list, so the pane is
- * seen as OmO and its session arguments are read. Only processes below this pane's own shell
- * count, and one herdr already named is not added twice.
+ * starts (windows-processes.ts). Only OmO below a verified foreground launcher joins the list:
+ * another background child of the same shell does not own the pane's chat.
  */
 export function withOmoDescendants(info: ProcessInfo, rows: readonly ProcessRow[], fresh = true): ProcessInfo {
   const shell = info?.process_info?.shell_pid;
   const existing = info?.process_info?.foreground_processes ?? [];
   const byPid = new Map(rows.map((row) => [row.pid, row]));
+  // The same complete, time-ordered chain guards both enrichment and descendant discovery.
+  const verified = rows.filter((row) => {
+    const parent = byPid.get(row.parent);
+    return row.started !== undefined && parent?.started !== undefined && parent.started <= row.started;
+  });
+  const underShell = new Set((shell === undefined || !byPid.has(shell) ? [] : descendantProcesses(verified, shell)).map((entry) => entry.pid));
+  const launchers: number[] = [];
   const foreground = existing.map((process) => {
     const row = byPid.get(process.pid);
     const words = windowsArgv(row?.commandLine ?? "");
@@ -337,15 +345,13 @@ export function withOmoDescendants(info: ProcessInfo, rows: readonly ProcessRow[
     // A cached PID may already belong to another process, even one with the same argv.
     const matches = Array.isArray(process.argv) && process.argv.length === argv.length
       && process.argv.every((word, index) => windowsPath(String(word)) === windowsPath(argv[index]!));
-    const startedAt = fresh && matches ? row?.started : undefined;
+    const owned = matches && underShell.has(process.pid);
+    if (owned && isPiProcess(argv)) launchers.push(process.pid);
+    const startedAt = fresh && owned ? row?.started : undefined;
     return process.startedAt !== undefined || startedAt === undefined ? process : { ...process, startedAt };
   });
-  // Every edge must reach this shell through processes older than their children.
-  const verified = rows.filter((row) => {
-    const parent = byPid.get(row.parent);
-    return row.started !== undefined && parent?.started !== undefined && parent.started <= row.started;
-  });
-  const omo = (shell === undefined || !byPid.has(shell) ? [] : descendantProcesses(verified, shell)).filter((entry) =>
+  const descendants = new Map(launchers.flatMap((pid) => descendantProcesses(verified, pid)).map((entry) => [entry.pid, entry]));
+  const omo = [...descendants.values()].filter((entry) =>
     isOmoProcess(entry.argv) && !foreground.some((process) => process.pid === entry.pid)).map((entry) => {
       const startedAt = fresh ? byPid.get(entry.pid)?.started : undefined;
       return startedAt === undefined ? entry : { ...entry, startedAt };
@@ -358,7 +364,14 @@ export function withOmoDescendants(info: ProcessInfo, rows: readonly ProcessRow[
 export const omoProcessInfo = async (paneId: string, cached = false): Promise<ProcessInfo> => {
   const info = await herdrRpc<NonNullable<ProcessInfo>>("pane.process_info", { pane_id: paneId }).catch(() => null);
   if (process.platform !== "win32" || info?.process_info?.shell_pid === undefined) return info;
-  return withOmoDescendants(info, cached ? cachedProcessTable() : await recentProcessTable(undefined, undefined, true), !cached);
+  // Other agents and argv-proven OmO need only herdr's evidence, never a PowerShell listing.
+  if (!(info.process_info.foreground_processes ?? []).some((process) =>
+    Array.isArray(process.argv) && isPiProcess(process.argv.map(String)))) return info;
+  if (cached) return withOmoDescendants(info, cachedProcessTable(), false);
+  let read = false;
+  const rows = await recentProcessTable(() => { read = true; return windowsProcessTable(); });
+  // Reuse cached routing evidence, but never lend its birth time to a fresh herdr record.
+  return withOmoDescendants(info, rows, read);
 };
 
 type OmoForeground = { pid: number; argv?: string[]; cwd?: string; startedAt?: number };
@@ -503,10 +516,12 @@ export function omoTranscriptsOfCwd(cwd: string, panes: HerdrPane[], infos: Read
  * but omo has not written yet (before its first message, or right after /new). The folder
  * is the pane's resolved runtime cwd, and its peers are the panes resolving to the same one.
  */
-export async function omoSessionForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? ""): Promise<{ path: string | null; pending: string | null }> {
+export async function omoSessionForPane(paneId: string, cwd: string, panes: HerdrPane[], home = process.env["HOME"] ?? "", processInfo?: ProcessInfo): Promise<{ path: string | null; pending: string | null }> {
   // A child model can change herdr's agent label: inspect each pane's processes once.
   const candidates = panes;
-  const infos = new Map(await Promise.all(candidates.map(async (pane) => [pane.pane_id, await omoProcessInfo(pane.pane_id)] as const)));
+  const infos = new Map(await Promise.all(candidates.map(async (pane) => [
+    pane.pane_id, pane.pane_id === paneId && processInfo !== undefined ? processInfo : await omoProcessInfo(pane.pane_id),
+  ] as const)));
   const resolved = candidates.map((pane) => resolvePaneRuntime(pane, infos.get(pane.pane_id) ?? null, home, processEnviron));
   const target = resolved.find((entry) => entry.pane.pane_id === paneId);
   // two holder-owning cwds fail closed: the pane cannot be bound to either

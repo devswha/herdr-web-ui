@@ -21,14 +21,112 @@ import { forgetGjcState, recentProcessTable } from "./gjc-runtime.ts";
 import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, labelOmoPanes, ompSessionStore, paneConversation, paneProcessRoots, paneRunsOmo, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 
 describe("omo skill roots", () => {
+  it("shares one Windows listing within transcript requests and the five second window", async () => {
+    const cwd = fs.realpathSync(mkdtempSync(join(tmpdir(), "herdr-omo-request-probe-")));
+    const agentDir = join(cwd, "agent");
+    const sessions = join(agentDir, "sessions", omo.omoSessionFolder(cwd));
+    mkdirSync(sessions, { recursive: true });
+    const path = join(sessions, "shared-probe.jsonl");
+    writeFileSync(path, JSON.stringify({ type: "session", id: "shared-probe", cwd, timestamp: "2026-10-01T00:00:00Z" }) + "\n");
+    const platform = process.platform;
+    const clock = spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const pane = { pane_id: "request-probe", agent: "pi", cwd } as HerdrPane;
+    forgetGjcState();
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: {
+      shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["C:\\tools\\pi.exe"], cwd }],
+    } } as never);
+    const table = spyOn(windows, "windowsProcessTable").mockResolvedValue([
+      { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe", started: 1000 },
+      { pid: 11, parent: 10, path: "C:\\tools\\pi.exe", commandLine: "pi.exe", started: 2000 },
+      { pid: 12, parent: 11, path: "C:\\tools\\omo.exe", commandLine: "omo.exe --session-id shared-probe", started: 3000 },
+    ]);
+    const environ = spyOn(omo, "processEnviron").mockReturnValue([`OMO_CODING_AGENT_DIR=${agentDir}`]);
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const read = () => paneTranscript(pane.pane_id, undefined, { panes: [pane] } as SessionSnapshot);
+      expect(await read()).toEqual({ source: "omo-transcript", path });
+      expect(table).toHaveBeenCalledTimes(1);
+      expect(await read()).toEqual({ source: "omo-transcript", path });
+      expect(table).toHaveBeenCalledTimes(1);
+      clock.mockReturnValue(1_700_000_006_000);
+      expect(await read()).toEqual({ source: "omo-transcript", path });
+      expect(table).toHaveBeenCalledTimes(2);
+    } finally {
+      Object.defineProperty(process, "platform", { value: platform });
+      clock.mockRestore();
+      environ.mockRestore();
+      table.mockRestore();
+      rpc.mockRestore();
+      forgetGjcState();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+  for (const agent of ["claude", "codex", "opencode", "omo"]) {
+    it(`does not list Windows processes when checking an unrelated ${agent} foreground`, async () => {
+      const platform = process.platform;
+      forgetGjcState();
+      const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: {
+        shell_pid: 10, foreground_processes: [{ pid: 11, argv: [`C:\\tools\\${agent}.exe`] }],
+      } } as never);
+      const table = spyOn(windows, "windowsProcessTable").mockResolvedValue([]);
+      Object.defineProperty(process, "platform", { value: "win32" });
+      try {
+        expect(await paneRunsOmo("unrelated", "C:\\repo")).toBe(agent === "omo");
+        expect(table).not.toHaveBeenCalled();
+      } finally {
+        Object.defineProperty(process, "platform", { value: platform });
+        table.mockRestore();
+        rpc.mockRestore();
+        forgetGjcState();
+      }
+    });
+  }
+
+  it("keeps a bounded sidebar OmO label while an expired Windows listing refreshes", async () => {
+    const platform = process.platform;
+    const now = 1_700_000_000_000;
+    forgetGjcState();
+    await recentProcessTable(async () => [
+      { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe", started: 1000 },
+      { pid: 11, parent: 10, path: "C:\\tools\\pi.exe", commandLine: "pi.exe", started: 2000 },
+      { pid: 12, parent: 11, path: "C:\\tools\\omo.exe", commandLine: "omo.exe", started: 3000 },
+    ], now - 6000);
+    const pending = Promise.withResolvers<windows.ProcessRow[]>();
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: {
+      shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["C:\\tools\\pi.exe"] }],
+    } } as never);
+    const table = spyOn(windows, "windowsProcessTable").mockReturnValue(pending.promise);
+    const clock = spyOn(Date, "now").mockReturnValue(now);
+    const snapshot: SessionSnapshot = {
+      panes: [{ pane_id: "refreshing-omo", agent: "pi", cwd: "C:\\repo" } as HerdrPane],
+      agents: [], layouts: [], protocol: 1, tabs: [], version: "fixture", workspaces: [],
+    };
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      expect((await labelOmoPanes(snapshot)).panes[0]?.agent).toBe("omo");
+      expect((await labelOmoPanes(snapshot)).panes[0]?.agent).toBe("omo");
+      expect(table).toHaveBeenCalledTimes(1);
+      clock.mockReturnValue(now + 30_000);
+      expect((await labelOmoPanes(snapshot)).panes[0]?.agent).toBe("pi");
+    } finally {
+      pending.resolve([]);
+      await recentProcessTable();
+      Object.defineProperty(process, "platform", { value: platform });
+      clock.mockRestore();
+      table.mockRestore();
+      rpc.mockRestore();
+      forgetGjcState();
+    }
+  });
   it("labels a Windows OmO descendant using a settled listing without another probe", async () => {
     const platform = process.platform;
     forgetGjcState();
     await recentProcessTable(async () => [
       { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe", started: 1000 },
-      { pid: 11, parent: 10, path: "C:\\tools\\omo.exe", commandLine: "omo.exe", started: 2000 },
+      { pid: 11, parent: 10, path: "C:\\tools\\pi.exe", commandLine: "pi.exe", started: 2000 },
+      { pid: 12, parent: 11, path: "C:\\tools\\omo.exe", commandLine: "omo.exe", started: 3000 },
     ]);
-    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [] } } as never);
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["C:\\tools\\pi.exe"] }] } } as never);
     const table = spyOn(windows, "windowsProcessTable").mockResolvedValue([]);
     Object.defineProperty(process, "platform", { value: "win32" });
     try {
@@ -49,7 +147,7 @@ describe("omo skill roots", () => {
     const platform = process.platform;
     forgetGjcState();
     const pending = Promise.withResolvers<windows.ProcessRow[]>();
-    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [] } } as never);
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["C:\\tools\\pi.exe"] }] } } as never);
     const table = spyOn(windows, "windowsProcessTable").mockReturnValue(pending.promise);
     const snapshot = { panes: [{ pane_id: "sidebar", agent: "pi", cwd: "C:\\repo" }] } as SessionSnapshot;
     Object.defineProperty(process, "platform", { value: "win32" });
@@ -71,7 +169,7 @@ describe("omo skill roots", () => {
   it("does not restart a failed Windows listing on every sidebar refresh", async () => {
     const platform = process.platform;
     forgetGjcState();
-    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [] } } as never);
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["C:\\tools\\pi.exe"] }] } } as never);
     const table = spyOn(windows, "windowsProcessTable").mockResolvedValue([]);
     const snapshot = { panes: [{ pane_id: "negative-cache", agent: "pi", cwd: "C:\\repo" }] } as SessionSnapshot;
     Object.defineProperty(process, "platform", { value: "win32" });

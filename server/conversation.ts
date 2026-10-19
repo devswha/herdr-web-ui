@@ -43,7 +43,7 @@ import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, cod
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
-import { omoProcessIdentity, omoProcessInfo, omoSessionForPane, processCwd, processEnviron } from "./omo.ts";
+import { omoProcessIdentity, omoProcessInfo, omoSessionForPane, processCwd, processEnviron, type ProcessInfo } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
@@ -1123,8 +1123,8 @@ export async function gjcTranscriptPath(paneId: string, cwd: string, home?: stri
  * failure answers "no": the caller then reports why the labelled store failed,
  * which is the more useful error.
  */
-export async function paneRunsOmo(paneId: string, cwd = "", cached = false): Promise<boolean> {
-  const info = await omoProcessInfo(paneId, cached).catch(() => null);
+export async function paneRunsOmo(paneId: string, cwd = "", cached = false, processInfo?: ProcessInfo): Promise<boolean> {
+  const info = processInfo === undefined ? await omoProcessInfo(paneId, cached).catch(() => null) : processInfo;
   const home = process.env["HOME"] ?? "";
   return (info?.process_info?.foreground_processes ?? []).some((process) =>
     omoProcessIdentity({
@@ -1330,8 +1330,9 @@ export type NativeTranscript =
  * label: omo's own store is read only when omo is really running
  * in that pane, never on a matching cwd alone.
  */
-async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[], opencodeDb?: string, hermesHome?: string, grokHome?: string): Promise<ResolvedTranscript> {
+async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[], opencodeDb?: string, hermesHome?: string, grokHome?: string, processInfo?: ProcessInfo): Promise<ResolvedTranscript> {
   const paneId = pane.pane_id;
+  const omoInfo = process.platform === "win32" && processInfo === undefined ? await omoProcessInfo(paneId).catch(() => null) : processInfo;
   let agent = pane.agent ?? pane.agent_session?.agent ?? "";
   // herdr names no agent for this pane: a session report an earlier agent left behind says
   // nothing about what runs now, so the pane's processes are asked before it is followed.
@@ -1346,8 +1347,8 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     );
     if (running || await gjcPidUnderShell(info?.process_info?.shell_pid)) agent = "gjc";
   }
-  if (await paneRunsOmo(paneId, pane.foreground_cwd || cwd)) {
-    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes) };
+  if (await paneRunsOmo(paneId, pane.foreground_cwd || cwd, false, omoInfo)) {
+    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes, omoInfo) };
   }
   // omp and GJC can change their own cwd without changing the pane's shell directory; their
   // session headers name the one they run in
@@ -1403,13 +1404,13 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     throw new ConversationUnavailable("no_recognized_transcript");
   } catch (error) {
     if (error instanceof AgyUnavailable) throw new ConversationUnavailable("transcript_missing");
-    if (!(error instanceof ConversationUnavailable) || !(await paneRunsOmo(paneId, pane.foreground_cwd || cwd))) throw error;
-    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes) };
+    if (!(error instanceof ConversationUnavailable) || !(await paneRunsOmo(paneId, pane.foreground_cwd || cwd, false, omoInfo))) throw error;
+    return { source: "omo-transcript", path: await omoTranscriptPath(paneId, cwd, panes, omoInfo) };
   }
 }
 
-async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[]): Promise<string> {
-  const session = await omoSessionForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes);
+async function omoTranscriptPath(paneId: string, cwd: string, panes?: HerdrPane[], processInfo?: ProcessInfo): Promise<string> {
+  const session = await omoSessionForPane(paneId, cwd, panes ?? (await sessionSnapshot()).panes, undefined, processInfo);
   if (session.pending !== null) throw new ConversationNotStarted(session.pending);
   if (!session.path) throw new ConversationUnavailable("no_session_path");
   return session.path;
@@ -1463,7 +1464,8 @@ export async function paneTranscript(paneId: string, codexHome?: string, snapsho
   if (pane === undefined) throw new ConversationUnavailable("pane_not_found");
   if (typeof pane.cwd !== "string" || pane.cwd.length === 0) throw new ConversationUnavailable("no_recognized_transcript");
 
-  if (pane.agent === "devin" && !(await paneRunsOmo(paneId, pane.foreground_cwd || pane.cwd))) {
+  const omoInfo = process.platform === "win32" ? await omoProcessInfo(paneId).catch(() => null) : undefined;
+  if (pane.agent === "devin" && !(await paneRunsOmo(paneId, pane.foreground_cwd || pane.cwd, false, omoInfo))) {
     const cwd = pane.foreground_cwd || pane.cwd;
     const storePath = devinDbPath ?? defaultDevinDbPath();
     const info = await herdrRpc<{ process_info?: { foreground_processes?: { argv?: unknown }[] } }>(
@@ -1482,7 +1484,7 @@ export async function paneTranscript(paneId: string, codexHome?: string, snapsho
     }
   }
 
-  return resolveTranscript(pane, pane.cwd, codexHome, panes, opencodeDb, hermesHome, grokHome);
+  return resolveTranscript(pane, pane.cwd, codexHome, panes, opencodeDb, hermesHome, grokHome, omoInfo);
 }
 
 /**

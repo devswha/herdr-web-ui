@@ -833,6 +833,15 @@ it("uses a fresh Windows process tree for the final process identity check", asy
   } finally { rmSync(home, { recursive: true, force: true }); forgetTranscriptState(); }
 });
 
+it("recovers a rejected Windows listing instead of pinning the failed promise", async () => {
+  forgetTranscriptState();
+  const rows = [{ pid: 100, parent: 4, path: null, commandLine: "powershell.exe" }];
+  const error = new Error("fixture listing failed");
+  await recentProcessTable(async () => { throw error; }, 10_000).catch(() => []);
+  expect(await recentProcessTable(async () => rows, 16_000)).toEqual(rows);
+  forgetTranscriptState();
+});
+
 it("asks the Windows process table once for the polls of a few seconds", async () => {
   forgetTranscriptState();
   const rows = [{ pid: 100, parent: 4, path: null, commandLine: "powershell.exe" }];

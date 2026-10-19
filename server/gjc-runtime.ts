@@ -32,29 +32,34 @@ export function isGjcProcess(argv: readonly string[]): boolean {
 }
 
 const PROCESS_TABLE_MS = 5000;
+const PROCESS_TABLE_LABEL_MS = 30_000;
 let processTable: { at: number; rows: Promise<ProcessRow[]>; value?: ProcessRow[] } | null = null;
+let lastGoodTable: { at: number; rows: ProcessRow[] } | null = null;
 
 /**
  * The Windows process table, read at most once per PROCESS_TABLE_MS. The chat polls a pane
  * every 2 s and each read starts a PowerShell (about 1.3 s on a real PC), so the polls of a
  * few seconds share one; a gjc that left its pane can still count as running for that long.
- * OmO's identity check requests a fresh read, sharing only an in-flight query or a recent failure.
  */
-export function recentProcessTable(read: () => Promise<ProcessRow[]> = windowsProcessTable, now?: number, fresh = false): Promise<ProcessRow[]> {
+export function recentProcessTable(read: () => Promise<ProcessRow[]> = windowsProcessTable, now?: number): Promise<ProcessRow[]> {
   const at = now ?? Date.now();
   if (processTable && (processTable.value === undefined
-    || (at - processTable.at < PROCESS_TABLE_MS && (!fresh || processTable.value.length === 0)))) return processTable.rows;
-  const entry: NonNullable<typeof processTable> = { at, rows: read() };
+    || at - processTable.at < PROCESS_TABLE_MS)) return processTable.rows;
+  const entry: NonNullable<typeof processTable> = { at, rows: read().catch(() => []) };
   processTable = entry;
   // Keep failures briefly too: a refresh must not spawn a fast-failing PowerShell each time.
-  void entry.rows.then((rows) => { entry.value = rows; entry.at = now ?? Date.now(); });
+  void entry.rows.then((rows) => {
+    entry.value = rows;
+    entry.at = now ?? Date.now();
+    if (processTable === entry && rows.length > 0) lastGoodTable = { at: entry.at, rows };
+  });
   return entry.rows;
 }
 
 /** Roster labels use a settled table immediately, warming a missing one without holding up a snapshot. */
 export function cachedProcessTable(): ProcessRow[] {
   void recentProcessTable();
-  return processTable?.value ?? [];
+  return lastGoodTable && Date.now() - lastGoodTable.at < PROCESS_TABLE_LABEL_MS ? lastGoodTable.rows : [];
 }
 
 /** A gjc process by its number and when it started: a number alone comes back for another process. */
@@ -91,7 +96,7 @@ export async function gjcPidUnderShell(
 }
 
 /** Forget the process table kept between Windows polls. */
-export function forgetGjcState(): void { processTable = null; transcriptFlights.clear(); transcriptBindings.clear(); transcriptFailures.clear(); }
+export function forgetGjcState(): void { processTable = null; lastGoodTable = null; transcriptFlights.clear(); transcriptBindings.clear(); transcriptFailures.clear(); }
 
 /**
  * Where `file` sits inside `root`, as path segments, or null when it is not inside. The
