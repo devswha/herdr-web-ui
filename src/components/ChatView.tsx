@@ -23,6 +23,7 @@ import type { LegendListRef } from "@legendapp/list/react";
 import { appendChatRowSlots, createChatRowSlots, prependChatRowSlots } from "../lib/chatRows.ts";
 import { ChatDetails, ChatRowMemoryContext, useChatRowToggle, type ChatRowMemory } from "../lib/chatRowState.tsx";
 import { turnRevision } from "../lib/turnRevision.ts";
+import { conversationFinishPresented } from "../lib/panePresentation.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
@@ -171,7 +172,7 @@ export interface ChatViewProps {
 interface ChatState {
   activity?: ConversationResponse["activity"];
   source: "conversation" | "scrollback";
-  conversationSource?: string;
+  conversationSource?: ConversationResponse["source"];
   turns: ConversationTurn[];
   messages: TranscriptMessage[];
   truncated: boolean;
@@ -1234,6 +1235,12 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
   const measureEnd = (): void => {
     const node = scroller.current;
     if (!node) return;
+    // Every measurement path must respect a pending restore/minimap/page navigation.
+    // Only genuinely short content cannot be moved away from its end.
+    if (pagingAway.current && node.scrollHeight > node.clientHeight) {
+      setEndPresentation(null);
+      return;
+    }
     const lastKey = timelineRows.at(-1)?.key;
     const last = lastKey === undefined ? null : node.querySelector<HTMLElement>(`[data-chat-row="${CSS.escape(lastKey)}"]`);
     const viewport = node.getBoundingClientRect();
@@ -1322,11 +1329,15 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
     const scrollingUp = node.scrollTop < lastScrollTop.current;
     lastScrollTop.current = node.scrollTop;
     // DOM heights are rounded; only downward intent may use the endpoint rounding allowance.
-    if (distanceFromBottom <= 0 || (scrollingDown && distanceFromBottom <= 1)) pagingAway.current = false;
+    if ((!pagingAway.current || scrollingDown) && distanceFromBottom <= 1) pagingAway.current = false;
+    if (scrollingUp && distanceFromBottom > 1 && stickToBottom.current) {
+      pagingAway.current = true;
+      dropPendingListScroll(timeline.current);
+    }
     // A downward automatic scroll may arrive before the next measured layout.
     // Only upward movement can turn an existing follow intent into reading intent.
     if (!stickToBottom.current || scrollingUp || pagingAway.current) {
-      stickToBottom.current = distanceFromBottom <= (pagingAway.current ? 0 : 48);
+      stickToBottom.current = !pagingAway.current && distanceFromBottom <= 1;
     }
     setAway(!stickToBottom.current);
     measureEnd();
@@ -1469,13 +1480,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
     frame = requestAnimationFrame(settle);
   }, [loaded, error, state.source, timelineRows]);
   // Covers first layout, restored short chats and a fresh read that changes no scroll offset.
-  useLayoutEffect(() => {
-    const node = scroller.current;
-    // A restored position or minimap request can still be pending at the old endpoint.
-    // Short content cannot move; otherwise its scroll/resize event must prove arrival.
-    if (!pagingAway.current || (node && node.scrollHeight <= node.clientHeight)) measureEnd();
-    else setEndPresentation(null);
-  });
+  useLayoutEffect(() => { measureEnd(); });
   useEffect(() => () => stopRestore.current?.(), []);
   const minimap = useMemo(() => minimapTurns(shownTurns), [shownTurns]);
   const rowKeys = useMemo(() => timelineRows.map((row) => row.key), [timelineRows]);
@@ -1551,6 +1556,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
     {/* a reader away from the end has not seen the answer a finish lands there: presented only at the end */}
     <div className="chat-frame" data-pane-content={active && visible && connected && !ended && loaded && error === null && !away && !newMessages
       && endPresentation?.state === state && endPresentation.key === presentationKey
+      && (agentStatus !== "done" || conversationFinishPresented({ source: state.conversationSource, turns: state.turns }))
       && readPresentation === presentationKey && (state.source === "conversation" ? ChatTimeline !== null : agent === null) ? presentationKey : undefined}>
     <div className="chat-frame-body">
     {state.source === "conversation" ? ChatTimeline === null

@@ -1108,6 +1108,7 @@ export function PaneTerminal({
     // a socket this page was connected to before this mount (a switch back to the PC): a wait is a reconnect
     setConnectedBefore(connectedSockets.has(socket));
     let outputGeneration = 0;
+    let outputRecovering = false;
     let deferredAttach = false;
     const off = session.on((message, sent) => {
       onServerMessageRef.current?.(message);
@@ -1138,6 +1139,19 @@ export function PaneTerminal({
         setChatInvalidation((current) => current + 1);
       }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
+      if (message.type === "input-ready") {
+        if (message.ready === false) {
+          outputRecovering = true;
+          outputGeneration++;
+          setOutputReady(false);
+          setParsedTarget(undefined);
+        } else if (outputRecovering) {
+          // Recovery revokes parses queued before this receipt too. The new stream, not
+          // input permission (which observers never have), proves the screen is current.
+          outputRecovering = false;
+          outputGeneration++;
+        }
+      }
       if (message.type === "pty-data") {
         if (message.pane_id !== paneRef.current || releasedRef.current) return;
         // A chat showing herdr's scrollback has no native file to watch: output invalidates it.
@@ -1150,7 +1164,7 @@ export function PaneTerminal({
         term.write(message.data, () => {
           acknowledge?.();
           if (disposed) return;
-          if (paneRef.current !== owner || generation !== outputGeneration) {
+          if (paneRef.current !== owner || generation !== outputGeneration || outputRecovering) {
             // output of a pane left behind, or of a dropped connection, was still queued in xterm
             // when the switch reset the level: whatever its parse just set, the level is off again
             // (writes are parsed in order, so no newer output has been read yet)
@@ -1294,6 +1308,7 @@ export function PaneTerminal({
       pendingScopeRef.current = session.scope;
       pendingEpochRef.current = session.epoch;
       outputGeneration++;
+      outputRecovering = false;
       setOutputReady(false);
       setInputReady(false);
       setConnected(false);

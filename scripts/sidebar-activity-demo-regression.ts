@@ -8,7 +8,7 @@ import { buildDemoApp } from "./demo-build.ts";
 import { chromePath } from "./chrome-path.ts";
 import { contextMenuKey } from "./context-menu-key.ts";
 import type { Machine } from "../shared/machines.ts";
-import type { AgentStatus } from "../shared/protocol.ts";
+import type { AgentStatus, ConversationResponse, ServerMessage } from "../shared/protocol.ts";
 
 declare global {
   interface Window {
@@ -23,6 +23,8 @@ declare global {
       reads: Record<string, number>;
       /** older turns put ahead of a pane's demo chat, so it is long enough to scroll away from its end */
       pad(paneId: string, turns: number): void;
+      frame(message: ServerMessage): void;
+      conversation(paneId: string, response: ConversationResponse): void;
     };
   }
 }
@@ -35,6 +37,9 @@ function installSidebarFixture(): void {
   const state: { finishes: Record<string, { status: AgentStatus; seq: number }>; zoom: { paneId: string; focusedId: string; split?: boolean } | null; blocked?: { paneId: string; kind: string }; padded?: Record<string, number> } =
     stored ? JSON.parse(stored) : { finishes: {}, zoom: null };
   const sources = new Set<EventSource>();
+  const sockets = new Set<WebSocket>();
+  const conversations = new Map<string, { response: ConversationResponse; etag: string }>();
+  let conversationRevision = 0;
   const patch = (machines: Machine[]): Machine[] => {
     for (const machine of machines) {
       const snapshot = machine.snapshot;
@@ -72,6 +77,13 @@ function installSidebarFixture(): void {
     const url = new URL(input instanceof Request ? input.url : String(input), location.href);
     if (url.pathname === "/api/pane/conversation") {
       const id = url.searchParams.get("pane_id") ?? "";
+      const conversation = conversations.get(id);
+      if (conversation) {
+        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+        response = headers.get("if-none-match") === conversation.etag
+          ? new Response(null, { status: 304, headers: { etag: conversation.etag } })
+          : Response.json(conversation.response, { headers: { etag: conversation.etag } });
+      }
       const padding = state.padded?.[id] ?? 0;
       if (padding > 0 && response.ok) {
         const body = await response.json();
@@ -105,6 +117,7 @@ function installSidebarFixture(): void {
   window.WebSocket = class extends DemoSocket {
     constructor(url: string | URL, protocols?: string | string[]) {
       super(url, protocols);
+      sockets.add(this);
       // The demo constructor returns its own EventTarget object, so wrap that instance's
       // method instead of overriding a subclass prototype that the returned object never uses.
       const send = this.send.bind(this);
@@ -158,6 +171,10 @@ function installSidebarFixture(): void {
     async zoom(paneId, focusedId) { state.zoom = { paneId, focusedId }; await publish(); },
     async split(paneId, focusedId) { state.zoom = { paneId, focusedId, split: true }; await publish(); },
     pad(paneId, turns) { state.padded = { ...state.padded, [paneId]: turns }; sessionStorage.setItem(key, JSON.stringify(state)); },
+    frame(message) {
+      for (const socket of sockets) if (socket.readyState === 1) socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
+    },
+    conversation(paneId, response) { conversations.set(paneId, { response, etag: `"fixture-${++conversationRevision}"` }); },
   };
 }
 
@@ -239,6 +256,110 @@ try {
     const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
     try {
       const finishCase = process.env["SIDEBAR_FINISH_CASE"];
+      if (!finishCase || finishCase === "recovery") {
+        for (const observing of [false, true]) await withPage(browser, {}, async (page) => {
+          await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}&view=terminal`);
+          const content = page.locator(".pane-frame.is-current .terminal-stack[data-pane-content]");
+          await content.waitFor();
+          await page.evaluate(({ id, observing }) => {
+            if (observing) window.sidebarFixture.frame({ type: "role-ack", mode: "observe" });
+            window.sidebarFixture.frame({ type: "input-ready", pane_id: id, ready: false });
+          }, { id: panes.omp, observing });
+          await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 101), panes.omp);
+          await waitStatus(page, INFRA, "done");
+          assert.equal(await content.count(), 0, "attachment loss revokes the old screen's presentation");
+          await page.evaluate((id) => window.sidebarFixture.frame({ type: "pty-data", pane_id: id, data: "old attachment tail\r\n" }), panes.omp);
+          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+          assert.equal(await content.count(), 0, "output before recovery cannot re-arm presentation");
+          await page.evaluate((id) => window.sidebarFixture.frame({ type: "input-ready", pane_id: id }), panes.omp);
+          assert.equal(await content.count(), 0, "recovery alone must wait for new output");
+          await page.evaluate((id) => window.sidebarFixture.frame({ type: "pty-data", pane_id: id, data: "recovered screen\r\n" }), panes.omp);
+          await waitStatus(page, INFRA, "idle");
+          await content.waitFor();
+          await page.evaluate(async (id) => {
+            window.sidebarFixture.frame({ type: "pty-data", pane_id: id, data: "queued before loss\r\n" });
+            window.sidebarFixture.frame({ type: "input-ready", pane_id: id, ready: false });
+            window.sidebarFixture.frame({ type: "input-ready", pane_id: id });
+            await window.sidebarFixture.finish(id, "done", 102);
+          }, panes.omp);
+          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+          await waitStatus(page, INFRA, "done");
+          assert.equal(await content.count(), 0, "a pre-loss parse callback cannot re-arm a recovered attachment");
+          await page.evaluate((id) => window.sidebarFixture.frame({ type: "pty-data", pane_id: id, data: "fresh after queued parse\r\n" }), panes.omp);
+          await waitStatus(page, INFRA, "idle");
+        });
+        console.log("PASS attachment recovery needs fresh output for owners and observers");
+      }
+      if (!finishCase || finishCase === "transcript-finish") {
+        for (const source of ["claude-transcript", "codex-transcript"] as const) await withPage(browser, {}, async (page) => {
+          await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}`);
+          const pending: ConversationResponse = { source, history_id: "pending-fixture", turns: [
+            { role: "user", ts: "2026-10-19T01:00:00Z", parts: [{ kind: "text", text: "Current request" }] },
+            { role: "assistant", ts: "2026-10-19T01:00:01Z", parts: [{ kind: "text", text: "Still working", phase: "commentary" }] },
+          ] };
+          await page.evaluate(({ id, pending }) => window.sidebarFixture.conversation(id, pending), { id: panes.omp, pending });
+          await page.evaluate((id) => window.sidebarFixture.finish(id, "working", 100), panes.omp);
+          await page.getByText("Still working", { exact: true }).waitFor({ state: "attached" });
+          const before = await page.evaluate((id) => window.sidebarFixture.reads[id] ?? 0, panes.omp);
+          await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 101), panes.omp);
+          await page.waitForFunction(({ id, before }) => (window.sidebarFixture.reads[id] ?? 0) > before, { id: panes.omp, before });
+          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+          assert.equal(await agent(page, INFRA).locator(".sidebar-status").getAttribute("data-status"), "done",
+            "a read after DONE without the final answer is still unread");
+          const finished = structuredClone(pending);
+          finished.turns[1]!.parts.push({ kind: "text", text: "Final answer arrived", phase: "final_answer" });
+          await page.evaluate(({ id, finished }) => {
+            window.sidebarFixture.conversation(id, finished);
+            window.sidebarFixture.frame({ type: "conversation-changed", pane_id: id, signature: "final-answer" });
+          }, { id: panes.omp, finished });
+          await page.getByText("Final answer arrived", { exact: true }).waitFor();
+          await waitStatus(page, INFRA, "idle");
+        });
+        console.log("PASS hook-driven DONE waits for transcript final-answer evidence");
+      }
+      if (!finishCase || finishCase === "pending-older" || finishCase === "near-end") {
+        for (const kind of ["pending-older", "near-end"] as const) {
+          if (finishCase && finishCase !== kind) continue;
+          await withPage(browser, {}, async (page) => {
+            await page.emulateMedia({ reducedMotion: "reduce" });
+            await page.evaluate((id) => window.sidebarFixture.pad(id, 30), panes.omp);
+            await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}`);
+            await page.evaluate((id) => window.sidebarFixture.finish(id, "working", 100), panes.omp);
+            const log = page.getByRole("log");
+            await page.evaluate(() => document.fonts.ready);
+            await page.waitForFunction((id) => [...document.querySelectorAll("[data-pane-content]")].some((node) => {
+              const key = JSON.parse(node.getAttribute("data-pane-content") ?? "null");
+              return key?.[1] === id && key[5] === 100;
+            }), panes.omp);
+            await page.waitForFunction(() => {
+              const node = document.querySelector('[role="log"]');
+              return node && node.scrollHeight > node.clientHeight + 200 && node.scrollHeight - node.clientHeight - node.scrollTop <= 1;
+            });
+            if (kind === "pending-older") {
+              await log.evaluate((node) => { node.scrollTo = () => {}; });
+              await page.locator(".chat-minimap-tick").first().click();
+              await log.evaluate((node: HTMLElement) => {
+                node.firstElementChild?.setAttribute("style", `${node.firstElementChild.getAttribute("style") ?? ""};opacity:.99`);
+                node.style.height = `${node.clientHeight - 1}px`;
+                node.style.bottom = "auto";
+              });
+              await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+              assert.equal(await page.locator(".chat-new-messages").count(), 1, "a mutation at the old endpoint must respect the pending older jump");
+              await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 101), panes.omp);
+              await waitStatus(page, INFRA, "done");
+              assert.equal(await page.locator(".chat-frame[data-pane-content]").count(), 0);
+              await log.evaluate((node) => { Reflect.deleteProperty(node, "scrollTo"); });
+            } else {
+              await log.hover();
+              await page.mouse.wheel(0, -20);
+              await page.locator(".chat-new-messages").waitFor();
+              const gap = await log.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop);
+              assert.ok(gap > 1, `the fixture remains away by ${gap}px`);
+            }
+          });
+          console.log(`PASS ${kind}: end geometry and navigation intent stay distinct`);
+        }
+      }
       for (const kind of ["crash", "loading", "failed", "refresh", "held", "unattached"] as const) {
         if (finishCase && finishCase !== kind) continue;
         await withPage(browser, {}, async (page) => {
