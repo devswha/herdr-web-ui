@@ -8,7 +8,7 @@ import type { AgentRenameRequest, PaneDirection, PaneResized, PaneSplit, PaneSwa
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse, readJsonObject } from "./http.ts";
-import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, paneRunsOmo, toolOutput } from "./conversation.ts";
+import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import { GjcSdkLookupError } from "./gjc-sdk.ts";
@@ -64,7 +64,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
       const context = await paneContext(paneId);
       if (pathname === "/api/pane/commands") {
         const roots = await paneProcessRoots(paneId, context.agent, context.cwd);
-        const agent = roots.omo || (context.agent === "pi" && await paneRunsOmo(paneId, context.cwd)) ? "omo" : context.agent;
+        const agent = roots.omo ? "omo" : context.agent;
         return jsonResponse({ commands: paneCommands(agent, context.cwd, undefined, { ...roots.omo, environ: roots.environ }) });
       }
       const limitRaw = url.searchParams.get("limit");

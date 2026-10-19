@@ -15,52 +15,134 @@ import * as herdr from "./herdr/client.ts";
 import { forgetHistoryChains } from "./codex.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import * as omo from "./omo.ts";
-import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneProcessRoots, paneRunsOmo, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { processStartedAt } from "./process-start.ts";
+import * as windows from "./windows-processes.ts";
+import { forgetGjcState, recentProcessTable } from "./gjc-runtime.ts";
+import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, labelOmoPanes, ompSessionStore, paneConversation, paneProcessRoots, paneRunsOmo, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 
 describe("omo skill roots", () => {
+  it("labels a Windows OmO descendant using a settled listing without another probe", async () => {
+    const platform = process.platform;
+    forgetGjcState();
+    await recentProcessTable(async () => [
+      { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe", started: 1000 },
+      { pid: 11, parent: 10, path: "C:\\tools\\omo.exe", commandLine: "omo.exe", started: 2000 },
+    ]);
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [] } } as never);
+    const table = spyOn(windows, "windowsProcessTable").mockResolvedValue([]);
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const snapshot: SessionSnapshot = {
+        panes: [{ pane_id: "cached-omo", agent: "pi", cwd: "C:\\repo" } as HerdrPane],
+        agents: [], layouts: [], protocol: 1, tabs: [], version: "fixture", workspaces: [],
+      };
+      expect((await labelOmoPanes(snapshot)).panes[0]?.agent).toBe("omo");
+      expect(table).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", { value: platform });
+      table.mockRestore();
+      rpc.mockRestore();
+      forgetGjcState();
+    }
+  });
+  it("returns sidebar labels without awaiting a fresh Windows listing", async () => {
+    const platform = process.platform;
+    forgetGjcState();
+    const pending = Promise.withResolvers<windows.ProcessRow[]>();
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [] } } as never);
+    const table = spyOn(windows, "windowsProcessTable").mockReturnValue(pending.promise);
+    const snapshot = { panes: [{ pane_id: "sidebar", agent: "pi", cwd: "C:\\repo" }] } as SessionSnapshot;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    const labeling = labelOmoPanes(snapshot);
+    try {
+      // The subprocess is deliberately still running when this event-loop turn ends.
+      const turnEnded = new Promise<null>((resolve) => setImmediate(() => resolve(null)));
+      expect(await Promise.race([labeling, turnEnded])).toBe(snapshot);
+    } finally {
+      pending.resolve([]);
+      await labeling;
+      Object.defineProperty(process, "platform", { value: platform });
+      table.mockRestore();
+      rpc.mockRestore();
+      forgetGjcState();
+    }
+  });
+
+  it("does not restart a failed Windows listing on every sidebar refresh", async () => {
+    const platform = process.platform;
+    forgetGjcState();
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { shell_pid: 10, foreground_processes: [] } } as never);
+    const table = spyOn(windows, "windowsProcessTable").mockResolvedValue([]);
+    const snapshot = { panes: [{ pane_id: "negative-cache", agent: "pi", cwd: "C:\\repo" }] } as SessionSnapshot;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      expect(await labelOmoPanes(snapshot)).toBe(snapshot);
+      expect(await labelOmoPanes(snapshot)).toBe(snapshot);
+      expect(table).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(process, "platform", { value: platform });
+      table.mockRestore();
+      rpc.mockRestore();
+      forgetGjcState();
+    }
+  });
+  it.skipIf(process.platform !== "linux")("uses Linux process cwd before a stale pane cwd for custom OmO roots", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-omo-proc-cwd-"));
+    const cwd = fs.readlinkSync(`/proc/${process.pid}/cwd`);
+    const agentDir = join(root, "agent");
+    const holders = join(agentDir, "sessions", omo.omoSessionFolder(cwd), "session-holders", "current");
+    mkdirSync(holders, { recursive: true });
+    writeFileSync(join(holders, `${process.pid}.json`), JSON.stringify({ pid: process.pid, cwd, processStartedAtMs: processStartedAt(process.pid) }));
+    const info = spyOn(omo, "omoProcessInfo").mockResolvedValue({ process_info: { foreground_processes: [{ pid: process.pid, argv: ["custom-launcher"] }] } });
+    const environ = spyOn(omo, "processEnviron").mockReturnValue([`OMO_CODING_AGENT_DIR=${agentDir}`]);
+    const which = spyOn(Bun, "which").mockReturnValue(null);
+    try {
+      const roots = await paneProcessRoots("proc-cwd", "claude", join(root, "stale"));
+      expect(roots.omo?.agentDir).toBe(agentDir);
+      expect(roots.pid).toBe(process.pid);
+    } finally {
+      which.mockRestore();
+      environ.mockRestore();
+      info.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores malformed process fields at the herdr boundary", async () => {
+    const info = spyOn(omo, "omoProcessInfo").mockResolvedValue({ process_info: { foreground_processes: [
+      { pid: "invalid", argv: ["pi"], cwd: 7 },
+      { pid: 101, argv: "omo", cwd: {} },
+    ] } } as never);
+    try {
+      expect(await paneRunsOmo("malformed")).toBeFalse();
+      expect((await paneProcessRoots("malformed", "pi")).omo).toBeNull();
+    } finally { info.mockRestore(); }
+  });
   it("uses a pane's cwd and process start when identifying a Windows OmO descendant", async () => {
     const cwd = "C:\\Users\\demo\\repo";
     const info = spyOn(omo, "omoProcessInfo").mockResolvedValue({ process_info: { foreground_processes: [
       { pid: 101, argv: ["C:\\tools\\omo.exe"], startedAt: 1_700_000_000_000 },
     ] } });
-    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir: "C:\\state\\agent", heldIds: [], custom: false });
     try {
       expect(await paneRunsOmo("omo-windows-fixture", cwd)).toBeTrue();
-      expect(info).toHaveBeenCalledWith("omo-windows-fixture");
-      expect(identity).toHaveBeenCalledWith({
-        pid: 101,
-        argv: ["C:\\tools\\omo.exe"],
-        cwd: undefined,
-        startedAt: 1_700_000_000_000,
-      }, cwd, expect.any(String));
     } finally {
-      identity.mockRestore();
       info.mockRestore();
     }
   });
 
   it("uses Windows descendant metadata when resolving OmO command roots", async () => {
-    const cwd = "C:\\Users\\demo\\repo";
+    const cwd = import.meta.dir;
     const info = spyOn(omo, "omoProcessInfo").mockResolvedValue({ process_info: { foreground_processes: [
       { pid: 101, argv: ["C:\\tools\\omo.exe"], startedAt: 1_700_000_000_000 },
     ] } });
-    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir: import.meta.dir, heldIds: [], custom: false });
-    const environ = spyOn(omo, "processEnviron").mockReturnValue(["PATH=/bin"]);
+    const environ = spyOn(omo, "processEnviron").mockReturnValue([`OMO_CODING_AGENT_DIR=${import.meta.dir}`]);
     const which = spyOn(Bun, "which").mockReturnValue(null);
     try {
       const roots = await paneProcessRoots("omo-windows-fixture", "pi", cwd);
-      expect(info).toHaveBeenCalledWith("omo-windows-fixture");
-      expect(identity).toHaveBeenCalledWith({
-        pid: 101,
-        argv: ["C:\\tools\\omo.exe"],
-        cwd,
-        startedAt: 1_700_000_000_000,
-      }, cwd, expect.any(String));
-      expect(roots).toEqual({ omo: { agentDir: import.meta.dir, pluginDir: null }, environ: ["PATH=/bin"], pid: 101, cwd });
+      expect(roots).toEqual({ omo: { agentDir: import.meta.dir, pluginDir: null }, environ: [`OMO_CODING_AGENT_DIR=${import.meta.dir}`], pid: 101, cwd });
     } finally {
       which.mockRestore();
       environ.mockRestore();
-      identity.mockRestore();
       info.mockRestore();
     }
   });

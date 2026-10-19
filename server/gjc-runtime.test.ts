@@ -848,5 +848,8 @@ it("asks the Windows process table once for the polls of a few seconds", async (
   const unreadable = async () => { failed += 1; return []; };
   await recentProcessTable(unreadable, 20_000);
   await recentProcessTable(unreadable, 20_001);
+  await recentProcessTable(unreadable, 22_000);
+  expect(failed).toBe(1);
+  await recentProcessTable(unreadable, 25_001);
   expect(failed).toBe(2);
 });

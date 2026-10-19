@@ -1,4 +1,4 @@
-import { expect, it } from "bun:test";
+import { expect, it, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -7,6 +7,10 @@ import { heldRuntime, heldSessionIds, isOmoProcess, omoAgentDir, omoProcessIdent
 import { processStartedAt } from "./process-start.ts";
 import { parseOmpTranscript } from "./transcript-records.ts";
 import type { ProcessRow } from "./windows-processes.ts";
+import * as windows from "./windows-processes.ts";
+import * as herdr from "./herdr/client.ts";
+import { forgetGjcState, recentProcessTable } from "./gjc-runtime.ts";
+import { omoProcessInfo } from "./omo.ts";
 
 const runtime = (paneId: string, startedAt: number | null = 10_000, paths: string[] = [], ids: string[] = []): OmoRuntime => ({ paneId, startedAt, paths, ids });
 const files = [
@@ -214,7 +218,7 @@ it("names a cwd's session folder as omo's engine does, a Windows cwd included", 
 // herdr on Windows names the pane's launcher, not what the launcher starts (windows-processes.ts)
 const launcherInfo: ProcessInfo = { process_info: { shell_pid: 10, foreground_processes: [{ pid: 11, argv: ["C:\\tools\\pi.exe"] }] } };
 const launcherRows: ProcessRow[] = [
-  { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe" },
+  { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe", started: 1_698_000_000_000 },
   { pid: 11, parent: 10, path: "C:\\tools\\pi.exe", commandLine: "pi.exe", started: 1_699_000_000_000 },
   { pid: 12, parent: 11, path: "C:\\bun.exe", commandLine: 'bun.exe "C:\\node_modules\\omo-ai\\bin\\cli.js" --session-id session-123', started: 1_700_000_000_000 },
   // below another pane's shell
@@ -262,6 +266,89 @@ it("does not turn an ordinary pi into OmO or borrow another pane's OmO", () => {
 it("does not list an OmO process twice when herdr already names it", () => {
   const once = withOmoDescendants(launcherInfo, launcherRows);
   expect(withOmoDescendants(once, launcherRows)).toEqual(once);
+});
+
+it("does not give a reused Pi pid the old OmO process start", () => {
+  const info = { process_info: { shell_pid: 10, foreground_processes: [{ pid: 12, argv: ["C:\\tools\\pi.exe"] }] } };
+  const rows: ProcessRow[] = [
+    { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe", started: 1000 },
+    { pid: 12, parent: 10, path: "C:\\tools\\omo.exe", commandLine: "omo.exe", started: 2000 },
+  ];
+  const result = withOmoDescendants(info, rows);
+  expect(result?.process_info?.foreground_processes).toEqual(info.process_info.foreground_processes);
+});
+
+it("reads a fresh Windows identity instead of a cached pre-reuse start", async () => {
+  const platform = process.platform;
+  const pid = 2 ** 30;
+  const old: ProcessRow[] = [
+    { pid: 10, parent: 1, path: "C:\\pwsh.exe", commandLine: "pwsh.exe", started: 1000 },
+    { pid, parent: 10, path: "C:\\tools\\pi.exe", commandLine: "pi.exe", started: 2000 },
+  ];
+  forgetGjcState();
+  await recentProcessTable(async () => old);
+  const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({
+    process_info: { shell_pid: 10, foreground_processes: [{ pid, argv: ["C:\\tools\\pi.exe"] }] },
+  } as never);
+  const table = spyOn(windows, "windowsProcessTable").mockResolvedValue(old.map((row) => row.pid === pid ? { ...row, started: 20_000 } : row));
+  Object.defineProperty(process, "platform", { value: "win32" });
+  try {
+    const result = await omoProcessInfo("reused-pid");
+    expect(result?.process_info?.foreground_processes?.[0]?.startedAt).toBe(20_000);
+  } finally {
+    Object.defineProperty(process, "platform", { value: platform });
+    table.mockRestore();
+    rpc.mockRestore();
+    forgetGjcState();
+  }
+});
+
+it("rejects an OmO child older than any ancestor in the pane shell chain", () => {
+  for (const reused of [10, 11]) {
+    const rows = launcherRows.map((row) => ({ ...row, started: row.pid === reused ? 30_000 : row.pid === 12 ? 20_000 : 10_000 }));
+    const result = withOmoDescendants(launcherInfo, rows);
+    expect(result?.process_info?.foreground_processes?.map((entry) => entry.pid)).toEqual([11]);
+  }
+});
+
+it("accepts Windows legacy holders with equivalent folders and no start time", () => {
+  const root = mkdtempSync(join(tmpdir(), "herdr-omo-windows-holder-"));
+  const platform = process.platform;
+  const cwd = root;
+  const pid = 2 ** 30;
+  const holders = join(root, ".omo", "agent", "sessions", omoSessionFolder(cwd), "session-holders", "current");
+  mkdirSync(holders, { recursive: true });
+  writeFileSync(join(holders, `${pid}.json`), JSON.stringify({ pid, cwd }));
+  Object.defineProperty(process, "platform", { value: "win32" });
+  try {
+    expect(heldSessionIds(join(root, ".omo", "agent", "sessions", omoSessionFolder(cwd)), pid, null, cwd.toUpperCase().replaceAll("/", "\\"))).toEqual(["current"]);
+    expect(omoProcessIdentity({ pid, argv: ["C:\\tools\\omo.exe"], cwd, startedAt: 10_000 }, cwd, root, () => [])?.heldIds).toEqual(["current"]);
+    // A custom launcher still needs a matching start, not just a leftover holder.
+    expect(omoProcessIdentity({ pid, argv: ["C:\\tools\\pi.exe"], cwd, startedAt: 10_000 }, cwd, root, () => [])).toBeNull();
+  } finally {
+    Object.defineProperty(process, "platform", { value: platform });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("accepts a missing Windows legacy start but rejects a mismatching known start", () => {
+  const home = mkdtempSync(join(tmpdir(), "herdr-omo-legacy-start-"));
+  const platform = process.platform;
+  const cwd = home, pid = 2 ** 30;
+  const holders = join(home, ".omo", "agent", "sessions", omoSessionFolder(cwd), "session-holders", "current");
+  mkdirSync(holders, { recursive: true });
+  const record = join(holders, `${pid}.json`);
+  Object.defineProperty(process, "platform", { value: "win32" });
+  try {
+    for (const processStartedAtMs of [undefined, null, 10_000, 20_000]) {
+      writeFileSync(record, JSON.stringify({ pid, cwd, processStartedAtMs }));
+      const identity = omoProcessIdentity({ pid, argv: ["C:\\tools\\omo.exe"], cwd, startedAt: 10_000 }, cwd, home, () => []);
+      expect(identity?.heldIds).toEqual(processStartedAtMs === 20_000 ? [] : ["current"]);
+    }
+  } finally {
+    Object.defineProperty(process, "platform", { value: platform });
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 const holdRecord = (dir: string, id: string, pid: number, record: object): void => {

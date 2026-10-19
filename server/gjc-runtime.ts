@@ -32,20 +32,29 @@ export function isGjcProcess(argv: readonly string[]): boolean {
 }
 
 const PROCESS_TABLE_MS = 5000;
-let processTable: { at: number; rows: Promise<ProcessRow[]> } | null = null;
+let processTable: { at: number; rows: Promise<ProcessRow[]>; value?: ProcessRow[] } | null = null;
 
 /**
  * The Windows process table, read at most once per PROCESS_TABLE_MS. The chat polls a pane
  * every 2 s and each read starts a PowerShell (about 1.3 s on a real PC), so the polls of a
  * few seconds share one; a gjc that left its pane can still count as running for that long.
+ * OmO's identity check requests a fresh read, sharing only an in-flight query or a recent failure.
  */
-export function recentProcessTable(read: () => Promise<ProcessRow[]> = windowsProcessTable, now = Date.now()): Promise<ProcessRow[]> {
-  if (processTable && now - processTable.at < PROCESS_TABLE_MS) return processTable.rows;
-  const entry = { at: now, rows: read() };
+export function recentProcessTable(read: () => Promise<ProcessRow[]> = windowsProcessTable, now?: number, fresh = false): Promise<ProcessRow[]> {
+  const at = now ?? Date.now();
+  if (processTable && (processTable.value === undefined
+    || (at - processTable.at < PROCESS_TABLE_MS && (!fresh || processTable.value.length === 0)))) return processTable.rows;
+  const entry: NonNullable<typeof processTable> = { at, rows: read() };
   processTable = entry;
-  // an empty table is a read that failed: the next poll asks again
-  void entry.rows.then((rows) => { if (rows.length === 0 && processTable === entry) processTable = null; });
+  // Keep failures briefly too: a refresh must not spawn a fast-failing PowerShell each time.
+  void entry.rows.then((rows) => { entry.value = rows; entry.at = now ?? Date.now(); });
   return entry.rows;
+}
+
+/** Roster labels use a settled table immediately, warming a missing one without holding up a snapshot. */
+export function cachedProcessTable(): ProcessRow[] {
+  void recentProcessTable();
+  return processTable?.value ?? [];
 }
 
 /** A gjc process by its number and when it started: a number alone comes back for another process. */

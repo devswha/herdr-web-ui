@@ -2,9 +2,9 @@ import { constants, fstatSync, closeSync, openSync, readdirSync, readFileSync, r
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { HerdrPane } from "../shared/protocol.ts";
 import { herdrRpc } from "./herdr/client.ts";
-import { recentProcessTable } from "./gjc-runtime.ts";
+import { cachedProcessTable, recentProcessTable } from "./gjc-runtime.ts";
 import { processStartedAt } from "./process-start.ts";
-import { descendantProcesses, type ProcessRow } from "./windows-processes.ts";
+import { descendantProcesses, windowsArgv, type ProcessRow } from "./windows-processes.ts";
 
 const OMO_PROCESS = /(^|\/)omo(\.js)?$|\/omo-ai\//;
 /** node and bun run a script: the program is then the script, the first word that is not a flag */
@@ -171,7 +171,7 @@ export function processEnviron(pid: number): string[] | null {
  * say — a custom identity cannot be verified without it. A pane cwd goes stale the
  * moment a process moves, so it must never override either process-specific source.
  */
-function processCwd(process: { pid: number; cwd?: string }, cwd: string): string {
+export function processCwd(process: { pid: number; cwd?: string }, cwd: string): string {
   if (typeof process.cwd === "string" && process.cwd) return resolve(process.cwd);
   try { return resolve(readlinkSync(`/proc/${process.pid}/cwd`)); } catch { return cwd ? resolve(cwd) : ""; }
 }
@@ -201,7 +201,7 @@ export function omoProcessIdentity(
   const agentDir = omoAgentDir(environ, home, dir);
   const startedAt = process.startedAt ?? processStartedAt(process.pid);
   if (isOmoProcess(process.argv ?? [])) {
-    return { agentDir, heldIds: heldSessionIds(sessionDir(dir, agentDir), process.pid, startedAt, dir), custom: false };
+    return { agentDir, heldIds: heldSessionIds(sessionDir(dir, agentDir), process.pid, startedAt, dir, globalThis.process.platform === "win32"), custom: false };
   }
   if (!dir || startedAt === null) return null;
   const omoStore = environ?.some((word) => word.startsWith("OMO_CODING_AGENT_DIR=")) === true || agentDir === defaultOmoAgentDir(home);
@@ -230,7 +230,7 @@ const HOLDER_START_TOLERANCE_MS = 3000;
  * counts only for the live pid it names and, where our start time is readable, only
  * if it started when that pid did: a reused pid starts later.
  */
-export function heldSessionIds(dir: string, pid: number, startedAt: number | null, cwd?: string): string[] {
+export function heldSessionIds(dir: string, pid: number, startedAt: number | null, cwd?: string, allowMissingStart = false): string[] {
   const holders = join(dir, "session-holders");
   let names: string[] = [];
   try { names = readdirSync(holders); } catch { return []; }
@@ -239,8 +239,10 @@ export function heldSessionIds(dir: string, pid: number, startedAt: number | nul
     try {
       const record = JSON.parse(readFileSync(join(holders, name, `${pid}.json`), "utf8"));
       if (record?.pid !== pid) continue;
-      if (cwd !== undefined && record.cwd !== cwd) continue;
-      if (startedAt !== null && !(typeof record.processStartedAtMs === "number" && Math.abs(record.processStartedAtMs - startedAt) <= HOLDER_START_TOLERANCE_MS)) continue;
+      const folder = (value: string): string => process.platform === "win32" ? value.replace(/\\/g, "/").toLowerCase() : value;
+      if (cwd !== undefined && (typeof record.cwd !== "string" || folder(record.cwd) !== folder(cwd))) continue;
+      if (startedAt !== null && !(allowMissingStart && record.processStartedAtMs == null)
+        && !(typeof record.processStartedAtMs === "number" && Math.abs(record.processStartedAtMs - startedAt) <= HOLDER_START_TOLERANCE_MS)) continue;
       ids.push(decodeURIComponent(name));
     } catch { /* this pid holds nothing here, or the record is unreadable */ }
   }
@@ -324,17 +326,28 @@ export type ProcessInfo = { process_info?: { shell_pid?: number; foreground_proc
  * seen as OmO and its session arguments are read. Only processes below this pane's own shell
  * count, and one herdr already named is not added twice.
  */
-export function withOmoDescendants(info: ProcessInfo, rows: readonly ProcessRow[]): ProcessInfo {
+export function withOmoDescendants(info: ProcessInfo, rows: readonly ProcessRow[], fresh = true): ProcessInfo {
   const shell = info?.process_info?.shell_pid;
   const existing = info?.process_info?.foreground_processes ?? [];
   const byPid = new Map(rows.map((row) => [row.pid, row]));
   const foreground = existing.map((process) => {
-    const startedAt = byPid.get(process.pid)?.started;
+    const row = byPid.get(process.pid);
+    const words = windowsArgv(row?.commandLine ?? "");
+    const argv = row?.path ? [row.path, ...words.slice(1)] : words;
+    // A cached PID may already belong to another process, even one with the same argv.
+    const matches = Array.isArray(process.argv) && process.argv.length === argv.length
+      && process.argv.every((word, index) => windowsPath(String(word)) === windowsPath(argv[index]!));
+    const startedAt = fresh && matches ? row?.started : undefined;
     return process.startedAt !== undefined || startedAt === undefined ? process : { ...process, startedAt };
   });
-  const omo = (shell === undefined || !byPid.has(shell) ? [] : descendantProcesses(rows, shell)).filter((entry) =>
+  // Every edge must reach this shell through processes older than their children.
+  const verified = rows.filter((row) => {
+    const parent = byPid.get(row.parent);
+    return row.started !== undefined && parent?.started !== undefined && parent.started <= row.started;
+  });
+  const omo = (shell === undefined || !byPid.has(shell) ? [] : descendantProcesses(verified, shell)).filter((entry) =>
     isOmoProcess(entry.argv) && !foreground.some((process) => process.pid === entry.pid)).map((entry) => {
-      const startedAt = byPid.get(entry.pid)?.started;
+      const startedAt = fresh ? byPid.get(entry.pid)?.started : undefined;
       return startedAt === undefined ? entry : { ...entry, startedAt };
     });
   return omo.length === 0 && foreground.every((process, index) => process === existing[index])
@@ -342,10 +355,10 @@ export function withOmoDescendants(info: ProcessInfo, rows: readonly ProcessRow[
     : { ...info, process_info: { ...info?.process_info, foreground_processes: [...foreground, ...omo] } };
 }
 
-export const omoProcessInfo = async (paneId: string): Promise<ProcessInfo> => {
+export const omoProcessInfo = async (paneId: string, cached = false): Promise<ProcessInfo> => {
   const info = await herdrRpc<NonNullable<ProcessInfo>>("pane.process_info", { pane_id: paneId }).catch(() => null);
   if (process.platform !== "win32" || info?.process_info?.shell_pid === undefined) return info;
-  return withOmoDescendants(info, await recentProcessTable());
+  return withOmoDescendants(info, cached ? cachedProcessTable() : await recentProcessTable(undefined, undefined, true), !cached);
 };
 
 type OmoForeground = { pid: number; argv?: string[]; cwd?: string; startedAt?: number };

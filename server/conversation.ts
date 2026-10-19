@@ -43,7 +43,7 @@ import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, cod
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
-import { omoProcessIdentity, omoProcessInfo, omoSessionForPane, processEnviron } from "./omo.ts";
+import { omoProcessIdentity, omoProcessInfo, omoSessionForPane, processCwd, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
@@ -1123,15 +1123,16 @@ export async function gjcTranscriptPath(paneId: string, cwd: string, home?: stri
  * failure answers "no": the caller then reports why the labelled store failed,
  * which is the more useful error.
  */
-export async function paneRunsOmo(paneId: string, cwd = ""): Promise<boolean> {
-  const info = await omoProcessInfo(paneId).catch(() => null);
+export async function paneRunsOmo(paneId: string, cwd = "", cached = false): Promise<boolean> {
+  const info = await omoProcessInfo(paneId, cached).catch(() => null);
   const home = process.env["HOME"] ?? "";
   return (info?.process_info?.foreground_processes ?? []).some((process) =>
     omoProcessIdentity({
-      pid: process.pid,
-      argv: process.argv,
-      cwd: process.cwd,
-      startedAt: process.startedAt,
+      // herdr's RPC fields are boundary data; malformed fields cannot prove a custom identity.
+      pid: typeof process.pid === "number" ? process.pid : -1,
+      argv: Array.isArray(process.argv) ? process.argv.map(String) : undefined,
+      cwd: typeof process.cwd === "string" && process.cwd ? process.cwd : undefined,
+      startedAt: typeof process.startedAt === "number" ? process.startedAt : undefined,
     }, cwd, home) !== null,
   );
 }
@@ -1151,28 +1152,29 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
   let matched: { pid: number; cwd: string } | null = null;
   for (const candidate of info?.process_info?.foreground_processes ?? []) {
     const process = {
-      pid: candidate.pid,
-      argv: candidate.argv ?? [],
-      cwd: candidate.cwd || cwd,
-      startedAt: candidate.startedAt,
+      pid: typeof candidate.pid === "number" ? candidate.pid : -1,
+      argv: Array.isArray(candidate.argv) ? candidate.argv.map(String) : [],
+      cwd: typeof candidate.cwd === "string" && candidate.cwd ? candidate.cwd : undefined,
+      startedAt: typeof candidate.startedAt === "number" ? candidate.startedAt : undefined,
     };
+    const runtimeCwd = processCwd(process, cwd);
     const binary = (word: string): string => nodePath.posix.basename(word.replace(/\\/g, "/")).replace(/\.(?:exe|cmd|js|mjs|cjs)$/i, "");
     const executable = binary(process.argv[0] ?? "");
     const launched = ["node", "bun", "python", "python3"].includes(executable) ? binary(process.argv[1] ?? "") : executable;
     if (!matched && agent && ["claude", "codex", "omp", "gjc", "pi", "opencode", "devin", "grok", "hermes", "agy"].includes(agent) && launched === agent) {
-      matched = process;
+      matched = { pid: process.pid, cwd: runtimeCwd };
     }
     const identity = omoProcessIdentity(process, cwd, home);
     if (!identity) continue;
     const agentDir = directory(identity.agentDir);
     const argv = process.argv.map((word) => word.replace(/\\/g, "/"));
     const extension = argv.find((word, index) => argv[index - 1] === "--extension" && /\/omo-ai\/plugin\/?$/.test(word));
-    let pluginDir = directory(extension ? nodePath.resolve(process.cwd, extension) : null);
+    let pluginDir = directory(extension ? nodePath.resolve(runtimeCwd, extension) : null);
     if (!pluginDir) {
       const word = argv.find((word) => word.includes("/omo-ai/"));
       if (word) {
         try {
-          const canonical = realpathSync(nodePath.resolve(process.cwd, word));
+          const canonical = realpathSync(nodePath.resolve(runtimeCwd, word));
           const paths = nodePath.win32.isAbsolute(canonical) && !nodePath.posix.isAbsolute(canonical) ? nodePath.win32 : nodePath.posix;
           for (let parent = paths.dirname(canonical); parent !== paths.dirname(parent); parent = paths.dirname(parent)) {
             if (paths.basename(parent) === "omo-ai") {
@@ -1190,7 +1192,7 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
         catch { /* no readable installed plugin */ }
       }
     }
-    return { omo: { agentDir, pluginDir }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null };
+    return { omo: { agentDir, pluginDir }, environ: processEnviron(process.pid), pid: process.pid, cwd: runtimeCwd || null };
   }
   return { omo: null, environ: matched ? processEnviron(matched.pid) : null, pid: matched?.pid ?? null, cwd: matched?.cwd || null };
 }
@@ -1204,7 +1206,7 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
 export async function labelOmoPanes(snapshot: SessionSnapshot): Promise<SessionSnapshot> {
   const candidates = snapshot.panes;
   const omo = new Set<string>();
-  await Promise.all(candidates.map(async (pane) => { if (await paneRunsOmo(pane.pane_id, pane.foreground_cwd || pane.cwd || "")) omo.add(pane.pane_id); }));
+  await Promise.all(candidates.map(async (pane) => { if (await paneRunsOmo(pane.pane_id, pane.foreground_cwd || pane.cwd || "", true)) omo.add(pane.pane_id); }));
   if (omo.size === 0) return snapshot;
   return {
     ...snapshot,
