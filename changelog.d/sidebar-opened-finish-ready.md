@@ -1,24 +1,12 @@
-### Changed
-- A finished agent you open in the web UI loses its DONE dot in the Agents list and its
-  workspace row, as it does in herdr's own client; its next finish shows the dot again. The record
-  is kept in each browser, so a finish opened on one device keeps its dot on another.
-- A finish behind a drawer, popup viewer, Settings or another dialog keeps its dot, as does a
-  hidden zoom target or composer suggestion popup. Crashed panes, loading or failed chats and
-  terminals without usable output keep the dot until their content is actually presented. A chat
-  scrolled back to older turns keeps it until its end is actually visible, not merely when a
-  jump is requested. Resized or restored short chats need no scroll event; invisible popups
-  in hidden split siblings do not block the visible pane.
-- A terminal attachment recovering on an open connection keeps a new finish unread until fresh
-  output arrives, for observers too. Claude/Codex chat waits for native final-answer evidence
-  instead of acknowledging a transcript read that beat the answer to disk.
-- A pending jump to older chat stays in control through resize and mutation callbacks.
-  Small scrolls above the end show the jump affordance, and fractional PageUp/PageDown keeps
-  the reader's intent instead of returning to following.
-- The server identifies finishes after native-agent status overrides and authoritative recovery
-  reads, so viewing a working pane does not acknowledge its later finish. Activity order still
-  resets obsolete recency counters on older PC bridges. An older roster missing a newly
-  observed pane does not issue another ID for the same finish.
-- Read records are scoped to each PC and server epoch, replaced on server startup or an observed
-  herdr restart. Tabs save separate pane keys instead of overwriting a shared roster. Older PC
-  bridges without finish identifiers keep their DONE dots until the bridge is updated. Read
-  records survive reconnects without acknowledging unseen offline content.
+### Fixed
+- Opening a finished pane clears its DONE dot only after its answer or terminal output is
+  actually visible. Covered panes, loading or failed chats, and terminal reconnections keep
+  unread finishes marked.
+- Reading older chat keeps the finish unread. Jumping to the latest answer clears it only
+  after the jump arrives; small scrolls above the end show the way back. Resizing and restoring
+  a short chat work without an extra scroll.
+- An older answer cannot clear a newer finish. Agents whose chat cannot prove completion keep
+  the dot conservatively; opening their Terminal view can acknowledge the output.
+- Read finishes stay read across pane switches and browser tabs on the same device. Every
+  web-server restart or update brings read DONE dots back; read records are not carried across
+  server restarts.

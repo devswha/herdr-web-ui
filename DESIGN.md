@@ -990,14 +990,26 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   parsed output for its current pane/terminal and an active, unheld connection. An attachment
   loss (`input-ready: false`) revokes that proof even while the socket stays open, including
   queued parses. Recovery alone is insufficient: fresh output must parse after recovery.
-  This is independent of input permission, so observers can acknowledge the screen they see.
+  The server sends readiness before replay to every joiner, including observers. A retained
+  renderer starts a new output lifetime on resume, so a missed recovery cannot invalidate its
+  quiet replay. This is independent of input permission.
   A native chat
   needs a successful fresh read for the displayed finish and a loaded timeline, not just cached
-  turns or a loading/error placeholder. Hook-driven Claude/Codex DONE can precede the transcript
-  flush: their newest assistant turn must end in native `final_answer` evidence (Claude's
-  `end_turn` text supplies it). A successful read or unchanged 304 without that evidence keeps
-  the dot; older bridges lacking it can still be read in Terminal. Transcript-derived native
-  statuses retain their existing read rule. The reader must be at the end: a chat scrolled back to older
+  turns or a loading/error placeholder. Any agent's DONE can precede its transcript flush.
+  The newest real assistant turn must end in native `final_answer` evidence: Claude `end_turn`,
+  Codex `final_answer`, Pi/OMP/OmO/GJC `stopReason: stop`, OpenCode `finish: stop`, or Grok
+  `turn_completed`. Devin, Hermes and Agy adapters do not currently supply that proof, so their
+  chats keep the dot; Terminal can acknowledge actual output. Only informational/local-command
+  notices are skipped after an answer, not real user messages or runtime wakes.
+  A completed answer is bound to a finish within its PC/pane/epoch. A later finish must have
+  a different completed-answer identity with a later native completion timestamp, not just
+  a fresh response containing the old answer. Missing or equal timestamps keep the dot.
+  The first read of a new presentation key bypasses ETag revalidation; a 304 for a new key is
+  never proof. The answer fingerprint is saved with seen records and retained across renderer
+  lifetimes. A first independent completion establishes a baseline; missing older proof is
+  handled conservatively. If intermediate finish IDs were missed, the first completion is
+  only a baseline and a different answer must arrive before chat can acknowledge it.
+  The reader must be at the end: a chat scrolled back to older
   turns, or showing New messages, keeps the dot until the end is in view. Requesting a jump
   is not arrival: the current content's endpoint and last rendered row must be measured in
   view, including after resize or restoration when no scroll event fires. A superseded jump
@@ -1020,7 +1032,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   next snapshot. The browser never infers a finish epoch from counters. An older bridge missing either
   field always keeps the dot; transitions wholly missed by the server cannot be counted.
 - Each `(PC, epoch, pane)` has its own `herdr-web-ui:finish:` localStorage key, containing the
-  greatest viewed finish ID and its write time. Tabs writing different panes cannot overwrite
+  greatest viewed finish ID, its write time and an optional completed-answer fingerprint. A
+  delayed lower finish ID also stays read: counters only advance inside an epoch, while other
+  epochs have separate keys. Tabs writing different panes cannot overwrite
   one another; storage events reconcile a same-pane race toward the maximum. A tab closed before
   reconciliation or storage eviction can bring back a read dot, never acknowledge a newer finish.
   Old `herdr-web-ui:seen:<pc>` records are removed. Epochs this tab actually left are removed;
