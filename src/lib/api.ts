@@ -3,6 +3,7 @@ import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type 
 import type {
   AgentKind,
   AgentRenameRequest,
+  BtwHistory,
   ConversationResponse,
   CreateWorktreeRequest,
   CreateTabRequest,
@@ -728,6 +729,11 @@ export async function removeWorktree(request: RemoveWorktreeRequest, machineId =
 /** GET /api/pane/commands: the slash commands the pane's agent understands (built-in + custom). */
 export async function fetchPaneCommands(paneId: string, machineId = "local"): Promise<SlashCommand[]> {
   return (await getJson<{ commands: SlashCommand[] }>(machinePath(machineId, `pane/commands?pane_id=${encodeURIComponent(paneId)}`))).commands;
+}
+
+/** OMP's saved side conversations, independent of main-transcript updates. */
+export function fetchPaneBtw(paneId: string, machineId = "local", signal?: AbortSignal): Promise<BtwHistory> {
+  return getJson<BtwHistory>(machinePath(machineId, `pane/btw?pane_id=${encodeURIComponent(paneId)}`), { cache: "no-store", signal });
 }
 
 /** GET /api/pane/omo-tasks: the background tasks and workflows the pane's OmO session started, and that PC's clock. */

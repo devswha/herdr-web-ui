@@ -23,9 +23,10 @@ import { badRequest, errorResponse, jsonResponse, readJsonObject } from "./http.
 import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { isMouseReport, sameAttachment } from "./input-guard.ts";
-import { claudePaneSession } from "./conversation.ts";
+import { claudePaneSession, paneTranscript } from "./conversation.ts";
 import { processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
+import { readBtwHistory } from "./omp-btw.ts";
 import { claudeSubagents, within } from "./claude-subagents.ts";
 import { SHELL_AGENTS, shellAgentExecutable } from "./shell-agent.ts";
 import { claudeForegroundSession, claudeSessionTempDir } from "./claude-store.ts";
@@ -827,6 +828,18 @@ export function createServer(
 
       const paneResponse = await handlePaneRequest(request, url, pathname, options);
       if (paneResponse) return paneResponse;
+
+      if (pathname === "/api/pane/btw") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        const paneId = url.searchParams.get("pane_id");
+        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
+        try {
+          const transcript = await paneTranscript(paneId, options.codexHome, undefined, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome);
+          return jsonResponse(transcript.source === "omp-transcript" ? await readBtwHistory(transcript.path) : { topics: [] });
+        } catch (error) {
+          return errorResponse(error);
+        }
+      }
 
       if (pathname === "/api/pane/omo-tasks") {
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");

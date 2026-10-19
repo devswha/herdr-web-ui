@@ -11,6 +11,7 @@ import "./ChatView.css";
 import "./ChatTimeline.css";
 
 import { AgentMark } from "./AgentMark.tsx";
+import { BtwPanel } from "./BtwPanel.tsx";
 import { AnimatedHeight } from "./AnimatedHeight.tsx";
 import { Markdown, ReservedImage } from "./Markdown.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
@@ -1539,6 +1540,7 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
     {state.source === "conversation" && <ChatMinimap turns={minimap} rowKeys={rowKeys} scroller={scroller} onJump={jumpToTurn} />}
     {jump}
     </div>
+    {state.conversationSource === "omp-transcript" && <BtwPanel key={`${machineId}:${paneId}:${historyId}`} paneId={paneId} visible={visible} />}
     </div>
   {/* The prompt card is not part of the transcript: it is drawn on the composer's column, over the
       input card, where PaneTerminal keeps its place. The prompt itself (its poll, the answer, the

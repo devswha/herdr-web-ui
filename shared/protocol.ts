@@ -591,6 +591,27 @@ export interface PlanSummary {
   current: string | null;
 }
 
+/** OMP's persisted side conversations, separate from its main transcript and model context. */
+export interface BtwTurn {
+  question: string;
+  answer: string;
+  status: "running" | "complete" | "cancelled" | "error" | "interrupted";
+  createdAt: number;
+  updatedAt: number;
+  error?: string;
+}
+
+export interface BtwTopic extends BtwTurn {
+  id: string;
+  leafId: string | null;
+  followUps?: BtwTurn[];
+}
+
+/** GET /api/pane/btw: saved topics for this pane's main OMP session, newest first. */
+export interface BtwHistory {
+  topics: BtwTopic[];
+}
+
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */
 export interface ConversationResponse {
   /** Grok/Agy latest native turn; display feedback only, never input-delivery authority. */

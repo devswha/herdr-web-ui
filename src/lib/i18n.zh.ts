@@ -10,6 +10,11 @@
  * Placeholders in braces keep their English names.
  */
 export const ZH: Record<string, string> = {
+  "Side conversations": "旁路对话",
+  "Close BTW": "关闭 BTW",
+  "Saved answers and follow-ups; separate from the main conversation.": "已保存的问答与追问，独立于主对话。",
+  "Couldn't load BTW history": "无法加载 BTW 历史",
+  "Interrupted": "已中断",
   "Could not load sign-in options": "无法加载登录方式",
   "On the server PC": "在服务器 PC 上登录",
   "Install {cli} on the server PC first.": "请先在服务器 PC 上安装 {cli}。",

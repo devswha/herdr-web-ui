@@ -6,6 +6,11 @@
  * braces keep their English names.
  */
 export const KO: Record<string, string> = {
+  "Side conversations": "별도 대화",
+  "Close BTW": "BTW 닫기",
+  "Saved answers and follow-ups; separate from the main conversation.": "저장된 답변과 후속 질문입니다. 기본 대화와 분리되어 있습니다.",
+  "Couldn't load BTW history": "BTW 기록을 불러오지 못했습니다",
+  "Interrupted": "중단됨",
   "Could not load sign-in options": "로그인 방법을 불러오지 못했습니다",
   "On the server PC": "서버 PC에서 로그인",
   "Install {cli} on the server PC first.": "먼저 서버 PC에 {cli}를 설치하세요.",

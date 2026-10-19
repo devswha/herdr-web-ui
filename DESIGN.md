@@ -1404,6 +1404,21 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - An OmO or omp `task` row opens to the tasks it starts (`.chat-task-calls`): each summary in
   `--text`, the agent as a hairline mono pill, the prompt in the bounded mono input box.
 
+### OMP side conversations (`.chat-btw`)
+- A collapsed dock outside the main message log shows saved `/btw` topics. Each expands to
+  Markdown questions, answers and follow-ups with the saved status and timestamp. It does not
+  change main-turn grouping, activity or plan state, and uses the existing theme tokens.
+- `GET /api/pane/btw?pane_id=…` resolves that pane's OMP transcript and reads only regular
+  `entry-<id>.json` files from `<transcript-without-jsonl>/btw-history/`. It never searches other
+  sessions, follows topic symlinks or descends into focused-subagent `sessions/` stores.
+  Missing stores return an empty list; corrupt/unreadable data reports an error.
+- Visible OMP chats read serially every two seconds, independently of main-transcript pushes,
+  and abort on hide/unmount. State is keyed by machine, pane and history. Only persisted
+  checkpoints are shown; unsaved token streaming, send/cancel and branching stay in OMP.
+- The close button removes the whole dock and stops its reads. More → Side conversations (BTW)
+  restores it. This browser remembers the choice per PC/pane through reloads and Chat/Terminal
+  switches; it is not synced as an agent preference and never deletes the saved history.
+
 ### Plan (`.bg-tasks-plan`, `.bg-step`, `.plan-count`)
 - A pane's plan has no control of its own: it shares the composer's background-task chip
   (`.bg-tasks-toggle`, beside the add button in the input card's last row). With a plan the chip

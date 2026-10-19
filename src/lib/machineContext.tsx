@@ -10,6 +10,7 @@ export function useMachineApi() {
   return useMemo(() => ({
     fetchPaneTranscript: (pane: string, lines: number) => api.fetchPaneTranscript(pane, lines, id),
     fetchPaneConversation: (pane: string, page?: api.ConversationPageQuery) => api.fetchPaneConversation(pane, id, page),
+    fetchPaneBtw: (pane: string, signal?: AbortSignal) => api.fetchPaneBtw(pane, id, signal),
     peekPaneConversation: (pane: string) => api.peekPaneConversation(pane, id),
     fetchPanePrompt: (pane: string) => api.fetchPanePrompt(pane, id),
     fetchPanePromptState: (pane: string) => api.fetchPanePromptState(pane, id),
