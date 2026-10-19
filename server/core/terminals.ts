@@ -6,7 +6,6 @@
 import type { ClientMessage, ServerMessage } from "../../shared/protocol.ts";
 import { ConversationMonitor } from "../conversation-monitor.ts";
 import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS, OutputWindow, wireBytes } from "../output-window.ts";
-import type { PtySession } from "../pty/session.ts";
 import { type Client, connectionOf, send } from "./connections.ts";
 import { ATTACH_HELD_MESSAGE, createSpawnAttachment, type PaneAttachment } from "./terminal-process.ts";
 
@@ -149,7 +148,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     const attachment = attachments.get(paneId);
     const claim = client.data.attached.get(paneId);
     if (claim) claim.keepSize = false;
-    if (attachment && !attachment.mirror) {
+    if (attachment && attachment.kind !== "mirror") {
       attachment.grids.delete(client);
       attachment.grids.set(client, { cols, rows });
       attachment.driver = client;
@@ -165,20 +164,20 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
    */
   function requestRepaint(paneId: string): void {
     const attachment = attachments.get(paneId);
-    if (!attachment || attachment.mirror || attachment.repaint) return;
+    if (!attachment || attachment.kind === "mirror" || attachment.repaint) return;
     const cooldown = attachment.repaintedAt === undefined ? 0 : attachment.repaintedAt + REPAINT_MIN_INTERVAL_MS - Date.now();
     attachment.repaint = setTimeout(() => {
       attachment.repaint = undefined;
-      if (attachments.get(paneId) !== attachment || !attachment.ready || attachment.held || attachment.mirror) return;
+      if (attachments.get(paneId) !== attachment || !attachment.ready || attachment.held) return;
       attachment.repaintedAt = Date.now();
-      (attachment.process as PtySession).winch();
+      attachment.process.winch();
     }, Math.max(REPAINT_COALESCE_MS, cooldown));
   }
 
   function resizePty(paneId: string, cols: number, rows: number): void {
     const attachment = attachments.get(paneId);
     // a mirrored pane's grid is herdr's own: no browser resizes it
-    if (!attachment || attachment.mirror || (attachment.cols === cols && attachment.rows === rows)) return;
+    if (!attachment || attachment.kind === "mirror" || (attachment.cols === cols && attachment.rows === rows)) return;
     attachment.cols = cols;
     attachment.rows = rows;
     attachment.process.resize(cols, rows);
@@ -294,22 +293,22 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       if (!alreadyAttached && message.flow_control === "ack") client.data.output.set(message.pane_id, new OutputWindow());
       // a mirrored screen is drawn for the pane's own grid: the client takes that size
       // before the screen, or the rows would wrap in a grid of another width
-      if (attachment.mirror) send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
+      if (attachment.kind === "mirror") send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
       // hand the newcomer the current screen it would otherwise have missed
       // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
-      const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
+      const replay = attachment.kind === "mirror" ? attachment.process.current ?? "" : attachment.replay.text();
       if (!alreadyAttached && replay) {
         client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
         sendOutput(client, message.pane_id, replay);
         // a tail that lost the stream's start may miss what was drawn once: herdr draws it again
-        if (!attachment.mirror && attachment.ready && !attachment.held && attachment.replay.truncated) requestRepaint(message.pane_id);
+        if (attachment.kind !== "mirror" && attachment.ready && !attachment.held && attachment.replay.truncated) requestRepaint(message.pane_id);
       }
       // a pane waiting for another web bridge to let go says so to each newcomer, too
       if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
       reconcileOutput(message.pane_id);
       if (connectionOf(client).closing) return;
       if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
-      if (attachment.mirror) return;
+      if (attachment.kind === "mirror") return;
       if (connectionOf(client).mode === "interact" && !claim.keepSize) {
         // an operator's viewport owns the shared grid
         drivePty(message.pane_id, client, geometry.cols, geometry.rows);
@@ -332,7 +331,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
         return;
       }
       const attachment = attachments.get(message.pane_id);
-      if (attachment?.clients.has(client)) attachment.takeOver?.(client);
+      if (attachment?.kind === "pty" && attachment.clients.has(client)) attachment.takeOver?.(client);
       return;
     },
     detach(client: Client, message: Frame<"detach">): void {
@@ -403,7 +402,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       // still be awaiting herdr, and must not revive this hidden grid when it completes.
       claim.keepSize = true;
       const attachment = typeof message.pane_id === "string" ? attachments.get(message.pane_id) : undefined;
-      if (!attachment || attachment.mirror) return;
+      if (!attachment || attachment.kind === "mirror") return;
       attachment.grids.delete(client);
       if (attachment.driver !== client) return;
       attachment.driver = undefined;

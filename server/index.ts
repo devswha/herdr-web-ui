@@ -1014,7 +1014,8 @@ export function createServer(
                   authorizeSocket(client);
                   await paneSendText(message.pane_id, shaped, undefined, allowed);
                   // the echo is read at once, not at the mirror's next idle read
-                  attachments.get(message.pane_id)?.mirror?.poke();
+                  const latest = attachments.get(message.pane_id);
+                  if (latest?.kind === "mirror") latest.process.poke();
                 }).catch(inputFailed);
                 break;
               }
@@ -1121,7 +1122,7 @@ export function createServer(
                 // A key goes through herdr's RPC, around the attach pty that typing just went into: it
                 // waits for that typing as a composer message does, or it overtakes it (a lone ESC is
                 // held there ~150ms). The checks below run after the wait.
-                if (origin && !origin.mirror) await settleAfterTyping(message.pane_id);
+                if (origin && origin.kind !== "mirror") await settleAfterTyping(message.pane_id);
                 // the attach this chord was pressed in is gone (left, replaced, or left and joined again).
                 // `input_failed`, as queued typing answers: `input_not_ready` makes the client drop the
                 // pane's readiness, and the attach it holds by now has already been told it is ready
@@ -1154,7 +1155,8 @@ export function createServer(
                   if (clients.has(client)) send(client, { type: "error", code: "input_failed", message: "Terminal input could not be confirmed. Check the terminal before typing again.", pane_id: message.pane_id });
                   return;
                 }
-                attachments.get(message.pane_id)?.mirror?.poke();
+                const latest = attachments.get(message.pane_id);
+                if (latest?.kind === "mirror") latest.process.poke();
               } finally {
                 batch.sent = true;
                 if (waitingKeys.get(message.pane_id) === batch) waitingKeys.delete(message.pane_id);
@@ -1178,7 +1180,7 @@ export function createServer(
                 const attachment = attachments.get(message.pane_id);
                 if (!attachment?.clients.has(client)) { result(false, "not_attached"); break; }
                 // Mirrored cleanup uses Backspace on Windows too: only printable ASCII erases reliably.
-                if (attachment.mirror && /[^\x20-\x7e]/.test(message.secret)) { result(false, "invalid_secret"); break; }
+                if (attachment.kind === "mirror" && /[^\x20-\x7e]/.test(message.secret)) { result(false, "invalid_secret"); break; }
                 if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); break; }
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
                 // the attach this secret was sent from: leaving it (even joining again) takes the secret back
@@ -1197,7 +1199,7 @@ export function createServer(
                     || client.data.attached.get(message.pane_id) !== claim) { result(false, "not_attached"); return; }
                   if (!attachment.ready || attachment.held || attachment.process !== pty) { result(false, "input_not_ready"); return; }
                   if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
-                  if (attachment.mirror) {
+                  if (attachment.kind === "mirror") {
                     // A mirrored pane has no pty to type into: the secret is herdr's text, then the
                     // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,
                     // so a send herdr refused is answered as failed, not as entered.

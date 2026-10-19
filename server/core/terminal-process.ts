@@ -64,18 +64,9 @@ const ATTACH_RELOOKUP_MS = 100;
 /** what a pane lookup answers for a pane that has no terminal to attach any more */
 const PANE_GONE_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal"]);
 
-/**
- * One live PTY per pane, shared by every client watching that pane.
- *
- * The terminal is a real `herdr terminal attach` on a PTY rather than repeated
- * `pane.read` snapshots, so the browser receives an actual byte stream: xterm.js
- * keeps screen state and selection, while herdr owns scrollback.
- */
-export interface PaneAttachment {
+/** What a pane's attachment keeps whichever process it has. */
+interface AttachmentState {
   ready: boolean;
-  process: PtySession | MirrorSession;
-  /** set when herdr cannot attach here: `pty` repaints the pane's screen (server/mirror.ts), on the pane's own grid */
-  mirror?: MirrorSession;
   clients: Set<Client>;
   /** the pty's current grid: interact clients set it, observe clients adopt it */
   cols: number;
@@ -92,8 +83,6 @@ export interface PaneAttachment {
   held?: boolean;
   /** the next held or read-race retry; takeover and close both cancel it */
   retry?: ReturnType<typeof setTimeout>;
-  /** a held terminal's next try takes the slot from the other bridge for this client (`take-over`); a pty attachment only */
-  takeOver?: (client: Client) => void;
   /** the next look for the terminal a pane lives on after herdr ended its attach; a closed attachment cancels it */
   relookup?: ReturnType<typeof setTimeout>;
   /** a repaint asked of herdr for clients that joined with only the replay tail; a closed attachment cancels it */
@@ -101,6 +90,32 @@ export interface PaneAttachment {
   /** when herdr was last asked to repaint (or redrew for a resize), for REPAINT_MIN_INTERVAL_MS */
   repaintedAt?: number;
 }
+
+/**
+ * One live PTY per pane, shared by every client watching that pane.
+ *
+ * The terminal is a real `herdr terminal attach` on a PTY rather than repeated
+ * `pane.read` snapshots, so the browser receives an actual byte stream: xterm.js
+ * keeps screen state and selection, while herdr owns scrollback.
+ */
+export interface PtyAttachment extends AttachmentState {
+  readonly kind: "pty";
+  /** the attach the latest start made: each retry, take-over or handoff's new terminal replaces it */
+  process: PtySession;
+  /** a held terminal's next try takes the slot from the other bridge for this client (`take-over`) */
+  takeOver?: (client: Client) => void;
+}
+
+/**
+ * Where herdr cannot attach here, `process` repaints the pane's screen (server/mirror.ts) on the
+ * pane's own grid: no browser resizes it, and there is no attach slot to take over.
+ */
+export interface MirrorAttachment extends AttachmentState {
+  readonly kind: "mirror";
+  process: MirrorSession;
+}
+
+export type PaneAttachment = PtyAttachment | MirrorAttachment;
 
 /**
  * The attach the server's clients share for each pane. `attachments` stays the server's: a callback
@@ -147,9 +162,7 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
     // watching phone's viewport
     const spawnCols = forObserver || mirrored ? (rect?.width ?? 80) : cols;
     const spawnRows = forObserver || mirrored ? (rect?.height ?? 24) : rows;
-    const attachment: PaneAttachment = {
-      ready: mirrored,
-      process: undefined as unknown as PtySession,
+    const state = {
       clients: new Set<Client>(),
       cols: spawnCols,
       rows: spawnRows,
@@ -157,9 +170,10 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
       stalled: new Map(),
       grids: new Map(),
     };
-    attachments.set(paneId, attachment);
 
     if (mirrored) {
+      const attachment: MirrorAttachment = { kind: "mirror", ready: true, process: undefined as unknown as MirrorSession, ...state };
+      attachments.set(paneId, attachment);
       const mirror = new MirrorSession({
         cols: spawnCols,
         rows: spawnRows,
@@ -188,9 +202,11 @@ export function createSpawnAttachment({ attachments, retiringAttachments, termin
         },
       });
       attachment.process = mirror;
-      attachment.mirror = mirror;
       return attachment;
     }
+
+    const attachment: PtyAttachment = { kind: "pty", ready: false, process: undefined as unknown as PtySession, ...state };
+    attachments.set(paneId, attachment);
 
     // No --takeover unless asked: another web bridge may own the exclusive attach slot.
     // Report that conflict without displacing it or the user's own TUI; a client here may
