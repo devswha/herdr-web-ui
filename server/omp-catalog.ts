@@ -75,15 +75,16 @@ export async function paneOmpCatalog(paneId: string, cwd: string): Promise<OmpCa
   const now = Date.now();
   const cached = catalogs.get(key);
   if (cached !== undefined && now - cached.at < CATALOG_TTL_MS) return cached.models;
-  const models = listCatalog(command, cwd);
-  catalogs.delete(key);
-  catalogs.set(key, { at: now, models });
-  if (catalogs.size > CATALOG_ENTRIES) catalogs.delete(catalogs.keys().next().value!);
-  // a failed listing is not kept: the next read asks again
-  return models.catch(() => {
+  // every reader of a listing still running shares this promise, so a failure is empty for all of
+  // them; a failed listing is not kept: the next read asks again
+  const models: Promise<OmpCatalogModel[]> = listCatalog(command, cwd).catch(() => {
     if (catalogs.get(key)?.models === models) catalogs.delete(key);
     return [];
   });
+  catalogs.delete(key);
+  catalogs.set(key, { at: now, models });
+  if (catalogs.size > CATALOG_ENTRIES) catalogs.delete(catalogs.keys().next().value!);
+  return models;
 }
 
 /** For tests: forget every listing. */

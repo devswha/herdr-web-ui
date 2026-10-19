@@ -73,6 +73,9 @@ describe.skipIf(process.platform === "win32")("paneOmpCatalog", () => {
     // a failed listing is not kept
     expect(await paneOmpCatalog("pane", failing.dir)).toEqual([]);
     expect(await failing.calls()).toBe(2);
+    // a read that joins a listing still running gets the same empty answer, not its failure
+    expect(await Promise.all([paneOmpCatalog("pane", failing.dir), paneOmpCatalog("pane", failing.dir)])).toEqual([[], []]);
+    expect(await failing.calls()).toBe(3);
     for (const restore of restores.splice(0)) restore();
     const omp = fakeOmp(`echo '${LISTING}'`);
     foreground([{ pid: 1, argv: [omp.bin] }, { pid: 2, argv: [omp.bin] }]);
