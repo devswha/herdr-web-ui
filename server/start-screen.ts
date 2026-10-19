@@ -77,20 +77,30 @@ function ompScreen(lines: string[], catalog: readonly OmpCatalogModel[]): Screen
     const name = model.name.startsWith("Claude ") ? model.name.slice(7) : model.name;
     ids.set(name, ids.has(name) && ids.get(name) !== model.id ? null : model.id);
   }
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
+  // The captured box composer owns its top status border. Content rows start with a vertical
+  // border; text below its bottom border, including pasted model segments, is not status.
+  let bottom = lines.length - 1;
+  while (bottom >= 0 && !/^\s*╰[─━]/u.test(lines[bottom]!)) bottom--;
+  if (bottom < 0) return NOTHING;
+  for (let index = bottom - 1; index >= 0; index -= 1) {
     const line = lines[index]!;
+    if (/^\s*[│┃╰]/u.test(line) || !/[─━]{2,}|▶[─━]/u.test(line)) continue;
+    const lead = line.trimStart().split(/\s/u)[0]!;
+    if (lead !== "π" && !Object.hasOwn(OMP_MODEL_ICONS, lead) && !Object.hasOwn(OMP_LEVEL_GLYPHS, lead)) continue;
     const named: (Screen | null)[] = [];
     for (const [name, id] of ids) {
       for (let at = line.indexOf(` ${name}`); at >= 0; at = line.indexOf(` ${name}`, at + 1)) {
         const rest = line.slice(at + 1 + name.length);
         const icon = line.slice(0, at).split(" ").at(-1)!;
-        const glyph = OMP_LEVEL_GLYPHS[icon];
-        if (!/^(?:\s*$|\s+[^\s\p{L}\p{N}\p{Ps}])/u.test(rest) || (glyph === undefined && !OMP_MODEL_ICONS[icon])) continue;
+        const glyph = Object.hasOwn(OMP_LEVEL_GLYPHS, icon) ? OMP_LEVEL_GLYPHS[icon] : undefined;
+        if (!/^(?:\s*$|\s+[^\s\p{L}\p{N}\p{Ps}])/u.test(rest) || (glyph === undefined && !Object.hasOwn(OMP_MODEL_ICONS, icon))) continue;
         const tail = glyph === undefined ? OMP_LEVEL_TAIL.exec(rest) : null;
         named.push(id === null ? null : { model: id, reasoning_effort: glyph ?? (tail ? OMP_LEVELS[tail[1]!]! : null) });
       }
     }
-    if (named.length === 0) continue;
+    // This border owns the composer even if its current model is unknown. Older status-like
+    // lines above it must not fill in a model the current border did not name.
+    if (named.length === 0) return NOTHING;
     const first = named[0] ?? null;
     return first !== null && named.every((screen) => screen?.model === first.model && screen.reasoning_effort === first.reasoning_effort) ? first : NOTHING;
   }

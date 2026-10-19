@@ -1514,10 +1514,14 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   // that cannot be read leaves it unknown, as it was. omp names its model there by catalog name,
   // so its screen is read against the catalog of the omp the pane runs
   const screenMetadata = async (source: RecognizedConversation["source"]): Promise<ConversationMetadata> => {
-    const screen = await paneRead({ paneId, source: "visible", format: "text", timeoutMs: 2_000 }).then((read) => read.text, () => "");
     const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
     const cwd = pane?.foreground_cwd || pane?.cwd;
-    const catalog = source === "omp-transcript" && screen !== "" && cwd ? await paneOmpCatalog(paneId, cwd) : [];
+    // A cold listing continues in the background; it must not delay an empty conversation.
+    const listing = source === "omp-transcript" && cwd ? paneOmpCatalog(paneId, cwd, 50) : Promise.resolve([]);
+    const [screen, catalog] = await Promise.all([
+      paneRead({ paneId, source: "visible", format: "text", timeoutMs: 2_000 }).then((read) => read.text, () => ""),
+      listing,
+    ]);
     return startScreenMetadata(source, screen, catalog);
   };
   const notBegun = async (source: RecognizedConversation["source"], id: string): Promise<RecognizedConversation> => {

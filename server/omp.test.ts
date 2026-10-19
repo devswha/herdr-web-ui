@@ -10,6 +10,7 @@ import * as herdr from "./herdr/client.ts";
 import { terminalBreadcrumb } from "./gjc-runtime.ts";
 import { isOmpProcess, ompAgentDir, ompHeldTranscript } from "./omp.ts";
 import { forgetOmpCatalogs } from "./omp-catalog.ts";
+import * as ompCatalog from "./omp-catalog.ts";
 import * as ompProbe from "./omp-process.ts";
 import * as omo from "./omo.ts";
 
@@ -136,9 +137,12 @@ describe("an omp pane's chat", () => {
     const catalog = { models: [{ provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" }, { provider: "openai-codex", id: "gpt-6.1-sol", name: "GPT 6.1 Sol" }] };
     writeFileSync(bin, `#!/bin/sh\ncat <<'EOF'\n${JSON.stringify(catalog)}\nEOF\n`, { mode: 0o755 });
     processes = [{ pid: 1, argv: [bin, "--model", "openai-codex/gpt-6.1-sol"] }];
+    const probe = spyOn(ompProbe, "ompProcessMemory").mockResolvedValue({ argv: processes[0]!.argv!, environ: [`HOME=${home}`, "PATH=/usr/bin:/bin"] });
+    restores.push(() => probe.mockRestore());
     let screen = " π > ⟳ GPT 6.1 Sol > 🗑 …oject ▶─1%──────┃─1.1M─\n╰─                           ⇧⇥ to change thinking effort";
     const read = spyOn(herdr, "paneRead").mockImplementation(async () => ({ text: screen }) as never);
     restores.push(() => read.mockRestore(), forgetOmpCatalogs);
+    await ompCatalog.paneOmpCatalog(pane.pane_id, pane.cwd!);
     const started = await paneConversation(pane.pane_id);
     expect(started).toMatchObject({ source: "omp-transcript", turns: [], screen: true, metadata: { model: "gpt-6.1-sol", reasoning_effort: "auto" } });
     screen = " π > ◒ Opus 5.5 > 🗑 …oject > ⑂ main ▶─2%─┃1M─\n╰─                           ⇧⇥ to change thinking effort";
@@ -148,6 +152,32 @@ describe("an omp pane's chat", () => {
     // a name the catalog does not list leaves the model unknown, never a default
     screen = " π > ◒ Opus 5.5 (1M) > 🗑 …oject";
     expect((await paneConversation(pane.pane_id)).metadata).toEqual({ model: null, reasoning_effort: null });
+  });
+
+  it("answers an unwritten conversation before a cold catalog finishes, then uses its result", async () => {
+    const store = join(home, ".omp/agent/sessions/-project");
+    mkdirSync(store, { recursive: true });
+    agentSession = { agent: "omp", kind: "path", value: join(store, "2026-10-19_cold.jsonl") };
+    const models = [{ id: "gpt-6.1-sol", name: "GPT 6.1 Sol" }];
+    const bin = join(home, "omp");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    processes = [{ pid: 1, argv: [bin] }];
+    const probe = spyOn(ompProbe, "ompProcessMemory").mockResolvedValue({ argv: [bin], environ: [`HOME=${home}`, "PATH=/usr/bin:/bin"] });
+    let release: (() => void) | undefined;
+    const exited = new Promise<number>((resolve) => { release = () => resolve(0); });
+    const stdout = new ReadableStream<Uint8Array>({ start(controller) {
+      void exited.then(() => { controller.enqueue(new TextEncoder().encode(JSON.stringify({ models }))); controller.close(); });
+    } });
+    const spawn = spyOn(Bun, "spawn").mockReturnValue({ stdout, exited, kill() {} } as never);
+    const read = spyOn(herdr, "paneRead").mockResolvedValue({ text: " π > ⟳ GPT 6.1 Sol ▶─1%────┃─1M─\n╰─" } as never);
+    try {
+      const first = await paneConversation(pane.pane_id);
+      expect(first.metadata).toEqual({ model: null, reasoning_effort: null });
+      expect(spawn).toHaveBeenCalledTimes(1);
+      release?.();
+      await ompCatalog.paneOmpCatalog(pane.pane_id, pane.cwd!);
+      expect((await paneConversation(pane.pane_id)).metadata).toEqual({ model: "gpt-6.1-sol", reasoning_effort: "auto" });
+    } finally { release?.(); await exited; spawn.mockRestore(); probe.mockRestore(); read.mockRestore(); }
   });
 
   it.skipIf(process.platform !== "linux")("reads the transcript the pane's omp process holds open when herdr names none", async () => {

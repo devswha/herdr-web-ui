@@ -1,10 +1,10 @@
 /** WSL can block procfs memory reads during agent exit. Keep them outside the bridge. */
 import { readFileSync } from "node:fs";
 
-export interface ProcessMemory { argv: string[]; environ: string[] }
+export interface ProcessMemory { argv: string[]; environ: string[]; executable?: string }
 const MAX_OUTPUT = 1024 * 1024;
 const MAX_CACHED = 64;
-/** Only what omp's store and terminal lookups read: the rest of the environment may hold secrets. */
+/** Only what omp's store, terminal and catalog lookups read; never copy loader hooks or secrets. */
 const SCRIPT = `
 const fs = require("node:fs"), pid = process.argv[1];
 try {
@@ -12,8 +12,8 @@ try {
   const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
   if (/^[DZXx]$/.test(fields[0])) process.exit(1);
   const read = name => fs.readFileSync("/proc/" + pid + "/" + name, "utf8").split("\\0").filter(Boolean);
-  const environ = read("environ").filter(word => /^(?:OMP_PROFILE|TMUX|TMUX_PANE)=/.test(word));
-  console.log(JSON.stringify({ start: fields[19], argv: process.argv[2] === "1" ? read("cmdline") : [], environ }));
+  const environ = read("environ").filter(word => /^(?:OMP_PROFILE|TMUX|TMUX_PANE|PATH|HOME|XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_CACHE_HOME|XDG_STATE_HOME)=/.test(word));
+  console.log(JSON.stringify({ start: fields[19], argv: process.argv[2] === "1" ? read("cmdline") : [], environ, executable: fs.readlinkSync("/proc/" + pid + "/exe") }));
 } catch { process.exit(1); }
 `;
 
@@ -43,7 +43,7 @@ export function isWsl(): boolean {
  * successful answer is kept per pid and start time, so polling one process spawns one helper and
  * a reused pid misses; a failed one is never kept, so the next poll tries again.
  */
-export function createOmpProcessProbe({ timeoutMs = 1000, maxProcesses = 4, startTicks = processStartTicks, command = (pid, argv) => [process.execPath, "-e", SCRIPT, String(pid), argv ? "1" : "0"] }: {
+export function createOmpProcessProbe({ timeoutMs = 1000, maxProcesses = 4, startTicks = processStartTicks, command = (pid, argv) => [process.execPath, "--config=/dev/null", "-e", SCRIPT, String(pid), argv ? "1" : "0"] }: {
   timeoutMs?: number;
   maxProcesses?: number;
   startTicks?: (pid: number) => string | null;
@@ -73,7 +73,7 @@ export function createOmpProcessProbe({ timeoutMs = 1000, maxProcesses = 4, star
       return Promise.resolve(null);
     }
     let child: Bun.Subprocess<"ignore", "pipe", "ignore">;
-    try { child = Bun.spawn(command(pid, argv), { stdin: "ignore", stdout: "pipe", stderr: "ignore" }); }
+    try { child = Bun.spawn(command(pid, argv), { cwd: "/", env: {}, stdin: "ignore", stdout: "pipe", stderr: "ignore" }); }
     catch { return Promise.resolve(null); }
     child.unref();
     live++;
@@ -108,7 +108,8 @@ export function createOmpProcessProbe({ timeoutMs = 1000, maxProcesses = 4, star
           if (value === null || typeof value !== "object" || !("argv" in value) || !("environ" in value) || !words(value.argv) || !words(value.environ)) { finish(null); return; }
           // a different start time: the pid was reused, and the helper read another process
           if (!("start" in value) || value.start !== start) { finish(null); return; }
-          const memory = { argv: value.argv, environ: value.environ };
+          const memory: ProcessMemory = { argv: value.argv, environ: value.environ };
+          if ("executable" in value && typeof value.executable === "string") memory.executable = value.executable;
           if (cache.size >= MAX_CACHED && !cache.has(pid)) cache.delete(cache.keys().next().value!);
           cache.set(pid, { start, argv, memory });
           finish(memory);

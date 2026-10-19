@@ -1597,7 +1597,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   their composers before anything is sent: Claude Code's model under its title, and the live
   status line of Codex, gjc and omp. omp draws its model there by catalog name, taken only when
   it names exactly one id in the pane's own `omp models --json` catalog (listed with the pane's
-  omp and profile, never its extensions, at most once a minute). A Codex started in a terminal
+  omp and profile, never its extensions, at most once a minute). Listing uses the process's
+  executable and bounded environment probe on Linux, from an empty temporary directory, not
+  the project. A cold listing gets only a 50 ms budget in the conversation response; it keeps
+  running for a later read. Explicit `-e`/`--extension` or `--config` overlays leave the model
+  unknown. Automatically discovered extension providers and project-local configuration are not
+  reproduced in this isolated listing: a name shadowed only there remains a limitation of this reduced
+  catalog until the transcript records the id. Outside Linux there is no equivalent pane
+  environment probe yet, so this model stays unknown; WSL's omitted argv is recovered by the Linux probe.
+  Only the captured box composer's bordered status layout is read; other omp layouts stay
+  unknown rather than treating composer text as status. A Codex started in a terminal
   reports no session, so its terminal-output fallback carries the status line's model. Such an
   answer is marked `screen`, and the chat re-reads it on terminal output, so a switch made in the
   terminal shows once the agent draws it. A name the screen cannot tie to one id draws no pill,

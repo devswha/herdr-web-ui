@@ -117,6 +117,16 @@ describe("omp's status line", () => {
     expect(omp(OMP_SWITCHED.replace("◒ Sonnet 5.5", "○ GPT 6 Sol"))).toEqual({ model: "gpt-6-sol", reasoning_effort: "minimal" });
   });
 
+  it("ignores composer model mentions and inherited glyph properties", () => {
+    expect(omp(`${OMP}\nPlease explain ⟳ Sonnet 5.5`)).toEqual({ model: "claude-opus-5-5", reasoning_effort: "auto" });
+    expect(omp(OMP.replace("╰─", "│ Please explain ⟳ Sonnet 5.5\n╰─"))).toEqual({ model: "claude-opus-5-5", reasoning_effort: "auto" });
+    expect(omp(OMP.replace("╰─", "│ π > ◒ Sonnet 5.5 ▶─2%─────┃1M─\n╰─"))).toEqual({ model: "claude-opus-5-5", reasoning_effort: "auto" });
+    expect(omp(OMP.replace("⟳", "constructor"))).toEqual(unknown);
+    expect(omp("constructor Sonnet 5.5")).toEqual(unknown);
+    expect(omp("Please explain ⟳ Sonnet 5.5")).toEqual(unknown);
+    expect(omp(`${OMP_SWITCHED}\n${OMP.replace("Opus 5.5", "Unknown model")}`)).toEqual(unknown);
+  });
+
   it("reads the full segment, the other symbol presets, and a model without thinking", () => {
     expect(omp(OMP.replace("⟳ Opus 5.5", "⬢ Opus 5.5 ⚡ · ◕ xhigh"))).toEqual({ model: "claude-opus-5-5", reasoning_effort: "xhigh" });
     expect(omp(OMP.replace("⟳ Opus 5.5", "\uec19 Opus 5.5 · \u{F0AA5} xhi"))).toEqual({ model: "claude-opus-5-5", reasoning_effort: "xhigh" });
