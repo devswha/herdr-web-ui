@@ -16,7 +16,7 @@ const { createTerminalRegistry } = await import("./terminals.ts");
 afterEach(() => mock.restore());
 
 for (const readOnly of [false, true]) for (const ready of [false, true]) {
-  it(`sends readiness ${ready} before replay to a ${readOnly ? "observer" : "owner"} joining a shared attach`, async () => {
+  it(`preserves input readiness ${ready} after replay for an ${readOnly ? "observer" : "owner"} joining a shared attach`, async () => {
     const frames: ServerMessage[] = [];
     const client = {
       data: connectionData({ deviceId: undefined, readOnly }), readyState: WebSocket.OPEN,
@@ -35,10 +35,16 @@ for (const readOnly of [false, true]) for (const ready of [false, true]) {
       holdPending() {}, holdPendingPane() {}, end() {},
     });
     await registry.terminalFrames.attach(client, { type: "attach", pane_id: "p", cols: 80, rows: 24, keep_size: true });
-    expect(frames.slice(0, 2)).toEqual([
-      { type: "input-ready", pane_id: "p", ...(ready ? {} : { ready: false }) },
+    expect(frames.filter((frame) => frame.type === "pty-data")).toEqual([
       { type: "pty-data", pane_id: "p", data: "retained screen" },
     ]);
+    // An input-ready receipt is the existing attach-complete barrier for queued input,
+    // not an output-presentation notification. No early negative receipt may satisfy it.
+    expect(frames.filter((frame) => frame.type === "input-ready")).toEqual(
+      ready ? [{ type: "input-ready", pane_id: "p" }] : [],
+    );
+    if (ready) expect(frames.findIndex((frame) => frame.type === "input-ready"))
+      .toBeGreaterThan(frames.findIndex((frame) => frame.type === "pty-data"));
     registry.closeAttachment("p");
     registry.conversations.stop();
   });

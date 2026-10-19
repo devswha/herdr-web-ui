@@ -1002,7 +1002,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   parsed output for its current pane/terminal and an active, unheld connection. An attachment
   loss (`input-ready: false`) revokes that proof even while the socket stays open, including
   queued parses. Recovery alone is insufficient: fresh output must parse after recovery.
-  The server sends readiness before replay to every joiner, including observers. A retained
+  Attach preserves the input protocol: replay is sent first, and a positive readiness receipt
+  is sent only once the attachment is ready. It does not send an early negative receipt that
+  existing input clients could mistake for the attach-complete barrier. Recovering-joiner
+  unread-dot accuracy remains follow-up work rather than changing queued-input semantics. A retained
   renderer starts a new output lifetime on resume, so a missed recovery cannot invalidate its
   quiet replay. This is independent of input permission.
   A native chat

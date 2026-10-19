@@ -338,9 +338,6 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       // a mirrored screen is drawn for the pane's own grid: the client takes that size
       // before the screen, or the rows would wrap in a grid of another width
       if (attachment.kind === "mirror") send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
-      // The replay may belong to a lost attachment. Both new and retained renderers must
-      // know that lifetime's readiness before any retained bytes can finish parsing.
-      send(client, { type: "input-ready", pane_id: message.pane_id, ...(attachment.ready && !attachment.held ? {} : { ready: false }) });
       // hand the newcomer the current screen it would otherwise have missed
       // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
       const replay = attachment.kind === "mirror" ? attachment.process.current ?? "" : attachment.replay.text();
@@ -354,6 +351,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
       reconcileOutput(message.pane_id);
       if (connectionOf(client).closing) return;
+      if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
       if (attachment.kind === "mirror") return;
       if (connectionOf(client).mode === "interact" && !claim.keepSize) {
         // an operator's viewport owns the shared grid
