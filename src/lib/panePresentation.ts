@@ -1,8 +1,16 @@
 import type { Machine } from "../../shared/machines.ts";
-import type { HerdrPane } from "../../shared/protocol.ts";
+import type { ConversationResponse, ConversationTurn, HerdrPane } from "../../shared/protocol.ts";
 import type { PaneView } from "./actions.ts";
 
 export const PANE_COVER_SELECTOR = '[role="dialog"],[role="alertdialog"],[aria-modal="true"],[role="menu"],dialog[open],.menu.composer-menu';
+
+/** Hook-driven DONE can precede a transcript flush; a fresh read/304 alone proves nothing. */
+export function conversationFinishPresented(conversation: { source: ConversationResponse["source"] | undefined; turns: readonly ConversationTurn[] }): boolean {
+  if (conversation.source !== "claude-transcript" && conversation.source !== "codex-transcript") return true;
+  const turn = conversation.turns.at(-1);
+  const last = turn?.parts.at(-1);
+  return turn?.role === "assistant" && last?.kind === "text" && last.phase === "final_answer" && last.text.trim().length > 0;
+}
 
 /** Retained phone siblings keep their suggestions, but invisible content covers no pane. */
 export function paneCovered(): boolean {

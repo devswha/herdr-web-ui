@@ -17,6 +17,32 @@ import { DevinHistoryChanged } from "./devin.ts";
 import * as omo from "./omo.ts";
 import { ConversationUnavailable, devinSessionForPane, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneProcessRoots, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 
+it("labels only Claude's explicit end_turn text as final-answer evidence", () => {
+  const entry = (stop_reason: string | null) => JSON.stringify({ type: "assistant", message: { role: "assistant", stop_reason, content: [{ type: "text", text: "Answer" }] } });
+  expect(parseClaudeTranscript(entry(null))[0]?.parts).toEqual([{ kind: "text", text: "Answer" }]);
+  expect(parseClaudeTranscript(entry("tool_use"))[0]?.parts).toEqual([{ kind: "text", text: "Answer" }]);
+  expect(parseClaudeTranscript(entry("end_turn"))[0]?.parts).toEqual([{ kind: "text", text: "Answer", phase: "final_answer" }]);
+});
+
+it("keeps a cached pre-final Claude page distinct from its appended final answer", () => {
+  const dir = mkdtempSync(join(tmpdir(), "claude-finish-proof-"));
+  const file = join(dir, "session.jsonl");
+  const record = (stop_reason: string | null, text: string) => JSON.stringify({
+    type: "assistant", timestamp: "2026-10-19T01:00:00Z",
+    message: { role: "assistant", stop_reason, content: [{ type: "text", text }] },
+  }) + "\n";
+  try {
+    writeFileSync(file, record(null, "Partial answer"));
+    const before = transcriptPage("claude-transcript", file);
+    expect(before.turns.at(-1)?.parts.at(-1)).toEqual({ kind: "text", text: "Partial answer" });
+    expect(transcriptPage("claude-transcript", file).turns).toEqual(before.turns);
+    appendFileSync(file, record("end_turn", "Final answer"));
+    expect(transcriptPage("claude-transcript", file).turns.at(-1)?.parts.at(-1))
+      .toEqual({ kind: "text", text: "Final answer", phase: "final_answer" });
+    expect(before.turns.at(-1)?.parts.at(-1)).toEqual({ kind: "text", text: "Partial answer" });
+  } finally { forgetTranscriptState(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 describe("omo skill roots", () => {
   it("finds the bundled plugin from a Windows canonical launcher path", async () => {
     const canonical = win32.join("C:\\Users\\demo", "node_modules", "omo-ai", "dist", "cli.js");

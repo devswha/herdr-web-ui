@@ -75,6 +75,8 @@ const chats = new Map<string, { turns: ConversationTurn[]; metadata: { model: st
   for (const chat of chats.values()) for (const turn of chat.turns) {
     if (turn.ts) turn.ts = new Date(Date.parse(turn.ts) + shift).toISOString();
     if (turn.end_ts) turn.end_ts = new Date(Date.parse(turn.end_ts) + shift).toISOString();
+    const last = turn.parts.at(-1);
+    if (turn.role === "assistant" && turn.end_ts && last?.kind === "text") last.phase = "final_answer";
   }
 }
 let promptOpen = true;
@@ -376,7 +378,7 @@ function submitToChat(paneId: string, text: string): void {
   replying.add(paneId);
   setStatus(paneId, "working");
   setTimeout(() => {
-    chat.turns.push({ role: "assistant", ts: now(), end_ts: now(), parts: [{ kind: "text", text: `This is the demo, so nothing ran. In the real app that message went to ${agent} in this pane, and its answer would be written here as it arrives, with its commands and edits folded above it.` }] });
+    chat.turns.push({ role: "assistant", ts: now(), end_ts: now(), parts: [{ kind: "text", phase: "final_answer", text: `This is the demo, so nothing ran. In the real app that message went to ${agent} in this pane, and its answer would be written here as it arrives, with its commands and edits folded above it.` }] });
     conversationChanged(paneId);
     finishDemoTurn(paneId);
   }, CHAT_ANSWER_MS);
@@ -392,9 +394,9 @@ function answerPrompt(paneId: string, optionIndex: number | undefined): void {
     chat?.turns.push({
       role: "assistant", ts: now(), end_ts: now(),
       parts: declined
-        ? [{ kind: "text", text: "Understood, I won't push. The changes stay on `feat/export-guard` locally; tell me what to do differently." }]
+        ? [{ kind: "text", phase: "final_answer", text: "Understood, I won't push. The changes stay on `feat/export-guard` locally; tell me what to do differently." }]
         : [{ kind: "tool", name: "exec", summary: "git push origin feat/export-guard", input: JSON.stringify({ cmd: "git push origin feat/export-guard" }, null, 2), output: "To github.com:acme/checkout-api.git\n * [new branch]      feat/export-guard -> feat/export-guard" },
-          { kind: "text", text: "Pushed `feat/export-guard`. The export button is guarded and the branch is ready for a pull request." }],
+          { kind: "text", phase: "final_answer", text: "Pushed `feat/export-guard`. The export button is guarded and the branch is ready for a pull request." }],
     });
     if (chat) conversationChanged(paneId);
     finishDemoTurn(paneId);
@@ -1608,7 +1610,7 @@ setTimeout(() => {
   if (!chat || !turn || turn.role !== "assistant") return;
   turn.parts.push(
     { kind: "tool", name: "Bash", summary: "bun test metrics", input: JSON.stringify({ command: "bun test metrics" }, null, 2), output: " 6 pass\n 0 fail\nRan 6 tests across 1 file. [201ms]" },
-    { kind: "text", text: "Added `payments_idempotent_replays_total`, incremented where a stored response is replayed, and exposed with the other counters on `/metrics`. 6 tests pass." },
+    { kind: "text", phase: "final_answer", text: "Added `payments_idempotent_replays_total`, incremented where a stored response is replayed, and exposed with the other counters on `/metrics`. 6 tests pass." },
   );
   turn.end_ts = now();
   conversationChanged(paneId);

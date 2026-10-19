@@ -1,5 +1,26 @@
 import { expect, it } from "bun:test";
-import { paneCovered, PANE_COVER_SELECTOR } from "./panePresentation.ts";
+import { conversationFinishPresented, paneCovered, PANE_COVER_SELECTOR } from "./panePresentation.ts";
+import type { ConversationTurn } from "../../shared/protocol.ts";
+
+for (const source of ["claude-transcript", "codex-transcript"] as const) {
+  it(`${source} requires the newest answer's native final marker, not an earlier complete turn`, () => {
+    const done: ConversationTurn = { role: "assistant", ts: null, parts: [{ kind: "text", text: "Finished", phase: "final_answer" }] };
+    const user: ConversationTurn = { role: "user", ts: null, parts: [{ kind: "text", text: "Next request" }] };
+    const partial: ConversationTurn = { role: "assistant", ts: null, parts: [{ kind: "text", text: "Still working", phase: "commentary" }] };
+    expect(conversationFinishPresented({ source, turns: [done] })).toBe(true);
+    for (const turns of [[], [done, user], [done, user, partial],
+      [{ ...partial, parts: [{ kind: "text" as const, text: "Unlabelled prose" }] }],
+      [{ ...done, parts: [...done.parts, { kind: "thinking" as const, text: "More work" }] }]]) {
+      expect(conversationFinishPresented({ source, turns })).toBe(false);
+    }
+  });
+}
+
+it("does not replace transcript-derived native status with a hook-agent completion rule", () => {
+  expect(conversationFinishPresented({ source: "gjc-transcript", turns: [
+    { role: "assistant", ts: null, parts: [{ kind: "text", text: "Native stop" }] },
+  ] })).toBe(true);
+});
 
 /** Exercise the production selector with Bun's CSS selector engine, not a string assertion. */
 async function covered(html: string): Promise<boolean> {
