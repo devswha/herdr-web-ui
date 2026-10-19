@@ -679,26 +679,32 @@ const OPENCODE_DB_BUSY_TIMEOUT_MS = 250;
  * imported from `auth.json` carry no flag). The store is OpenCode 2's when it has `session_v2`, as
  * `server/opencode.ts` tells them apart: 1.x stores have an empty `credential` table too. Null when
  * the file is not OpenCode 2's store (absent, OpenCode 1's, unreadable); `key` is null when the
- * store holds no key of its own (signed out, or an OAuth sign-in).
+ * store holds no key of its own (signed out, or an OAuth sign-in) or, once it is known to be
+ * OpenCode 2's, cannot be read: the file it left standing holds a key it no longer uses either way.
+ * A value past MAX_READ_BYTES is not read, as for the files.
  */
 function opencodeStore(path: string | null): { key: string | null } | null {
   if (path === null) return null;
   let db: Database | undefined;
+  let known = false;
   try {
     db = new Database(path, { readonly: true, create: false });
     db.exec(`PRAGMA busy_timeout = ${OPENCODE_DB_BUSY_TIMEOUT_MS}`);
-    if (db.query("select 1 from sqlite_master where type = 'table' and name = 'session_v2'").get() === null) return null;
-    const selected = db.query("select value from credential where integration_id = ? order by active desc, time_created desc, id desc limit 1");
+    const tables = db.query("select count(*) as n from sqlite_master where type = 'table' and name in ('session_v2', 'credential')").get() as { n: number };
+    if (tables.n < 2) return null;
+    known = true;
+    const selected = db.query("select case when length(value) <= ? then value end as value from credential where integration_id = ? order by active desc, time_created desc, id desc limit 1");
     for (const provider of ["opencode-go", "opencode"]) {
-      const row = selected.get(provider) as { value?: unknown } | null;
+      const row = selected.get(MAX_READ_BYTES, provider) as { value?: unknown } | null;
       const entry = record(parseJson(text(row?.value ?? null)));
       const key = entry["type"] === "key" ? text(entry["key"]) : null;
       if (key) return { key };
     }
     return { key: null };
   } catch {
-    // no file, not a database, or no `credential` table: not a store this reader knows
-    return null;
+    // no file or not a database: not a store this reader knows; OpenCode 2's store that will not
+    // answer now (busy past the timeout, damaged) still holds no key its old auth.json can stand in for
+    return known ? { key: null } : null;
   } finally {
     db?.close();
   }

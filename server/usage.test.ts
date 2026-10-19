@@ -513,6 +513,26 @@ describe("providers", () => {
     expect(requests).toEqual([]);
   });
 
+  // known to be OpenCode 2's, a store that will not answer now (busy past the timeout, damaged)
+  // still leaves the file's key one OpenCode no longer uses; the variable it reads still answers
+  it("keeps OpenCode 2's old auth.json out when its credential cannot be read, and reads OPENCODE_API_KEY", async () => {
+    const dir = join(home, ".local", "share", "opencode");
+    mkdirSync(dir, { recursive: true });
+    const db = new Database(join(dir, "opencode.db"));
+    db.exec("create table session_v2 (id text primary key); create table credential (id text primary key, integration_id text, value text)");
+    db.close();
+    write(join(dir, "auth.json"), { "opencode-go": { type: "api", key: "oc_sk_signed_out" } });
+    replies.set("https://opencode.ai/zen/go/v1/usage", { body: { usage: { weekly: { percent: 3 } } } });
+    await new UsageService({ ...context("linux"), env: { USER: "me", OPENCODE_API_KEY: "oc_sk_env" } }, only("opencode")).report();
+    expect(requests.map((request) => (request.init.headers as Record<string, string>)["authorization"])).toEqual(["Bearer oc_sk_env"]);
+  });
+
+  it("does not read an OpenCode 2 credential over MAX_READ_BYTES", async () => {
+    opencodeStore([{ value: { type: "key", key: "oc_sk_big", pad: "x".repeat(MAX_READ_BYTES) } }]);
+    expect((await new UsageService(context("linux"), only("opencode")).report()).providers).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
   it("reads auth.json beside an OpenCode 1 store", async () => {
     opencodeStore([], undefined, true);
     write(join(home, ".local", "share", "opencode", "auth.json"), { "opencode-go": { type: "api", key: "oc_sk_file" } });
