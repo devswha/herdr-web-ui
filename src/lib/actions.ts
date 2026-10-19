@@ -35,6 +35,11 @@ export interface AppActions {
    * new pane opens unless another one was opened meanwhile. Rejects with herdr's refusal.
    */
   openTerminalTab: (target?: { machineId: string; workspaceId: string }) => Promise<void>;
+  /**
+   * A one-pane tab into a new tab at the end of another workspace on its PC, its process running.
+   * When it holds the open pane, the app follows the pane there. Rejects with herdr's refusal.
+   */
+  moveTabToWorkspace: (target: { machineId: string; tabId: string; workspaceId: string }) => Promise<void>;
   /** the palette, blank or opened on `query` (a `>` prefix keeps the actions alone) */
   openPalette: (query?: string) => void;
   /** A pane this page started an agent in opens in an agent's lens, whatever its first snapshot says. */

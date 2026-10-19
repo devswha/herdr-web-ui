@@ -200,6 +200,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/tab/move { tab_id, insert_index } -> TabMoved
  *         (tab.move: an insertion boundary in the original workspace tab order, 0..tab count;
  *         preserves the active tab/pane and returns the authoritative workspace tab order)
+ *  POST   /api/tab/move-to-workspace { tab_id, workspace_id } -> TabMovedToWorkspace (pane.move of
+ *         the tab's one pane into a new tab at the end of that workspace, its label and process
+ *         kept, herdr's focus unchanged; the pane gets a new ID, and the tab, or a workspace, it
+ *         leaves empty closes. 409 multi_pane_tab for a split tab, 409 same_workspace)
  *  POST   /api/tab/close  { tab_id } -> { ok: true } (tab.close: every pane in the tab closes, and
  *         a workspace's last tab takes the workspace with it)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true } (trimmed; empty: 400
@@ -849,6 +853,14 @@ export interface MoveTabRequest { tab_id: string; insert_index: number; }
 export interface TabMoved {
   ok: true;
   tabs: HerdrTab[];
+}
+
+/** POST /api/tab/move-to-workspace: where the tab's pane is now, under its new ID. */
+export interface MoveTabToWorkspaceRequest { tab_id: string; workspace_id: string; }
+export interface TabMovedToWorkspace {
+  ok: true;
+  pane_id: string;
+  tab_id: string;
 }
 
 /** POST /api/tab/create: the workspace is required; `label` names the new tab. */

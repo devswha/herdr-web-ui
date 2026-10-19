@@ -2,7 +2,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEff
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, moveTabToWorkspace, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
@@ -1362,6 +1362,15 @@ export function App() {
         // what the user went to while herdr answered is theirs to keep
         if (selectionStill(asked, selectionRef.current)) selectTargetRef.current(found.machineId, created.pane_id);
       },
+      moveTabToWorkspace: async ({ machineId, tabId, workspaceId }) => {
+        const asked = selectionRef.current;
+        const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
+        const held = asked.machineId === machineId && roster?.panes.some((pane) => pane.pane_id === asked.paneId && pane.tab_id === tabId) === true;
+        const moved = await moveTabToWorkspace(tabId, workspaceId, machineId);
+        void load();
+        // the open pane changed its ID with its workspace: the view goes with it, unless the user went elsewhere meanwhile
+        if (held && selectionStill(asked, selectionRef.current)) selectTargetRef.current(machineId, moved.pane_id);
+      },
       openPalette,
       agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
       openFind: () => {
@@ -1715,6 +1724,7 @@ export function App() {
                   <TabStrip snapshot={slotSnapshot} workspace={workspace} selectedPane={pane} panelId={slotPanelId} splitDrag={wideScreen} onSelectPane={onSelect} end={slotEnd}
                     onNewTab={() => actions.openNewTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
                     onNewTerminal={() => actions.openTerminalTab(active ? undefined : { machineId, workspaceId: workspace.workspace_id })}
+                    onMoveToWorkspace={(tabId, workspaceId) => actions.moveTabToWorkspace({ machineId, tabId, workspaceId })}
                     paneActions={active ? (paneId) => {
                       const target = snapshot?.panes.find((item) => item.pane_id === paneId);
                       if (!target || !paneActionsRef.current) return [];

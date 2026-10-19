@@ -12,7 +12,7 @@
  * one notice instead of a TUI. A message sent from a chat gets a demo answer.
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
-import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, PortalStatus, ServerMessage, SessionSnapshot, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
+import type { AgentIntegration, AgentStatus, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, PortalStatus, ServerMessage, SessionSnapshot, TabMoved, TabMovedToWorkspace, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
 import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
@@ -932,6 +932,37 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     relabelAutoTabs(tab.workspace_id);
     structureChanged();
     return json({ ok: true, tabs } satisfies TabMoved);
+  }
+  // herdr gives the pane a new ID in its new workspace; the demo keeps it, so its chat goes with it
+  if (path === "/api/tab/move-to-workspace") {
+    const body = await bodyOf(init, input);
+    const snap = snapshot();
+    const tab = snap.tabs.find((t) => t.tab_id === body["tab_id"]);
+    if (!tab) return error("tab_not_found", "no such tab", 404);
+    const workspace = snap.workspaces.find((w) => w.workspace_id === body["workspace_id"]);
+    if (!workspace) return error("workspace_not_found", "no such workspace", 404);
+    if (workspace.workspace_id === tab.workspace_id) return error("same_workspace", "the tab is already in that workspace", 409);
+    const panes = snap.panes.filter((p) => p.tab_id === tab.tab_id);
+    if (panes.length !== 1) return error("multi_pane_tab", "only a tab with one pane can move to another workspace", 409);
+    const from = tab.workspace_id;
+    const to = workspace.workspace_id;
+    const number = Math.max(0, ...snap.tabs.filter((t) => t.workspace_id === to).map((t) => t.number)) + 1;
+    const tabId = `${to}:t${number}`;
+    snap.tabs = [...snap.tabs.filter((t) => t !== tab), { ...tab, tab_id: tabId, workspace_id: to, number, focused: false }];
+    snap.layouts = snap.layouts.filter((l) => l.tab_id !== tab.tab_id);
+    Object.assign(panes[0]!, { tab_id: tabId, workspace_id: to, focused: false });
+    addDemoLayout(to, tabId, panes[0]!.pane_id);
+    if (autoTabs.delete(tab.tab_id)) autoTabs.add(tabId);
+    relabelAutoTabs(from);
+    relabelAutoTabs(to);
+    for (const w of snap.workspaces) {
+      w.tab_count = snap.tabs.filter((t) => t.workspace_id === w.workspace_id).length;
+      w.pane_count = snap.panes.filter((p) => p.workspace_id === w.workspace_id).length;
+    }
+    // a workspace's last tab takes the workspace with it
+    if (!snap.tabs.some((t) => t.workspace_id === from)) snap.workspaces = snap.workspaces.filter((w) => w.workspace_id !== from);
+    structureChanged();
+    return json({ ok: true, pane_id: panes[0]!.pane_id, tab_id: tabId } satisfies TabMovedToWorkspace);
   }
   if (path === "/api/tab/close") {
     const body = await bodyOf(init, input);
