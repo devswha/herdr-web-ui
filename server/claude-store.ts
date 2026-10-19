@@ -366,10 +366,46 @@ export async function claudeForegroundSession(
   const only = claude[0]!;
   try {
     const dir = await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""], home);
+    const job = attachedJob(only.argv);
+    // `claude attach <job>` shows a background job and keeps no PID record of its own: the job's state names its session
+    if (job !== null) return await claudeJobSession(dir || defaultClaudeConfigDir(home), job);
     return await claudeProcessSession(home, only.pid, dir || defaultClaudeConfigDir(home));
   } catch {
     // two stores claim the process, or one cannot be read: no session to pin
     return null;
+  }
+}
+
+/** The background job a `claude attach <job>` process shows, by its eight-digit id; null for any other Claude. */
+export function attachedJob(argv: readonly string[] | null | undefined): string | null {
+  const at = argv?.indexOf("attach") ?? -1;
+  const id = at >= 0 ? argv?.[at + 1] : undefined;
+  return id !== undefined && /^[0-9a-f]{8}$/.test(id) ? id : null;
+}
+
+/**
+ * The session of background job `job` (validated by attachedJob), from the state Claude Code keeps
+ * for it under `jobs/<job>/state.json`; its session id starts with the job's id. Null when the job
+ * has no readable state yet.
+ */
+export async function claudeJobSession(configDir: string, job: string): Promise<string | null> {
+  try {
+    // Non-blocking and no symlinks, as for the PID records: a FIFO or link there must not hang the read.
+    const file = await open(join(configDir, "jobs", job, "state.json"), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+    let text: string;
+    try {
+      const info = await file.stat();
+      if (!info.isFile() || info.size > 256 * 1024) return null;
+      text = (await file.readFile()).toString("utf8");
+    } finally { await file.close(); }
+    const state: unknown = JSON.parse(text);
+    if (state === null || typeof state !== "object" || !("sessionId" in state) || typeof state.sessionId !== "string") return null;
+    const session = state.sessionId;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session) && session.startsWith(job) ? session : null;
+  } catch (error) {
+    if (error instanceof SyntaxError || absent(error) ||
+      (error !== null && typeof error === "object" && "code" in error && ["EACCES", "EPERM", "ELOOP", "ENXIO"].includes(String(error.code)))) return null;
+    throw error;
   }
 }
 

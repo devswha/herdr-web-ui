@@ -2,11 +2,49 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import { AmbiguousClaudeStore, claudeForegroundSession, claudeProcessSession, claudeSessionTempDir, claudeStoreKey, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
+import { AmbiguousClaudeStore, attachedJob, claudeForegroundSession, claudeJobSession, claudeProcessSession, claudeSessionTempDir, claudeStoreKey, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 
 const NATIVE = process.platform === "linux" || process.platform === "darwin";
 const SESSION = "0b8e6f0e-8d3f-4c1a-9a53-6c2b7a1d9e42";
+
+describe("claude attach", () => {
+  const roots: string[] = [];
+  afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+  const JOB_SESSION = "5e1f0a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+  function jobState(state: unknown): string {
+    const home = mkdtempSync(join(tmpdir(), "herdr-claude-job-"));
+    roots.push(home);
+    const dir = join(home, ".claude", "jobs", "5e1f0a2b");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "state.json"), typeof state === "string" ? state : JSON.stringify(state));
+    return home;
+  }
+
+  it("finds the job an attach client shows", () => {
+    expect(attachedJob(["claude", "attach", "5e1f0a2b"])).toBe("5e1f0a2b");
+    expect(attachedJob(["claude"])).toBeNull();
+    expect(attachedJob(["claude", "attach", "../../etc"])).toBeNull();
+    expect(attachedJob(null)).toBeNull();
+  });
+
+  it("reads the session a background job's state names (claude attach)", async () => {
+    const home = jobState({ state: "running", sessionId: JOB_SESSION, cwd: "/repo", daemonShort: "5e1f0a2b" });
+    expect(await claudeJobSession(join(home, ".claude"), "5e1f0a2b")).toBe(JOB_SESSION);
+    // an attach client has no PID record: the pane's session comes from the job
+    const attach = { pid: 2_000_000_000, name: "2.1.303", argv0: "claude", argv: ["claude", "attach", "5e1f0a2b"] };
+    expect(await claudeForegroundSession([attach], home)).toBe(JOB_SESSION);
+  });
+
+  it("trusts no job state that names another job's session or is not a record", async () => {
+    expect(await claudeJobSession(join(jobState({ sessionId: "1c9e7f0e-8d3f-4c1a-9a53-6c2b7a1d9e43" }), ".claude"), "5e1f0a2b")).toBeNull();
+    expect(await claudeJobSession(join(jobState("{torn"), ".claude"), "5e1f0a2b")).toBeNull();
+    expect(await claudeJobSession(join(jobState({ sessionId: 7 }), ".claude"), "5e1f0a2b")).toBeNull();
+    const none = mkdtempSync(join(tmpdir(), "herdr-claude-job-"));
+    roots.push(none);
+    expect(await claudeJobSession(join(none, ".claude"), "5e1f0a2b")).toBeNull();
+  });
+});
 
 describe("claudeProcessSession", () => {
   const roots: string[] = [];
