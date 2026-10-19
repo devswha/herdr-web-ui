@@ -1,14 +1,18 @@
 import { expect, test } from "bun:test";
 
-import { isMouseReport, sameAttachment, sightingFacts, typingGuards } from "./input-guard.ts";
+import { isMouseReport, sightingFacts, typingGuards } from "./input-guard.ts";
 
-const attach = (...members: string[]) => ({ clients: new Set(members) });
+const attach = (...members: string[]) => ({ clients: new Set(members), ready: true, process: {}, kind: "pty" as const, cols: 80 });
+/** typing taken while `origin` was the attach the client was in (none: typed with no attach of its own), now that `current` is the pane's */
+const typedThen = (origin: ReturnType<typeof attach> | undefined, current: ReturnType<typeof attach> | undefined, client: string): boolean =>
+  typingGuards.herdrTyping(sightingFacts({ attachment: origin, process: origin?.process, claim: undefined, member: origin !== undefined },
+    { attachment: current, claim: undefined }, client));
 
 test("typing taken with no attach is refused once someone attaches meanwhile", () => {
-  expect(sameAttachment(undefined, undefined, "a")).toBe(true);
-  expect(sameAttachment(undefined, attach("b"), "a")).toBe(false);
+  expect(typedThen(undefined, undefined, "a")).toBe(true);
+  expect(typedThen(undefined, attach("b"), "a")).toBe(false);
   // attaching yourself meanwhile is a new attach too: what was typed before it takes none of it
-  expect(sameAttachment(undefined, attach("a"), "a")).toBe(false);
+  expect(typedThen(undefined, attach("a"), "a")).toBe(false);
 });
 
 test("a click or a wheel is told from typing, so a queued one keeps the attach input path", () => {
@@ -26,11 +30,11 @@ test("a click or a wheel is told from typing, so a queued one keeps the attach i
 
 test("typing taken into an attach goes only into that attach, while it still has the typist", () => {
   const origin = attach("a");
-  expect(sameAttachment(origin, origin, "a")).toBe(true);
-  expect(sameAttachment(origin, undefined, "a")).toBe(false);
-  expect(sameAttachment(origin, attach("a"), "a")).toBe(false);
+  expect(typedThen(origin, origin, "a")).toBe(true);
+  expect(typedThen(origin, undefined, "a")).toBe(false);
+  expect(typedThen(origin, attach("a"), "a")).toBe(false);
   origin.clients.delete("a");
-  expect(sameAttachment(origin, origin, "a")).toBe(false);
+  expect(typedThen(origin, origin, "a")).toBe(false);
 });
 
 // The checks below replaced closures in server/index.ts. Each oracle is that closure's body as it was
