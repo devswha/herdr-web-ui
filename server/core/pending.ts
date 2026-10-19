@@ -13,7 +13,8 @@ import type { ClientMessage, HerdrPane, PendingMessage, SessionSnapshot } from "
 import { typingGuards } from "../input-guard.ts";
 import { claudeForegroundSession } from "../claude-store.ts";
 import { HerdrError, paneProcessInfo, paneRead, paneSendKeys, paneSendText } from "../herdr/client.ts";
-import { claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, modelListWaits, noteSubmitted, parseInteractivePrompt, shownInputBox } from "../prompt.ts";
+import { claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, noteSubmitted, parseInteractivePrompt, shownInputBox } from "../prompt.ts";
+import { registry } from "../dialogs/registry.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { PendingInputs, samePendingIdentity, type PendingIdentity, type PendingRecord } from "../pending-input.ts";
 import { processStartedAt } from "../process-start.ts";
@@ -127,7 +128,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     const prompt = current.agent ? parseInteractivePrompt(current.agent, screen, null, true, [], held) : null;
     // as the card's own reader decides it: Claude's grey text under a hint left behind is no held message
     const waits = prompt !== null && !(pasted && isClaudeHeld(prompt)) && !(await claudeHeldIsGrey(paneId, prompt));
-    if (current.agent && (waits || modelListWaits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
+    if (current.agent && (waits || registry.waits(current.agent, screen) || (pane.agent_status === "blocked" && !collapsed))) {
       throw new HerdrError("agent_blocked", "The agent is waiting for an answer in the terminal");
     }
     if (current.agent && !["working", "idle", "done"].includes(pane.agent_status) && !collapsed) {

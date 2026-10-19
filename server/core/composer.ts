@@ -9,7 +9,8 @@ import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { agentPrompt, HerdrError, paneGet, paneRead, paneScrollInfo, paneSendKeys, paneSendText } from "../herdr/client.ts";
 import { mirrorInput } from "../mirror-input.ts";
 import { paneContext } from "../pane-context.ts";
-import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, heldCandidate, hermesInputDraft, lastChatSubmitted, modelListWaits, noteSubmitted, parseInteractivePrompt, viewportShowsLive } from "../prompt.ts";
+import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, heldCandidate, hermesInputDraft, lastChatSubmitted, noteSubmitted, parseInteractivePrompt, viewportShowsLive } from "../prompt.ts";
+import { registry } from "../dialogs/registry.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
 
 const CLAUDE_INPUT_DRAFT_MESSAGE = "Claude Code's input box is not empty (a draft, bash mode, or a box that could not be read); send or clear it in the terminal, then send this message";
@@ -242,7 +243,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
             reads = await claudeBoxReads(paneId);
             if (secretPrompt(reads[0], attachments.get(paneId)?.cols) !== null
               || parseInteractivePrompt("claude", reads[0], null, true, [], heldCandidate(paneId)) !== null
-              || modelListWaits("claude", reads[0]) || current.agent_status === "blocked") {
+              || registry.waits("claude", reads[0]) || current.agent_status === "blocked") {
               throw new HerdrError("agent_blocked", "The terminal is waiting for an answer; its draft was not cleared");
             }
             if (!["working", "idle", "done"].includes(current.agent_status)) {
