@@ -1,5 +1,6 @@
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
 import { connectionData, createCore, type SocketData } from "./core/index.ts";
+import { ClientConnectionLog } from "./client-connection-log.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
 import { paneContext } from "./pane-context.ts";
 import { randomBytes } from "node:crypto";
@@ -40,7 +41,7 @@ import {
   sessionSnapshot,
 } from "./herdr/client.ts";
 import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts";
-import { handlePromptRequest } from "./prompt.ts";
+import { handlePromptRequest, OpenCodePromptState } from "./prompt.ts";
 import { attachableIdentity } from "./pty/sidecar.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
@@ -152,6 +153,8 @@ export function createServer(
     grokHome?: string;
     /** OpenCode's database; defaults to where OpenCode finds it (OPENCODE_DB, XDG_DATA_HOME). Tests use an isolated store. */
     opencodeDb?: string;
+    /** OpenCode state dir where service.json lives; tests use an isolated directory. */
+    openCodeStateDir?: string;
     /** Native Devin store; tests pass an isolated SQLite database. */
     devinDbPath?: string;
     /** Native Hermes store; pane process HERMES_HOME wins when this is unset. Tests use an isolated store. */
@@ -228,7 +231,10 @@ export function createServer(
   };
   const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
 
-  const core = createCore({ options, devices, usage, usageLogin, TYPED_SETTLE_MS, KEY_SETTLE_MS, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS });
+  const openCodeState = new OpenCodePromptState();
+  const draftTimer = setInterval(() => openCodeState.prune(), 60_000);
+  draftTimer.unref();
+  const core = createCore({ options: { ...options, openCodeState }, devices, usage, usageLogin, TYPED_SETTLE_MS, KEY_SETTLE_MS, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS });
   const { sidecar, serialize, push, logPushError, omo, claudeAgents, plans, clientSnapshot, machines, broadcastAll, collector } = core;
   // started after createCore's Node probe (server/pty/sidecar.ts), which can hold the thread up to 3 s: that wait
   // would count against the read's own 2.5 s limit, and a read cut short leaves the owner unknown for 5 minutes
@@ -247,6 +253,7 @@ export function createServer(
   });
 
   const envPort = process.env["PORT"];
+  const clientConnectionLog = new ClientConnectionLog();
   const server = Bun.serve<SocketData>({
     port: options.port ?? (envPort ? Number(envPort) : DEFAULT_PORT),
     hostname,
@@ -321,12 +328,21 @@ export function createServer(
       // it. The endpoint it registers is https-only (server/push.ts), and that is the
       // protection: a watch device's subscription is delivered every status change anyway.
       // /api/push/test stays with a session that can drive only because it is a mutation.
-      const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe";
+      // A watch device may report its own connection metadata, never terminal input or file data.
+      const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe" || pathname === "/api/connection-diagnostics";
       // a repository's changes are file contents too: the patch of a credential file is that file
       const repositoryDiff = /^\/api\/(?:machines\/[^/]+\/)?workspace\/diff\//.test(pathname);
       if (readOnly && (fileRead || directoryListing || repositoryDiff || mutating && !ownPreferences)) {
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
+
+      // API reads can chain several bounded 10 s Herdr RPCs. Give the handler time to return
+      // its JSON result or timeout instead of Bun closing the socket at its default 10 s idle
+      // cutoff. Static files keep their default; streaming and long-operation routes override
+      // this finite budget below, after access and origin checks have passed. Only a signed-in
+      // request gets it: the routes open without sign-in (health, auth, pairing) keep the default,
+      // so an unauthenticated client cannot hold idle sockets for a minute.
+      if (pathname.startsWith("/api/") && authenticated) bunServer.timeout(request, 60);
 
       if (pathname === "/api/bridge") {
         if (token === "" && !bridgeAuthorized) return unauthorizedJson();
@@ -349,9 +365,6 @@ export function createServer(
           return response;
         }
       }
-      // Chat reads can chain several valid 10 s RPCs. Leave the 15/30 s client deadline
-      // in charge rather than Bun's default 10 s idle cutoff. PC proxies have their own budget above.
-      if (pathname === "/api/pane/read" || pathname === "/api/pane/conversation") bunServer.timeout(request, 60);
       if (pathname === "/ws") {
         if (!sameOrigin(request)) return new Response("invalid origin", { status: 403 });
         const deviceId = access.level === "full" ? access.device?.id : undefined;
@@ -404,6 +417,7 @@ export function createServer(
       if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
         return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
       }
+      if (pathname === "/api/connection-diagnostics") return clientConnectionLog.handle(request, client ?? "unknown");
       if (pathname === "/api/telemetry") return handleTelemetryRequest(request, options.telemetry);
       // what every browser of this server shares; a watching device reads it and cannot change it (above)
       if (pathname === "/api/preferences") return handlePreferencesRequest(request, preferences);
@@ -640,7 +654,7 @@ export function createServer(
 
       if (pathname.startsWith("/api/pane/prompt")) {
         try {
-          const response = await handlePromptRequest(request, url, { serialize, codexHome: options.codexHome, claudeTranscript: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null, readOnly });
+          const response = await handlePromptRequest(request, url, { serialize, codexHome: options.codexHome, claudeTranscript: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null, readOnly, openCodeStateDir: options.openCodeStateDir, openCodeState });
           if (response) return response;
         } catch (error) {
           return errorResponse(error);
@@ -686,6 +700,8 @@ export function createServer(
     stop: () => {
       settlePortalStartup({ ok: false, error: new Error("Server stopped before Portal startup cleanup completed") });
       core.stop(() => {
+        clearInterval(draftTimer);
+        openCodeState.clear();
         void options.portal?.shutdown();
         registration?.close();
       });
