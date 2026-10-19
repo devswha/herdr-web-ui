@@ -261,6 +261,9 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
     return hintAtEnd(shown, PI_MENU_HINT_AT_END_RE, PI_FOOTER_LINES, 4)
       || hintAtEnd(shown, PI_INPUT_HINT_AT_END_RE, PI_FOOTER_LINES, 4);
   }
+  // Command Code's permission footer names its keys at the dialog's end and wraps on a narrow
+  // pane: `↑/↓ navigate · enter select · ctrl+e explain · Run cmd --yolo to bypass all …`
+  if (prompt.responder === "cmd-question") return shown.slice(-3).some((line) => CMD_HINT_RE.test(line));
   return ends(/ctrl\+g to edit|shift\+tab to approve with this feedback/i);
 }
 /**
@@ -272,6 +275,8 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
  */
 const PI_MENU_HINT_AT_END_RE = new RegExp(`${PI_MENU_HINT_RE.source}$`, "i");
 const PI_INPUT_HINT_AT_END_RE = new RegExp(`${PI_INPUT_HINT_RE.source}$`, "i");
+/** Command Code's permission footer: `↑/↓ navigate · enter select · ctrl+e explain · Run cmd --yolo …` */
+const CMD_HINT_RE = /↑\/↓ navigate.*enter select/i;
 /** The same hint told from the end, so lines that follow it cannot complete a match of their own. */
 const PI_MODEL_HINT_AT_END_RE = new RegExp(`${PI_MODEL_HINT_RE.source}$`, "i");
 /**
@@ -1184,7 +1189,7 @@ async function readKnownPrompt(
     return { prompt: publicPrompt(parsed) };
   }
 
-  if (!["claude", "omp", "codex", "omo", "pi", "gjc", "hermes", ""].includes(agent)) return { prompt: null };
+  if (!["claude", "omp", "codex", "omo", "pi", "gjc", "hermes", "cmd", ""].includes(agent)) return { prompt: null };
   const screen = await liveScreen(paneId);
   // omo's form reads its text from the session's call, the screen showing where the form stands
   const omoAsks = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen)

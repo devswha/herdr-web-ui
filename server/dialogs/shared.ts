@@ -61,7 +61,8 @@ type Responder =
   | "opencode-question"
   | "fallback-menu"
   | "fallback-gjc-menu"
-  | "fallback-keys";
+  | "fallback-keys"
+  | "cmd-question";
 
 export type ParsedPrompt = InteractivePrompt & {
   responder: Responder;

@@ -3,6 +3,7 @@ import { source as omo } from "./omo.ts";
 import { source as claude } from "./claude.ts";
 import { source as codex } from "./codex.ts";
 import { source as pi } from "./pi.ts";
+import { source as cmd } from "./cmd.ts";
 import { source as omp } from "./omp.ts";
 import { source as gjc } from "./gjc.ts";
 import { source as opencode } from "./opencode.ts";
@@ -28,4 +29,4 @@ export interface AgentCommandSource {
   readonly descriptions?: Readonly<Record<string, string>>;
   readonly discover: (ctx: AgentCommandContext) => SlashCommand[];
 }
-export const AGENT_SOURCES: Record<string, AgentCommandSource> = { omo, claude, codex, pi, omp, gjc, opencode, devin, grok, hermes, agy };
+export const AGENT_SOURCES: Record<string, AgentCommandSource> = { omo, claude, codex, pi, cmd, omp, gjc, opencode, devin, grok, hermes, agy };

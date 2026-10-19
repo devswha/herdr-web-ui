@@ -48,6 +48,7 @@ import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
 import { piTranscriptInStore, piTranscriptPath, unwrittenSession } from "./pi.ts";
+import { cmdTranscriptPath } from "./cmd.ts";
 import { defaultDevinDbPath, DevinHistoryUnavailable, devinConversation, forgetDevinState } from "./devin.ts";
 import { forgetGrokState, grokProjection, grokToolOutput, parseGrokTranscript, GrokUnavailable } from "./grok.ts";
 import { resolveGrokStore } from "./grok-store.ts";
@@ -495,7 +496,7 @@ export class HistoryChanged extends Error {
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
   activity?: "thinking" | "working" | "idle";
-  source: "grok-transcript" | "agy-transcript" | "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript" | "hermes-transcript";
+  source: "grok-transcript" | "agy-transcript" | "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "cmd-transcript" | "codex-transcript" | "devin-transcript" | "opencode-transcript" | "hermes-transcript";
   turns: ConversationTurn[];
   metadata: ConversationMetadata;
   /** `metadata` was read off the agent's own screen (ConversationResponse.screen) */
@@ -563,8 +564,8 @@ function transcriptStream(source: StreamSource, path: string, stat: { dev: numbe
   // (a chain whose parent was archived since comes back shorter: codexHistorySegments;
   // a pi branch skips the side paths a /tree left behind: piBranchSegments)
   const grok = source === "grok-transcript" ? grokProjection(path, stat) : null;
-  const branch = source === "pi-transcript" ? piBranchSegments(path, stat.size) : null;
-  if (source === "pi-transcript" && branch === null) throw new ConversationUnavailable("branch_unreadable");
+  const branch = (source === "pi-transcript" || source === "cmd-transcript") ? piBranchSegments(path, stat.size) : null;
+  if ((source === "pi-transcript" || source === "cmd-transcript") && branch === null) throw new ConversationUnavailable("branch_unreadable");
   const segments: { path: string; start: number; end: number }[] = source === "codex-transcript"
     ? codexHistorySegments(path, codexHome).map((segment) => ({ path: segment.path, start: 0, end: segment.end }))
     : grok !== null ? grok.segments.map((segment) => ({ path, ...segment }))
@@ -687,6 +688,7 @@ const TURN_MARK: Record<StreamSource, Buffer> = {
   "omo-transcript": Buffer.from('"user"'),
   "gjc-transcript": Buffer.from('"user"'),
   "pi-transcript": Buffer.from('"user"'),
+  "cmd-transcript": Buffer.from('"user"'),
 };
 
 /**
@@ -874,9 +876,9 @@ function rememberPaneDevin(paneId: string, sessionId: string, cwd: string, dbPat
 /** Pi retains at most four small parsed pages per cache; oversized pages remain readable uncached. */
 function rememberPage<T extends { source: RecognizedConversation["source"] }>(map: Map<string, T>, key: string, value: T, limit: number): void {
   map.delete(key);
-  if (value.source === "pi-transcript" && !withinRetentionBudget(value, PI_PAGE_CACHE_BYTES)) return;
+  if ((value.source === "pi-transcript" || value.source === "cmd-transcript") && !withinRetentionBudget(value, PI_PAGE_CACHE_BYTES)) return;
   remember(map, key, value, limit);
-  const piKeys = [...map].filter(([, item]) => item.source === "pi-transcript").map(([key]) => key);
+  const piKeys = [...map].filter(([, item]) => item.source === "pi-transcript" || item.source === "cmd-transcript").map(([key]) => key);
   while (piKeys.length > 4) map.delete(piKeys.shift()!);
 }
 
@@ -935,7 +937,7 @@ function parseTurns(source: RecognizedConversation["source"], path: string, text
     // only pi keeps a tool's images in the entry as base64; omp, omo and gjc are read the same
     // way but would carry image refs nothing can answer, so the option stays with pi alone
     : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity, { subagents: subagentsOnPage(path, text), noticed })
-      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript", taskTitles });
+      : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript" || source === "cmd-transcript", taskTitles });
 }
 
 interface LiveCodexTurn {
@@ -1036,8 +1038,8 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
 
 /** Retention diagnostics only: counts/budget adherence, never transcript contents. */
 export function piPageCacheUsage(): { pages: number; settled: number; withinBudget: boolean } {
-  const pages = [...cache.values()].filter(item => item.source === "pi-transcript");
-  const settled = [...settledTurns.values()].filter(item => item.source === "pi-transcript");
+  const pages = [...cache.values()].filter(item => item.source === "pi-transcript" || item.source === "cmd-transcript");
+  const settled = [...settledTurns.values()].filter(item => item.source === "pi-transcript" || item.source === "cmd-transcript");
   return { pages: pages.length, settled: settled.length, withinBudget: [...pages, ...settled].every(item => withinRetentionBudget(item, PI_PAGE_CACHE_BYTES)) };
 }
 
@@ -1395,6 +1397,12 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
       if ("unwritten" in found) throw new ConversationNotStarted(found.unwritten.id, "pi-transcript", found.unwritten.path);
       return { source: "pi-transcript", path: found.path };
     }
+    if (agent === "cmd") {
+      const found = await cmdTranscriptPath(paneId);
+      if (found === null) throw new ConversationUnavailable("no_session_path");
+      if ("unwritten" in found) throw new ConversationNotStarted(found.unwritten.id, "cmd-transcript", found.unwritten.path);
+      return { source: "cmd-transcript", path: found.path };
+    }
     if (agent === "opencode") {
       // herdr's integration names the session the TUI shows; at its home screen there is none
       const session = opencodeSessionId(pane);
@@ -1592,7 +1600,7 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   }
   const identity = resolved.source === "agy-transcript" ? resolved.path
     : resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
-    : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
+    : resolved.source === "pi-transcript" || resolved.source === "cmd-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
   rememberPaneRead(paneId, resolved.path);
   const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
   const status = snapshot.panes.find((pane) => pane.pane_id === paneId)?.agent_status;
@@ -1605,6 +1613,12 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
   }
   if (resolved.agy && !sameAgyStore(resolved.agy, await resolveAgyStore(snapshot.panes.find((pane) => pane.pane_id === paneId)!))) throw new ConversationUnavailable("no_session_path");
   if (identity !== null) { writtenSessions.add(`${resolved.source}\0${identity}`); rememberPaneSession(paneId, `${resolved.source}\0${identity}`); }
+  if (resolved.source === "cmd-transcript") {
+    // Command Code records no model in its transcript; herdr knows the one the pane runs at
+    const herdrAgent = snapshot.agents.find((agent) => agent.pane_id === paneId);
+    const model = typeof herdrAgent?.tokens?.model === "string" ? herdrAgent.tokens.model : null;
+    if (model && answer.metadata.model === null) answer.metadata.model = model;
+  }
   if (resolved.source === "grok-transcript") {
     try { return { ...answer, activity: grokProjection(resolved.path, statSync(resolved.path)).activity }; }
     catch { throw new ConversationUnavailable("transcript_missing"); }
@@ -1700,7 +1714,7 @@ function transcriptPageRead(source: StreamSource, path: string, page: Conversati
   cache.delete(key);
   // the abandoned turns live outside the branch's byte ranges, so the page cannot see them: a
   // straight line answers { count: 0 }, which is most sessions and costs the client nothing
-  const abandoned = source === "pi-transcript" ? piAbandonedTurns(path, stat.size) ?? undefined : undefined;
+  const abandoned = (source === "pi-transcript" || source === "cmd-transcript") ? piAbandonedTurns(path, stat.size) ?? undefined : undefined;
   rememberPage(cache, key, { source, signature, turns, metadata, cursor, abandoned }, 32);
   return { source, turns, metadata, cursor, abandoned, history_id: stream.id, version };
 }
@@ -1723,7 +1737,7 @@ export async function conversationImage(paneId: string, ref: string, codexHome?:
   if (resolved.source === "opencode-transcript") return opencodeImage(resolved.path, resolved.session, ref);
   rememberPaneRead(paneId, resolved.path);
   if (resolved.source === "codex-transcript") return codexTranscriptImage(codexHistorySegments(resolved.path, resolved.codexHome ?? codexHome), ref, pane.cwd);
-  if (resolved.source === "pi-transcript") return piTranscriptImage(resolved.path, ref);
+  if (resolved.source === "pi-transcript" || resolved.source === "cmd-transcript") return piTranscriptImage(resolved.path, ref);
   return resolved.source === "claude-transcript" ? transcriptImage(resolved.path, ref) : null;
 }
 
@@ -1793,7 +1807,7 @@ export function transcriptToolOutput(source: StreamSource, path: string, ref: st
   }
   if (source === "grok-transcript") return grokToolOutput(path, ref);
   if (source === "agy-transcript") return agyToolOutput(path, ref);
-  if (source === "pi-transcript") return piToolOutput(path, ref);
+  if (source === "pi-transcript" || source === "cmd-transcript") return piToolOutput(path, ref);
   let text: string;
   try { text = readFileSync(path, "utf8"); } catch { return null; }
   return outputInText(source, text, ref);

@@ -31,6 +31,7 @@ const snapshot: Record<string, readonly [DialogReader["reread"], DialogReader["l
   "pi-input": ["none", "none"],
   "hermes-question": ["none", "none"],
   "hermes-input": ["none", "none"],
+  "cmd-question": ["before-commit", "none"],
   "fallback-menu": ["none", "none"],
   "fallback-gjc-menu": ["before-commit", "none"],
   "fallback-keys": ["none", "none"],
