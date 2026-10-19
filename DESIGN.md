@@ -982,20 +982,26 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   selected pane actually rendered on a visible page counts. The drawer, Settings, New session,
   Files, a popup file/diff viewer, machine dialogs, descendant dialogs and menus (including
   composer slash/file suggestions and their failed-suggestions popup) all block it,
-  on desktop too. A docked file/web panel does not cover the pane. A zoom redirect never
+  on desktop too. Retained hidden/inert pane siblings and their invisible popups do not
+  cover the shown pane. A docked file/web panel does not cover the pane. A zoom redirect never
   acknowledges the hidden target; neither does the inactive half of a browser split. A background
   wait still shows BG, and working or blocked never draws ready.
   The pane's content must also report readiness for its rendered lifetime. A terminal needs
   parsed output for its current pane/terminal and an active, unheld connection. A native chat
   needs a successful fresh read for the displayed finish and a loaded timeline, not just cached
   turns or a loading/error placeholder, and the reader at its end: a chat scrolled back to older
-  turns, or showing New messages, keeps the dot until the end is in view. Error boundaries remove readiness with the subtree;
+  turns, or showing New messages, keeps the dot until the end is in view. Requesting a jump
+  is not arrival: the current content's endpoint and last rendered row must be measured in
+  view, including after resize or restoration when no scroll event fires. A superseded jump
+  does not acknowledge the answer. Error boundaries remove readiness with the subtree;
   a failed message renderer also prevents acknowledgement. Agent scrollback fallbacks keep
   the dot until the terminal is opened rather than claim native conversation readiness.
 - Each PC's bridge assigns `finish_id` after all status overrides, incrementing on each observed
   transition into DONE, not on herdr's `state_change_seq`. Snapshots and status events carry it.
   Authoritative recovery observations feed the same tracker before the ensuing async refresh;
-  panes excluded as newer than the recovery read are left alone.
+  panes excluded as newer than the recovery read are left alone. Snapshot absence retires a
+  finish only when the completion tracker also reconciled that absence; an older empty roster
+  cannot retire a pane observed since its read began.
   A random `finish_epoch` changes when the web server starts or observes a replacement herdr
   socket (Windows: changed pid:start marker). A failed read or reconnect alone proves no restart.
   Events carry the epoch too: changing it invalidates other panes' cached finish IDs until their
@@ -1008,7 +1014,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   Old `herdr-web-ui:seen:<pc>` records are removed. Epochs this tab actually left are removed;
   unfamiliar epochs are ignored, not deleted using a possibly stale first roster. Storage is
   capped at 2,000 keys, oldest first, never pruned by a tab's pane or PC roster. Another browser or
-  device keeps its own record. Raw statuses and herdr recency still determine Agents order.
+  device keeps its own record. A reconnecting/offline PC's cached roster still uses its saved
+  read records, but cannot create new acknowledgements. Retention cleanup after a save runs only
+  when storage was actually written, not on every repeated DONE frame. Raw statuses and herdr
+  recency still determine Agents order.
 - Each workspace row holds its folder (top-level rows), a leading glyph, the name (on two lines,
   the title over the place) and the compact state at the right. The leading glyph is the brand mark of the agent in the pane the row opens; a row that opens a
   shell shows the terminal glyph, and a linked worktree without an agent the branch glyph. The
