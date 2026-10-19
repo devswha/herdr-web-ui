@@ -478,6 +478,94 @@ it.each(["timeout", "unavailable"] as const)("propagates SDK %s without retainin
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+it.each(["timeout", "unavailable"] as const)("caches status %s briefly while chat retries independently", async (reason) => {
+  const home = tempDir("gjc-status-failure-");
+  try {
+    let clock = 0, lookups = 0;
+    const entered = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>();
+    const failure = new GjcSdkLookupError(reason);
+    const options = {
+      platform: "linux", now: () => clock,
+      processInfo: async () => ({ process_info: { foreground_processes: [{ pid: 200, argv: ["gjc"] }] } }),
+      processBirth: () => 1000,
+      sdkTranscript: async () => { lookups += 1; entered.resolve(); await gate.promise; throw failure; },
+    };
+    const status = () => gjcTranscriptForPane("pane", home, home, { ...options, purpose: "status" });
+    const first = status();
+    await entered.promise;
+    const chat = gjcTranscriptForPane("pane", home, home, options);
+    expect(chat).not.toBe(first);
+    const failed = first.catch((error: unknown) => error);
+    const failedChat = chat.catch((error: unknown) => error);
+    gate.resolve();
+    expect(await failed).toBe(failure);
+    expect(await failedChat).toBe(failure);
+    clock = 29_999;
+    await expect(status()).rejects.toBe(failure);
+    expect(lookups).toBe(2);
+    clock = 30_000;
+    await expect(status()).rejects.toBe(failure);
+    expect(lookups).toBe(3);
+    await expect(gjcTranscriptForPane("pane", home, home, options)).rejects.toBe(failure);
+    expect(lookups).toBe(4);
+    await expect(status()).rejects.toBe(failure);
+    expect(lookups).toBe(4);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+it("keeps unresolved status lookups briefly but a successful chat retry clears them", async () => {
+  const home = tempDir("gjc-status-null-");
+  try {
+    const store = join(home, ".gjc/agent/sessions/project"), path = join(store, "main.jsonl");
+    mkdirSync(store, { recursive: true });
+    writeFileSync(path, JSON.stringify({ type: "session", id: "retry", cwd: home }) + "\n");
+    let lookups = 0;
+    const options = {
+      platform: "linux",
+      processInfo: async () => ({ process_info: { foreground_processes: [{ pid: 200, argv: ["gjc"] }] } }),
+      processBirth: () => 1000,
+      sdkTranscript: async () => ++lookups === 1 ? null : ({
+        sessionId: "retry", pid: 200, path, hostIncarnation: "host", endpointGeneration: 1, guardSessionIds: ["retry"],
+      }),
+    };
+    const status = () => gjcTranscriptForPane("pane", home, home, { ...options, purpose: "status" });
+    expect(await status()).toBeNull();
+    expect(await status()).toBeNull();
+    expect(lookups).toBe(1);
+    expect(await gjcTranscriptForPane("pane", home, home, options)).toBe(path);
+    expect(await status()).toBe(path);
+    expect(lookups).toBe(3);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+it.each(["chat", "status"] as const)("does not inherit the %s deadline in an overlapping lookup of the other purpose", async (purpose) => {
+  const home = tempDir("gjc-budget-flight-");
+  const entered = Promise.withResolvers<void>(), both = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>();
+  try {
+    const purposes: string[] = [];
+    const options = {
+      platform: "linux",
+      processInfo: async () => ({ process_info: { foreground_processes: [{ pid: 200, argv: ["gjc"] }] } }),
+      processBirth: () => 1000,
+      sdkTranscript: async (_pids: readonly number[], _cwd: string, _agentDir: string, budget: "chat" | "status" = "chat") => {
+        purposes.push(budget);
+        entered.resolve();
+        if (purposes.length === 2) both.resolve();
+        await gate.promise;
+        return null;
+      },
+    };
+    const first = gjcTranscriptForPane("pane", home, home, { ...options, purpose });
+    await entered.promise;
+    const other = gjcTranscriptForPane("pane", home, home, { ...options, purpose: purpose === "chat" ? "status" : "chat" });
+    expect(other).not.toBe(first);
+    await both.promise;
+    gate.resolve();
+    await Promise.all([first, other]);
+    expect(purposes.sort()).toEqual(["chat", "status"]);
+  } finally { gate.resolve(); rmSync(home, { recursive: true, force: true }); }
+});
+
 it.each(["cwd", "home", "SDK callback"])("keeps overlapping pane reads separate when %s differs", async (context) => {
   forgetTranscriptState();
   const home = tempDir("gjc-sdk-flight-context-");

@@ -81,7 +81,7 @@ export async function gjcPidUnderShell(
 }
 
 /** Forget the process table kept between Windows polls. */
-export function forgetGjcState(): void { processTable = null; transcriptFlights.clear(); transcriptBindings.clear(); }
+export function forgetGjcState(): void { processTable = null; transcriptFlights.clear(); transcriptBindings.clear(); transcriptFailures.clear(); }
 
 /**
  * Where `file` sits inside `root`, as path segments, or null when it is not inside. The
@@ -266,6 +266,8 @@ type GjcPaneProcessInfo = { process_info?: { shell_pid?: unknown; foreground_pro
 type GjcProcessIdentity = { pid: number; birth: number };
 
 type GjcTranscriptOptions = {
+  /** Status uses shorter SDK deadlines and may reuse recent failures; chat reads retry. */
+  purpose?: "chat" | "status";
   platform?: string;
   processInfo?: (paneId: string) => Promise<GjcPaneProcessInfo | null>;
   processBirth?: (pid: number) => number | null;
@@ -281,6 +283,7 @@ function sameLookupContext(a: GjcTranscriptOptions, b: GjcTranscriptOptions): bo
   return a.processInfo === b.processInfo
     && a.processBirth === b.processBirth
     && a.sdkTranscript === b.sdkTranscript
+    && (a.purpose ?? "chat") === (b.purpose ?? "chat")
     && a.readProcessTable === b.readProcessTable;
 }
 
@@ -304,6 +307,7 @@ type KeptBinding = {
  * creates the transcript the broker then names, without a new index row.
  */
 const transcriptBindings = new Map<string, KeptBinding>();
+const transcriptFailures = new Map<string, { options: GjcTranscriptOptions; at: number; error: GjcSdkLookupError | null }>();
 
 /**
  * Resolves only while the SDK-selected GJC process is still foreground in this pane with the
@@ -320,11 +324,29 @@ export function gjcTranscriptForPane(
   options: GjcTranscriptOptions = {},
 ): Promise<string | null> {
   const key = JSON.stringify([paneId, cwd, home, options.platform ?? process.platform]);
+  const now = (options.now ?? Date.now)();
+  for (const [key, failure] of transcriptFailures) {
+    if (now - failure.at >= BINDING_TTL_MS) transcriptFailures.delete(key);
+  }
+  const failure = transcriptFailures.get(key);
+  if (options.purpose === "status" && failure && sameLookupContext(failure.options, options)) {
+    return failure.error ? Promise.reject(failure.error) : Promise.resolve(null);
+  }
   const flights = transcriptFlights.get(key) ?? new Set<{ options: GjcTranscriptOptions; flight: Promise<string | null> }>();
   for (const shared of flights) {
     if (sameLookupContext(shared.options, options)) return shared.flight;
   }
-  const flight: Promise<string | null> = lookupGjcTranscript(key, paneId, cwd, home, options).finally(() => {
+  const flight: Promise<string | null> = lookupGjcTranscript(key, paneId, cwd, home, options).then((path) => {
+    if (path === null && options.purpose === "status") {
+      transcriptFailures.set(key, { options, at: (options.now ?? Date.now)(), error: null });
+    } else if (path !== null) transcriptFailures.delete(key);
+    return path;
+  }).catch((error: unknown) => {
+    if (options.purpose === "status" && error instanceof GjcSdkLookupError) {
+      transcriptFailures.set(key, { options, at: (options.now ?? Date.now)(), error });
+    }
+    throw error;
+  }).finally(() => {
     flights.delete(entry);
     if (transcriptFlights.get(key) === flights && flights.size === 0) transcriptFlights.delete(key);
   });
@@ -413,7 +435,7 @@ async function lookupGjcTranscript(
     }
     transcriptBindings.delete(key);
     const pids = initial.map((process) => process.pid);
-    const binding = await sdkTranscript(pids, cwd, agentDir);
+    const binding = await sdkTranscript(pids, cwd, agentDir, options.purpose);
     const owner = binding && initial.find((process) => process.pid === binding.pid);
     if (!binding || !owner) return null;
     const path = validateGjcSdkTranscript(binding, cwd, agentDir);
