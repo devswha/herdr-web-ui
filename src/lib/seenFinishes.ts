@@ -49,6 +49,7 @@ export function saveSeen(pc: string, epoch: string, pane: string, id: number): n
     const before = parse(localStorage.getItem(key));
     if (before && before.id >= id) return before.id;
     localStorage.setItem(key, JSON.stringify({ id, at: Date.now() }));
+    cleanSeen();
   } catch { /* blocked storage: this view lasts for the mounted page only */ }
   return id;
 }

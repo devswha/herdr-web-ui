@@ -89,6 +89,34 @@ describe("sidebar finish acknowledgement through React effects", () => {
   }
   const inFronts = [() => true, () => false];
 
+  for (const state of ["connecting", "reconnecting", "disconnected"] as const) {
+    it(`keeps cached read finishes ready while ${state}, without marking an unseen selected pane`, async () => {
+      const client = await open(roster({ a: 1, b: 1 }), "a");
+      const offline = roster({ a: 1, b: 1 });
+      offline[0]!.state = state;
+      await client.update(offline, "b");
+      expect(client.status("a")).toBe("idle");
+      expect(client.status("b")).toBe("done");
+      expect(loadSeen("local", "server-a")).toEqual({ a: 1 });
+      const reopened = await open(offline, "b");
+      expect(reopened.status("a")).toBe("idle");
+      expect(reopened.status("b")).toBe("done");
+    });
+  }
+
+  it("does not scan unrelated stored finishes again to clean a repeated acknowledgement", async () => {
+    const client = await open(roster({ a: 1 }), "a");
+    let unrelatedReads = 0;
+    const read = localStorage.getItem;
+    const key = seenKey("remote", "server-b", "other");
+    data.set(key, JSON.stringify({ id: 4, at: 1 }));
+    localStorage.getItem = (name) => { if (name === key) unrelatedReads++; return read(name); };
+    await client.update(roster({ a: 1 }), "a");
+    expect(unrelatedReads).toBe(0);
+    await client.update(roster({ a: 2 }), "a");
+    expect(unrelatedReads).toBe(1);
+  });
+
   it("does not mark WORKING; a later native DONE with unchanged herdr seq keeps its dot", async () => {
     const client = await open(roster({ a: 1 }, { a: "working" }), "a");
     expect(loadSeen("local", "server-a")).toEqual({});

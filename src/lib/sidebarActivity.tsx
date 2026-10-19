@@ -59,7 +59,7 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
     const next = new Map<string, MachineSeen>();
     for (const machine of machines) {
       const epoch = machine.snapshot?.finish_epoch;
-      if (!epoch || machine.state !== "connected") continue;
+      if (!epoch) continue;
       const previousEpoch = epochs.current.get(machine.id);
       if (previousEpoch && previousEpoch !== epoch) cleanSeen([{ pc: machine.id, epoch: previousEpoch }]);
       epochs.current.set(machine.id, epoch);
@@ -72,11 +72,10 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
           record = markSeen(record, pane, id);
         }
       }
-      const pane = machine.id === selectedMachineId && pageVisible && paneInFront()
+      const pane = machine.state === "connected" && machine.id === selectedMachineId && pageVisible && paneInFront()
         ? machine.snapshot?.panes.find((pane) => pane.pane_id === presentedPaneId) : undefined;
       if (pane?.agent_status === "done" && !pane.background_wait && pane.finish_id !== undefined && pane.finish_id > 0) {
         record = markSeen(record, pane.pane_id, saveSeen(machine.id, epoch, pane.pane_id, pane.finish_id));
-        cleanSeen();
       }
       next.set(machine.id, { epoch, record });
     }
