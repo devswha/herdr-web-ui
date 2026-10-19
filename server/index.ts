@@ -3,7 +3,8 @@ import { closeMention, createSubmitText, freeClaudeBox, freeHermesInput, InputDr
 import { createInputLane } from "./core/input.ts";
 import { type Client, connectionData, connectionOf, createConnections, presenceOf, send, type SocketData } from "./core/connections.ts";
 import { createStatusHub } from "./core/status.ts";
-import { ATTACH_HELD_MESSAGE, ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS, createSpawnAttachment, type PaneAttachment } from "./core/terminal-process.ts";
+import { ATTACH_HELD_MESSAGE, ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS, type PaneAttachment } from "./core/terminal-process.ts";
+import { createTerminalRegistry } from "./core/terminals.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { randomBytes } from "node:crypto";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
@@ -11,7 +12,7 @@ import { accessSync, constants, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, ClientMessage, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PluginActionsResponse, ProjectFavicon, ServerFeature, ServerMessage } from "../shared/protocol.ts";
+import type { AgentKind, ClientMessage, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PluginActionsResponse, ProjectFavicon, ServerFeature } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
@@ -23,7 +24,6 @@ import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { isMouseReport, sameAttachment } from "./input-guard.ts";
 import { claudePaneSession } from "./conversation.ts";
-import { ConversationMonitor } from "./conversation-monitor.ts";
 import { processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { claudeSubagents, within } from "./claude-subagents.ts";
@@ -60,7 +60,7 @@ import { PendingInputs, samePendingIdentity, type PendingIdentity, type PendingR
 import { processStartedAt } from "./process-start.ts";
 import { PendingRequestBook } from "./pending-requests.ts";
 import { interruptCodexSteering } from "./codex-steering.ts";
-import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, wireBytes } from "./output-window.ts";
+import { OutputWindow, OUTPUT_HARD_BYTES } from "./output-window.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 import { handlePortalRequest, PortalService } from "./portal.ts";
@@ -79,13 +79,6 @@ import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
 import { PLUGIN_LOG_LIMIT, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
 
-/** joins this close together share one repaint: a reconnect brings every tab back at once */
-const REPAINT_COALESCE_MS = 50;
-/**
- * The least time between two repaints of one pane: each costs every client of it a whole screen,
- * and a joiner in the cooldown is served by the next one instead (a flapping phone, quick switches).
- */
-const REPAINT_MIN_INTERVAL_MS = 1000;
 /** How herdr's plugin manifests name the platform this server (and so its herdr) runs on. */
 const PLUGIN_PLATFORM = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 /** How long POST /api/plugin/action waits for the command herdr started to end before it answers `running`. */
@@ -237,7 +230,6 @@ export function createServer(
     sidecar?: boolean;
   } = {},
 ): ServerInstance {
-  const attachments = new Map<string, PaneAttachment>();
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
   /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
   const sidecar = options.sidecar ?? (options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
@@ -252,10 +244,6 @@ export function createServer(
   const heldRetry = options.attachHeldRetryMs ?? ATTACH_HELD_RETRY_MS;
   const relookupFor = options.attachRelookupForMs ?? ATTACH_RELOOKUP_FOR_MS;
   const holdFor = options.attachHoldMs ?? ATTACH_HOLD_MS;
-  /** attachments still resolving their terminal, so concurrent attaches share one pty */
-  const pendingAttachments = new Map<string, Promise<PaneAttachment>>();
-  // herdr releases its exclusive attach slot only after the old process exits.
-  const retiringAttachments = new Map<string, Promise<void>>();
   const clients = new Set<Client>();
   /** connections whose page is in use (`presence`), relayed ones included: while any is, no web push goes out */
   const present = new Set<Client>();
@@ -271,20 +259,8 @@ export function createServer(
   // the last input_draft refusal per pane: its named draft (Clear it and send), or none (Send anyway)
   const draftConfirmations = new WeakMap<Client, Map<string, { draft: string | null; identity: PendingIdentity; box?: string | null }>>();
   let stopped = false;
-  const conversations = new ConversationMonitor((paneId, signature) => {
-    for (const client of clients) {
-      if (!connectionOf(client).closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) {
-        send(client, { type: "conversation-changed", pane_id: paneId, signature });
-      }
-    }
-  }, options.codexHome, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome);
+  const { attachments, pendingAttachments, conversations, releaseConversation, reconcileOutput, sendOutput, closeAttachment, drivePty, requestRepaint, ensureAttachment, detach, detachClaimed, dropClaims, releaseUnclaimed } = createTerminalRegistry({ options, clients, stopped: () => stopped, terminalAttach, holdFor, heldRetry, retryFor, relookupFor, holdPending, holdPendingPane, end: (client, reason) => end(client, reason) });
 
-  function releaseConversation(paneId: string): void {
-    for (const client of clients) {
-      if (!connectionOf(client).closing && client.readyState === WebSocket.OPEN && client.data.attached.has(paneId) && client.data.conversationInterests.has(paneId)) return;
-    }
-    conversations.unwatch(paneId);
-  }
   const { serialize, settleAfterTyping, paneQueues, lastTyped, typedEscape } = createInputLane({ TYPED_SETTLE_MS, KEY_SETTLE_MS });
   /** per pane, the WS keys still waiting at the tail of the pane's queue: later keys of the same sender join them */
   const waitingKeys = new Map<string, { keys: string[]; client: unknown; origin: unknown; pty: unknown; claim: unknown; roles: number; run: Promise<unknown> | null; sent: boolean }>();
@@ -490,83 +466,8 @@ export function createServer(
     return true;
   }
 
-  function reconcileOutput(paneId: string): void {
-    const attachment = attachments.get(paneId);
-    if (!attachment?.pty) return;
-    let paused = false;
-    for (const client of attachment.clients) {
-      const window = client.data.output.get(paneId);
-      const buffered = client.getBufferedAmount();
-      if (window) {
-        // an ACK client: measured by its ACK progress, and a joiner draining its replay never pauses the pty
-        const verdict = window.check(buffered);
-        if (verdict === "stop") end(client, "stalled");
-        else if (verdict === "pause") paused = true;
-        continue;
-      }
-      // a client without ACKs has only its transport queue to go by
-      const blocked = buffered >= OUTPUT_HIGH_BYTES;
-      if (!blocked) {
-        attachment.stalled.delete(client);
-        continue;
-      }
-      const since = attachment.stalled.get(client) ?? Date.now();
-      attachment.stalled.set(client, since);
-      if (Date.now() - since >= OUTPUT_STALL_MS || buffered >= OUTPUT_HARD_BYTES) {
-        end(client, "stalled");
-      } else {
-        paused = true;
-      }
-    }
-    if (attachments.get(paneId) !== attachment) return;
-    if (paused) attachment.pty.pause();
-    else attachment.pty.resume();
-  }
-
-  function sendOutput(client: Client, paneId: string, data: string): void {
-    const window = client.data.output.get(paneId);
-    const bytes = Buffer.byteLength(data);
-    if ((window && window.pending + bytes > OUTPUT_HARD_BYTES) || client.getBufferedAmount() >= OUTPUT_HARD_BYTES) {
-      end(client, "stalled");
-      return;
-    }
-    send(client, {
-      type: "pty-data", pane_id: paneId, data,
-      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes, wireBytes(data)) } } : {}),
-    });
-  }
   const { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin });
   const bridgeToken = randomBytes(32).toString("hex");
-
-  function broadcast(paneId: string, message: ServerMessage): void {
-    const attachment = attachments.get(paneId);
-    if (!attachment) return;
-    for (const client of attachment.clients) send(client, message);
-  }
-
-  const { spawnAttachment } = createSpawnAttachment({ attachments, retiringAttachments, terminalAttach, isStopped: () => stopped, closeAttachment, broadcast, sendOutput, reconcileOutput, holdPendingPane, holdFor, heldRetry, retryFor, relookupFor });
-
-  function closeAttachment(paneId: string): void {
-    const attachment = attachments.get(paneId);
-    if (!attachment) return;
-    for (const member of attachment.clients) holdPending(member, paneId);
-    attachments.delete(paneId);
-    clearTimeout(attachment.retry);
-    clearTimeout(attachment.relookup);
-    clearTimeout(attachment.repaint);
-    // its members hold nothing on this pane any more (a pty that exited leaves them on
-    // the "terminal ended" screen): a stale entry would read as a live claim in
-    // releaseUnclaimed and keep a later, empty pty on this pane running
-    for (const member of attachment.clients) member.data.attached.delete(paneId);
-    for (const member of attachment.clients) member.data.conversationInterests.delete(paneId);
-    for (const member of attachment.clients) member.data.output.delete(paneId);
-    releaseConversation(paneId);
-    const retired = attachment.pty.exited.finally(() => {
-      if (retiringAttachments.get(paneId) === retired) retiringAttachments.delete(paneId);
-    });
-    retiringAttachments.set(paneId, retired);
-    attachment.pty.kill();
-  }
 
   /** Clamp surface for the shared pty, mirroring the sidecar's own limits. */
   function validGeometry(cols: unknown, rows: unknown): { cols: number; rows: number } | null {
@@ -575,103 +476,6 @@ export function createServer(
     }
     if (cols < 1 || cols > 1000 || rows < 1 || rows > 1000) return null;
     return { cols, rows };
-  }
-
-  /** An interact client's terminal sizes the pty: the grid is remembered as this client's, and it drives. */
-  function drivePty(paneId: string, client: Client, cols: number, rows: number): void {
-    const attachment = attachments.get(paneId);
-    const claim = client.data.attached.get(paneId);
-    if (claim) claim.keepSize = false;
-    if (attachment && !attachment.mirror) {
-      attachment.grids.delete(client);
-      attachment.grids.set(client, { cols, rows });
-      attachment.driver = client;
-    }
-    resizePty(paneId, cols, rows);
-  }
-
-  /**
-   * herdr's attach stream is a diff against the screen it last sent: what a program drew once
-   * (btop's boxes and titles) is gone from a tail that its later updates filled, and a client
-   * joining with that tail alone never saw it. Told its window changed (SIGWINCH, the size kept),
-   * `herdr terminal attach` sends the whole screen again; every client gets it, as any output.
-   */
-  function requestRepaint(paneId: string): void {
-    const attachment = attachments.get(paneId);
-    if (!attachment || attachment.mirror || attachment.repaint) return;
-    const cooldown = attachment.repaintedAt === undefined ? 0 : attachment.repaintedAt + REPAINT_MIN_INTERVAL_MS - Date.now();
-    attachment.repaint = setTimeout(() => {
-      attachment.repaint = undefined;
-      if (attachments.get(paneId) !== attachment || !attachment.ready || attachment.held || attachment.mirror) return;
-      attachment.repaintedAt = Date.now();
-      (attachment.pty as PtySession).winch();
-    }, Math.max(REPAINT_COALESCE_MS, cooldown));
-  }
-
-  function resizePty(paneId: string, cols: number, rows: number): void {
-    const attachment = attachments.get(paneId);
-    // a mirrored pane's grid is herdr's own: no browser resizes it
-    if (!attachment || attachment.mirror || (attachment.cols === cols && attachment.rows === rows)) return;
-    attachment.cols = cols;
-    attachment.rows = rows;
-    attachment.pty.resize(cols, rows);
-    // herdr redraws the whole screen for a new size: a repaint still waiting would send it twice
-    clearTimeout(attachment.repaint);
-    attachment.repaint = undefined;
-    attachment.repaintedAt = Date.now();
-    broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows });
-  }
-
-  function ensureAttachment(paneId: string, cols: number, rows: number, forObserver: boolean): Promise<PaneAttachment> {
-    const existing = attachments.get(paneId);
-    if (existing) return Promise.resolve(existing);
-    // a second attach arriving while the first is still resolving the terminal joins
-    // that creation: two creations would spawn two ptys, and the orphaned one keeps
-    // streaming into the surviving attachment and kills it when it exits
-    const pending = pendingAttachments.get(paneId);
-    if (pending) return pending;
-
-    const created = spawnAttachment(paneId, cols, rows, forObserver).finally(() => pendingAttachments.delete(paneId));
-    pendingAttachments.set(paneId, created);
-    return created;
-  }
-
-  function detach(paneId: string, client: Client): void {
-    holdPending(client, paneId);
-    client.data.conversationInterests.delete(paneId);
-    client.data.output.delete(paneId);
-    releaseConversation(paneId);
-    const attachment = attachments.get(paneId);
-    if (!attachment) return;
-    attachment.clients.delete(client);
-    attachment.stalled.delete(client);
-    attachment.grids.delete(client);
-    if (attachment.driver === client) attachment.driver = undefined;
-    if (attachment.clients.size === 0) closeAttachment(paneId);
-    else reconcileOutput(paneId);
-  }
-
-  /** An ending connection leaves its panes while its claims still count, then drops them (dropClaims). */
-  function detachClaimed(client: Client): void {
-    for (const paneId of client.data.attached.keys()) detach(paneId, client);
-  }
-
-  function dropClaims(client: Client): void {
-    client.data.attached.clear();
-    client.data.conversationInterests.clear();
-    client.data.output.clear();
-  }
-
-  /**
-   * Closes an attachment whose creating client detached or disconnected before it was
-   * ready, unless a client still wants it: every attach records its pane in
-   * `attached` before awaiting, so a joiner of the same creation that has not resumed
-   * yet still counts and is not left holding a dead record.
-   */
-  function releaseUnclaimed(paneId: string, attachment: PaneAttachment): void {
-    if (attachments.get(paneId) !== attachment || attachment.clients.size > 0) return;
-    for (const other of clients) if (other.data.attached.has(paneId)) return;
-    closeAttachment(paneId);
   }
 
   type PortalStartup = { ok: true } | { ok: false; error: unknown };
