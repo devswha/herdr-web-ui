@@ -1,19 +1,12 @@
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
-import { createSubmitText } from "./core/composer.ts";
-import { createInputLane } from "./core/input.ts";
-import { type Client, connectionData, connectionOf, createConnections, presenceOf, send, type SocketData } from "./core/connections.ts";
-import { createStatusHub } from "./core/status.ts";
-import { ATTACH_HELD_RETRY_MS, ATTACH_HOLD_MS, ATTACH_RELOOKUP_FOR_MS, ATTACH_RETRY_FOR_MS } from "./core/terminal-process.ts";
-import { createPendingDelivery } from "./core/pending.ts";
-import { createTerminalRegistry, validGeometry } from "./core/terminals.ts";
+import { connectionData, createCore, type SocketData } from "./core/index.ts";
 import { handlePaneRequest, paneContext } from "./pane-routes.ts";
 import { randomBytes } from "node:crypto";
 import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { accessSync, constants, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, ClientMessage, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PluginActionsResponse, ProjectFavicon, ServerFeature } from "../shared/protocol.ts";
+import type { AgentKind, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PluginActionsResponse, ProjectFavicon } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, authClient, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
@@ -47,8 +40,7 @@ import {
 } from "./herdr/client.ts";
 import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts";
 import { handlePromptRequest } from "./prompt.ts";
-import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
-import { OUTPUT_HARD_BYTES } from "./output-window.ts";
+import { attachableIdentity } from "./pty/sidecar.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 import { handlePortalRequest, PortalService } from "./portal.ts";
@@ -98,8 +90,6 @@ export const SUBMIT_DEADLINE_MS = 45_000;
 /** How long a cleared Claude input box may take to read empty before the send is refused after all. */
 const DRAFT_CLEAR_WAIT_MS = 1_500;
 const DRAFT_CLEAR_POLL_MS = 50;
-
-const SERVER_FEATURES: ServerFeature[] = ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "take-over", "watch", "conversation-watch", "ping"];
 
 
 const AGENT_LABELS: Record<string, string> = {
@@ -216,27 +206,6 @@ export function createServer(
     sidecar?: boolean;
   } = {},
 ): ServerInstance {
-  /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
-  /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
-  const sidecar = options.sidecar ?? (options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
-  let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
-  const terminalAttach = async (): Promise<boolean> => {
-    if (terminalAttachKnown === null) {
-      terminalAttachKnown = typeof options.terminalAttach === "function" ? await options.terminalAttach() : attachableIdentity(await ping(), sidecar).terminal_attach !== false;
-    }
-    return terminalAttachKnown;
-  };
-  const retryFor = options.attachRetryForMs ?? ATTACH_RETRY_FOR_MS;
-  const heldRetry = options.attachHeldRetryMs ?? ATTACH_HELD_RETRY_MS;
-  const relookupFor = options.attachRelookupForMs ?? ATTACH_RELOOKUP_FOR_MS;
-  const holdFor = options.attachHoldMs ?? ATTACH_HOLD_MS;
-  const clients = new Set<Client>();
-  /** connections whose page is in use (`presence`), relayed ones included: while any is, no web push goes out */
-  const present = new Set<Client>();
-  let stopped = false;
-  const { attachments, conversations, reconcileOutput, closeAttachment, detachClaimed, dropClaims, sight, poke, drainOutput, terminalFrames } = createTerminalRegistry({ options, clients, stopped: () => stopped, terminalAttach, holdFor, heldRetry, retryFor, relookupFor, holdPending: (owner, paneId) => holdPending(owner, paneId), holdPendingPane: (paneId, fault) => holdPendingPane(paneId, fault), end: (client, reason) => end(client, reason) });
-
-  const { serialize, lastTyped, inputFrames } = createInputLane({ TYPED_SETTLE_MS, KEY_SETTLE_MS, clients, sight, poke, terminalAttach, terminalAttachKnown: () => terminalAttachKnown, mayType: (client) => mayType(client), authorizeSocket: (client) => authorizeSocket(client) });
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
@@ -259,12 +228,8 @@ export function createServer(
   identityOf(false, null);
   const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
 
-  const submitText = createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS });
-
-  const { pending, holdPending, holdPendingPane, drainPending, pendingFrames } = createPendingDelivery({ options, clients, attachments, sight, serialize, lastTyped, submitText, authorizeSocket: (client) => authorizeSocket(client), clientSnapshot: () => clientSnapshot(), omo: { sessionOf: (paneId) => omo.sessionOf(paneId) }, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS });
-
-  const { mayType, authorizeSocket, admit, setRole, watchPane, unwatchPane, killWatches, end } = createConnections({ clients, present, pending, devices, detachClaimed, dropClaims });
-  const { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector, waitTimer } = createStatusHub({ options, devices, clients, present, pending, drainPending, holdPendingPane, usage, usageLogin });
+  const core = createCore({ options, devices, usage, usageLogin, TYPED_SETTLE_MS, KEY_SETTLE_MS, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS });
+  const { sidecar, serialize, push, logPushError, omo, claudeAgents, plans, clientSnapshot, machines, broadcastAll, collector } = core;
   const bridgeToken = randomBytes(32).toString("hex");
 
   type PortalStartup = { ok: true } | { ok: false; error: unknown };
@@ -688,138 +653,7 @@ export function createServer(
       })());
     },
 
-    websocket: {
-      // This transport cap also covers clients that predate application ACKs.
-      backpressureLimit: OUTPUT_HARD_BYTES,
-      closeOnBackpressureLimit: true,
-      drain(client) {
-        drainOutput(client);
-      },
-      async open(client) {
-        if (!admit(client)) return;
-        if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
-        clients.add(client);
-        const snapshot = clientSnapshot();
-        countVisit(snapshot);
-        try {
-          send(client, { type: "snapshot", snapshot: await snapshot, features: SERVER_FEATURES });
-        } catch (error) {
-          const code = error instanceof HerdrError ? error.code : "snapshot_failed";
-          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error) });
-        }
-      },
-
-      async message(client, raw) {
-        if (stopped || connectionOf(client).closing) return;
-        // read here for a relayed connection too: alerts for every PC go out from this server
-        const presence = presenceOf(raw);
-        if (presence === true) {
-          present.add(client);
-          if (!client.data.relay) countVisit();
-        } else if (presence === false) present.delete(client);
-        if (client.data.relay) { client.data.relay.message(raw); return; }
-        if (presence !== null) return;
-        let message: ClientMessage;
-        try {
-          message = JSON.parse(String(raw)) as ClientMessage;
-        } catch {
-          send(client, { type: "error", code: "invalid_json", message: "message must be JSON" });
-          return;
-        }
-        try {
-          switch (message.type) {
-            // liveness only: any role, no herdr call, nothing to wait behind
-            case "ping": {
-              if (!Number.isSafeInteger(message.id)) {
-                send(client, { type: "error", code: "invalid_ping", message: "id must be an integer" });
-                break;
-              }
-              send(client, { type: "pong", id: message.id });
-              break;
-            }
-            case "watch": {
-              const geometry = validGeometry(message.cols, message.rows);
-              if (!geometry) {
-                send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
-                break;
-              }
-              watchPane(client, message.pane_id, geometry);
-              break;
-            }
-            case "unwatch": {
-              unwatchPane(client, message.pane_id);
-              break;
-            }
-            case "attach":
-              await terminalFrames.attach(client, message);
-              break;
-            case "take-over":
-              terminalFrames["take-over"](client, message);
-              break;
-            case "detach":
-              terminalFrames.detach(client, message);
-              break;
-            case "conversation-watch":
-              terminalFrames["conversation-watch"](client, message);
-              break;
-            case "pty-ack":
-              terminalFrames["pty-ack"](client, message);
-              break;
-            case "input":
-              inputFrames.input(client, message);
-              break;
-            case "resize":
-              await terminalFrames.resize(client, message);
-              break;
-            case "release-size":
-              terminalFrames["release-size"](client, message);
-              break;
-            case "keys":
-              await inputFrames.keys(client, message);
-              break;
-            case "secret":
-              await inputFrames.secret(client, message);
-              break;
-            case "submit":
-              await pendingFrames.submit(client, message);
-              break;
-            case "pending-action":
-              await pendingFrames["pending-action"](client, message);
-              break;
-            case "role": {
-              if (message.mode !== "interact" && message.mode !== "observe") {
-                send(client, { type: "error", code: "invalid_role", message: "mode must be interact or observe" });
-                break;
-              }
-              if (client.data.readOnly) message.mode = "observe";
-              if (message.mode === "observe") holdPending(client);
-              setRole(client, message.mode);
-              send(client, { type: "role-ack", mode: message.mode });
-              if (message.mode === "observe") {
-                // the fresh observer needs the grid it must adopt
-                for (const paneId of client.data.attached.keys()) {
-                  const attachment = attachments.get(paneId);
-                  if (attachment) {
-                    send(client, { type: "pane-geometry", pane_id: paneId, cols: attachment.cols, rows: attachment.rows });
-                  }
-                }
-              }
-              break;
-            }
-          }
-        } catch (error) {
-          const code = error instanceof HerdrError ? error.code : "command_failed";
-          // an attach that could not start names its pane: the panes of a PC share this connection, and one
-          // without a pane would end every terminal on it
-          const failed = code === "attach_failed" && message.type === "attach" ? { pane_id: message.pane_id } : {};
-          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error), ...failed });
-        }
-      },
-
-      close(client) {
-        end(client, "closed");
-      },
-    },
+    websocket: core.websocket,
   });
 
   if (options.portal) {
@@ -839,12 +673,7 @@ export function createServer(
 
   const registration = options.registerBridge ? registerBridge(server.port ?? 0, bridgeToken) : null;
 
-  // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
-  const outputTimer = setInterval(() => {
-    pending.expire();
-    for (const paneId of attachments.keys()) reconcileOutput(paneId);
-  }, 100);
-  outputTimer.unref();
+  core.start();
 
   return {
     port: server.port ?? 0,
@@ -852,21 +681,11 @@ export function createServer(
     statusReady: collector.ready,
     alertsSettled: () => push.settled(),
     stop: () => {
-      stopped = true;
       settlePortalStartup({ ok: false, error: new Error("Server stopped before Portal startup cleanup completed") });
-      conversations.stop();
-      clearInterval(outputTimer);
-      collector.stop();
-      omo.stop();
-      gjc.stop();
-      claudeAgents.stop();
-      clearInterval(waitTimer);
-      plans.stop();
-      machines?.stop();
-      void options.portal?.shutdown();
-      registration?.close();
-      for (const client of clients) killWatches(client);
-      for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
+      core.stop(() => {
+        void options.portal?.shutdown();
+        registration?.close();
+      });
       server.stop(true);
     },
   };
