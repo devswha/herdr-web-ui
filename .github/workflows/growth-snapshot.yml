@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - id: secrets
         name: Check the secrets
         env:
@@ -43,6 +45,7 @@ jobs:
         run: bun scripts/growth-snapshot.ts --out growth
       - if: steps.secrets.outputs.ready == 'true'
         name: Encrypt it
+        shell: bash
         env:
           GROWTH_SNAPSHOT_KEY: ${{ secrets.GROWTH_SNAPSHOT_KEY }}
         run: |

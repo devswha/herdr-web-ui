@@ -483,7 +483,8 @@ says so and ends green:
   the repository permissions **Administration: Read-only** (the traffic endpoints need it) and
   **Metadata: Read-only**. Such a token expires within a year: put the expiry date in the token's
   name. An expired or wrong token turns the run red (exit 1 for no access to the repository, exit
-  2 when every traffic endpoint is refused), and GitHub emails the failure.
+  2 when every traffic endpoint is refused, exit 3 when a stargazer page fails), and GitHub emails
+  the failure.
 - `GROWTH_SNAPSHOT_KEY`: the encryption password, for example from `openssl rand -base64 32`.
   Keep a copy outside GitHub: without it the artifacts cannot be read.
 
@@ -495,9 +496,16 @@ GROWTH_SNAPSHOT_KEY=… openssl enc -d -aes-256-cbc -pbkdf2 -pass env:GROWTH_SNA
 ```
 
 which gives `growth/snapshot-<day>.json` and `growth/stars-by-day.csv`. The same script runs
-locally with your own `gh` sign-in: `bun scripts/growth-snapshot.ts --out <dir>`. Installs and
+locally from the repository root with your own `gh` sign-in:
+`bun scripts/growth-snapshot.ts --out <dir>`. Exit 0 allows individual traffic errors in the JSON;
+exit 2 still writes both files when every traffic endpoint fails. Exit 3 writes neither file,
+including no traffic-only snapshot, and preserves any previous output unchanged. This takes
+precedence over exit 2 if both stars and traffic fail. Exit 1 covers usage, repository access and
+output errors. Both files are staged before publication; a CSV write or replacement failure
+does not publish new JSON. No failed run reaches encryption or upload in the workflow. Installs and
 daily actives by country come from the telemetry database instead:
-`bun scripts/telemetry-report.ts --out <file.md>` after `bunx wrangler login`
+run `bunx wrangler login` from `telemetry/` once, then
+`bun scripts/telemetry-report.ts --out <file.md>` from the repository root
 ([telemetry/README.md](../telemetry/README.md#reading-the-counts)).
 
 ## Pull requests and CI

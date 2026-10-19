@@ -13,12 +13,13 @@
  * Who starred is never kept: only the day of each star. Nothing about the traffic (referrers,
  * paths) goes to the output either, so a workflow log shows only totals.
  *
- * Exit codes: 0 when the counts were read (a traffic endpoint that failed is recorded as
+ * Exit codes: 0 when counts and star dates were read (a traffic endpoint that failed is recorded as
  * {"error": "<status>"}), 2 when every traffic endpoint failed (a token without access, which
  * should turn a scheduled run red), 1 when the repository itself could not be read (nothing is
- * written).
+ * written), 3 when any stargazer page failed (no new output; a previous snapshot is left intact).
+ * Files are staged before publication; an output failure exits 1.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 type Answer = { ok: true; body: unknown } | { ok: false; status: string };
@@ -88,6 +89,10 @@ for (let page = 1; ; page += 1) {
   if (answer.body.length < 100) break;
 }
 
+// Do not publish partial dates or pair a new snapshot with a previous run's CSV.
+// Star history can be fetched again; leave any previous complete output intact.
+if (starsError !== null) process.exit(3);
+
 const takenAt = new Date().toISOString();
 const days = Object.keys(starsByDay).sort();
 const snapshot = {
@@ -104,8 +109,17 @@ let cumulative = 0;
 const csv = ["date,new_stars,cumulative", ...days.map((day) => `${day},${starsByDay[day]},${(cumulative += starsByDay[day]!)}`)].join("\n") + "\n";
 
 mkdirSync(out, { recursive: true });
-writeFileSync(join(out, `snapshot-${takenAt.slice(0, 10)}.json`), JSON.stringify(snapshot, null, 1) + "\n");
-if (starsError === null) writeFileSync(join(out, "stars-by-day.csv"), csv);
+const staging = mkdtempSync(join(out, ".snapshot-"));
+const snapshotName = `snapshot-${takenAt.slice(0, 10)}.json`;
+try {
+  writeFileSync(join(staging, snapshotName), JSON.stringify(snapshot, null, 1) + "\n");
+  writeFileSync(join(staging, "stars-by-day.csv"), csv);
+  // Publish CSV first: a failed CSV write or replacement must not leave new JSON.
+  renameSync(join(staging, "stars-by-day.csv"), join(out, "stars-by-day.csv"));
+  renameSync(join(staging, snapshotName), join(out, snapshotName));
+} finally {
+  rmSync(staging, { recursive: true, force: true });
+}
 
 const viewCount = (traffic["views"] as { count?: unknown } | undefined)?.count;
 console.log(`growth snapshot: ${repo} stars=${totals.stargazers_count} stars_dated=${starsRead} views_14d=${typeof viewCount === "number" ? viewCount : "n/a"} traffic_failed=${failed}/${TRAFFIC.length}`);
