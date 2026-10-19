@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -68,26 +68,20 @@ function windowsFromFlatList(list: unknown): Map<string, number> {
   return models;
 }
 
-type CachedCatalog = { signature: string; byProvider: Map<string, Map<string, number>> };
+type CachedCatalog = { content: string; byProvider: Map<string, Map<string, number>> };
 
 const cache = new Map<string, CachedCatalog | null>();
 
-function statSignature(path: string): string | null {
-  try { const stat = statSync(path); return `${stat.mtimeMs}:${stat.size}`; } catch { return null; }
-}
-
 /** Read and cache a catalog file. Returns null when the file is absent or unreadable. */
 function readCatalog(path: string, parseCatalog: (parsed: unknown) => Map<string, Map<string, number>> | null): CachedCatalog | null {
-  const signature = statSignature(path);
-  if (signature === null) return null;
-  const cached = cache.get(path);
-  if (cached && cached.signature === signature) return cached;
   let text: string;
   try { text = readFileSync(path, "utf8"); } catch { cache.set(path, null); return null; }
+  const cached = cache.get(path);
+  if (cached && cached.content === text) return cached;
   let parsed: unknown;
   try { parsed = JSON.parse(text.replace(/^\uFEFF/, "")); } catch { parsed = parse(text); }
   const byProvider = parseCatalog(parsed);
-  const entry: CachedCatalog | null = byProvider === null ? null : { signature, byProvider };
+  const entry: CachedCatalog | null = byProvider === null ? null : { content: text, byProvider };
   cache.set(path, entry);
   return entry;
 }
@@ -150,9 +144,7 @@ export function piContextWindow(model: string, provider: string | null, agentDir
     const byId = provider === null ? undefined : catalog.byProvider.get(provider);
     if (byId === undefined) continue;
     if (byId.has(model)) return byId.get(model) ?? null;
-    // provider present but model absent: this catalog is authoritative for that provider,
-    // so stop rather than borrowing a number from another file
-    return null;
+    // provider present but model absent here: a later catalog may still list it
   }
   return null;
 }
