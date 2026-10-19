@@ -23,8 +23,12 @@ request ID with Herdr's own log; a timeout alone does not identify which process
 A later successful RPC or machine connection writes one `.recovered` line. Repeated failures are
 summarized at most once every 30 seconds per RPC method/peer or machine, with suppressed counts;
 bookkeeping retains at most 128 recent keys per logger, including healthy keys so flapping cannot
-reset the throttle. Only a visible failure episode emits a recovery. Abnormal browser WebSocket closes are
+reset the throttle. Only a visible failure episode emits a recovery; a silent one (every failure
+suppressed) keeps its `episode_id` and start into the next visible failure, so that line's
+`since_first_failure_ms` can span a healthy gap. Abnormal browser WebSocket closes are
 coalesced separately for local and relayed connections; normal closes and server shutdown are quiet.
+`websocket.failed` means any close other than 1000 or 1001, so it also covers closes the server starts
+itself (device revoke 1008, output stall 4008, a remote PC disconnecting 1012); `close_code` tells them apart.
 The close reason, input, credentials, peer names, socket paths and raw exception messages are never
 included. A remote machine's opaque UUID may appear, not its name or SSH address. These records are
 separate from the request-completion log and do not add timestamps to older console messages.
