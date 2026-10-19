@@ -785,6 +785,7 @@ export const KO: Record<string, string> = {
   // ---- terminal ----
   "Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.": "Codex가 터미널에 질문을 열어 두었습니다. 위에서 답하거나, 터미널에서 닫으면(alt+↓) Codex에게 메시지를 보낼 수 있습니다.",
   "The question on screen changed; check it and answer again.": "화면의 질문이 바뀌었습니다. 확인하고 다시 답하세요.",
+  "Not updated: the question on screen may have changed.": "갱신되지 않음: 화면의 질문이 바뀌었을 수 있습니다.",
   "NOT RESTORED": "복원 실패",
   "herdr could not restore this pane": "herdr가 이 패널을 복원하지 못했습니다",
   "Select a pane to open its terminal": "터미널을 열 패널을 선택하세요",
