@@ -654,6 +654,13 @@ try {
           await page.waitForFunction((text) => document.querySelector(".prompt-card [role=status]")?.textContent === text, STALE, { timeout: 10_000 });
           assert.equal(await page.locator(".prompt-card").count(), 1, "the card stays while reads fail");
           assert.ok(await page.locator(".prompt-card").getByText(FORM.question).isVisible(), "its question is still shown");
+          // the screen moved on while reads failed: the answer is refused, the poll restarts, and the notice stays
+          await setPrompt(page, { ...FORM, id: "demo-form-moved" });
+          await page.locator(".prompt-card-option-label").first().click();
+          await page.locator(".prompt-card").getByText("The question on screen changed; check it and answer again.").waitFor();
+          await page.waitForTimeout(500);
+          assert.equal(await status.textContent(), STALE, "a refused answer restarts the reads without clearing the notice");
+          await setPrompt(page, FORM);
           await page.evaluate(() => { (window as unknown as { formReadFails: boolean }).formReadFails = false; });
           await page.waitForFunction(() => document.querySelector(".prompt-card [role=status]")?.textContent === "", undefined, { timeout: 10_000 });
           assert.deepEqual(errors, []);

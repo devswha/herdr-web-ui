@@ -1184,12 +1184,12 @@ export const ChatView = memo(function ChatView({ paneId, active = true, visible:
   const [promptStale, setPromptStale] = useState(false);
   const pollPrompt = connected && !ended && agent !== null;
   useEffect(() => {
-    if (!pollPrompt) { setPrompt(null); setRestored(null); onSuggestionRef.current?.(paneId, null); onRestoredRef.current?.(paneId, null); return; }
+    if (!pollPrompt) { setPrompt(null); setPromptStale(false); setRestored(null); onSuggestionRef.current?.(paneId, null); onRestoredRef.current?.(paneId, null); return; }
     if (!visible) return;
     let cancelled = false;
     let timer = 0;
+    // a restart (the page shown again, a refused answer) keeps the notice: only a read that answers clears it
     let failedReads = 0;
-    setPromptStale(false);
     const readPrompt = async (): Promise<void> => {
       // the same prompt keeps its object: the composer and the card only change with it
       const sent = sentKeyRef.current;
