@@ -64,7 +64,7 @@ export async function executeInteractionPlan(
     }
     walked = true;
   }
-  if (!await matches() || io.cancelled() || plan.terminalFallback) return "prompt_changed";
+  if (!await matches() || !io.active() || io.cancelled() || plan.terminalFallback) return "prompt_changed";
   await io.send(plan.commit, true);
   return "answered";
 }

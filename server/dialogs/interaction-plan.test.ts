@@ -67,6 +67,29 @@ function planFor(id: string, screen: string) {
 }
 
 describe("picker interaction plans", () => {
+  for (const fixture of fixtures) {
+    test(`${fixture.id} refuses a commit when the asking changes during the final read`, async () => {
+      const screen = fixture.draw(120, 0);
+      const plan = planFor(fixture.id, screen);
+      const sent: AnswerStep[] = [];
+      let active = true;
+      const result = await executeInteractionPlan(plan, 0, {
+        rereadMoves: true,
+        active: () => active,
+        cancelled: () => false,
+        read: async () => {
+          // The screen was accepted, but a queued status change ends this asking before
+          // the awaiting executor resumes. No timer or changed screen is involved.
+          queueMicrotask(() => { active = false; });
+          return screen;
+        },
+        send: async (step) => { sent.push(step); },
+      });
+      expect(sent, "an ended asking must not receive a stale picker commit").toEqual([]);
+      expect(result).toBe("prompt_changed");
+    });
+  }
+
   for (const fixture of fixtures) for (const width of [40, 120]) {
     test(`${fixture.id} reads ${width} columns and commits only the row reached by its moves`, async () => {
       const plan = planFor(fixture.id, fixture.draw(width, 0));
