@@ -91,6 +91,8 @@ const plainError = (cause: unknown): string => {
 export interface PaneTerminalProps {
   /** App's content lifetime, including the current finish identity. */
   presentationKey?: string;
+  finishEpoch?: string;
+  finishId?: number;
   /** The pane this terminal attaches to; null renders the placeholder. */
   paneId: string | null;
   /** A restored pane keeps its ID but gets a new terminal after herdr restarts. */
@@ -158,6 +160,8 @@ const heldRowNotes = new Map<string, { owner: string; id: string; text: string }
 
 export function PaneTerminal({
   presentationKey,
+  finishEpoch,
+  finishId,
   paneId,
   terminalId = null,
   mirrored = false,
@@ -1866,6 +1870,9 @@ export function PaneTerminal({
       setHeld(false);
       // the pane's screen starts again from the new attach, as on a pane switch
       const generation = ++outputGeneration;
+      // A new attach owns a new output lifetime. The server's readiness receipt precedes
+      // replay, so a recovering attach will revoke this again before any retained bytes.
+      outputRecovering = false;
       // Reset in stream order: synchronous reset would let old queued writes draw afterward.
       if (!cachedReleaseRef.current) {
         term.write("\x1bc", () => {
@@ -2935,6 +2942,8 @@ export function PaneTerminal({
               conversation stays (a shared Codex daemon), and the chat follows history_id itself */}
           <ChatView
             presentationKey={presentationKey}
+            finishEpoch={finishEpoch}
+            finishId={finishId}
             key={paneId}
             paneId={paneId}
             active={active}

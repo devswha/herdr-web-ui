@@ -23,7 +23,8 @@ import type { LegendListRef } from "@legendapp/list/react";
 import { appendChatRowSlots, createChatRowSlots, prependChatRowSlots } from "../lib/chatRows.ts";
 import { ChatDetails, ChatRowMemoryContext, useChatRowToggle, type ChatRowMemory } from "../lib/chatRowState.tsx";
 import { turnRevision } from "../lib/turnRevision.ts";
-import { conversationFinishPresented } from "../lib/panePresentation.ts";
+import { conversationFinishEvidence, conversationFinishPresented } from "../lib/panePresentation.ts";
+import { seenKey } from "../lib/seenFinishes.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import { ApiError } from "../lib/api.ts";
@@ -122,6 +123,8 @@ const LOAD_OLDER_PX = 400;
 export interface ChatViewProps {
   /** A fresh successful read for this displayed finish may acknowledge it. */
   presentationKey?: string;
+  finishEpoch?: string;
+  finishId?: number;
   paneId: string;
   /** Only the active pane owns the chat-local Mod+F shortcut. */
   active?: boolean;
@@ -807,7 +810,7 @@ function TerminalFallback({ paneId, visible }: { paneId: string; visible: boolea
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, presentationKey, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered, title = null }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, presentationKey, finishEpoch, finishId, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered, title = null }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, peekPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -841,6 +844,12 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
   /** an answer for this pane arrived (or failed): until then, and while a replaced history is read again, an empty chat is only loading */
   const [loaded, setLoaded] = useState(false);
   const presentationRef = useRef(presentationKey); presentationRef.current = presentationKey;
+  const finishRef = useRef({ epoch: finishEpoch, id: finishId, status: agentStatus });
+  finishRef.current = { epoch: finishEpoch, id: finishId, status: agentStatus };
+  const validatedPresentation = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (finishEpoch !== undefined && finishId !== undefined) conversationFinishEvidence.observe(seenKey(machineId, finishEpoch, paneId), finishId);
+  }, [machineId, paneId, finishEpoch, finishId]);
   const [readPresentation, setReadPresentation] = useState<string>();
   const [endPresentation, setEndPresentation] = useState<{ state: ChatState; key: string | undefined } | null>(null);
   const [prompt, setPrompt] = useState<InteractivePrompt | null>(null);
@@ -1012,11 +1021,14 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
     };
     const read = async (): Promise<void> => {
       const readKey = presentationRef.current;
+      const finish = finishRef.current;
+      const previousAnswer = lastAnswer.current ?? undefined;
+      const page = { ...(heldFrom.current === null ? {} : { from: heldFrom.current }), fresh: readKey !== validatedPresentation.current };
       let generation = olderGeneration.current;
       try {
         let conversation;
         try {
-          conversation = await fetchPaneConversation(paneId, heldFrom.current === null ? undefined : { from: heldFrom.current });
+          conversation = await fetchPaneConversation(paneId, page);
         } catch (cause) {
           // a new session or a Codex backtrack replaced the transcript the older pages came from
           if (heldFrom.current === null || !(cause instanceof ApiError) || cause.status !== 409) throw cause;
@@ -1026,6 +1038,10 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
           conversation = await fetchPaneConversation(paneId);
         }
         if (cancelled || generation !== olderGeneration.current) return;
+        if (conversation !== previousAnswer) validatedPresentation.current = readKey;
+        const proved = finish.status !== "done" || (readKey === presentationRef.current && finishRef.current.status === "done"
+          && finish.epoch !== undefined && finish.id !== undefined
+          && conversationFinishEvidence.accept(seenKey(machineId, finish.epoch, paneId), finish.id, conversation, previousAnswer));
         // the timeline's chunk is in hand before any turn is: the list mounts once, with the refs bound
         if (conversation.source !== "scrollback" && loadedChatTimeline() === null) {
           await loadChatTimeline();
@@ -1037,7 +1053,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
           pagingAway.current = false; stickToBottom.current = true; setNewMessages(false); setAway(false);
         }
         // a 304 hands back the answer already shown: nothing to compare or lay out again
-        if (conversation === lastAnswer.current) { setError(null); setErrorStatus(null); setFailures(0); setReadPresentation(readKey); return; }
+        if (conversation === lastAnswer.current) { setError(null); setErrorStatus(null); setFailures(0); setReadPresentation(proved ? readKey : undefined); return; }
         // The newest page moved past the held start: the turns in between join the older
         // pages and the newest page is held from its new start, so no poll reads more than a page.
         const previous = lastAnswer.current;
@@ -1073,7 +1089,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, active
           next = { source: "scrollback", turns: [], messages: toTranscriptMessages(result.text).filter((message) => message.role !== "status"), truncated: result.truncated === true };
         }
         showAnswer(conversation, next);
-        setReadPresentation(readKey);
+        setReadPresentation(proved ? readKey : undefined);
       } catch (cause) {
         if (cancelled || generation !== olderGeneration.current) return;
         setLoaded(true);

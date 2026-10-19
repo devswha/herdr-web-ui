@@ -25,6 +25,7 @@ declare global {
       pad(paneId: string, turns: number): void;
       frame(message: ServerMessage): void;
       conversation(paneId: string, response: ConversationResponse): void;
+      replay(paneId: string, ready: boolean, data: string, readyAfter?: boolean): void;
     };
   }
 }
@@ -40,6 +41,7 @@ function installSidebarFixture(): void {
   const sockets = new Set<WebSocket>();
   const conversations = new Map<string, { response: ConversationResponse; etag: string }>();
   let conversationRevision = 0;
+  const replays = new Map<string, { ready: boolean; data: string; readyAfter: boolean }>();
   const patch = (machines: Machine[]): Machine[] => {
     for (const machine of machines) {
       const snapshot = machine.snapshot;
@@ -73,8 +75,9 @@ function installSidebarFixture(): void {
   const fetchDemo = window.fetch;
   const pendingReads: (() => void)[] = [];
   window.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    let response = await fetchDemo(input, init);
     const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+    const finish = state.finishes[url.searchParams.get("pane_id") ?? ""];
+    let response = await fetchDemo(input, init);
     if (url.pathname === "/api/pane/conversation") {
       const id = url.searchParams.get("pane_id") ?? "";
       const conversation = conversations.get(id);
@@ -83,6 +86,16 @@ function installSidebarFixture(): void {
         response = headers.get("if-none-match") === conversation.etag
           ? new Response(null, { status: 304, headers: { etag: conversation.etag } })
           : Response.json(conversation.response, { headers: { etag: conversation.etag } });
+      } else if (finish?.status === "done" && response.ok) {
+        // A synthetic new finish needs a synthetic new completed turn too. Explicit
+        // conversation overrides above deliberately retain old answers for race tests.
+        const body = await response.json() as ConversationResponse;
+        const last = body.turns.at(-1);
+        if (last?.role === "assistant") {
+          last.ts = new Date((Date.parse(last.ts ?? "") || 0) + finish.seq * 1000).toISOString();
+          if (last.end_ts) last.end_ts = new Date(Date.parse(last.end_ts) + finish.seq * 1000).toISOString();
+        }
+        response = Response.json(body);
       }
       const padding = state.padded?.[id] ?? 0;
       if (padding > 0 && response.ok) {
@@ -123,6 +136,16 @@ function installSidebarFixture(): void {
       const send = this.send.bind(this);
       this.send = (raw) => {
         const message = JSON.parse(String(raw));
+        const replay = replays.get(message.pane_id);
+        if (message.type === "attach" && replay) {
+          // The corrected registry reports its readiness before a retained replay.
+          const frames = [
+            { type: "input-ready", pane_id: message.pane_id, ready: replay.ready },
+            { type: "pty-data", pane_id: message.pane_id, data: replay.data },
+          ];
+          for (const frame of replay.readyAfter ? frames.reverse() : frames) this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(frame) }));
+          return;
+        }
         const blocked = state.blocked;
         if (message.type === "attach" && blocked && message.pane_id === blocked.paneId
           && ["held", "unattached"].includes(blocked.kind)) {
@@ -149,6 +172,11 @@ function installSidebarFixture(): void {
           // must share the same epoch, including the demo's own timed status changes.
           if (body.type === "machine-message" && body.message.type === "pane-status") {
             body.message.finish_epoch = `sidebar-fixture:${body.machine_id}:1`;
+            const forced = state.finishes[body.message.pane_id];
+            if (forced) {
+              body.message.agent_status = forced.status;
+              body.message.finish_id = forced.seq;
+            }
           }
           receive?.call(this, new MessageEvent("message", { data: JSON.stringify(body) }));
         },
@@ -175,6 +203,7 @@ function installSidebarFixture(): void {
       for (const socket of sockets) if (socket.readyState === 1) socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
     },
     conversation(paneId, response) { conversations.set(paneId, { response, etag: `"fixture-${++conversationRevision}"` }); },
+    replay(paneId, ready, data, readyAfter = false) { replays.set(paneId, { ready, data, readyAfter }); },
   };
 }
 
@@ -256,6 +285,61 @@ try {
     const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
     try {
       const finishCase = process.env["SIDEBAR_FINISH_CASE"];
+      if (!finishCase || finishCase === "previous-answer") {
+        for (const source of ["claude-transcript", "codex-transcript", "pi-transcript", "omp-transcript", "omo-transcript", "gjc-transcript", "opencode-transcript", "grok-transcript", "devin-transcript", "hermes-transcript", "agy-transcript"] as const) {
+          await withPage(browser, {}, async (page) => {
+            await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}`);
+            await page.evaluate((id) => window.sidebarFixture.finish(id, "working", 100), panes.omp);
+            const first: ConversationResponse = { source, history_id: "finish-proof", turns: [
+              { role: "assistant", ts: "2026-10-19T00:00:00Z", parts: [{ kind: "text", text: "First completed answer", phase: "final_answer" }] },
+            ] };
+            await page.evaluate(({ id, first }) => window.sidebarFixture.conversation(id, first), { id: panes.omp, first });
+            await page.evaluate((id) => window.sidebarFixture.frame({ type: "conversation-changed", pane_id: id, signature: "first-finish" }), panes.omp);
+            await page.getByText("First completed answer", { exact: true }).waitFor();
+            await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 101), panes.omp);
+            await waitStatus(page, INFRA, "idle");
+            const count = await page.evaluate((id) => window.sidebarFixture.reads[id] ?? 0, panes.omp);
+            await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 102), panes.omp);
+            await page.waitForFunction(({ id, count }) => (window.sidebarFixture.reads[id] ?? 0) > count, { id: panes.omp, count });
+            await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            assert.equal(await agent(page, INFRA).locator(".sidebar-status").getAttribute("data-status"), "done",
+              `${source}: a previous completed answer cannot acknowledge the new finish`);
+            const second = structuredClone(first);
+            second.turns[0]!.ts = "2026-10-19T00:01:00Z";
+            second.turns[0]!.parts = [{ kind: "text", text: "Second completed answer", phase: "final_answer" }];
+            second.turns.push({ role: "user", ts: "2026-10-19T00:01:01Z", parts: [{ kind: "notice", text: "Informational notice", source: "informational" }] });
+            await page.evaluate(({ id, second }) => {
+              window.sidebarFixture.conversation(id, second);
+              window.sidebarFixture.frame({ type: "conversation-changed", pane_id: id, signature: "second-finish" });
+            }, { id: panes.omp, second });
+            await page.getByText("Second completed answer", { exact: true }).waitFor();
+            await waitStatus(page, INFRA, "idle");
+          });
+          console.log(`PASS ${source}: finish identity rejects the previous answer and accepts the new answer past notices`);
+        }
+      }
+      if (!finishCase || finishCase === "resume-replay") {
+        await withPage(browser, {}, async (page) => {
+          await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}&view=terminal`);
+          await page.locator(".pane-frame.is-current .terminal-stack[data-pane-content]").waitFor();
+          const retained = await page.locator(".pane-frame.is-current .terminal-stack").elementHandle();
+          await page.evaluate((id) => window.sidebarFixture.frame({ type: "input-ready", pane_id: id, ready: false }), panes.omp);
+          await agent(page, API).locator(".agent-select").click();
+          await page.evaluate((id) => {
+            // Also accept the previous bridge's replay-before-ready order on resume.
+            window.sidebarFixture.replay(id, true, "quiet recovered replay\r\n", true);
+            window.sidebarFixture.block(id, "loading");
+            return window.sidebarFixture.finish(id, "done", 103);
+          }, panes.omp);
+          await agent(page, INFRA).locator(".agent-select").click();
+          await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+          await waitStatus(page, INFRA, "idle");
+          await page.locator(".pane-frame.is-current .terminal-stack[data-pane-content]").waitFor();
+          assert.equal(await page.locator(".pane-frame.is-current .terminal-stack").evaluate((node, previous) => node === previous, retained), true,
+            "the replay recovers the retained renderer rather than mounting a clean replacement");
+        });
+        console.log("PASS a retained renderer re-arms from readiness then quiet recovered replay");
+      }
       if (!finishCase || finishCase === "recovery") {
         for (const observing of [false, true]) await withPage(browser, {}, async (page) => {
           await page.goto(`${url}?pane=${encodeURIComponent(panes.omp)}&view=terminal`);
@@ -454,10 +538,10 @@ try {
           await hidden.waitFor({ state: "attached" });
           assert.equal(await hidden.locator(".menu.composer-menu").count(), 1);
           await page.locator(`[data-layout-pane="${panes.api}"]:not(.is-hidden)`).waitFor();
-          await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 103), panes.api);
+          await page.evaluate((id) => window.sidebarFixture.finish(id, "done", 2), panes.api);
           await page.waitForFunction((id) => [...document.querySelectorAll("[data-pane-content]")].some((node) => {
             const key = JSON.parse(node.getAttribute("data-pane-content") ?? "null");
-            return key?.[1] === id && key[5] === 103;
+            return key?.[1] === id && key[5] === 2;
           }), panes.api);
           await agent(page, API).locator('.sidebar-status[data-status="idle"]').waitFor({ state: "attached", timeout: 10_000 });
           assert.equal(await hidden.locator(".menu.composer-menu").count(), 1, "the retained invisible popup cannot block its visible sibling");
@@ -627,7 +711,7 @@ try {
             node.style.overflow = "clip";
             node.scrollTo = () => { node.dataset.deferredScroll = "true"; };
           });
-          await page.getByRole("button", { name: "Jump to latest", exact: true }).click();
+          await page.getByRole("button", { name: "New messages", exact: true }).click();
           await page.waitForFunction(() => document.querySelector('[role="log"]')?.getAttribute("data-deferred-scroll") === "true");
           const pendingPosition = await log.evaluate((node) => ({
             height: node.clientHeight, content: node.scrollHeight, top: node.scrollTop,
@@ -654,7 +738,7 @@ try {
           assert.equal(await page.evaluate((key) => localStorage.getItem(key), key), null,
             "a superseded jump leaves the finish unread");
           // Back at the end, the answer is in view: now it reads as seen.
-          await page.getByRole("button", { name: "Jump to latest", exact: true }).click();
+          await page.getByRole("button", { name: "New messages", exact: true }).click();
           await statusIs("idle");
           assert.ok(await log.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop <= 1),
             "READY requires the real endpoint, not just following intent");

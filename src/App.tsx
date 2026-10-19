@@ -1762,6 +1762,8 @@ export function App() {
                     renderPane={(item, itemActive, herdrSplit) => <OpenFileContext.Provider value={item ? (path) => openFile({ path, paneId: item.pane_id, machineId }) : null}>
                       <PaneTerminal
                         presentationKey={paneContentKey(machine, item, item ? lensOf(item) : slotView)}
+                        finishEpoch={machine?.snapshot?.finish_epoch}
+                        finishId={item?.finish_id}
                         title={item ? displayPaneTitle(item) : active ? selectedTitle : null}
                         // Wait for the roster before attaching: the loading placeholder is replaced
                         // by the keyed tile, and must never claim the pane on a throwaway connection.

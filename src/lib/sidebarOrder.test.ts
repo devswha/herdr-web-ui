@@ -92,9 +92,10 @@ describe("activity counters, independent of opened finishes", () => {
 });
 
 describe("opened finish identity", () => {
-  it("requires an exact server finish id, never a herdr counter or an absent id", () => {
+  it("accepts stale lower finish ids within the epoch, never future or absent ids", () => {
     expect(isSeenDone(pane("a", "done", 2), { a: 2 })).toBe(true);
-    for (const id of [undefined, 0, 1, 3]) expect(isSeenDone(pane("a", "done", id), { a: 2 })).toBe(false);
+    expect(isSeenDone(pane("a", "done", 1), { a: 2 })).toBe(true);
+    for (const id of [undefined, 0, 3]) expect(isSeenDone(pane("a", "done", id), { a: 2 })).toBe(false);
     expect(isSeenDone(pane("a", "done", 2), {})).toBe(false);
   });
 

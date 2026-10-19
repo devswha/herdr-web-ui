@@ -6,15 +6,20 @@ export const SEEN_LIMIT = 2000;
 const scope = (pc: string, epoch: string) => `${SEEN_PREFIX}${encodeURIComponent(pc)}:${encodeURIComponent(epoch)}:`;
 export const seenKey = (pc: string, epoch: string, pane: string): string => scope(pc, epoch) + encodeURIComponent(pane);
 
-interface StoredFinish { id: number; at: number }
+interface StoredFinish { id: number; at: number; answer?: string }
 function parse(raw: string | null): StoredFinish | null {
   try {
     const value: unknown = JSON.parse(raw ?? "null");
     if (value && typeof value === "object" && "id" in value && "at" in value
       && typeof value.id === "number" && Number.isSafeInteger(value.id) && value.id > 0
-      && typeof value.at === "number" && Number.isFinite(value.at)) return { id: value.id, at: value.at };
+      && typeof value.at === "number" && Number.isFinite(value.at)) return { id: value.id, at: value.at,
+        ...("answer" in value && typeof value.answer === "string" ? { answer: value.answer } : {}) };
   } catch { /* corrupt storage is not an acknowledgement */ }
   return null;
+}
+
+export function readSeenFinish(key: string): StoredFinish | null {
+  try { return parse(localStorage.getItem(key)); } catch { return null; }
 }
 
 export function seenEvent(key: string, raw: string | null): { pc: string; epoch: string; pane: string; id: number } | null {
@@ -43,12 +48,18 @@ export function loadSeen(pc: string, epoch: string): SeenRecord {
 }
 
 /** One pane per key: concurrent writes of different panes cannot overwrite one another. */
-export function saveSeen(pc: string, epoch: string, pane: string, id: number): number {
+export function saveSeen(pc: string, epoch: string, pane: string, id: number, answer?: string): number {
   try {
     const key = seenKey(pc, epoch, pane);
     const before = parse(localStorage.getItem(key));
-    if (before && before.id >= id) return before.id;
-    localStorage.setItem(key, JSON.stringify({ id, at: Date.now() }));
+    if (before && before.id >= id) {
+      if (before.id === id && before.answer === undefined && answer !== undefined) {
+        localStorage.setItem(key, JSON.stringify({ ...before, answer }));
+        cleanSeen();
+      }
+      return before.id;
+    }
+    localStorage.setItem(key, JSON.stringify({ id, at: Date.now(), ...(answer === undefined ? {} : { answer }) }));
     cleanSeen();
   } catch { /* blocked storage: this view lasts for the mounted page only */ }
   return id;
