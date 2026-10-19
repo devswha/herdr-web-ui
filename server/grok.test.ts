@@ -1,11 +1,14 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { appendFileSync, closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { forgetTranscriptState, HistoryChanged, transcriptPage } from "./conversation.ts";
 import { grokToolOutput, grokProjection, GrokUnavailable, parseGrokTranscript } from "./grok.ts";
-import { grokHeldSessions, grokHoldsReportedSession, grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath, isGrokExecutable } from "./grok-store.ts";
-import type { ConversationPart } from "../shared/protocol.ts";
+import { grokHomeFromEnvironment, grokPaneProcesses, grokTranscriptPath, isGrokExecutable, resolveGrokStore } from "./grok-store.ts";
+import * as herdr from "./herdr/client.ts";
+import type { ConversationPart, HerdrPane } from "../shared/protocol.ts";
 
 const session = "fictional-session";
 const event = (update: object, extension = false) => JSON.stringify({ timestamp: 1700000000, method: extension ? "_x.ai/session/update" : "session/update", params: { sessionId: session, update } }) + "\n";
@@ -222,29 +225,53 @@ describe("exact store lookup", () => {
       expect(grokPaneProcesses({ foreground_processes: [{ pid: 11, argv: [exe] }] })).toEqual([]);
     }
   });
-  test("Herdr's session stays bound while older events files stay open", () => {
-    const home = realpathSync(mkdtempSync(join(tmpdir(), "herdr-grok-held-")));
-    const current = join(home, "sessions", "group", "sess-current", "events.jsonl");
-    const older = join(home, "sessions", "group", "sess-older", "events.jsonl");
-    const outside = join(home, "events.jsonl");
-    mkdirSync(dirname(current), { recursive: true });
-    mkdirSync(dirname(older), { recursive: true });
-    writeFileSync(current, "");
-    writeFileSync(older, "");
-    writeFileSync(outside, "");
-    const fds = [openSync(current, "r"), openSync(older, "r"), openSync(outside, "r")];
-    try {
-      const held = grokHeldSessions(process.pid, home);
-      expect(grokHoldsReportedSession(held, dirname(current))).toBe(true);
-      expect(grokHoldsReportedSession(held, dirname(older))).toBe(true);
-      expect(grokHoldsReportedSession(held, join(home, "sessions", "group", "sess-closed"))).toBe(false);
-      expect(grokHoldsReportedSession(null, dirname(current))).toBe(false);
-      expect(held?.has(dirname(outside))).toBe(false);
-    } finally {
-      for (const fd of fds) closeSync(fd);
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
+  // These resolver tests need Linux /proc/<pid>/fd and /proc/<pid>/exe; macOS and
+  // Windows intentionally use Terminal because that evidence is unavailable.
+  for (const scenario of [
+    { name: "older files stay open", otherGroup: "group", otherSession: "older-session", otherMtime: 100, binds: true },
+    { name: "/resume writes a newer session", otherGroup: "group", otherSession: "resumed-session", otherMtime: 300, binds: false },
+    { name: "the reported id is held in two directories", otherGroup: "other-group", otherSession: session, otherMtime: 100, binds: false },
+    { name: "held sessions have tied write times", otherGroup: "group", otherSession: "tied-session", otherMtime: 200, binds: false },
+  ]) {
+    test.skipIf(process.platform !== "linux" || !existsSync("/proc/self/fd"))(`resolves Herdr's session safely when ${scenario.name}`, async () => {
+      const home = realpathSync(root);
+      const transcript = join(home, "sessions", "%2Ffiction", session, "updates.jsonl");
+      const current = join(dirname(transcript), "events.jsonl");
+      const other = join(home, "sessions", scenario.otherGroup, scenario.otherSession, "events.jsonl");
+      const outside = join(home, "events.jsonl");
+      mkdirSync(dirname(other), { recursive: true });
+      writeFileSync(transcript, user(0));
+      writeFileSync(current, "");
+      writeFileSync(other, "");
+      writeFileSync(outside, "");
+      utimesSync(current, 200, 200);
+      utimesSync(other, scenario.otherMtime, scenario.otherMtime);
+      utimesSync(outside, 400, 400);
+      // Only the reported directory has updates.jsonl, including the duplicate-id case.
+      const executable = join(home, "grok");
+      copyFileSync("/bin/sleep", executable);
+      const fds = [current, other, outside].map((file) => openSync(file, "r"));
+      const child = spawn(executable, ["600"], { stdio: ["ignore", "ignore", "ignore", ...fds] });
+      const pane: HerdrPane = {
+        pane_id: "grok-fixture", agent: "grok", agent_status: "ready", focused: false,
+        revision: 0, tab_id: "tab-fixture", terminal_id: "terminal-fixture", workspace_id: "workspace-fixture",
+        agent_session: { agent: "grok", kind: "id", source: "herdr:grok", value: session },
+      };
+      const info = spyOn(herdr, "paneProcessInfo").mockResolvedValue({
+        pane_id: pane.pane_id, foreground_processes: [{ pid: child.pid!, name: "grok", argv: [executable] }],
+      });
+      try {
+        await once(child, "spawn", { signal: AbortSignal.timeout(2000) });
+        expect(await resolveGrokStore(pane, home)).toBe(scenario.binds ? transcript : null);
+      } finally {
+        info.mockRestore();
+        const exited = once(child, "exit", { signal: AbortSignal.timeout(2000) });
+        child.kill();
+        await exited;
+        for (const fd of fds) closeSync(fd);
+      }
+    });
+  }
   test("discovery checks a script only behind bun or node, never arbitrary arguments", () => {
     const processes = [
       { pid: 11, argv: ["/usr/bin/node", "/opt/grok/grok.js"] },

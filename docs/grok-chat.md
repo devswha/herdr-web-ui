@@ -28,11 +28,17 @@ directory or modification time never chooses a conversation.
 Grok keeps `events.jsonl` open for earlier sessions as well as the one on screen, and an
 in-TUI `/resume` on Grok 1.0.50 does not fire `SessionStart`, so Herdr can keep an old ID.
 `active_sessions.json` does not say which session is on screen, and neither does the newest
-file. Chat follows the session Herdr reported when that process holds its `events.jsonl`.
-Other open session files do not hide it and are not a second guess. When Herdr's file is not
-open, the pane uses the terminal view. A `/resume` that leaves Herdr on the previous ID keeps
-showing that session for as long as its file stays open. The same rule applies to every Grok
-executable. Builds other than 1.0.50 were not each re-checked.
+file. Chat follows the session Herdr reported only when that process holds its
+`events.jsonl`, that ID occurs in exactly one held session directory, and that file was
+written more recently than every other held session's `events.jsonl`. Older open session
+files do not hide it. Duplicate held IDs remain ambiguous even when only one directory has
+`updates.jsonl`; tied write times also use the terminal view.
+
+The newest file only confirms Herdr's ID; it never chooses another session. A missing held
+file or a newer write to another held session uses the terminal view. An in-TUI `/resume`
+that writes to another session without reporting it to Herdr therefore shows the terminal
+until Herdr names that session and the same checks pass. The same rule applies to every
+Grok executable. Builds other than 1.0.50 were not each re-checked.
 
 ## History and limits
 

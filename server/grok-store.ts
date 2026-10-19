@@ -103,13 +103,8 @@ export function grokHeldSessions(pid: number, home: string): Set<string> | null 
   } catch { return null; }
 }
 
-/** Herdr names the session. Other events.jsonl files Grok has not closed do not hide it,
- * and they do not select a different conversation. */
-export function grokHoldsReportedSession(held: ReadonlySet<string> | null, sessionDir: string): boolean {
-  return held !== null && held.has(sessionDir);
-}
-
-/** Bind a Linux Grok pane when the process holds the events.jsonl for Herdr's exact ID. */
+/** Bind Herdr's exact ID only when its unique held directory has the newest events.jsonl.
+ * Write times confirm that ID; they never select a different conversation. */
 export async function resolveGrokStore(pane: HerdrPane, configuredHome?: string): Promise<string | null> {
   const session = pane.agent_session;
   if (pane.agent !== "grok" || session?.agent !== "grok" || session.kind !== "id" || session.source !== "herdr:grok" || !SESSION.test(session.value)) return null;
@@ -124,6 +119,17 @@ export async function resolveGrokStore(pane: HerdrPane, configuredHome?: string)
     const home = configuredHome ?? grokHomeFromEnvironment(readFileSync(`/proc/${owner.pid}/environ`, "utf8"));
     if (!home) return null;
     const path = grokTranscriptPath(home, session.value);
-    return path !== null && grokHoldsReportedSession(grokHeldSessions(owner.pid, home), dirname(path)) ? path : null;
+    if (path === null) return null;
+    const held = grokHeldSessions(owner.pid, home);
+    const sessionDir = dirname(path);
+    if (!held?.has(sessionDir)) return null;
+    // A duplicate held ID is ambiguous even if only one directory has updates.jsonl.
+    if ([...held].filter((dir) => basename(dir) === session.value).length !== 1) return null;
+    const written = statSync(join(sessionDir, "events.jsonl")).mtimeMs;
+    for (const dir of held) {
+      // Equal timestamps cannot prove which session was written most recently.
+      if (dir !== sessionDir && statSync(join(dir, "events.jsonl")).mtimeMs >= written) return null;
+    }
+    return path;
   } catch { return null; }
 }

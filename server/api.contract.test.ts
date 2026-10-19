@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { ConversationMonitor } from "./conversation-monitor.ts";
@@ -64,6 +64,8 @@ describe("Grok conversation API", () => {
     const retained = join(root, "sessions", "%2Ffictional", "00000000-0000-4000-8000-000000000003", "events.jsonl");
     mkdirSync(join(retained, ".."), { recursive: true });
     writeFileSync(retained, "");
+    utimesSync(retained, 100, 100);
+    utimesSync(events, 200, 200);
     // A native stand-in owns the fd evidence and only sleeps; no model or user's store.
     const executable = join(root, "grok");
     const nativeExecutable = join(root, "grok-1.0.52-linux-x86_64");
