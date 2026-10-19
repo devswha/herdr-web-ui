@@ -180,8 +180,9 @@ with attach-only mode and the SDK's workspace scope. A bounded Git root probe
 supplies the scope's worktree identity; the broker validates it. Discovery matches
 the requested pane's GJC process to a unique live SDK session, then resolves that exact session ID to the broker's
 `savedSession` path. The two responses must agree on process and session identity.
-Discovery is limited to eight pages of 100 rows in that workspace, a 12-second
+Discovery is limited to eight pages of 100 rows in that workspace, a 10-second
 total deadline and five seconds per command, with at most 1 MiB of command output.
+The total leaves five seconds of the 15-second local chat read for the work before and after it.
 An incomplete or ambiguous answer is not used; unrelated workspaces' retired
 sessions do not consume the page budget.
 

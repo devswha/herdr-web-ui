@@ -7,9 +7,11 @@ const PAGE_LIMIT = 100;
 const MAX_PAGES = 8;
 const MAX_ROWS = PAGE_LIMIT * MAX_PAGES;
 // A full `gjc sdk session raw global --op session.list` call measured 1.0-2.0 s on a
-// loaded Apple M1 Pro, so 2 s cut off many cold lookups. 12 s stays within the local 15 s deadline.
+// loaded Apple M1 Pro, so 2 s cut off many cold lookups. The 10 s total leaves 5 s of the
+// client's 15 s local chat-read deadline for the pane and process lookups before this lookup
+// and the transcript validation and paging after it.
 const COMMAND_TIMEOUT_MS = 5_000;
-const TOTAL_TIMEOUT_MS = 12_000;
+const TOTAL_TIMEOUT_MS = 10_000;
 const MAX_BUFFER = 1024 * 1024;
 const MAX_CURSOR_LENGTH = 4096;
 
