@@ -5,6 +5,7 @@
  */
 import type { ClientMessage, ServerMessage } from "../../shared/protocol.ts";
 import { ConversationMonitor } from "../conversation-monitor.ts";
+import { type SightingFacts, sightingFacts } from "../input-guard.ts";
 import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS, OutputWindow, wireBytes } from "../output-window.ts";
 import { type Client, connectionOf, send } from "./connections.ts";
 import { ATTACH_HELD_MESSAGE, createSpawnAttachment, type PaneAttachment } from "./terminal-process.ts";
@@ -18,6 +19,27 @@ const REPAINT_COALESCE_MS = 50;
 const REPAINT_MIN_INTERVAL_MS = 1000;
 
 type Frame<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
+
+/** What the server outside the registry reads of a pane's attachment: its grid, and whether another web bridge holds its terminal. */
+export type AttachmentView = { readonly cols: number; readonly rows: number; readonly held?: boolean };
+
+/**
+ * What a connection saw of a pane's terminal before an await, held as references and never
+ * copied: `facts()` compares them with the pane's terminal now, so an attach or a session that
+ * replaced the one seen never passes for it.
+ */
+export interface TerminalSighting {
+  /**
+   * The attachment the connection was in when it saw the pane, that attachment's session, and the
+   * connection's claim then. For comparing two sightings with `===` only.
+   */
+  readonly origin: unknown;
+  readonly pty: unknown;
+  readonly claim: unknown;
+  facts(): SightingFacts;
+  /** Writes into the session seen, as typing into its pty does (a mirror sends it through herdr). */
+  write(data: string): boolean | void;
+}
 
 /** Clamp surface for the shared pty, mirroring the sidecar's own limits. */
 export function validGeometry(cols: unknown, rows: unknown): { cols: number; rows: number } | null {
@@ -240,6 +262,28 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     closeAttachment(paneId);
   }
 
+  /** What `client` sees of the pane's terminal now, for the checks it makes after an await. */
+  function sight(client: Client, paneId: string): TerminalSighting {
+    const attachment = attachments.get(paneId);
+    const member = attachment?.clients.has(client) === true;
+    const process = attachment?.process;
+    const claim = client.data.attached.get(paneId);
+    const seen = { attachment, process, claim, member };
+    return {
+      origin: member ? attachment : undefined,
+      pty: member ? process : undefined,
+      claim,
+      facts: () => sightingFacts(seen, { attachment: attachments.get(paneId), claim: client.data.attached.get(paneId) }, client),
+      write: (data) => process!.write(data),
+    };
+  }
+
+  /** Something was typed into the pane: a mirrored screen is read at once for its echo, not at its next idle read. */
+  function poke(paneId: string): void {
+    const attachment = attachments.get(paneId);
+    if (attachment?.kind === "mirror") attachment.process.poke();
+  }
+
   /** A connection whose transport queue drained: its panes' output may flow again. */
   function drainOutput(client: Client): void {
     for (const paneId of client.data.attached.keys()) reconcileOutput(paneId);
@@ -413,5 +457,8 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     },
   };
 
-  return { attachments, pendingAttachments, conversations, releaseConversation, reconcileOutput, sendOutput, closeAttachment, drivePty, requestRepaint, ensureAttachment, detach, detachClaimed, dropClaims, releaseUnclaimed, drainOutput, terminalFrames };
+  // the same live records, read through their grid and held state only: the server outside reaches a
+  // pane's terminal through `sight`, `poke` and the frames
+  const views: ReadonlyMap<string, AttachmentView> = attachments;
+  return { attachments: views, conversations, reconcileOutput, closeAttachment, detachClaimed, dropClaims, sight, poke, drainOutput, terminalFrames };
 }
