@@ -32,17 +32,31 @@ export function processStartedAt(pid: number): number | null {
   }
 }
 
-/** An upper bound for comparing a new thread's timestamp, without btime's whole-second loss. */
-export function processStartUpperBound(pid: number): number | null {
-  if (process.platform !== "linux") {
-    const started = processStartedAt(pid);
-    return started === null ? null : started + 1000;
+/**
+ * A time no later than the process started, in ms since the epoch: what a thread begun since
+ * must be no older than. Codex 0.163 creates its thread as its process starts, often in the same
+ * millisecond tick on Linux and always in the same second as macOS's `ps` reports; the bound from
+ * above this replaced left such a thread out, and two Codex panes of one directory with short
+ * answers both said they could not tell. An older thread let in with it makes two begun
+ * since, and two tell nothing.
+ */
+export function processStartLowerBound(pid: number): number | null {
+  if (process.platform === "darwin") {
+    // the clock read before `ps`, which counts whole seconds: the start is after now - (etime + 1) s
+    const now = Date.now();
+    try {
+      const ps = Bun.spawnSync(["/bin/ps", "-o", "etime=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
+      const elapsed = ps.exitCode === 0 ? parseElapsed(ps.stdout.toString()) : null;
+      return elapsed === null ? null : now - (elapsed + 1) * 1000;
+    } catch { return null; }
   }
+  if (process.platform !== "linux") return null;
   try {
-    const ticks = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").pop()!.split(" ")[19]);
+    // the wall clock first, then uptime and the start ticks, each cut to 10 ms: the start is
+    // after now - uptime + ticks, less one tick for the uptime read last
+    const now = Date.now();
     const uptime = Number(readFileSync("/proc/uptime", "utf8").split(" ")[0]);
-    // uptime and start ticks truncate to 10ms. Reading the wall clock last and adding
-    // one tick bounds the process start from above, rather than admitting older threads.
-    return Number.isFinite(ticks) && Number.isFinite(uptime) ? Date.now() - uptime * 1000 + ticks * 10 + 10 : null;
+    const ticks = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").pop()!.split(" ")[19]);
+    return Number.isFinite(ticks) && Number.isFinite(uptime) ? now - uptime * 1000 + ticks * 10 - 10 : null;
   } catch { return null; }
 }

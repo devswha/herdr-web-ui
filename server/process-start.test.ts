@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseElapsed, processStartedAt, processStartUpperBound } from "./process-start.ts";
+import { parseElapsed, processStartedAt, processStartLowerBound } from "./process-start.ts";
 
 describe("process start time", () => {
   it("reads every form of ps's elapsed time", () => {
@@ -19,15 +19,18 @@ describe("process start time", () => {
     } finally { child.kill(); }
   });
 
-  it.skipIf(process.platform !== "linux")("bounds a new Linux process closely enough to identify its first thread", async () => {
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("bounds a process's start from below, closely enough to take in a thread made as it starts", async () => {
     const before = Date.now();
     const child = Bun.spawn([process.execPath, "-e", "await Bun.sleep(5000)"]);
+    const spawned = Date.now();
     try {
-      const upper = processStartUpperBound(child.pid);
-      expect(upper).not.toBeNull();
-      expect(upper!).toBeGreaterThanOrEqual(before);
-      expect(upper!).toBeLessThanOrEqual(Date.now() + 25);
-      expect(processStartUpperBound(2147483647)).toBeNull();
+      const lower = processStartLowerBound(child.pid);
+      expect(lower).not.toBeNull();
+      // never after the process started (it started by the time spawn returned) ...
+      expect(lower!).toBeLessThanOrEqual(spawned);
+      // ... and close: a tick on Linux, the second `ps` counts on macOS and the one it may round away
+      expect(lower!).toBeGreaterThanOrEqual(before - (process.platform === "linux" ? 30 : 2100));
+      expect(processStartLowerBound(2147483647)).toBeNull();
     } finally { child.kill(); }
   });
 });

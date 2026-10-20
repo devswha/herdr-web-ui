@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import nodePath, { isAbsolute, join, type PlatformPath } from "node:path";
 import type { ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
 import { patchFiles, patchText } from "../shared/patch.ts";
-import { processStartedAt, processStartUpperBound } from "./process-start.ts";
+import { processStartedAt, processStartLowerBound } from "./process-start.ts";
 import { codexImageParts } from "./codex-images.ts";
 import { codexReadCall, codexReadSkills, selectedSkill } from "./skill-activity.ts";
 import { trimOutput } from "./tool-output.ts";
@@ -1019,15 +1019,20 @@ function matchingCodexExchanges(screen: string, candidates: readonly CodexFirstE
   return matches;
 }
 
-/** Match a submitted first prompt and its answer only when no competing exchange explains it. */
+/**
+ * Match a submitted first prompt and its answer only when no competing exchange explains it.
+ * `excluded`: threads other panes hold by stronger evidence, not begun here: they still
+ * compete as exchanges, and are never the answer.
+ */
 export function matchCodexFirstExchange(
   screen: string,
   candidates: readonly CodexFirstExchangeCandidate[],
   startedAtMs: number,
+  excluded: ReadonlySet<string> = new Set(),
 ): string | null {
   if (!Number.isFinite(startedAtMs)) return null;
   if (candidates.filter((candidate) => typeof candidate.createdAtMs === "number"
-    && candidate.createdAtMs >= startedAtMs).length !== 1) return null;
+    && candidate.createdAtMs >= startedAtMs && !excluded.has(candidate.path)).length !== 1) return null;
   const matches = matchingCodexExchanges(screen, candidates, 1);
   if (matches.length !== 1) return null;
   const match = matches[0]!;
@@ -1041,7 +1046,8 @@ export function matchCodexFirstExchange(
     || (normalizePrompt(first.assistant) !== normalizePrompt(shown.assistant)
       && normalizePrompt(first.assistant) !== normalizePrompt(shownWithFooter.assistant))
     || typeof match.candidate.createdAtMs !== "number"
-    || !Number.isFinite(match.candidate.createdAtMs) || match.candidate.createdAtMs < startedAtMs) return null;
+    || !Number.isFinite(match.candidate.createdAtMs) || match.candidate.createdAtMs < startedAtMs
+    || excluded.has(match.candidate.path)) return null;
   return match.candidate.path;
 }
 
@@ -1312,6 +1318,29 @@ async function safeShortThreads(rows: readonly CodexThreadRow[], home: string): 
 }
 
 /**
+ * Of `threads`, those another Codex pane of the cwd holds by stronger evidence than a short
+ * answer: the rollout herdr reports for that pane, and one whose long answer that pane
+ * shows below the first prompt that began it (claimedByOtherPanes, which binds the pane to it,
+ * so the next poll finds it bound there). Panes bound elsewhere already are left to theirs().
+ */
+async function heldByOtherPanes(
+  paneId: string, cwd: string, threads: string[], rows: readonly CodexThreadRow[], home: string, panes: HerdrPane[],
+  rolloutOf: (row: CodexThreadRow) => string,
+): Promise<Set<string>> {
+  const held = new Set<string>();
+  for (const pane of codexPeersIn(panes, paneId, cwd)) {
+    const session = pane.agent_session;
+    if (session?.kind === "path" && session.value) {
+      const reported = codexRolloutPath(session.value, home);
+      if (reported !== null) held.add(reported);
+    }
+  }
+  const firsts = new Map(rows.flatMap((row) => typeof row.firstUserMessage === "string" ? [[rolloutOf(row), row.firstUserMessage] as const] : []));
+  for (const claimed of await claimedByOtherPanes(paneId, cwd, threads, [], firsts, home, panes)) held.add(claimed);
+  return held;
+}
+
+/**
  * The prompt is not ownership evidence on its own. Require its submitted answer,
  * compare older conversations and other same-directory panes too. A peer showing the
  * same exchange leaves ownership ambiguous. No weak binding survives a poll.
@@ -1320,7 +1349,8 @@ async function shortThreadFromProcess(
   paneId: string, cwd: string, home: string, screen: string,
   processes: readonly { pid: number }[], panes?: HerdrPane[],
 ): Promise<string | null> {
-  const starts = processes.map(({ pid }) => processStartUpperBound(pid));
+  // no later than the process started: Codex 0.163 makes its thread in that same second
+  const starts = processes.map(({ pid }) => processStartLowerBound(pid));
   if (starts.length === 0 || starts.some((start) => start === null || !Number.isFinite(start))) return null;
   const notBefore = Math.min(...starts as number[]);
   let db: Database | undefined;
@@ -1331,7 +1361,9 @@ async function shortThreadFromProcess(
     db = new Database(join(home, "state_5.sqlite"), { readonly: true, create: false });
     const columns = new Set(db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('threads')").all().map((column) => column.name));
     if (!columns.has("first_user_message") || !columns.has("source")) return null;
-    const created = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000)" : "created_at * 1000";
+    // a time in whole seconds as the last millisecond of that second: compared with the start's
+    // lower bound, a thread made in its process's second still counts as begun since
+    const created = columns.has("created_at_ms") ? "COALESCE(created_at_ms, created_at * 1000 + 999)" : "created_at * 1000 + 999";
     // The 33rd row disables this bounded lookup, never establishes uniqueness.
     const { where, params } = storedCwdCondition(cwd);
     const rows = db.query<CodexThreadRow, string[]>(
@@ -1339,13 +1371,18 @@ async function shortThreadFromProcess(
        FROM threads WHERE ${where} AND archived = 0 AND agent_role IS NULL${interactive(db)} LIMIT 33`,
     ).all(...params);
     if (rows.length > SHORT_THREAD_LIMIT || rows.some((row) => !Number.isFinite(row.createdAtMs))) return null;
-    // Only a thread created after this process's start bound may be its new first exchange.
-    const begun = rows.filter((row) => row.createdAtMs >= notBefore);
-    if (begun.length !== 1) return null;
+    // Only a thread created after this process's start bound may be its new first exchange, and
+    // not one another pane holds by stronger evidence: after A's /new, B's one word still tells
+    const rolloutOf = (row: CodexThreadRow) => codexRolloutPath(row.rolloutPath, home) ?? row.rolloutPath;
+    const since = rows.filter((row) => row.createdAtMs >= notBefore);
+    const held = since.length > 1 ? await heldByOtherPanes(paneId, cwd, since.map(rolloutOf), rows, home, peers, rolloutOf) : new Set<string>();
+    // bound to another pane, or held by it: still competing exchanges, never this pane's
+    const elsewhere = new Set(since.map(rolloutOf).filter((rollout) => theirs([rollout], paneId, held).length === 0));
+    if (since.filter((row) => !elsewhere.has(rolloutOf(row))).length !== 1) return null;
     const candidates = await safeShortThreads(rows, home);
     if (candidates === null) return null;
-    const path = matchCodexFirstExchange(screen, candidates, notBefore);
-    if (path === null || theirs([path], paneId).length !== 1) return null;
+    const path = matchCodexFirstExchange(screen, candidates, notBefore, elsewhere);
+    if (path === null || theirs([path], paneId, held).length !== 1) return null;
     const peerScreens = await Promise.all(codexPeersIn(peers, paneId, cwd).map((peer) =>
       paneRead({ paneId: peer.pane_id, source: "recent", lines: 400, stripAnsi: true })));
     const own = candidates.filter((candidate) => candidate.path === path);
