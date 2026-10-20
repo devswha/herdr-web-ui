@@ -10,6 +10,8 @@ export interface WalkRules {
   readonly ignoreFiles: boolean;
   readonly requireDescription: boolean;
   readonly skipNames?: (name: string) => boolean;
+  /** folders the walk may still visit, shared by every walk given the same object */
+  readonly budget?: { folders: number };
 }
 export interface WalkedSkill {
   readonly name: string;
@@ -25,7 +27,9 @@ export function canonicalFile(path: string): string {
   try { return realpathSync(path); } catch { return resolve(path); }
 }
 
-const FRONTMATTER = /^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/;
+// Only blanks may follow the opening `---` on its line: `\s*` there also took newlines, so a header
+// left unclosed (a file cut at 64 KiB) was retried at every split of them, quadratic in its length.
+const FRONTMATTER = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/;
 
 /** The YAML fields of `markdown`'s frontmatter; null without a well-formed header. */
 function parseFrontmatter(markdown: string): Readonly<Record<string, unknown>> | null {
@@ -43,7 +47,7 @@ const MAX_SKILL_BYTES = 64 * 1024;
 
 // A walk visits at most this many folders. Its link guard covers the current branch only, so sibling
 // links to shared folders make an acyclic tree exponential, and discovery runs on the server's thread.
-const MAX_WALK_FOLDERS = 4096;
+export const MAX_WALK_FOLDERS = 4096;
 
 /**
  * The path checked before it is opened, then the descriptor itself: a FIFO swapped in between would
@@ -114,7 +118,7 @@ export function description(markdown: string): string {
 
 /** `name:` from a SKILL.md's frontmatter, else its directory's name. */
 function skillName(markdown: string, directory: string): string {
-  const frontmatter = markdown.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/);
+  const frontmatter = markdown.match(/^---[ \t]*\n([\s\S]*?)\n---(?:\s*\n|$)/);
   const named = frontmatter?.[1]?.match(/^name:\s*(.+?)\s*$/m)?.[1]?.trim().replace(/^(["'])(.*)\1$/, "$2");
   return named && /^[\p{L}\p{N}_:-]+$/u.test(named) ? named : directory;
 }
@@ -152,12 +156,13 @@ export function walkSkills(root: string, rules: WalkRules): WalkedSkill[] {
     }
     return result;
   }
-  let folders = MAX_WALK_FOLDERS;
+  const budget = rules.budget ?? { folders: MAX_WALK_FOLDERS };
   const visit = (directory: string): void => {
-    if (folders-- <= 0) return;
     let canonical: string;
     try { canonical = realpathSync(directory); } catch { return; }
-    if (ancestors.has(canonical)) return;
+    // a link back to an ancestor costs nothing: only folders actually read count
+    if (ancestors.has(canonical) || budget.folders <= 0) return;
+    budget.folders -= 1;
     ancestors.add(canonical);
     try {
       const prefix = relative(root, directory).split(sep).join("/");
@@ -225,10 +230,10 @@ export function customCommands(root: string, source: SlashCommand["source"]): Sl
   const ancestors = new Set<string>();
   let folders = MAX_WALK_FOLDERS;
   const visit = (directory: string): void => {
-    if (folders-- <= 0) return;
     let canonical: string;
     try { canonical = realpathSync(directory); } catch { return; }
-    if (ancestors.has(canonical)) return;
+    if (ancestors.has(canonical) || folders <= 0) return;
+    folders -= 1;
     ancestors.add(canonical);
     try {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {

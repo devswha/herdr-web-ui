@@ -85,7 +85,8 @@ function files(directory: string, recursive = false): string[] {
 }
 // Foreign tools whose ~/ config omp treats as opt-in (capability/index.ts FOREIGN_USER_PROVIDERS).
 const FOREIGN_USER_PROVIDERS: ReadonlySet<string> = new Set(["cursor", "codex", "claude", "claude-plugins", "gemini", "opencode", "windsurf", "github"]);
-const FRONTMATTER = /^\uFEFF?---\s*\r?\n[\s\S]*?\r?\n---(?:\s*\r?\n|$)/;
+// only blanks after the opening `---`: `\s*` there made an unclosed header quadratic (walk.ts)
+const FRONTMATTER = /^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n---(?:\s*\r?\n|$)/;
 
 /** extensibility/skills.ts skillNamespace: the plugin, else the directory owning `skills/`, else the provider. */
 function skillNamespace(path: string, plugin: string | undefined, provider: string): string {

@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 import type { AgentCommandContext, AgentCommandSource } from "./index.ts";
-import { ancestorsToRepoRoot, customCommands, readSkillText, walkSkills } from "./walk.ts";
+import { ancestorsToRepoRoot, customCommands, MAX_WALK_FOLDERS, readSkillText, walkSkills } from "./walk.ts";
 import type { SlashCommand } from "../../shared/protocol.ts";
 
 const descriptions: Readonly<Record<string, string>> = {
@@ -153,8 +153,8 @@ const bundledDescriptions: Readonly<Record<string, string>> = {
   "skill-builder": "Author a new Agent Skill for Command Code end to end — scaffold the directory, write valid SKILL.md frontmatter, structure the instructions for progressive disclosure, and verify the skill loads.",
 };
 
-const recursiveSkills = (root: string): ReturnType<typeof walkSkills> =>
-  walkSkills(root, { depth: "recursive", looseMarkdown: "root", ignoreFiles: false, requireDescription: true });
+const recursiveSkills = (root: string, budget?: { folders: number }): ReturnType<typeof walkSkills> =>
+  walkSkills(root, { depth: "recursive", looseMarkdown: "root", ignoreFiles: false, requireDescription: true, budget });
 
 const readSettings = (path: string): Record<string, unknown> => {
   try {
@@ -165,8 +165,8 @@ const readSettings = (path: string): Record<string, unknown> => {
 };
 const stringArray = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 
-function skillsAt(root: string, origin: NonNullable<SlashCommand["origin"]>, shadowed: ReadonlySet<string>, disabled: ReadonlySet<string>): SlashCommand[] {
-  return recursiveSkills(root)
+function skillsAt(root: string, origin: NonNullable<SlashCommand["origin"]>, shadowed: ReadonlySet<string>, disabled: ReadonlySet<string>, budget?: { folders: number }): SlashCommand[] {
+  return recursiveSkills(root, budget)
     .filter((skill) => skill.fields["user-invocable"] !== false && !disabled.has(skill.name))
     .map((skill) => ({
       name: shadowed.has(skill.name.toLocaleLowerCase()) ? `skill:${skill.name}` : skill.name,
@@ -188,10 +188,16 @@ function commandsAt(root: string, origin: SlashCommand["source"]): SlashCommand[
   });
 }
 
-function extraSkills(path: string, base: string, home: string, origin: "user" | "project", shadowed: ReadonlySet<string>, disabled: ReadonlySet<string>): SlashCommand[] {
-  const expanded = path === "~" || path.startsWith("~/") ? join(home, path.slice(2)) : path;
-  // a configured path that is no folder lists nothing, and hides nothing else
-  try { return skillsAt(resolve(base, expanded), origin, shadowed, disabled); } catch { return []; }
+/**
+ * The skill folders a settings file names: each walked once, all of them within one shared folder
+ * budget, since a repository can commit the settings and list a folder any number of times.
+ */
+function extraSkills(paths: readonly string[], base: string, home: string, origin: "user" | "project", shadowed: ReadonlySet<string>, disabled: ReadonlySet<string>, budget: { folders: number }): SlashCommand[] {
+  const roots = new Set(paths.map((path) => resolve(base, path === "~" || path.startsWith("~/") ? join(home, path.slice(2)) : path)));
+  return [...roots].flatMap((root) => {
+    // a configured path that is no folder lists nothing, and hides nothing else
+    try { return skillsAt(root, origin, shadowed, disabled, budget); } catch { return []; }
+  });
 }
 
 function discoverSkills(ctx: AgentCommandContext, shadowed: ReadonlySet<string>): SlashCommand[] {
@@ -210,11 +216,12 @@ function discoverSkills(ctx: AgentCommandContext, shadowed: ReadonlySet<string>)
   ]);
   const projectSkillsConfig = Array.isArray(projectLocalSettings.skills) ? projectLocalSettings.skills : projectSettings.skills;
   const projectDefinesSkills = Array.isArray(projectLocalSettings.skills) || Array.isArray(projectSettings.skills);
+  const configured = { folders: MAX_WALK_FOLDERS };
   const projectSkills = Array.isArray(projectSkillsConfig)
-    ? stringArray(projectSkillsConfig).flatMap((path) => extraSkills(path, repoRoot, home, "project", shadowed, disabled))
+    ? extraSkills(stringArray(projectSkillsConfig), repoRoot, home, "project", shadowed, disabled, configured)
     : [];
   const userSkills = !projectDefinesSkills && Array.isArray(userSettings.skills)
-    ? stringArray(userSettings.skills).flatMap((path) => extraSkills(path, repoRoot, home, "user", shadowed, disabled))
+    ? extraSkills(stringArray(userSettings.skills), repoRoot, home, "user", shadowed, disabled, configured)
     : [];
   const project = cwd ? ancestorsToRepoRoot(cwd).flatMap((directory) => [
     ...skillsAt(join(directory, ".commandcode", "skills"), "project", shadowed, disabled),

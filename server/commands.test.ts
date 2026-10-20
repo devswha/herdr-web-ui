@@ -562,6 +562,23 @@ describe.skipIf(process.platform === "win32")("Command Code discovery stays boun
     const result = cmdInChild(temp("cmd-home-"), repo);
     expect(result.exitCode).toBe(0);
     expect(result.names).toContain("deep-skill");
+    // the same folder listed a thousand times is walked once, within one budget
+    writeFileSync(join(repo, ".commandcode", "settings.json"), JSON.stringify({ skills: Array.from({ length: 1000 }, () => "./lattice/l0") }));
+    const repeated = cmdInChild(temp("cmd-home-"), repo);
+    expect(repeated.exitCode).toBe(0);
+    expect(repeated.names).toContain("deep-skill");
+  });
+
+  it("reads custom commands whose header is never closed in bounded time", () => {
+    const home = temp("cmd-unclosed-");
+    // a header cut at the 64 KiB read: its closing `---` lies past what is read
+    for (const name of ["one", "two", "three"]) {
+      mkdirSync(join(home, ".commandcode", "commands"), { recursive: true });
+      writeFileSync(join(home, ".commandcode", "commands", `${name}.md`), `---\n${"\n".repeat(65536)}---\nA normal command body.\n`);
+    }
+    const result = cmdInChild(home, temp("cmd-cwd-"));
+    expect(result.exitCode).toBe(0);
+    expect(result.names).toContain("three");
   });
 });
 
