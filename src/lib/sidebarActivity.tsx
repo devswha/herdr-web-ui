@@ -18,6 +18,7 @@ export const useSidebarActivity = (): SidebarActivity => useContext(SidebarActiv
 
 interface MachineSeen { epoch: string; record: SeenRecord }
 const unobscured = () => true;
+const answeredError = (error: unknown) => error instanceof Error && typeof (error as { status?: unknown }).status === "number";
 
 export function useSidebarActivityState(machines: readonly Machine[], selectedMachineId: string, presentedPaneId: string | null, paneInFront: () => boolean = unobscured,
   share?: (finish: SeenFinish) => Promise<void>): SidebarActivity {
@@ -90,7 +91,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
         if (shareRef.current && !shared.current.has(told)) {
           shared.current.add(told);
           shareRef.current(finish).catch((error: unknown) => {
-            shared.current.delete(told);
+            // only a send that never reached the server is tried again: one the server answered
+            // (a full disk, a token that changed) would fail the same way on every roster update
+            if (!answeredError(error)) shared.current.delete(told);
             console.warn("Could not tell the other browsers about a read finish", error);
           });
         }

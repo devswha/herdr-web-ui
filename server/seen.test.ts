@@ -66,6 +66,18 @@ describe("read finishes shared by the browsers of a server", () => {
     expect((await handleSeenRequest(new Request("http://x/api/seen", { method: "PUT", body: "{}" }), store)).status).toBe(405);
   });
 
+  it("stops reading a body as soon as it passes 8 KB", async () => {
+    const store = new SeenStore(root());
+    let pulled = 0;
+    const twoMiB = new ReadableStream<Uint8Array>({
+      pull(controller) { if (++pulled > 512) controller.close(); else controller.enqueue(new Uint8Array(4096)); },
+    });
+    const response = await handleSeenRequest(new Request("http://x/api/seen", { method: "POST", body: twoMiB, duplex: "half" } as RequestInit), store);
+    expect(response.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+    expect(store.list()).toEqual([]);
+  });
+
   it("sends every record when a browser connects to the machine events, then each change", async () => {
     const store = new SeenStore(root());
     store.record(finish("a", 1));

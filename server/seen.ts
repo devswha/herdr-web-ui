@@ -58,13 +58,31 @@ export class SeenStore {
   }
 }
 
+/** The body as text, or null past MAX_SEEN_BYTES: one announced over it is refused unread, one that lies about its length is cut off as it arrives. */
+async function readSeenBody(request: Request): Promise<string | null> {
+  const announced = Number(request.headers.get("content-length"));
+  if (Number.isFinite(announced) && announced > MAX_SEEN_BYTES) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_SEEN_BYTES) { await reader.cancel(); return null; }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 /** /api/seen: GET every record, POST one. A watching device's POST is refused before this (index.ts). */
 export async function handleSeenRequest(request: Request, store: SeenStore): Promise<Response> {
   const reply = (body: unknown, status = 200) => jsonResponse(body, status, { "cache-control": "no-store" });
   if (request.method === "GET") return reply({ finishes: store.list() });
   if (request.method !== "POST") return reply({ error: { code: "method_not_allowed", message: "Use GET or POST /api/seen" } }, 405);
-  const text = await request.text();
-  if (new TextEncoder().encode(text).length > MAX_SEEN_BYTES) return reply({ error: { code: "too_large", message: "A read finish is at most 8 KB" } }, 413);
+  const text = await readSeenBody(request);
+  if (text === null) return reply({ error: { code: "too_large", message: "A read finish is at most 8 KB" } }, 413);
   let raw: unknown;
   try { raw = JSON.parse(text); } catch { return badRequest("invalid_json", "The body is not JSON"); }
   const finish = seenFinishBody(raw);

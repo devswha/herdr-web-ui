@@ -127,6 +127,22 @@ describe("sidebar finish acknowledgement through React effects", () => {
     }
   });
 
+  it("does not send again a finish the server answered with an error", async () => {
+    const told: SeenFinish[] = [];
+    const share = async (finish: SeenFinish) => { told.push(finish); throw Object.assign(new Error("seen_unwritable"), { status: 500 }); };
+    const warn = console.warn;
+    console.warn = () => undefined;
+    try {
+      const client = await open(roster({ a: 1 }), "a", false, share);
+      await act(async () => { await Promise.resolve(); });
+      await client.update(roster({ a: 1 }), "a");
+      await client.update(roster({ a: 1 }), "a");
+      expect(told).toHaveLength(1);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
   it("draws a finish another browser of the server presented as ready, and never steps it back", async () => {
     const client = await open(roster({ a: 2, b: 1 }));
     expect([client.status("a"), client.status("b")]).toEqual(["done", "done"]);
