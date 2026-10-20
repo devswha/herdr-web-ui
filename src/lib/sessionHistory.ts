@@ -9,6 +9,8 @@
  * herdr has looked at the new pane would otherwise start a second agent on the same session.
  */
 import type { CreateTabRequest, HerdrPane, SessionHistoryAgent, SessionHistoryRow } from "../../shared/protocol.ts";
+import { formatChatTimestamp } from "./chatTimestamp.ts";
+import type { Translate } from "./i18n.ts";
 
 /** The agents whose own stores the route reads, as server/session-history.ts lists them. */
 export const SESSION_HISTORY_AGENTS: readonly SessionHistoryAgent[] = ["claude", "codex", "pi", "omp", "gjc", "cmd", "omo", "opencode", "hermes", "grok", "agy", "devin"];
@@ -77,6 +79,17 @@ export function recentlyResumedPane(records: readonly RecentResume[], panes: rea
   const record = standingResume(records, panes, machineId, workspaceId, agent, id, now);
   return record === undefined ? undefined : panes.find((pane) => pane.pane_id === record.paneId && pane.workspace_id === workspaceId);
 }
+/**
+ * A row's time: its label is when the session was last touched; its tooltip also says when it
+ * started, where the store records that. Null when the last touch is unreadable.
+ */
+export function sessionRowTime(row: Pick<SessionHistoryRow, "startedAt" | "updatedAt">, now: number, locale: string, t: Translate): { label: string; title: string } | null {
+  const updated = formatChatTimestamp(row.updatedAt, now, locale, t);
+  if (updated === null) return null;
+  const started = formatChatTimestamp(row.startedAt, now, locale, t);
+  return { label: updated.label, title: started === null ? updated.full : t("Started {started} · last active {updated}", { started: started.full, updated: updated.full }) };
+}
+
 /** POST /api/tab/create for the row: its argv's first word is the agent kind, the rest its arguments; null without a verified resume. */
 export function resumeTabRequest(row: SessionHistoryRow, workspaceId: string, cwd: string | null): CreateTabRequest | null {
   const [kind, ...args] = row.resume?.argv ?? [];

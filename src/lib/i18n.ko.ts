@@ -359,6 +359,7 @@ export const KO: Record<string, string> = {
   "Resume {title}": "{title} 이어하기",
   "Resume": "이어하기",
   "Resuming…": "이어하는 중…",
+  "Started {started} · last active {updated}": "{started}에 시작 · 마지막 사용 {updated}",
   "Delete worktree checkout…": "워크트리 체크아웃 삭제…",
   "Delete the checkout of {name}?": "{name}의 체크아웃을 삭제할까요?",
   "The folder at {path} is deleted and the workspace closes. The branch stays.": "{path} 폴더가 삭제되고 워크스페이스가 닫힙니다. 브랜치는 남습니다.",

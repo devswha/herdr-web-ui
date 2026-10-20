@@ -361,6 +361,7 @@ export const JA: Record<string, string> = {
   "Resume {title}": "{title} を再開",
   "Resume": "再開",
   "Resuming…": "再開中…",
+  "Started {started} · last active {updated}": "開始 {started} · 最終使用 {updated}",
   "Delete worktree checkout…": "ワークツリーのチェックアウトを削除…",
   "Delete the checkout of {name}?": "{name} のチェックアウトを削除しますか？",
   "The folder at {path} is deleted and the workspace closes. The branch stays.": "{path} のフォルダーが削除され、ワークスペースが閉じます。ブランチは残ります。",

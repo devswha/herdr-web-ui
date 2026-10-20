@@ -20,10 +20,9 @@ import { X } from "lucide-react";
 import "./SessionHistory.css";
 import type { AgentKind, HerdrPane, SessionHistoryAgent, SessionHistoryResponse, SessionHistoryRow, TabCreated, WorkspaceInfo } from "../../shared/protocol.ts";
 import { ApiError, routeMissing } from "../lib/api.ts";
-import { formatChatTimestamp } from "../lib/chatTimestamp.ts";
 import { useLocale, useT } from "../lib/i18n.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
-import { inFlightGuard, paneShowingSession, resumeTabRequest, sessionHistoryAgent, standingResume, type RecentResume } from "../lib/sessionHistory.ts";
+import { inFlightGuard, paneShowingSession, resumeTabRequest, sessionHistoryAgent, sessionRowTime, standingResume, type RecentResume } from "../lib/sessionHistory.ts";
 import { useSheetSwipe } from "../lib/sheets.ts";
 import { usePhoneSheetBack } from "../lib/sheetHistory.ts";
 
@@ -179,7 +178,7 @@ export function SessionHistory({ workspace, panes, agent: firstAgent, recent = N
               {rows.map((row) => {
                 const title = row.title ?? row.firstMessage ?? row.id;
                 const detail = row.title !== null ? row.firstMessage : null;
-                const when = formatChatTimestamp(row.updatedAt, now, locale, t);
+                const when = sessionRowTime(row, now, locale, t);
                 // a pane that reports the session, else the pane of a Resume a moment ago; a record whose pane
                 // the roster has not listed yet withholds Resume and offers nothing to open until it does
                 const resumed = standingResume(recent, panes, machineId, workspace.workspace_id, agent, row.id, momentAgo);
@@ -193,7 +192,7 @@ export function SessionHistory({ workspace, panes, agent: firstAgent, recent = N
                       {detail !== null && <span className="session-detail">{detail}</span>}
                     </span>
                     <span className="session-meta">
-                      {when && <time className="session-time" dateTime={row.updatedAt} title={when.full}>{when.label}</time>}
+                      {when && <time className="session-time" dateTime={row.updatedAt} title={when.title}>{when.label}</time>}
                       {shown || withheld ? (
                         <span className="session-actions">
                           <span className="pill">{t("Already open")}</span>

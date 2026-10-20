@@ -363,6 +363,7 @@ export const ZH: Record<string, string> = {
   "Resume {title}": "继续 {title}",
   "Resume": "继续",
   "Resuming…": "正在继续…",
+  "Started {started} · last active {updated}": "开始于 {started} · 最后使用 {updated}",
   "Delete worktree checkout…": "删除工作树检出…",
   "Delete the checkout of {name}?": "删除 {name} 的检出？",
   "The folder at {path} is deleted and the workspace closes. The branch stays.": "{path} 文件夹将被删除，工作区随之关闭。分支保留。",

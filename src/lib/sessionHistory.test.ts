@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { HerdrPane, SessionHistoryRow } from "../../shared/protocol.ts";
-import { inFlightGuard, paneShowingSession, RECENT_RESUME_MS, recentlyResumedPane, recentResumeEnded, resumeTabRequest, sessionHistoryAgent, standingResume, type RecentResume } from "./sessionHistory.ts";
+import { formatChatTimestamp } from "./chatTimestamp.ts";
+import type { Translate } from "./i18n.ts";
+import { inFlightGuard, paneShowingSession, RECENT_RESUME_MS, recentlyResumedPane, recentResumeEnded, resumeTabRequest, sessionHistoryAgent, sessionRowTime, standingResume, type RecentResume } from "./sessionHistory.ts";
 
 const pane = (overrides: Partial<HerdrPane>): HerdrPane => ({
   pane_id: "p1", tab_id: "t1", terminal_id: "term1", workspace_id: "w1", agent: "codex", agent_status: "idle", focused: false, revision: 1, ...overrides,
@@ -8,6 +10,24 @@ const pane = (overrides: Partial<HerdrPane>): HerdrPane => ({
 const row = (overrides: Partial<SessionHistoryRow> = {}): SessionHistoryRow => ({
   id: "00000000-0000-4000-8000-000000000002", title: "Retry budget", firstMessage: "Cap the retries", startedAt: null, updatedAt: "2026-09-25T09:09:00.000Z",
   resume: { argv: ["codex", "resume", "00000000-0000-4000-8000-000000000002"] }, ...overrides,
+});
+
+describe("sessionRowTime", () => {
+  // the key and its values, so the test reads what the row hands the translation, not its wording
+  const t: Translate = (key, vars) => JSON.stringify({ key, vars });
+  const now = Date.parse("2026-10-01T12:00:00.000Z");
+  const updated = formatChatTimestamp(row().updatedAt, now, "en-US", t)!;
+  it("labels the row by when it was last touched and names both its start and its last touch in the tooltip", () => {
+    const startedAt = "2026-09-24T08:00:00.000Z";
+    const time = sessionRowTime(row({ startedAt }), now, "en-US", t)!;
+    expect(time.label).toBe(updated.label);
+    expect((JSON.parse(time.title) as { vars: unknown }).vars).toEqual({ started: formatChatTimestamp(startedAt, now, "en-US", t)!.full, updated: updated.full });
+  });
+  it("keeps the last touch alone when the store records no start, and has no time without a readable last touch", () => {
+    expect(sessionRowTime(row({ startedAt: null }), now, "en-US", t)).toEqual({ label: updated.label, title: updated.full });
+    expect(sessionRowTime(row({ startedAt: "not a time" }), now, "en-US", t)).toEqual({ label: updated.label, title: updated.full });
+    expect(sessionRowTime(row({ updatedAt: "not a time" }), now, "en-US", t)).toBeNull();
+  });
 });
 
 describe("paneShowingSession", () => {

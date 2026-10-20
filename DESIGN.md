@@ -1282,7 +1282,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   mono, then one `.session-row` per session as `GET /api/sessions/history` lists them, newest
   first: the title (else the first prompt; else the id in mono) in `--fs-sm` medium, the first
   prompt under it in `--text-dim`, each clamped to two lines, and at the trailing end the time it
-  was last touched (the chat turn's timestamp format, the full date on hover) over the way on. The
+  was last touched (the chat turn's timestamp format; on hover the full date of its start, where the
+  store records one, and of its last touch) over the way on. The
   way on is a quiet `.btn` **Resume**, never the primary style: a list of up to fifty rows carries
   no fifty accents. A session a pane of the workspace already shows (its `agent_session`, by id or
   by file name) gets an **Already open** pill (over the button on a phone, beside it elsewhere) and
