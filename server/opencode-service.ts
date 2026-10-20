@@ -200,9 +200,13 @@ let verified: { key: string; until: number; service: OpenCodeService } | null = 
 /** Where callers without their own state dir look for service.json; tests point it at a fixture. */
 export const openCodeServiceOptions: { stateDir?: string } = {};
 
-/** service.json, verified against /api/info (kept 5 s); never on Windows, where scan rows stay. */
-export async function openCodeService(stateDir?: string, signal?: AbortSignal): Promise<OpenCodeService | null> {
-  if (process.platform === "win32") return null;
+/**
+ * service.json, verified against /api/info (kept 5 s). The catalog and its observers keep scan rows on
+ * Windows; the question card and its answer, which used the service there before them, pass `onWindows`
+ * (the identity check is HTTP, so it holds on Windows too).
+ */
+export async function openCodeService(stateDir?: string, signal?: AbortSignal, { onWindows = false }: { onWindows?: boolean } = {}): Promise<OpenCodeService | null> {
+  if (process.platform === "win32" && !onWindows) return null;
   const config = readOpenCodeService(stateDir ?? openCodeServiceOptions.stateDir);
   if (!config) return null;
   const key = JSON.stringify(config);

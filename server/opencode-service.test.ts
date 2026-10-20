@@ -327,6 +327,27 @@ describe("opencode-service", () => {
     }
   }, 5_000);
 
+  it("verifies service.json on Windows only for a caller that asks for it", async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    const root = mkdtempSync(join(tmpdir(), "opencode-windows-"));
+    await withService((request) => new URL(request.url).pathname === "/api/info" ? Response.json({ version: "2.0.32", pid: process.pid }) : new Response(null, { status: 404 }), async (config) => {
+      writeFileSync(join(root, "service.json"), JSON.stringify({ url: config.baseUrl, pid: process.pid, password: "windows-pass" }));
+      Object.defineProperty(process, "platform", { value: "win32" });
+      try {
+        forgetOpenCodeService();
+        // the catalog and its observers keep scan rows on Windows
+        expect(await openCodeService(root)).toBeNull();
+        forgetOpenCodeService();
+        // the question card and its answer: the same HTTP identity check, on Windows too
+        expect((await openCodeService(root, undefined, { onWindows: true }))?.version).toBe("2.0.32");
+      } finally {
+        Object.defineProperty(process, "platform", platform);
+        forgetOpenCodeService();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
+
   it("formats Basic auth header correctly", () => {
     expect(atob(opencodeAuthHeader("secret-pass").slice(6))).toBe("opencode:secret-pass");
   });

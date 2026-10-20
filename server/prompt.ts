@@ -1164,7 +1164,7 @@ async function readKnownPrompt(
     if (!sessionID) break native;
     const state = openCodeState.begin(paneId, sessionID);
     // only the process service.json names, as /api/info proves it; never a service started here
-    const config = (await openCodeService(openCodeStateDir, signal))?.config ?? null;
+    const config = (await openCodeService(openCodeStateDir, signal, { onWindows: true }))?.config ?? null;
     const revision = state.revision;
     const issued = ++state.issued;
     const forms = config ? await listPendingQuestionForms(config, sessionID, signal) : null;
@@ -1629,7 +1629,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
           return jsonResponse({ ok: true });
         }
 
-        const config = (await openCodeService(options.openCodeStateDir, deadline))?.config ?? null;
+        const config = (await openCodeService(options.openCodeStateDir, deadline, { onWindows: true }))?.config ?? null;
         if (!config) {
           return jsonResponse({ error: { code: "service_unavailable", message: "OpenCode service is not available." } }, 502);
         }
