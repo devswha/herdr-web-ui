@@ -98,8 +98,12 @@ func run(_ executable: String, _ arguments: [String], env extra: [String: String
             }
         }
         process.terminationHandler = { finished in
-            // the output can still be in the pipe when the process exits: wait for its end of file
-            done.notify(queue: .global()) {
+            // The output can still be in the pipe when the process exits: wait for its end of file, but
+            // briefly. A background child the program left behind (the installer's) can hold the pipe
+            // open for good, and the window would wait with it.
+            DispatchQueue.global().async {
+                _ = done.wait(timeout: .now() + 2)
+                reader.readabilityHandler = nil
                 continuation.resume(returning: RunResult(status: finished.terminationStatus, output: collector.finish()))
             }
         }

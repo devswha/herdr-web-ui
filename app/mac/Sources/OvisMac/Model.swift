@@ -73,10 +73,23 @@ final class Model: ObservableObject {
     func restart() async {
         phase = .working(L("Restarting…", "다시 시작하는 중…"))
         if await herdrRunning() {
-            _ = await run(Paths.herdr, ["plugin", "action", "invoke", "\(Ovis.pluginID).stop"], onLine: appendLine)
-            _ = await run(Paths.herdr, ["plugin", "action", "invoke", "\(Ovis.pluginID).start"], onLine: appendLine)
-        } else {
-            await LaunchAgent.start()
+            // the actions' output is in the log already: a failure only names which one stopped
+            guard await run(Paths.herdr, ["plugin", "action", "invoke", "\(Ovis.pluginID).stop"], onLine: appendLine).status == 0 else {
+                fail(L("Could not stop herdr web UI.", "herdr web UI를 멈추지 못했습니다."))
+                return
+            }
+            guard await run(Paths.herdr, ["plugin", "action", "invoke", "\(Ovis.pluginID).start"], onLine: appendLine).status == 0 else {
+                fail(L("Could not start herdr web UI.", "herdr web UI를 시작하지 못했습니다."))
+                return
+            }
+        } else if !(await LaunchAgent.start()) {
+            // herdr installed from a terminal has no login item to start: make it, which starts herdr
+            do {
+                try await LaunchAgent.install()
+            } catch {
+                fail(L("Could not start herdr.", "herdr를 시작하지 못했습니다."), detail: error.localizedDescription)
+                return
+            }
         }
         await waitUntilRunning()
         await refresh()
@@ -193,14 +206,16 @@ enum LaunchAgent {
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: URL(fileURLWithPath: Paths.launchAgent))
         _ = await run("/bin/launchctl", ["enable", service])
         // a loaded agent may be running herdr with the user's agents in it: never boot it out to reload
-        if await loaded() { return await start() }
+        if await loaded() { _ = await start(); return }
         let result = await run("/bin/launchctl", ["bootstrap", domain, Paths.launchAgent])
         guard result.status == 0 else { throw NSError(domain: "Ovis", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: result.output]) }
     }
 
-    /// Starts herdr when it is not running; a running herdr is left as it is.
-    static func start() async {
-        _ = await run("/bin/launchctl", ["kickstart", service])
+    /// Starts herdr when it is not running; a running herdr is left as it is. False when launchd has
+    /// no such agent (herdr set up from a terminal, or the plist removed).
+    @discardableResult
+    static func start() async -> Bool {
+        await run("/bin/launchctl", ["kickstart", service]).status == 0
     }
 
     /// Stops it from starting at the next login without stopping the herdr that runs now.
