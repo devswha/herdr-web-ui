@@ -88,6 +88,7 @@ type Responder =
   | "hermes-profile"
   | "hermes-reload-skills"
   | "omp-submit"
+  | "omp-handoff"
   | "opencode-question"
   | "fallback-menu"
   | "fallback-gjc-menu"

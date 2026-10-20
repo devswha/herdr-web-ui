@@ -229,7 +229,9 @@ describe("omp builtin registry", () => {
   it("gives model, handoff and btw their own forms", () => {
     // a bare /model reaches omp as /switch, whose session-only picker the omp-model card answers
     expect(source.forms?.model).toEqual([{ match: "bare", interaction: "dialog", dialog: "omp-model" }, { match: "other", interaction: "none" }]);
-    expect(source.forms?.handoff).toEqual([{ match: "bare", interaction: "unknown" }]);
+    expect(source.forms?.handoff).toEqual([
+      { match: "bare", interaction: "dialog", dialog: "omp-handoff" }, { match: "other", interaction: "dialog", dialog: "omp-handoff" },
+    ]);
     expect(source.forms?.btw).toEqual([{ match: "bare", interaction: "none" }, { match: "other", interaction: "none" }]);
     expect(source.pin).toBe("18.12.3");
   });
