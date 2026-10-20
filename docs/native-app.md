@@ -149,7 +149,13 @@ What is there:
 
 - `app/web`: the app's own pages. `index.html` is the connect screen: an address field, Scan QR
   code, the PCs opened before, and Try the demo. `error.html` is shown when a PC cannot be
-  reached, with Try again and Change PC. They are in English only for now.
+  reached, with Try again and Change PC. Both are in English and Korean: an element's
+  `data-ko` attribute holds its Korean text, put in when the phone's first language is Korean
+  (`localize()` in `shell.js`; `error.html` carries its own copy, as it stands alone on Android).
+  The iOS app lists `ko` in `CFBundleLocalizations`, without which its web view reports English
+  to every page, the client included.
+- A PC joins the list of PCs only once a page of it has loaded, so an address that never
+  answered is not kept.
 - `app/scripts/build-web.ts` (`bun run build:web` in `app/`) puts those pages and the demo,
   built from this checkout's client, into `app/www` for Capacitor to copy.
 - `app/ios/App/App/HerdrBridgeViewController.swift`: a Capacitor view controller that opens the
@@ -214,16 +220,21 @@ tests, and the server then falls back to the default session, the user's. Preloa
 
 Still open:
 
-- **A plain `http://` PC loads about 1.5-2 s slower in the app than an `https` one.** In the
-  app, the client's first script ran 1429-2075 ms after navigation start over
-  `http://<tailscale ip>`. Over `https` through `tailscale serve` it ran at 39-51 ms, and Safari
-  on the same `http` address took 100 ms. The cause is not App Transport Security
-  (`NSAllowsArbitraryLoads` changed nothing) and not WebKit's https-first upgrade (turning it
-  off changed nothing either). It happens whether the PC opens at launch or from the connect
-  screen. The connect screen suggests https meanwhile, on iOS only: Android has no such delay.
+- **A plain `http://` PC loads about 1.9 s slower than an `https` one, in Safari too.**
+  Measured on 2026-10-20 by wall clock, from the moment the server got the page's request to
+  the page's first script, on one Mac's clock: 1.9 s over `http` (an IP or a MagicDNS name
+  alike) and 44 ms over `https` through `tailscale serve`, in the app and in the simulator's
+  Mobile Safari alike; a macOS `WKWebView` took 220 ms and 11 ms. Navigation timing hides the
+  wait (it starts after it), which is why an earlier note had Safari at 100 ms. It is WebKit's
+  plain-http path, not the app: it is not App Transport Security, not the https-first upgrade
+  (no TLS attempt reached the port, and serving 443 changed nothing), and not Safe Browsing
+  (`isFraudulentWebsiteWarningEnabled = false` changed nothing). The connect screen suggests
+  https, on iOS only: Android has no such delay.
 - Each Change PC leaves one blank web view behind: the old page is unloaded, so nothing stays
-  connected to the PC, but Capacitor's bridge keeps the view itself.
-- An address that failed still joins the list of PCs.
+  connected to the PC, but the old view controller and its `WKWebView` stay in memory. Taking
+  away the content controller's handlers and user scripts, the first responder and the view
+  from its superview did not free them (checked with `leaks --traceTree` on the simulator);
+  what holds them is inside Capacitor or UIKit and is not found yet.
 - Not tried: QR scanning (needs a camera), keyboard and IME in the app, a physical iPhone,
   Release signing.
 
@@ -259,6 +270,12 @@ bun run build:web && bunx cap sync android
 cd android && ANDROID_HOME=~/Android/Sdk ./gradlew assembleDebug
 # app/android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+For Google Play, `./gradlew bundleRelease` makes `app/build/outputs/bundle/release/app-release.aab`.
+It is signed with the upload key when `OVIS_UPLOAD_PROPERTIES` names a properties file holding
+`storeFile`, `storePassword`, `keyAlias` and `keyPassword`; the key and that file stay outside
+the repository (the maintainer's are in `~/.config/ovis-android`, mode 700). Without it the bundle
+is unsigned. Raise `versionCode` in `app/build.gradle` for every upload.
 
 To put the APK on a phone in the tailnet, use `tailscale file cp app-debug.apk <phone>:`, then
 open it from the phone's Tailscale app. With USB, `adb install -r app-debug.apk` works too. A

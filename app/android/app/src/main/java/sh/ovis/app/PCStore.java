@@ -54,13 +54,18 @@ final class PCStore {
         return prefs(context).getString("last", null);
     }
 
+    /** Makes origin the PC to open; it joins the saved PCs only once a page of it loads (remember). */
     static void open(Context context, String origin, String start) {
+        prefs(context).edit().putString("current", origin).putString("last", origin).apply();
+        pendingStart = start;
+    }
+
+    /** Puts origin first in the saved PCs: a page of it has loaded, so an address that never answered is not kept. */
+    static void remember(Context context, String origin) {
         List<String> list = saved(context);
         list.remove(origin);
         list.add(0, origin);
         setSaved(context, list);
-        prefs(context).edit().putString("current", origin).putString("last", origin).apply();
-        pendingStart = start;
     }
 
     static void forget(Context context, String origin) {

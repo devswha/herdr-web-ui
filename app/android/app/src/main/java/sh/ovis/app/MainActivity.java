@@ -70,11 +70,26 @@ public class MainActivity extends BridgeActivity {
             }
             bridge.addWebViewListener(
                 new WebViewListener() {
+                    /** Whether a load failed since the last page started: Chromium still reports the failed page as loaded. */
+                    private boolean failed;
+
+                    @Override
+                    public void onPageStarted(WebView webView) {
+                        failed = false;
+                    }
+
+                    @Override
+                    public void onReceivedError(WebView webView) {
+                        failed = true;
+                    }
+
                     @Override
                     public void onPageLoaded(WebView webView) {
-                        // the PC's page is up: a pairing link has done its work
+                        // the PC's page is up: a pairing link has done its work, and the PC is one worth keeping
                         String url = webView.getUrl();
-                        if (url != null && host.equalsIgnoreCase(Uri.parse(url).getHost())) PCStore.pendingStart = null;
+                        if (failed || url == null || !host.equalsIgnoreCase(Uri.parse(url).getHost())) return;
+                        PCStore.pendingStart = null;
+                        PCStore.remember(MainActivity.this, origin);
                     }
                 }
             );

@@ -16,8 +16,25 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // The Play upload key stays outside the repository: OVIS_UPLOAD_PROPERTIES names a properties
+    // file with storeFile, storePassword, keyAlias and keyPassword (docs/native-app.md). Without it
+    // a release build is unsigned.
+    def uploadProperties = System.getenv("OVIS_UPLOAD_PROPERTIES")
+    if (uploadProperties) {
+        def upload = new Properties()
+        file(uploadProperties).withInputStream { upload.load(it) }
+        signingConfigs {
+            release {
+                storeFile file(upload.getProperty("storeFile"))
+                storePassword upload.getProperty("storePassword")
+                keyAlias upload.getProperty("keyAlias")
+                keyPassword upload.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (uploadProperties) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
