@@ -826,6 +826,60 @@ try {
       console.log("PASS a drop while Send waits for the word withdraws it; the reconnect sends nothing");
 
       for (const width of [390, 1440]) await withCard(browser, width, { status: "idle", pending: false, model: "gpt-5.6", freezeConversation: true }, async (page) => {
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        // A compact viewport supplies scrollable history without changing disclosure state.
+        await page.setViewportSize({ width, height: 600 });
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        const draft = "An unsent draft.";
+        await page.locator(".chat-virtual-row").last().waitFor();
+        await box.fill(draft);
+        await page.waitForFunction(() => {
+          const node = document.querySelector(".chat-view")!;
+          return node.scrollHeight - node.clientHeight > 120 && node.scrollHeight - node.clientHeight - node.scrollTop <= 1;
+        });
+        await page.locator(".chat-view").hover();
+        await page.mouse.wheel(0, -120);
+        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+        const reading = await page.evaluate(() => {
+          const node = document.querySelector(".chat-view")!;
+          const view = node.getBoundingClientRect();
+          const paragraph = [...node.querySelectorAll(".markdown p")].find((item) =>
+            item.getBoundingClientRect().bottom > view.top && item.getBoundingClientRect().top < view.bottom);
+          if (!paragraph) throw new Error("The reader's paragraph is not rendered");
+          return { text: paragraph.textContent!, offset: paragraph.getBoundingClientRect().top - view.top, gap: node.scrollHeight - node.clientHeight - node.scrollTop };
+        });
+        assert.ok(reading.gap > 48, "the reader is away from the end before changing lenses");
+        await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+        await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+        await page.waitForFunction((saved) => {
+          const node = document.querySelector(".chat-view");
+          if (!node) return false;
+          const paragraph = [...node.querySelectorAll(".markdown p")].find((item) => item.textContent === saved.text);
+          return paragraph !== undefined && Math.abs(paragraph.getBoundingClientRect().top - node.getBoundingClientRect().top - saved.offset) <= 1
+            && node.scrollHeight - node.clientHeight - node.scrollTop > 48;
+        }, reading);
+        assert.equal(await box.inputValue(), draft, "the unsent draft survives the terminal/chat round trip");
+        await page.getByRole("button", { name: "Jump to latest", exact: true }).waitFor();
+        // Leave in the same task: the list's deferred scroll cannot update memory first.
+        await page.evaluate(() => {
+          document.querySelector<HTMLButtonElement>('button[title="Jump to latest"]')!.click();
+          document.querySelector<HTMLButtonElement>('button[title="Live terminal (⌘⇧J)"]')!.click();
+        });
+        await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+        await page.waitForFunction(() => {
+          const node = document.querySelector(".chat-view")!;
+          return node.scrollHeight - node.clientHeight - node.scrollTop <= 1;
+        }, undefined, { timeout: 5_000 });
+        await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+        await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+        await page.waitForFunction(() => {
+          const node = document.querySelector(".chat-view")!;
+          return node.scrollHeight - node.clientHeight - node.scrollTop <= 1;
+        }, undefined, { timeout: 5_000 });
+      });
+      console.log("PASS terminal/chat return preserves the reader's paragraph and one-line draft, and remembers Jump-to-latest intent before a deferred scroll");
+
+      for (const width of [390, 1440]) await withCard(browser, width, { status: "idle", pending: false, model: "gpt-5.6", freezeConversation: true }, async (page) => {
         const box = page.getByRole("textbox", { name: "Message", exact: true });
         await page.locator(".chat-virtual-row").last().waitFor();
         const atBottom = () => page.waitForFunction(() => {

@@ -24,6 +24,7 @@ import { checkCtrlEnter } from "./terminal-ctrl-enter-regression.ts";
 import { checkCommandArrows } from "./terminal-command-arrows-regression.ts";
 import { checkFolderFilter, checkNewFolder } from "./folder-filter-regression.ts";
 import { checkPaletteKeys } from "./palette-keys-regression.ts";
+import { checkFollowHerdrFocus } from "./follow-focus-regression.ts";
 import { UsageService } from "../server/usage.ts";
 import { openSettingsPage } from "./settings-page.ts";
 import { assertCspClean, watchCsp } from "./csp-violations.ts";
@@ -317,6 +318,7 @@ try {
   await page.setViewportSize(paletteViewport);
   console.log("PASS palette buttons keep native Enter, IME keeps its keys, and arrow selection stays visible on short desktop and phone lists");
   await checkPaletteKeys(page, { workspaceId: workspaces[1]! });
+  await checkFollowHerdrFocus(page, { workspaceId: workspaces[1]! });
 
   // Hold a real machines response, then deliver a newer status through herdr/SSE.
   const badge = page.locator(".pane-item.is-selected .badge");
@@ -366,14 +368,26 @@ try {
   }
   await unrouteHeldPoll();
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
-  // The bridge's collector retains the completed-turn event even when a direct native read
-  // already says idle. Compare the row with the same authoritative roster the UI consumes.
-  await until(async () => {
-    const roster = await (await context.request.get(`${origin}/api/machines`)).json() as { machines: Machine[] };
-    const settled = roster.machines.find((machine) => machine.id === "local")?.snapshot?.panes.find((pane) => pane.pane_id === paneA)?.agent_status;
-    return (settled === "idle" || settled === "done") && await agentRow(paneA).locator(".badge").getAttribute("data-status") === settled;
-  }, "the agent row reflects the bridge's completed-turn status");
-  console.log("PASS delayed machines poll preserves newer streamed pane status");
+  // This fixture only reports Claude to herdr; it has no native conversation. Selection of
+  // its unavailable chat must keep DONE unread, then presenting real terminal output reads it.
+  await page.locator(".pane-frame.is-current .chat-terminal-fallback").waitFor();
+  await agentRow(paneA).locator('.badge[data-status="done"]').waitFor();
+  const completionRoster = await (await context.request.get(`${origin}/api/machines`)).json() as { machines: Machine[] };
+  const completionSnapshot = completionRoster.machines.find((machine) => machine.id === "local")?.snapshot;
+  const completion = completionSnapshot?.panes.find((pane) => pane.pane_id === paneA);
+  assert.equal(completion?.agent_status, "done", "the bridge retains the completed turn");
+  assert.ok(completion?.finish_id && Number.isSafeInteger(completion.finish_id), "the completed turn has a server finish ID");
+  assert.equal(typeof completionSnapshot?.finish_epoch, "string");
+  const finishKey = `herdr-web-ui:finish:local:${encodeURIComponent(completionSnapshot!.finish_epoch!)}:${encodeURIComponent(paneA)}`;
+  assert.equal(await page.locator(".pane-frame.is-current [data-pane-content]").count(), 0, "an unavailable conversation is not presented content");
+  assert.equal(await page.evaluate((key) => localStorage.getItem(key), finishKey), null, "an unavailable chat does not acknowledge its finish");
+  await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+  await page.locator(".pane-frame.is-current .terminal-stack[data-pane-content]").waitFor();
+  await agentRow(paneA).locator('.badge[data-status="idle"]').waitFor();
+  assert.equal(await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null")?.id, finishKey), completion.finish_id,
+    "presenting terminal output acknowledges exactly the bridge's completed turn");
+  await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+  console.log("PASS delayed machines poll preserves newer status; unavailable chat keeps DONE until terminal content is presented");
 
   // Agents is global to the sidebar, so collapsing a PC's Spaces does not hide
   // its reported agents or prevent explicit pane selection from that list.
