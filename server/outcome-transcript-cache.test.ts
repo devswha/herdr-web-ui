@@ -3,6 +3,10 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as conversation from "./conversation.ts";
+import * as client from "./herdr/client.ts";
+import { commandInvocations } from "./outcome.ts";
+import { handlePromptRequest, noteSubmitted } from "./prompt.ts";
+import type { PanePromptResponse } from "../shared/protocol.ts";
 
 it("shares unchanged command transcript reads across viewers and reads only appended bytes", async () => {
   const root = fs.mkdtempSync(join(tmpdir(), "command-transcript-cache-"));
@@ -60,6 +64,51 @@ it("invalidates rewritten and replaced transcripts and completes a torn tail onl
     expect(replaced?.records.map(({ entry }) => entry.modelId)).toEqual(["other-inode"]);
   } finally {
     binding.mockRestore();
+    conversation.forgetTranscriptState();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("does not complete /context through the prompt route after its cached echo is replaced by a larger /version transcript", async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), "command-route-rewrite-"));
+  const path = join(root, "session.jsonl");
+  const at = Date.parse("2026-10-20T00:00:00Z");
+  const echo = (name: string) => JSON.stringify({ type: "system", subtype: "local_command",
+    timestamp: new Date(at + 10).toISOString(),
+    content: `<command-name>${name}</command-name>\n<command-message>command</command-message>` }) + "\n";
+  fs.writeFileSync(path, echo("/context"));
+  const pane = { pane_id: root, terminal_id: "term", workspace_id: "w", tab_id: "t", focused: false, revision: 0,
+    agent: "claude", agent_status: "idle", cwd: root };
+  const clock = spyOn(Date, "now").mockReturnValue(at + 30);
+  const binding = spyOn(conversation, "paneTranscript").mockResolvedValue({ source: "claude-transcript", path });
+  const snapshot = spyOn(client, "sessionSnapshot").mockResolvedValue({
+    panes: [pane], layouts: [], agents: [], workspaces: [], tabs: [], protocol: 22, version: "fixture",
+  });
+  const screen = spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: "", source: "detection", format: "text", truncated: false });
+  const sent = { id: "route-context", text: "/context", at, agent: "claude",
+    identity: JSON.stringify([pane.terminal_id, undefined]), screen: "", store: null, form: null,
+    invocations: commandInvocations("claude", "/context", []) };
+  try {
+    noteSubmitted(pane.pane_id, sent.text, sent);
+    const cached = await conversation.readCommandTranscript(pane.pane_id);
+    fs.writeFileSync(path, echo("/version") + JSON.stringify({ type: "system", subtype: "local_command",
+      timestamp: new Date(at + 20).toISOString(), content: "<local-command-stdout>fixture-version-output</local-command-stdout>" }) + "\n");
+    const url = new URL(`http://localhost/api/pane/prompt?pane_id=${encodeURIComponent(pane.pane_id)}`);
+    const response = await handlePromptRequest(new Request(url), url);
+    const shown = await response?.json() as PanePromptResponse;
+    expect(shown.outcomes?.at(-1)).toMatchObject({ state: "accepted", evidence: [] });
+    const rewritten = await conversation.readCommandTranscript(pane.pane_id);
+    expect(rewritten?.identity).not.toBe(cached?.identity);
+    expect(rewritten?.records).toHaveLength(2);
+    fs.appendFileSync(path, JSON.stringify({ type: "model_change", timestamp: new Date(at + 40).toISOString(), modelId: "fixture" }) + "\n");
+    const appended = await conversation.readCommandTranscript(pane.pane_id);
+    expect(appended?.identity).toBe(rewritten?.identity);
+    expect(appended?.records).toHaveLength(3);
+  } finally {
+    screen.mockRestore();
+    snapshot.mockRestore();
+    binding.mockRestore();
+    clock.mockRestore();
     conversation.forgetTranscriptState();
     fs.rmSync(root, { recursive: true, force: true });
   }

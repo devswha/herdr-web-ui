@@ -552,12 +552,12 @@ interface TranscriptStream {
 // In-place rewrites keep the inode. Change the cursor generation when observed,
 // invalidating settled turns and incremental parsers as well as the response cache.
 const transcriptRevisions = new Map<string, { identity: string; size: number; changed: string; generation: string }>();
-function transcriptGeneration(path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
+function transcriptGeneration(path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }, changedPrefix = false): string {
   const identity = `${stat.dev}:${stat.ino}`;
   const changed = `${stat.mtimeMs}:${stat.ctimeMs}`;
   const previous = transcriptRevisions.get(path);
   const rewritten = previous && previous.identity === identity && (stat.size < previous.size || (stat.size === previous.size && changed !== previous.changed));
-  const generation = rewritten ? randomUUID() : previous?.identity === identity ? previous.generation : "";
+  const generation = changedPrefix || rewritten ? randomUUID() : previous?.identity === identity ? previous.generation : "";
   remember(transcriptRevisions, path, { identity, size: stat.size, changed, generation }, 64);
   return generation ? `-${generation}` : "";
 }
@@ -1645,6 +1645,7 @@ interface CommandTranscript {
 }
 const commandTranscripts = new Map<string, {
   signature: string; identity: string; floor: number; end: number; partial: Buffer; partialStart: number;
+  streamId: string; boundaryFrom: number; boundaryHash: string;
   records: CommandTranscriptRecord[]; answer: CommandTranscript;
 }>();
 
@@ -1654,11 +1655,20 @@ export async function readCommandTranscript(paneId: string, codexHome?: string):
   if (source !== "claude-transcript" && source !== "codex-transcript" && source !== "pi-transcript"
     && source !== "omp-transcript" && source !== "omo-transcript" && source !== "gjc-transcript") return null;
   const stat = statSync(path);
-  const stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
-  const signature = `${source}\0${stream.id}:${stream.length}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  let stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
+  let signature = `${source}\0${stream.id}:${stream.length}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
   const cached = commandTranscripts.get(path);
   rememberPaneRead(paneId, path);
   if (cached?.signature === signature) return cached.answer;
+  // A larger file can be an in-place replacement. Recheck the last retained record and
+  // partial tail before reusing any parsed prefix; a changed boundary also changes ownership.
+  if (cached?.streamId === stream.id && cached.end <= stream.length
+    && createHash("sha256").update(readStream(stream, cached.boundaryFrom, cached.end)).digest("hex") !== cached.boundaryHash) {
+    transcriptGeneration(path, stat, true);
+    stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
+    signature = `${source}\0${stream.id}:${stream.length}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  }
+  const streamId = stream.id;
   applyHistoryBoundary(path, stream, source);
   const start = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
   const identity = `${source}\0${path}\0${stream.id}`;
@@ -1682,7 +1692,11 @@ export async function readCommandTranscript(paneId: string, codexHome?: string):
   const partialStart = from + complete;
   // A complete final JSON object is readable before its newline; never retain it twice on append.
   const answer = { identity, records: [...records, ...commandTranscriptRecords(partial.toString("utf8"), partialStart)] };
-  remember(commandTranscripts, path, { signature, identity, floor: stream.floor, end: stream.length, partial, partialStart, records, answer }, 4);
+  const lastLine = complete > 1 ? bytes.lastIndexOf(0x0a, complete - 2) + 1 : 0;
+  const boundaryFrom = from + lastLine;
+  const boundaryHash = createHash("sha256").update(bytes.subarray(lastLine)).digest("hex");
+  remember(commandTranscripts, path, { signature, identity, streamId, boundaryFrom, boundaryHash,
+    floor: stream.floor, end: stream.length, partial, partialStart, records, answer }, 4);
   return answer;
 }
 
