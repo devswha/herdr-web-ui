@@ -100,17 +100,33 @@ describe("a message sent to omp", () => {
     expect(calls.slice(0, emptied).every((call) => call.method !== "pane.send_keys" || (call.params["keys"] as string[]).join() === "Enter")).toBeTrue();
   });
 
+  it("compares the box with what went to omp: a bare /model goes as /switch", async () => {
+    screen = box("/switch");
+    await submitter()("w:p1", "/model", "/model", Date.now());
+    expect(calls.some((call) => call.method === "agent.prompt" && call.params["text"] === "/switch")).toBeTrue();
+    await until("a second Enter", () => enters() >= 1);
+    // the look ends at the emptied box, so it reads nothing of the next test's herdr
+    screen = EMPTY;
+    await until("the empty box read", () => calls.some((call) => call.shown === EMPTY));
+  });
+
   it("looks once and presses nothing when omp took the message at once", async () => {
     await submitter()("w:p1", "/effort", "/effort", Date.now());
     await until("the box read", () => count("pane.read") >= 1);
+    // fixed wait: nothing may be pressed after the read; ten of the loop's 5 ms looks pass
+    await Bun.sleep(50);
     expect(enters()).toBe(0);
+    expect(count("pane.read"), "the look ends at a box the message has left").toBe(1);
   });
 
   it("presses nothing into a box that holds something else", async () => {
     screen = box("/effort and what the user typed since");
     await submitter()("w:p1", "/effort", "/effort", Date.now());
     await until("the box read", () => count("pane.read") >= 1);
+    // fixed wait: nothing may be pressed after the read; ten of the loop's 5 ms looks pass
+    await Bun.sleep(50);
     expect(enters()).toBe(0);
+    expect(count("pane.read")).toBe(1);
   });
 
   it("asks again whether the sender may still send before each Enter, and presses none once it may not", async () => {
@@ -128,6 +144,8 @@ describe("a message sent to omp", () => {
     agent = "codex";
     screen = STARTING;
     await submitter()("w:p1", "/effort", "/effort", Date.now());
+    // fixed wait: no read may come; ten of the omp loop's 5 ms looks pass
+    await Bun.sleep(50);
     expect(count("pane.read")).toBe(0);
     expect(enters()).toBe(0);
   });
