@@ -348,6 +348,41 @@ describe("opencode-service", () => {
     });
   });
 
+  it("reconnects after dropping a stream that outgrows its buffer", async () => {
+    const opened = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const closed = Promise.withResolvers<void>();
+    let connections = 0;
+    const service = Bun.serve({
+      port: 0, hostname: "127.0.0.1", idleTimeout: 0,
+      fetch: () => {
+        const first = connections++ === 0;
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode("data: {\"type\":\"server.connected\",\"data\":{}}\n\n"));
+            // one event that never ends, past the 4 MiB buffer; the stream itself stays open
+            if (first) controller.enqueue(encoder.encode(`data: ${"x".repeat(5 * 1024 * 1024)}`));
+          },
+        }), { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    let opens = 0;
+    const subscription = subscribeOpenCodeEvents({ baseUrl: service.url.origin, port: service.port ?? 0, pid: process.pid, password: "fixture" }, {
+      onOpen: () => opened[opens++]?.resolve(),
+      onEvent: () => {},
+      onClose: () => closed.resolve(),
+    });
+    try {
+      await opened[0]!.promise;
+      await closed.promise;
+      await opened[1]!.promise;
+      expect(connections).toBe(2);
+    } finally {
+      subscription.close();
+      service.stop(true);
+    }
+  }, 5_000);
+
   it("formats Basic auth header correctly", () => {
     expect(atob(opencodeAuthHeader("secret-pass").slice(6))).toBe("opencode:secret-pass");
   });
