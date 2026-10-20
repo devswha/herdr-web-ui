@@ -165,10 +165,11 @@ What is there:
 - The app is called Ovis (Latin for sheep, the herd herdr tends). Other apps in both stores are
   already named Ovis, so the store listing can say "Ovis for herdr". The project owns `ovis.sh`,
   so the bundle ID and Android application ID are `sh.ovis.app`.
-- The icon is two blue curls side by side, a pair of yarn skeins or ram's horns, on a plain
-  white tile (`app/assets/ovis-icon.svg`). The PNGs beside it are the sources for both platforms' icons and
-  splash screens. After changing them, run
-  `npx @capacitor/assets generate --ios --android --iconBackgroundColor '#ffffff' --splashBackgroundColor '#12100e'`
+- The icon is a cream sheep with closed eyes on a navy tile (`#2E3A59`), cut from the Figma
+  logo drafts; `app/assets/ovis-sheep.png` is the sheep alone. The connect screen shows the
+  logo, the sheep beside the word Ovis (`app/web/ovis-logo.png`). The PNGs in `app/assets` are
+  the sources for both platforms' icons and splash screens. After changing them, run
+  `npx @capacitor/assets generate --ios --android --iconBackgroundColor '#2E3A59' --splashBackgroundColor '#12100e'`
   in `app/`, and put back `AndroidManifest.xml` if the tool reformatted it.
 
 Build and run it on a Mac with Xcode:
