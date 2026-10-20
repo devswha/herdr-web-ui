@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -15,7 +15,8 @@ import { join } from "node:path";
  *    `PI_CODING_AGENT_DIR`), the only file pi's own footer consults;
  *  - `commandcode-models.json` — the commandcode provider's cached catalog, which states a
  *    window for every model pi offers through it;
- *  - `models-store.json` — pi's store for the other providers it knows on disk.
+ *  - `models-store.json` — pi's store for the other providers it knows on disk, by provider
+ *    id, each with the same flat `models` list.
  *
  * So this resolves what those files state and nothing else. A model pi knows only from its
  * built-in registry, a provider whose entry omits `contextWindow`, and a model that names none
@@ -24,6 +25,7 @@ import { join } from "node:path";
  * own. pi's footer does the same, showing `?` in place of a number.
  */
 
+/** `models.json`'s own spelling: `providers` by id, each with a list of models. */
 type PiModel = { id?: unknown; contextWindow?: unknown };
 type PiProvider = { models?: unknown; modelOverrides?: unknown };
 type PiCatalog = { providers?: Record<string, PiProvider> };
@@ -34,6 +36,31 @@ function parse(text: string): unknown {
   try { return JSON.parse(stripped); } catch { return null; }
 }
 
+/**
+ * A `models.json` provider's models by id.
+ *
+ * A model's own `contextWindow`, or the `modelOverrides[model.id]` window when pi has one, and
+ * nothing else. Two things this deliberately does not do, both checked against pi 0.87.1 by
+ * pointing `PI_CODING_AGENT_DIR` at a crafted `models.json` and reading `pi --list-models`:
+ *
+ * - A provider-level `contextWindow` is NOT inherited by its models. A provider at 32000 whose
+ *   model names no window shows that model at pi's own default of 128000, not at 32000. So this
+ *   reports no window there: pi's default is pi's to apply, not a number this reader may show as
+ *   though the user had stated it, and the ring stays undrawn rather than showing a denominator pi
+ *   never used.
+ * - `modelOverrides` IS applied, after the model definitions, and wins
+ *   (`contextWindow: override.contextWindow ?? model.contextWindow`). Reading only `models` would
+ *   report the pre-override window; at 128000 against an override of 256000 that is half the window
+ *   and double the percentage the ring shows.
+ *
+ * An entry that is not an object is skipped rather than read, and the models beside it are still
+ * resolved. pi is stricter: it validates the file, warns, and refuses the whole provider — checked
+ * with a `models` list of `null, "a string", {id}`, which leaves `pi --list-models` reporting no
+ * models at all. This reader is deliberately the more forgiving of the two, because its worst
+ * outcome is one fewer number on the ring, while pi's worst outcome is switching to a model that
+ * does not exist. It is not merely defensive: a `null` in that list threw, and the throw came from
+ * the read every poll does, so the chat went down for a comma in a hand-edited file.
+ */
 function windowsFromModelsJson(provider: PiProvider): Map<string, number> {
   const list: unknown[] = Array.isArray(provider.models) ? provider.models : [];
   const overrides = (provider as { modelOverrides?: unknown }).modelOverrides;
@@ -46,6 +73,8 @@ function windowsFromModelsJson(provider: PiProvider): Map<string, number> {
       ? (overrides as Record<string, unknown>)[model.id]
       : undefined;
     const override = listed !== null && typeof listed === "object" && !Array.isArray(listed) ? listed as PiModel : undefined;
+    // pi's own rule, field by field: the override states a window or the model's own stands. An
+    // override that only renames a model, or sets its cost, says nothing here
     const window = override?.contextWindow ?? model.contextWindow;
     if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) continue;
     models.set(model.id, window);
@@ -53,7 +82,10 @@ function windowsFromModelsJson(provider: PiProvider): Map<string, number> {
   return models;
 }
 
-/** A flat list of `{ id, contextWindow }` entries, as pi's commandcode cache stores them. */
+/**
+ * A flat list of `{ id, contextWindow }` entries, as pi's commandcode cache and model store keep
+ * them. Same rules as above for a damaged entry or a window that is not a positive number.
+ */
 function windowsFromFlatList(list: unknown): Map<string, number> {
   const models = new Map<string, number>();
   if (!Array.isArray(list)) return models;
@@ -68,25 +100,29 @@ function windowsFromFlatList(list: unknown): Map<string, number> {
   return models;
 }
 
-type CachedCatalog = { content: string; byProvider: Map<string, Map<string, number>> };
+type Catalog = Map<string, Map<string, number>>;
 
-const cache = new Map<string, CachedCatalog | null>();
+/**
+ * Each catalog file read once per change: a conversation is re-read on every poll, so the files
+ * are only stat'ed there, and read and parsed again when their mtime or size moves.
+ */
+const cache = new Map<string, { signature: string; byProvider: Catalog | null }>();
 
-/** Read and cache a catalog file. Returns null when the file is absent or unreadable. */
-function readCatalog(path: string, parseCatalog: (parsed: unknown) => Map<string, Map<string, number>> | null): CachedCatalog | null {
-  let text: string;
-  try { text = readFileSync(path, "utf8"); } catch { cache.set(path, null); return null; }
+/** A catalog file's models by provider, or null when the file is absent or not a catalog. */
+function readCatalog(path: string, parseCatalog: (parsed: unknown) => Catalog | null): Catalog | null {
+  let signature: string;
+  try { const stat = statSync(path); signature = `${stat.mtimeMs}:${stat.size}`; } catch { return null; }
   const cached = cache.get(path);
-  if (cached && cached.content === text) return cached;
-  let parsed: unknown;
-  try { parsed = JSON.parse(text.replace(/^\uFEFF/, "")); } catch { parsed = parse(text); }
-  const byProvider = parseCatalog(parsed);
-  const entry: CachedCatalog | null = byProvider === null ? null : { content: text, byProvider };
-  cache.set(path, entry);
-  return entry;
+  if (cached !== undefined && cached.signature === signature) return cached.byProvider;
+  let text: string;
+  try { text = readFileSync(path, "utf8"); } catch { return null; }
+  const parsed = parse(text);
+  const byProvider = parsed === null ? null : parseCatalog(parsed);
+  cache.set(path, { signature, byProvider });
+  return byProvider;
 }
 
-function modelsJsonCatalog(parsed: unknown): Map<string, Map<string, number>> | null {
+function modelsJsonCatalog(parsed: unknown): Catalog | null {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const catalog = parsed as PiCatalog;
   if (catalog.providers === undefined || catalog.providers === null || typeof catalog.providers !== "object") return null;
@@ -98,7 +134,7 @@ function modelsJsonCatalog(parsed: unknown): Map<string, Map<string, number>> | 
   return byProvider;
 }
 
-function commandCodeCatalog(parsed: unknown): Map<string, Map<string, number>> | null {
+function commandCodeCatalog(parsed: unknown): Catalog | null {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const record = parsed as { models?: unknown };
   if (!Array.isArray(record.models)) return null;
@@ -107,7 +143,7 @@ function commandCodeCatalog(parsed: unknown): Map<string, Map<string, number>> |
   return byProvider;
 }
 
-function modelsStoreCatalog(parsed: unknown): Map<string, Map<string, number>> | null {
+function modelsStoreCatalog(parsed: unknown): Catalog | null {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const record = parsed as Record<string, unknown>;
   const byProvider = new Map<string, Map<string, number>>();
@@ -133,7 +169,7 @@ export function piAgentDir(env: NodeJS.ProcessEnv = process.env): string {
  * which of them answered. Consults every on-disk catalog pi keeps, in order.
  */
 export function piContextWindow(model: string, provider: string | null, agentDir = piAgentDir()): number | null {
-  const files: { path: string; parse: (p: unknown) => Map<string, Map<string, number>> | null }[] = [
+  const files: { path: string; parse: (p: unknown) => Catalog | null }[] = [
     { path: join(agentDir, "models.json"), parse: modelsJsonCatalog },
     { path: join(agentDir, "commandcode-models.json"), parse: commandCodeCatalog },
     { path: join(agentDir, "models-store.json"), parse: modelsStoreCatalog },
@@ -141,7 +177,9 @@ export function piContextWindow(model: string, provider: string | null, agentDir
   for (const file of files) {
     const catalog = readCatalog(file.path, file.parse);
     if (catalog === null) continue;
-    const byId = provider === null ? undefined : catalog.byProvider.get(provider);
+    // an exact provider match only: a model id a second provider also serves, at another
+    // window, must not borrow the first one's number
+    const byId = provider === null ? undefined : catalog.get(provider);
     if (byId === undefined) continue;
     if (byId.has(model)) return byId.get(model) ?? null;
     // provider present but model absent here: a later catalog may still list it

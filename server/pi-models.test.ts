@@ -17,6 +17,14 @@ const agentDir = (name: string, body: string) => {
   return dir;
 };
 
+/** An agent dir holding whichever of pi's catalog files a test names. */
+const catalogsDir = (name: string, files: Record<string, unknown>) => {
+  const dir = join(root, name);
+  mkdirSync(dir, { recursive: true });
+  for (const [file, body] of Object.entries(files)) writeFileSync(join(dir, file), typeof body === "string" ? body : JSON.stringify(body));
+  return dir;
+};
+
 const catalog = JSON.stringify({
   providers: {
     "lwsa-platform": {
@@ -118,6 +126,52 @@ describe("the context window a pi model runs in", () => {
     expect(piContextWindow("grok-4.7", "xai", dir)).toBeNull();
     expect(piContextWindow("Ling-3.0-tiny", "llama.cpp", dir)).toBeNull();
     expect(piContextWindow("vllm-flash/Qwen3.8-Flash-Next", "lwsa-platform", dir)).toBe(215000);
+  });
+
+  it("reads the commandcode cache and the model store for providers models.json does not define", () => {
+    const dir = catalogsDir("other-catalogs", {
+      "commandcode-models.json": { models: [{ id: "cc-model", contextWindow: 200000 }, null, { id: "cc-no-window" }] },
+      "models-store.json": {
+        anthropic: { models: [{ id: "claude-x", contextWindow: 1000000 }] },
+        openai: { models: [{ id: "cc-model", contextWindow: 400000 }] },
+        broken: "not a provider",
+      },
+    });
+    expect(piContextWindow("cc-model", "commandcode", dir)).toBe(200000);
+    expect(piContextWindow("cc-no-window", "commandcode", dir)).toBeNull();
+    expect(piContextWindow("claude-x", "anthropic", dir)).toBe(1000000);
+    // still by the provider that served it: the store's openai entry is not commandcode's
+    expect(piContextWindow("cc-model", "openai", dir)).toBe(400000);
+    expect(piContextWindow("claude-x", "commandcode", dir)).toBeNull();
+    expect(piContextWindow("claude-x", null, dir)).toBeNull();
+  });
+
+  it("lets models.json win, and falls through when it does not list the model", () => {
+    const dir = catalogsDir("precedence", {
+      "models.json": { providers: { anthropic: { models: [{ id: "claude-x", contextWindow: 300000 }] } } },
+      "models-store.json": { anthropic: { models: [{ id: "claude-x", contextWindow: 1000000 }, { id: "claude-y", contextWindow: 500000 }] } },
+    });
+    // the user's own definition is what pi runs at
+    expect(piContextWindow("claude-x", "anthropic", dir)).toBe(300000);
+    expect(piContextWindow("claude-y", "anthropic", dir)).toBe(500000);
+  });
+
+  it("ignores a catalog file that is not shaped like one", () => {
+    const dir = catalogsDir("misshapen", {
+      "commandcode-models.json": [{ id: "cc-model", contextWindow: 200000 }],
+      "models-store.json": "{ anthropic",
+    });
+    expect(piContextWindow("cc-model", "commandcode", dir)).toBeNull();
+    expect(piContextWindow("claude-x", "anthropic", dir)).toBeNull();
+  });
+
+  it("sees a catalog that appears or changes after the first read", () => {
+    const dir = catalogsDir("appearing", {});
+    expect(piContextWindow("cc-model", "commandcode", dir)).toBeNull();
+    writeFileSync(join(dir, "commandcode-models.json"), JSON.stringify({ models: [{ id: "cc-model", contextWindow: 200000 }] }));
+    expect(piContextWindow("cc-model", "commandcode", dir)).toBe(200000);
+    writeFileSync(join(dir, "commandcode-models.json"), JSON.stringify({ models: [{ id: "cc-model", contextWindow: 1000000 }] }));
+    expect(piContextWindow("cc-model", "commandcode", dir)).toBe(1000000);
   });
 
   it("refuses a window that is not a number worth dividing by", () => {
