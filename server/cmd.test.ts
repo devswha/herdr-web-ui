@@ -169,6 +169,11 @@ describe("Command Code's permission prompt is a card", () => {
     // two heredocs that end alike
     const heredoc = (line: string) => parseInteractivePrompt("cmd", run(`cat > notes.txt <<EOF\n${line}\nEOF`))?.id;
     expect(heredoc("keep this")).not.toBe(heredoc("replace that"));
+    // a rule inside a heredoc is no dialog border, and a heredoc's indentation is part of the command
+    const ruled = (first: string) => parseInteractivePrompt("cmd", run(`${first}\ncat <<'EOF'\n${"\u2500".repeat(16)}\nEOF\nprintf done`))?.id;
+    expect(ruled("printf harmless")).not.toBe(ruled("rm -rf important-files"));
+    const indented = (delimiter: string) => parseInteractivePrompt("cmd", run(`cat <<'EOF'\n${delimiter}\nrm -rf important-files\n: <<'EOF'\nEOF\nprintf done`))?.id;
+    expect(indented("  EOF")).not.toBe(indented("EOF"));
   });
 
   it("takes no dialog for a live one when a line typed below follows its footer", () => {
