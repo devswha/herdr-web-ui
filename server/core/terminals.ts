@@ -341,6 +341,10 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       // hand the newcomer the current screen it would otherwise have missed
       // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
       const replay = attachment.kind === "mirror" ? attachment.process.current ?? "" : attachment.replay.text();
+      // the members heard `input-ready: false` when the stream ended; a newcomer is told the replay
+      // is the screen from before in a frame of its own, as an early negative receipt would pass for
+      // the attach-complete barrier queued input waits on
+      if (!alreadyAttached && attachment.recovering) send(client, { type: "output-recovering", pane_id: message.pane_id });
       if (!alreadyAttached && replay) {
         client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
         sendOutput(client, message.pane_id, replay);

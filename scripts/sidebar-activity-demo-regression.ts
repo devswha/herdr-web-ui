@@ -26,6 +26,8 @@ declare global {
       frame(message: ServerMessage): void;
       conversation(paneId: string, response: ConversationResponse): void;
       replay(paneId: string, ready: boolean, data: string, readyAfter?: boolean): void;
+      /** the next attach of a pane joins an attachment that lost its stream: as the server sends it, no readiness, the screen from before */
+      recoveringReplay(paneId: string, data: string): void;
     };
   }
 }
@@ -41,7 +43,7 @@ function installSidebarFixture(): void {
   const sockets = new Set<WebSocket>();
   const conversations = new Map<string, { response: ConversationResponse; etag: string }>();
   let conversationRevision = 0;
-  const replays = new Map<string, { ready: boolean; data: string; readyAfter: boolean }>();
+  const replays = new Map<string, { ready: boolean; data: string; readyAfter: boolean; recovering?: boolean }>();
   const patch = (machines: Machine[]): Machine[] => {
     for (const machine of machines) {
       const snapshot = machine.snapshot;
@@ -137,6 +139,12 @@ function installSidebarFixture(): void {
       this.send = (raw) => {
         const message = JSON.parse(String(raw));
         const replay = replays.get(message.pane_id);
+        if (message.type === "attach" && replay?.recovering) {
+          for (const frame of [{ type: "output-recovering", pane_id: message.pane_id }, { type: "pty-data", pane_id: message.pane_id, data: replay.data }]) {
+            this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(frame) }));
+          }
+          return;
+        }
         if (message.type === "attach" && replay) {
           // The corrected registry reports its readiness before a retained replay.
           const frames = [
@@ -204,6 +212,7 @@ function installSidebarFixture(): void {
     },
     conversation(paneId, response) { conversations.set(paneId, { response, etag: `"fixture-${++conversationRevision}"` }); },
     replay(paneId, ready, data, readyAfter = false) { replays.set(paneId, { ready, data, readyAfter }); },
+    recoveringReplay(paneId, data) { replays.set(paneId, { ready: false, data, readyAfter: false, recovering: true }); },
   };
 }
 
@@ -373,6 +382,30 @@ try {
           await waitStatus(page, INFRA, "idle");
         });
         console.log("PASS attachment recovery needs fresh output for owners and observers");
+      }
+      if (!finishCase || finishCase === "recovering-joiner") {
+        await withPage(browser, {}, async (page) => {
+          // a page that first opens the pane while its attachment is recovering gets only the screen from before
+          await page.evaluate((id) => {
+            window.sidebarFixture.recoveringReplay(id, "previous answer\r\n");
+            window.sidebarFixture.block(id, "loading");
+            return window.sidebarFixture.finish(id, "done", 101);
+          }, panes.omp);
+          await waitStatus(page, INFRA, "done");
+          await agent(page, INFRA).locator(".agent-select").click();
+          await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+          const content = page.locator(".pane-frame.is-current .terminal-stack[data-pane-content]");
+          await page.locator(".pane-frame.is-current .terminal-stack:not(.is-chat)").waitFor();
+          await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+          assert.equal(await content.count(), 0, "a recovering joiner's replay is not the current screen");
+          await waitStatus(page, INFRA, "done");
+          await page.evaluate((id) => window.sidebarFixture.frame({ type: "input-ready", pane_id: id }), panes.omp);
+          assert.equal(await content.count(), 0, "the attach taking again still waits for new output");
+          await page.evaluate((id) => window.sidebarFixture.frame({ type: "pty-data", pane_id: id, data: "current screen\r\n" }), panes.omp);
+          await waitStatus(page, INFRA, "idle");
+          await content.waitFor();
+        });
+        console.log("PASS a page joining a recovering attachment acknowledges only output after recovery");
       }
       if (!finishCase || finishCase === "transcript-finish") {
         for (const source of ["claude-transcript", "codex-transcript"] as const) await withPage(browser, {}, async (page) => {

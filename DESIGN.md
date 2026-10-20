@@ -1008,8 +1008,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   queued parses. Recovery alone is insufficient: fresh output must parse after recovery.
   Attach preserves the input protocol: replay is sent first, and a positive readiness receipt
   is sent only once the attachment is ready. It does not send an early negative receipt that
-  existing input clients could mistake for the attach-complete barrier. Recovering-joiner
-  unread-dot accuracy remains follow-up work rather than changing queued-input semantics. A retained
+  existing input clients could mistake for the attach-complete barrier. A client that joins an
+  attachment whose stream ended after it was ready gets `output-recovering` before the retained
+  replay instead: presentation only, so that replay (the screen from before) never acknowledges a
+  finish, and like the members it needs fresh output after the next `input-ready`. A retained
   renderer starts a new output lifetime on resume, so a missed recovery cannot invalidate its
   quiet replay. This is independent of input permission.
   A native chat

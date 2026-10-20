@@ -1149,8 +1149,9 @@ export function PaneTerminal({
         setChatInvalidation((current) => current + 1);
       }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
-      if (message.type === "input-ready") {
-        if (message.ready === false) {
+      if (message.type === "input-ready" || message.type === "output-recovering") {
+        // output-recovering: this client joined after the stream ended, so the replay is the screen from before
+        if (message.type === "output-recovering" || message.ready === false) {
           outputRecovering = true;
           outputLifetime++;
           setOutputReady(false);
@@ -1879,8 +1880,8 @@ export function PaneTerminal({
       setHeld(false);
       // the pane's screen starts again from the new attach, as on a pane switch
       const generation = ++outputGeneration;
-      // A new attach owns a new output lifetime. The server's readiness receipt precedes
-      // replay, so a recovering attach will revoke this again before any retained bytes.
+      // A new attach owns a new output lifetime. A recovering attachment sends output-recovering
+      // before its replay, so it revokes this again before any retained bytes.
       outputRecovering = false;
       // Reset in stream order: synchronous reset would let old queued writes draw afterward.
       if (!cachedReleaseRef.current) {
