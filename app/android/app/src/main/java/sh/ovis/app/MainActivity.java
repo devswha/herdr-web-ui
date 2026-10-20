@@ -5,8 +5,11 @@ import android.content.pm.ApplicationInfo;
 import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.CapConfig;
 import com.getcapacitor.WebViewListener;
 import androidx.webkit.WebViewCompat;
@@ -19,6 +22,9 @@ import java.util.Collections;
  * first load too.
  */
 public class MainActivity extends BridgeActivity {
+    /** Whether the page itself (not a picture or a frame in it) failed since it started. */
+    private boolean pageFailed;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(HerdrShellPlugin.class);
@@ -68,26 +74,31 @@ public class MainActivity extends BridgeActivity {
                     }
                 );
             }
+            // Capacitor tells its listeners of every failed request, a picture or a frame included, and
+            // not which one: only a failure of the page itself keeps the PC out of the saved list.
+            bridge.setWebViewClient(
+                new BridgeWebViewClient(bridge) {
+                    @Override
+                    public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                        if (request.isForMainFrame()) pageFailed = true;
+                        super.onReceivedError(view, request, error);
+                    }
+                }
+            );
             bridge.addWebViewListener(
                 new WebViewListener() {
-                    /** Whether a load failed since the last page started: Chromium still reports the failed page as loaded. */
-                    private boolean failed;
-
                     @Override
                     public void onPageStarted(WebView webView) {
-                        failed = false;
-                    }
-
-                    @Override
-                    public void onReceivedError(WebView webView) {
-                        failed = true;
+                        pageFailed = false;
                     }
 
                     @Override
                     public void onPageLoaded(WebView webView) {
-                        // the PC's page is up: a pairing link has done its work, and the PC is one worth keeping
+                        // Chromium reports a page that failed as loaded too, before the error page;
+                        // only a page of this very origin (scheme, host and port) counts
                         String url = webView.getUrl();
-                        if (failed || url == null || !host.equalsIgnoreCase(Uri.parse(url).getHost())) return;
+                        if (pageFailed || url == null || !origin.equals(PCStore.origin(url))) return;
+                        // the PC's page is up: a pairing link has done its work, and the PC is one worth keeping
                         PCStore.pendingStart = null;
                         PCStore.remember(MainActivity.this, origin);
                     }
