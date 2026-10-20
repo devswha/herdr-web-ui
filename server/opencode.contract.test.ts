@@ -280,8 +280,10 @@ describe("OpenCode v2 native service", () => {
     mkdirSync(join(nativeRoot, "bin"), { recursive: true });
     mkdirSync(join(nativeRoot, ".opencode", "skills", "effect"), { recursive: true });
     writeFileSync(join(nativeRoot, ".opencode", "skills", "effect", "SKILL.md"), "---\nname: effect\ndescription: Apply Effect\n---\nUse Effect.\n");
-    const fixture = readFileSync(join(import.meta.dir, "fixtures", "opencode-autocomplete-2.0.32-skill-narrow.txt"), "utf8");
-    writeFileSync(join(nativeRoot, "screen.txt"), fixture.replace(/\n/g, "\r\n"));
+    // the recorded 2.0.32 screens with their colours (40x24, inside the 80x24 attach): @effect selected, then accepted
+    const recorded = (name: string) => readFileSync(join(import.meta.dir, "fixtures", `opencode-autocomplete-2.0.32-ansi-narrow-${name}.ansi`), "utf8").replace(/\n/g, "\r\n");
+    writeFileSync(join(nativeRoot, "screen.txt"), recorded("first-selected"));
+    writeFileSync(join(nativeRoot, "accepted.txt"), recorded("accepted"));
     writeFileSync(standIn, `#!${process.execPath}
 const { appendFileSync, readFileSync } = require("node:fs");
 let typed = "";
@@ -292,6 +294,7 @@ process.stdin.on("data", (chunk) => {
   const before = typed;
   typed += chunk.toString("latin1");
   if (!before.endsWith("@effect") && typed.endsWith("@effect")) process.stdout.write("\\u001b[2J\\u001b[H" + readFileSync(${JSON.stringify(join(nativeRoot, "screen.txt"))}, "utf8"));
+  if (before.endsWith("@effect") && typed.endsWith("@effect\\t")) process.stdout.write("\\u001b[2J\\u001b[H" + readFileSync(${JSON.stringify(join(nativeRoot, "accepted.txt"))}, "utf8"));
 });
 `);
     chmodSync(standIn, 0o755);
