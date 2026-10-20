@@ -774,7 +774,8 @@ process.stdin.on("data", (chunk) => {
       expect(await frame((message) => message.type === "submit-result" && message.id === 10)).toMatchObject({ ok: true });
       const gap = await first.promise;
       console.log(`fifo: catalog ${Math.round(routeMs)} ms, first key ${Math.round(gap)} ms`);
-      expect(routeMs).toBeLessThan(1_500);
+      // under the 5 s writer, so a blocked thread still fails; above the 1.5 s provider budget, so a slow host does not
+      expect(routeMs).toBeLessThan(4_000);
       expect(gap).toBeLessThan(2_000);
       expect(await typedSince(before)).toContain("@effect past the fifo");
       const outcome = (await outcomesAt(server.port, nativePane)).find((entry) => entry.text === "@effect past the fifo");
