@@ -11,11 +11,11 @@
  * `builtins` holds the names both versions share; a source has one static list, so the version-only ones
  * (the v1 and v2 additions) come from discover with their own provenance.
  */
-import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 import type { CommandForm, SlashCommand } from "../../shared/protocol.ts";
 import type { AgentCommandSource } from "./index.ts";
-import { ancestorsToRepoRoot, description, environRecord, parseJsonc, readSkillText, walkSkills } from "./walk.ts";
+import { ancestorsToRepoRoot, description, environRecord, parseJsonc, readConfigText, readSkillText, walkSkills } from "./walk.ts";
 
 const BUNDLED_DESCRIPTION = "Use ONLY when the user is editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself.";
 const DESCRIPTIONS = {
@@ -91,7 +91,8 @@ const canonical = (path: string): string => { try { return realpathSync(path); }
 
 function configCommands(path: string, source: "user" | "project", key: string): SlashCommand[] {
   try {
-    const config: unknown = parseJsonc(readFileSync(path, "utf8"));
+    // bounded and regular files only: a FIFO or a huge file here would hold the server's one thread
+    const config: unknown = parseJsonc(readConfigText(path));
     if (typeof config !== "object" || config === null || !(key in config)) return [];
     const commands = (config as Record<string, unknown>)[key];
     if (typeof commands !== "object" || commands === null || Array.isArray(commands)) return [];

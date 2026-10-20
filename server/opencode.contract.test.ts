@@ -676,6 +676,51 @@ process.stdin.on("data", (chunk) => {
     }
   });
 
+  it("answers the catalog and a cold @ send within budget while opencode.json is a FIFO", async () => {
+    const fifo = join(nativeRoot, "opencode.json");
+    expect(await Bun.spawn(["mkfifo", fifo]).exited).toBe(0);
+    // a writer only after 5 s: a blocking read of the FIFO would hold the whole server until then
+    const writer = Bun.spawn(["sh", "-c", `sleep 5; printf '{}' > '${fifo}'`]);
+    const { ws, frame } = await socket();
+    const before = typed().length;
+    const first = Promise.withResolvers<number>();
+    let sentAt = 0;
+    try {
+      const started = performance.now();
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/commands?pane_id=${encodeURIComponent(nativePane)}`);
+      expect(response.status).toBe(200);
+      const routeMs = performance.now() - started;
+      // a cold send to a hung service falls back to the scan, which reads opencode.json
+      closeOpenCodeNative();
+      forgetOpenCodeService();
+      extraSessions.add("ses_contractFifo01");
+      await reportSession("ses_contractFifo01", nativePane);
+      hangAll = true;
+      onTyped = () => first.resolve(performance.now() - sentAt);
+      sentAt = performance.now();
+      ws.send(JSON.stringify({ type: "submit", id: 10, pane_id: nativePane, text: "@effect past the fifo", payload: "@effect past the fifo" }));
+      expect(await frame((message) => message.type === "submit-result" && message.id === 10)).toMatchObject({ ok: true });
+      const gap = await first.promise;
+      console.log(`fifo: catalog ${Math.round(routeMs)} ms, first key ${Math.round(gap)} ms`);
+      expect(routeMs).toBeLessThan(1_500);
+      expect(gap).toBeLessThan(2_000);
+      expect(await typedSince(before)).toContain("@effect past the fifo");
+      const outcome = (await outcomesAt(server.port, nativePane)).find((entry) => entry.text === "@effect past the fifo");
+      expect(outcome?.state).toBe("terminal-required");
+    } finally {
+      writer.kill();
+      rmSync(fifo, { force: true });
+      hangAll = false;
+      onTyped = undefined;
+      for (const release of withheld) release();
+      withheld.clear();
+      ws.close();
+      await reportSession(NATIVE_SESSION, nativePane);
+      closeOpenCodeNative();
+      forgetOpenCodeService();
+    }
+  });
+
   it("never waits on the event stream before the first key, in all three delivery paths", async () => {
     const { ws, frame } = await socket();
     const gaps: Record<string, number> = {};
