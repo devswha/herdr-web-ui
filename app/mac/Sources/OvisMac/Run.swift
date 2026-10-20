@@ -10,13 +10,18 @@ enum Ovis {
 
 enum Paths {
     static let home = FileManager.default.homeDirectoryForCurrentUser.path
-    /// Where install.sh puts herdr and Bun: for this user only, never system-wide.
-    static let herdr = "\(home)/.local/bin/herdr"
-    static let bun = "\(home)/.bun/bin/bun"
+    /// The first herdr and Bun on `path`: install.sh puts them in ~/.local/bin and ~/.bun/bin, but keeps
+    /// one it finds already (Homebrew's), so the app looks where the installer looked. Asked each time:
+    /// an install can add one.
+    static var herdr: String { which("herdr") ?? "\(home)/.local/bin/herdr" }
+    static var bun: String { which("bun") ?? "\(home)/.bun/bin/bun" }
     static let launchAgent = "\(home)/Library/LaunchAgents/\(Ovis.agentLabel).plist"
     static let logDir = "\(home)/Library/Logs/Ovis"
     /// An app opened from Finder gets launchd's bare PATH; the installer and the tools it adds need these.
     static let path = ["\(home)/.local/bin", "\(home)/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
+    private static func which(_ name: String) -> String? {
+        path.split(separator: ":").map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
     static var tailscale: String? {
         let candidates = ["/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale"]
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
