@@ -103,6 +103,9 @@ function configCommands(path: string, source: "user" | "project", key: string): 
   } catch { return []; /* missing, unreadable or malformed optional config */ }
 }
 
+/** Command files one folder may contribute: links can name one file under many paths, each a command. */
+export const MAX_COMMAND_FILES = 1024;
+
 /** Every .md under `root`, dot directories included; a nested path is the name (team/check). */
 function commandFiles(root: string): { name: string; path: string }[] {
   const files: { name: string; path: string }[] = [];
@@ -120,6 +123,7 @@ function commandFiles(root: string): { name: string; path: string }[] {
         const path = join(directory, entry.name);
         try {
           const target = statSync(path);
+          if (files.length >= MAX_COMMAND_FILES) return;
           if (target.isDirectory()) visit(path);
           else if (target.isFile() && entry.name.endsWith(".md")) files.push({ name: relative(root, path).slice(0, -3).split(sep).join("/"), path });
         } catch { continue; /* broken link */ }
@@ -147,6 +151,7 @@ export const source: AgentCommandSource = {
       [config, "user"],
       ...projects.flatMap((directory): [string, "project"][] => [[directory, "project"], [join(directory, ".opencode"), "project"]]),
     ];
+    const descriptions = new Map<string, string>();
     for (const [directory, source] of directories) {
       // File commands override config commands at the same root.
       for (const filename of ["opencode.json", "opencode.jsonc"]) {
@@ -156,7 +161,14 @@ export const source: AgentCommandSource = {
       // the singular directory is legacy in v2 and still read; the plural one wins a clash
       for (const kind of ["command", "commands"]) {
         for (const { name, path } of commandFiles(join(directory, kind))) {
-          try { commands.set(name, { name, description: description(readSkillText(path)), source, id: canonical(path) }); } catch { continue; /* unreadable */ }
+          const id = canonical(path);
+          // one read per file, however many links name it
+          let text = descriptions.get(id);
+          if (text === undefined) {
+            try { text = description(readSkillText(path)); } catch { continue; /* unreadable */ }
+            descriptions.set(id, text);
+          }
+          commands.set(name, { name, description: text, source, id });
         }
       }
     }
