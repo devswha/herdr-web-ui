@@ -67,6 +67,7 @@ import { agentTaskResult, claudePeerId, claudePeerNotice, isContextClear, MAX_TU
 import { forgetSubagents, lineNotifications, subagentDetails, taskNotification, type SubagentDetail } from "./claude-subagents.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { readsStartScreen, startScreenMetadata } from "./start-screen.ts";
+import { commandTranscriptRecords, type CommandTranscriptRecord } from "./outcome.ts";
 
 export { isOmoProcess } from "./omo.ts";
 
@@ -1048,6 +1049,7 @@ export function piPageCacheUsage(): { pages: number; settled: number; withinBudg
 export function forgetTranscriptState(): void {
   launchedAgents.clear();
   cache.clear();
+  commandTranscripts.clear();
   writtenSessions.clear();
   forgetClaudeSessions();
   forgetGjcState();
@@ -1090,6 +1092,7 @@ export function forgetPaneTranscriptState(paneId: string): void {
     if (shared((other) => other.paths, path)) continue;
     for (const key of [...cache.keys()]) if (key.startsWith(`${path}\0`)) cache.delete(key);
     transcriptRevisions.delete(path);
+    commandTranscripts.delete(path);
     liveScans.delete(path);
     for (const key of [...settledTurns.keys()]) if (key.startsWith(`${path}\0`)) settledTurns.delete(key);
     codexTurns.delete(path);
@@ -1636,17 +1639,51 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
  * Reuse its pane binding and branch projection, reading at most one existing tail window.
  * Database agents are observed through their readers/native events, never guessed from turns.
  */
-export async function readCommandTranscript(paneId: string, codexHome?: string): Promise<{ identity: string; text: string } | null> {
+interface CommandTranscript {
+  readonly identity: string;
+  readonly records: readonly CommandTranscriptRecord[];
+}
+const commandTranscripts = new Map<string, {
+  signature: string; identity: string; floor: number; end: number; partial: Buffer; partialStart: number;
+  records: CommandTranscriptRecord[]; answer: CommandTranscript;
+}>();
+
+export async function readCommandTranscript(paneId: string, codexHome?: string): Promise<CommandTranscript | null> {
   const resolved = await paneTranscript(paneId, codexHome);
   const { source, path } = resolved;
-  if (!["claude-transcript", "codex-transcript", "pi-transcript", "omp-transcript", "omo-transcript", "gjc-transcript"].includes(source)) return null;
-  if (source === "devin-transcript" || source === "opencode-transcript" || source === "hermes-transcript") return null;
-  const stream = transcriptStream(source, path, statSync(path), resolved.codexHome ?? codexHome ?? defaultCodexHome());
+  if (source !== "claude-transcript" && source !== "codex-transcript" && source !== "pi-transcript"
+    && source !== "omp-transcript" && source !== "omo-transcript" && source !== "gjc-transcript") return null;
+  const stat = statSync(path);
+  const stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
+  const signature = `${source}\0${stream.id}:${stream.length}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  const cached = commandTranscripts.get(path);
+  rememberPaneRead(paneId, path);
+  if (cached?.signature === signature) return cached.answer;
   applyHistoryBoundary(path, stream, source);
   const start = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
-  const bytes = readStream(stream, start, stream.length);
-  const text = (start > stream.floor ? bytes.subarray(bytes.indexOf(0x0a) + 1) : bytes).toString("utf8");
-  return { identity: `${source}\0${path}\0${stream.id}`, text };
+  const identity = `${source}\0${path}\0${stream.id}`;
+  const append = cached?.identity === identity && cached.floor === stream.floor
+    && cached.end <= stream.length && cached.partialStart >= start;
+  let from = append ? cached.partialStart : start;
+  let bytes = append ? Buffer.concat([cached.partial, readStream(stream, cached.end, stream.length)])
+    : readStream(stream, start, stream.length);
+  if (!append && start > stream.floor) {
+    const newline = bytes.indexOf(0x0a);
+    const skip = newline < 0 ? bytes.length : newline + 1;
+    from += skip;
+    bytes = bytes.subarray(skip);
+  }
+  const complete = bytes.lastIndexOf(0x0a) + 1;
+  const records = [
+    ...(append ? cached.records.filter((record) => record.offset >= start) : []),
+    ...commandTranscriptRecords(bytes.subarray(0, complete).toString("utf8"), from),
+  ];
+  const partial = Buffer.from(bytes.subarray(complete));
+  const partialStart = from + complete;
+  // A complete final JSON object is readable before its newline; never retain it twice on append.
+  const answer = { identity, records: [...records, ...commandTranscriptRecords(partial.toString("utf8"), partialStart)] };
+  remember(commandTranscripts, path, { signature, identity, floor: stream.floor, end: stream.length, partial, partialStart, records, answer }, 4);
+  return answer;
 }
 
 /** One page of a resolved transcript (paneConversation's `page`). */

@@ -135,10 +135,10 @@ describe("evidence-only command outcomes", () => {
     const entry = (type: string) => JSON.stringify({ type, timestamp: new Date(at + 10).toISOString(), thinkingLevel: "high" });
     for (const agent of ["pi", "omp", "gjc", "omo"]) {
       expect(outcome(send("/thinking high", agent, [row("thinking")]), { transcript: entry("thinking_level_change") }).state).toBe("result-observed");
-      expect(outcome(send("/compact", agent, [row("compact")]), { transcript: entry("compaction") }).state).toBe("result-observed");
+      expect(outcome(send("/compact", agent, [row("compact")]), { transcript: entry("compaction") }).state).toBe("accepted");
       expect(outcome(send("/myext", agent, []), { transcript: entry("compaction") }).state).toBe("accepted");
     }
-    expect(outcome(send("/compact", "codex", [row("compact")]), { transcript: entry("compacted") }).state).toBe("result-observed");
+    expect(outcome(send("/compact", "codex", [row("compact")]), { transcript: entry("compacted") }).state).toBe("accepted");
     expect(outcome(send("/context", "codex"), { transcript: local("/context") }).state).toBe("accepted");
   });
 });

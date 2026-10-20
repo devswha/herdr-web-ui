@@ -27,6 +27,11 @@ export interface CommandSend {
   dialogObserved?: true;
   /** Any later delivery ends this send's unowned card and preview window. */
   closedAt?: number;
+  /** Same-command sends retain FIFO ownership; other deliveries close transcript correlation. */
+  transcriptClosedAt?: number;
+  transcriptStore?: string;
+  transcriptEvidence?: { readonly offset: number; readonly at: number };
+  transcriptAmbiguous?: true;
   waitingSince?: number;
   settled?: { screen: string; since: number };
 }
@@ -79,7 +84,9 @@ export interface OutcomeObservation {
   readonly screen?: string;
   /** Older sends can still own result blocks, without receiving the newest send's preview. */
   readonly resultScreen?: string;
-  readonly transcript?: string;
+  readonly transcript?: string | readonly CommandTranscriptRecord[];
+  /** Assigned by the pane's FIFO ledger, not by the timestamp window of its newest send. */
+  readonly transcriptAt?: number;
   readonly readers?: readonly DialogReader[];
   readonly dialog?: { readonly id: string; readonly reader: string };
   readonly waitingSince?: number;
@@ -92,17 +99,36 @@ export const WINDOW_MS = 10 * 60_000;
 const normalize = (text: string): string => text.replace(/\s+/gu, " ").trim();
 const object = (value: unknown): Record<string, unknown> => typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
 
+export interface CommandTranscriptRecord {
+  readonly offset: number;
+  readonly entry: Readonly<Record<string, unknown>>;
+}
+
+/** Native control records only; offsets remain stable across incremental reads and viewers. */
+export function commandTranscriptRecords(text: string, start = 0): CommandTranscriptRecord[] {
+  const records: CommandTranscriptRecord[] = [];
+  let offset = start;
+  for (const line of text.split("\n")) {
+    try {
+      const entry = object(JSON.parse(line));
+      if (["system", "user", "message", "response_item", "event_msg", "model_change", "thinking_level_change", "compaction", "compacted"].includes(String(entry.type))) {
+        records.push({ offset, entry });
+      }
+    } catch { /* a torn native tail is not evidence */ }
+    offset += Buffer.byteLength(line) + 1;
+  }
+  return records;
+}
+
 /** Native envelopes, not conversational prose or the model/effort shown in a footer. */
-function transcriptEvidence(sent: CommandSend, text: string, until: number): number | null {
+function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscriptRecord[], until: number, used: ReadonlySet<number> = new Set()): { offset: number; at: number } | null {
   let echo = false;
   const invocation = sent.invocations[0];
-  for (const line of text.split("\n")) {
-    let parsed: unknown;
-    try { parsed = JSON.parse(line); } catch { continue; } // a torn native tail is not evidence
-    const entry = object(parsed);
+  for (const { offset, entry } of records) {
     const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
     if (!Number.isFinite(time) || time <= sent.at || time >= until) continue;
     const message = object(entry.message);
+    const evidence = { offset, at: time };
     if (sent.agent === "claude") {
       const local = entry.type === "system" && entry.subtype === "local_command";
       if ((entry.type === "user" && !entry.isMeta) || local) {
@@ -110,28 +136,41 @@ function transcriptEvidence(sent: CommandSend, text: string, until: number): num
         if (typeof content !== "string") { echo = false; continue; }
         // Native local commands put name before message; skill echoes put message first.
         const command = /^(?:<command-name>(\/[^<]+)<\/command-name>\s*<command-message>[^<]*<\/command-message>|<command-message>[^<]*<\/command-message>\s*<command-name>(\/[^<]+)<\/command-name>)(?:\s*<command-args>([\s\S]*)<\/command-args>)?$/u.exec(content.trim());
-        if (local && echo && /^<local-command-(stdout|stderr)>[\s\S]+<\/local-command-\1>$/u.test(content.trim())) return time;
+        if (local && echo && !used.has(offset) && /^<local-command-(stdout|stderr)>[\s\S]+<\/local-command-\1>$/u.test(content.trim())) return evidence;
         echo = command !== null && normalize(`${command[1] ?? command[2]} ${command[3] ?? ""}`) === normalize(sent.text);
         // A native user turn with the exact command text is also explicit transcript evidence.
-        if (!local && !command && normalize(content) === normalize(sent.text)) return time;
+        if (!local && !command && !used.has(offset) && normalize(content) === normalize(sent.text)) return evidence;
       }
       continue;
     }
     if (!invocation) continue;
     const name = invocation.name.toLocaleLowerCase();
     const argument = invocation.argument.split(/\s+/u)[0] ?? "";
+    const payload = object(entry.payload);
+    const user = message.role === "user" ? message.content
+      : entry.type === "event_msg" && payload.type === "user_message" ? payload.message
+      : entry.type === "response_item" && payload.role === "user" ? payload.content : undefined;
+    if (user !== undefined) {
+      const text = typeof user === "string" ? user : Array.isArray(user)
+        ? user.map((part) => object(part).text ?? "").join("\n") : "";
+      echo = normalize(text) === normalize(sent.text);
+    }
+    if (used.has(offset)) {
+      if (entry.type === "compaction" || entry.type === "compacted") echo = false;
+      continue;
+    }
     if (["pi", "omp", "gjc", "omo"].includes(sent.agent)) {
       if (entry.type === "model_change" && ["model", "models", "switch"].includes(name) && argument) {
         const model = typeof entry.model === "string" ? entry.model : entry.modelId;
         const qualified = typeof entry.provider === "string" ? `${entry.provider}/${model}` : model;
-        if (argument === model || argument === qualified || (typeof model === "string" && argument === model.slice(model.indexOf("/") + 1))) return time;
+        if (argument === model || argument === qualified || (typeof model === "string" && argument === model.slice(model.indexOf("/") + 1))) return evidence;
       }
-      if (entry.type === "thinking_level_change" && ["thinking", "effort", "efforts"].includes(name) && argument === entry.thinkingLevel) return time;
-      if (entry.type === "compaction" && name === "compact") return time;
+      if (entry.type === "thinking_level_change" && ["thinking", "effort", "efforts"].includes(name) && argument === entry.thinkingLevel) return evidence;
+      if (entry.type === "compaction" && name === "compact" && echo) return evidence;
       // omp's /handoff writes its document as an in-place compaction (method "handoff" on 18.8.7)
-      if (sent.agent === "omp" && entry.type === "compaction" && entry.method === "handoff" && name === "handoff") return time;
+      if (sent.agent === "omp" && entry.type === "compaction" && entry.method === "handoff" && name === "handoff") return evidence;
     }
-    if (sent.agent === "codex" && entry.type === "compacted" && name === "compact") return time;
+    if (sent.agent === "codex" && entry.type === "compacted" && name === "compact" && echo) return evidence;
   }
   return null;
 }
@@ -218,6 +257,7 @@ const reservationKey = (sent: CommandSend): string => JSON.stringify([sent.agent
 /** Ownership outlives the five displayed outcomes, but never its ten-minute deadline. */
 export class CommandReservations {
   private sends: CommandSend[] = [];
+  private transcriptClaims: { store: string; offset: number; until: number }[] = [];
   private dropped = new Map<string, number>();
   /** If even the bounded loss markers fill, no new ownership is guessed until they expire. */
   private overflowUntil = 0;
@@ -225,12 +265,51 @@ export class CommandReservations {
   prune(now: number): void {
     // Settled ordinals remain as bounded bookkeeping too: an in-flight send may have captured
     // its screen before that result was observed and must not reuse the settled echo's position.
+    for (const expired of this.sends) {
+      if (expired.at + WINDOW_MS > now || expired.transcriptEvidence || expired.outcome?.state === "result-observed") continue;
+      for (const pending of this.sends) {
+        if (pending.at > expired.at && reservationKey(pending) === reservationKey(expired)) pending.transcriptAmbiguous = true;
+      }
+    }
     this.sends = this.sends.filter((sent) => sent.at + WINDOW_MS > now);
+    this.transcriptClaims = this.transcriptClaims.filter((claim) => claim.until > now);
     for (const [key, until] of this.dropped) if (until <= now) this.dropped.delete(key);
   }
 
   private ambiguous(sent: CommandSend): void {
+    sent.transcriptAmbiguous = true;
     sent.resultEchoLimit = Object.fromEntries(Object.keys(sent.resultEchoes ?? {}).map((id) => [id, null]));
+  }
+
+  close(text: string, at: number): void {
+    for (const sent of this.sends) {
+      sent.closedAt ??= at;
+      if (normalize(text) !== normalize(sent.text)) sent.transcriptClosedAt ??= at;
+      sent.dialogId = undefined;
+    }
+  }
+
+  /** Reserve each native record for the oldest matching send, including off-screen sends. */
+  observeTranscript(identity: string, store: string, records: readonly CommandTranscriptRecord[], through: string | undefined): void {
+    const end = this.sends.findIndex((sent) => sent.id === through);
+    if (end < 0) return;
+    const sends = this.sends.slice(0, end + 1).filter((sent) => sent.identity === identity);
+    const used = new Set(this.transcriptClaims.filter((claim) => claim.store === store).map((claim) => claim.offset));
+    for (const sent of sends) {
+      if (sent.transcriptAmbiguous || sent.transcriptEvidence || (sent.transcriptStore !== undefined && sent.transcriptStore !== store)) continue;
+      sent.transcriptStore = store;
+      // A later unrelated delivery closes observation, not ownership: discard its late record
+      // rather than giving it to a newer same-command send.
+      const evidence = transcriptEvidence(sent, records, sent.at + WINDOW_MS, used);
+      if (!evidence) continue;
+      if (this.transcriptClaims.length >= RESULT_RESERVATION_CAP) {
+        sent.transcriptAmbiguous = true;
+        continue;
+      }
+      sent.transcriptEvidence = evidence;
+      used.add(evidence.offset);
+      this.transcriptClaims.push({ store, offset: evidence.offset, until: evidence.at + WINDOW_MS });
+    }
   }
 
   add(sent: CommandSend, readers: readonly DialogReader[]): void {
@@ -325,7 +404,8 @@ export function commandOutcome(paneId: string, sent: CommandSend, observation: O
   let resultText = previous?.result_text;
   if (previous?.state === "result-observed") state = previous.state;
   else if (state !== "terminal-required") {
-    const recorded = transcriptEvidence(sent, observation.transcript ?? "", until);
+    const records = typeof observation.transcript === "string" ? commandTranscriptRecords(observation.transcript) : observation.transcript ?? [];
+    const recorded = observation.transcriptAt ?? transcriptEvidence(sent, records, until)?.at ?? null;
     const external = observation.evidence;
     const validExternal = external && external.at > sent.at && external.at < until ? external : undefined;
     // Echo ownership, unlike timestamp-only transcript evidence, survives a later Chat send.

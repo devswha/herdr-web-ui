@@ -156,11 +156,8 @@ export function prepareCommandSend(pane: HerdrPane, text: string, screen = ""): 
 /** A message the chat just sent to a pane: one with invisible characters may be held by Claude Code. */
 export function noteSubmitted(paneId: string, text: string, command?: CommandSend & { store: string | null }): void {
   const previous = chatSent.get(paneId)?.commands ?? [];
-  for (const sent of previous) {
-    sent.closedAt ??= command?.at ?? Date.now();
-    sent.dialogId = undefined;
-  }
   const reservations = chatSent.get(paneId)?.reservations ?? new CommandReservations();
+  reservations.close(text, command?.at ?? Date.now());
   if (command) reservations.add(command, registry.readersFor(command.agent));
   const commands = command ? [...previous, command].slice(-5) : previous;
   chatSent.delete(paneId);
@@ -194,6 +191,7 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
   const open = commands.some((sent) => sent.outcome?.state !== "result-observed" && sent.form?.interaction !== "terminal"
     && now < sent.at + COMMAND_WINDOW_MS);
   const transcript = open ? await readCommandTranscript(paneId, codexHome).catch(() => null) : null;
+  if (transcript) chatSent.get(paneId)?.reservations.observeTranscript(outcomeIdentity(pane), transcript.identity, transcript.records, readSendId);
   const parsed = prompt ? parsedByPublicPrompt.get(prompt) : undefined;
   const readIndex = commands.findIndex((sent) => sent.id === readSendId);
   return commands.map((sent, index) => {
@@ -225,7 +223,8 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
       now, nextAt, screen: latest ? screen : undefined, resultScreen: same ? screen : undefined,
       readers, dialog, settledSince: sent.settled?.since,
       waitingSince: sent.waitingSince,
-      transcript: same && (sent.store === null || sent.store === transcript?.identity) ? transcript?.text : undefined,
+      transcriptAt: same && sent.transcriptEvidence && sent.transcriptEvidence.at < (sent.transcriptClosedAt ?? Infinity)
+        ? sent.transcriptEvidence.at : undefined,
     });
     sent.outcome = observed;
     return observed;
