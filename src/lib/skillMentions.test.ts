@@ -51,9 +51,9 @@ describe("createSkillMatcher", () => {
     expect(codex("start with /deepinit")).toEqual(["start with /deepinit"]);
   });
 
-  test("chips an OpenCode v2 @ skill as its name and as the id it is sent with", () => {
-    const opencode = createSkillMatcher([{ name: "pdf-tools", description: "", source: "skill", trigger: "@", id: "opencode:pdf" }], skillSyntax("opencode"))!;
-    expect(opencode("read it with @pdf-tools or @opencode:pdf, not @pdf")).toEqual(["read it with ", { raw: "@pdf-tools", name: "pdf-tools" }, " or ", { raw: "@opencode:pdf", name: "pdf-tools" }, ", not @pdf"]);
+  test("chips an OpenCode v2 @ skill as the name it is sent with, never its file's path", () => {
+    const opencode = createSkillMatcher([{ name: "pdf-tools", description: "", source: "skill", trigger: "@", id: "/skills/pdf-tools/SKILL.md" }], skillSyntax("opencode"))!;
+    expect(opencode("read it with @pdf-tools, not @pdf or @/skills/pdf-tools/SKILL.md")).toEqual(["read it with ", { raw: "@pdf-tools", name: "pdf-tools" }, ", not @pdf or @/skills/pdf-tools/SKILL.md"]);
   });
 
   test("without omo, $skill:x and [skill: x] stay plain text", () => {

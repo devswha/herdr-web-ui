@@ -197,9 +197,9 @@ export function atSkillCommands(commands: readonly SlashCommand[]): SlashCommand
   return commands.filter((command) => command.trigger === "@" && commandListed(command));
 }
 
-/** What picking an `@` skill inserts: `@` and its id, the attachment OpenCode expects (its name where a row has none). */
+/** What picking an `@` skill inserts: `@` and its name, the skill id OpenCode expects (the row's `id` is its file's path). */
 export function atSkillReplacement(command: SlashCommand): string {
-  return `@${command.id ?? command.name} `;
+  return `@${command.name} `;
 }
 
 /** The composer's status word: the shared vocabulary, with a blank state reading as READY (a shell is always ready). */

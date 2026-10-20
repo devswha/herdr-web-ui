@@ -141,10 +141,10 @@ describe("@ skills", () => {
     expect(rankSlashCommands(atSkillCommands(rows), "", {}, true)).toEqual([docs, pdf]);
   });
 
-  it("inserts @ and the row's id, or its name where it has none", () => {
+  it("inserts @ and the skill's name, never the path its id holds", () => {
     expect(atSkillReplacement(pdf)).toBe("@pdf-tools ");
     expect(atSkillReplacement(docs)).toBe("@docs-release ");
-    expect(atSkillReplacement({ ...pdf, id: "opencode:pdf" })).toBe("@opencode:pdf ");
+    expect(atSkillReplacement({ ...pdf, id: "/home/me/.config/opencode/skills/pdf-tools/SKILL.md" })).toBe("@pdf-tools ");
     const trigger = activeTrigger("see @pdf now", 8, { atSkills: true });
     expect(applyCompletion("see @pdf now", trigger!, atSkillReplacement(pdf))).toEqual({ text: "see @pdf-tools now", caret: 15 });
   });
