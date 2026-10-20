@@ -119,6 +119,9 @@ export function commandTranscriptRecords(text: string, start = 0): CommandTransc
       } else if (typeof entry.uuid === "string") {
         // Parent chains may pass through ordinary assistant/progress records; retain only links.
         records.push({ offset, entry: { uuid: entry.uuid, parentUuid: entry.parentUuid } });
+      } else if (typeof entry.id === "string") {
+        // pi branch ancestry can cross metadata entries that carry no command evidence.
+        records.push({ offset, entry: { id: entry.id, parentId: entry.parentId } });
       }
     } catch { /* a torn native tail is not evidence */ }
     offset += Buffer.byteLength(line) + 1;

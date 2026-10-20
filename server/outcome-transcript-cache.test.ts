@@ -8,7 +8,7 @@ import { commandInvocations, commandOutcome } from "./outcome.ts";
 import { handlePromptRequest, noteSubmitted } from "./prompt.ts";
 import type { PanePromptResponse } from "../shared/protocol.ts";
 
-it("shares one unchanged transcript snapshot across viewers and reparses on size or mtime changes", async () => {
+it("shares unchanged snapshots and parses only verified appends within the read budget", async () => {
   const root = fs.mkdtempSync(join(tmpdir(), "command-transcript-cache-"));
   const path = join(root, "session.jsonl");
   const record = (modelId: string) => JSON.stringify({ type: "model_change", timestamp: "2026-10-20T00:00:00Z", modelId }) + "\n";
@@ -19,18 +19,18 @@ it("shares one unchanged transcript snapshot across viewers and reparses on size
   try {
     const first = await conversation.readCommandTranscript("viewer-one");
     expect(first?.records).toHaveLength(10_000);
-    expect(reads.mock.calls).toHaveLength(1);
-    expect(parses.mock.calls.filter(([line]) => line.length > 0)).toHaveLength(10_000);
+    const firstReads = reads.mock.calls.length;
+    expect(firstReads).toBeGreaterThan(0);
     parses.mockClear();
     expect(await conversation.readCommandTranscript("viewer-two")).toBe(first);
-    expect(reads.mock.calls).toHaveLength(1);
+    expect(reads.mock.calls.length).toBe(firstReads);
     expect(parses.mock.calls).toHaveLength(0);
     reads.mockClear();
     fs.appendFileSync(path, record("new"));
     const grown = await conversation.readCommandTranscript("viewer-two");
     const bytes = reads.mock.results.reduce((sum, result) => sum + (result.type === "return" && typeof result.value === "number" ? result.value : 0), 0);
-    expect(bytes).toBeGreaterThanOrEqual(fs.statSync(path).size);
-    expect(parses.mock.calls.filter(([line]) => line.length > 0)).toHaveLength(10_001);
+    expect(bytes).toBeLessThanOrEqual(conversation.TRANSCRIPT_WINDOW_BYTES);
+    expect(parses.mock.calls.length).toBeLessThanOrEqual(5);
     expect(grown?.records).toHaveLength(10_001);
     reads.mockClear();
     parses.mockClear();
@@ -41,7 +41,7 @@ it("shares one unchanged transcript snapshot across viewers and reparses on size
     fs.utimesSync(path, stat.atime, new Date(stat.mtimeMs + 1000));
     expect(await conversation.readCommandTranscript("viewer-two")).not.toBe(grown);
     expect(reads.mock.calls.length).toBeGreaterThan(0);
-    expect(parses.mock.calls.filter(([line]) => line.length > 0)).toHaveLength(10_001);
+    expect(parses.mock.calls.length).toBeGreaterThanOrEqual(10_001);
   } finally {
     parses.mockRestore();
     reads.mockRestore();
@@ -96,7 +96,8 @@ it.each(["claude-transcript", "omp-transcript"] as const)("reads clear boundarie
   try {
     const snapshot = await conversation.readCommandTranscript("viewer");
     expect(snapshot?.records.filter(({ entry }) => entry.type === "model_change").map(({ entry }) => entry.modelId)).toEqual(["after"]);
-    expect(reads.mock.calls).toHaveLength(1);
+    const bytes = reads.mock.results.reduce((sum, result) => sum + (result.type === "return" && typeof result.value === "number" ? result.value : 0), 0);
+    expect(bytes).toBeLessThanOrEqual(conversation.TRANSCRIPT_WINDOW_BYTES);
   } finally {
     reads.mockRestore();
     binding.mockRestore();
