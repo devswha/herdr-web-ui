@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { HerdrPane } from "../shared/protocol.ts";
 import type { CommandSend } from "./outcome.ts";
 import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, releaseOpenCodePane, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
+import * as service from "./opencode-service.ts";
 import { forgetOpenCodeService, openCodeServiceOptions } from "./opencode-service.ts";
 
 const root = mkdtempSync(join(tmpdir(), "opencode-native-test-"));
@@ -38,14 +39,17 @@ describe("recording a send never waits on OpenCode's service", () => {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "service.json"), JSON.stringify({ url, pid: process.pid, password: "x", version: "2.0.32" }));
     }
-    const started = performance.now();
-    const watch = startOpenCodeWatch(pane, sent);
-    const elapsed = performance.now() - started;
-    expect(watch === null || typeof (watch as { then?: unknown }).then === "undefined").toBe(true);
-    expect(watch).not.toBeNull();
-    // registration is in-memory bookkeeping only: no request, no stream, no timer is awaited
-    expect(elapsed).toBeLessThan(5);
-    watch!.cancel();
+    const lookups = [spyOn(service, "openCodeService"), spyOn(service, "readOpenCodeService"), spyOn(service, "openCodeHasSession")];
+    try {
+      const watch = startOpenCodeWatch(pane, sent);
+      expect(watch === null || typeof (watch as { then?: unknown }).then === "undefined").toBe(true);
+      expect(watch).not.toBeNull();
+      // registration is in-memory bookkeeping only: by its return, nothing has asked for the service or its file
+      expect(lookups.map((lookup) => lookup.mock.calls.length)).toEqual([0, 0, 0]);
+      watch!.cancel();
+    } finally {
+      for (const lookup of lookups) lookup.mockRestore();
+    }
   });
 
   it("follows nothing for a pane that is not OpenCode, or a send that needs the terminal", () => {
