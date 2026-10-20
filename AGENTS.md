@@ -42,9 +42,10 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   then hand over `http://<that address>:<port>`. A Tailscale-only bind stays inside the tailnet
   (`lanExposed` in `server/access.ts`); never bind `0.0.0.0` for it. Tests keep `port: 0` on
   loopback.
-- That bind is for a throwaway preview only. A server someone installs as an app needs HTTPS:
-  bind it to `127.0.0.1` and let `tailscale serve` add the address. Moving a port that
-  `tailscale serve` already fronts to the Tailscale address breaks that HTTPS address.
+- That bind is for a throwaway preview only. A server someone installs as an app from another
+  device needs HTTPS (only `localhost` installs over plain http): bind it to `127.0.0.1` and let
+  `tailscale serve` add the address. Moving a port that `tailscale serve` already fronts to the
+  Tailscale address breaks that HTTPS address.
 - The maintainer's "herdr main" test app always serves the latest main at
   `https://home-server.tail1e211e.ts.net:17421` (user unit `herdr-web-main.service`, which
   follows origin/main by itself). Open it to try main instead of starting another main preview,
