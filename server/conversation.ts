@@ -552,12 +552,12 @@ interface TranscriptStream {
 // In-place rewrites keep the inode. Change the cursor generation when observed,
 // invalidating settled turns and incremental parsers as well as the response cache.
 const transcriptRevisions = new Map<string, { identity: string; size: number; changed: string; generation: string }>();
-function transcriptGeneration(path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }, changedPrefix = false): string {
+function transcriptGeneration(path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
   const identity = `${stat.dev}:${stat.ino}`;
   const changed = `${stat.mtimeMs}:${stat.ctimeMs}`;
   const previous = transcriptRevisions.get(path);
   const rewritten = previous && previous.identity === identity && (stat.size < previous.size || (stat.size === previous.size && changed !== previous.changed));
-  const generation = changedPrefix || rewritten ? randomUUID() : previous?.identity === identity ? previous.generation : "";
+  const generation = rewritten ? randomUUID() : previous?.identity === identity ? previous.generation : "";
   remember(transcriptRevisions, path, { identity, size: stat.size, changed, generation }, 64);
   return generation ? `-${generation}` : "";
 }
@@ -1643,11 +1643,7 @@ interface CommandTranscript {
   readonly identity: string;
   readonly records: readonly CommandTranscriptRecord[];
 }
-const commandTranscripts = new Map<string, {
-  signature: string; identity: string; floor: number; end: number; partial: Buffer; partialStart: number;
-  streamId: string; boundaryFrom: number; boundary: Buffer;
-  records: CommandTranscriptRecord[]; answer: CommandTranscript;
-}>();
+const commandTranscripts = new Map<string, { signature: string; answer: CommandTranscript }>();
 
 export async function readCommandTranscript(paneId: string, codexHome?: string): Promise<CommandTranscript | null> {
   const resolved = await paneTranscript(paneId, codexHome);
@@ -1655,50 +1651,26 @@ export async function readCommandTranscript(paneId: string, codexHome?: string):
   if (source !== "claude-transcript" && source !== "codex-transcript" && source !== "pi-transcript"
     && source !== "omp-transcript" && source !== "omo-transcript" && source !== "gjc-transcript") return null;
   const stat = statSync(path);
-  let stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
-  let signature = `${source}\0${stream.id}:${stream.length}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  const signature = `${source}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
   const cached = commandTranscripts.get(path);
   rememberPaneRead(paneId, path);
   if (cached?.signature === signature) return cached.answer;
-  // A larger file can be an in-place replacement. Recheck the last retained record and
-  // partial tail before reusing any parsed prefix; a changed boundary also changes ownership.
-  if (cached?.streamId === stream.id && cached.end <= stream.length
-    && !readStream(stream, cached.boundaryFrom, cached.end).equals(cached.boundary)) {
-    transcriptGeneration(path, stat, true);
-    stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
-    signature = `${source}\0${stream.id}:${stream.length}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-  }
-  const streamId = stream.id;
-  applyHistoryBoundary(path, stream, source);
+  // Growth does not prove an append. Reparse the bounded snapshot after every file change.
+  const stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
   const start = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
   const identity = `${source}\0${path}\0${stream.id}`;
-  const append = cached?.identity === identity && cached.floor === stream.floor
-    && cached.end <= stream.length && cached.partialStart >= start;
-  let from = append ? cached.partialStart : start;
-  let bytes = append ? Buffer.concat([cached.partial, readStream(stream, cached.end, stream.length)])
-    : readStream(stream, start, stream.length);
-  if (!append && start > stream.floor) {
+  let from = start;
+  let bytes = readStream(stream, start, stream.length);
+  if (start > stream.floor) {
     const newline = bytes.indexOf(0x0a);
     const skip = newline < 0 ? bytes.length : newline + 1;
     from += skip;
     bytes = bytes.subarray(skip);
   }
-  const complete = bytes.lastIndexOf(0x0a) + 1;
-  const records = [
-    ...(append ? cached.records.filter((record) => record.offset >= start) : []),
-    ...commandTranscriptRecords(bytes.subarray(0, complete).toString("utf8"), from),
-  ];
-  const partial = Buffer.from(bytes.subarray(complete));
-  const partialStart = from + complete;
-  // A complete final JSON object is readable before its newline; never retain it twice on append.
-  const answer = { identity, records: [...records, ...commandTranscriptRecords(partial.toString("utf8"), partialStart)] };
-  const lastLine = complete > 1 ? bytes.lastIndexOf(0x0a, complete - 2) + 1 : 0;
-  // A torn append must not discard the complete record that guards the retained prefix.
-  const boundaryFrom = append && complete === 0 ? cached.boundaryFrom : from + lastLine;
-  const boundary = append && complete === 0 ? Buffer.concat([cached.boundary, bytes.subarray(cached.partial.length)])
-    : Buffer.from(bytes.subarray(lastLine));
-  remember(commandTranscripts, path, { signature, identity, streamId, boundaryFrom, boundary,
-    floor: stream.floor, end: stream.length, partial, partialStart, records, answer }, 4);
+  const records = commandTranscriptRecords(bytes.toString("utf8"), from);
+  const cleared = records.reduce((last, { entry }, index) => isContextClear(entry, source) ? index : last, 0);
+  const answer = { identity, records: cleared > 0 ? records.slice(cleared) : records };
+  remember(commandTranscripts, path, { signature, answer }, 4);
   return answer;
 }
 

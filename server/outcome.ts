@@ -113,7 +113,8 @@ export function commandTranscriptRecords(text: string, start = 0): CommandTransc
   for (const line of text.split("\n")) {
     try {
       const entry = object(JSON.parse(line));
-      if (["system", "user", "message", "response_item", "event_msg", "model_change", "thinking_level_change", "compaction", "compacted"].includes(String(entry.type))) {
+      if (["system", "user", "message", "response_item", "event_msg", "model_change", "thinking_level_change", "compaction", "compacted"].includes(String(entry.type))
+        || (entry.type === "custom" && entry.customType === "context_clear")) {
         records.push({ offset, entry });
       } else if (typeof entry.uuid === "string") {
         // Parent chains may pass through ordinary assistant/progress records; retain only links.
@@ -179,10 +180,12 @@ function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscri
   echoOffset?: number | null, outputs?: ReadonlyMap<number, number>): { offset: number; at: number } | null {
   let echo = false;
   const invocation = sent.invocations[0];
-  const ownEcho = echoOffset === undefined && sent.agent === "claude" ? records.find(({ entry }) => {
+  // A reserved byte offset may now contain another command after an in-place rewrite.
+  const ownEcho = sent.agent === "claude" ? records.find(({ entry, offset }) => {
     const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
-    return time > sent.at && time < until && claudeCommand(entry) === normalize(sent.text);
-  })?.offset : echoOffset;
+    return (echoOffset === undefined || offset === echoOffset)
+      && time > sent.at && time < until && claudeCommand(entry) === normalize(sent.text);
+  })?.offset : undefined;
   const outputEchoes = outputs ?? (sent.agent === "claude" ? claudeOutputEchoes(records) : new Map<number, number>());
   for (const { offset, entry } of records) {
     const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
