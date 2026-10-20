@@ -162,6 +162,13 @@ describe("Command Code's permission prompt is a card", () => {
     expect(harmless?.body).toContain("printf harmless | head -5");
     expect(replaced?.id).toBeString();
     expect(replaced?.id).not.toBe(harmless?.id);
+    // a command of several lines: the lines above its last one are no title and no body
+    const multi = (first: string) => parseInteractivePrompt("cmd", run(`${first}\nrm -rf build`))?.id;
+    expect(multi("cd /tmp/scratch &&")).toBeString();
+    expect(multi("cd / &&")).not.toBe(multi("cd /tmp/scratch &&"));
+    // two heredocs that end alike
+    const heredoc = (line: string) => parseInteractivePrompt("cmd", run(`cat > notes.txt <<EOF\n${line}\nEOF`))?.id;
+    expect(heredoc("keep this")).not.toBe(heredoc("replace that"));
   });
 
   it("takes no dialog for a live one when a line typed below follows its footer", () => {

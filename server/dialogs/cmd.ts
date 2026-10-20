@@ -91,6 +91,13 @@ function parseCmdQuestion(screen: string): ParsedPrompt | null {
   // id too: a command replaced under the card makes it stale instead of approving the new one
   const bodyLines = firstRowIndex >= 0 ? lines.slice(titleIndex + 1, firstRowIndex) : [];
   const body = bodyLines.map(cleanLine).filter((line) => line && line !== question && !isDivider(line) && !/ctrl\+e/i.test(line)).join("\n") || null;
+  // The id hashes every line above the rows back to the dialog's border (or the screen's top), not
+  // only the title and body the card shows, which a guessed title cuts short: a command of several
+  // lines, a heredoc or a wrapped command must make the card stale when any of it changes. Output
+  // that changes above the dialog makes it stale too, and the answer goes to the terminal instead.
+  let top = firstRowIndex;
+  while (top > 0 && !isDivider(cleanLine(lines[top - 1]!))) top -= 1;
+  const dialog = lines.slice(top, firstRowIndex).map(cleanLine).filter(Boolean).join("\n");
   return finishPrompt("cmd", {
     kind: "approval", title, question, body,
     options: rows.map((row) => ({ label: row.label, description: null })),
@@ -103,7 +110,7 @@ function parseCmdQuestion(screen: string): ParsedPrompt | null {
     checkedOptionIndices: [],
     customMenuIndex: null,
     rejectWithEscapeIndex: null,
-  });
+  }, { body: dialog });
 }
 
 export const readers: readonly DialogReader[] = [
