@@ -503,7 +503,7 @@ export function commandOutcome(paneId: string, sent: CommandSend, observation: O
       && now - observation.settledSince >= 2000) state = "terminal-required";
     else if (observation.waitingSince !== undefined && now - observation.waitingSince >= 2000) state = "terminal-required";
   }
-  const preview = now < until && observation.screen !== undefined && observation.screen !== sent.screen
+  const preview = sent.screen !== "" && now < until && observation.screen !== undefined && observation.screen !== sent.screen
     ? observation.screen.replace(ANSI_RE, "").slice(-2000) : undefined;
   const changed = previous?.state !== state || previous.preview !== preview || previous.catalog_changed !== catalogChanged;
   return {

@@ -61,14 +61,14 @@ describe("command invocation syntax", () => {
 describe("evidence-only command outcomes", () => {
   it("never resolves from an idle screen, a generic delta, or elapsed time", () => {
     expect(outcome(send()).state).toBe("accepted");
-    const changed = outcome(send(), { screen: "a\n".repeat(2000) });
+    const changed = outcome({ ...send(), screen: "fixture-before" }, { screen: "a\n".repeat(2000) });
     expect(changed.state).toBe("accepted");
     expect(changed.preview?.length).toBe(2000);
     expect(changed.preview?.includes("\n")).toBe(true);
     expect(outcome(send(), { now: at + 600_000 }).state).toBe("unknown");
   });
   it("expires live previews at the deadline and after a later delivery", () => {
-    const sent = send("/model", "claude", [row("model", "dialog")]);
+    const sent = { ...send("/model", "claude", [row("model", "dialog")]), screen: "fixture-before" };
     expect(outcome(sent, { screen: "fixture-live", now: at + 599_999 }).preview).toBeDefined();
     expect(outcome(sent, { screen: "fixture-live", now: at + 600_000 }).preview).toBeUndefined();
     expect(outcome(sent, { screen: "fixture-live", now: at + 3 * 60 * 60_000 }).preview).toBeUndefined();

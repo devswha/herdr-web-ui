@@ -3,8 +3,9 @@ import * as client from "../herdr/client.ts";
 import * as conversation from "../conversation.ts";
 import * as commands from "../commands.ts";
 import { createSubmitText } from "./composer.ts";
-import { prepareCommandSend } from "../prompt.ts";
+import { handlePromptRequest, prepareCommandSend } from "../prompt.ts";
 import { commandOutcome } from "../outcome.ts";
+import type { PanePromptResponse } from "../../shared/protocol.ts";
 
 afterEach(() => mock.restore());
 
@@ -14,6 +15,38 @@ const roots = { omo: null, environ: null, pid: null, cwd: null };
 const submitter = () => createSubmitText({
   options: { submitDelayMs: 0 }, lastTyped: new Map(), attachments: new Map(), terminalAttach: async () => true,
   SUBMIT_DEADLINE_MS: 1000, TYPED_SETTLE_MS: 0, DRAFT_CLEAR_WAIT_MS: 0, DRAFT_CLEAR_POLL_MS: 0, SUBMIT_DELAY_MS: 0,
+});
+
+it("does not preview an unchanged pi screen after immediate delivery without a screen baseline", async () => {
+  const target = { ...pane, pane_id: "delivery-preview-fixture" };
+  let now = 20_000;
+  spyOn(Date, "now").mockImplementation(() => now);
+  spyOn(client, "paneGet").mockResolvedValue(target);
+  const delivered = spyOn(client, "agentPrompt").mockResolvedValue();
+  spyOn(conversation, "paneProcessRoots").mockResolvedValue(roots);
+  spyOn(conversation, "paneTranscript").mockRejectedValue(new Error("fixture: no native binding"));
+  spyOn(conversation, "readCommandTranscript").mockResolvedValue(null);
+  spyOn(client, "sessionSnapshot").mockResolvedValue({
+    panes: [target], layouts: [], agents: [], workspaces: [], tabs: [], protocol: 22, version: "fixture",
+  });
+  const screen = spyOn(client, "paneRead").mockResolvedValue({
+    ...target, text: "fixture-unchanged-output", source: "detection", format: "text", truncated: false,
+  });
+  await submitter()(target.pane_id, "/myext", "/myext", now);
+  expect(delivered).toHaveBeenCalledTimes(1);
+  expect(screen).not.toHaveBeenCalled();
+  now++;
+  const url = new URL(`http://localhost/api/pane/prompt?pane_id=${target.pane_id}`);
+  const shown = await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse;
+  expect(shown.outcomes?.at(-1)).toMatchObject({ state: "accepted", evidence: [] });
+  expect(shown.outcomes?.at(-1)?.preview ?? null).toBeNull();
+});
+
+it("keeps the changed-screen preview when a send-time baseline exists", () => {
+  const sent = prepareCommandSend(pane, "/myext", "fixture-before");
+  if (!sent) throw new Error("fixture command was not recorded");
+  expect(commandOutcome(pane.pane_id, sent, { now: sent.at + 1, screen: "fixture-after" }))
+    .toMatchObject({ state: "accepted", evidence: [], preview: "fixture-after" });
 });
 
 for (const dependency of ["process-info", "transcript", "catalog", "snapshot"] as const) {
