@@ -1007,6 +1007,8 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     snap.tabs = [...snap.tabs.filter((t) => t !== tab), { ...tab, tab_id: tabId, workspace_id: to, number, focused: false }];
     snap.layouts = snap.layouts.filter((l) => l.tab_id !== tab.tab_id);
     Object.assign(panes[0]!, { tab_id: tabId, workspace_id: to, focused: false });
+    const agent = snap.agents.find((entry) => entry.pane_id === panes[0]!.pane_id);
+    if (agent) Object.assign(agent, { tab_id: tabId, workspace_id: to });
     addDemoLayout(to, tabId, panes[0]!.pane_id);
     if (autoTabs.delete(tab.tab_id)) autoTabs.add(tabId);
     relabelAutoTabs(from);
@@ -1015,8 +1017,19 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
       w.tab_count = snap.tabs.filter((t) => t.workspace_id === w.workspace_id).length;
       w.pane_count = snap.panes.filter((p) => p.workspace_id === w.workspace_id).length;
     }
-    // a workspace's last tab takes the workspace with it
-    if (!snap.tabs.some((t) => t.workspace_id === from)) snap.workspaces = snap.workspaces.filter((w) => w.workspace_id !== from);
+    // a workspace's last tab takes the workspace with it; one that stays opens another tab
+    const left = snap.tabs.find((t) => t.workspace_id === from);
+    if (!left) snap.workspaces = snap.workspaces.filter((w) => w.workspace_id !== from);
+    else for (const w of snap.workspaces) if (w.active_tab_id === tab.tab_id) w.active_tab_id = left.tab_id;
+    // herdr's focus on the moved pane goes with it, as the demo keeps the pane's ID
+    if (snap.focused_tab_id === tab.tab_id) {
+      snap.focused_tab_id = tabId;
+      snap.focused_workspace_id = to;
+      workspace.active_tab_id = tabId;
+    }
+    panes[0]!.focused = panes[0]!.pane_id === snap.focused_pane_id;
+    for (const t of snap.tabs) t.focused = t.tab_id === snap.focused_tab_id;
+    for (const w of snap.workspaces) w.focused = w.workspace_id === snap.focused_workspace_id;
     structureChanged();
     return json({ ok: true, pane_id: panes[0]!.pane_id, tab_id: tabId } satisfies TabMovedToWorkspace);
   }
