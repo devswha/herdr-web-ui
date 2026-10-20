@@ -7,7 +7,7 @@ import { commandInvocations, commandTranscriptRecords, CommandReservations, type
 
 afterEach(() => mock.restore());
 for (const delayed of [true, false]) {
-  it(`assigns repeated /context records FIFO when the first result is ${delayed ? "after" : "before"} the second send`, async () => {
+  it(`assigns repeated /context records FIFO once unambiguous when the first result is ${delayed ? "after" : "before"} the second send`, async () => {
     const at = Date.parse("2026-10-20T00:00:00Z");
     let now = at;
     spyOn(Date, "now").mockImplementation(() => now);
@@ -41,7 +41,7 @@ for (const delayed of [true, false]) {
     now += 10;
     if (delayed) transcript = records(now);
     expect((await poll()).outcomes?.map(({ id, state }) => [id, state])).toEqual([
-      ["first", "result-observed"], ["second", "accepted"],
+      ["first", delayed ? "unknown" : "result-observed"], ["second", "accepted"],
     ]);
     now += 10;
     transcript += records(now);

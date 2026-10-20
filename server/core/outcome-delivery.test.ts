@@ -2,6 +2,7 @@ import { afterEach, expect, it, mock, spyOn } from "bun:test";
 import * as client from "../herdr/client.ts";
 import * as conversation from "../conversation.ts";
 import * as commands from "../commands.ts";
+import * as prompt from "../prompt.ts";
 import { createSubmitText } from "./composer.ts";
 import { handlePromptRequest, prepareCommandSend } from "../prompt.ts";
 import { commandOutcome } from "../outcome.ts";
@@ -47,6 +48,24 @@ it("keeps the changed-screen preview when a send-time baseline exists", () => {
   if (!sent) throw new Error("fixture command was not recorded");
   expect(commandOutcome(pane.pane_id, sent, { now: sent.at + 1, screen: "fixture-after" }))
     .toMatchObject({ state: "accepted", evidence: [], preview: "fixture-after" });
+});
+
+it("keeps repeated omp model outcomes under the original command rather than its switch alias", async () => {
+  const target = { ...pane, pane_id: "omp-model-alias", agent: "omp",
+    agent_session: { agent: "omp", kind: "path", source: "herdr:omp", value: "/fixture/session.jsonl" } };
+  let now = 50_000;
+  spyOn(Date, "now").mockImplementation(() => now);
+  spyOn(client, "paneGet").mockResolvedValue(target);
+  const deliver = spyOn(client, "agentPrompt").mockResolvedValue();
+  const prepare = spyOn(prompt, "prepareCommandSend");
+  await submitter()(target.pane_id, "/model", "/model", now);
+  now++;
+  await submitter()(target.pane_id, "/model", "/model", now);
+  expect(deliver).toHaveBeenNthCalledWith(1, target.pane_id, "/switch");
+  expect(deliver).toHaveBeenNthCalledWith(2, target.pane_id, "/switch");
+  const first = prepare.mock.results[0]?.value as ReturnType<typeof prepareCommandSend>;
+  expect(first?.text).toBe("/model");
+  expect(first?.transcriptClosedAt).toBeUndefined();
 });
 
 for (const dependency of ["process-info", "transcript", "catalog", "snapshot"] as const) {

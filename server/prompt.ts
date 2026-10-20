@@ -157,7 +157,7 @@ export function prepareCommandSend(pane: HerdrPane, text: string, screen = ""): 
 export function noteSubmitted(paneId: string, text: string, command?: CommandSend & { store: string | null }): void {
   const previous = chatSent.get(paneId)?.commands ?? [];
   const reservations = chatSent.get(paneId)?.reservations ?? new CommandReservations();
-  reservations.close(text, command?.at ?? Date.now());
+  reservations.close(command?.text ?? text, command?.at ?? Date.now());
   if (command) reservations.add(command, registry.readersFor(command.agent));
   const commands = command ? [...previous, command].slice(-5) : previous;
   chatSent.delete(paneId);
@@ -1819,8 +1819,10 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         }
         answered = true;
         const sent = chatSent.get(body.pane_id)?.commands.at(-1);
-        // the card's Esc row (a cancel or refusal: omp's handoff Cancel, Codex's No) is not the command's result
-        if (committed && sent?.dialogId === prompt.id && body.option_index !== parsed.rejectWithEscapeIndex) noteCommandEvidence(body.pane_id, sent.id, { kind: "dialog", at: Date.now() });
+        // An incidental question only unblocks the command; only its named dialog can complete it.
+        // The card's Esc row (a cancel or refusal: omp's handoff Cancel, Codex's No) is not a result.
+        if (committed && sent?.dialogId === prompt.id && sent.form?.dialog === parsed.responder
+          && body.option_index !== parsed.rejectWithEscapeIndex) noteCommandEvidence(body.pane_id, sent.id, { kind: "dialog", at: Date.now() });
       } catch (error) {
         if (error instanceof InvalidAnswer) return badRequest("invalid_answer", error.message);
         throw error;

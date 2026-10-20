@@ -181,11 +181,12 @@ function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscri
   let echo = false;
   const invocation = sent.invocations[0];
   // A reserved byte offset may now contain another command after an in-place rewrite.
-  const ownEcho = sent.agent === "claude" ? records.find(({ entry, offset }) => {
+  const matchingEchoes = sent.agent === "claude" ? records.filter(({ entry, offset }) => {
     const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
     return (echoOffset === undefined || offset === echoOffset)
       && time > sent.at && time < until && claudeCommand(entry) === normalize(sent.text);
-  })?.offset : undefined;
+  }) : [];
+  const ownEcho = matchingEchoes.length === 1 ? matchingEchoes[0]!.offset : undefined;
   const outputEchoes = outputs ?? (sent.agent === "claude" ? claudeOutputEchoes(records) : new Map<number, number>());
   for (const { offset, entry } of records) {
     const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
@@ -362,12 +363,27 @@ export class CommandReservations {
     for (const sent of sends) {
       if (sent.transcriptAmbiguous || sent.transcriptEvidence || (sent.transcriptStore !== undefined && sent.transcriptStore !== store)) continue;
       sent.transcriptStore = store;
-      if (sent.agent === "claude" && sent.transcriptEcho === undefined) {
-        const echo = records.find(({ entry, offset }) => {
+      if (sent.agent === "claude") {
+        const candidates = records.filter(({ entry, offset }) => {
           const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
-          return !echoes.has(offset) && time > sent.at && time < sent.at + WINDOW_MS && claudeCommand(entry) === normalize(sent.text);
+          return (!echoes.has(offset) || offset === sent.transcriptEcho)
+            && time > sent.at && time < sent.at + WINDOW_MS && claudeCommand(entry) === normalize(sent.text);
         });
-        if (echo) {
+        const pending = sends.filter(other => other.agent === sent.agent && normalize(other.text) === normalize(sent.text)
+          && !other.transcriptEvidence && !other.transcriptAmbiguous
+          && (other === sent || other.transcriptEcho === undefined)
+          && (other.transcriptStore === undefined || other.transcriptStore === store)
+          && candidates.some(({ entry }) => {
+            const time = Date.parse(String(entry.timestamp));
+            return time > other.at && time < other.at + WINDOW_MS;
+          }));
+        if (candidates.length > pending.length) {
+          for (const other of pending) other.transcriptAmbiguous = true;
+          continue;
+        }
+        if (candidates.length < pending.length) continue;
+        const echo = candidates[0];
+        if (echo && sent.transcriptEcho === undefined) {
           if (this.transcriptEchoes.length >= RESULT_RESERVATION_CAP) { sent.transcriptAmbiguous = true; continue; }
           sent.transcriptEcho = echo.offset;
           echoes.add(echo.offset);

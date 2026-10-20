@@ -321,8 +321,9 @@ async function withFakeHerdr(pane: { agent: string; status: string; screen: stri
     socket.on("data", (chunk) => {
       input += chunk;
       if (!input.includes("\n")) return;
-      const request = JSON.parse(input) as { id: string; method: string; params?: { keys?: unknown } };
+      const request = JSON.parse(input) as { id: string; method: string; params?: { keys?: unknown; text?: unknown } };
       if (request.method === "pane.send_keys") keys.push(request.params?.keys);
+      if (request.method === "pane.send_text") keys.push(request.params?.text);
       const result = request.method === "session.snapshot"
         ? { snapshot: { panes: [{ pane_id: paneId, agent: pane.agent, agent_status: pane.status }], layouts: [] } }
         : { read: { text: pane.screen } };
@@ -347,6 +348,70 @@ const served = async (paneId: string): Promise<PanePromptResponse> =>
   await (await handlePromptRequest(new Request(promptUrl(paneId)), promptUrl(paneId)))?.json() as PanePromptResponse;
 
 describe("integrated dialog readers", () => {
+  it("keeps a skill running after answering its incidental question below the echo", async () => {
+    const pane = { agent: "claude", status: "blocked", screen: `fixture-anchor\n> /review
+☐ Dataset
+
+Which evaluation dataset should we use?
+
+❯ 1. LM-O
+     Occlusion benchmark.
+  2. YCB-V
+     Household objects.
+  3. Type something.
+────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+` };
+    await withFakeHerdr(pane, async (paneId) => {
+      const current = { ...send("/review", "claude", [{ ...row("review"), source: "skill" }]),
+        at: Date.now() - 10, screen: "fixture-anchor", identity: JSON.stringify([undefined, undefined]), store: null };
+      noteSubmitted(paneId, current.text, current);
+      const shown = await served(paneId);
+      expect(shown.prompt?.kind).toBe("question");
+      expect(shown.outcomes?.at(-1)?.state).toBe("interaction-required");
+      const url = new URL("http://localhost/api/pane/prompt/answer");
+      const answered = await handlePromptRequest(new Request(url, { method: "POST",
+        body: JSON.stringify({ pane_id: paneId, prompt_id: shown.prompt!.id, option_index: 0 }) }), url);
+      expect(answered?.status).toBe(200);
+      pane.status = "working";
+      pane.screen = "fixture-anchor\n> /review\n● Working on it…";
+      expect((await served(paneId)).outcomes?.at(-1)).toMatchObject({ state: "accepted", evidence: [] });
+    });
+  });
+
+  it("completes a named Claude model card through the real answer handler", async () => {
+    const pane = { agent: "claude", status: "idle", screen: `❯ /model
+
+────────────────────────────────────────────────────────────────────────────────
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions.
+
+  ❯ 1. Opus 5.5 ✔             For complex work and everyday tasks
+    2. Sonnet 5.5             Most efficient for simpler tasks
+
+  ◐ Medium effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this session only · Esc to cancel
+` };
+    await withFakeHerdr(pane, async (paneId, keys) => {
+      const current = { ...send("/model", "claude", [{ ...row("model", "dialog"), forms: claudeSource.forms!.model }]),
+        at: Date.now() - 10, screen: "fixture-anchor", identity: JSON.stringify([undefined, undefined]), store: null };
+      noteSubmitted(paneId, current.text, current);
+      const shown = await served(paneId);
+      expect(shown.outcomes?.at(-1)?.state).toBe("interaction-required");
+      expect(shown.prompt?.kind).toBe("question");
+      const url = new URL("http://localhost/api/pane/prompt/answer");
+      const answered = await handlePromptRequest(new Request(url, { method: "POST",
+        body: JSON.stringify({ pane_id: paneId, prompt_id: shown.prompt!.id, option_index: 0 }) }), url);
+      expect(answered?.status).toBe(200);
+      expect(keys.length).toBeGreaterThan(0);
+      pane.screen = "fixture-anchor\n> ";
+      expect((await served(paneId)).outcomes?.at(-1)).toMatchObject({ state: "result-observed", evidence: [{ kind: "dialog" }] });
+    });
+  });
+
   it("closes a command's card correlation when a later plain message is sent", async () => {
     const pane = { agent: "claude", status: "idle", screen: fixture("claude-goal-2.1.304-active-120.txt") };
     await withFakeHerdr(pane, async (paneId) => {
