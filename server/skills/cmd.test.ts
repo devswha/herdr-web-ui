@@ -166,6 +166,23 @@ describe("Command Code command catalog", () => {
     expect(names).not.toContain("user-extra");
   });
 
+  it("reads a custom command's description from its first 64 KiB only", () => {
+    const home = temp();
+    put(join(home, ".commandcode", "commands", "huge.md"), "x".repeat(2 * 1024 * 1024));
+    const huge = source.discover(context(home)).find(({ name }) => name === "huge");
+    expect(huge?.description.length).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it("keeps the catalog when a configured skill path is a file", () => {
+    const home = temp();
+    const repo = join(temp(), "repo");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    put(join(repo, "loose.md"), "---\nname: loose\ndescription: Loose\n---\n");
+    put(join(repo, ".commandcode", "settings.json"), JSON.stringify({ skills: ["./loose.md"] }));
+    const names = source.discover(context(home, repo)).map(({ name }) => name);
+    expect(names).toContain("agent-browser");
+  });
+
   it("lets settings.local.json replace project skill locations at highest priority", () => {
     const home = temp();
     const repo = join(temp(), "repo");

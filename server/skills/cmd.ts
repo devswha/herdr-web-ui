@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AgentCommandContext, AgentCommandSource } from "./index.ts";
-import { ancestorsToRepoRoot, customCommands, walkSkills } from "./walk.ts";
+import { ancestorsToRepoRoot, customCommands, readSkillText, walkSkills } from "./walk.ts";
 import type { SlashCommand } from "../../shared/protocol.ts";
 
 const descriptions: Readonly<Record<string, string>> = {
@@ -159,7 +158,8 @@ const recursiveSkills = (root: string): ReturnType<typeof walkSkills> =>
 
 const readSettings = (path: string): Record<string, unknown> => {
   try {
-    const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+    // bounded and regular files only: a FIFO or a link to /dev/zero committed as settings must not block the server
+    const value: unknown = JSON.parse(readSkillText(path));
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
   } catch { return {}; }
 };
@@ -190,7 +190,8 @@ function commandsAt(root: string, origin: SlashCommand["source"]): SlashCommand[
 
 function extraSkills(path: string, base: string, home: string, origin: "user" | "project", shadowed: ReadonlySet<string>, disabled: ReadonlySet<string>): SlashCommand[] {
   const expanded = path === "~" || path.startsWith("~/") ? join(home, path.slice(2)) : path;
-  return skillsAt(resolve(base, expanded), origin, shadowed, disabled);
+  // a configured path that is no folder lists nothing, and hides nothing else
+  try { return skillsAt(resolve(base, expanded), origin, shadowed, disabled); } catch { return []; }
 }
 
 function discoverSkills(ctx: AgentCommandContext, shadowed: ReadonlySet<string>): SlashCommand[] {

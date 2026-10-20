@@ -41,6 +41,10 @@ function parseFrontmatter(markdown: string): Readonly<Record<string, unknown>> |
 // much, and only when it is a regular file (a link to /dev/zero or a huge file would stall it).
 const MAX_SKILL_BYTES = 64 * 1024;
 
+// A walk visits at most this many folders. Its link guard covers the current branch only, so sibling
+// links to shared folders make an acyclic tree exponential, and discovery runs on the server's thread.
+const MAX_WALK_FOLDERS = 4096;
+
 /**
  * The path checked before it is opened, then the descriptor itself: a FIFO swapped in between would
  * block a plain open, so it opens non-blocking (a regular file ignores the flag) and is refused there.
@@ -148,7 +152,9 @@ export function walkSkills(root: string, rules: WalkRules): WalkedSkill[] {
     }
     return result;
   }
+  let folders = MAX_WALK_FOLDERS;
   const visit = (directory: string): void => {
+    if (folders-- <= 0) return;
     let canonical: string;
     try { canonical = realpathSync(directory); } catch { return; }
     if (ancestors.has(canonical)) return;
@@ -217,7 +223,9 @@ export function customCommands(root: string, source: SlashCommand["source"]): Sl
   const result: SlashCommand[] = [];
   // Guard only the current ancestry: sibling links can expose different command namespaces.
   const ancestors = new Set<string>();
+  let folders = MAX_WALK_FOLDERS;
   const visit = (directory: string): void => {
+    if (folders-- <= 0) return;
     let canonical: string;
     try { canonical = realpathSync(directory); } catch { return; }
     if (ancestors.has(canonical)) return;
@@ -230,7 +238,7 @@ export function customCommands(root: string, source: SlashCommand["source"]): Sl
           if (target.isDirectory()) visit(path);
           else if (target.isFile() && entry.name.endsWith(".md")) {
             const relativeName = relative(root, path).slice(0, -3).split(sep).join(":");
-            result.push({ name: relativeName, description: description(readFileSync(path, "utf8")), source, id: canonicalFile(path) });
+            result.push({ name: relativeName, description: description(readSkillText(path)), source, id: canonicalFile(path) });
           }
         } catch { continue; }
       }
