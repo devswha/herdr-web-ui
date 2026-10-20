@@ -30,6 +30,8 @@ export interface CommandSend {
   /** Same-command sends retain FIFO ownership; other deliveries close transcript correlation. */
   transcriptClosedAt?: number;
   transcriptStore?: string;
+  /** Reserve the native echo before any of its outputs arrive. */
+  transcriptEcho?: number;
   transcriptEvidence?: { readonly offset: number; readonly at: number };
   transcriptAmbiguous?: true;
   waitingSince?: number;
@@ -113,6 +115,9 @@ export function commandTranscriptRecords(text: string, start = 0): CommandTransc
       const entry = object(JSON.parse(line));
       if (["system", "user", "message", "response_item", "event_msg", "model_change", "thinking_level_change", "compaction", "compacted"].includes(String(entry.type))) {
         records.push({ offset, entry });
+      } else if (typeof entry.uuid === "string") {
+        // Parent chains may pass through ordinary assistant/progress records; retain only links.
+        records.push({ offset, entry: { uuid: entry.uuid, parentUuid: entry.parentUuid } });
       }
     } catch { /* a torn native tail is not evidence */ }
     offset += Buffer.byteLength(line) + 1;
@@ -120,10 +125,65 @@ export function commandTranscriptRecords(text: string, start = 0): CommandTransc
   return records;
 }
 
+function claudeCommand(entry: Readonly<Record<string, unknown>>): string | null {
+  const content = entry.type === "system" && entry.subtype === "local_command" ? entry.content
+    : entry.type === "user" && !entry.isMeta ? object(entry.message).content : undefined;
+  if (typeof content !== "string") return null;
+  // Native local commands put name before message; skill echoes put message first.
+  const command = /^(?:<command-name>(\/[^<]+)<\/command-name>\s*<command-message>[^<]*<\/command-message>|<command-message>[^<]*<\/command-message>\s*<command-name>(\/[^<]+)<\/command-name>)(?:\s*<command-args>([\s\S]*)<\/command-args>)?$/u.exec(content.trim());
+  return command ? normalize(`${command[1] ?? command[2]} ${command[3] ?? ""}`) : null;
+}
+
+/** Linked output follows its nearest command ancestor. Only unlinked output uses echo FIFO. */
+function claudeOutputEchoes(records: readonly CommandTranscriptRecord[]): ReadonlyMap<number, number> {
+  const byId = new Map<string, CommandTranscriptRecord | null>();
+  for (const record of records) {
+    const id = record.entry.uuid;
+    if (typeof id === "string") byId.set(id, byId.has(id) ? null : record);
+  }
+  const pending: number[] = [];
+  const outputs = new Map<number, number>();
+  const completed = new Set<number>();
+  for (const record of records) {
+    const { entry, offset } = record;
+    if (claudeCommand(entry) !== null) { pending.push(offset); continue; }
+    if (entry.type !== "system" || entry.subtype !== "local_command" || typeof entry.content !== "string"
+      || !/^<local-command-(stdout|stderr)>[\s\S]+<\/local-command-\1>$/u.test(entry.content.trim())) {
+      if ((entry.type === "user" && !entry.isMeta) || (entry.type === "system" && entry.subtype === "local_command")) pending.length = 0;
+      continue;
+    }
+    let echo: number | undefined;
+    if (entry.parentUuid === undefined || entry.parentUuid === null) echo = pending.shift();
+    else {
+      let parent: unknown = entry.parentUuid;
+      const seen = new Set<string>();
+      while (typeof parent === "string" && !seen.has(parent)) {
+        seen.add(parent);
+        const ancestor = byId.get(parent);
+        if (!ancestor || ancestor.offset >= offset) break;
+        if (claudeCommand(ancestor.entry) !== null) { echo = ancestor.offset; break; }
+        parent = ancestor.entry.parentUuid;
+      }
+      const index = echo === undefined ? -1 : pending.indexOf(echo);
+      if (index >= 0) pending.splice(index, 1);
+    }
+    if (echo === undefined || completed.has(echo)) continue;
+    outputs.set(offset, echo);
+    completed.add(echo);
+  }
+  return outputs;
+}
+
 /** Native envelopes, not conversational prose or the model/effort shown in a footer. */
-function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscriptRecord[], until: number, used: ReadonlySet<number> = new Set()): { offset: number; at: number } | null {
+function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscriptRecord[], until: number, used: ReadonlySet<number> = new Set(),
+  echoOffset?: number | null, outputs?: ReadonlyMap<number, number>): { offset: number; at: number } | null {
   let echo = false;
   const invocation = sent.invocations[0];
+  const ownEcho = echoOffset === undefined && sent.agent === "claude" ? records.find(({ entry }) => {
+    const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+    return time > sent.at && time < until && claudeCommand(entry) === normalize(sent.text);
+  })?.offset : echoOffset;
+  const outputEchoes = outputs ?? (sent.agent === "claude" ? claudeOutputEchoes(records) : new Map<number, number>());
   for (const { offset, entry } of records) {
     const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
     if (!Number.isFinite(time) || time <= sent.at || time >= until) continue;
@@ -133,13 +193,10 @@ function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscri
       const local = entry.type === "system" && entry.subtype === "local_command";
       if ((entry.type === "user" && !entry.isMeta) || local) {
         const content = local ? entry.content : message.content;
-        if (typeof content !== "string") { echo = false; continue; }
-        // Native local commands put name before message; skill echoes put message first.
-        const command = /^(?:<command-name>(\/[^<]+)<\/command-name>\s*<command-message>[^<]*<\/command-message>|<command-message>[^<]*<\/command-message>\s*<command-name>(\/[^<]+)<\/command-name>)(?:\s*<command-args>([\s\S]*)<\/command-args>)?$/u.exec(content.trim());
-        if (local && echo && !used.has(offset) && /^<local-command-(stdout|stderr)>[\s\S]+<\/local-command-\1>$/u.test(content.trim())) return evidence;
-        echo = command !== null && normalize(`${command[1] ?? command[2]} ${command[3] ?? ""}`) === normalize(sent.text);
+        if (typeof content !== "string") continue;
+        if (local && ownEcho !== undefined && ownEcho !== null && !used.has(offset) && outputEchoes.get(offset) === ownEcho) return evidence;
         // A native user turn with the exact command text is also explicit transcript evidence.
-        if (!local && !command && !used.has(offset) && normalize(content) === normalize(sent.text)) return evidence;
+        if (!local && claudeCommand(entry) === null && !used.has(offset) && normalize(content) === normalize(sent.text)) return evidence;
       }
       continue;
     }
@@ -258,6 +315,7 @@ const reservationKey = (sent: CommandSend): string => JSON.stringify([sent.agent
 export class CommandReservations {
   private sends: CommandSend[] = [];
   private transcriptClaims: { store: string; offset: number; until: number }[] = [];
+  private transcriptEchoes: { store: string; offset: number; until: number }[] = [];
   private dropped = new Map<string, number>();
   /** If even the bounded loss markers fill, no new ownership is guessed until they expire. */
   private overflowUntil = 0;
@@ -273,6 +331,7 @@ export class CommandReservations {
     }
     this.sends = this.sends.filter((sent) => sent.at + WINDOW_MS > now);
     this.transcriptClaims = this.transcriptClaims.filter((claim) => claim.until > now);
+    this.transcriptEchoes = this.transcriptEchoes.filter((claim) => claim.until > now);
     for (const [key, until] of this.dropped) if (until <= now) this.dropped.delete(key);
   }
 
@@ -295,12 +354,27 @@ export class CommandReservations {
     if (end < 0) return;
     const sends = this.sends.slice(0, end + 1).filter((sent) => sent.identity === identity);
     const used = new Set(this.transcriptClaims.filter((claim) => claim.store === store).map((claim) => claim.offset));
+    const echoes = new Set(this.transcriptEchoes.filter((claim) => claim.store === store).map((claim) => claim.offset));
+    const outputs = claudeOutputEchoes(records);
     for (const sent of sends) {
       if (sent.transcriptAmbiguous || sent.transcriptEvidence || (sent.transcriptStore !== undefined && sent.transcriptStore !== store)) continue;
       sent.transcriptStore = store;
+      if (sent.agent === "claude" && sent.transcriptEcho === undefined) {
+        const echo = records.find(({ entry, offset }) => {
+          const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+          return !echoes.has(offset) && time > sent.at && time < sent.at + WINDOW_MS && claudeCommand(entry) === normalize(sent.text);
+        });
+        if (echo) {
+          if (this.transcriptEchoes.length >= RESULT_RESERVATION_CAP) { sent.transcriptAmbiguous = true; continue; }
+          sent.transcriptEcho = echo.offset;
+          echoes.add(echo.offset);
+          this.transcriptEchoes.push({ store, offset: echo.offset, until: Date.parse(String(echo.entry.timestamp)) + WINDOW_MS });
+        }
+      }
       // A later unrelated delivery closes observation, not ownership: discard its late record
       // rather than giving it to a newer same-command send.
-      const evidence = transcriptEvidence(sent, records, sent.at + WINDOW_MS, used);
+      const evidence = transcriptEvidence(sent, records, sent.at + WINDOW_MS, used,
+        sent.agent === "claude" ? sent.transcriptEcho ?? null : undefined, outputs);
       if (!evidence) continue;
       if (this.transcriptClaims.length >= RESULT_RESERVATION_CAP) {
         sent.transcriptAmbiguous = true;
@@ -408,7 +482,7 @@ export function commandOutcome(paneId: string, sent: CommandSend, observation: O
     const recorded = observation.transcriptAt ?? transcriptEvidence(sent, records, until)?.at ?? null;
     const external = observation.evidence;
     const validExternal = external && external.at > sent.at && external.at < until ? external : undefined;
-    // Echo ownership, unlike timestamp-only transcript evidence, survives a later Chat send.
+    // Reserved screen echoes, like native records, can still belong to an earlier Chat send.
     const result = now < sent.at + WINDOW_MS
       ? recognizedResult(sent, observation.resultScreen ?? observation.screen ?? "", observation.readers ?? []) : null;
     if (recorded !== null || validExternal || result) {

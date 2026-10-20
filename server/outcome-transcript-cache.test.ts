@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as conversation from "./conversation.ts";
 import * as client from "./herdr/client.ts";
-import { commandInvocations } from "./outcome.ts";
+import { commandInvocations, commandOutcome } from "./outcome.ts";
 import { handlePromptRequest, noteSubmitted } from "./prompt.ts";
 import type { PanePromptResponse } from "../shared/protocol.ts";
 
@@ -109,6 +109,33 @@ it("does not complete /context through the prompt route after its cached echo is
     snapshot.mockRestore();
     binding.mockRestore();
     clock.mockRestore();
+    conversation.forgetTranscriptState();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("keeps the complete record's rewrite guard across a torn append", async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), "command-partial-boundary-"));
+  const path = join(root, "session.jsonl");
+  const at = Date.parse("2026-10-20T00:00:00Z");
+  const echo = (name: string) => JSON.stringify({ type: "system", subtype: "local_command",
+    timestamp: new Date(at + 10).toISOString(),
+    content: `<command-name>${name}</command-name>\n<command-message>command</command-message>` }) + "\n";
+  const stdout = JSON.stringify({ type: "system", subtype: "local_command", timestamp: new Date(at + 20).toISOString(),
+    content: "<local-command-stdout>fixture-output</local-command-stdout>" }) + "\n";
+  const binding = spyOn(conversation, "paneTranscript").mockResolvedValue({ source: "claude-transcript", path });
+  try {
+    fs.writeFileSync(path, echo("/context"));
+    await conversation.readCommandTranscript("one");
+    fs.appendFileSync(path, stdout.slice(0, 50));
+    await conversation.readCommandTranscript("one");
+    fs.writeFileSync(path, echo("/version") + stdout);
+    const rewritten = await conversation.readCommandTranscript("two");
+    const sent = { id: "context", text: "/context", at, agent: "claude", identity: "fixture", screen: "", form: null,
+      invocations: commandInvocations("claude", "/context", []) };
+    expect(commandOutcome("pane", sent, { now: at + 30, transcript: rewritten?.records }).state).toBe("accepted");
+  } finally {
+    binding.mockRestore();
     conversation.forgetTranscriptState();
     fs.rmSync(root, { recursive: true, force: true });
   }

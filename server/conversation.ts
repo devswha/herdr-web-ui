@@ -1645,7 +1645,7 @@ interface CommandTranscript {
 }
 const commandTranscripts = new Map<string, {
   signature: string; identity: string; floor: number; end: number; partial: Buffer; partialStart: number;
-  streamId: string; boundaryFrom: number; boundaryHash: string;
+  streamId: string; boundaryFrom: number; boundary: Buffer;
   records: CommandTranscriptRecord[]; answer: CommandTranscript;
 }>();
 
@@ -1663,7 +1663,7 @@ export async function readCommandTranscript(paneId: string, codexHome?: string):
   // A larger file can be an in-place replacement. Recheck the last retained record and
   // partial tail before reusing any parsed prefix; a changed boundary also changes ownership.
   if (cached?.streamId === stream.id && cached.end <= stream.length
-    && createHash("sha256").update(readStream(stream, cached.boundaryFrom, cached.end)).digest("hex") !== cached.boundaryHash) {
+    && !readStream(stream, cached.boundaryFrom, cached.end).equals(cached.boundary)) {
     transcriptGeneration(path, stat, true);
     stream = transcriptStream(source, path, stat, resolved.codexHome ?? codexHome ?? defaultCodexHome());
     signature = `${source}\0${stream.id}:${stream.length}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
@@ -1693,9 +1693,11 @@ export async function readCommandTranscript(paneId: string, codexHome?: string):
   // A complete final JSON object is readable before its newline; never retain it twice on append.
   const answer = { identity, records: [...records, ...commandTranscriptRecords(partial.toString("utf8"), partialStart)] };
   const lastLine = complete > 1 ? bytes.lastIndexOf(0x0a, complete - 2) + 1 : 0;
-  const boundaryFrom = from + lastLine;
-  const boundaryHash = createHash("sha256").update(bytes.subarray(lastLine)).digest("hex");
-  remember(commandTranscripts, path, { signature, identity, streamId, boundaryFrom, boundaryHash,
+  // A torn append must not discard the complete record that guards the retained prefix.
+  const boundaryFrom = append && complete === 0 ? cached.boundaryFrom : from + lastLine;
+  const boundary = append && complete === 0 ? Buffer.concat([cached.boundary, bytes.subarray(cached.partial.length)])
+    : Buffer.from(bytes.subarray(lastLine));
+  remember(commandTranscripts, path, { signature, identity, streamId, boundaryFrom, boundary,
     floor: stream.floor, end: stream.length, partial, partialStart, records, answer }, 4);
   return answer;
 }
