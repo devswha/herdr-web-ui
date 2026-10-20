@@ -1702,10 +1702,12 @@ export async function readCommandTranscript(paneId: string, codexHome?: string):
       }
       if (nodes[index - 1]?.entry.id !== parentId) forks.push(String(record.entry.id));
       const parent = typeof parentId === "string" ? byId.get(parentId) : undefined;
+      // In append-only pi histories, ancestors beyond a cut window precede its active path.
+      if (!parent && typeof parentId === "string" && start > 0) { rooted = true; break; }
       if (!parent || parent.record.offset >= record.offset) break;
       node = parent;
     }
-    // An absent ancestor or ambiguous index cannot prove which branch owns the evidence.
+    // An unexplained missing ancestor or ambiguous index cannot prove branch ownership.
     current = rooted ? active.reverse() : [];
     branch = rooted ? createHash("sha256").update(forks.join("\0")).digest("hex") : "unresolved";
   }
