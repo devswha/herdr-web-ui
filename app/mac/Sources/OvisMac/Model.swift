@@ -198,7 +198,12 @@ enum LaunchAgent {
             "Label": Ovis.agentLabel,
             "ProgramArguments": [Paths.herdr, "server"],
             "RunAtLoad": true,
-            "EnvironmentVariables": ["PATH": Paths.path, "HOME": Paths.home],
+            // launchd starts herdr with no locale, and its panes' shells inherit that: without a
+            // character set they read Korean and emoji as bytes
+            "EnvironmentVariables": ["PATH": Paths.path, "HOME": Paths.home, "LC_CTYPE": "UTF-8"],
+            // launchd kills the job's whole process group when herdr exits; a server herdr hands its
+            // sessions to (an update) would go with it, and every agent in it
+            "AbandonProcessGroup": true,
             "StandardOutPath": "\(Paths.logDir)/herdr-server.log",
             "StandardErrorPath": "\(Paths.logDir)/herdr-server.log",
             "ProcessType": "Interactive",
