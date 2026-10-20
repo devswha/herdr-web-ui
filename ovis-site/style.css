@@ -3,6 +3,8 @@
   color-scheme: light dark;
   --navy: #2e3a59;
   --pink: #f29ca3;
+  /* pink for text: the icon's pink is 2:1 on the light background, this one 4.7:1 */
+  --pink-text: #b84a60;
   --bg: #fbf7f2;
   --surface: #ffffff;
   --ink: #1f2740;
@@ -17,6 +19,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
+    --pink-text: #f29ca3;
     --bg: #131a2b;
     --surface: #1b2339;
     --ink: #eef0f6;
@@ -44,7 +47,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 
 .hero { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 48px; align-items: center; padding-block: 48px 72px; }
 .hero h1 { font-size: clamp(34px, 5vw, 54px); line-height: 1.12; letter-spacing: -0.02em; margin: 0 0 18px; }
-.hero h1 em { font-style: normal; color: var(--pink); }
+.hero h1 em { font-style: normal; color: var(--pink-text); }
 .hero p.lead { font-size: 19px; color: var(--muted); margin: 0 0 28px; max-width: 34em; }
 .stores { display: flex; flex-wrap: wrap; gap: 12px; }
 .store { display: inline-flex; flex-direction: column; justify-content: center; min-width: 168px; padding: 10px 18px; border-radius: 14px; background: var(--accent); color: var(--accent-ink); text-decoration: none; }
