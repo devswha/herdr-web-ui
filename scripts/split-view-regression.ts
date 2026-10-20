@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page, Route, WebSocket } from "playwright-core";
 import { herdrRpc, paneRead, paneSplit, tabCreate, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import type { TabMovedToWorkspace } from "../shared/protocol.ts";
 
 /**
  * The split view's edges (lib/split.ts), each on a browser context of its own: the other half's
@@ -707,6 +708,41 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
         "the tab strip remains visible");
       assert.deepEqual(errors, []);
       console.log("PASS phone glass-header selectors follow pane-slot nesting without covering notices or tabs");
+    }
+
+    // A tab moved to another workspace goes as its pane, under a new ID: the half that showed it
+    // follows it there, the inactive half as much as the active one, and the split stays.
+    {
+      const [left, right] = await panesFor("move-left", "move-right", "move-target") as [string, string, string];
+      const { page, errors } = await open([left, right], "terminal");
+      await splitRight(page, right);
+      const shows = (side: string, pane: string) => page.waitForFunction(([which, id]) =>
+        document.querySelector(`.pane-slot[data-side="${which}"] [data-layout-pane="${id}"]:not([inert])`) !== null, [side, pane] as const);
+      const moveOut = async (side: string): Promise<string> => {
+        // a right press opens the tab's menu without making its half the active one
+        await half(page, side).locator(".tab-strip [role=tab]").first().click({ button: "right" });
+        await page.getByRole("menuitem", { name: "Move to workspace…", exact: true }).click();
+        const answered = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/tab/move-to-workspace"));
+        await page.getByRole("menuitem", { name: "herdr-web-ui-test-split-move-target", exact: true }).click();
+        const response = await answered;
+        assert.equal(response.status(), 200);
+        return ((await response.json()) as TabMovedToWorkspace).pane_id;
+      };
+      await shows("left", left);
+
+      const movedLeft = await moveOut("left");
+      assert.notEqual(movedLeft, left, "herdr gives the moved pane a new ID");
+      await shows("left", movedLeft);
+      assert.equal(await page.locator(".pane-slot").count(), 2, "the split stays when the inactive half's tab moves");
+      await isActive(page, "right");
+
+      const movedRight = await moveOut("right");
+      await shows("right", movedRight);
+      await shows("left", movedLeft);
+      assert.equal(await page.locator(".pane-slot").count(), 2, "the split stays when the active half's tab moves");
+      await isActive(page, "right");
+      assert.deepEqual(errors, []);
+      console.log("PASS a tab moved to another workspace keeps its half of the split, active or not");
     }
 
     // A saved partner on a removed PC is discarded only after the roster arrives.
