@@ -60,7 +60,10 @@ const commands = async (paneId: string) => {
 };
 
 let paneId: string;
+// the pane's Codex home is read from /proc: Linux only (elsewhere a pane without a configured home gets no native rows)
+const linux = process.platform === "linux";
 beforeAll(async () => {
+  if (!linux) return;
   daemon(homes.pane, "pane", () => paneSkills as unknown[]);
   daemon(homes.server, "server", () => [skill("from-server-home")]);
   // the home a server with no codexHome option falls back to: not the pane's
@@ -87,13 +90,13 @@ afterAll(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-it("lists the skills of the daemon under the pane's own CODEX_HOME, never the server's", async () => {
+it.skipIf(process.platform !== "linux")("lists the skills of the daemon under the pane's own CODEX_HOME, never the server's", async () => {
   const native = (await commands(paneId)).filter((row) => row.provenance?.transport === "native").map((row) => row.name);
   expect(native).toEqual(["from-pane-home"]);
   expect(asked.server).toBe(0);
 });
 
-it("drops the scanned skills when the pane's daemon answers that none is enabled, and keeps them without an answer", async () => {
+it.skipIf(process.platform !== "linux")("drops the scanned skills when the pane's daemon answers that none is enabled, and keeps them without an answer", async () => {
   const skills = async () => (await commands(paneId)).filter((row) => row.source === "skill").map((row) => [row.name, row.provenance?.transport]);
   // a malformed answer is no answer: the scanned project skill stays
   paneSkills = "not a list";
