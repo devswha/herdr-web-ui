@@ -89,7 +89,7 @@ import { SplitDropPreview } from "./components/SplitDropPreview.tsx";
 import { CrashProbe, RegionCrash } from "./components/AppCrash.tsx";
 import { RenderBoundary } from "./components/RenderBoundary.tsx";
 
-const APP_TITLE = "herdr web ui";
+const APP_TITLE = "Ovis";
 /** how soon after a key press a focus counts as the user's own (lastKeyAtRef) */
 const KEY_FOCUS_MS = 1000;
 const POLL_MS = 5000;
@@ -199,7 +199,7 @@ function Brand() {
     <h1 className="brand">
       <img src="/icons/icon-192.png?v=ram1" alt="" width="22" height="22" className="brand-mark" />
       <span className="brand-name">
-        herdr <span className="brand-sub">web ui</span>
+        Ovis
       </span>
     </h1>
   );
@@ -1332,7 +1332,7 @@ export function App() {
     : null;
 
   useEffect(() => {
-    document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
+    document.title = selectedTitle ? `${selectedTitle} · Ovis` : APP_TITLE;
   }, [selectedTitle]);
 
   // A new tab's workspace: the named one, else the selected pane's. Its folder is the workspace's:
@@ -1522,7 +1522,7 @@ export function App() {
           <main className="terminal-host">
             <div className="terminal-placeholder">
               <div className="terminal-placeholder-inner">
-                <span>{t("Connecting to herdr web ui…")}</span>
+                <span>{t("Connecting to Ovis…")}</span>
               </div>
             </div>
           </main>
