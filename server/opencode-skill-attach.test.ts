@@ -145,6 +145,13 @@ describe("typeWithSkills", () => {
     expect(io.now()).toBeGreaterThanOrEqual(OPENCODE_SKILL_ROW_WAIT_MS);
   });
 
+  it("closes a trailing @file mention after an attached skill with a space, as the paste path does", async () => {
+    const io = pane((writes) => writes.at(-1) === "text:@effect" ? ansi("first-selected") : writes.at(-1) === `keys:${OPENCODE_SKILL_ACCEPT_KEY}` ? ansi("accepted") : "");
+    const { prompt } = await typeWithSkills("@effect see @src/app.ts", ["effect"], () => true, io, async () => {});
+    expect(io.writes.at(-1)).toBe("text:\u001b[200~see @src/app.ts \u001b[201~");
+    expect(prompt.at(-1)).toEqual({ pasted: "see @src/app.ts " });
+  });
+
   it("adds a space after a trailing unrecognized token, so Enter cannot take the box", async () => {
     const io = pane(() => "");
     await typeWithSkills("run @effect", ["effect"], () => true, io, async () => {});

@@ -220,6 +220,8 @@ export async function typeWithSkills(text: string, skills: readonly string[], al
     }
   }
   if (afterAccept) rest = rest.replace(/^ /u, "");
+  // a trailing @mention would leave OpenCode's file box open for the Enter: closed with a space, as closeMention does for a paste
+  if (/(?:^|\s)@\S+$/u.test(rest)) rest += " ";
   if (rest) { await write(() => io.sendText(paste(rest), allowed)); prompt.push({ pasted: rest }); }
   return { attached, missed, prompt };
 }
