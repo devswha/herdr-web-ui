@@ -1,0 +1,768 @@
+/**
+ * Earlier sessions of a folder, read from each agent's own store, newest first (#1314).
+ *
+ * Bounded by the #1147 rules: at most the first 64 KiB of any file is read, at most 400 files
+ * are looked at (stat) per listing, at most 50 rows are returned, and every path is resolved
+ * (realpath) and refused when it lands outside the agent's store, nested subagent files
+ * included: only a store's own session files are listed, never a file a link makes look like
+ * one. SQLite stores are opened read-only and asked for at most 50 sessions, their text cut in
+ * the query. Nothing here starts an agent or reads a whole transcript.
+ *
+ * A row's first message is prompt text: the route returns it only to a connection that may
+ * drive (session-history-routes.ts), and it is never logged.
+ */
+import { Database } from "bun:sqlite";
+import { closeSync, constants, openSync, readSync, readdirSync, realpathSync, statSync, type BigIntStats, type Stats } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import type { SessionHistoryAgent, SessionHistoryRow } from "../shared/protocol.ts";
+import { agyUserText } from "./agy.ts";
+import { claudeProjectDir } from "./claude-store.ts";
+import { cmdSlug } from "./cmd.ts";
+import { grokSessionGroups } from "./grok-store.ts";
+import { directoryKey, storedCwds, withoutVerbatimPrefix } from "./codex.ts";
+import { opencodeDatabasePath } from "./opencode.ts";
+
+/** At most this much of any one file is read. */
+export const HEAD_BYTES = 64 * 1024;
+/** At most this many files are looked at for one listing. */
+export const MAX_STATS = 400;
+/** At most this many sessions are returned. */
+export const MAX_ROWS = 50;
+const TITLE_CHARS = 200;
+const MESSAGE_CHARS = 2000;
+const BUSY_TIMEOUT_MS = 250;
+
+export const SESSION_HISTORY_AGENTS = ["claude", "codex", "pi", "omp", "gjc", "cmd", "omo", "opencode", "hermes", "grok", "agy", "devin"] as const satisfies readonly SessionHistoryAgent[];
+
+export function isSessionHistoryAgent(value: string): value is SessionHistoryAgent {
+  return (SESSION_HISTORY_AGENTS as readonly string[]).includes(value);
+}
+
+export interface SessionHistoryOptions {
+  /** The user's home; defaults to this process's. */
+  home?: string;
+  /** The environment the stores are found by; defaults to this process's. */
+  env?: Record<string, string | undefined>;
+  /** Explicit stores, as the server's own options name them. */
+  codexHome?: string;
+  opencodeDb?: string;
+  hermesHome?: string;
+  /** Reads at most `max` bytes from the start of an already resolved file (tests count the bytes). */
+  readHead?: (path: string, max: number) => Buffer;
+  /** Stats a path the listing looks at (tests count the calls). */
+  stat?: (path: string, bigint?: boolean) => Stats | BigIntStats;
+  /** The OS whose folder rules apply; defaults to this one's (tests take Windows's on any OS). */
+  platform?: NodeJS.Platform;
+  /** Resolves a Windows cwd to its canonical long form (tests map an 8.3 alias); defaults to realpathSync.native. */
+  realpath?: (path: string) => string;
+  /** The temp folder omp keys sessions below; defaults to os.tmpdir(). */
+  tmpdir?: string;
+}
+
+/** A session id safe to put after a flag: it cannot be read as another option. */
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/;
+
+/**
+ * How each agent reopens one session by id, verified before it was enabled. argv[0] is the
+ * agent kind herdr's manifest launches; the rest are its arguments.
+ */
+const RESUME: Record<SessionHistoryAgent, (id: string) => string[]> = {
+  // https://code.claude.com/docs/en/cli-reference: `--resume`, `-r` "Resume a specific session by ID or name"
+  claude: (id) => ["claude", "--resume", id],
+  // server/codex.ts:1049 (resumedThread reads `codex resume <thread>`); https://learn.chatgpt.com/docs/developer-commands
+  // "`codex resume` Continue an interactive session by ID"
+  codex: (id) => ["codex", "resume", id],
+  // @earendil-works/pi-coding-agent 0.86.0 README.md:251: `pi --session <path|id> # Use specific session file or ID`
+  pi: (id) => ["pi", "--session", id],
+  // @oh-my-pi/pi-coding-agent 17.4.1 CHANGELOG.md:158 and :976: `omp --resume <id>`
+  omp: (id) => ["omp", "--resume", id],
+  // gajae-code (https://github.com/Yeachan-Heo/gajae-code), its docs embedded in the gjc build of
+  // 2026-10-18: "### `--resume <value>`", and its exit banner prints `gjc --resume <id>`
+  gjc: (id) => ["gjc", "--resume", id],
+  // https://commandcode.ai/docs/reference/cli: "`--session <path|id>` Resume a session by transcript
+  // path (`.jsonl`) or a unique session-id prefix"
+  cmd: (id) => ["cmd", "--session", id],
+  // omo-ai 5.1.38, node_modules/@code-yeongyu/senpi/dist/cli/args.js:389: "`--session-id <id>` Use
+  // exact project session ID"; server/omo.ts:313 reads the same flag from a running omo
+  omo: (id) => ["omo", "--session-id", id],
+  // https://opencode.ai/docs/cli/: `--session`, `-s` "Session ID to continue"
+  opencode: (id) => ["opencode", "--session", id],
+  // hermes-agent 354724fb085162678964c116ceb4c40fc57c717c, hermes_cli/_parser.py:98:
+  // "hermes --resume <session_id>  Resume a specific session by ID"
+  hermes: (id) => ["hermes", "--resume", id],
+  // https://docs.x.ai/build/features/sessions: "grok --resume <session-id>   # a specific session"
+  grok: (id) => ["grok", "--resume", id],
+  // https://antigravity.google/docs/cli/commands/resume: "agy --conversation <conversation-id>"
+  agy: (id) => ["agy", "--conversation", id],
+  // server/conversation.ts:1455-1459 (devinSessionForPane reads `--resume <id>` / `--resume=<id>`)
+  devin: (id) => ["devin", "--resume", id],
+};
+
+type Row = SessionHistoryRow;
+type Json = Record<string, unknown>;
+const record = (value: unknown): Json => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
+const str = (value: unknown): string | null => typeof value === "string" && value.trim() !== "" ? value : null;
+const clip = (value: string | null, max: number): string | null => {
+  if (value === null) return null;
+  const text = value.trim();
+  return text === "" ? null : text.length > max ? `${text.slice(0, max)}…` : text;
+};
+
+function iso(value: unknown, unit: "ms" | "s" = "ms"): string | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    const date = new Date(unit === "s" ? value * 1000 : value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  if (typeof value === "string" && value !== "") {
+    // `2026-07-29 23:09:40.970073289+00:00`: a space for the T, nanoseconds JS does not parse
+    const normal = value.replace(" ", "T").replace(/(\.\d{3})\d+/, "$1");
+    const time = Date.parse(normal);
+    return Number.isNaN(time) ? null : new Date(time).toISOString();
+  }
+  return null;
+}
+
+function row(agent: SessionHistoryAgent, id: string, fields: { title?: string | null; firstMessage?: string | null; startedAt?: string | null; updatedAt: string }): Row {
+  return {
+    id,
+    title: clip(fields.title ?? null, TITLE_CHARS),
+    firstMessage: clip(fields.firstMessage ?? null, MESSAGE_CHARS),
+    startedAt: fields.startedAt ?? null,
+    updatedAt: fields.updatedAt,
+    resume: SAFE_ID.test(id) ? { argv: RESUME[agent](id) } : null,
+  };
+}
+
+function textOf(content: unknown): string | null {
+  if (typeof content === "string") return str(content);
+  if (!Array.isArray(content)) return null;
+  const texts = content.flatMap((part) => {
+    const value = record(part);
+    return (value.type === "text" || value.type === "input_text") && typeof value.text === "string" ? [value.text] : [];
+  });
+  return str(texts.join("\n"));
+}
+
+const inside = (root: string, path: string): boolean => {
+  const child = relative(root, path);
+  return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+};
+
+function defaultReadHead(path: string, max: number): Buffer {
+  // O_NONBLOCK: a FIFO put where a file was is not waited on
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  try {
+    const buffer = Buffer.alloc(max);
+    const length = readSync(fd, buffer, 0, max, 0);
+    return buffer.subarray(0, length);
+  } finally { closeSync(fd); }
+}
+
+/** One listing's stats: every path it looks at (store, folder, file or database) counts against MAX_STATS. */
+class Budget {
+  used = 0;
+  constructor(private readonly statOf: (path: string, bigint?: boolean) => Stats | BigIntStats, readonly platform: NodeJS.Platform) {}
+
+  get exhausted(): boolean { return this.used >= MAX_STATS; }
+
+  stat(path: string): Stats | null {
+    if (this.exhausted) return null;
+    this.used++;
+    try { return this.statOf(path) as Stats; } catch { return null; }
+  }
+
+  /**
+   * Whether two cwds are one folder, as codex.ts sameDirectory decides, with its Windows file-ID
+   * check (bigint: two 64-bit IDs can round to one number) taken from this budget.
+   */
+  /** The canonical form of a path (Windows long names), as one counted stat; the path itself when it cannot say. */
+  canonical(path: string, realpath: (path: string) => string): string {
+    if (this.exhausted) return path;
+    this.used++;
+    try { return realpath(path); } catch { return path; }
+  }
+
+  sameFolder(left: string, right: string): boolean {
+    if (directoryKey(left) === directoryKey(right)) return true;
+    // one Windows folder in two spellings needs no file IDs; the letter case still does (#587)
+    if (this.platform === "win32" && windowsFolder(left) === windowsFolder(right)) return true;
+    if (this.platform !== "win32" || this.used + 2 > MAX_STATS) return false;
+    this.used += 2;
+    try {
+      const a = this.statOf(left, true);
+      const b = this.statOf(right, true);
+      return a.isDirectory() && b.isDirectory() && a.dev === b.dev && a.ino === b.ino;
+    } catch { return false; }
+  }
+}
+
+/** A store being read: its resolved root, the listing's budget, and how files are read. */
+class Scan {
+  constructor(readonly root: string, readonly budget: Budget, private readonly reader: (path: string, max: number) => Buffer) {}
+
+  get exhausted(): boolean { return this.budget.exhausted; }
+
+  /** The file at this path, resolved, when it is a regular file inside the store. */
+  file(path: string): { real: string; mtimeMs: number; size: number } | null {
+    if (this.exhausted) return null;
+    let real: string;
+    try { real = realpathSync(path); } catch { return null; }
+    if (!inside(this.root, real)) return null;
+    const stat = this.budget.stat(real);
+    return stat?.isFile() ? { real, mtimeMs: stat.mtimeMs, size: stat.size } : null;
+  }
+
+  /** At most HEAD_BYTES of a resolved file, split in lines; `cut` when the file goes on past them. */
+  head(file: { real: string; size: number }): { lines: string[]; cut: boolean } {
+    let head: Buffer;
+    try { head = this.reader(file.real, HEAD_BYTES); } catch { return { lines: [], cut: false }; }
+    return { lines: head.toString("utf8").split("\n"), cut: head.length >= HEAD_BYTES && file.size > head.length };
+  }
+
+  /** The complete lines of the head: a cut last line is no record. */
+  lines(file: { real: string; size: number }): string[] {
+    const { lines, cut } = this.head(file);
+    return cut ? lines.slice(0, -1) : lines;
+  }
+
+  records(file: { real: string; size: number }): Json[] {
+    return this.lines(file).flatMap((line) => {
+      if (line.trim() === "") return [];
+      try { return [record(JSON.parse(line))]; } catch { return []; }
+    });
+  }
+}
+
+function storeRoot(budget: Budget, path: string): string | null {
+  if (!budget.stat(path)?.isDirectory()) return null;
+  try { return realpathSync(path); } catch { return null; }
+}
+
+function scanOf(budget: Budget, path: string, read: SessionHistoryOptions["readHead"]): Scan | null {
+  const root = storeRoot(budget, path);
+  return root === null ? null : new Scan(root, budget, read ?? defaultReadHead);
+}
+
+function names(dir: string): string[] {
+  try { return readdirSync(dir); } catch { return []; }
+}
+
+type Found = { real: string; mtimeMs: number; size: number };
+
+/** The `.jsonl` files directly in these directories (subagent folders beside them are not read), newest first. */
+function sessionFiles(scan: Scan, dirs: readonly string[]): Found[] {
+  const found = new Map<string, Found>();
+  for (const dir of new Set(dirs)) {
+    for (const name of names(dir).filter((entry) => entry.endsWith(".jsonl")).sort().reverse()) {
+      if (scan.exhausted) break;
+      const file = scan.file(join(dir, name));
+      if (file) found.set(file.real, file);
+    }
+  }
+  return [...found.values()].sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function rowsOf(files: readonly Found[], read: (file: Found) => Row | null): Row[] {
+  const rows: Row[] = [];
+  for (const file of files) {
+    if (rows.length >= MAX_ROWS) break;
+    const found = read(file);
+    if (found) rows.push(found);
+  }
+  return rows;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * pi and its descendants (omp, gjc, omo, Command Code): a `session` header with id, timestamp and
+ * cwd (gjc may put a `title` line before it), then `message` lines.
+ * ------------------------------------------------------------------------------------------- */
+
+/** pi's folder for a cwd (pi-coding-agent 0.86.0 dist/core/session-manager.js:248), which senpi (omo) keeps. */
+export function piSessionFolder(cwd: string, platform: NodeJS.Platform = process.platform): string {
+  return `--${(platform === "win32" ? win32.resolve(cwd) : resolve(cwd)).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+}
+
+/**
+ * omp's folders for a cwd (@oh-my-pi/pi-coding-agent 17.4.1 src/session/session-paths.ts:62-90): a
+ * folder below home is `-<relative>`, below the temp dir `-tmp-<relative>`, anywhere else pi's legacy
+ * name, which older sessions keep. gjc lays its store out alike. omp compares canonical paths, so each
+ * of the cwd, home and temp dir comes in every spelling the listing knows (given and canonical: a
+ * Windows TEMP is often an 8.3 alias of the folder the pane opens), and every combination is a key.
+ */
+export function ompSessionFolders(cwds: readonly string[], homes: readonly string[], temps: readonly string[], platform: NodeJS.Platform = process.platform): string[] {
+  const paths = platform === "win32" ? win32 : posix;
+  const under = (prefix: string, base: string, target: string): string | null => {
+    const rel = paths.relative(base, target);
+    if (rel !== "" && (rel.startsWith("..") || paths.isAbsolute(rel))) return null;
+    const encoded = rel.replace(/[/\\:]/g, "-");
+    return encoded ? (prefix.endsWith("-") ? `${prefix}${encoded}` : `${prefix}-${encoded}`) : prefix;
+  };
+  const keys = cwds.flatMap((target) => [
+    ...homes.map((base) => under("-", base, target)),
+    ...temps.map((base) => under("-tmp", base, target)),
+    piSessionFolder(target, platform),
+  ]);
+  return [...new Set(keys.filter((key): key is string => key !== null))];
+}
+
+/**
+ * The header versions pi's format has had: none (1), 2 and 3 (pi-coding-agent 0.86.0
+ * dist/core/session-manager.js:77-83 migrates them; pi, omp 17.4.1 src/session/session-entries.ts:6
+ * and senpi dist/core/session-manager.js:108 write CURRENT_SESSION_VERSION = 3). Any other layout
+ * is not one this reader knows, so it lists nothing from it.
+ */
+const PI_VERSIONS = new Set<unknown>([undefined, 1, 2, 3]);
+
+function piFamilyRow(agent: SessionHistoryAgent, scan: Scan, file: Found, cwds: readonly string[], idFromName: boolean): Row | null {
+  const records = scan.records(file);
+  const header = records.find((value) => value.type === "session");
+  if (!header || !PI_VERSIONS.has(header.version)) return null;
+  const headerCwd = str(header.cwd);
+  if (headerCwd === null || !cwdMatches(scan.budget, headerCwd, cwds)) return null;
+  const id = str(header.id) ?? (idFromName ? basename(file.real, ".jsonl") : null);
+  if (id === null) return null;
+  let title: string | null = null;
+  let firstMessage: string | null = null;
+  for (const value of records) {
+    if (value.type === "title") title = str(value.title) ?? title;
+    else if (value.type === "session_info") title = str(value.name) ?? title;
+    else if (firstMessage === null && value.type === "message") {
+      const message = record(value.message);
+      if (message.role === "user") firstMessage = textOf(message.content);
+    }
+  }
+  return row(agent, id, { title, firstMessage, startedAt: iso(header.timestamp), updatedAt: new Date(file.mtimeMs).toISOString() });
+}
+
+function piFamily(agent: SessionHistoryAgent, sessions: string, folders: readonly string[], cwds: readonly string[], budget: Budget, read: SessionHistoryOptions["readHead"], idFromName = false): Row[] {
+  const scan = scanOf(budget, sessions, read);
+  if (scan === null) return [];
+  const files = sessionFiles(scan, folders.map((folder) => join(sessions, folder)));
+  return rowsOf(files, (file) => piFamilyRow(agent, scan, file, cwds, idFromName));
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Claude Code: `<config dir>/projects/<project>/<session uuid>.jsonl` (claude-store.ts).
+ * ------------------------------------------------------------------------------------------- */
+
+const CLAUDE_SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** What Claude Code records as a user line that is no prompt: a slash command's echo, its output, a caveat. */
+const CLAUDE_NOT_PROMPT = /^<(?:command-|local-command-)|^Caveat: /;
+
+function claudeRow(scan: Scan, file: Found, cwds: readonly string[]): Row | null {
+  const id = basename(file.real, ".jsonl");
+  if (!CLAUDE_SESSION.test(id)) return null;
+  const records = scan.records(file);
+  let seenCwd: string | null = null;
+  let title: string | null = null;
+  let firstMessage: string | null = null;
+  let startedAt: string | null = null;
+  for (const value of records) {
+    seenCwd ??= str(value.cwd);
+    startedAt ??= iso(value.timestamp);
+    title = str(value.customTitle) ?? str(value.aiTitle) ?? (value.type === "summary" ? str(value.summary) : null) ?? title;
+    if (firstMessage === null && value.type === "user" && value.isMeta !== true && value.isSidechain !== true) {
+      const text = textOf(record(value.message).content);
+      if (text !== null && !CLAUDE_NOT_PROMPT.test(text)) firstMessage = text;
+    }
+  }
+  // the project folder's name is lossy (`a_b` and `a-b` share it): a recorded cwd decides
+  if (seenCwd !== null && !cwdMatches(scan.budget, seenCwd, cwds)) return null;
+  return row("claude", id, { title, firstMessage, startedAt, updatedAt: new Date(file.mtimeMs).toISOString() });
+}
+
+function claudeSessions(cwds: readonly string[], home: string, env: Record<string, string | undefined>, budget: Budget, read: SessionHistoryOptions["readHead"]): Row[] {
+  const projects = join(env["CLAUDE_CONFIG_DIR"] || join(home, ".claude"), "projects");
+  const scan = scanOf(budget, projects, read);
+  if (scan === null) return [];
+  return rowsOf(sessionFiles(scan, cwds.map((cwd) => join(projects, claudeProjectDir(cwd)))), (file) => claudeRow(scan, file, cwds));
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Codex: `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl`, a `session_meta` first line.
+ * ------------------------------------------------------------------------------------------- */
+
+/** A JSON string field from a line too long to parse whole: the session_meta can outgrow the read. */
+function fieldOf(line: string, name: string): string | null {
+  const match = new RegExp(`"${name}":("(?:[^"\\\\]|\\\\.)*")`).exec(line);
+  if (!match) return null;
+  try { return str(JSON.parse(match[1]!)); } catch { return null; }
+}
+
+function codexRow(scan: Scan, file: Found, cwds: readonly string[]): Row | null {
+  // the first line is the header even when the read cut it
+  const { lines, cut } = scan.head(file);
+  const first = lines[0] ?? "";
+  const records = cut ? lines.slice(1, -1) : lines.slice(1);
+  let header: Json | null = null;
+  try {
+    const parsed = record(JSON.parse(first));
+    if (parsed.type !== "session_meta") return null;
+    header = record(parsed.payload);
+  } catch { /* a header longer than the read */ }
+  const id = header ? str(header.id) : fieldOf(first, "id");
+  const sessionCwd = header ? str(header.cwd) : fieldOf(first, "cwd");
+  const startedAt = iso(header ? header.timestamp : fieldOf(first, "timestamp"));
+  const source = header ? header.source : fieldOf(first, "source");
+  if (id === null || sessionCwd === null || !cwdMatches(scan.budget, sessionCwd, cwds)) return null;
+  // interactive threads only, as codex.ts reads them: a subagent's (an object) or an exec run's is not one
+  if (source !== undefined && source !== null && source !== "cli" && source !== "vscode") return null;
+  let firstMessage: string | null = null;
+  for (const line of records) {
+    try {
+      const value = record(JSON.parse(line));
+      const payload = record(value.payload);
+      if (value.type === "event_msg" && payload.type === "user_message") { firstMessage = str(payload.message); break; }
+    } catch { /* not a record */ }
+  }
+  return row("codex", id, { firstMessage, startedAt, updatedAt: new Date(file.mtimeMs).toISOString() });
+}
+
+function codexSessions(cwds: readonly string[], codexHome: string, budget: Budget, read: SessionHistoryOptions["readHead"]): Row[] {
+  const sessions = join(codexHome, "sessions");
+  const scan = scanOf(budget, sessions, read);
+  if (scan === null) return [];
+  const desc = (dir: string) => names(dir).filter((name) => /^\d+$/.test(name)).sort().reverse();
+  // newest day first, so the files looked at are the newest ones
+  const files: Found[] = [];
+  walk: for (const year of desc(sessions)) {
+    for (const month of desc(join(sessions, year))) {
+      for (const day of desc(join(sessions, year, month))) {
+        if (scan.exhausted) break walk;
+        files.push(...sessionFiles(scan, [join(sessions, year, month, day)]));
+      }
+    }
+  }
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return rowsOf(files, (file) => codexRow(scan, file, cwds));
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Grok: `$GROK_HOME/sessions/<group>/<session>/summary.json` with `info.{id,cwd}`, and the prompts in
+ * `updates.jsonl` beside it. A group is the cwd URI-encoded or, for a long one, a native hashed name
+ * (https://docs.x.ai/build/features/sessions: "keyed by working directory"); the groups are listed as
+ * grok-store.ts lists them, and each session's own `info.cwd` decides.
+ * ------------------------------------------------------------------------------------------- */
+
+/** Whether a recorded cwd is one of the pane's spellings: free when spelled alike, else one counted identity check. */
+function cwdMatches(budget: Budget, recorded: string, cwds: readonly string[]): boolean {
+  return cwds.some((cwd) => directoryKey(recorded) === directoryKey(cwd) || (budget.platform === "win32" && windowsFolder(recorded) === windowsFolder(cwd)))
+    || budget.sameFolder(recorded, cwds.at(-1)!);
+}
+
+function grokRow(scan: Scan, dir: string, cwds: readonly string[]): Row | null {
+  const summaryFile = scan.file(join(dir, "summary.json"));
+  if (!summaryFile) return null;
+  let summary: Json;
+  try { summary = record(JSON.parse(scan.lines(summaryFile).join("\n"))); } catch { return null; }
+  const info = record(summary.info);
+  const id = str(info.id);
+  const sessionCwd = str(info.cwd);
+  if (id === null || sessionCwd === null || !cwdMatches(scan.budget, sessionCwd, cwds)) return null;
+  let firstMessage: string | null = null;
+  const updates = scan.file(join(dir, "updates.jsonl"));
+  if (updates) {
+    const chunks: string[] = [];
+    for (const value of scan.records(updates)) {
+      const update = record(record(value.params).update);
+      if (update.sessionUpdate === "user_message_chunk") {
+        const text = record(update.content).text;
+        if (typeof text === "string") chunks.push(text);
+      } else if (chunks.length > 0) break;
+    }
+    firstMessage = str(chunks.join(""));
+  }
+  const updatedAt = iso(summary.updated_at) ?? iso(summary.last_active_at) ?? new Date(summaryFile.mtimeMs).toISOString();
+  return row("grok", id, { title: str(summary.generated_title) ?? str(summary.session_summary), firstMessage, startedAt: iso(summary.created_at), updatedAt });
+}
+
+function grokSessions(cwds: readonly string[], home: string, env: Record<string, string | undefined>, budget: Budget, read: SessionHistoryOptions["readHead"]): Row[] {
+  const grokHome = env["GROK_HOME"] || join(home, ".grok");
+  const scan = scanOf(budget, join(grokHome, "sessions"), read);
+  if (scan === null) return [];
+  const sessionDirs = (group: string): string[] => {
+    try {
+      return readdirSync(join(scan.root, group), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(scan.root, group, entry.name));
+    } catch { return []; }
+  };
+  const rows: Row[] = [];
+  const readGroup = (group: string) => {
+    for (const dir of sessionDirs(group)) {
+      if (scan.exhausted) break;
+      const found = grokRow(scan, dir, cwds);
+      if (found) rows.push(found);
+    }
+  };
+  // the cwd's own group is known by name: read it whatever else the store holds
+  const encoded = new Set(cwds.map((spelling) => encodeURIComponent(spelling)));
+  for (const group of encoded) readGroup(group);
+  // a hashed group (a long cwd) is known only by what its sessions record: another folder's
+  // URI-encoded group is skipped by name, and a hashed one is read only once a session in it
+  // names this cwd, so no other folder's sessions spend the budget
+  for (const group of grokSessionGroups(grokHome)?.groups ?? []) {
+    if (scan.exhausted) break;
+    if (encoded.has(group) || cwds.every((spelling) => otherFolder(group, spelling, budget.platform))) continue;
+    if (grokGroupCwd(scan, sessionDirs(group), cwds)) readGroup(group);
+  }
+  // on a case-insensitive file system the cwd's group and its other-case spelling are one folder, read twice
+  const ids = new Set<string>();
+  return rows.filter((found) => !ids.has(found.id) && ids.add(found.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, MAX_ROWS);
+}
+
+/**
+ * Whether a Grok group's name is the URI-encoded name of another folder than the cwd. A hashed name
+ * is not, nor is another spelling of the cwd: a drive letter in either case, a verbatim `\\?\` or
+ * `\\?\UNC\` prefix (codex.ts directoryKey), and on Windows any letter case.
+ */
+function otherFolder(group: string, cwd: string, platform: NodeJS.Platform): boolean {
+  let decoded: string;
+  try { decoded = decodeURIComponent(group); } catch { return false; }
+  if (decoded === group || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(decoded)) return false;
+  const key = (path: string) => platform === "win32" ? windowsFolder(path).toLowerCase() : directoryKey(path);
+  return key(decoded) !== key(cwd);
+}
+
+/**
+ * A Windows folder in one spelling: without a verbatim `\\?\` or `\\?\UNC\` prefix (codex.ts
+ * withoutVerbatimPrefix), normalized by path.win32 (either separator, `.` and `..` resolved), with no
+ * trailing separator past a drive or share root, and an upper-case drive letter. The rest keeps its case.
+ */
+function windowsFolder(path: string): string {
+  const normal = win32.normalize(withoutVerbatimPrefix(path.replaceAll("/", "\\")));
+  const root = win32.parse(normal).root;
+  const trimmed = normal.length > root.length ? normal.replace(/[\\/]+$/, "") : normal;
+  return /^[a-z]:/.test(trimmed) ? trimmed[0]!.toUpperCase() + trimmed.slice(1) : trimmed;
+}
+
+/** Whether a hashed group holds this cwd's sessions: the first readable of at most three summaries says. */
+function grokGroupCwd(scan: Scan, dirs: readonly string[], cwds: readonly string[]): boolean {
+  for (const dir of dirs.slice(0, 3)) {
+    const file = scan.file(join(dir, "summary.json"));
+    if (!file) continue;
+    try {
+      const recorded = str(record(record(JSON.parse(scan.lines(file).join("\n"))).info).cwd);
+      return recorded !== null && cwdMatches(scan.budget, recorded, cwds);
+    } catch { /* unreadable summary: ask the next */ }
+  }
+  return false;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * SQLite stores: OpenCode, Hermes, Devin, Antigravity. Read-only, at most MAX_ROWS sessions, text cut
+ * to HEAD_BYTES in the query.
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * Reads a database of the store at `storeDir`, as files are read: the store resolved, the database
+ * and its folder resolved inside it (a link out of the store is refused), opened read-only.
+ */
+function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (db: Database) => T): T | null {
+  const root = storeRoot(budget, storeDir);
+  if (root === null) return null;
+  let real: string;
+  let parent: string;
+  try { real = realpathSync(path); parent = realpathSync(dirname(path)); } catch { return null; }
+  if (!inside(root, real) || (parent !== root && !inside(root, parent)) || dirname(real) !== parent) return null;
+  if (!budget.stat(real)?.isFile()) return null;
+  let db: Database | undefined;
+  try {
+    db = new Database(real, { readonly: true });
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    return read(db);
+  } catch { return null; }
+  finally { db?.close(); }
+}
+
+const tableExists = (db: Database, name: string) => db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== null;
+const columnsOf = (db: Database, table: string) => new Set(db.query<{ name: string }, []>(`SELECT name FROM pragma_table_info('${table}')`).all().map((column) => column.name));
+/** The spellings a store may hold this cwd in (codex.ts storedCwds, plus the drive-letter key). */
+const cwdSpellings = (cwd: string): string[] => [...new Set([cwd, directoryKey(cwd), ...storedCwds(cwd)])];
+const spellingsOf = (cwds: readonly string[]): string[] => [...new Set(cwds.flatMap(cwdSpellings))];
+const placeholders = (values: readonly unknown[]) => values.map(() => "?").join(", ");
+
+function opencodeSessions(cwds: readonly string[], storeDir: string, path: string | null, budget: Budget): Row[] {
+  if (path === null) return [];
+  return withDatabase(budget, storeDir, path, (db) => {
+    const spellings = spellingsOf(cwds);
+    if (tableExists(db, "session_v2")) {
+      const top = columnsOf(db, "session_v2").has("parent_id") ? " AND parent_id IS NULL" : "";
+      const sessions = db.query<{ id: string; title: string | null; created: number; updated: number }, string[]>(
+        `SELECT id, substr(title, 1, ${TITLE_CHARS * 4}) AS title, time_created AS created, time_updated AS updated FROM session_v2
+         WHERE directory IN (${placeholders(spellings)})${top} ORDER BY time_updated DESC LIMIT ${MAX_ROWS}`,
+      ).all(...spellings);
+      const first = db.query<{ data: string }, [string]>(`SELECT substr(data, 1, ${HEAD_BYTES}) AS data FROM session_message WHERE session_id = ? AND type = 'user' ORDER BY seq LIMIT 1`);
+      return sessions.map((session) => {
+        let firstMessage: string | null = null;
+        try { firstMessage = str(record(JSON.parse(first.get(session.id)?.data ?? "null")).text); } catch { /* cut by the read */ }
+        return row("opencode", session.id, { title: session.title, firstMessage, startedAt: iso(session.created), updatedAt: iso(session.updated) ?? new Date(0).toISOString() });
+      });
+    }
+    if (!tableExists(db, "session")) return [];
+    const top = columnsOf(db, "session").has("parent_id") ? " AND parent_id IS NULL" : "";
+    const sessions = db.query<{ id: string; title: string | null; created: number; updated: number }, string[]>(
+      `SELECT id, substr(title, 1, ${TITLE_CHARS * 4}) AS title, time_created AS created, time_updated AS updated FROM session
+       WHERE directory IN (${placeholders(spellings)})${top} ORDER BY time_updated DESC LIMIT ${MAX_ROWS}`,
+    ).all(...spellings);
+    const hasParts = tableExists(db, "message") && tableExists(db, "part");
+    const firstUser = hasParts ? db.query<{ id: string }, [string]>("SELECT id FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'user' ORDER BY time_created, id LIMIT 1") : null;
+    const parts = hasParts ? db.query<{ data: string }, [string]>(`SELECT substr(data, 1, ${HEAD_BYTES}) AS data FROM part WHERE message_id = ? ORDER BY id LIMIT 8`) : null;
+    return sessions.map((session) => {
+      let firstMessage: string | null = null;
+      const message = firstUser?.get(session.id);
+      if (message && parts) {
+        for (const part of parts.all(message.id)) {
+          try {
+            const value = record(JSON.parse(part.data));
+            if (value.type === "text" && (firstMessage = str(value.text)) !== null) break;
+          } catch { /* cut by the read */ }
+        }
+      }
+      return row("opencode", session.id, { title: session.title, firstMessage, startedAt: iso(session.created), updatedAt: iso(session.updated) ?? new Date(0).toISOString() });
+    });
+  }) ?? [];
+}
+
+function hermesSessions(cwds: readonly string[], hermesHome: string, budget: Budget): Row[] {
+  return withDatabase(budget, hermesHome, join(hermesHome, "state.db"), (db) => {
+    if (!tableExists(db, "sessions")) return [];
+    const columns = columnsOf(db, "sessions");
+    if (!columns.has("cwd")) return [];
+    const spellings = spellingsOf(cwds);
+    const updated = ["last_activity_at", "ended_at"].filter((name) => columns.has(name));
+    const updatedAt = `coalesce(${[...updated, "started_at"].join(", ")})`;
+    const sessions = db.query<{ id: string; title: string | null; started: number; updated: number }, string[]>(
+      `SELECT id, ${columns.has("title") ? `substr(title, 1, ${TITLE_CHARS * 4})` : "NULL"} AS title, started_at AS started, ${updatedAt} AS updated
+       FROM sessions WHERE cwd IN (${placeholders(spellings)})${columns.has("parent_session_id") ? " AND parent_session_id IS NULL" : ""}
+       ORDER BY updated DESC LIMIT ${MAX_ROWS}`,
+    ).all(...spellings);
+    const first = tableExists(db, "messages")
+      ? db.query<{ content: string | null }, [string]>(`SELECT substr(content, 1, ${HEAD_BYTES}) AS content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY id LIMIT 1`)
+      : null;
+    return sessions.map((session) => row("hermes", session.id, {
+      title: session.title,
+      firstMessage: str(first?.get(session.id)?.content ?? null),
+      startedAt: iso(session.started, "s"),
+      updatedAt: iso(session.updated, "s") ?? new Date(0).toISOString(),
+    }));
+  }) ?? [];
+}
+
+function devinSessions(cwds: readonly string[], dbPath: string, budget: Budget): Row[] {
+  return withDatabase(budget, dirname(dbPath), dbPath, (db) => {
+    if (!tableExists(db, "sessions")) return [];
+    const columns = columnsOf(db, "sessions");
+    const spellings = spellingsOf(cwds);
+    const created = columns.has("created_at") ? "created_at" : "NULL";
+    const updated = columns.has("last_activity_at") ? `coalesce(last_activity_at, ${created})` : created;
+    const sessions = db.query<{ id: string; title: string | null; created: number | null; updated: number | null }, string[]>(
+      `SELECT id, ${columns.has("title") ? `substr(title, 1, ${TITLE_CHARS * 4})` : "NULL"} AS title, ${created} AS created, ${updated} AS updated
+       FROM sessions WHERE working_directory IN (${placeholders(spellings)})${columns.has("hidden") ? " AND hidden = 0" : ""}
+       ORDER BY updated DESC LIMIT ${MAX_ROWS}`,
+    ).all(...spellings);
+    const nodes = tableExists(db, "message_nodes")
+      ? db.query<{ message: string | null }, [string]>(`SELECT substr(chat_message, 1, ${HEAD_BYTES}) AS message FROM message_nodes WHERE session_id = ? ORDER BY node_id LIMIT 16`)
+      : null;
+    return sessions.map((session) => {
+      let firstMessage: string | null = null;
+      for (const node of nodes?.all(session.id) ?? []) {
+        try {
+          const value = record(JSON.parse(node.message ?? "null"));
+          if (value.role === "user" && (firstMessage = textOf(value.content)) !== null) break;
+        } catch { /* cut by the read */ }
+      }
+      return row("devin", session.id, { title: session.title, firstMessage, startedAt: iso(session.created, "s"), updatedAt: iso(session.updated, "s") ?? new Date(0).toISOString() });
+    });
+  }) ?? [];
+}
+
+/**
+ * Antigravity CLI: `~/.gemini/antigravity-cli/conversation_summaries.db` names each conversation's
+ * workspace folders (`workspace_uris`, file URIs), and its first prompt is the first USER_INPUT step
+ * of `brain/<id>/.system_generated/logs/transcript_full.jsonl`.
+ */
+function agySessions(cwds: readonly string[], home: string, budget: Budget, read: SessionHistoryOptions["readHead"]): Row[] {
+  const base = join(home, ".gemini", "antigravity-cli");
+  const listed = withDatabase(budget, base, join(base, "conversation_summaries.db"), (db) => {
+    if (!tableExists(db, "conversation_summaries")) return [];
+    const columns = columnsOf(db, "conversation_summaries");
+    const top = [columns.has("nesting_depth") ? "nesting_depth = 0" : "", columns.has("parent_conversation_id") ? "parent_conversation_id = ''" : ""].filter(Boolean);
+    // folders are matched here, not in SQL: read at most as many rows as files elsewhere
+    return db.query<{ id: string; title: string; updated: string; uris: string }, []>(
+      `SELECT conversation_id AS id, substr(title, 1, ${TITLE_CHARS * 4}) AS title, last_modified_time AS updated, substr(workspace_uris, 1, ${HEAD_BYTES}) AS uris
+       FROM conversation_summaries${top.length ? ` WHERE ${top.join(" AND ")}` : ""} ORDER BY last_modified_time DESC LIMIT ${MAX_STATS}`,
+    ).all();
+  }) ?? [];
+  const matching = listed.filter((entry) => {
+    try {
+      const uris: unknown = JSON.parse(entry.uris);
+      return Array.isArray(uris) && uris.some((uri) => typeof uri === "string" && uri.startsWith("file:") && cwdMatches(budget, fileURLToPath(uri), cwds));
+    } catch { return false; }
+  }).slice(0, MAX_ROWS);
+  const brain = join(base, "brain");
+  const scan = matching.length === 0 ? null : scanOf(budget, brain, read);
+  return matching.map((entry) => {
+    let firstMessage: string | null = null;
+    let startedAt: string | null = null;
+    const file = scan && SAFE_ID.test(entry.id) ? scan.file(join(brain, entry.id, ".system_generated", "logs", "transcript_full.jsonl")) : null;
+    if (scan && file) {
+      for (const value of scan.records(file)) {
+        startedAt ??= iso(value.created_at);
+        if (value.type === "USER_INPUT" && typeof value.content === "string") { firstMessage = str(agyUserText(value.content)); break; }
+      }
+    }
+    return row("agy", entry.id, { title: entry.title, firstMessage, startedAt, updatedAt: iso(entry.updated) ?? new Date(0).toISOString() });
+  });
+}
+
+/**
+ * The earlier sessions of `agent` in the folder `cwd`, newest first, from the agent's own store.
+ * An absent, unreadable or foreign store lists nothing.
+ */
+export function listSessions(agent: SessionHistoryAgent, cwd: string, options: SessionHistoryOptions = {}): Row[] {
+  const env = options.env ?? process.env;
+  const home = options.home ?? homedir();
+  const read = options.readHead;
+  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform);
+  // the pane's cwd may be another spelling of the folder the agent recorded: a Windows 8.3 alias (a
+  // child keeps the short cwd) or a link (macOS /var -> /private/var). Resolve it once, as one counted
+  // stat, and key and match every store by both spellings
+  const realpath = options.realpath ?? realpathSync.native;
+  const canonical = budget.canonical(cwd, realpath);
+  const cwds = [...new Set([cwd, canonical])];
+  const keys = (key: (cwd: string) => string | readonly string[]) => [...new Set(cwds.flatMap(key))];
+  // omp and gjc key by paths relative to home and the temp dir, each canonical as omp resolves it
+  const spellings = (path: string) => [...new Set([path, budget.canonical(path, realpath)])];
+  const ompFolders = () => ompSessionFolders(cwds, spellings(home), spellings(options.tmpdir ?? tmpdir()), budget.platform);
+  const rows = ((): Row[] => {
+    switch (agent) {
+      case "claude": return claudeSessions(cwds, home, env, budget, read);
+      case "codex": return codexSessions(cwds, options.codexHome ?? (env["CODEX_HOME"] || join(home, ".codex")), budget, read);
+      case "pi": {
+        const sessions = env["PI_CODING_AGENT_SESSION_DIR"] || join(env["PI_CODING_AGENT_DIR"] || join(home, ".pi", "agent"), "sessions");
+        return piFamily("pi", sessions, keys((spelling) => piSessionFolder(spelling, budget.platform)), cwds, budget, read);
+      }
+      case "omo": {
+        // senpi takes the first of these that is set (server/omo.ts omoAgentDir)
+        const dir = ["OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR"].map((name) => env[name]).find(Boolean) || join(home, ".omo", "agent");
+        return piFamily("omo", join(dir, "sessions"), keys((spelling) => piSessionFolder(spelling, budget.platform)), cwds, budget, read);
+      }
+      case "omp": return piFamily("omp", join(home, ".omp", "agent", "sessions"), ompFolders(), cwds, budget, read);
+      case "gjc": return piFamily("gjc", join(env["GJC_CODING_AGENT_DIR"] || join(home, ".gjc", "agent"), "sessions"), ompFolders(), cwds, budget, read);
+      case "cmd": return piFamily("cmd", join(home, ".commandcode", "projects"), keys(cmdSlug), cwds, budget, read, true);
+      case "opencode": {
+        // a database the user named (OPENCODE_DB, the server's option) is its own store; else OpenCode's data dir
+        const named = options.opencodeDb ?? (env["OPENCODE_DB"] ? opencodeDatabasePath(env, home) : null);
+        const data = join(env["XDG_DATA_HOME"] || join(home, ".local", "share"), "opencode");
+        return opencodeSessions(cwds, named ? dirname(named) : data, named ?? opencodeDatabasePath(env, home), budget);
+      }
+      case "hermes": return hermesSessions(cwds, options.hermesHome ?? (env["HERMES_HOME"] || join(home, ".hermes")), budget);
+      case "devin": return devinSessions(cwds, join(env["XDG_DATA_HOME"] || join(home, ".local", "share"), "devin", "cli", "sessions.db"), budget);
+      case "grok": return grokSessions(cwds, home, env, budget, read);
+      case "agy": return agySessions(cwds, home, budget, read);
+    }
+  })();
+  return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, MAX_ROWS);
+}

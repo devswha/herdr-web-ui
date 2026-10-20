@@ -115,6 +115,10 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/plugin/action?plugin_id=&log_id= -> PluginActionResult (plugin.log.list: where the
  *         run a POST answered `running` for stands now; `log_id` is that answer's. 404
  *         plugin_log_not_found once herdr's log no longer holds it)
+ *  GET    /api/sessions/history?workspace_id=&agent= -> SessionHistoryResponse (earlier sessions of
+ *         one agent in the workspace's folder, newest first, from the agent's own store; at most 50.
+ *         First messages are prompt text: a watch-only device gets 403 read_only. 400
+ *         missing_workspace_id / invalid_agent, 404 workspace_not_found, 409 no_folder)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
@@ -1409,6 +1413,28 @@ export type ServerMessage =
   | { type: "pong"; id: number }
   /** `pane_id` names the pane an error is about, when it is about one (`attach_held`) */
   | { type: "error"; code: string; message: string; pane_id?: string };
+
+/** The agents whose own stores GET /api/sessions/history reads. */
+export type SessionHistoryAgent = "claude" | "codex" | "pi" | "omp" | "gjc" | "cmd" | "omo" | "opencode" | "hermes" | "grok" | "agy" | "devin";
+
+/** One earlier session. `resume.argv` is the agent kind and its arguments; null where its syntax is not verified. */
+export interface SessionHistoryRow {
+  id: string;
+  title: string | null;
+  /** prompt text: only for a connection that may drive */
+  firstMessage: string | null;
+  startedAt: string | null;
+  updatedAt: string;
+  resume: { argv: string[] } | null;
+}
+
+export interface SessionHistoryResponse {
+  workspace_id: string;
+  agent: SessionHistoryAgent;
+  cwd: string;
+  /** newest first, at most 50 */
+  sessions: SessionHistoryRow[];
+}
 
 /** herdr's default socket, under XDG_CONFIG_HOME when set, as herdr itself resolves it. */
 export const HERDR_SOCKET_PATH = `${process.env["XDG_CONFIG_HOME"] || `${process.env["HOME"] ?? ""}/.config`}/herdr/herdr.sock`;

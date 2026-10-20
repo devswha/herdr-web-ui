@@ -13,7 +13,7 @@
  * What does not: files, images, push and remote PCs, which need a real machine.
  */
 import type { AgentIntegration, AgentStatus, CommandForm, CommandOutcome, ConversationTurn, IntegrationsResponse, Machine, MachineEvent, PaneDirection, PaneFindMatch, PaneFindRequest, PanePlan, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, PendingMessage, PlanStep, PluginActionResult, PluginActions, PluginActionsResponse, PortalStatus, ServerMessage, SessionSnapshot, SlashCommand, TabMoved, UsageReport, WorkspaceCreated, WorkspaceInfo, WorktreeEntry, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../../shared/protocol.ts";
-import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope } from "../../shared/protocol.ts";
+import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffRepository, RepoDiffScope, SessionHistoryAgent, SessionHistoryResponse } from "../../shared/protocol.ts";
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { skillSyntax } from "../../shared/skill-syntax.ts";
@@ -21,7 +21,7 @@ import { neighborPane } from "../../src/lib/layoutMap.ts";
 import { closeLayoutPane, resizeLayout, setLayoutSplitRatio, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
 import { movedTabOrder } from "../../src/lib/tabOrder.ts";
-import { CHATS, PROMPT, SPECS, type DemoSpec } from "./fixtures.ts";
+import { CHATS, PROMPT, SESSION_HISTORY_AGENTS, sessionHistoryRows, SPECS, type DemoSpec } from "./fixtures.ts";
 import { DemoHistory } from "./history.ts";
 import machinesFixture from "./fixtures/machines.json";
 import agentsFixture from "./fixtures/agents.json";
@@ -707,6 +707,19 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/push" || path.startsWith("/api/push/")) return error("push_unavailable", "the demo sends no alerts", 404);
   if (path === "/api/machines/settings") return json({ auto_update_bridges: true });
   if (path.startsWith("/api/machines/")) return error("demo", "remote PCs need a real machine", 404);
+
+  if (path === "/api/sessions/history") {
+    if (method !== "GET") return error("method_not_allowed", "use GET", 400);
+    const workspaceId = query.get("workspace_id");
+    if (!workspaceId) return error("missing_workspace_id", "workspace_id is required", 400);
+    const agent = query.get("agent") ?? "";
+    if (!(SESSION_HISTORY_AGENTS as string[]).includes(agent)) return error("invalid_agent", "agent must name an agent whose sessions are listed", 400);
+    const workspace = snapshot().workspaces.find((candidate) => candidate.workspace_id === workspaceId);
+    if (!workspace) return error("workspace_not_found", "no such workspace", 404);
+    const cwd = workspace.worktree?.checkout_path || snapshot().panes.find((pane) => pane.workspace_id === workspaceId)?.cwd || "";
+    const answer: SessionHistoryResponse = { workspace_id: workspaceId, agent: agent as SessionHistoryAgent, cwd, sessions: sessionHistoryRows(agent as SessionHistoryAgent) };
+    return json(answer, 200, { "cache-control": "no-store" });
+  }
 
   if (path === "/api/worktree/list" || path === "/api/worktree/create" || path === "/api/worktree/open" || path === "/api/worktree/remove") {
     const listing = path === "/api/worktree/list";
