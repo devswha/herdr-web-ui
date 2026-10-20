@@ -15,7 +15,7 @@ import { readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 import type { CommandForm, SlashCommand } from "../../shared/protocol.ts";
 import type { AgentCommandSource } from "./index.ts";
-import { ancestorsToRepoRoot, description, environRecord, parseJsonc, readConfigText, readSkillText, walkSkills } from "./walk.ts";
+import { ancestorsToRepoRoot, description, environRecord, MAX_WALK_FOLDERS, parseJsonc, readConfigText, readSkillText, walkSkills } from "./walk.ts";
 
 const BUNDLED_DESCRIPTION = "Use ONLY when the user is editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself.";
 const DESCRIPTIONS = {
@@ -107,7 +107,11 @@ function configCommands(path: string, source: "user" | "project", key: string): 
 function commandFiles(root: string): { name: string; path: string }[] {
   const files: { name: string; path: string }[] = [];
   const ancestors = new Set<string>();
+  let folders = 0;
   const visit = (directory: string): void => {
+    // the link guard covers the current branch only: sibling links to shared folders make an acyclic
+    // tree exponential, and this runs on the server's thread, so it shares the skill walk's bound
+    if (++folders > MAX_WALK_FOLDERS) return;
     const real = canonical(directory);
     if (ancestors.has(real)) return;
     ancestors.add(real);

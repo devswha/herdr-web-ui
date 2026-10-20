@@ -125,8 +125,10 @@ export function skillAccepted(screen: string, id: string, agent: string): boolea
     // the last such token on the row: an earlier one can be a skill attached before it
     const match = [...lines[index]!.matchAll(new RegExp(`(?:^|\\s)(${escape(token)})(?=\\s|$)`, "gu"))].at(-1);
     if (!match || !/^ *┃ /u.test(lines[index]!)) continue;
-    const start = match.index + match[0].length - token.length;
-    return all[index]!.slice(start, start + token.length).every((cell) => cell.bold);
+    // the match counts UTF-16 units, the cells one code point each: an emoji before the token is two units
+    const start = Array.from(lines[index]!.slice(0, match.index + match[0].length - token.length)).length;
+    const width = Array.from(token).length;
+    return all[index]!.slice(start, start + width).every((cell) => cell.bold);
   }
   return false;
 }

@@ -121,6 +121,12 @@ describe("skillAccepted", () => {
     expect(skillAccepted(ansi("first-selected"), "effect", AGENT)).toBe(false);
     expect(skillAccepted(ansi("accepted").replace("Build", "Plan "), "effect", AGENT)).toBe(false);
   });
+
+  it("finds the attached token after an emoji, which is one cell but two UTF-16 units", () => {
+    const bold = "\u001b[1m\u001b[38;2;157;124;216m\u001b[48;2;30;30;30m@effect";
+    expect(ansi("accepted").includes(bold)).toBe(true);
+    expect(skillAccepted(ansi("accepted").replace(bold, `😀 ${bold}`), "effect", AGENT)).toBe(true);
+  });
 });
 
 describe("skillTokens", () => {
