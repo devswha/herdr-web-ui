@@ -11,6 +11,11 @@ export type CatalogPane = Awaited<ReturnType<typeof paneContext>>["pane"];
 export interface CatalogSource {
   /** the agent whose rows this provider answers for, as resolveAgent names it */
   agent: string;
+  /**
+   * the kinds of rows this provider is the authority for: an answer (even an empty one) replaces the
+   * scanned rows of these kinds. Without it, the kinds present in an answer are owned.
+   */
+  owns?: readonly ("commands" | "skills")[];
   /** the backend commands and skills the agent reports for this pane, or null when it has no answer */
   rows(pane: CatalogPane, cwd: string, signal: AbortSignal): Promise<SlashCommand[] | null>;
 }
@@ -63,8 +68,9 @@ export async function mergeCatalogSources(agent: string | null, pane: CatalogPan
   if (providers.length === 0) return base;
   const answers = await Promise.all(providers.map((provider) => ask(provider, pane, cwd, budgetMs)));
   let merged = base;
-  for (const answer of answers) {
+  for (const [index, answer] of answers.entries()) {
     if (!answer) continue;
+    const owns = providers[index]!.owns;
     const seen = new Set<string>();
     const native = answer.filter((row) => {
       if (row.source === "builtin") return false;
@@ -79,8 +85,8 @@ export async function mergeCatalogSources(agent: string | null, pane: CatalogPan
       visibility: row.visibility ?? "offered",
       provenance: { transport: "native", verified: true },
     }));
-    const ownsSkills = native.some((row) => row.source === "skill");
-    const ownsCommands = native.some((row) => row.source !== "skill");
+    const ownsSkills = owns ? owns.includes("skills") : native.some((row) => row.source === "skill");
+    const ownsCommands = owns ? owns.includes("commands") : native.some((row) => row.source !== "skill");
     const identity = (row: SlashCommand): string | null => row.id === undefined ? null : JSON.stringify([row.trigger ?? "/", row.name, row.id]);
     const nativeIdentities = new Set(native.map(identity).filter((key) => key !== null));
     merged = [

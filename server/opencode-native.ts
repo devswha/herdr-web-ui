@@ -267,6 +267,8 @@ export async function openCodeCatalogRows(service: OpenCodeService, directory: s
 
 registerCatalogSource({
   agent: "opencode",
+  // its own command and skill lists: an empty list is an answer too
+  owns: ["commands", "skills"],
   async rows(pane, cwd, signal) {
     const bound = await openCodePaneService(pane, signal);
     return bound ? await openCodeCatalogRows(bound.service, cwd, signal) : null;

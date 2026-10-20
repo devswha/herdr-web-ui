@@ -359,6 +359,7 @@ export function createCodexDaemonSource(options: CodexDaemonOptions = {}): Codex
 
   return {
     agent: "codex",
+    owns: ["skills"],
     close() {
       closed = true;
       drop();

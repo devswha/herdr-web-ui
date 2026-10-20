@@ -58,6 +58,15 @@ describe("catalog sources", () => {
     expect(performance.now() - started).toBeLessThan(1000);
   });
 
+  test("an empty answer from a provider that owns skills removes the scanned skills; null keeps them", async () => {
+    // Codex with every skill disabled, or an empty gjc list: the agent's own word is that there are none
+    register({ agent: "x", owns: ["skills"], rows: async () => [] });
+    expect((await mergeCatalogSources("x", pane, "/w", base)).map((r) => r.name)).toEqual(["clear", "mine"]);
+    undo.pop()?.();
+    register({ agent: "x", owns: ["skills"], rows: async () => null });
+    expect(await mergeCatalogSources("x", pane, "/w", base)).toEqual(base);
+  });
+
   test("a provider that throws or answers null falls back", async () => {
     register({ agent: "x", rows: async () => { throw new Error("boom"); } });
     register({ agent: "x", rows: () => { throw new Error("sync"); } });

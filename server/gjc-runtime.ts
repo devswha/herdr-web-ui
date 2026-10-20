@@ -669,4 +669,4 @@ export function gjcNativeSkills(paneId: string, options: GjcNativeOptions = {}):
   return { rows: entry.rows, refreshed: target.flight };
 }
 
-registerCatalogSource({ agent: "gjc", rows: async (pane) => gjcNativeSkills(pane.pane_id).rows });
+registerCatalogSource({ agent: "gjc", owns: ["skills"], rows: async (pane) => gjcNativeSkills(pane.pane_id).rows });
