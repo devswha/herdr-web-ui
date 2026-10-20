@@ -862,6 +862,8 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     return json({ files: DEMO_FILES.filter((file) => file.toLowerCase().includes(q)).slice(0, Number(query.get("limit") ?? 20)) });
   }
   if (path === "/api/pane/input" || path === "/api/pane/keys") return json({ ok: true });
+  // the demo's agents have no rewind dialog to open: the chat says to choose in the terminal
+  if (path === "/api/pane/rewind") return json({ ok: true, outcome: "terminal-required" });
   if (path === "/api/plugins/actions") return json({ plugins: PLUGINS } satisfies PluginActionsResponse);
   if (path === "/api/plugin/action") {
     // nothing here is ever left running, so no run is asked about again

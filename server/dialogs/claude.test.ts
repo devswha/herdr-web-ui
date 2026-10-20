@@ -5,6 +5,66 @@ import { answerKeys, parseInteractivePrompt } from "../prompt.ts";
 const fixture = (state: string, width: number): string =>
   readFileSync(new URL(`../fixtures/claude-goal-2.1.304-${state}-${width}.txt`, import.meta.url), "utf8");
 
+/** Claude Code 2.1.304's /rewind, recorded over a resumed apple/banana session (fixtures named by state and width) */
+const rewind = (state: string, width: number): string =>
+  readFileSync(new URL(`../fixtures/claude-rewind-2.1.304-${state}-${width}.txt`, import.meta.url), "utf8");
+
+describe("Claude Code's /rewind", () => {
+  const CHOICES = ["Restore conversation", "Summarize from here", "Summarize up to here", "Never mind"];
+
+  for (const width of [40, 120]) {
+    test(`reads the confirm step's choices at ${width} columns`, () => {
+      const prompt = parseInteractivePrompt("claude", rewind("confirm-apple", width));
+      expect(prompt?.options.map((option) => option.label)).toEqual(CHOICES);
+      expect(prompt?.body?.split("\n")[0]).toBe("apple");
+      expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
+      expect(answerKeys(prompt!, { option_index: 3 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+    });
+
+    test(`reads the message list with the cursor on (current) at ${width} columns`, () => {
+      const prompt = parseInteractivePrompt("claude", rewind("select-current", width));
+      expect(prompt?.options.map((option) => option.label)).toEqual(["banana"]);
+      // the cursor starts under the messages, on the session as it is now
+      expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+    });
+
+    test(`reads the message list scrolled to banana at ${width} columns`, () => {
+      const prompt = parseInteractivePrompt("claude", rewind("select-banana", width));
+      expect(prompt?.options.map((option) => option.label)).toEqual(["apple", "banana"]);
+      expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+      expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["enter"] }]);
+    });
+  }
+
+  test("reads the confirm step under a rule a tip takes the start of", () => {
+    const prompt = parseInteractivePrompt("claude", rewind("confirm-apple-tip", 40));
+    expect(prompt?.options.map((option) => option.label)).toEqual(CHOICES);
+    expect(prompt?.body?.split("\n")[0]).toBe("apple");
+  });
+
+  test("joins a long message the narrow confirm step wraps", () => {
+    const prompt = parseInteractivePrompt("claude", rewind("confirm-long", 40));
+    expect(prompt?.body?.split("\n")[0]).toBe("please describe the history of the cherry orchard near the river in some detail");
+    expect(prompt?.options.map((option) => option.label)).toEqual(CHOICES);
+  });
+
+  test("the age under the message stays out of the card's identity", () => {
+    const shown = rewind("confirm-apple", 120);
+    expect(parseInteractivePrompt("claude", shown.replace("(3h ago)", "(4h ago)"))?.id).toBe(parseInteractivePrompt("claude", shown)?.id);
+  });
+
+  test("a confirm step the recording does not show gets no card", () => {
+    const shown = rewind("confirm-apple", 120);
+    expect(parseInteractivePrompt("claude", shown.replace("2. Summarize from here", "2. Restore code"))).toBeNull();
+    expect(parseInteractivePrompt("claude", shown.replace("   Rewind\n", "   Rollback\n"))).toBeNull();
+    expect(parseInteractivePrompt("claude", `${shown}\n❯ hello`)).toBeNull();
+  });
+
+  test("a list cut by a later line gets no card", () => {
+    expect(parseInteractivePrompt("claude", `${rewind("select-banana", 120)}\n❯ hello`)).toBeNull();
+  });
+});
+
 describe("Claude Code's bare /goal", () => {
   for (const width of [40, 120]) {
     test(`reads the goal dialog with a goal at ${width} columns`, () => {

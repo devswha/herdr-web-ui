@@ -67,6 +67,7 @@ type Responder =
   | "claude-confirm"
   | "claude-held"
   | "claude-goal"
+  | "claude-rewind"
   | "claude-model"
   | "claude-effort"
   | "codex-model"

@@ -455,6 +455,152 @@ function goalCard(title: string, question: string, status: string | null): Parse
   }, { body: null });
 }
 
+/**
+ * Claude Code's `/rewind`, as 2.1.304 draws it under the session's rule (recorded at 40 and 120
+ * columns). First a list of the session's messages, a window of them with `↑ 1 more` and
+ * `↓ 1 more` for the rest, the cursor on `(current)` under the last one:
+ *
+ *   ▔▔▔▔▔▔▔▔
+ *      Rewind
+ *
+ *      Restore the code and/or conversation to the point before…
+ *
+ *        ↑ 1 more
+ *        banana
+ *        ⚠ No code restore
+ *
+ *      ❯ (current)
+ *
+ *      Enter to continue · Esc to cancel
+ *
+ * A message a narrow pane cannot hold ends in `…`. Enter on one opens its confirm step, which quotes
+ * the whole message (wrapped at the pane's edge) over its age:
+ *
+ *      Confirm you want to restore the conversation to the point before you sent this message:
+ *
+ *      │ apple
+ *      │ (3h ago)
+ *
+ *      The conversation will be forked.
+ *      The code will be unchanged.
+ *
+ *      ❯ 1. Restore conversation
+ *        2. Summarize from here
+ *        3. Summarize up to here
+ *        4. Never mind
+ *
+ * "Never mind" goes back to the list. Only these choices were recorded: a message with code to
+ * restore offers others, and gets no card (the terminal shows it).
+ */
+const CLAUDE_REWIND_HINT_RE = /^Enter to continue · Esc to cancel$/;
+
+const CLAUDE_REWIND_LIST_RE = /^Restore the code and\/or conversation to the point before…$/;
+
+const CLAUDE_REWIND_CONFIRM_RE = /^Confirm you want to restore the conversation to the point before you sent this message:$/;
+
+export const CLAUDE_REWIND_CHOICES = ["Restore conversation", "Summarize from here", "Summarize up to here", "Never mind"] as const;
+
+const CLAUDE_REWIND_MORE_RE = /^([↑↓]) (\d+) more$/;
+
+const CLAUDE_REWIND_AGE_RE = /^\(.+ ago\)$/;
+
+/** The rewind panel's blocks of lines (blank lines part them, the raw lines kept), from its `Rewind` title down; null when the screen does not end in one. */
+function claudeRewindPanel(screen: string): string[][] | null {
+  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
+  // the session's rule, or the end of it where a tip takes its start (" tmux detected · scroll… ▔", recorded at 40 columns)
+  const rule = findLastIndex(lines, (line) => cleanLine(line).startsWith("▔") || cleanLine(line).endsWith("▔"));
+  if (rule < 0) return null;
+  const blocks: string[][] = [[]];
+  for (const line of lines.slice(rule + 1)) {
+    if (line.trim() === "") { if (blocks.at(-1)!.length > 0) blocks.push([]); } else blocks.at(-1)!.push(line);
+  }
+  if (blocks.at(-1)!.length === 0) blocks.pop();
+  return blocks.length >= 3 && blocks[0]!.length === 1 && cleanLine(blocks[0]![0]!) === "Rewind" ? blocks.slice(1) : null;
+}
+
+/** A row of the rewind list: its first line, the cursor's mark taken off, and the lines under it. */
+export interface ClaudeRewindRow { label: string; detail: string | null; cursor: boolean }
+
+/** What the rewind list shows: its rows in order, the cursor's among them, and how many lie above and below the window. */
+export interface ClaudeRewindList { rows: ClaudeRewindRow[]; cursor: number; above: number; below: number }
+
+export function parseClaudeRewindList(screen: string): ClaudeRewindList | null {
+  const blocks = claudeRewindPanel(screen);
+  if (blocks === null) return null;
+  const hint = blocks.at(-1)!;
+  if (hint.length !== 1 || !CLAUDE_REWIND_HINT_RE.test(cleanLine(hint[0]!))) return null;
+  if (!CLAUDE_REWIND_LIST_RE.test(normalizeText(blocks[0]!.map(cleanLine).join(" ")))) return null;
+  const rows: ClaudeRewindRow[] = [];
+  let above = 0;
+  let below = 0;
+  for (const block of blocks.slice(1, -1)) {
+    let lines = block.map(cleanLine);
+    const more = CLAUDE_REWIND_MORE_RE.exec(lines[0]!);
+    if (more !== null) {
+      if (more[1] === "↑") { if (rows.length > 0 || above > 0) return null; above = Number(more[2]); } else { if (lines.length > 1 || below > 0) return null; below = Number(more[2]); }
+      lines = lines.slice(1);
+      if (lines.length === 0) continue;
+    }
+    if (below > 0) return null;
+    const cursor = SELECTED_RE.test(lines[0]!);
+    const label = lines[0]!.replace(SELECTED_RE, "").trim();
+    if (!label || lines.slice(1).some((line) => SELECTED_RE.test(line) || CLAUDE_REWIND_MORE_RE.test(line))) return null;
+    rows.push({ label, detail: lines.length > 1 ? lines.slice(1).join(" ") : null, cursor });
+  }
+  const cursor = rows.findIndex((row) => row.cursor);
+  if (rows.length === 0 || rows.filter((row) => row.cursor).length !== 1) return null;
+  // the session as it is now is the list's last row, there only when the window reaches the end
+  if (rows.slice(0, -1).some((row) => row.label === "(current)") || (below === 0 && rows.at(-1)!.label !== "(current)")) return null;
+  return { rows, cursor, above, below };
+}
+
+/** What the rewind confirm step shows: the message it quotes (its wrapped lines joined), its notes, and its choices. */
+export interface ClaudeRewindConfirm { question: string; message: string; notes: string[]; selected: number }
+
+export function parseClaudeRewindConfirm(screen: string): ClaudeRewindConfirm | null {
+  const blocks = claudeRewindPanel(screen);
+  if (blocks === null || blocks.length !== 4) return null;
+  const [asked, quoted, notes, rows] = blocks as [string[], string[], string[], string[]];
+  const question = normalizeText(asked.map(cleanLine).join(" "));
+  if (!CLAUDE_REWIND_CONFIRM_RE.test(question)) return null;
+  if (!quoted.every((line) => /^\s*│ /.test(line))) return null;
+  const quote = quoted.map(cleanLine);
+  if (quote.length < 2 || !CLAUDE_REWIND_AGE_RE.test(quote.at(-1)!)) return null;
+  const numbered = parseNumberedRows(rows, 0, rows.length);
+  if (numbered.length !== rows.length || !sequentialRows(numbered) || numbered.filter((row) => row.selected).length !== 1) return null;
+  if (numbered.map((row) => row.label).join("\n") !== CLAUDE_REWIND_CHOICES.join("\n")) return null;
+  return { question, message: normalizeText(quote.slice(0, -1).join(" ")), notes: notes.map(cleanLine), selected: numbered.findIndex((row) => row.selected) };
+}
+
+function parseClaudeRewind(screen: string): ParsedPrompt | null {
+  const confirm = parseClaudeRewindConfirm(screen);
+  if (confirm !== null) {
+    return finishPrompt("claude", {
+      kind: "menu", title: "Rewind", question: confirm.question, body: [confirm.message, "", ...confirm.notes].join("\n"),
+      options: CLAUDE_REWIND_CHOICES.map((label) => ({ label, description: null })), multi_select: false, custom_option_index: null,
+    }, {
+      responder: "claude-rewind", menuLabels: [...CLAUDE_REWIND_CHOICES], selectedIndex: confirm.selected,
+      checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+      optionSteps: CLAUDE_REWIND_CHOICES.map((_, index) => keySteps([...navigationKeys(index - confirm.selected), KEY.enter])),
+    });
+  }
+  const list = parseClaudeRewindList(screen);
+  if (list === null) return null;
+  // the messages are the card's options; `(current)` is where the cursor starts, no point to rewind to
+  const messages = list.rows.filter((row) => row.label !== "(current)");
+  if (messages.length === 0) return null;
+  const hidden = list.above + list.below;
+  return finishPrompt("claude", {
+    kind: "menu", title: "Rewind", question: "Restore the code and/or conversation to the point before…",
+    body: hidden > 0 ? `${hidden} more ${hidden === 1 ? "message is" : "messages are"} listed in the terminal.` : null,
+    options: messages.map((row) => ({ label: row.label, description: row.detail })), multi_select: false, custom_option_index: null,
+  }, {
+    responder: "claude-rewind", menuLabels: list.rows.map((row) => row.label), selectedIndex: list.cursor,
+    checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
+    optionSteps: messages.map((_, index) => keySteps([...navigationKeys(index - list.cursor), KEY.enter])),
+  });
+}
+
 /** Characters no one sees: format controls (zero-width spaces and joiners, bidi marks, tags), combining marks, Hangul fillers. */
 export const INVISIBLE_CHAR_RE = /[\p{Cf}\p{Mn}\p{Me}\u115F\u1160\u3164\uFFA0]/u;
 
@@ -765,6 +911,16 @@ export const readers: readonly DialogReader[] = [
     parse: (screen) => {
       const parsed = parseClaudeGoal(screen);
       return parsed?.responder === "claude-goal" ? parsed : null;
+    },
+  },
+  {
+    id: "claude-rewind", agents: ["claude"], priority: 6,
+    // a window on the session's messages: looked at again after each move, and before the Enter
+    reread: "before-commit", list: "letter-window",
+    interaction: (parsed) => pickerPlan(parsed, parseClaudeRewind, parsed.optionSteps ?? [], (shown, cursor) => shown.menuLabels[cursor]),
+    parse: (screen) => {
+      const parsed = parseClaudeRewind(screen);
+      return parsed?.responder === "claude-rewind" ? parsed : null;
     },
   },
   {

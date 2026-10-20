@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptResponse, PromptAnswer, SessionSnapshot, SlashCommand } from "../shared/protocol.ts";
 import { builtinCommands, cachedPaneCommands } from "./commands.ts";
-import { readCommandTranscript } from "./conversation.ts";
+import { claudeRestoredOwned, readCommandTranscript, releaseClaudeRestored } from "./conversation.ts";
 import { resolveAgent } from "./pane-context.ts";
 import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
@@ -13,6 +13,7 @@ import { claudePlanFile } from "./claude-plan.ts";
 import { listPendingQuestionForms, openCodeService, replyOpenCodeForm } from "./opencode-service.ts";
 import { opencodeSessionId } from "./opencode.ts";
 import { registry } from "./dialogs/registry.ts";
+import { followClaudeRestore } from "./rewind.ts";
 import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, type OpenCodePromptEntry, PI_MODEL_HINT_RE, type ParsedPrompt, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, keySteps, navigationKeys, normalizeText, parsedByPublicPrompt, publicPrompt, wrapped } from "./dialogs/shared.ts";
 import { executeInteractionPlan } from "./dialogs/interaction-plan.ts";
 import { openCodeV1QuestionActive } from "./dialogs/opencode.ts";
@@ -170,11 +171,37 @@ export function noteSubmitted(paneId: string, text: string, command?: CommandSen
   if (chatSent.size > 128) chatSent.delete(chatSent.keys().next().value!);
   if (INVISIBLE_CHAR_RE.test(text)) heldCandidates.set(paneId, { text, at: Date.now() });
   else heldCandidates.delete(paneId);
+  // a message a rewind put back in Claude's box is no longer the chat's own once it sends again
+  releaseClaudeRestored(paneId);
+}
+
+/**
+ * A Claude restore took the conversation back to before a message Claude wrote at `at`: the chat's
+ * command sends made after it are forgotten with their outcomes, which would otherwise keep claiming
+ * evidence rewound away. Sends before it keep theirs.
+ */
+export function forgetChatSendsAfter(paneId: string, at: number): void {
+  const sent = chatSent.get(paneId);
+  if (!sent) return;
+  const gone = new Set(sent.commands.filter((command) => command.at > at).map((command) => command.id));
+  if (gone.size === 0) return;
+  sent.commands = sent.commands.filter((command) => !gone.has(command.id));
+  sent.reservations.forget(gone);
 }
 
 /** The text of the pane's last successful chat send (noteSubmitted), or none. */
 export function lastChatSubmitted(paneId: string): string | null {
   return chatSent.get(paneId)?.text ?? null;
+}
+
+/**
+ * The words in Claude Code's input box that are the chat's own to offer again and to empty before
+ * the next send: the message a rewind restored there (conversation.ts claudeRestoredOwned), only
+ * while the pane's one Claude process is the one that restored it; else the chat's last send, which
+ * Claude puts back when that send is cancelled.
+ */
+export async function chatOwnedInput(paneId: string): Promise<string | null> {
+  return await claudeRestoredOwned(paneId) ?? lastChatSubmitted(paneId);
 }
 
 /** Native observers must name the send they correlated; a timestamp or idle transition alone is not an event. */
@@ -322,6 +349,8 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   if (prompt.responder === "omp-handoff") return true;
   // the goal dialog ends the screen with its own dismiss hint
   if (prompt.responder === "claude-goal") return ends(/esc to dismiss$/i);
+  // /rewind's list ends with its hint; its confirm step with its last choice, no hint under it
+  if (prompt.responder === "claude-rewind") return ends(/^enter to continue · esc to cancel$/i) || /^(?:❯\s*)?4\.\s+Never mind$/.test(last);
   if (prompt.responder === "claude-model") return claudeModelListWaits(screen);
   if (prompt.responder === "claude-effort") return ends(CLAUDE_EFFORT_HINT_RE);
   if (prompt.responder === "codex-model") return ends(/(?:^|\s)enter select\s*·\s*esc back$|(?:^|\s)enter (?:default|apply)\s*·\s*s session\s*·\s*esc back$/i);
@@ -997,7 +1026,7 @@ export function claudeInputBoxText(live: string): string {
  * viewportShowsLive verifies they show that screen.
  */
 async function restoredOnLiveScreen(paneId: string, viewport: string): Promise<string | null> {
-  const sent = lastChatSubmitted(paneId);
+  const sent = await chatOwnedInput(paneId);
   const plain = (text: string): string => text.replace(ANSI_RE, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "");
   if (claudeRestoredDraft(plain(viewport), viewport, sent) === null) return null;
   const detection = async (): Promise<string> => (await paneRead({ paneId, source: "detection", format: "text", timeoutMs: SUGGESTION_READ_MS })).text;
@@ -1864,6 +1893,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       // the card's read right after the answer does not get the list just answered once more
       if (target.steps) form.answered = contentId(target);
       else if (responder === "claude-model" || responder === "claude-effort" || responder === "codex-model") form.answered = lastSeen ?? contentId(target);
+      // Restore conversation on Claude Code's rewind card: once its screen shows it done, the chat follows at once
+      if (responder === "claude-rewind" && body.option_index === 0) await followClaudeRestore(body.pane_id, parsedByPublicPrompt.get(target)!);
       return jsonResponse({ ok: true });
     });
     // the wait for the form's next step only reads the pane: after the pane's turn, so a message

@@ -16,6 +16,7 @@ import { GjcSdkLookupError } from "./gjc-sdk.ts";
 import { agentRename, HerdrError, layoutSetSplitRatio, paneClear, paneClose, paneFind, paneFocus, paneRead, paneRename, paneResize, paneScroll, paneScrollInfo, paneSelectionRead, paneSendKeys, paneSendText, paneSplit, paneSwap, paneSwapWith, paneZoom } from "./herdr/client.ts";
 import { paneContext, resolveAgent, versionSourceOf } from "./pane-context.ts";
 import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
+import { handleRewindRequest } from "./rewind.ts";
 
 /** the native stores createServer was given; unset, each reader finds its own */
 export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string; openCodeStateDir?: string };
@@ -27,7 +28,11 @@ const READ_SOURCES = new Set<ReadSource>(["detection", "recent", "recent_unwrapp
 const READ_FORMATS = new Set<ReadFormat>(["ansi", "text"]);
 
 /** The answer for a pane route, or null when the path is not one. */
-export async function handlePaneRequest(request: Request, url: URL, pathname: string, options: PaneStores): Promise<Response | null> {
+export async function handlePaneRequest(request: Request, url: URL, pathname: string, options: PaneStores,
+  /** the pane's input order (core/input.ts): a rewind's keys wait behind a message in flight */
+  serialize: <T>(paneId: string, task: () => Promise<T>) => Promise<T> = (_paneId, task) => task()): Promise<Response | null> {
+  if (pathname === "/api/pane/rewind") return handleRewindRequest(request, serialize);
+
   if (pathname === "/api/pane/rename") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<{ pane_id?: unknown; label?: unknown }>(request);

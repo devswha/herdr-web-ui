@@ -406,6 +406,11 @@ export function PaneTerminal({
   // input typed while disconnected, held for the user to review and send
   const [draftState, setDraftState] = useState<{ owner: string | null; value: InputDraft }>({ owner: null, value: EMPTY_DRAFT });
   const draft = draftState.value;
+  // a message's "Rewind in terminal" (grok, agy): which pane's terminal says to run the agent's own
+  // rewind, until dismissed or the chat is back. Nothing is typed for it: a draft stays as it was
+  const [rewindHint, setRewindHint] = useState<string | null>(null);
+  const rewindInTerminal = useCallback(() => { setRewindHint(paneId); onOpenTerminal?.(); }, [paneId, onOpenTerminal]);
+  useEffect(() => { if (chatView) setRewindHint(null); }, [chatView]);
   const setDraft = useCallback((value: InputDraft | ((previous: InputDraft) => InputDraft)) => {
     const owner = paneRef.current ? paneStorageId(machineId, paneRef.current) : null;
     setDraftState((previous) => ({ owner, value: typeof value === "function" ? value(previous.owner === owner ? previous.value : EMPTY_DRAFT) : value }));
@@ -2881,6 +2886,12 @@ export function PaneTerminal({
             {draft.text.length > 0 && <span className="draft-held" title={draft.text}> {t("Input held:")} <code>“{draft.text}”</code></span>}
           </div>
         )}
+        {paneId !== null && !chatView && rewindHint === paneId && (
+          <div className="terminal-banner terminal-banner-rewind" role="status">
+            <span>{t("Run /rewind here to choose the message to go back to. The chat follows.")}</span>
+            <button type="button" className="icon-button" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={() => setRewindHint(null)}><X aria-hidden="true" /></button>
+          </div>
+        )}
         {paneId !== null && !ended && connected && !draftIsEmpty(draft) && !noticesDocked && (
           <div className="terminal-banner terminal-banner-draft" role="status">
             {/* on screen the row is its parts, the command and its two controls; the words are for the live region */}
@@ -2989,6 +3000,8 @@ export function PaneTerminal({
             onPromptAnswered={onPromptAnswered}
             title={title}
             onOpenTerminal={onOpenTerminal}
+            interactive={!observing && role === "interact"}
+            onRewindInTerminal={onOpenTerminal ? rewindInTerminal : undefined}
           />
           </RenderBoundary>
         )}

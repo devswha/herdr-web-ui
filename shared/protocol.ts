@@ -1211,6 +1211,21 @@ export interface PromptAnswer {
   draft?: { option_indices: number[]; custom_text: string };
 }
 
+/** POST /api/pane/rewind body: rewind the pane's conversation to before the message `text`. */
+export interface PaneRewindRequest {
+  pane_id: string;
+  /** the message's words, as the chat shows them */
+  text: string;
+  /** how many newer messages in the chat have the same words: the list is walked past that many */
+  later?: number;
+}
+
+/** The answer: `interaction-required`, Claude Code's confirm step is up as a card; `terminal-required`, the agent's own picker is open in the terminal. */
+export interface PaneRewindResponse {
+  ok: true;
+  outcome: "interaction-required" | "terminal-required";
+}
+
 /**
  * The JSON inside every web push, decrypted by the device's service worker (public/sw.js)
  * and shown as a notification. `pane_id` is null for the enable-confirmation push; `tag`
