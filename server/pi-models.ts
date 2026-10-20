@@ -80,6 +80,16 @@ function windowsFromModelsJson(provider: PiProvider): Map<string, number | null>
     // for the same id does not stand in for the definition pi runs
     models.set(model.id, typeof window === "number" && Number.isFinite(window) && window > 0 ? window : null);
   }
+  // pi applies an override to every model of the provider, built-in and store models included, so
+  // an override's window stands for a model this file does not list too; one that states no window
+  // leaves that model to the catalog that lists it
+  if (overrides !== null && typeof overrides === "object" && !Array.isArray(overrides)) {
+    for (const [id, value] of Object.entries(overrides as Record<string, unknown>)) {
+      if (models.has(id) || value === null || typeof value !== "object" || Array.isArray(value)) continue;
+      const window = (value as PiModel).contextWindow;
+      if (typeof window === "number" && Number.isFinite(window) && window > 0) models.set(id, window);
+    }
+  }
   return models;
 }
 

@@ -165,6 +165,16 @@ describe("the context window a pi model runs in", () => {
     expect(piContextWindow("n", "commandcode", dir)).toBe(200000);
   });
 
+  it("applies a models.json override to a model only another catalog lists", () => {
+    const dir = catalogsDir("override-store-model", {
+      "models.json": { providers: { anthropic: { modelOverrides: { "claude-x": { contextWindow: 500000 }, "claude-z": { name: "renamed" } } } } },
+      "models-store.json": { anthropic: { models: [{ id: "claude-x", contextWindow: 1000000 }, { id: "claude-z", contextWindow: 300000 }] } },
+    });
+    expect(piContextWindow("claude-x", "anthropic", dir)).toBe(500000);
+    // an override that states no window leaves the window to the catalog that lists the model
+    expect(piContextWindow("claude-z", "anthropic", dir)).toBe(300000);
+  });
+
   it("reads only a regular catalog file of a sane size, and never waits on a pipe", () => {
     const dir = catalogsDir("not-regular", { "models-store.json": `{"anthropic":{"models":[{"id":"big","contextWindow":1}]},"pad":"${"x".repeat(4 * 1024 * 1024)}"}` });
     mkdirSync(join(dir, "models.json"));
