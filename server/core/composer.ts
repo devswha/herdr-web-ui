@@ -88,14 +88,16 @@ const compactText = (text: string): string => text.replace(/\s+/g, "");
  * sent, a picker the message opened, what the user typed since) ends it, so nothing is pressed twice
  * into a message that went.
  */
-async function enterWhileOmpHolds(paneId: string, text: string, checkMs: number, untilMs: number): Promise<void> {
+async function enterWhileOmpHolds(paneId: string, text: string, checkMs: number, untilMs: number, allowed: () => boolean): Promise<void> {
   const wanted = compactText(text);
   if (!wanted) return;
   for (const deadline = Date.now() + untilMs; Date.now() < deadline;) {
     await Bun.sleep(checkMs);
     const box = ompInputText((await paneRead({ paneId, source: "visible", format: "text" })).text);
     if (box === null || compactText(box) !== wanted) return;
-    await paneSendKeys(paneId, ["Enter"]);
+    // the sender may have lost access since the send: asked before each Enter, like every key write here
+    if (!allowed()) return;
+    await paneSendKeys(paneId, ["Enter"], undefined, allowed);
   }
   console.warn("omp input: a sent message still waits in the input box after", untilMs, "ms");
 }
@@ -359,7 +361,8 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
           noteSubmitted(paneId, sent);
           // looked at after the send is answered: a message omp took at once costs one read
           if (pane && resolveAgent(pane).agent === "omp") {
-            void enterWhileOmpHolds(paneId, sent, options.ompSubmitCheckMs ?? OMP_SUBMIT_CHECK_MS, OMP_SUBMIT_RETRY_MS)
+            const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
+            void enterWhileOmpHolds(paneId, sent, options.ompSubmitCheckMs ?? OMP_SUBMIT_CHECK_MS, OMP_SUBMIT_RETRY_MS, allowed)
               .catch((error: unknown) => console.warn("omp input:", error instanceof HerdrError ? error.code : String(error)));
           }
           return;

@@ -113,6 +113,17 @@ describe("a message sent to omp", () => {
     expect(enters()).toBe(0);
   });
 
+  it("asks again whether the sender may still send before each Enter, and presses none once it may not", async () => {
+    screen = STARTING;
+    let permitted = true;
+    let refused = 0;
+    const authorize = () => { if (!permitted) { refused += 1; throw new Error("revoked"); } };
+    await submitter()("w:p1", "/effort", "/effort", Date.now(), false, authorize);
+    permitted = false;
+    await until("the sender asked again", () => refused > 0);
+    expect(enters()).toBe(0);
+  });
+
   it("does not look at another agent's screen", async () => {
     agent = "codex";
     screen = STARTING;
