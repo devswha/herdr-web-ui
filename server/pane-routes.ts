@@ -18,7 +18,7 @@ import { paneContext, resolveAgent, versionSourceOf } from "./pane-context.ts";
 import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 
 /** the native stores createServer was given; unset, each reader finds its own */
-export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string };
+export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string; openCodeStateDir?: string };
 
 /** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
 const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
@@ -72,7 +72,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
           : null;
         const { version } = resolveAgent(context.pane, roots, store);
         const scanned = paneCommands(agent, context.cwd, undefined, { ...roots.omo, environ: roots.environ }, version);
-        const commands = await mergeCatalogSources(agent, context.pane, context.cwd, scanned);
+        const commands = await mergeCatalogSources(agent, context.pane, context.cwd, scanned, undefined, { codexHome: options.codexHome, openCodeStateDir: options.openCodeStateDir });
         rememberPaneCommands(context.pane, agent, commands);
         return jsonResponse({ commands });
       }

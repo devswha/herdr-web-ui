@@ -58,7 +58,7 @@ import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { HerdrSidebarConfig, herdrConfigPath } from "./herdr-sidebar.ts";
-import { registerCodexDaemonSource } from "./codex-daemon.ts";
+import { closeCodexDaemonSources } from "./codex-daemon.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
 import { PLUGIN_LOG_LIMIT, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
@@ -233,7 +233,6 @@ export function createServer(
     return grantPath ? tailnet.freshIdentity(host) : tailnet.identity();
   };
   const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
-  registerCodexDaemonSource(options.codexHome);
 
   const openCodeState = new OpenCodePromptState();
   const draftTimer = setInterval(() => openCodeState.prune(), 60_000);
@@ -710,6 +709,7 @@ export function createServer(
         openCodeState.clear();
         void options.portal?.shutdown();
         registration?.close();
+        closeCodexDaemonSources();
       });
       server.stop(true);
     },

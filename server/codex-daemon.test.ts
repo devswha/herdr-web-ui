@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import type { CatalogPane } from "./catalog-sources.ts";
 import { mergeCatalogSources } from "./catalog-sources.ts";
-import { createCodexDaemonSource, DaemonConnection, registerCodexDaemonSource } from "./codex-daemon.ts";
+import { closeCodexDaemonSources, createCodexDaemonSource, DaemonConnection, paneDaemonHome } from "./codex-daemon.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -118,24 +118,25 @@ const source = (home: string, warnings: string[] = []) => {
 const ask = (provider: ReturnType<typeof source>, cwd = "/w") => provider.rows(pane, cwd, new AbortController().signal);
 
 describe("codex daemon skills", () => {
-  it("reads only the registered Codex home: another home drops the old connection and cache", async () => {
+  it("asks each Codex home's own daemon, and closes every home's connection on stop", async () => {
     const first = fakeDaemon({ skills: [skill("from-first")] });
     const second = fakeDaemon({ skills: [skill("from-second")] });
-    const names = async () => (await mergeCatalogSources("codex", pane, "/w", [])).map((row) => row.name);
+    const names = async (codexHome: string) => (await mergeCatalogSources("codex", pane, "/w", [], undefined, { codexHome })).map((row) => row.name);
     try {
-      registerCodexDaemonSource(first.home);
-      expect(await names()).toEqual(["from-first"]);
-      // a second server in the same process, with its own home
-      registerCodexDaemonSource(second.home);
-      expect(await names()).toEqual(["from-second"]);
-      await until(() => first.connections.closed === first.connections.opened);
-      registerCodexDaemonSource(second.home);
-      expect(await names()).toEqual(["from-second"]);
-      expect(second.connections.opened).toBe(1);
+      expect(await names(first.home)).toEqual(["from-first"]);
+      expect(await names(second.home)).toEqual(["from-second"]);
+      expect(await names(first.home)).toEqual(["from-first"]);
+      expect(first.connections.opened).toBe(1);
     } finally {
-      // a home with no socket: the registered provider reads nothing after this test
-      registerCodexDaemonSource(temp("codex-daemon-none-"));
+      closeCodexDaemonSources();
     }
+    await until(() => first.connections.closed === first.connections.opened && second.connections.closed === second.connections.opened);
+  });
+
+  it("knows a pane's Codex home only from the server's setting or the pane's own process on Linux", async () => {
+    expect(await paneDaemonHome("any-pane", "/configured/home", "darwin")).toBe("/configured/home");
+    expect(await paneDaemonHome("any-pane", undefined, "darwin")).toBeNull();
+    expect(await paneDaemonHome("any-pane", undefined, "win32")).toBeNull();
   });
 
   it("gives native skill rows, enabled ones only, and sends nothing but initialize and skills/list", async () => {

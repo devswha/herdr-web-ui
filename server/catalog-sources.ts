@@ -8,6 +8,12 @@ import type { paneContext } from "./pane-context.ts";
 
 export type CatalogPane = Awaited<ReturnType<typeof paneContext>>["pane"];
 
+/** The asking server's own stores: a provider reads these, never a process-wide default, when they are set. */
+export interface CatalogContext {
+  codexHome?: string;
+  openCodeStateDir?: string;
+}
+
 export interface CatalogSource {
   /** the agent whose rows this provider answers for, as resolveAgent names it */
   agent: string;
@@ -17,7 +23,7 @@ export interface CatalogSource {
    */
   owns?: readonly ("commands" | "skills")[];
   /** the backend commands and skills the agent reports for this pane, or null when it has no answer */
-  rows(pane: CatalogPane, cwd: string, signal: AbortSignal): Promise<SlashCommand[] | null>;
+  rows(pane: CatalogPane, cwd: string, signal: AbortSignal, context?: CatalogContext): Promise<SlashCommand[] | null>;
 }
 
 /** how long one provider may take before its rows are left out */
@@ -37,7 +43,7 @@ export function registerCatalogSource(provider: CatalogSource): () => void {
 const UNKNOWN_FORMS: readonly CommandForm[] = [{ match: "bare", interaction: "unknown" }];
 
 /** one provider's rows, or null on timeout, error or no answer */
-async function ask(provider: CatalogSource, pane: CatalogPane, cwd: string, budgetMs: number): Promise<SlashCommand[] | null> {
+async function ask(provider: CatalogSource, pane: CatalogPane, cwd: string, budgetMs: number, context: CatalogContext): Promise<SlashCommand[] | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<null>((resolve) => {
@@ -45,7 +51,7 @@ async function ask(provider: CatalogSource, pane: CatalogPane, cwd: string, budg
   });
   try {
     // a throwing or non-async provider is the same as no answer
-    const answer = Promise.resolve().then(() => provider.rows(pane, cwd, controller.signal));
+    const answer = Promise.resolve().then(() => provider.rows(pane, cwd, controller.signal, context));
     answer.catch(() => undefined);
     const rows = await Promise.race([answer, budget]);
     return Array.isArray(rows) ? rows : null;
@@ -62,11 +68,11 @@ async function ask(provider: CatalogSource, pane: CatalogPane, cwd: string, budg
  * replaced by its rows, marked native and verified. Builtin rows are never removed and a provider
  * cannot add one. A provider that times out, throws or answers null leaves `base` as it was.
  */
-export async function mergeCatalogSources(agent: string | null, pane: CatalogPane, cwd: string, base: SlashCommand[], budgetMs = CATALOG_SOURCE_BUDGET_MS): Promise<SlashCommand[]> {
+export async function mergeCatalogSources(agent: string | null, pane: CatalogPane, cwd: string, base: SlashCommand[], budgetMs = CATALOG_SOURCE_BUDGET_MS, context: CatalogContext = {}): Promise<SlashCommand[]> {
   if (!agent) return base;
   const providers = sources.filter((source) => source.agent === agent);
   if (providers.length === 0) return base;
-  const answers = await Promise.all(providers.map((provider) => ask(provider, pane, cwd, budgetMs)));
+  const answers = await Promise.all(providers.map((provider) => ask(provider, pane, cwd, budgetMs, context)));
   let merged = base;
   for (const [index, answer] of answers.entries()) {
     if (!answer) continue;

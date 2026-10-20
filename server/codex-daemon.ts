@@ -5,7 +5,8 @@ import { join, resolve } from "node:path";
 import type { SlashCommand } from "../shared/protocol.ts";
 import { registerCatalogSource } from "./catalog-sources.ts";
 import type { CatalogSource } from "./catalog-sources.ts";
-import { defaultCodexHome } from "./codex.ts";
+import { defaultCodexHome, paneCodexProcess } from "./codex.ts";
+import { processEnviron } from "./omo.ts";
 
 /**
  * Skills from the Codex app-server daemon every Codex TUI shares since 0.157, read-only.
@@ -403,16 +404,53 @@ export function createCodexDaemonSource(options: CodexDaemonOptions = {}): Codex
   };
 }
 
-let registered: { home: string | undefined; source: CodexDaemonSource; unregister: () => void } | null = null;
+/** One provider per Codex home: its connection, cache and refusals belong to that home's daemon only. */
+const homeSources = new Map<string, CodexDaemonSource>();
+const HOMES_MAX = 8;
+
+function sourceFor(home: string): CodexDaemonSource {
+  let source = homeSources.get(home);
+  if (source) { homeSources.delete(home); homeSources.set(home, source); return source; }
+  source = createCodexDaemonSource({ codexHome: () => home });
+  homeSources.set(home, source);
+  if (homeSources.size > HOMES_MAX) {
+    const oldest = homeSources.keys().next().value!;
+    homeSources.get(oldest)?.close();
+    homeSources.delete(oldest);
+  }
+  return source;
+}
+
+/** Closes every home's connection and cache (a server stopping); the next request opens what it needs again. */
+export function closeCodexDaemonSources(): void {
+  for (const source of homeSources.values()) source.close();
+  homeSources.clear();
+}
 
 /**
- * Registers the provider for one Codex home. A call for another home replaces it, closing the old one,
- * so no connection, cache or refusal of the old home's daemon is ever used for the new one.
+ * The Codex home whose daemon serves the pane: the server's configured one, else the pane's own Codex
+ * process's CODEX_HOME, else that process's HOME/.codex. Read from /proc only (no process is started
+ * for it); null when it cannot be read (another platform, no Codex process, an unreadable environment).
  */
-export function registerCodexDaemonSource(codexHome?: string): void {
-  if (registered && registered.home === codexHome) return;
-  registered?.unregister();
-  registered?.source.close();
-  const source = createCodexDaemonSource(codexHome === undefined ? {} : { codexHome: () => codexHome });
-  registered = { home: codexHome, source, unregister: registerCatalogSource(source) };
+export async function paneDaemonHome(paneId: string, configured?: string, platform = process.platform): Promise<string | null> {
+  if (configured) return configured;
+  if (platform !== "linux") return null;
+  const codex = await paneCodexProcess(paneId).catch(() => null);
+  const environ = codex ? processEnviron(codex.pid) : null;
+  if (!environ) return null;
+  const value = (key: string): string | null => environ.filter((word) => word.startsWith(`${key}=`)).at(-1)?.slice(key.length + 1) || null;
+  const own = value("CODEX_HOME");
+  const home = value("HOME");
+  return own ?? (home ? join(home, ".codex") : null);
 }
+
+registerCatalogSource({
+  agent: "codex",
+  owns: ["skills"],
+  async rows(pane, cwd, signal, context) {
+    const home = await paneDaemonHome(pane.pane_id, context?.codexHome);
+    // no home known for this pane: no other home's list stands in for it
+    if (!home || signal.aborted) return null;
+    return await sourceFor(home).rows(pane, cwd, signal, context);
+  },
+});
