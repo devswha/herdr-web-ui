@@ -2982,6 +2982,7 @@ export function PaneTerminal({
             promptDock={promptDock}
             onPromptAnswered={onPromptAnswered}
             title={title}
+            onOpenTerminal={onOpenTerminal}
           />
           </RenderBoundary>
         )}
