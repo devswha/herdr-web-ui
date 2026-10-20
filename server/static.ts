@@ -147,7 +147,7 @@ function cspHeader(origin?: string): Record<string, string> {
 
 /**
  * HERDR_WEB_APP_NAME names the installed app. Each PC is its own origin, so two PCs installed
- * on one phone are two apps, and both would be called "herdr" (#476). Unset or blank, every
+ * on one phone are two apps, and both would be called "Ovis" (#476). Unset or blank, every
  * file is served as built. Read on every request, like HERDR_WEB_CSP; the manifest and the
  * shell revalidate on every load, so an installed app learns a new name without a reinstall.
  */

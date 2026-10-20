@@ -1807,11 +1807,6 @@ button {
   height: var(--mark-size);
 }
 
-.brand-sub {
-  color: var(--text-dim);
-  font-weight: var(--fw-medium);
-}
-
 /* The selected pane on one line: mark and title, then PC › workspace › folder. The title may
    shorten; the crumb may not: when it does not fit whole beside a whole title it wraps to a second
    line that the height clips, so it is all there or gone, and the title has the row. The full
