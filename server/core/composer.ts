@@ -210,7 +210,7 @@ export async function freeClaudeBox(paneId: string, working: boolean, authorize:
 }
 
 export function createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS }: {
-  options: { submitDeadlineMs?: number; submitDelayMs?: number; ompReportPollMs?: number; ompStartupMs?: number };
+  options: { submitDeadlineMs?: number; submitDelayMs?: number; ompReportPollMs?: number; ompStartupMs?: number; openCodeStateDir?: string };
   lastTyped: Map<string, number>;
   attachments: ReadonlyMap<string, { cols: number }>;
   terminalAttach: () => Promise<boolean>;
@@ -382,7 +382,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         inTime();
         // agent.prompt pastes the whole text, and OpenCode v2 leaves a pasted @skill unattached
         let skills: string[] = [];
-        if (pane) ({ sent: command, skills } = await openCodeSkillsToType(pane, command, text, beforeScreen));
+        if (pane) ({ sent: command, skills } = await openCodeSkillsToType(pane, command, text, beforeScreen, options.openCodeStateDir));
         inTime();
         if (pane && command && skills.length > 0) {
           const expected = pendingIdentity(pane);
@@ -399,7 +399,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
             if (current.agent_status === "blocked") throw new HerdrError("agent_blocked", "The agent is waiting for an answer in the terminal");
           };
           // followed from before the first key: the send's own message can be announced before Enter returns
-          const watch = startOpenCodeWatch(pane, command);
+          const watch = startOpenCodeWatch(pane, command, options.openCodeStateDir);
           await revalidate();
           let typed = false;
           const allowed = (): boolean => {
@@ -422,7 +422,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
             throw new HerdrError("submit_partial", "Part of the message was typed into OpenCode's input, but sending was not confirmed. Your chat text stayed here. Check the terminal before sending again.");
           }
         }
-        const watch = pane ? startOpenCodeWatch(pane, command) : null;
+        const watch = pane ? startOpenCodeWatch(pane, command, options.openCodeStateDir) : null;
         try {
           inTime();
           await agentPrompt(paneId, closeMention(sent));

@@ -676,6 +676,53 @@ process.stdin.on("data", (chunk) => {
     }
   });
 
+  it("reads only its own server's OpenCode state, never the default one, for the list, a cold send and its watch", async () => {
+    // the default location (what a server without its own state would read) names a service that counts every request
+    let defaultAsked = 0;
+    const decoy = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => { defaultAsked++; return Response.json({ version: "2.0.32", pid: process.pid }); } });
+    const xdg = mkdtempSync(join(tmpdir(), "herdr-web-ui-opencode-default-state-"));
+    mkdirSync(join(xdg, "opencode"));
+    writeFileSync(join(xdg, "opencode", "service.json"), JSON.stringify({ url: decoy.url.origin, pid: process.pid, password: "decoy", version: "2.0.32" }));
+    const previousXdg = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = xdg;
+    delete openCodeServiceOptions.stateDir;
+    closeOpenCodeNative();
+    forgetOpenCodeService();
+    const own = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state-own"), openCodeStateDir: nativeRoot });
+    const ws = new WebSocket(`ws://127.0.0.1:${own.port}/ws`);
+    const result = Promise.withResolvers<Record<string, unknown>>();
+    ws.addEventListener("message", (event) => {
+      const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
+      if (frame.type === "submit-result" && frame.id === 11) result.resolve(frame);
+    });
+    await new Promise((resolve) => ws.addEventListener("open", resolve, { once: true }));
+    const before = typed().length;
+    try {
+      extraSessions.add("ses_contractOwnState01");
+      await reportSession("ses_contractOwnState01", nativePane);
+      const listed = await (await fetch(`http://127.0.0.1:${own.port}/api/pane/commands?pane_id=${encodeURIComponent(nativePane)}`)).json() as { commands: SlashCommand[] };
+      expect(listed.commands.find((row) => row.name === "shipit")?.provenance?.transport).toBe("native");
+      // a new session after the list: the send is cold again and looks the service up itself
+      extraSessions.add("ses_contractOwnState02");
+      await reportSession("ses_contractOwnState02", nativePane);
+      ws.send(JSON.stringify({ type: "submit", id: 11, pane_id: nativePane, text: "@effect from own state", payload: "@effect from own state" }));
+      expect(await result.promise).toMatchObject({ ok: true });
+      expect(await typedSince(before)).toBe("@effect\t\u001b[200~from own state\u001b[201~\r");
+      expect((await outcomesAt(own.port, nativePane)).find((entry) => entry.text === "@effect from own state")?.state).toBe("accepted");
+      expect(defaultAsked).toBe(0);
+    } finally {
+      ws.close();
+      own.stop();
+      decoy.stop(true);
+      if (previousXdg === undefined) delete process.env["XDG_STATE_HOME"]; else process.env["XDG_STATE_HOME"] = previousXdg;
+      rmSync(xdg, { recursive: true, force: true });
+      openCodeServiceOptions.stateDir = nativeRoot;
+      closeOpenCodeNative();
+      forgetOpenCodeService();
+      await reportSession(NATIVE_SESSION, nativePane);
+    }
+  });
+
   it("answers the catalog and a cold @ send within budget while opencode.json is a FIFO", async () => {
     const fifo = join(nativeRoot, "opencode.json");
     expect(await Bun.spawn(["mkfifo", fifo]).exited).toBe(0);

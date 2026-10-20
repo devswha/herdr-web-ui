@@ -269,8 +269,8 @@ registerCatalogSource({
   agent: "opencode",
   // its own command and skill lists: an empty list is an answer too
   owns: ["commands", "skills"],
-  async rows(pane, cwd, signal) {
-    const bound = await openCodePaneService(pane, signal);
+  async rows(pane, cwd, signal, context) {
+    const bound = await openCodePaneService(pane, signal, context?.openCodeStateDir);
     return bound ? await openCodeCatalogRows(bound.service, cwd, signal) : null;
   },
 });
@@ -282,14 +282,14 @@ const UNKNOWN_FORMS = [{ match: "bare", interaction: "unknown" }] as const;
  * The pane's verified service and (for `cwd`) its lists, under one budget for all of it. `version` is
  * the verified service's, known even when its session lookup or lists then fail or run out.
  */
-async function boundCatalog(pane: HerdrPane, cwd: string | null, budgetMs: number): Promise<{ bound: boolean; rows: SlashCommand[] | null; version: string | null }> {
+async function boundCatalog(pane: HerdrPane, cwd: string | null, budgetMs: number, stateDir?: string): Promise<{ bound: boolean; rows: SlashCommand[] | null; version: string | null }> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let version: string | null = null;
   const expired = new Promise<null>((resolve) => { timer = setTimeout(() => { controller.abort(); resolve(null); }, budgetMs); });
   const asked = (async () => {
-    version = (await openCodeService(undefined, controller.signal))?.version ?? null;
-    const bound = version ? await openCodePaneService(pane, controller.signal) : null;
+    version = (await openCodeService(stateDir, controller.signal))?.version ?? null;
+    const bound = version ? await openCodePaneService(pane, controller.signal, stateDir) : null;
     if (!bound) return null;
     return { bound: true, rows: cwd ? await openCodeCatalogRows(bound.service, cwd, controller.signal) : null };
   })().catch(() => null);
@@ -307,13 +307,13 @@ async function boundCatalog(pane: HerdrPane, cwd: string | null, budgetMs: numbe
  * or from the scanned ones when the service does not answer. A skill that cannot be attached goes as
  * plain text and its record is terminal-required with the note why.
  */
-export async function openCodeSkillsToType(pane: HerdrPane, sent: Sent, text: string, screen = ""): Promise<{ sent: Sent; skills: string[] }> {
+export async function openCodeSkillsToType(pane: HerdrPane, sent: Sent, text: string, screen = "", stateDir?: string): Promise<{ sent: Sent; skills: string[] }> {
   if ((pane.agent ?? pane.agent_session?.agent) !== "opencode" || process.platform === "win32" || !/(?:^|\s)@\S/u.test(text)) return { sent, skills: [] };
   const tokensOf = (record: Sent): string[] => record?.agent === "opencode" ? skillTokens(text, record.invocations.map((invocation) => invocation.name)) : [];
   const cold = cachedPaneCommands(pane) === undefined;
   if (!cold && tokensOf(sent).length === 0) return { sent, skills: [] };
   const cwd = pane.foreground_cwd ?? pane.cwd ?? null;
-  const { bound, rows, version } = await boundCatalog(pane, cold ? cwd : null, CATALOG_SOURCE_BUDGET_MS);
+  const { bound, rows, version } = await boundCatalog(pane, cold ? cwd : null, CATALOG_SOURCE_BUDGET_MS, stateDir);
   let record = sent;
   if (cold) {
     const native = rows?.filter((row) => row.source !== "builtin").map((row): SlashCommand => ({ ...row, forms: row.forms ?? [...UNKNOWN_FORMS], visibility: row.visibility ?? "offered", provenance: { transport: "native", verified: true } }));
@@ -345,7 +345,7 @@ export interface OpenCodeWatch {
  * background (or were, moments ago); a pane that fails that, or a stream that never opens, leaves the
  * outcome to the other evidence (accepted, then unknown). Null for anything that is not followed.
  */
-export function startOpenCodeWatch(pane: HerdrPane, sent: CommandSend | undefined): OpenCodeWatch | null {
+export function startOpenCodeWatch(pane: HerdrPane, sent: CommandSend | undefined, stateDir?: string): OpenCodeWatch | null {
   if (!sent || sent.agent !== "opencode" || sent.form?.interaction === "terminal") return null;
   if ((pane.agent ?? pane.agent_session?.agent) !== "opencode") return null;
   const sessionID = opencodeSessionId(pane);
@@ -367,7 +367,7 @@ export function startOpenCodeWatch(pane: HerdrPane, sent: CommandSend | undefine
   if (!watch.verified) {
     setTimeout(() => {
       if (!watches.includes(watch)) return;
-      void openCodePaneService(pane).then((bound) => {
+      void openCodePaneService(pane, undefined, stateDir).then((bound) => {
         if (bound?.sessionID !== sessionID) { remove(); return; }
         watch.verified = true;
         flush();
