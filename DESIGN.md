@@ -1421,7 +1421,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   which focuses the waiting card), **Done · transcript / card answered / result on screen / agent
   event / saved state** (`CircleCheck` in `--status-done`, the evidence that showed it), **Runs in
   the terminal** (`SquareTerminal`, with **Open Terminal**) and **No result seen**
-  (`CircleQuestionMark`). The word changes on evidence alone: a typed-only command is never done,
+  (`CircleQuestionMark`). A skill OpenCode did not attach adds a second line in the same quiet
+  register, **@effect wasn't attached, so it went as plain text** (`.chat-outcome-note`, the skill ids
+  from `unattached_skills`, in the user's language), as the Codex app says why a turn stopped in a
+  quiet line under it rather than in a notice. The word changes on evidence alone: a typed-only command is never done,
   and nothing animates a change. A screen that changed after the send folds under the chip as
   **Terminal output changed after /x, not confirmed** (`.chat-outcome-preview`, a `--radius-md`
   hairline card on `--bg-elevated`, mono `--fs-xs` text with its line breaks kept, 60vh at most),

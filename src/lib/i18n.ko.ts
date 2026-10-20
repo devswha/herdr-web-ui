@@ -1055,6 +1055,7 @@ export const KO: Record<string, string> = {
   "agent event": "에이전트 이벤트",
   "saved state": "저장된 상태",
   "Runs in the terminal": "터미널에서 실행됩니다",
+  "{skills} wasn't attached, so it went as plain text": "{skills}이(가) 첨부되지 않아 일반 텍스트로 보냈습니다",
   "No result seen": "결과를 확인하지 못함",
   "Answer": "답변하기",
   "Terminal output changed after {command}, not confirmed": "{command} 뒤에 터미널 출력이 바뀌었지만 확인되지 않음",

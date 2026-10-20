@@ -332,7 +332,7 @@ export async function openCodeSkillsToType(pane: HerdrPane, sent: Sent, text: st
 /** A send whose skill stayed plain text needs the terminal to attach it; the note says which. */
 export function skillsNotAttached<T extends CommandSend>(sent: T, missed: readonly string[]): T {
   if (missed.length === 0) return sent;
-  return { ...sent, form: { match: "bare", interaction: "terminal" }, note: `OpenCode did not attach ${missed.map((id) => `@${id}`).join(", ")}; it was sent as plain text` };
+  return { ...sent, form: { match: "bare", interaction: "terminal" }, unattached: [...missed], note: `OpenCode did not attach ${missed.map((id) => `@${id}`).join(", ")}; it was sent as plain text` };
 }
 
 export interface OpenCodeWatch {

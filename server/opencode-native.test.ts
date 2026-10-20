@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 import type { HerdrPane } from "../shared/protocol.ts";
 import type { CommandSend } from "./outcome.ts";
-import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, releaseOpenCodePane, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
+import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, releaseOpenCodePane, skillsNotAttached, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
+import { commandOutcome } from "./outcome.ts";
 import * as service from "./opencode-service.ts";
 import { forgetOpenCodeService, openCodeServiceOptions } from "./opencode-service.ts";
 
@@ -26,6 +27,15 @@ afterAll(() => {
 
 const pane = { pane_id: "p_native", agent: "opencode", agent_session: { agent: "opencode", source: "herdr:opencode", kind: "id", value: "ses_native01" } } as unknown as HerdrPane;
 const sent: CommandSend = { id: "send-native", text: "@effect apply it", at: Date.now(), agent: "opencode", identity: "[]", screen: "", form: null, invocations: [{ name: "effect", argument: "apply it", form: null }] };
+
+describe("a skill OpenCode did not attach", () => {
+  it("reaches the outcome by id, with the note, as terminal-required", () => {
+    const result = commandOutcome("p_native", skillsNotAttached(sent, ["effect"]), { now: sent.at + 100 });
+    expect(result).toMatchObject({ state: "terminal-required", unattached_skills: ["effect"] });
+    expect(result.note).toContain("@effect");
+    expect(commandOutcome("p_native", sent, { now: sent.at + 100 }).unattached_skills).toBeUndefined();
+  });
+});
 
 describe("recording a send never waits on OpenCode's service", () => {
   const services: [string, () => string | null][] = [["slow", () => slow.url.origin], ["erroring", () => failing.url.origin], ["absent", () => null]];

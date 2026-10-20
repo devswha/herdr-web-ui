@@ -1057,6 +1057,7 @@ export const JA: Record<string, string> = {
   "agent event": "エージェントのイベント",
   "saved state": "保存された状態",
   "Runs in the terminal": "ターミナルで実行されます",
+  "{skills} wasn't attached, so it went as plain text": "{skills} は添付されなかったため、プレーンテキストとして送信しました",
   "No result seen": "結果を確認できません",
   "Answer": "回答する",
   "Terminal output changed after {command}, not confirmed": "{command} の後にターミナル出力が変わりましたが、未確認です",

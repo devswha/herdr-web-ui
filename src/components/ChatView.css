@@ -1662,6 +1662,14 @@
 
 .chat-outcome-state > svg { width: 14px; height: 14px; flex-shrink: 0; }
 
+/* the reason a skill went as plain text: the chip's second line, in its own quiet register */
+.chat-outcome-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
 /* a result and a question waiting take their status colours; the rest stay dim: the word is the signal */
 .chat-outcome[data-outcome-state="result-observed"] .chat-outcome-state { color: var(--status-done); }
 .chat-outcome[data-outcome-state="interaction-required"] .chat-outcome-state { color: var(--status-blocked); }

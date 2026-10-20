@@ -63,7 +63,7 @@ import { formatElapsed, taskCallItems, taskResultMarkdown } from "../lib/omoTask
 import { sendUserFileCall } from "../lib/sendUserFile.ts";
 import { shouldFoldUserMessage } from "../lib/userMessageFold.ts";
 import { invalidatePaneCommands } from "../lib/paneCommandCache.ts";
-import { noteCatalogChanges, outcomeChip, outcomeCommand, outcomeLabel, outcomeResultText, outcomeRows, type OutcomeState } from "../lib/outcomeChip.ts";
+import { noteCatalogChanges, outcomeChip, outcomeCommand, outcomeLabel, outcomeNote, outcomeResultText, outcomeRows, type OutcomeState } from "../lib/outcomeChip.ts";
 
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 // How long after scroll input an upward move still counts as the reader's own.
@@ -650,11 +650,14 @@ function OutcomeChip({ outcome, actions }: { outcome: CommandOutcome; actions: O
   const preview = outcome.result_text ? "" : outcome.preview ?? "";
   const [dismissed, setDismissed] = useChatRowToggle(`outcome-result:${outcome.id}`, false);
   const result = outcomeResultText(outcome, dismissed === true);
+  const note = outcomeNote(t, outcome);
   return <div className="chat-outcome" data-outcome-state={chip.state}>
     <div className="chat-outcome-row">
       <span className="chat-outcome-state" role="status"><Icon aria-hidden="true" />{outcomeLabel(t, chip)}</span>
       {action !== null && <button type="button" className="chat-outcome-action" onClick={action}>{chip.action === "answer" ? t("Answer") : t("Open Terminal")}</button>}
     </div>
+    {/* why it went as plain text, read with the state it explains */}
+    {note !== null && <p className="chat-outcome-note">{note}</p>}
     {/* opened at the transcript's end, the screen text would sit under the input card: it is brought into view, clear of it */}
     {preview !== "" && <ChatDetails memoryKey={`outcome-preview:${outcome.id}`} className="chat-outcome-preview" onToggle={(event) => { if (event.currentTarget.open) event.currentTarget.scrollIntoView({ block: "nearest" }); }}>
       <summary><ChevronDown className="chat-outcome-caret" aria-hidden="true" /><span role="status">{t("Terminal output changed after {command}, not confirmed", { command: outcomeCommand(outcome.text) })}</span></summary>
