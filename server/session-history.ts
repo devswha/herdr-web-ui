@@ -1,8 +1,10 @@
 /**
  * Earlier sessions of a folder, read from each agent's own store, newest first (#1314).
  *
- * Bounded by the #1147 rules: at most the first 64 KiB of any file is read, at most 400 files
- * are looked at (stat) per listing, at most 50 rows are returned, and every path is resolved
+ * Bounded by the #1147 rules: at most the first 64 KiB of any file is read, at most 4096 directory
+ * entries are read per listing (each candidate's own time taken then, so the newest are checked
+ * first), at most 400 checks (a path resolution or a stat each, whatever it finds) are made per
+ * listing, at most 50 rows are returned, and every path is resolved
  * (realpath) and refused when it lands outside the agent's store, nested subagent files
  * included: only a store's own session files are listed, never a file a link makes look like
  * one. SQLite stores are opened read-only and asked for at most 50 sessions, their text cut in
@@ -12,7 +14,7 @@
  * drive (session-history-routes.ts), and it is never logged.
  */
 import { Database } from "bun:sqlite";
-import { closeSync, constants, openSync, readSync, readdirSync, realpathSync, statSync, type BigIntStats, type Stats } from "node:fs";
+import { closeSync, constants, lstatSync, opendirSync, openSync, readSync, realpathSync, statSync, type BigIntStats, type Dir, type Dirent, type Stats } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,8 +29,10 @@ import { opencodeDatabasePath } from "./opencode.ts";
 
 /** At most this much of any one file is read. */
 export const HEAD_BYTES = 64 * 1024;
-/** At most this many files are looked at for one listing. */
+/** At most this many checks (a path resolution or a stat, each counted whatever it finds) for one listing. */
 export const MAX_STATS = 400;
+/** At most this many directory entries are read for one listing, every folder's together. */
+export const MAX_ENTRIES = 4096;
 /** At most this many sessions are returned. */
 export const MAX_ROWS = 50;
 const TITLE_CHARS = 200;
@@ -54,6 +58,10 @@ export interface SessionHistoryOptions {
   readHead?: (path: string, max: number) => Buffer;
   /** Stats a path the listing looks at (tests count the calls). */
   stat?: (path: string, bigint?: boolean) => Stats | BigIntStats;
+  /** Resolves a path the listing looks at (tests count the calls); defaults to realpathSync. */
+  resolve?: (path: string) => string;
+  /** A listed entry's own time, its link not followed (tests count the calls); defaults to lstatSync. */
+  lstat?: (path: string) => Stats;
   /** The OS whose folder rules apply; defaults to this one's (tests take Windows's on any OS). */
   platform?: NodeJS.Platform;
   /** Resolves a Windows cwd to its canonical long form (tests map an 8.3 alias); defaults to realpathSync.native. */
@@ -161,10 +169,19 @@ function defaultReadHead(path: string, max: number): Buffer {
   } finally { closeSync(fd); }
 }
 
-/** One listing's stats: every path it looks at (store, folder, file or database) counts against MAX_STATS. */
+/**
+ * One listing's bounds: every check of a path (store, folder, file or database), a resolution or a
+ * stat, counts against MAX_STATS whatever it finds, and every directory entry read against MAX_ENTRIES.
+ */
 class Budget {
   used = 0;
-  constructor(private readonly statOf: (path: string, bigint?: boolean) => Stats | BigIntStats, readonly platform: NodeJS.Platform) {}
+  entries = 0;
+  constructor(
+    private readonly statOf: (path: string, bigint?: boolean) => Stats | BigIntStats,
+    readonly platform: NodeJS.Platform,
+    private readonly resolveOf: (path: string) => string = realpathSync,
+    private readonly lstatOf: (path: string) => Stats = lstatSync,
+  ) {}
 
   get exhausted(): boolean { return this.used >= MAX_STATS; }
 
@@ -172,6 +189,35 @@ class Budget {
     if (this.exhausted) return null;
     this.used++;
     try { return this.statOf(path) as Stats; } catch { return null; }
+  }
+
+  /** The path resolved (realpath), as one counted check; null once spent, or when it does not resolve. */
+  resolve(path: string): string | null {
+    if (this.exhausted) return null;
+    this.used++;
+    try { return this.resolveOf(path); } catch { return null; }
+  }
+
+  /** A folder's entries, unordered, as many as the listing has left to read; none for an unreadable one. */
+  list(dir: string): Dirent[] {
+    const found: Dirent[] = [];
+    let handle: Dir | undefined;
+    try {
+      handle = opendirSync(dir);
+      while (this.entries < MAX_ENTRIES) {
+        const entry = handle.readSync();
+        if (entry === null) break;
+        this.entries++;
+        found.push(entry);
+      }
+    } catch { /* an unreadable folder lists nothing */ }
+    finally { try { handle?.closeSync(); } catch { /* already closed */ } }
+    return found;
+  }
+
+  /** A listed entry's own modification time, its link not followed; null when it is gone. */
+  modified(path: string): number | null {
+    try { return this.lstatOf(path).mtimeMs; } catch { return null; }
   }
 
   /**
@@ -207,10 +253,8 @@ class Scan {
 
   /** The file at this path, resolved, when it is a regular file inside the store. */
   file(path: string): { real: string; mtimeMs: number; size: number } | null {
-    if (this.exhausted) return null;
-    let real: string;
-    try { real = realpathSync(path); } catch { return null; }
-    if (!inside(this.root, real)) return null;
+    const real = this.budget.resolve(path);
+    if (real === null || !inside(this.root, real)) return null;
     const stat = this.budget.stat(real);
     return stat?.isFile() ? { real, mtimeMs: stat.mtimeMs, size: stat.size } : null;
   }
@@ -238,7 +282,7 @@ class Scan {
 
 function storeRoot(budget: Budget, path: string): string | null {
   if (!budget.stat(path)?.isDirectory()) return null;
-  try { return realpathSync(path); } catch { return null; }
+  return budget.resolve(path);
 }
 
 function scanOf(budget: Budget, path: string, read: SessionHistoryOptions["readHead"]): Scan | null {
@@ -246,21 +290,28 @@ function scanOf(budget: Budget, path: string, read: SessionHistoryOptions["readH
   return root === null ? null : new Scan(root, budget, read ?? defaultReadHead);
 }
 
-function names(dir: string): string[] {
-  try { return readdirSync(dir); } catch { return []; }
+/** These folders' entries newest first by their own times (a link not followed), within the listing's entry bound. */
+function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Dirent) => boolean): string[] {
+  return dirs.flatMap((dir) => budget.list(dir).filter(keep).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    const time = budget.modified(path);
+    return time === null ? [] : [{ path, time }];
+  })).sort((a, b) => b.time - a.time).map((entry) => entry.path);
 }
 
 type Found = { real: string; mtimeMs: number; size: number };
 
-/** The `.jsonl` files directly in these directories (subagent folders beside them are not read), newest first. */
+/**
+ * The `.jsonl` files directly in these directories (subagent folders beside them are not read), newest
+ * first. They are ordered by their own times before any is checked, so the checks go to the newest:
+ * a name (Claude's is a random id) says nothing of when a session was written.
+ */
 function sessionFiles(scan: Scan, dirs: readonly string[]): Found[] {
   const found = new Map<string, Found>();
-  for (const dir of new Set(dirs)) {
-    for (const name of names(dir).filter((entry) => entry.endsWith(".jsonl")).sort().reverse()) {
-      if (scan.exhausted) break;
-      const file = scan.file(join(dir, name));
-      if (file) found.set(file.real, file);
-    }
+  for (const path of newestEntries(scan.budget, [...new Set(dirs)], (entry) => entry.name.endsWith(".jsonl"))) {
+    if (scan.exhausted) break;
+    const file = scan.file(path);
+    if (file) found.set(file.real, file);
   }
   return [...found.values()].sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
@@ -425,7 +476,7 @@ function codexSessions(cwds: readonly string[], codexHome: string, budget: Budge
   const sessions = join(codexHome, "sessions");
   const scan = scanOf(budget, sessions, read);
   if (scan === null) return [];
-  const desc = (dir: string) => names(dir).filter((name) => /^\d+$/.test(name)).sort().reverse();
+  const desc = (dir: string) => budget.list(dir).map((entry) => entry.name).filter((name) => /^\d+$/.test(name)).sort().reverse();
   // newest day first, so the files looked at are the newest ones
   const files: Found[] = [];
   walk: for (const year of desc(sessions)) {
@@ -484,9 +535,8 @@ function grokSessions(cwds: readonly string[], home: string, env: Record<string,
   const scan = scanOf(budget, join(grokHome, "sessions"), read);
   if (scan === null) return [];
   const sessionDirs = (group: string): string[] => {
-    try {
-      return readdirSync(join(scan.root, group), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(scan.root, group, entry.name));
-    } catch { return []; }
+    // newest first, within the listing's entry bound, so the checks go to the newest sessions
+    return newestEntries(budget, [join(scan.root, group)], (entry) => entry.isDirectory());
   };
   const rows: Row[] = [];
   const readGroup = (group: string) => {
@@ -562,9 +612,9 @@ function grokGroupCwd(scan: Scan, dirs: readonly string[], cwds: readonly string
 function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (db: Database) => T): T | null {
   const root = storeRoot(budget, storeDir);
   if (root === null) return null;
-  let real: string;
-  let parent: string;
-  try { real = realpathSync(path); parent = realpathSync(dirname(path)); } catch { return null; }
+  const real = budget.resolve(path);
+  const parent = real === null ? null : budget.resolve(dirname(path));
+  if (real === null || parent === null) return null;
   if (!inside(root, real) || (parent !== root && !inside(root, parent)) || dirname(real) !== parent) return null;
   if (!budget.stat(real)?.isFile()) return null;
   let db: Database | undefined;
@@ -725,7 +775,7 @@ export function listSessions(agent: SessionHistoryAgent, cwd: string, options: S
   const env = options.env ?? process.env;
   const home = options.home ?? homedir();
   const read = options.readHead;
-  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform);
+  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat);
   // the pane's cwd may be another spelling of the folder the agent recorded: a Windows 8.3 alias (a
   // child keeps the short cwd) or a link (macOS /var -> /private/var). Resolve it once, as one counted
   // stat, and key and match every store by both spellings

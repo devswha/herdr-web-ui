@@ -1,11 +1,11 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { SessionHistoryAgent, SessionSnapshot } from "../shared/protocol.ts";
-import { HEAD_BYTES, listSessions, MAX_ROWS, MAX_STATS, SESSION_HISTORY_AGENTS } from "./session-history.ts";
+import { HEAD_BYTES, listSessions, MAX_ENTRIES, MAX_ROWS, MAX_STATS, SESSION_HISTORY_AGENTS } from "./session-history.ts";
 import { handleSessionHistoryRequest, workspaceFolder } from "./session-history-routes.ts";
 import { claudeProjectDir } from "./claude-store.ts";
 
@@ -176,6 +176,53 @@ describe("listSessions", () => {
     expect(stats).toBeGreaterThan(MAX_ROWS);
     expect(stats).toBeLessThanOrEqual(MAX_STATS);
     expect(rows).toHaveLength(MAX_ROWS);
+  });
+
+  it.skipIf(!SYMLINKS)(`counts every path resolution against the ${MAX_STATS} checks, whether it resolves, fails or lands outside`, () => {
+    const home = newHome();
+    mkdirSync(piStore(home), { recursive: true });
+    const outside = join(root, `outside-links-${homes}`);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "elsewhere.jsonl"), piHeader(ID(9)) + piPrompt("outside the store"));
+    for (let n = 0; n < 2000; n++) symlinkSync(join(outside, `gone-${n}.jsonl`), join(piStore(home), `dangling-${String(n).padStart(4, "0")}.jsonl`));
+    for (let n = 0; n < 100; n++) symlinkSync(join(outside, "elsewhere.jsonl"), join(piStore(home), `outside-${n}.jsonl`));
+    let resolutions = 0;
+    let stats = 0;
+    const rows = listSessions("pi", CWD, {
+      home, env: {},
+      resolve: (path) => { resolutions++; return realpathSync(path); },
+      stat: (path) => { stats++; return statSync(path); },
+    });
+    expect(rows).toEqual([]);
+    expect(resolutions).toBeGreaterThan(MAX_ROWS);
+    expect(resolutions + stats).toBeLessThanOrEqual(MAX_STATS);
+  });
+
+  it(`reads at most ${MAX_ENTRIES} entries of a folder, however many it holds`, () => {
+    const home = newHome();
+    mkdirSync(piStore(home), { recursive: true });
+    for (let n = 0; n < MAX_ENTRIES + 500; n++) writeFileSync(join(piStore(home), `s-${n}.jsonl`), "");
+    let looked = 0;
+    listSessions("pi", CWD, { home, env: {}, lstat: (path) => { looked++; return lstatSync(path); } });
+    expect(looked).toBeGreaterThan(MAX_STATS);
+    expect(looked).toBeLessThanOrEqual(MAX_ENTRIES);
+  });
+
+  it(`lists the newest sessions of a folder that holds more than ${MAX_STATS}, whatever their names`, () => {
+    const home = newHome();
+    const project = join(home, ".claude", "projects", claudeProjectDir(CWD));
+    mkdirSync(project, { recursive: true });
+    // Claude names a session by a random id: the names say nothing of the times
+    const written: { id: string; at: number }[] = [];
+    for (let n = 0; n < 500; n++) {
+      const id = `${(n * 7919 % 500).toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`;
+      const path = join(project, `${id}.jsonl`);
+      writeFileSync(path, `${JSON.stringify({ type: "user", cwd: CWD, message: { role: "user", content: `prompt ${n}` } })}\n`);
+      utimesSync(path, 1_790_000_000 + n, 1_790_000_000 + n);
+      written.push({ id, at: n });
+    }
+    const newest = written.sort((a, b) => b.at - a.at).slice(0, MAX_ROWS).map((entry) => entry.id);
+    expect(listSessions("claude", CWD, { home, env: {} }).map((row) => row.id)).toEqual(newest);
   });
 
   it("finds Grok sessions in a native hashed cwd group", () => {
