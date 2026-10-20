@@ -127,6 +127,21 @@ describe("a message sent to omp", () => {
     expect(count("agent.prompt")).toBe(0);
   });
 
+  it.skipIf(!posix)("sends nothing when the pane is restarted into another omp while it is waited for", async () => {
+    ompPid = startedNow();
+    const sent = submitter()("w:p1", "/effort", "/effort", Date.now());
+    await until("a look at the starting omp", () => count("pane.get") >= 2);
+    const replacement = Bun.spawn(["sleep", "60"]);
+    try {
+      ompPid = replacement.pid;
+      reported = true;
+      await expect(sent).rejects.toThrow("was replaced");
+      expect(count("agent.prompt")).toBe(0);
+    } finally {
+      replacement.kill();
+    }
+  });
+
   it.skipIf(!posix)("sends nothing when omp stops while it is waited for", async () => {
     ompPid = startedNow();
     const sent = submitter()("w:p1", "/effort", "/effort", Date.now());
