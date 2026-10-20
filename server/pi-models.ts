@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -61,10 +61,10 @@ function parse(text: string): unknown {
  * does not exist. It is not merely defensive: a `null` in that list threw, and the throw came from
  * the read every poll does, so the chat went down for a comma in a hand-edited file.
  */
-function windowsFromModelsJson(provider: PiProvider): Map<string, number> {
+function windowsFromModelsJson(provider: PiProvider): Map<string, number | null> {
   const list: unknown[] = Array.isArray(provider.models) ? provider.models : [];
   const overrides = (provider as { modelOverrides?: unknown }).modelOverrides;
-  const models = new Map<string, number>();
+  const models = new Map<string, number | null>();
   for (const value of list) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
     const model = value as PiModel;
@@ -76,8 +76,9 @@ function windowsFromModelsJson(provider: PiProvider): Map<string, number> {
     // pi's own rule, field by field: the override states a window or the model's own stands. An
     // override that only renames a model, or sets its cost, says nothing here
     const window = override?.contextWindow ?? model.contextWindow;
-    if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) continue;
-    models.set(model.id, window);
+    // a model the user defined without a window stays unknown (null), so a later catalog's number
+    // for the same id does not stand in for the definition pi runs
+    models.set(model.id, typeof window === "number" && Number.isFinite(window) && window > 0 ? window : null);
   }
   return models;
 }
@@ -100,7 +101,29 @@ function windowsFromFlatList(list: unknown): Map<string, number> {
   return models;
 }
 
-type Catalog = Map<string, Map<string, number>>;
+type Catalog = Map<string, Map<string, number | null>>;
+
+/** pi's catalogs are short lists of models; a file past this is not one, and is not read whole. */
+const MAX_CATALOG_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A regular file's text, or null. It opens non-blocking and checks the descriptor, so a FIFO
+ * swapped in after the stat cannot hold the server's thread (a regular file ignores the flag).
+ */
+function readRegularText(path: string): string | null {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > MAX_CATALOG_BYTES) return null;
+    const buffer = Buffer.alloc(Math.min(stat.size, MAX_CATALOG_BYTES) + 1);
+    let length = 0;
+    for (let count = 1; count > 0 && length < buffer.length; length += count) count = readSync(fd, buffer, length, buffer.length - length, null);
+    // a file that grew past its stat since is read again once its signature moves
+    return length > stat.size ? null : buffer.subarray(0, length).toString("utf8");
+  } catch { return null; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
 
 /**
  * Each catalog file read once per change: a conversation is re-read on every poll, so the files
@@ -111,11 +134,15 @@ const cache = new Map<string, { signature: string; byProvider: Catalog | null }>
 /** A catalog file's models by provider, or null when the file is absent or not a catalog. */
 function readCatalog(path: string, parseCatalog: (parsed: unknown) => Catalog | null): Catalog | null {
   let signature: string;
-  try { const stat = statSync(path); signature = `${stat.mtimeMs}:${stat.size}`; } catch { return null; }
+  try {
+    const stat = statSync(path);
+    if (!stat.isFile()) return null;
+    signature = `${stat.mtimeMs}:${stat.size}`;
+  } catch { return null; }
   const cached = cache.get(path);
   if (cached !== undefined && cached.signature === signature) return cached.byProvider;
-  let text: string;
-  try { text = readFileSync(path, "utf8"); } catch { return null; }
+  const text = readRegularText(path);
+  if (text === null) return null;
   const parsed = parse(text);
   const byProvider = parsed === null ? null : parseCatalog(parsed);
   cache.set(path, { signature, byProvider });
@@ -126,7 +153,7 @@ function modelsJsonCatalog(parsed: unknown): Catalog | null {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const catalog = parsed as PiCatalog;
   if (catalog.providers === undefined || catalog.providers === null || typeof catalog.providers !== "object") return null;
-  const byProvider = new Map<string, Map<string, number>>();
+  const byProvider: Catalog = new Map();
   for (const [id, provider] of Object.entries(catalog.providers)) {
     if (provider === null || typeof provider !== "object" || Array.isArray(provider)) continue;
     byProvider.set(id, windowsFromModelsJson(provider));

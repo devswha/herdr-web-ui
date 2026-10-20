@@ -156,6 +156,26 @@ describe("the context window a pi model runs in", () => {
     expect(piContextWindow("claude-y", "anthropic", dir)).toBe(500000);
   });
 
+  it("keeps a model models.json defines without a window unresolved, rather than take another catalog's number", () => {
+    const dir = catalogsDir("custom-without-window", {
+      "models.json": { providers: { commandcode: { models: [{ id: "m" }] } } },
+      "commandcode-models.json": { models: [{ id: "m", contextWindow: 1000000 }, { id: "n", contextWindow: 200000 }] },
+    });
+    expect(piContextWindow("m", "commandcode", dir)).toBeNull();
+    expect(piContextWindow("n", "commandcode", dir)).toBe(200000);
+  });
+
+  it("reads only a regular catalog file of a sane size, and never waits on a pipe", () => {
+    const dir = catalogsDir("not-regular", { "models-store.json": `{"anthropic":{"models":[{"id":"big","contextWindow":1}]},"pad":"${"x".repeat(4 * 1024 * 1024)}"}` });
+    mkdirSync(join(dir, "models.json"));
+    expect(piContextWindow("big", "anthropic", dir)).toBeNull();
+    if (process.platform === "win32") return;
+    expect(Bun.spawnSync(["mkfifo", join(dir, "commandcode-models.json")]).exitCode).toBe(0);
+    const started = Date.now();
+    expect(piContextWindow("cc-model", "commandcode", dir)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it("ignores a catalog file that is not shaped like one", () => {
     const dir = catalogsDir("misshapen", {
       "commandcode-models.json": [{ id: "cc-model", contextWindow: 200000 }],
