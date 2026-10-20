@@ -1147,7 +1147,8 @@ export async function paneRunsOmo(paneId: string): Promise<boolean> {
 
 /** Loaded roots and environment belong to the foreground agent, not the web server. */
 export async function paneProcessRoots(paneId: string, agent: string | null | undefined): Promise<{
-  omo: { agentDir: string | null; pluginDir: string | null } | null;
+  /** `held`: the omo process holds a session there (its own holder record), not only an omo-ai path in its argv. */
+  omo: { agentDir: string | null; pluginDir: string | null; held: boolean } | null;
   environ: string[] | null;
   pid: number | null;
   cwd: string | null;
@@ -1200,7 +1201,7 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
         catch { /* no readable installed plugin */ }
       }
     }
-    return { omo: { agentDir, pluginDir }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null };
+    return { omo: { agentDir, pluginDir, held: identity.heldIds.length > 0 }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null };
   }
   return { omo: null, environ: matched ? processEnviron(matched.pid) : null, pid: matched?.pid ?? null, cwd: matched?.cwd || null };
 }

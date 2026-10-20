@@ -52,10 +52,11 @@ afterEach(() => {
 
 const OMO_PROCESS = { pid: 2147483647, argv: ["omo"], cwd: "" };
 
-it("names an omo pane that herdr labels pi omo, in the composer and in the commands route", async () => {
+it("names an omo pane that herdr labels pi omo in the commands route, and types into it as omo only once omo holds a session", async () => {
   panes["w:p1"] = { agent: "pi", process: [{ ...OMO_PROCESS, cwd: root }] };
   panes["w:p2"] = { agent: "pi", process: [{ pid: 2147483646, argv: ["/usr/bin/pi"], cwd: root }] };
-  expect(await paneAgentOf("w:p1")).toBe("omo");
+  // typing needs omo's own holder record (server/core/omo-pane-send.test.ts): an argv alone keeps herdr's label
+  expect(await paneAgentOf("w:p1")).toBe("pi");
   // an ordinary pi stays pi
   expect(await paneAgentOf("w:p2")).toBe("pi");
 

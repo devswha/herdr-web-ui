@@ -8,7 +8,7 @@ import type { HerdrPane } from "../../shared/protocol.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { agentPrompt, HerdrError, paneGet, paneRead, paneScrollInfo, paneSendKeys, paneSendText } from "../herdr/client.ts";
 import { mirrorInput } from "../mirror-input.ts";
-import { paneAgentOf, resolveAgent } from "../pane-context.ts";
+import { paneAgentOf, resolveAgent, typingRoots } from "../pane-context.ts";
 import { paneProcessRoots } from "../conversation.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, heldCandidate, hermesInputDraft, lastChatSubmitted, noteSubmitted, parseInteractivePrompt, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
@@ -67,7 +67,7 @@ export async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> 
 /** Is this pane's agent `kind`? The omo probe is spent only where the label already says so. */
 async function paneIs(pane: HerdrPane | undefined, kind: string): Promise<boolean> {
   if (!pane || resolveAgent(pane).agent !== kind) return false;
-  return resolveAgent(pane, await paneProcessRoots(pane.pane_id, kind)).agent === kind;
+  return resolveAgent(pane, typingRoots(await paneProcessRoots(pane.pane_id, kind))).agent === kind;
 }
 
 export const pendingIdentity = (pane: HerdrPane): PendingIdentity => ({
@@ -229,7 +229,10 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
             throw new HerdrError("pending_target_changed", "The refused message's Claude terminal or session changed; nothing was sent");
           }
         }
-        if (await paneIs(pane, "claude") && !sendAnyway) {
+        const claude = await paneIs(pane, "claude");
+        // the process lookup waited on herdr: the device may have lost its access meanwhile
+        inTime();
+        if (claude && !sendAnyway) {
           if (clearDraft === undefined) {
             try {
               await freeClaudeBox(paneId, pane?.agent_status === "working", authorize, arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
@@ -294,7 +297,9 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
           if (clearDraft !== undefined && !claudeInputEmpty(...reads)) throw new InputDraftError(null);
         }
         // a clear request or send anyway reached a Hermes pane only to be refused above: both are Claude's
-        if (await paneIs(pane, "hermes")) {
+        const hermes = await paneIs(pane, "hermes");
+        inTime();
+        if (hermes) {
           await freeHermesInput(paneId, identity ?? undefined);
           inTime();
         }

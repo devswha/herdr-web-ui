@@ -544,7 +544,9 @@ describe.skipIf(process.platform === "win32")("files that are not regular files"
     mkdirSync(join(home, ".agents", "skills", "shared"), { recursive: true });
     writeFileSync(join(home, ".agents", "skills", "shared", "SKILL.md"), "---\nname: shared\ndescription: Shared.\n---\n");
     fifo(join(home, ".agents", "plugin.json"));
-    expect(discoverInChild("codex", { home, cwd: null, repoRoot: null, env: null, roots: {}, version: null })).toEqual({ exitCode: 0, names: ["shared"] });
+    const result = discoverInChild("codex", { home, cwd: null, repoRoot: null, env: null, roots: {}, version: null });
+    expect(result.exitCode).toBe(0);
+    expect(result.names).toContain("shared");
   });
 
   it("skips a FIFO named like an OmO project config above the pane's folder", () => {

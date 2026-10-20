@@ -33,9 +33,18 @@ export function versionSourceOf(transcript: NativeTranscript): VersionSource | n
   return null;
 }
 
-/** The agent a pane runs, omo's process tree taking precedence over herdr's label, for shaping what is typed into it. */
+/**
+ * For what is typed into a pane, omo outranks herdr's label only when an omo process there holds a
+ * session (omo's own holder record). A script that merely runs from an omo-ai checkout, beside Claude or
+ * in a shell, is no omo: herdr's label keeps its draft checks and its paste mode.
+ */
+export function typingRoots(roots: { omo: { held: boolean } | null }): PaneRoots {
+  return roots.omo?.held ? roots : null;
+}
+
+/** The agent a pane runs, a session-holding omo taking precedence over herdr's label, for shaping what is typed into it. */
 export async function paneAgentOf(paneId: string): Promise<string | null> {
-  return (await paneContext(paneId, await paneProcessRoots(paneId, null))).agent;
+  return (await paneContext(paneId, typingRoots(await paneProcessRoots(paneId, null)))).agent;
 }
 
 /** `roots`: what paneProcessRoots found for this pane; null or none keeps herdr's label. */
