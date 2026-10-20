@@ -3,7 +3,7 @@ import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptR
 import { paneCommands } from "./commands.ts";
 import { paneProcessRoots, paneTranscript, readCommandTranscript } from "./conversation.ts";
 import { resolveAgent, versionSourceOf } from "./pane-context.ts";
-import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
+import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
@@ -161,6 +161,10 @@ export async function prepareCommandSend(pane: HerdrPane, text: string, screen?:
 /** A message the chat just sent to a pane: one with invisible characters may be held by Claude Code. */
 export function noteSubmitted(paneId: string, text: string, command?: CommandSend & { store: string | null }): void {
   const previous = chatSent.get(paneId)?.commands ?? [];
+  for (const sent of previous) {
+    sent.closedAt ??= command?.at ?? Date.now();
+    sent.dialogId = undefined;
+  }
   const reservations = chatSent.get(paneId)?.reservations ?? new CommandReservations();
   if (command) reservations.add(command, registry.readersFor(command.agent));
   const commands = command ? [...previous, command].slice(-5) : previous;
@@ -201,19 +205,20 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     // A send racing this GET must not inherit a screen read before that send.
     if (index > readIndex) return sent.outcome ?? commandOutcome(paneId, sent, { now });
     const same = sent.identity === outcomeIdentity(pane);
-    const latest = index === commands.length - 1 && same;
+    const latest = index === commands.length - 1 && same && sent.closedAt === undefined && now < sent.at + COMMAND_WINDOW_MS;
     const reader = parsed ? registry.readerFor(parsed.responder) : undefined;
+    const readers = registry.readersFor(sent.agent);
     const before = parsePrompt(sent.agent, sent.screen);
     const dialog = latest && prompt && parsed && reader && reader.kind !== "result" && !prompt.fallback && parsed.id !== before?.id
+      && ownsCommandDialog(sent, parsed, screen, reader, readers)
       ? { id: prompt.id, reader: reader.id } : undefined;
     if (dialog && (!sent.form?.dialog || sent.form.dialog === dialog.reader)) {
       sent.dialogId = dialog.id;
       sent.dialogObserved = true;
     }
     else sent.dialogId = undefined;
-    if (latest && pane.agent_status === "blocked" && !dialog && reader?.kind !== "result") sent.waitingSince ??= now;
+    if (latest && pane.agent_status === "blocked" && !prompt && reader?.kind !== "result") sent.waitingSince ??= now;
     else sent.waitingSince = undefined;
-    const readers = registry.readersFor(sent.agent);
     if (latest && sent.form?.interaction === "dialog" && !sent.dialogObserved && (!prompt || prompt.fallback)
       && (pane.agent_status === "idle" || pane.agent_status === "done")) {
       const content = dialogSettlingScreen(screen, sent.agent, readers);

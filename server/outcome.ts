@@ -1,6 +1,6 @@
 import type { CommandForm, CommandOutcome, SlashCommand } from "../shared/protocol.ts";
 import { skillSyntax } from "../shared/skill-syntax.ts";
-import { ANSI_RE, cleanLine, type DialogReader } from "./dialogs/shared.ts";
+import { ANSI_RE, cleanLine, type DialogReader, type ParsedPrompt } from "./dialogs/shared.ts";
 
 export interface CommandInvocation {
   readonly name: string;
@@ -25,6 +25,8 @@ export interface CommandSend {
   outcome?: CommandOutcome;
   dialogId?: string;
   dialogObserved?: true;
+  /** Any later delivery ends this send's unowned card and preview window. */
+  closedAt?: number;
   waitingSince?: number;
   settled?: { screen: string; since: number };
 }
@@ -189,7 +191,6 @@ export function reserveResultEchoes(sent: CommandSend, previous: readonly Comman
   const prior = [...previous].reverse().find((candidate) => candidate.agent === sent.agent && candidate.identity === sent.identity && normalize(candidate.text) === normalize(sent.text));
   const lines = withoutChrome(screenLines(sent.screen), sent.agent, readers);
   for (const reader of readers) {
-    if (reader.kind !== "result") continue;
     if (lines === null) { reservations[reader.id] = null; continue; }
     const echoOf = reader.echoOf ?? defaultEchoOf;
     const priorOrdinal = prior?.resultEchoes?.[reader.id];
@@ -259,35 +260,50 @@ export class CommandReservations {
   }
 }
 
-function recognizedResult(sent: CommandSend, screen: string, readers: readonly DialogReader[]): { text: string; catalogChanged?: true } | null {
+/** Approvals authorize the agent's work; they never prove that a Chat command finished. */
+export function ownsCommandDialog(sent: CommandSend, prompt: ParsedPrompt, screen: string, reader: DialogReader, readers: readonly DialogReader[]): boolean {
+  if (prompt.kind === "approval" || prompt.kind === "plan" || reader.id === "claude-confirm") return false;
+  if (sent.form?.dialog) return sent.form.dialog === reader.id;
+  const below = ownedCommandScreen(sent, screen, reader, readers);
+  return below !== null && reader.parse(below, {
+    agent: sent.agent, omoAsk: null, omoTrusted: false, omoOpen: [], sent: sent.text, working: false,
+  })?.id === prompt.id;
+}
+
+/** The block belonging to exactly this reserved echo, never a later command's block. */
+function ownedCommandScreen(sent: CommandSend, screen: string, reader: DialogReader, readers: readonly DialogReader[]): string | null {
   const fullLines = screenLines(screen);
   const lines = withoutChrome(fullLines, sent.agent, readers);
   const before = withoutChrome(screenLines(sent.screen), sent.agent, readers);
   if (lines === null || before === null) return null;
   const anchor = anchorEnd(before, lines);
   if (anchor === null) return null;
+  const ordinal = sent.resultEchoes?.[reader.id];
+  const reserved = sent.resultEchoLimit?.[reader.id];
+  if (ordinal === null || reserved === null) return null;
+  const echoOf = reader.echoOf ?? defaultEchoOf;
+  const echoes = lines.flatMap((line, index) => index > anchor && echoOf(line, sent.text) ? [index] : []);
+  if (echoes.length > (reserved ?? ordinal ?? 1)) return null;
+  const echo = echoes[(ordinal ?? 1) - 1];
+  if (echo === undefined) return null;
+  const next = lines.findIndex((line, index) => {
+    if (index <= echo) return false;
+    const command = /[/$@]\S.*$/u.exec(cleanLine(line))?.[0];
+    return command !== undefined && echoOf(line, command);
+  });
+  return fullLines.slice(echo + 1, next === -1 ? undefined : next + 1).join("\n");
+}
+
+function recognizedResult(sent: CommandSend, screen: string, readers: readonly DialogReader[]): { text: string; catalogChanged?: true } | null {
   const context = { agent: sent.agent, omoAsk: null, omoTrusted: false, omoOpen: [], sent: sent.text, working: false };
   for (const reader of readers) {
     if (reader.kind !== "result" || !reader.agents.some((agent) => agent === sent.agent || agent === "*")
       || (sent.form?.dialog && sent.form.dialog !== reader.id)) continue;
-    const ordinal = sent.resultEchoes?.[reader.id];
-    if (ordinal === null) continue;
-    const echoOf = reader.echoOf ?? defaultEchoOf;
-    const echoes = lines.flatMap((line, index) => index > anchor && echoOf(line, sent.text) ? [index] : []);
-    const reserved = sent.resultEchoLimit?.[reader.id];
     // Position alone cannot distinguish a terminal echo from Chat. Extra echoes invalidate ownership.
     // Accepted limitation: a same-command terminal result before the Chat echo is indistinguishable.
-    if (reserved === null || echoes.length > (reserved ?? ordinal ?? 1)) continue;
-    const echo = echoes[(ordinal ?? 1) - 1];
-    if (echo === undefined) continue;
-    // Parse only our own echo's block, never the complete result below a later terminal echo.
-    const next = lines.findIndex((line, index) => {
-      if (index <= echo) return false;
-      const command = /[/$@]\S.*$/u.exec(cleanLine(line))?.[0];
-      return command !== undefined && echoOf(line, command);
-    });
     // The idle input/status area can prove completion even though it cannot anchor an echo.
-    const below = fullLines.slice(echo + 1, next === -1 ? undefined : next + 1).join("\n");
+    const below = ownedCommandScreen(sent, screen, reader, readers);
+    if (below === null) continue;
     const parsed = reader.parse(below, context);
     const block = parsed?.resultText?.replace(ANSI_RE, "").replace(/\r\n/gu, "\n");
     if (!block || !below.includes(block) || below.slice(0, below.indexOf(block)).trim()) continue;
@@ -299,7 +315,7 @@ function recognizedResult(sent: CommandSend, screen: string, readers: readonly D
 /** Pure state calculation. Neither forms, idle, deadlines nor screen deltas prove completion. */
 export function commandOutcome(paneId: string, sent: CommandSend, observation: OutcomeObservation): CommandOutcome {
   const now = observation.now;
-  const until = Math.min(observation.nextAt ?? Infinity, sent.at + WINDOW_MS);
+  const until = Math.min(sent.closedAt ?? Infinity, observation.nextAt ?? Infinity, sent.at + WINDOW_MS);
   const previous = sent.outcome;
   let state: CommandOutcome["state"] = sent.form?.interaction === "terminal" ? "terminal-required" : "accepted";
   let evidence = previous?.evidence ?? [];
@@ -328,7 +344,7 @@ export function commandOutcome(paneId: string, sent: CommandSend, observation: O
       && now - observation.settledSince >= 2000) state = "terminal-required";
     else if (observation.waitingSince !== undefined && now - observation.waitingSince >= 2000) state = "terminal-required";
   }
-  const preview = observation.screen !== undefined && observation.screen !== sent.screen
+  const preview = now < until && observation.screen !== undefined && observation.screen !== sent.screen
     ? observation.screen.replace(ANSI_RE, "").slice(-2000) : undefined;
   const changed = previous?.state !== state || previous.preview !== preview || previous.catalog_changed !== catalogChanged;
   return {

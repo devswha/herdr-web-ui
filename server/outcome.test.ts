@@ -59,6 +59,13 @@ describe("evidence-only command outcomes", () => {
     expect(changed.preview?.includes("\n")).toBe(true);
     expect(outcome(send(), { now: at + 600_000 }).state).toBe("unknown");
   });
+  it("expires live previews at the deadline and after a later delivery", () => {
+    const sent = send("/model", "claude", [row("model", "dialog")]);
+    expect(outcome(sent, { screen: "fixture-live", now: at + 599_999 }).preview).toBeDefined();
+    expect(outcome(sent, { screen: "fixture-live", now: at + 600_000 }).preview).toBeUndefined();
+    expect(outcome(sent, { screen: "fixture-live", now: at + 3 * 60 * 60_000 }).preview).toBeUndefined();
+    expect(outcome({ ...sent, closedAt: at + 20 }, { screen: "fixture-live" }).preview).toBeUndefined();
+  });
   it("correlates Claude local output with this send, not another command or an old echo", () => {
     expect(outcome(send(), { transcript: local("/context") })).toMatchObject({ state: "result-observed", evidence: [{ kind: "transcript" }] });
     expect(outcome(send(), { transcript: local("/cost") }).state).toBe("accepted");
@@ -165,7 +172,7 @@ it("serves bounded outcomes, strips observer previews, and records only a succes
     expect(answer.outcomes).toHaveLength(5);
     expect(answer.outcomes[0]?.id).toBe("unknown-1");
     expect(answer.outcomes.every((outcome) => outcome.state === "unknown")).toBe(true);
-    expect(answer.outcomes.at(-1)?.preview).toBeDefined();
+    expect(answer.outcomes.at(-1)?.preview).toBeUndefined();
     const observer = await handlePromptRequest(new Request(url), url, { readOnly: true });
     const watched = await observer?.json() as { outcomes: { preview?: string }[] };
     expect(watched.outcomes.every((outcome) => outcome.preview === undefined)).toBe(true);
@@ -176,15 +183,13 @@ it("serves bounded outcomes, strips observer previews, and records only a succes
     noteSubmitted(paneId, current.text, current);
     const shown = await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse;
     expect(shown.prompt).not.toBeNull();
-    expect(shown.outcomes?.at(-1)?.state).toBe("interaction-required");
     const answerUrl = new URL("http://localhost/api/pane/prompt/answer");
     const request = (promptId: string) => new Request(answerUrl, { method: "POST", body: JSON.stringify({ pane_id: paneId, prompt_id: promptId, option_index: 0 }) });
     expect((await handlePromptRequest(request("stale-card"), answerUrl))?.status).toBe(409);
-    expect(current.outcome?.state).toBe("interaction-required");
     if (!shown.prompt) throw new Error("fixture card missing");
     expect((await handlePromptRequest(request(shown.prompt.id), answerUrl))?.status).toBe(200);
     const committed = await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse;
-    expect(committed.outcomes?.at(-1)).toMatchObject({ state: "result-observed", evidence: [{ kind: "dialog" }] });
+    expect(committed.outcomes?.at(-1)).toMatchObject({ state: "accepted", evidence: [] });
     onRead = () => noteSubmitted(paneId, current.text, { ...current, id: "racing-send", outcome: undefined, dialogId: undefined });
     const raced = await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse;
     expect(raced.outcomes?.at(-1)).toMatchObject({ id: "racing-send", state: "accepted", evidence: [] });
@@ -334,6 +339,39 @@ const served = async (paneId: string): Promise<PanePromptResponse> =>
   await (await handlePromptRequest(new Request(promptUrl(paneId)), promptUrl(paneId)))?.json() as PanePromptResponse;
 
 describe("integrated dialog readers", () => {
+  it("closes a command's card correlation when a later plain message is sent", async () => {
+    const pane = { agent: "claude", status: "idle", screen: fixture("claude-goal-2.1.304-active-120.txt") };
+    await withFakeHerdr(pane, async (paneId) => {
+      const goal: SlashCommand = { ...row("goal", "dialog"), forms: claudeSource.forms!.goal };
+      const current = { ...send("/goal", "claude", [goal]), at: Date.now() - 10,
+        identity: JSON.stringify([undefined, undefined]), store: null };
+      noteSubmitted(paneId, current.text, current);
+      expect((await served(paneId)).outcomes?.at(-1)?.state).toBe("interaction-required");
+      noteSubmitted(paneId, "Please continue with the next task");
+      const shown = await served(paneId);
+      expect(shown.outcomes?.at(-1)).toMatchObject({ state: "unknown", evidence: [] });
+      expect(current.dialogId).toBeUndefined();
+    });
+  });
+
+  it("does not complete a skill after answering a Bash approval below its echo", async () => {
+    const pane = { agent: "claude", status: "blocked",
+      screen: "fixture-anchor\n> /review\n Bash command\n\n   pwd\n\n This command requires approval\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel" };
+    await withFakeHerdr(pane, async (paneId) => {
+      const current = { ...send("/review", "claude", [{ ...row("review"), source: "skill" }]),
+        at: Date.now() - 10, screen: "fixture-anchor", identity: JSON.stringify([undefined, undefined]), store: null };
+      noteSubmitted(paneId, current.text, current);
+      const shown = await served(paneId);
+      expect(shown.prompt?.kind).toBe("approval");
+      if (!shown.prompt) throw new Error("fixture approval missing");
+      const url = new URL("http://localhost/api/pane/prompt/answer");
+      const answered = await handlePromptRequest(new Request(url, { method: "POST",
+        body: JSON.stringify({ pane_id: paneId, prompt_id: shown.prompt.id, option_index: 0 }) }), url);
+      expect(answered?.status).toBe(200);
+      expect((await served(paneId)).outcomes?.at(-1)).toMatchObject({ state: "accepted", evidence: [] });
+    });
+  });
+
   it("keeps a bare Claude /goal interaction-required while its own goal card is up", async () => {
     const goal: SlashCommand = { name: "goal", source: "builtin", description: "", forms: claudeSource.forms!.goal };
     const sent = send("/goal", "claude", [goal]);
