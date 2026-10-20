@@ -13,6 +13,7 @@ let agent: string;
 let reported: boolean;
 let ompPid: number;
 let calls: { method: string; params: Record<string, unknown> }[];
+let onPaneGet: (() => void) | undefined;
 /** a process started just now, standing in for an omp that is still starting */
 let fresh: ReturnType<typeof Bun.spawn> | undefined;
 
@@ -22,6 +23,7 @@ beforeEach(() => {
   reported = false;
   ompPid = 1;
   calls = [];
+  onPaneGet = undefined;
   socketBefore = process.env["HERDR_SOCKET"];
   const socket = join(root, "herdr.sock");
   process.env["HERDR_SOCKET"] = socket;
@@ -34,6 +36,7 @@ beforeEach(() => {
         if (!socket.data.buffer.includes("\n")) return;
         const request = JSON.parse(socket.data.buffer) as { id: string; method: string; params?: Record<string, unknown> };
         calls.push({ method: request.method, params: request.params ?? {} });
+        if (request.method === "pane.get") onPaneGet?.();
         const session = reported ? { agent_session: { agent: "omp", kind: "path", source: "herdr:omp", value: join(root, "session.jsonl") } } : {};
         const result = request.method === "pane.get"
           ? { pane: { pane_id: "w:p1", workspace_id: "w", tab_id: "w:t1", terminal_id: "w:p1", cwd: root, focused: false, revision: 0, agent, ...session } }
@@ -107,6 +110,19 @@ describe("a message sent to omp", () => {
     const sent = submitter()("w:p1", "/effort", "/effort", Date.now(), false, () => { if (!permitted) throw new Error("revoked"); });
     await until("a look at the starting omp", () => count("pane.get") >= 2);
     permitted = false;
+    await expect(sent).rejects.toThrow("revoked");
+    expect(count("agent.prompt")).toBe(0);
+  });
+
+  it.skipIf(!posix)("sends nothing when the sender lost access while the last look was answered", async () => {
+    ompPid = startedNow();
+    let permitted = true;
+    onPaneGet = () => {
+      if (count("pane.get") < 3) return;
+      reported = true;
+      permitted = false;
+    };
+    const sent = submitter()("w:p1", "/effort", "/effort", Date.now(), false, () => { if (!permitted) throw new Error("revoked"); });
     await expect(sent).rejects.toThrow("revoked");
     expect(count("agent.prompt")).toBe(0);
   });

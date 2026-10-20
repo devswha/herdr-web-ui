@@ -339,7 +339,11 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // later sessions, while omp itself calls the command "Switch model for this session":
         // the chat's `/model` opens omp's session-only picker, the one its card answers
         const sent = (pane?.agent ?? pane?.agent_session?.agent) === "omp" && text.trim() === "/model" ? "/switch" : text;
-        if (pane && resolveAgent(pane).agent === "omp") await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS);
+        if (pane && resolveAgent(pane).agent === "omp") {
+          await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS);
+          // the last look waited on herdr: the device may have lost its access meanwhile
+          inTime();
+        }
         try {
           await agentPrompt(paneId, closeMention(sent));
           noteSubmitted(paneId, sent);
