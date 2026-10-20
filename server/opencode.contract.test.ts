@@ -723,6 +723,28 @@ process.stdin.on("data", (chunk) => {
     }
   });
 
+  it("reads a cold @ send by the v1 rule when the running v2 service says the pane's session is not its own", async () => {
+    const { ws, frame } = await socket();
+    const before = typed().length;
+    try {
+      closeOpenCodeNative();
+      forgetOpenCodeService();
+      // a pane whose OpenCode is not this service's (an OpenCode 1.x TUI, say): the service answers 404 for its session
+      await reportSession("ses_contractNotHeld01", nativePane);
+      ws.send(JSON.stringify({ type: "submit", id: 12, pane_id: nativePane, text: "@effect not this service", payload: "@effect not this service" }));
+      expect(await frame((message) => message.type === "submit-result" && message.id === 12)).toMatchObject({ ok: true });
+      const sent = await typedSince(before);
+      expect(sent.startsWith("@effect\t")).toBe(false);
+      // its '@' names a file there: no skill, so no record and no not-attached note
+      expect((await outcomesAt(server.port, nativePane)).find((entry) => entry.text === "@effect not this service")).toBeUndefined();
+    } finally {
+      ws.close();
+      await reportSession(NATIVE_SESSION, nativePane);
+      closeOpenCodeNative();
+      forgetOpenCodeService();
+    }
+  });
+
   it("answers the catalog and a cold @ send within budget while opencode.json is a FIFO", async () => {
     const fifo = join(nativeRoot, "opencode.json");
     expect(await Bun.spawn(["mkfifo", fifo]).exited).toBe(0);

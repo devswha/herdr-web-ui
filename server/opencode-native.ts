@@ -290,6 +290,9 @@ async function boundCatalog(pane: HerdrPane, cwd: string | null, budgetMs: numbe
   const asked = (async () => {
     version = (await openCodeService(stateDir, controller.signal))?.version ?? null;
     const bound = version ? await openCodePaneService(pane, controller.signal, stateDir) : null;
+    // an answer in time that the pane's session is not this service's: its version says nothing about the pane
+    // (an OpenCode 1.x TUI, whose '@' names a file); only a lookup that ran out keeps it (a hung service)
+    if (!bound && !controller.signal.aborted) version = null;
     if (!bound) return null;
     return { bound: true, rows: cwd ? await openCodeCatalogRows(bound.service, cwd, controller.signal) : null };
   })().catch(() => null);
