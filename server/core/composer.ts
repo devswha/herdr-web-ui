@@ -4,13 +4,17 @@
  * itself (createSubmitText), handed the state it reads. Pending delivery and the immediate send
  * share them.
  */
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { HerdrPane } from "../../shared/protocol.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
-import { agentPrompt, HerdrError, paneGet, paneRead, paneScrollInfo, paneSendKeys, paneSendText } from "../herdr/client.ts";
+import { agentPrompt, HerdrError, paneGet, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText } from "../herdr/client.ts";
 import { mirrorInput } from "../mirror-input.ts";
 import { paneAgentOf, resolveAgent, typingRoots } from "../pane-context.ts";
 import { paneProcessRoots } from "../conversation.ts";
 import { processStartedAt } from "../process-start.ts";
+import { isOmpProcess, ompAgentDir } from "../omp.ts";
+import { processEnviron } from "../omo.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, heldCandidate, hermesInputDraft, lastChatSubmitted, noteSubmitted, parseInteractivePrompt, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
@@ -66,14 +70,15 @@ const OMP_REPORT_POLL_MS = 250;
  * never runs. herdr's omp integration reports the session from omp's `session_start`, which omp emits
  * only after connecting that handler, so while an omp that started moments ago has not reported, the
  * send waits for the report (at most OMP_STARTUP_MS after the process started) and then sends once:
- * nothing is pressed after a send. An omp that has run longer, or whose start is unknown, is sent to at
- * once as before: it may run without the integration.
+ * nothing is pressed after a send. An omp without the integration (nothing would report it), one that has
+ * run longer, or one whose start is unknown is sent to at once, as before.
  */
 async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => void, pollMs: number, startupMs: number): Promise<void> {
   if (pane.agent_session?.source === "herdr:omp") return;
-  const { pid } = await paneProcessRoots(paneId, "omp");
+  const omp = await ompProcess(paneId);
   inTime();
-  const started = pid === null ? null : processStartedAt(pid);
+  const pid = omp?.pid ?? null;
+  const started = omp?.integrated ? processStartedAt(omp.pid) : null;
   if (started === null || Date.now() >= started + startupMs) return;
   while (Date.now() < started + startupMs) {
     await Bun.sleep(pollMs);
@@ -85,8 +90,25 @@ async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => v
   }
   // reported or out of time, a pane restarted into another omp meanwhile is not the one the message waited for
   // (a lookup that finds no omp proves nothing: the look above already found the pane's agent still omp)
-  const now = (await paneProcessRoots(paneId, "omp")).pid;
+  const now = (await ompProcess(paneId))?.pid ?? null;
   if (now !== null && now !== pid) throw new HerdrError("pending_target_changed", "The omp this message waited for was replaced while it started; nothing was sent");
+}
+
+/** herdr's omp integration (`herdr integration install omp`), in the extensions of the agent directory an omp loads. */
+const OMP_INTEGRATION = join("extensions", "herdr-omp-agent-state.ts");
+
+/** The pane's omp process, and whether herdr's omp integration is installed where it loads extensions; null with none. */
+async function ompProcess(paneId: string): Promise<{ pid: number; integrated: boolean } | null> {
+  const info = await paneProcessInfo(paneId).catch(() => undefined);
+  for (const candidate of info?.foreground_processes ?? []) {
+    const argv = Array.isArray(candidate.argv) ? candidate.argv.map(String) : [];
+    if (typeof candidate.pid !== "number" || !isOmpProcess(argv)) continue;
+    const environ = processEnviron(candidate.pid);
+    const home = environ?.find((word) => word.startsWith("HOME="))?.slice(5) || process.env["HOME"] || "";
+    const agentDir = ompAgentDir(argv, environ, home);
+    return { pid: candidate.pid, integrated: agentDir !== null && existsSync(join(agentDir, OMP_INTEGRATION)) };
+  }
+  return null;
 }
 
 /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */

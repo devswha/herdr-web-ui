@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSubmitText } from "./composer.ts";
@@ -8,6 +8,8 @@ import { createSubmitText } from "./composer.ts";
 let root: string;
 let listener: ReturnType<typeof Bun.listen>;
 let socketBefore: string | undefined;
+let homeBefore: string | undefined;
+let integration: string;
 let agent: string;
 /** whether herdr's omp integration has reported the pane's session (omp's session_start) */
 let reported: boolean;
@@ -24,6 +26,12 @@ beforeEach(() => {
   ompPid = 1;
   calls = [];
   onPaneGet = undefined;
+  // the omp stand-ins and this process share a home with herdr's omp integration installed
+  homeBefore = process.env["HOME"];
+  process.env["HOME"] = root;
+  integration = join(root, ".omp", "agent", "extensions", "herdr-omp-agent-state.ts");
+  mkdirSync(join(root, ".omp", "agent", "extensions"), { recursive: true });
+  writeFileSync(integration, "// installed by herdr\n");
   socketBefore = process.env["HERDR_SOCKET"];
   const socket = join(root, "herdr.sock");
   process.env["HERDR_SOCKET"] = socket;
@@ -56,6 +64,8 @@ afterEach(() => {
   listener.stop(true);
   if (socketBefore === undefined) delete process.env["HERDR_SOCKET"];
   else process.env["HERDR_SOCKET"] = socketBefore;
+  if (homeBefore === undefined) delete process.env["HOME"];
+  else process.env["HOME"] = homeBefore;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -65,7 +75,7 @@ const submitter = () => createSubmitText({
 });
 const count = (method: string): number => calls.filter((call) => call.method === method).length;
 const startedNow = (): number => {
-  fresh = Bun.spawn(["sleep", "60"]);
+  fresh = Bun.spawn(["sleep", "60"], { env: { ...process.env, HOME: root } });
   return fresh.pid;
 };
 async function until(what: string, done: () => boolean): Promise<void> {
@@ -95,6 +105,14 @@ describe("a message sent to omp", () => {
     await sent;
     expect(count("agent.prompt")).toBe(1);
     expect(count("pane.send_keys")).toBe(0);
+  });
+
+  it.skipIf(!posix)("sends at once to a starting omp without herdr's integration, which nothing would report", async () => {
+    rmSync(integration);
+    ompPid = startedNow();
+    await submitter()("w:p1", "/effort", "/effort", Date.now());
+    expect(count("agent.prompt")).toBe(1);
+    expect(count("pane.get")).toBe(1);
   });
 
   it("sends at once to an omp that has run for long, which may have no integration", async () => {
@@ -131,7 +149,7 @@ describe("a message sent to omp", () => {
     ompPid = startedNow();
     const sent = submitter()("w:p1", "/effort", "/effort", Date.now());
     await until("a look at the starting omp", () => count("pane.get") >= 2);
-    const replacement = Bun.spawn(["sleep", "60"]);
+    const replacement = Bun.spawn(["sleep", "60"], { env: { ...process.env, HOME: root } });
     try {
       ompPid = replacement.pid;
       reported = true;
@@ -144,7 +162,7 @@ describe("a message sent to omp", () => {
 
   it.skipIf(!posix)("sends nothing when the wait runs out on another omp the pane was restarted into", async () => {
     ompPid = startedNow();
-    const replacement = Bun.spawn(["sleep", "60"]);
+    const replacement = Bun.spawn(["sleep", "60"], { env: { ...process.env, HOME: root } });
     try {
       const sent = createSubmitText({
         // past processStartedAt's up to one second of boot-time rounding, so the wait really runs
