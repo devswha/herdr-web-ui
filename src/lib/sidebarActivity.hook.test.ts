@@ -5,7 +5,8 @@ import type { Machine } from "../../shared/machines.ts";
 import type { AgentStatus, HerdrPane } from "../../shared/protocol.ts";
 import machinesFixture from "../../site/demo/fixtures/machines.json";
 import { useSidebarActivityState, type SidebarActivity } from "./sidebarActivity.tsx";
-import { cleanSeen, loadSeen, saveSeen, seenKey, SEEN_LIMIT } from "./seenFinishes.ts";
+import { cleanSeen, loadSeen, receiveSeen, saveSeen, seenKey, SEEN_LIMIT } from "./seenFinishes.ts";
+import type { SeenFinish } from "../../shared/seen.ts";
 
 const fixture: Machine[] = JSON.parse(JSON.stringify(machinesFixture.machines));
 function roster(finishes: Record<string, number>, statuses: Record<string, AgentStatus> = {}, epoch: string | undefined = "server-a"): Machine[] {
@@ -63,12 +64,12 @@ describe("sidebar finish acknowledgement through React effects", () => {
     });
   }
 
-  async function open(machines: Machine[], selected: string | null = null, covered = false) {
+  async function open(machines: Machine[], selected: string | null = null, covered = false, share?: (finish: SeenFinish) => Promise<void>) {
     let activity: SidebarActivity | undefined;
     let current = machines;
     function Probe({ machines, selected, covered }: { machines: Machine[]; selected: string | null; covered: boolean }) {
       // Keep callback identity stable between the hook's own renders.
-      activity = useSidebarActivityState(machines, "local", selected, inFronts[Number(covered)]!);
+      activity = useSidebarActivityState(machines, "local", selected, inFronts[Number(covered)]!, share);
       return null;
     }
     let renderer: ReactTestRenderer | undefined;
@@ -103,6 +104,38 @@ describe("sidebar finish acknowledgement through React effects", () => {
       expect(reopened.status("b")).toBe("done");
     });
   }
+
+  it("tells the other browsers of a presented finish once, and again after a failed attempt", async () => {
+    const told: SeenFinish[] = [];
+    let reachable = false;
+    const share = async (finish: SeenFinish) => { told.push(finish); if (!reachable) throw new Error("offline"); };
+    const warn = console.warn;
+    const warned: unknown[] = [];
+    console.warn = (...args: unknown[]) => { warned.push(args[0]); };
+    try {
+      const client = await open(roster({ a: 1 }), "a", false, share);
+      await act(async () => { await Promise.resolve(); });
+      expect(warned).toEqual(["Could not tell the other browsers about a read finish"]);
+      reachable = true;
+      await client.update(roster({ a: 1 }), "a");
+      await client.update(roster({ a: 1 }), "a");
+      await client.update(roster({ a: 1, b: 1 }), "b");
+      const a = { pc: "local", epoch: "server-a", pane: "a", id: 1 };
+      expect(told).toEqual([a, a, { ...a, pane: "b" }]);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it("draws a finish another browser of the server presented as ready, and never steps it back", async () => {
+    const client = await open(roster({ a: 2, b: 1 }));
+    expect([client.status("a"), client.status("b")]).toEqual(["done", "done"]);
+    await act(async () => { receiveSeen([{ pc: "local", epoch: "server-a", pane: "a", id: 2, answer: "proof" }]); });
+    expect([client.status("a"), client.status("b")]).toEqual(["idle", "done"]);
+    await act(async () => { receiveSeen([{ pc: "local", epoch: "server-a", pane: "a", id: 1 }, { pc: "local", epoch: "server-b", pane: "b", id: 1 }]); });
+    expect([client.status("a"), client.status("b")]).toEqual(["idle", "done"]);
+    expect(JSON.parse(data.get(seenKey("local", "server-a", "a"))!)).toMatchObject({ id: 2, answer: "proof" });
+  });
 
   it("does not scan unrelated stored finishes again to clean a repeated acknowledgement", async () => {
     const client = await open(roster({ a: 1 }), "a");

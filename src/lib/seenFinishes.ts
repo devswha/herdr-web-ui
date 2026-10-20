@@ -1,3 +1,4 @@
+import type { SeenFinish } from "../../shared/seen.ts";
 import type { SeenRecord } from "./sidebarOrder.ts";
 
 export const SEEN_PREFIX = "herdr-web-ui:finish:";
@@ -47,22 +48,45 @@ export function loadSeen(pc: string, epoch: string): SeenRecord {
   return record;
 }
 
+function write(pc: string, epoch: string, pane: string, id: number, answer?: string): { id: number; wrote: boolean } {
+  const key = seenKey(pc, epoch, pane);
+  const before = parse(localStorage.getItem(key));
+  if (before && before.id >= id) {
+    if (before.id !== id || before.answer !== undefined || answer === undefined) return { id: before.id, wrote: false };
+    localStorage.setItem(key, JSON.stringify({ ...before, answer }));
+    return { id, wrote: true };
+  }
+  localStorage.setItem(key, JSON.stringify({ id, at: Date.now(), ...(answer === undefined ? {} : { answer }) }));
+  return { id, wrote: true };
+}
+
 /** One pane per key: concurrent writes of different panes cannot overwrite one another. */
 export function saveSeen(pc: string, epoch: string, pane: string, id: number, answer?: string): number {
   try {
-    const key = seenKey(pc, epoch, pane);
-    const before = parse(localStorage.getItem(key));
-    if (before && before.id >= id) {
-      if (before.id === id && before.answer === undefined && answer !== undefined) {
-        localStorage.setItem(key, JSON.stringify({ ...before, answer }));
-        cleanSeen();
-      }
-      return before.id;
-    }
-    localStorage.setItem(key, JSON.stringify({ id, at: Date.now(), ...(answer === undefined ? {} : { answer }) }));
-    cleanSeen();
+    const saved = write(pc, epoch, pane, id, answer);
+    if (saved.wrote) cleanSeen();
+    return saved.id;
   } catch { /* blocked storage: this view lasts for the mounted page only */ }
   return id;
+}
+
+const received = new Set<() => void>();
+
+/** Called after another browser's finishes (receiveSeen) changed this browser's records. */
+export function subscribeSeen(listener: () => void): () => void {
+  received.add(listener);
+  return () => { received.delete(listener); };
+}
+
+/** Finishes another browser of this server presented (a `seen` event), kept as this browser's own. */
+export function receiveSeen(finishes: readonly SeenFinish[]): void {
+  let wrote = false;
+  try {
+    for (const finish of finishes) wrote = write(finish.pc, finish.epoch, finish.pane, finish.id, finish.answer).wrote || wrote;
+  } catch { /* blocked storage: only this page's own views count here */ }
+  if (!wrote) return;
+  cleanSeen();
+  for (const listener of [...received]) listener();
 }
 
 /**

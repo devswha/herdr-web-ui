@@ -991,8 +991,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   A raw counter rollback clears synthetic recency even on older bridges without an epoch.
   This ordering correction never changes finish identities or read records.
 - A DONE opened here draws as ready in the Agents list and its workspace roll-up, as herdr's
-  own client does. This follows the Codex app's [unread completion dot](https://github.com/openai/codex/issues/50856),
-  but keeps read state browser-local rather than claiming cross-device acknowledgement. Only the
+  own client does. This follows the Codex app's [unread completion dot](https://github.com/openai/codex/issues/50856).
+  A finish read in one browser is read in every browser of the server (a phone and
+  a desktop agree; herdr's own TUI keeps its own record, since herdr can mark a pane seen only by
+  moving its focus). Only the
   selected pane actually rendered on a visible page counts. The drawer, Settings, New session,
   Files, a popup file/diff viewer, machine dialogs, descendant dialogs and menus (including
   composer slash/file suggestions and their failed-suggestions popup) all block it,
@@ -1056,8 +1058,15 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   reconciliation or storage eviction can bring back a read dot, never acknowledge a newer finish.
   Old `herdr-web-ui:seen:<pc>` records are removed. Epochs this tab actually left are removed;
   unfamiliar epochs are ignored, not deleted using a possibly stale first roster. Storage is
-  capped at 2,000 keys, oldest first, never pruned by a tab's pane or PC roster. Another browser or
-  device keeps its own record. Saved read records survive reconnecting/offline rosters, which
+  capped at 2,000 keys, oldest first, never pruned by a tab's pane or PC roster. A record this
+  browser writes is also sent to its server (`POST /api/seen`, shared/seen.ts), which keeps the
+  greatest finish per `(PC, epoch, pane)` in `seen.json` (500 records, oldest first out) and hands
+  them to every browser as `seen` events on `/api/machines/events`: all of them when the stream
+  opens, then each change. A received record is laid over this browser's own with the same
+  max-finish rule, so it can mark a finish read, never bring a dot back. Each finish is sent once
+  per page, again with its answer fingerprint once the chat has it, and again after a failure. A
+  watching device's views stay its own (its POST is refused), and an older server without the
+  route keeps every browser's record local. Saved read records survive reconnecting/offline rosters, which
   hide their status badges and cannot create new acknowledgements. Retention cleanup after a save runs only
   when storage was actually written, not on every repeated DONE frame. Raw statuses and herdr
   recency still determine Agents order.

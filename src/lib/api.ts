@@ -1,4 +1,5 @@
 import type { PreferencesChange, SharedPreferences } from "../../shared/preferences.ts";
+import type { SeenFinish } from "../../shared/seen.ts";
 import { resumeConnectionTraces } from "./connectionTrace.ts";
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
@@ -155,6 +156,17 @@ export async function savePreferences(body: PreferencesChange): Promise<SharedPr
   const response = await fetch(url, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!response.ok) throw await errorFrom(url, response);
   return (await response.json()) as SharedPreferences;
+}
+
+/**
+ * Tells every browser of this server that this one presented a finish (shared/seen.ts). A server
+ * that predates it (404) or a watching device (403) keeps the read to this browser.
+ */
+export async function shareSeen(finish: SeenFinish): Promise<void> {
+  const url = "/api/seen";
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(finish) });
+  if (response.ok || response.status === 404 || response.status === 403) return;
+  throw await errorFrom(url, response);
 }
 
 export async function fetchTelemetry(): Promise<TelemetryStatus | null> {

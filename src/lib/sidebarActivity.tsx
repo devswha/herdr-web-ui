@@ -1,9 +1,10 @@
-/** Shared raw Activity order and browser-local acknowledgement of server-identified finishes. */
+/** Shared raw Activity order and acknowledgement of server-identified finishes, shared by the browsers of this server. */
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Machine } from "../../shared/machines.ts";
 import type { AgentStatus, HerdrPane } from "../../shared/protocol.ts";
+import type { SeenFinish } from "../../shared/seen.ts";
 import { liveSeqs, markSeen, newSeqMemory, shownStatus, type SeenRecord, type SeqMemory } from "./sidebarOrder.ts";
-import { cleanSeen, loadSeen, saveSeen, seenEvent, seenKey, SEEN_PREFIX } from "./seenFinishes.ts";
+import { cleanSeen, loadSeen, saveSeen, seenEvent, seenKey, SEEN_PREFIX, subscribeSeen } from "./seenFinishes.ts";
 import { conversationFinishEvidence } from "./panePresentation.ts";
 
 export interface SidebarActivity {
@@ -18,7 +19,8 @@ export const useSidebarActivity = (): SidebarActivity => useContext(SidebarActiv
 interface MachineSeen { epoch: string; record: SeenRecord }
 const unobscured = () => true;
 
-export function useSidebarActivityState(machines: readonly Machine[], selectedMachineId: string, presentedPaneId: string | null, paneInFront: () => boolean = unobscured): SidebarActivity {
+export function useSidebarActivityState(machines: readonly Machine[], selectedMachineId: string, presentedPaneId: string | null, paneInFront: () => boolean = unobscured,
+  share?: (finish: SeenFinish) => Promise<void>): SidebarActivity {
   const memories = useRef(new Map<string, { epoch: string | undefined; memory: SeqMemory }>());
   const seqsByMachine = useMemo(() => new Map(machines.map((machine) => {
     const epoch = machine.snapshot?.finish_epoch;
@@ -34,6 +36,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === "visible");
   const [storageRevision, setStorageRevision] = useState(0);
   const epochs = useRef(new Map<string, string>());
+  // each finish (and its later answer fingerprint) is told to the server once per page, again only after a failure
+  const shared = useRef(new Set<string>());
+  const shareRef = useRef(share); shareRef.current = share;
   useEffect(() => {
     cleanSeen();
     const onVisibility = () => setPageVisible(document.visibilityState === "visible");
@@ -51,7 +56,9 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("storage", onStorage);
+    const stopReceiving = subscribeSeen(() => setStorageRevision((value) => value + 1));
     return () => {
+      stopReceiving();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("storage", onStorage);
     };
@@ -76,8 +83,17 @@ export function useSidebarActivityState(machines: readonly Machine[], selectedMa
       const pane = machine.state === "connected" && machine.id === selectedMachineId && pageVisible && paneInFront()
         ? machine.snapshot?.panes.find((pane) => pane.pane_id === presentedPaneId) : undefined;
       if (pane?.agent_status === "done" && !pane.background_wait && pane.finish_id !== undefined && pane.finish_id > 0) {
-        record = markSeen(record, pane.pane_id, saveSeen(machine.id, epoch, pane.pane_id, pane.finish_id,
-          conversationFinishEvidence.answer(seenKey(machine.id, epoch, pane.pane_id), pane.finish_id)));
+        const answer = conversationFinishEvidence.answer(seenKey(machine.id, epoch, pane.pane_id), pane.finish_id);
+        record = markSeen(record, pane.pane_id, saveSeen(machine.id, epoch, pane.pane_id, pane.finish_id, answer));
+        const finish: SeenFinish = { pc: machine.id, epoch, pane: pane.pane_id, id: pane.finish_id, ...(answer === undefined ? {} : { answer }) };
+        const told = JSON.stringify([finish.pc, finish.epoch, finish.pane, finish.id, answer !== undefined]);
+        if (shareRef.current && !shared.current.has(told)) {
+          shared.current.add(told);
+          shareRef.current(finish).catch((error: unknown) => {
+            shared.current.delete(told);
+            console.warn("Could not tell the other browsers about a read finish", error);
+          });
+        }
       }
       next.set(machine.id, { epoch, record });
     }
