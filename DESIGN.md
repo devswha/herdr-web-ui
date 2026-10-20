@@ -1273,6 +1273,45 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   leaves the worktree there: the dialog says why, locks its fields, and its button reads **Open**.
 - The browser demo answers the same list/create/open/remove worktree APIs with fictional
   checkout records, so its branch rows and dialogs work without a filesystem or live herdr.
+### Session history (`.session-modal`)
+- From a workspace row's menu, **Earlier sessions…** (lucide `History`, beside Rename workspace),
+  and from the chat: picking `/resume` in the `/` menu's Terminal commands opens it at once, and the
+  terminal command's row over the composer offers **Earlier sessions…** beside Open Terminal. The
+  dialog is the worktree dialog's anatomy: **Agent** is a `.select` of the PC's installed agents
+  (the row's or the pane's agent first), under it the folder the sessions were started in, in
+  mono, then one `.session-row` per session as `GET /api/sessions/history` lists them, newest
+  first: the title (else the first prompt; else the id in mono) in `--fs-sm` medium, the first
+  prompt under it in `--text-dim`, each clamped to two lines, and at the trailing end the time it
+  was last touched (the chat turn's timestamp format, the full date on hover) over the way on. The
+  way on is a quiet `.btn` **Resume**, never the primary style: a list of up to fifty rows carries
+  no fifty accents. A session a pane of the workspace already shows (its `agent_session`, by id or
+  by file name) gets an **Already open** pill (over the button on a phone, beside it elsewhere) and
+  **Open**, which selects that pane in the browser and moves herdr's focus nowhere. A row whose
+  resume syntax is not verified (`resume: null`) is listed with no button. Resume sends one
+  `POST /api/tab/create` with the row's own argv as the agent (`{ kind, args }`) and the listed
+  folder; while it is in flight the row takes `--bg-hover`, every button is disabled, a
+  `role="status"` line reads **Resuming…**, and a second click sends nothing
+  (`lib/sessionHistory.ts` inFlightGuard). The list reopened before herdr has reported the new
+  pane's session shows that session as **Already open** with **Open** on the new pane (disabled
+  until the roster lists it) and no Resume: App keeps a record of each Resume
+  (`lib/useRecentResumes.ts`) that ends on evidence alone: herdr reports the pane's session, or the
+  pane it listed is gone; a pane still listed without a session keeps it however long ago the
+  Resume was (time never brings Resume back for a pane that is there), and only a pane the roster
+  never lists ends it, after two minutes. A refusal shows under the rows in the blocked colour.
+  An empty store says **No earlier Codex sessions in this folder.**; a PC whose bridge answers
+  404 for the route says the bridge does not offer this yet, and the workspace menu of such a PC
+  has no item (the bridge is asked once, without a workspace, so nothing is listed by the probe).
+- Keyboard: the first row's button takes the focus once the rows are in (the agent field until
+  then; focus the user moved meanwhile stays), ArrowUp/ArrowDown and Home/End move along the
+  rows' buttons, Tab stays inside, Enter resumes, Escape, the X, Cancel and the scrim close, and
+  the focus returns to what opened it. Rows carry their title and time as a label.
+- The design follows the resume pickers of Codex CLI (`/resume`) and Claude Code
+  (`claude --resume`): one session per row, newest first, the first prompt as the row's text, the
+  time it was last touched beside it, Enter resuming. Both are full-screen tables in the terminal;
+  here the list is a dialog over the pane, in the worktree dialog's rows, and the agent is a field
+  above them because the folder may hold several agents' sessions.
+- The browser demo answers `GET /api/sessions/history` with two fictional sessions per agent and
+  marks a tab resumed through it as showing that session, so the **Already open** path shows too.
 
 ### Changes list and diff viewer (`.repo-changes`, `.repo-diff*`)
 - Files has two faces, **Browse** | **Changes** (`.segmented` in its header). **Changes** lists
@@ -1861,7 +1900,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   does.` with the command in mono, and two ways on in the held rows' buttons: **Open Terminal**
   (the pane's terminal lens, nothing sent) and **Run in Terminal** (the usual send, then the
   terminal lens once the send is acknowledged; a refusal keeps the text and its note here), then
-  the row's X. Typing such a command by hand and pressing Send shows the same row instead of
+  the row's X. For `/resume` the row leads with **Earlier sessions…** (Session history), and
+  picking it from the menu opens that list at once. Typing such a command by hand and pressing Send shows the same row instead of
   sending; Escape or the X puts it away with the text kept, and Send brings it back. A
   connection that only observes has no composer at all (PaneTerminal mounts none for it, see
   Role), so it sees neither the group nor the row; the composer still takes the connection's

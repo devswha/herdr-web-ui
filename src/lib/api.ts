@@ -46,6 +46,8 @@ import type {
   RemoteAccess,
   RemoveWorktreeRequest,
   ResizePaneRequest,
+  SessionHistoryAgent,
+  SessionHistoryResponse,
   SessionSnapshot,
   SetSplitRatioRequest,
   SlashCommand,
@@ -699,6 +701,25 @@ export async function openWorktree(request: OpenWorktreeRequest, machineId = "lo
   return (await response.json()) as WorktreeOpened;
 }
 
+/** GET /api/sessions/history: the earlier sessions of `agent` in the workspace's folder, newest first; never cached. */
+export function fetchSessionHistory(workspaceId: string, agent: SessionHistoryAgent, machineId = "local"): Promise<SessionHistoryResponse> {
+  const query = new URLSearchParams({ workspace_id: workspaceId, agent });
+  return getJson<SessionHistoryResponse>(`${machinePath(machineId, "sessions/history")}?${query.toString()}`, { cache: "no-store" });
+}
+/**
+ * Whether the PC's bridge has the session history route, asked without a query so no session is
+ * listed: a bridge that has it refuses the query (400), one from before it answers not_found (404).
+ * Any other refusal (403 for a device that only watches) still says the route is there; a PC that
+ * could not be asked rejects, so the caller asks again when it comes back.
+ */
+export async function sessionHistoryOffered(machineId = "local"): Promise<boolean> {
+  try { await getJson(machinePath(machineId, "sessions/history")); return true; }
+  catch (error) {
+    if (routeMissing(error)) return false;
+    if (error instanceof ApiError && error.status < 500) return true;
+    throw error;
+  }
+}
 /** POST /api/tab/create: another tab in an existing workspace, with the same agent launch. */
 export async function createTab(request: CreateTabRequest, machineId = "local"): Promise<TabCreated> {
   const response = await sendJson(machinePath(machineId, "tab/create"), "POST", request);
