@@ -259,7 +259,8 @@ try {
               const active = menu?.querySelector('[aria-selected="true"]');
               if (!menu || !active) return false;
               const box = menu.getBoundingClientRect(), row = active.getBoundingClientRect();
-              return active.textContent?.includes("vim") && row.top >= box.top && row.bottom <= box.bottom;
+              // the terminal commands end the list, so the last row is the last of them
+              return active === [...menu.querySelectorAll('[role="option"]')].at(-1) && active.textContent?.includes("terminal-setup") && row.top >= box.top && row.bottom <= box.bottom;
             });
             // Enter right after the keystroke that narrows the list, before React's next render, completes the row
             await page.evaluate(async () => {
