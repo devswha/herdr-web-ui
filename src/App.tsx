@@ -1412,9 +1412,15 @@ export function App() {
       moveTabToWorkspace: async ({ machineId, tabId, workspaceId }) => {
         const asked = selectionRef.current;
         const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
-        const held = asked.machineId === machineId && roster?.panes.some((pane) => pane.pane_id === asked.paneId && pane.tab_id === tabId) === true;
+        const inTab = (paneId: string | null): boolean => roster?.panes.some((pane) => pane.pane_id === paneId && pane.tab_id === tabId) === true;
+        const held = asked.machineId === machineId && inTab(asked.paneId);
+        // the split's other half may show the tab: it follows the pane as the open one does
+        const shown = splitRef.current?.other;
+        const otherHeld = shown?.machineId === machineId && inTab(shown.paneId) ? shown : null;
         const moved = await moveTabToWorkspace(tabId, workspaceId, machineId);
         void load();
+        const open = splitRef.current;
+        if (otherHeld && open && sameTarget(open.other, otherHeld)) setSplit({ ...open, other: { machineId, paneId: moved.pane_id } });
         // the open pane changed its ID with its workspace: the view goes with it, unless the user went elsewhere meanwhile
         if (held && selectionStill(asked, selectionRef.current)) selectTargetRef.current(machineId, moved.pane_id);
       },
