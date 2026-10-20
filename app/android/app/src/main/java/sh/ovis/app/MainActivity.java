@@ -26,9 +26,13 @@ public class MainActivity extends BridgeActivity {
         String host = origin == null ? null : Uri.parse(origin).getHost();
         if (host != null) {
             boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-            // what server.url sets; the pairing link until a PC page has loaded, the origin after it
+            // Capacitor makes server.url the bridge's origin rule, which takes no path, query or
+            // trailing slash: such a rule throws, and Capacitor falls back to a bridge that every
+            // frame (a preview's iframe included) can call. So server.url is the bare origin, and a
+            // pairing link's path and query come in as the start path until a PC page has loaded.
             config = new CapConfig.Builder(this)
-                .setServerUrl(PCStore.pendingStart != null ? PCStore.pendingStart : origin + "/")
+                .setServerUrl(origin)
+                .setStartPath(startPath(PCStore.pendingStart, origin))
                 // the whole PC is the app: its own links stay in the WebView, others go to the browser
                 .setAllowNavigation(new String[] { host })
                 .setErrorPath("error.html")
@@ -81,6 +85,16 @@ public class MainActivity extends BridgeActivity {
         // WebView writes cookies to disk on its own schedule: a paired device's sign-in set a moment
         // ago would be lost if the app were swiped away now
         CookieManager.getInstance().flush();
+    }
+
+    /** The path and query of a pairing link on `origin`, else the PC's root. */
+    static String startPath(String start, String origin) {
+        if (start == null || !origin.equals(PCStore.origin(start))) return "/";
+        Uri uri = Uri.parse(start);
+        String path = uri.getEncodedPath();
+        String query = uri.getEncodedQuery();
+        String fragment = uri.getEncodedFragment();
+        return (path == null || path.isEmpty() ? "/" : path) + (query == null ? "" : "?" + query) + (fragment == null ? "" : "#" + fragment);
     }
 
     /** Starts this activity again, so the next page (a PC, or the connect screen) is a first load. */
