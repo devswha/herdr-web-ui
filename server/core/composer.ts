@@ -79,7 +79,9 @@ async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => v
     await Bun.sleep(pollMs);
     inTime();
     const current = await paneGet(paneId);
-    if (resolveAgent(current).agent !== "omp" || current.agent_session?.source === "herdr:omp") return;
+    // an omp that quit while it started leaves its shell: the message was for omp, so it is not typed there
+    if (resolveAgent(current).agent !== "omp") throw new HerdrError("pending_target_changed", "The omp this message waited for stopped while it started; nothing was sent");
+    if (current.agent_session?.source === "herdr:omp") return;
   }
 }
 

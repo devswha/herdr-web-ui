@@ -111,6 +111,15 @@ describe("a message sent to omp", () => {
     expect(count("agent.prompt")).toBe(0);
   });
 
+  it.skipIf(!posix)("sends nothing when omp stops while it is waited for", async () => {
+    ompPid = startedNow();
+    const sent = submitter()("w:p1", "/effort", "/effort", Date.now());
+    await until("a look at the starting omp", () => count("pane.get") >= 2);
+    agent = "";
+    await expect(sent).rejects.toThrow("stopped while it started");
+    expect(count("agent.prompt") + count("pane.send_text") + count("pane.send_keys")).toBe(0);
+  });
+
   it.skipIf(!posix)("does not wait for another agent", async () => {
     agent = "codex";
     ompPid = startedNow();
