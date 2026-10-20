@@ -181,7 +181,6 @@ function claudeOutputEchoes(records: readonly CommandTranscriptRecord[]): Readon
 /** Native envelopes, not conversational prose or the model/effort shown in a footer. */
 function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscriptRecord[], until: number, used: ReadonlySet<number> = new Set(),
   echoOffset?: number | null, outputs?: ReadonlyMap<number, number>): { offset: number; at: number } | null {
-  let echo = false;
   const invocation = sent.invocations[0];
   // A reserved byte offset may now contain another command after an in-place rewrite.
   const matchingEchoes = sent.agent === "claude" ? records.filter(({ entry, offset }) => {
@@ -210,19 +209,7 @@ function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscri
     if (!invocation) continue;
     const name = invocation.name.toLocaleLowerCase();
     const argument = invocation.argument.split(/\s+/u)[0] ?? "";
-    const payload = object(entry.payload);
-    const user = message.role === "user" ? message.content
-      : entry.type === "event_msg" && payload.type === "user_message" ? payload.message
-      : entry.type === "response_item" && payload.role === "user" ? payload.content : undefined;
-    if (user !== undefined) {
-      const text = typeof user === "string" ? user : Array.isArray(user)
-        ? user.map((part) => object(part).text ?? "").join("\n") : "";
-      echo = normalize(text) === normalize(sent.text);
-    }
-    if (used.has(offset)) {
-      if (entry.type === "compaction" || entry.type === "compacted") echo = false;
-      continue;
-    }
+    if (used.has(offset)) continue;
     if (["pi", "omp", "gjc", "omo"].includes(sent.agent)) {
       if (entry.type === "model_change" && ["model", "models", "switch"].includes(name) && argument) {
         const model = typeof entry.model === "string" ? entry.model : entry.modelId;
@@ -230,11 +217,11 @@ function transcriptEvidence(sent: CommandSend, records: readonly CommandTranscri
         if (argument === model || argument === qualified || (typeof model === "string" && argument === model.slice(model.indexOf("/") + 1))) return evidence;
       }
       if (entry.type === "thinking_level_change" && ["thinking", "effort", "efforts"].includes(name) && argument === entry.thinkingLevel) return evidence;
-      if (entry.type === "compaction" && name === "compact" && echo) return evidence;
+      // Native /compact folds do not name their cause; an automatic fold has the same shape.
+      // A conversation message spelling /compact cannot make that event command-specific.
       // omp's /handoff writes its document as an in-place compaction (method "handoff" on 18.8.7)
       if (sent.agent === "omp" && entry.type === "compaction" && entry.method === "handoff" && name === "handoff") return evidence;
     }
-    if (sent.agent === "codex" && entry.type === "compacted" && name === "compact" && echo) return evidence;
   }
   return null;
 }

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, mock, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { HerdrPane, PanePromptResponse } from "../../shared/protocol.ts";
@@ -64,7 +64,9 @@ it("keeps a startup send bound to the reported omp session and observes its late
     expect(deliver).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledTimes(2); // initial pane and startup poll, no extra delivery lookup
     expect((await poll()).outcomes).toMatchObject([{ state: "accepted", evidence: [] }]);
-    transcript = JSON.stringify({ type: "compaction", method: "handoff", timestamp: new Date(now + 1).toISOString() });
+    const handoff = JSON.parse(readFileSync(new URL("../fixtures/omp-handoff-18.8.7-session.jsonl", import.meta.url), "utf8")
+      .split("\n").find(line => line.includes('"type":"compaction"'))!);
+    transcript = JSON.stringify({ ...handoff, timestamp: new Date(now + 1).toISOString() });
     now += 2;
     expect((await poll()).outcomes).toMatchObject([{ state: "result-observed", evidence: [{ kind: "transcript" }] }]);
   } finally {
