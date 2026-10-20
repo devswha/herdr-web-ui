@@ -56,7 +56,7 @@ import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
-import { handleMachineRequest } from "./machine-api.ts";
+import { handleMachineRequest, nonCanonicalPath } from "./machine-api.ts";
 import { handleSessionHistoryRequest, SESSION_HISTORY_PATH } from "./session-history-routes.ts";
 import { HerdrSidebarConfig, herdrConfigPath } from "./herdr-sidebar.ts";
 import { closeCodexDaemonSources } from "./codex-daemon.ts";
@@ -319,9 +319,10 @@ export function createServer(
       if (pathname.startsWith("/api/") && mutating && !sameOrigin(request)) {
         return jsonResponse({ error: { code: "invalid_origin", message: "Use controls from this app" } }, 403);
       }
-      // An empty segment ("//") reads as another route to the checks below, while the PC proxy
-      // drops it before forwarding: `/api/machines/<id>//fs/file` would pass as not a file read.
-      if (pathname.startsWith("/api/") && pathname.includes("//")) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+      // An empty segment ("//", or a trailing "/") or an encoded separator reads as another route to
+      // the checks below, while the PC proxy drops empty segments before forwarding:
+      // `/api/machines/<id>//fs/file` would pass as not a file read, `<id>/sessions/history/` as no history.
+      if (pathname.startsWith("/api/") && nonCanonicalPath(pathname)) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
       // What a watching device must not reach, spelled out rather than inferred from the
       // method: file contents (those files include credentials) and a directory listing
       // (names and sizes are the shape of a repository the terminals never print), plus

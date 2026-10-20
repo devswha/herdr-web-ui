@@ -9,6 +9,13 @@ import { isJsonObject, jsonResponse } from "./http.ts";
 import { crossSiteFileRead } from "./file-view.ts";
 
 const fail = (code: string, message: string, status: number) => jsonResponse({ error: { code, message } }, status);
+
+/**
+ * A path no route is spelled as: an empty segment (`//`, or a trailing `/`) or an encoded separator.
+ * Path checks match the canonical spelling, and the PC proxy drops empty segments before it
+ * forwards, so such a path must be no route at all rather than "some other route".
+ */
+export const nonCanonicalPath = (pathname: string): boolean => pathname.includes("//") || (pathname.length > 1 && pathname.endsWith("/")) || /%2f|%5c/i.test(pathname);
 export const MACHINE_PROXY_PATH = /^(?:session|sessions\/history|agents|integrations|pane\/(?:read|scroll|find|selection|conversation(?:\/image|\/tool-output)?|commands|files|omo-tasks|plan|prompt|prompt\/answer|input|keys|close|rename|image|split|zoom|swap|resize|clear|focus)|workspace\/(?:create|rename|move|close|directories|diff\/files|diff\/file)|worktree\/(?:create|list|open|remove)|tab\/(?:create|rename|close|move)|layout\/ratio|agent\/rename|plugins\/actions|plugin\/action|fs\/(?:stat|file|favicon))$/;
 
 
@@ -40,7 +47,7 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
   if (fileRead && crossSiteFileRead(request)) return fail("cross_site", "A file is read from this app or opened in a tab, not loaded by another page", 403);
   if (!["GET", "HEAD"].includes(request.method) && request.headers.get("x-herdr-machine") !== "1") return fail("invalid_machine_request", "Use PC controls from this app", 403);
   // an empty segment is never a route: dropping it would forward `<id>//fs/file` as `fs/file`
-  if (url.pathname.includes("//")) return fail("not_found", "not found", 404);
+  if (nonCanonicalPath(url.pathname)) return fail("not_found", "not found", 404);
   const parts = url.pathname.slice("/api/machines".length).split("/").filter(Boolean);
   try {
     if (!parts.length && request.method === "GET") return jsonResponse({ machines: manager.list() });
@@ -118,6 +125,8 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
     }
     if (parts.length === 1 && request.method === "DELETE") { manager.remove(id); return jsonResponse({ ok: true }); }
     const path = parts.slice(1).join("/");
+    // earlier sessions carry their first prompts: never asked for a watching device with the PC's credential
+    if (readOnly && path === "sessions/history") return fail("read_only", "this device can only watch", 403);
     if (MACHINE_PROXY_PATH.test(path)) {
       const endpoint = manager.endpoint(id);
       if (!endpoint) return fail("machine_offline", "This PC is disconnected", 503);
