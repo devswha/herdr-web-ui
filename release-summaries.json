@@ -1,4 +1,90 @@
 {
+  "0.5.0": {
+    "en": {
+      "new": [
+        "The app is now called Ovis, matching the new iPhone and Android apps.",
+        "Command Code agent panes show their conversation in Chat.",
+        "OpenCode 2 questions are answered from a card, one at a time, with Back.",
+        "Agent rows show what herdr plugins report, such as quota left or task progress."
+      ],
+      "improved": [
+        "The / menu lists terminal-only commands apart and can run them in Terminal.",
+        "A question card says when the question on screen may have changed.",
+        "Copied chat text comes out as shown, without added Markdown symbols.",
+        "Pages ask once per folder for its icon, so proxies stop rate-limiting the load."
+      ],
+      "fixed": [
+        "Jump to latest stays at the end after a trip to the Terminal and back.",
+        "OpenCode 2 sign-ins no longer show as expired in subscription usage.",
+        "A finished agent keeps its DONE dot until you actually see the answer.",
+        "In macOS Safari, Backspace after a Korean syllable no longer skips a press.",
+        "Slow GJC and Grok chats open instead of timing out."
+      ]
+    },
+    "ko": {
+      "new": [
+        "앱 이름이 Ovis로 바뀌었습니다. 새 iPhone·Android 앱과 같은 이름입니다.",
+        "Command Code 에이전트 칸도 대화를 채팅으로 보여 줍니다.",
+        "OpenCode 2의 질문에 카드로 하나씩 답하고, 뒤로 가서 고칠 수 있습니다.",
+        "에이전트 줄에 herdr 플러그인이 알려 주는 남은 사용량이나 진행률이 나옵니다."
+      ],
+      "improved": [
+        "/ 메뉴가 터미널 전용 명령을 따로 모아 보여 주고, 터미널에서 바로 실행합니다.",
+        "화면의 질문이 바뀌었을 수 있으면 질문 카드가 그렇다고 알려 줍니다.",
+        "채팅 글을 복사하면 마크다운 기호 없이 보이는 그대로 복사됩니다.",
+        "폴더마다 아이콘을 한 번만 물어서, 프록시가 페이지 로드를 막지 않습니다."
+      ],
+      "fixed": [
+        "최신으로 이동한 뒤 터미널에 다녀와도 맨 아래에 그대로 있습니다.",
+        "OpenCode 2에 로그인돼 있는데 구독 사용량이 만료로 나오던 문제를 고쳤습니다.",
+        "끝난 에이전트의 DONE 점은 답을 실제로 볼 때까지 남아 있습니다.",
+        "macOS Safari에서 한글 음절 뒤 백스페이스가 한 번 씹히던 문제를 고쳤습니다.",
+        "느린 GJC·Grok 채팅이 시간 초과 없이 열립니다."
+      ]
+    },
+    "ja": {
+      "new": [
+        "アプリの名前が Ovis になりました。新しい iPhone・Android アプリと同じ名前です。",
+        "Command Code のペインも会話をチャットで表示します。",
+        "OpenCode 2 の質問にカードで一つずつ答え、戻って直せます。",
+        "エージェント行に herdr プラグインが伝える残り使用量や進捗が表示されます。"
+      ],
+      "improved": [
+        "/ メニューがターミナル専用コマンドを分けて表示し、ターミナルで実行できます。",
+        "画面の質問が変わったかもしれないとき、質問カードがそう知らせます。",
+        "チャットの文章は Markdown 記号なしで、見たままコピーされます。",
+        "フォルダーごとにアイコンを一度だけ問い合わせ、プロキシに読み込みを止められません。"
+      ],
+      "fixed": [
+        "最新へ移動した後、ターミナルを行き来しても末尾にとどまります。",
+        "サインイン済みの OpenCode 2 が使用量で期限切れと表示される問題を直しました。",
+        "終わったエージェントの DONE の点は、答えを実際に見るまで残ります。",
+        "macOS Safari で韓国語の音節の後の Backspace が一回抜ける問題を直しました。",
+        "遅い GJC・Grok のチャットがタイムアウトせずに開きます。"
+      ]
+    },
+    "zh": {
+      "new": [
+        "应用现在叫 Ovis，与新的 iPhone 和 Android 应用同名。",
+        "Command Code 代理窗格也能在聊天中显示对话。",
+        "OpenCode 2 的问题可在卡片中逐个回答，并可返回修改。",
+        "代理行显示 herdr 插件报告的内容，如剩余用量或任务进度。"
+      ],
+      "improved": [
+        "/ 菜单把只在终端运行的命令单独列出，并可直接在终端运行。",
+        "当屏幕上的问题可能已变化时，问题卡片会提示。",
+        "复制聊天文字时按显示内容复制，不再加上 Markdown 符号。",
+        "每个文件夹只请求一次图标，代理不再限制页面加载。"
+      ],
+      "fixed": [
+        "跳到最新后切到终端再回来，仍停在末尾。",
+        "已登录的 OpenCode 2 不再在订阅用量中显示为已过期。",
+        "完成的代理会保留 DONE 圆点，直到你真正看到回答。",
+        "在 macOS Safari 中，韩文音节后的 Backspace 不再漏掉一次。",
+        "较慢的 GJC 和 Grok 聊天能打开，不再超时。"
+      ]
+    }
+  },
   "0.4.12": {
     "en": {
       "new": [

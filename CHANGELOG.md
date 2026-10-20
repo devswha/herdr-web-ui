@@ -7,6 +7,192 @@ between releases do not reach them. Remote-PC runtime bundles are versioned sepa
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-21
+
+### Added
+- Command Code (`cmd`) agent panes now show their conversation in the web UI: transcript
+  resolution from `~/.commandcode/projects/`, `/tree` branch projection, model and context
+  window from Command Code's catalog, permission prompts, and skill discovery.
+  ([#1399](https://github.com/devswha/herdr-web-ui/pull/1399) by @diegolhambi)
+- OpenCode 2.0 or later: its questions are answered from the chat's prompt card through OpenCode's
+  own background service instead of keystrokes, one question at a time with Back to change an earlier
+  answer, and sent together after the last. Permissions, OpenCode 1 and other prompts keep the
+  existing generic fallback card and Terminal.
+  ([#1257](https://github.com/devswha/herdr-web-ui/pull/1257) by @bardiz12)
+- Agent rows show what herdr plugins report on a pane, such as the Quota plugin's usage left or a
+  task's progress, in a small dim line under the row. They follow the `$name` tokens of your herdr
+  `[ui.sidebar.agents]` rows (every token where none are set), change live, and say a long value
+  whole in the tooltip and in a phone's ⋯ sheet. A line a plugin reports for the agent now updates
+  as soon as herdr says it.
+  ([#1341](https://github.com/devswha/herdr-web-ui/pull/1341))
+- `HERDR_WEB_TAILSCALE_HTTPS_PORT` names the HTTPS port the installer publishes the app on with
+  `tailscale serve`, so 443 can stay free for something else. Settings → Phone & devices suggests
+  that port too. When another service already uses it, the installer stops and says so instead of
+  taking another port, which would move the address an installed app opens.
+  ([#1433](https://github.com/devswha/herdr-web-ui/pull/1433))
+
+### Changed
+- The chat's `/` menu lists the commands that run in the terminal apart, last, under Terminal
+  commands, each with a Terminal badge, as the PC's command catalog describes them. Picking one, or
+  typing one and pressing Send, keeps the draft and offers Open Terminal (shows the terminal,
+  sends nothing) and Run in Terminal (sends it, then shows the terminal) instead of sending it from
+  the chat. A connection that only watches the pane has no message box, as before, so it gets
+  neither. Commands the agent's own menu hides are no longer listed, and still go when typed by
+  hand.
+  ([#1441](https://github.com/devswha/herdr-web-ui/pull/1441))
+- For an OpenCode pane whose skills are `@` attachments, the `@` menu lists them under Skills
+  before the files, and picking one inserts the skill's id.
+  ([#1441](https://github.com/devswha/herdr-web-ui/pull/1441))
+- The app is now called Ovis across the browser, install messages and documentation, matching
+  the phone apps. Existing installs, settings, plugin identifiers and update channels stay the same.
+  ([#1454](https://github.com/devswha/herdr-web-ui/pull/1454))
+- A question card whose screen reads keep failing now says it may be out of date ("Not updated: the
+  question on screen may have changed.") until a read answers again. Answering stays safe: the
+  server reads the screen again first and refuses a changed question (#1335).
+  ([#1360](https://github.com/devswha/herdr-web-ui/pull/1360) by @Noobear)
+- Remove PC has a restrained red background and border before and after its confirmation step,
+  retaining visible keyboard focus and the explicit second click to remove the registration.
+  ([#1394](https://github.com/devswha/herdr-web-ui/pull/1394) by @snowykr)
+
+### Fixed
+- Choosing Jump to latest remembers bottom-follow before the virtual list scroll completes.
+  Switching to Terminal immediately after that choice and returning to Chat no longer restores
+  the older reading position. This fixes explicit Jump-to-latest intent, not arbitrary upward
+  restoration on long, active or reasoning-heavy tabs.
+  ([#1346](https://github.com/devswha/herdr-web-ui/pull/1346) by @Yoonwoo-Ha)
+- Remember bottom-follow without measuring rendered rows or looking up a turn anchor; readers away
+  from the end retain the existing paragraph-and-offset restoration.
+  ([#1346](https://github.com/devswha/herdr-web-ui/pull/1346) by @Yoonwoo-Ha)
+- Selecting and copying chat text now preserves the text as shown instead of adding Markdown
+  syntax. Rich-text paste and the whole-answer MD and TXT copy actions remain available.
+  ([#1409](https://github.com/devswha/herdr-web-ui/pull/1409))
+- A Claude Code skill or custom command named like a built-in command (`/compact`, say) is listed
+  once in the composer's command menu, as the skill Claude runs, instead of beside the built-in.
+  ([#1441](https://github.com/devswha/herdr-web-ui/pull/1441))
+- Reconnects and unconfirmed sends can leave a bounded browser-side diagnostic trail on this
+  server, without recording messages, credentials, addresses or terminal output.
+  ([#1357](https://github.com/devswha/herdr-web-ui/pull/1357) by @christi4nity)
+- Wrapped and multiline message drafts are sized with an out-of-flow measurement field instead of
+  collapsing the live input, preserving transcript spacing and the paragraph being read (#1337).
+  ([#1347](https://github.com/devswha/herdr-web-ui/pull/1347) by @Yoonwoo-Ha)
+- The measurement field shares the live input's Korean, Japanese and Chinese line-breaking rules,
+  including Korean placeholder wrapping, so localized drafts keep their natural height.
+  ([#1347](https://github.com/devswha/herdr-web-ui/pull/1347) by @Yoonwoo-Ha)
+- Local Herdr timeouts, machine connection failures and recoveries, and abnormal WebSocket closes
+  now leave timestamped, rate-limited diagnostic records without logging input or credentials.
+  ([#1356](https://github.com/devswha/herdr-web-ui/pull/1356) by @christi4nity)
+- The browser connection trace no longer re-posts a batch the server refuses with a 4xx status,
+  resumes reporting after you sign in again on the same page, and malformed reports can no longer
+  use up the server's shared report quota.
+  ([#1423](https://github.com/devswha/herdr-web-ui/pull/1423))
+- GJC chats on a busy machine give cold session lookups up to five seconds per command and
+  ten seconds overall instead of timing out after two seconds per command. Session snapshots
+  retain the shorter status lookup budget; failed status lookups
+  are held for 30 seconds without preventing chat reads from retrying.
+  ([#1364](https://github.com/devswha/herdr-web-ui/pull/1364) by @sskys18)
+- GJC chat and status reuse their verified session binding when other sessions write heartbeats,
+  instead of restarting the SDK lookup for every pane. Session changes still require SDK validation.
+  ([#1343](https://github.com/devswha/herdr-web-ui/pull/1343))
+- Grok keeps Chat with older sessions open and uses Terminal when the session is uncertain.
+  ([#1352](https://github.com/devswha/herdr-web-ui/pull/1352) by @infowolfe)
+- Slow API requests can return their result or timeout error instead of losing the HTTP connection
+  while bounded Herdr calls are still running.
+  ([#1355](https://github.com/devswha/herdr-web-ui/pull/1355) by @christi4nity)
+- The app can be installed behind a reverse proxy that signs in every request (Authelia,
+  oauth2-proxy and the like): the browser now sends its cookies with the manifest request.
+  ([#1332](https://github.com/devswha/herdr-web-ui/pull/1332) by @ascandroli)
+- A Codex started in a terminal shows its model and reasoning level before the first message,
+  from Codex's live footer, while the chat shows the terminal output.
+  ([#1374](https://github.com/devswha/herdr-web-ui/pull/1374) by @evanwy0223)
+- Before the first message, a model switched in the terminal shows in the message box once the
+  supported agent draws it. omp still waits for its transcript to record the model; the bridge
+  never runs `omp models`, which can refresh the CLI's OAuth credentials.
+  ([#1374](https://github.com/devswha/herdr-web-ui/pull/1374) by @evanwy0223)
+- A pane that runs OmO is now treated as OmO by the composer even while herdr labels it Claude
+  (OmO's Claude child is running): sending a message no longer stops on a Claude input-box draft
+  refusal or tries to clear a Claude draft there.
+  ([#1441](https://github.com/devswha/herdr-web-ui/pull/1441))
+- A multi-line message sent to an OmO pane that herdr has no agent label for is now pasted as one
+  bracketed paste instead of line by line, so its first line is no longer sent alone.
+  ([#1441](https://github.com/devswha/herdr-web-ui/pull/1441))
+- Native question answers stay bound to the current pane, session and form. Local service discovery
+  rejects stale or non-loopback endpoints, bypasses environment proxies, and bounds slow requests.
+  ([#1257](https://github.com/devswha/herdr-web-ui/pull/1257) by @bardiz12)
+- Polling does not invalidate an unchanged question or turn an acknowledged answer into an error.
+  A temporary service outage keeps an already displayed native card and its unsent edits.
+  ([#1257](https://github.com/devswha/herdr-web-ui/pull/1257) by @bardiz12)
+- Back and question tabs preserve unsent edits, and multiselect submissions include both checks
+  and custom text. Abandoned drafts are bounded and expire after 30 minutes.
+  ([#1257](https://github.com/devswha/herdr-web-ui/pull/1257) by @bardiz12)
+- OpenCode question cards keep edits and allow immediate retries after a failed reply, and optional
+  questions can be skipped. Unrelated service metadata no longer resets a form's progress.
+  ([#1421](https://github.com/devswha/herdr-web-ui/pull/1421))
+- Answers sent from the message box show the translated warning when OpenCode has not confirmed
+  delivery. Native service connections accept only the loopback addresses 127.0.0.1 and [::1].
+  ([#1421](https://github.com/devswha/herdr-web-ui/pull/1421))
+- Subscription usage reads OpenCode 2's own credential store before the `auth.json` OpenCode 1
+  wrote. OpenCode 2 keeps its provider sign-ins in `opencode.db` and leaves that file standing with
+  the key it has since replaced, so the OpenCode card reported "Sign-in expired" for a CLI that was
+  signed in and working. The store's active key answers first, and a store without one (signed out of
+  OpenCode 2) shows no card; the file still answers beside OpenCode 1's store, or with none.
+  ([#1329](https://github.com/devswha/herdr-web-ui/pull/1329) by @krish-kant)
+- On a phone, the header's Chat/Terminal switch centers its icons and no longer touches the header's
+  bottom rule (in compact density it was as tall as the bar). The buttons still take a full
+  44 px tap.
+  ([#1367](https://github.com/devswha/herdr-web-ui/pull/1367) by @Noobear)
+- Model and effort pickers no longer confirm a stale choice when the agent stops waiting for the
+  answer during the final screen read.
+  ([#1435](https://github.com/devswha/herdr-web-ui/pull/1435))
+- Attaching to a terminal once again waits for input to be ready before signalling completion,
+  preserving queued keys, clicks and text and the order of Stop followed by a message.
+  ([#1342](https://github.com/devswha/herdr-web-ui/pull/1342))
+- In macOS Safari, Backspace in a terminal no longer skips a press after deleting the last letter of
+  a Korean syllable: 한 then four Backspaces now also deletes the character before it.
+  ([#1363](https://github.com/devswha/herdr-web-ui/pull/1363))
+- SSH PC management controls now stay within narrow sidebars: the rename field and action buttons
+  reflow in place, and long labels wrap without clipping.
+  ([#1392](https://github.com/devswha/herdr-web-ui/pull/1392) by @snowykr)
+- Opening a finished pane clears its DONE dot only after its answer or terminal output is
+  actually visible. Covered panes, loading or failed chats, and terminal reconnections keep
+  unread finishes marked.
+  ([#1342](https://github.com/devswha/herdr-web-ui/pull/1342))
+- Reading older chat keeps the finish unread. Jumping to the latest answer clears it only
+  after the jump arrives; small scrolls above the end show the way back. Resizing and restoring
+  a short chat work without an extra scroll.
+  ([#1342](https://github.com/devswha/herdr-web-ui/pull/1342))
+- An older answer cannot clear a newer finish. Agents whose chat cannot prove completion keep
+  the dot conservatively; opening their Terminal view can acknowledge the output.
+  ([#1342](https://github.com/devswha/herdr-web-ui/pull/1342))
+- Read finishes stay read across pane switches and browser tabs on the same device. Every
+  web-server restart or update brings read DONE dots back; read records are not carried across
+  server restarts.
+  ([#1342](https://github.com/devswha/herdr-web-ui/pull/1342))
+- The sidebar's PC control buttons are the standard control height again, Rename shares the name
+  field's row in a wide sidebar, Remove PC dims like its neighbours while a rename or disconnect
+  runs, and danger buttons keep their red tint on hover everywhere in the app.
+  ([#1422](https://github.com/devswha/herdr-web-ui/pull/1422))
+- A Markdown table whose separator has a one- or two-dash cell (`|---|:-:|`) shows as a table in the
+  chat, as on GitHub, instead of as its pipe-separated source.
+  ([#1361](https://github.com/devswha/herdr-web-ui/pull/1361) by @Noobear)
+- Settings → Updates no longer tells you to switch to main when the server was started from an
+  installed update's folder instead of its source checkout: it now says to restart the app from
+  the source checkout, which is what lets updates run again.
+  ([#1417](https://github.com/devswha/herdr-web-ui/pull/1417))
+- Loading the page no longer sends about 33 requests per workspace folder to find its project icon:
+  each folder is asked once (`GET /api/fs/favicon`), and a folder without an icon is an answer, not
+  a 404. A reverse proxy with a rate limit no longer answers 429 to the burst, and the browser
+  console no longer fills with red 404 lines on every load. A 429 is no longer remembered as "no
+  icon" either: the folder is asked again when its row next appears.
+  ([#1339](https://github.com/devswha/herdr-web-ui/pull/1339))
+
+### Maintenance
+- Composer geometry regressions freeze the demo conversation while keeping it idle, so turn
+  completion cannot change the transcript during measurements on phone and desktop.
+  ([#1347](https://github.com/devswha/herdr-web-ui/pull/1347) by @Yoonwoo-Ha)
+- Settings and PWA draft checks target the visible input explicitly; locale regressions cover
+  native draft and placeholder heights on phone and desktop.
+  ([#1347](https://github.com/devswha/herdr-web-ui/pull/1347) by @Yoonwoo-Ha)
+
 ## [0.4.12] - 2026-10-18
 
 ### Added
@@ -4759,7 +4945,8 @@ First public version.
 - Installable PWA, a mobile key bar, web push alerts and optional token auth.
 - Distribution as a herdr plugin.
 
-[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.4.12...HEAD
+[Unreleased]: https://github.com/devswha/herdr-web-ui/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/devswha/herdr-web-ui/compare/v0.4.12...v0.5.0
 [0.4.12]: https://github.com/devswha/herdr-web-ui/compare/v0.4.11...v0.4.12
 [0.4.11]: https://github.com/devswha/herdr-web-ui/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/devswha/herdr-web-ui/compare/v0.4.9...v0.4.10
