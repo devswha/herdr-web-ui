@@ -190,7 +190,7 @@ describe("Hermes result outcomes", () => {
     }
   });
 
-  it("leaves a send untracked instead of failing it when the pre-send screen read fails", async () => {
+  it("records a send without requesting a pre-send screen that could fail delivery", async () => {
     const root = mkdtempSync(join(tmpdir(), "herdr-hermes-presend-"));
     const socketPath = join(root, "herdr.sock");
     const previous = process.env.HERDR_SOCKET;
@@ -210,7 +210,7 @@ describe("Hermes result outcomes", () => {
     process.env.HERDR_SOCKET = socketPath;
     try {
       const pane = { pane_id: paneId, agent: "hermes", agent_status: "idle" } as Parameters<typeof prepareCommandSend>[0];
-      expect(await prepareCommandSend(pane, "/status")).toBeUndefined();
+      expect(prepareCommandSend(pane, "/status")).toMatchObject({ text: "/status", screen: "", store: null });
     } finally {
       if (previous === undefined) delete process.env.HERDR_SOCKET;
       else process.env.HERDR_SOCKET = previous;

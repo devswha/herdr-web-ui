@@ -48,6 +48,14 @@ describe("command invocation syntax", () => {
     const model: SlashCommand = { ...row("model"), forms: [{ match: "bare", interaction: "dialog" }, { match: { sub: "*" }, interaction: "none" }] };
     expect(commandInvocations("pi", "/model test-model", [model])[0]?.form?.interaction).toBe("none");
   });
+  it("keeps absolute paths plain unless the catalog explicitly names that invocation", () => {
+    for (const agent of ["claude", "pi", "codex", "omo"]) {
+      expect(commandInvocations(agent, "/tmp/build.log shows a failure, why?", [])).toEqual([]);
+      expect(commandInvocations(agent, "/etc/hosts", [])).toEqual([]);
+      expect(commandInvocations(agent, "/myext run", [])).toHaveLength(1);
+    }
+    expect(commandInvocations("claude", "/plugin/task run", [{ ...row("plugin/task"), source: "skill" }])).toHaveLength(1);
+  });
 });
 
 describe("evidence-only command outcomes", () => {

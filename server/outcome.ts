@@ -56,6 +56,8 @@ export function commandInvocations(agent: string, text: string, commands: readon
     if (leading && trigger === "$" && !syntax.skillTriggers.includes("$")) continue;
     if (trigger === "@" && (agent !== "opencode" || !row)) continue;
     if (!row && (!leading || trigger === "@")) continue;
+    // Unknown runtime commands use a command name, not an absolute filesystem path.
+    if (!row && !/^[\p{L}\p{N}_:-]+$/u.test(name)) continue;
     const argument = trimmed.slice(match.index + match[0].length).trim();
     const forms = row?.forms ?? [];
     const sub = argument.split(/\s+/u)[0]?.toLocaleLowerCase();

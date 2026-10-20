@@ -5,7 +5,7 @@
  * server's own state. The dispatcher in index.ts runs the access gate first.
  */
 import type { AgentRenameRequest, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, ReadFormat, ReadSource } from "../shared/protocol.ts";
-import { paneCommands } from "./commands.ts";
+import { paneCommands, rememberPaneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse, readJsonObject } from "./http.ts";
 import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, paneTranscript, toolOutput } from "./conversation.ts";
@@ -70,7 +70,9 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
           ? await paneTranscript(paneId, options.codexHome, undefined, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome).then(versionSourceOf, () => null)
           : null;
         const { version } = resolveAgent(context.pane, roots, store);
-        return jsonResponse({ commands: paneCommands(agent, context.cwd, undefined, { ...roots.omo, environ: roots.environ }, version) });
+        const commands = paneCommands(agent, context.cwd, undefined, { ...roots.omo, environ: roots.environ }, version);
+        rememberPaneCommands(context.pane, agent, commands);
+        return jsonResponse({ commands });
       }
       const limitRaw = url.searchParams.get("limit");
       const limit = limitRaw === null ? 20 : Number(limitRaw);

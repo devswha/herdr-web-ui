@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptResponse, PromptAnswer, SessionSnapshot } from "../shared/protocol.ts";
-import { paneCommands } from "./commands.ts";
-import { paneProcessRoots, paneTranscript, readCommandTranscript } from "./conversation.ts";
-import { resolveAgent, versionSourceOf } from "./pane-context.ts";
+import { builtinCommands, cachedPaneCommands } from "./commands.ts";
+import { readCommandTranscript } from "./conversation.ts";
+import { resolveAgent } from "./pane-context.ts";
 import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
@@ -140,22 +140,17 @@ const chatSent = new Map<string, { text: string; commands: (CommandSend & { stor
 
 const outcomeIdentity = (pane: HerdrPane): string => JSON.stringify([pane.terminal_id, pane.agent_session]);
 
-/** Prepare before the write: fast command output may arrive before herdr acknowledges the send. */
-export async function prepareCommandSend(pane: HerdrPane, text: string, screen?: string): Promise<(CommandSend & { store: string | null }) | undefined> {
+/** Capture only existing data before delivery. Discovery and transcript reads belong to the poll. */
+export function prepareCommandSend(pane: HerdrPane, text: string, screen = ""): (CommandSend & { store: string | null }) | undefined {
   if (!/(?:^|\s)[/$@]\S/u.test(text)) return undefined;
-  const roots = await paneProcessRoots(pane.pane_id, resolveAgent(pane).agent);
-  const native = await paneTranscript(pane.pane_id).catch(() => null);
-  const { agent, version } = resolveAgent(pane, roots, native ? versionSourceOf(native) : null);
+  const cached = cachedPaneCommands(pane);
+  const agent = cached?.agent ?? resolveAgent(pane).agent;
   if (!agent) return undefined;
-  const commands = paneCommands(agent, pane.foreground_cwd ?? pane.cwd, undefined, { ...roots.omo, environ: roots.environ }, version);
+  const commands = cached?.commands ?? builtinCommands(agent);
   const invocations = commandInvocations(agent, text, commands);
   if (invocations.length === 0) return undefined;
-  const transcript = await readCommandTranscript(pane.pane_id).catch(() => null);
-  // A failed pre-send read leaves the send untracked rather than failing its delivery.
-  const before = screen ?? await liveScreen(pane.pane_id).catch(() => undefined);
-  if (before === undefined) return undefined;
   return { id: randomBytes(12).toString("hex"), text, at: Date.now(), agent, identity: outcomeIdentity(pane),
-    screen: before, invocations, form: invocations[0]?.form ?? null, store: transcript?.identity ?? null };
+    screen, invocations, form: invocations[0]?.form ?? null, store: null };
 }
 
 /** A message the chat just sent to a pane: one with invisible characters may be held by Claude Code. */

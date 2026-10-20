@@ -163,7 +163,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       // read comes after the colors, so text typed between the two is in the box and holds the message.
       if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working, () => authorizePending(owner, paneId, lease), arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
       else if (context.identity.agent === "hermes") context.screen = await freeHermesInput(paneId, context.identity);
-      const command = await prepareCommandSend(context.pane, text, context.screen);
+      const command = prepareCommandSend(context.pane, text, context.screen);
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
       // asked again right before herdr is written to: its connect is awaited (#666)

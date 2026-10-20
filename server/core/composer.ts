@@ -243,7 +243,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
   async function submitText(paneId: string, text: string, payload: string, arrivedAt: number, fromTerminal = false, authorize: () => void = () => {},
     clearDraft?: string, confirmation?: { draft: string | null; identity: PendingIdentity; box?: string | null }, sendAnyway = false): Promise<void> {
     let clearedDraft = false;
-    let command: Awaited<ReturnType<typeof prepareCommandSend>>;
+    let command: ReturnType<typeof prepareCommandSend>;
     let beforeScreen: string | undefined;
     const inTime = (reserve = 0): void => {
       authorize();
@@ -375,7 +375,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
           // the last look waited on herdr: the device may have lost its access meanwhile
           inTime();
         }
-        if (pane) command = await prepareCommandSend(pane, text, beforeScreen);
+        if (pane) command = prepareCommandSend(pane, text, beforeScreen);
         inTime();
         try {
           await agentPrompt(paneId, closeMention(sent));
@@ -389,8 +389,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         }
       }
       inTime();
-      if (fromTerminal && /(?:^|\s)[/$@]\S/u.test(text)) command = await prepareCommandSend(await paneGet(paneId), text);
-      inTime();
+      // The terminal input line has no pre-read pane identity. Do not add reads just for tracking.
       // a mirrored pane's browser never learned the program's paste mode, so `payload` came as bare
       // lines: several of them are shaped here as the same block typed into the mirror is. herdr is
       // asked only for such a block, so a one-line message never waits on it.
