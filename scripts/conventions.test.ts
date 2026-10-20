@@ -80,6 +80,8 @@ describe("fixed sleeps", () => {
   it("tells a fixed sleep from a bounded poll", () => {
     const found = (code: string) => fixedSleeps("example.ts", code).length;
     expect(found("await Bun.sleep(300);")).toBe(1);
+    expect(found("await page.waitForTimeout(500);")).toBe(1);
+    expect(found("// fixed wait: nothing may arrive in this time\nawait page.waitForTimeout(500);")).toBe(0);
     expect(found("await new Promise((resolve) => setTimeout(resolve, 1500));")).toBe(1);
     expect(found("while (!ready) await Bun.sleep(20);")).toBe(1);
     expect(found("await new Promise((resolve) => setTimeout(resolve, 0));")).toBe(0);

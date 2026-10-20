@@ -193,13 +193,14 @@ try {
     window.formDelay = 0;
     window.formReturned = 0;
     window.formReadFails = false;
+    window.formFailedReads = 0;
     const promptOf = (pane) => pane === web ? window.formPrompt : window.panePrompts[pane] ?? null;
     const json = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
     window.fetch = (input, init) => {
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
       if (url.pathname === "/api/pane/prompt") {
         // window.formReadFails: reads of the screen fail as a dropped connection does
-        if (window.formReadFails) return Promise.reject(new TypeError("Failed to fetch"));
+        if (window.formReadFails) { window.formFailedReads += 1; return Promise.reject(new TypeError("Failed to fetch")); }
         const prompt = promptOf(url.searchParams.get("pane_id"));
         if (prompt !== null) return json({ prompt, suggestion: null });
       }
@@ -658,7 +659,9 @@ try {
           await setPrompt(page, { ...FORM, id: "demo-form-moved" });
           await page.locator(".prompt-card-option-label").first().click();
           await page.locator(".prompt-card").getByText("The question on screen changed; check it and answer again.").waitFor();
-          await page.waitForTimeout(500);
+          // two more failed reads: at least one comes from the restarted poll, so a restart that cleared the notice has happened by now
+          const failed = await page.evaluate(() => (window as unknown as { formFailedReads: number }).formFailedReads);
+          await page.waitForFunction((n) => (window as unknown as { formFailedReads: number }).formFailedReads >= n + 2, failed, { timeout: 10_000 });
           assert.equal(await status.textContent(), STALE, "a refused answer restarts the reads without clearing the notice");
           await setPrompt(page, FORM);
           await page.evaluate(() => { (window as unknown as { formReadFails: boolean }).formReadFails = false; });
