@@ -569,6 +569,26 @@ describe.skipIf(process.platform === "win32")("Command Code discovery stays boun
     expect(repeated.names).toContain("deep-skill");
   });
 
+  it("counts links back to an ancestor and every project folder up to the root against one budget", () => {
+    const root = temp("cmd-flood-");
+    // a smaller lattice whose last level holds 200 links back to itself
+    const level = (index: number) => join(root, "lattice", `l${index}`);
+    for (let index = 0; index <= 14; index += 1) mkdirSync(level(index), { recursive: true });
+    for (let index = 0; index < 14; index += 1) for (const name of ["a", "b"]) symlinkSync(level(index + 1), join(level(index), name), "dir");
+    for (let index = 0; index < 200; index += 1) symlinkSync(level(14), join(level(14), `self${index}`), "dir");
+    // a repository nesting 24 projects, each linking its skills and commands to the lattice
+    const repo = repoIn(root);
+    let cwd = repo;
+    for (let depth = 0; depth < 24; depth += 1) {
+      mkdirSync(join(cwd, ".commandcode"), { recursive: true });
+      symlinkSync(level(0), join(cwd, ".commandcode", "skills"), "dir");
+      symlinkSync(level(0), join(cwd, ".commandcode", "commands"), "dir");
+      cwd = join(cwd, `p${depth}`);
+      mkdirSync(cwd, { recursive: true });
+    }
+    expect(cmdInChild(temp("cmd-home-"), cwd).exitCode).toBe(0);
+  });
+
   it("reads custom commands whose header is never closed in bounded time", () => {
     const home = temp("cmd-unclosed-");
     // a header cut at the 64 KiB read: its closing `---` lies past what is read
@@ -580,6 +600,14 @@ describe.skipIf(process.platform === "win32")("Command Code discovery stays boun
     expect(result.exitCode).toBe(0);
     expect(result.names).toContain("three");
   });
+});
+
+it("reads a skill's declared name from a CRLF header", () => {
+  const root = temp("crlf-skill-");
+  mkdirSync(join(root, "folder"), { recursive: true });
+  writeFileSync(join(root, "folder", "SKILL.md"), "---\r\nname: declared-name\r\ndescription: Declared\r\n---\r\nBody\r\n");
+  const walked = walkSkills(root, { depth: "recursive", looseMarkdown: "none", ignoreFiles: false, requireDescription: false });
+  expect(walked.map(({ name }) => name)).toEqual(["declared-name"]);
 });
 
 describe.skipIf(process.platform === "win32")("files that are not regular files", () => {

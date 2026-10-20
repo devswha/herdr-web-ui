@@ -118,7 +118,7 @@ export function description(markdown: string): string {
 
 /** `name:` from a SKILL.md's frontmatter, else its directory's name. */
 function skillName(markdown: string, directory: string): string {
-  const frontmatter = markdown.match(/^---[ \t]*\n([\s\S]*?)\n---(?:\s*\n|$)/);
+  const frontmatter = markdown.match(/^---[ \t]*\r?\n([\s\S]*?)\n---(?:\s*\n|$)/);
   const named = frontmatter?.[1]?.match(/^name:\s*(.+?)\s*$/m)?.[1]?.trim().replace(/^(["'])(.*)\1$/, "$2");
   return named && /^[\p{L}\p{N}_:-]+$/u.test(named) ? named : directory;
 }
@@ -158,11 +158,12 @@ export function walkSkills(root: string, rules: WalkRules): WalkedSkill[] {
   }
   const budget = rules.budget ?? { folders: MAX_WALK_FOLDERS };
   const visit = (directory: string): void => {
+    // every visit counts, a link back to an ancestor too: each one is a lookup on the server's thread
+    if (budget.folders <= 0) return;
+    budget.folders -= 1;
     let canonical: string;
     try { canonical = realpathSync(directory); } catch { return; }
-    // a link back to an ancestor costs nothing: only folders actually read count
-    if (ancestors.has(canonical) || budget.folders <= 0) return;
-    budget.folders -= 1;
+    if (ancestors.has(canonical)) return;
     ancestors.add(canonical);
     try {
       const prefix = relative(root, directory).split(sep).join("/");
@@ -224,16 +225,18 @@ export function parseJsonc(text: string): unknown {
   return value;
 }
 
-export function customCommands(root: string, source: SlashCommand["source"]): SlashCommand[] {  if (!existsSync(root)) return [];
+/** `budget`: folders this walk may still visit, shared by every walk given the same object. */
+export function customCommands(root: string, source: SlashCommand["source"], budget = { folders: MAX_WALK_FOLDERS }): SlashCommand[] {  if (!existsSync(root)) return [];
   const result: SlashCommand[] = [];
   // Guard only the current ancestry: sibling links can expose different command namespaces.
   const ancestors = new Set<string>();
-  let folders = MAX_WALK_FOLDERS;
   const visit = (directory: string): void => {
+    // every visit counts, a link back to an ancestor too: each one is a lookup on the server's thread
+    if (budget.folders <= 0) return;
+    budget.folders -= 1;
     let canonical: string;
     try { canonical = realpathSync(directory); } catch { return; }
-    if (ancestors.has(canonical) || folders <= 0) return;
-    folders -= 1;
+    if (ancestors.has(canonical)) return;
     ancestors.add(canonical);
     try {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {

@@ -177,8 +177,8 @@ function skillsAt(root: string, origin: NonNullable<SlashCommand["origin"]>, sha
     }));
 }
 
-function commandsAt(root: string, origin: SlashCommand["source"]): SlashCommand[] {
-  return customCommands(root, origin).map((command) => {
+function commandsAt(root: string, origin: SlashCommand["source"], budget: { folders: number }): SlashCommand[] {
+  return customCommands(root, origin, budget).map((command) => {
     const folder = command.name.includes(":") ? command.name.slice(0, command.name.lastIndexOf(":")).split(":").at(-1) : "";
     return {
       ...command,
@@ -200,7 +200,7 @@ function extraSkills(paths: readonly string[], base: string, home: string, origi
   });
 }
 
-function discoverSkills(ctx: AgentCommandContext, shadowed: ReadonlySet<string>): SlashCommand[] {
+function discoverSkills(ctx: AgentCommandContext, shadowed: ReadonlySet<string>, budget: { folders: number }): SlashCommand[] {
   const { home, cwd } = ctx;
   const agentDir = join(home, ".commandcode");
   const directories = cwd ? ancestorsToRepoRoot(cwd) : [];
@@ -216,20 +216,19 @@ function discoverSkills(ctx: AgentCommandContext, shadowed: ReadonlySet<string>)
   ]);
   const projectSkillsConfig = Array.isArray(projectLocalSettings.skills) ? projectLocalSettings.skills : projectSettings.skills;
   const projectDefinesSkills = Array.isArray(projectLocalSettings.skills) || Array.isArray(projectSettings.skills);
-  const configured = { folders: MAX_WALK_FOLDERS };
   const projectSkills = Array.isArray(projectSkillsConfig)
-    ? extraSkills(stringArray(projectSkillsConfig), repoRoot, home, "project", shadowed, disabled, configured)
+    ? extraSkills(stringArray(projectSkillsConfig), repoRoot, home, "project", shadowed, disabled, budget)
     : [];
   const userSkills = !projectDefinesSkills && Array.isArray(userSettings.skills)
-    ? extraSkills(stringArray(userSettings.skills), repoRoot, home, "user", shadowed, disabled, configured)
+    ? extraSkills(stringArray(userSettings.skills), repoRoot, home, "user", shadowed, disabled, budget)
     : [];
   const project = cwd ? ancestorsToRepoRoot(cwd).flatMap((directory) => [
-    ...skillsAt(join(directory, ".commandcode", "skills"), "project", shadowed, disabled),
-    ...skillsAt(join(directory, ".agents", "skills"), "project", shadowed, disabled),
+    ...skillsAt(join(directory, ".commandcode", "skills"), "project", shadowed, disabled, budget),
+    ...skillsAt(join(directory, ".agents", "skills"), "project", shadowed, disabled, budget),
   ]) : [];
   const user = [
-    ...skillsAt(join(agentDir, "skills"), "user", shadowed, disabled),
-    ...skillsAt(join(home, ".agents", "skills"), "user", shadowed, disabled),
+    ...skillsAt(join(agentDir, "skills"), "user", shadowed, disabled, budget),
+    ...skillsAt(join(home, ".agents", "skills"), "user", shadowed, disabled, budget),
     ...userSkills,
   ];
   const extraProject = projectSkills;
@@ -272,12 +271,15 @@ export const source: AgentCommandSource = {
   discover(ctx) {
     const { home, cwd } = ctx;
     const agentDir = join(home, ".commandcode");
+    // One walk budget for the whole discovery: a repository can commit settings, nest projects under
+    // its root and link folders, and every root it adds would otherwise bring a budget of its own.
+    const budget = { folders: MAX_WALK_FOLDERS };
     const commands = [
-      ...(cwd ? ancestorsToRepoRoot(cwd).flatMap((directory) => commandsAt(join(directory, ".commandcode", "commands"), "project")) : []),
-      ...commandsAt(join(agentDir, "commands"), "user"),
+      ...(cwd ? ancestorsToRepoRoot(cwd).flatMap((directory) => commandsAt(join(directory, ".commandcode", "commands"), "project", budget)) : []),
+      ...commandsAt(join(agentDir, "commands"), "user", budget),
     ];
     const shadowed = new Set([...source.builtins, ...commands.map(({ name }) => name)].map((name) => name.toLocaleLowerCase()));
-    const result = [...commands, ...discoverSkills(ctx, shadowed)];
+    const result = [...commands, ...discoverSkills(ctx, shadowed, budget)];
     const seen = new Set<string>();
     return result.filter((row) => {
       const key = `${row.name}\0${row.id ?? ""}`;
