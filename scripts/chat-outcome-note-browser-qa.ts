@@ -54,7 +54,7 @@ try {
       assert.equal(await chip.locator(".chat-outcome-state").innerText(), "Runs in the terminal");
       const note = chip.locator(".chat-outcome-note");
       await note.waitFor();
-      assert.equal(await note.innerText(), "@effect wasn't attached, so it went as plain text");
+      assert.equal(await note.innerText(), "Not attached, sent as plain text: @effect");
       // inside the chat column: no sideways scroll at either width
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       assert.ok(overflow <= 0, `no horizontal overflow at ${width}px (${overflow}px)`);

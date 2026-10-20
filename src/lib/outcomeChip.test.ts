@@ -24,7 +24,8 @@ function assistant(text: string, ts: string | null): ConversationTurn {
 describe("outcomeNote", () => {
   test("names the skills the agent did not attach, and nothing for any other outcome", () => {
     const sent = outcome({ text: "@effect @review go", created_at: "2026-10-20T10:00:00Z", state: "terminal-required", unattached_skills: ["effect", "review"] });
-    expect(outcomeNote(en, sent)).toBe("@effect, @review wasn't attached, so it went as plain text");
+    expect(outcomeNote(en, sent)).toBe("Not attached, sent as plain text: @effect, @review");
+    expect(outcomeNote(en, { ...sent, unattached_skills: ["effect"] })).toBe("Not attached, sent as plain text: @effect");
     expect(outcomeNote(en, outcome({ text: "/btw hi", created_at: "2026-10-20T10:00:00Z", state: "terminal-required" }))).toBeNull();
   });
 });

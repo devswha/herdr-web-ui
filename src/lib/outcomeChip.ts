@@ -46,7 +46,7 @@ export function outcomeLabel(t: Translate, chip: OutcomeChip): string {
 export function outcomeNote(t: Translate, outcome: CommandOutcome): string | null {
   const skills = outcome.unattached_skills ?? [];
   if (skills.length === 0) return null;
-  return t("{skills} wasn't attached, so it went as plain text", { skills: skills.map((id) => `@${id}`).join(", ") });
+  return t("Not attached, sent as plain text: {skills}", { skills: skills.map((id) => `@${id}`).join(", ") });
 }
 
 function evidenceWord(t: Translate, kind: OutcomeEvidence): string {

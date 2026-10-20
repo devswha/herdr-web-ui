@@ -1059,7 +1059,7 @@ export const ZH: Record<string, string> = {
   "agent event": "Agent 事件",
   "saved state": "已保存的状态",
   "Runs in the terminal": "在终端中运行",
-  "{skills} wasn't attached, so it went as plain text": "{skills} 未能附加，已作为纯文本发送",
+  "Not attached, sent as plain text: {skills}": "未附加，已作为纯文本发送：{skills}",
   "No result seen": "未看到结果",
   "Answer": "回答",
   "Terminal output changed after {command}, not confirmed": "{command} 之后终端输出有变化，未经确认",
