@@ -614,10 +614,11 @@ function keptBindingForPane(paneId: string, home: string, platform: string, now:
 
 /**
  * gjc's own skill list as the broker answers it (skill.list/state, offered by
- * runtime.capabilities), attach-only and read-only. One refresh runs in the background, and
- * only while the transcript adapter holds a resolved binding for the pane; a request itself
- * never starts a process, it gets what the last refresh kept. A list that is not one complete
- * page, or any failure, keeps no rows: the scan rows stay.
+ * runtime.capabilities), attach-only and read-only: the broker itself is never started. Asking it
+ * means running the gjc CLI, once in the background per period per pane and only while the
+ * transcript adapter holds a resolved binding for the pane; a request never waits for that run,
+ * it gets what the last refresh kept. A list that is not one complete page, or any failure, keeps
+ * no rows: the scan rows stay.
  */
 async function refreshNativeSkills(entry: NativeSkills, agentDir: string, query: GjcQueryFn): Promise<void> {
   try {

@@ -7,6 +7,7 @@
   went as plain text and points to the terminal.
 - An OpenCode 1.x question is a card in Chat with each option and its description, answered from
   the card.
-- Chat lists a Codex pane's skills as its running Codex daemon reports them (Codex 0.157 or later,
-  not on Windows), and a gjc pane's skills as the SDK broker it is bound to reports them. Neither is
-  ever started for this; without one, the skills read from disk stay.
+- Chat lists a Codex pane's skills as the running Codex daemon of that pane's own Codex home reports
+  them (Codex 0.157 or later; on Linux, or when the server's Codex home is set), and a gjc pane's
+  skills as the SDK broker it is bound to reports them, asked through the gjc CLI in the background.
+  The daemon and the broker are never started for this; without one, the skills read from disk stay.
