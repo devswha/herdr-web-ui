@@ -1759,8 +1759,11 @@ export function App() {
                 data-slot={slot}
                 data-side={splitOn ? slotSide(split, slot) : undefined}
                 // a press or the focus in the other half makes it the active one, before the press acts;
-                // its own bar's buttons (its lens, its close) act on it as it is
+                // its own bar's buttons (its lens, its close) act on it as it is. A menu the half opened
+                // is portaled out of it: a press there reaches this handler through React but is not in
+                // the half, and activating would close the menu before its item's click lands
                 onPointerDownCapture={active ? undefined : (event) => {
+                  if (!event.currentTarget.contains(event.target as Node)) return;
                   if (event.button === 0 && !paneContextPress(event, apple) && !(event.target as Element).closest(".pane-slot-action")) activateSlot(slot);
                 }}
                 onFocusCapture={active ? undefined : (event) => { if (Date.now() - lastKeyAtRef.current < KEY_FOCUS_MS && !(event.target as Element).closest(".pane-slot-action")) activateSlot(slot, true); }}
