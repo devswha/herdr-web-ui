@@ -3258,6 +3258,32 @@ describe("token auth", () => {
     expect(body.herdr.terminal_attach).toBe(true);
   });
 
+  it("answers /health with plain text for unauthenticated proxy probes while keeping APIs gated", async () => {
+    const headers = { host: "herdr.example.com", "x-forwarded-proto": "https", "x-forwarded-for": "192.0.2.10" };
+    for (const probeHeaders of [{}, headers, { ...headers, authorization: "Bearer wrong" }]) {
+      const response = await fetch(`${securedBase()}/health`, { headers: probeHeaders });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(await response.text()).toBe("ok");
+    }
+    expect((await fetch(`${securedBase()}/api/session`, { headers })).status).toBe(401);
+  });
+
+  it("supports HEAD health probes and rejects other methods", async () => {
+    const response = await fetch(`${securedBase()}/health`, { method: "HEAD" });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      const refused = await fetch(`${securedBase()}/health`, { method });
+      expect(refused.status).toBe(405);
+      expect(refused.headers.get("allow")).toBe("GET, HEAD");
+    }
+  });
+
   it("tells a client that got in when this server is open to the network, and nobody else", async () => {
     // the health body is JSON off the wire; LanExposure is the shape this endpoint adds to it
     type HealthBody = { auth: HealthAuth; lan_exposure?: LanExposure };

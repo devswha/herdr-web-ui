@@ -63,6 +63,9 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  */
 
 /** HTTP API
+ *  GET    /health                        -> 200 text/plain "ok" (web server liveness, no credentials or Herdr RPC)
+ *  HEAD   /health                        -> 200 without a body; both send Cache-Control: no-store;
+ *                                          other methods return 405 with Allow: GET, HEAD
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
  *                                          Windows herdr and on a bridge that cannot run the PTY sidecar; terminal_mirror: its
  *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
@@ -247,7 +250,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/usage[?refresh=1]         -> UsageReport (plan limits of the AI subscriptions signed in on this PC)
  *  Errors: non-2xx with { error: { code, message } }
  *
- *  Access: every route above except /api/health, /api/auth and /api/devices/pair, plus the
+ *  Access: every route above except /health, /api/health, /api/auth and /api/devices/pair, plus the
  *  /ws upgrade, needs the request to be one of: from this PC itself (no proxy in front);
  *  the PC's own Tailscale login, as `tailscale serve` states it — or, where
  *  HERDR_WEB_TAILSCALE_SERVE_ONLY=1 declares serve the only ingress on a tailnet one login

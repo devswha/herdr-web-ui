@@ -374,6 +374,23 @@ The proxy has to do four things:
 - send `X-Forwarded-Proto: https` when it serves HTTPS, so cookies are marked Secure and the app's own requests are accepted;
 - pass the WebSocket upgrade for `/ws`, which carries the terminal.
 
+For a gateway that connects from another machine, set `HOST=0.0.0.0` to listen on
+all IPv4 interfaces (`127.0.0.1` remains the default). With `HERDR_WEB_TOKEN` set
+in the environment, build the client once and start the server:
+
+```bash
+bun run build
+HOST=0.0.0.0 PORT=7317 bun run server
+```
+
+Point the gateway's HTTP health check at `/health`. `GET /health` returns `200`
+with the plain-text body `ok`; `HEAD /health` returns the same status without a body.
+Both work without a token or paired device and send `Cache-Control: no-store`.
+This is a liveness check of the web server; `/api/health` continues to report
+Herdr connectivity and the requesting client's access state. The API and `/ws`
+keep their existing authentication requirements. Verify the bind by requesting
+`http://<this-machine-ip>:7317/health` from the gateway's network.
+
 Caddy does all four by default, and gets the certificate itself:
 
 ```caddyfile

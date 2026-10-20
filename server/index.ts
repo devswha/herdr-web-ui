@@ -266,6 +266,14 @@ export function createServer(
       return compressResponse(request, await (async (): Promise<Response | undefined> => {
       const url = new URL(request.url);
       let { pathname } = url;
+      // Proxy liveness probes need no credentials, device writes or Herdr RPCs.
+      if (pathname === "/health") {
+        const headers = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          return new Response("method not allowed", { status: 405, headers: { ...headers, allow: "GET, HEAD" } });
+        }
+        return new Response(request.method === "HEAD" ? null : "ok", { headers });
+      }
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
       const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/agent/rename" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname === "/api/layout/ratio" || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
