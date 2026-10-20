@@ -33,8 +33,10 @@ public class MainActivity extends BridgeActivity {
             config = new CapConfig.Builder(this)
                 .setServerUrl(origin)
                 .setStartPath(startPath(PCStore.pendingStart, origin))
-                // the whole PC is the app: its own links stay in the WebView, others go to the browser
-                .setAllowNavigation(new String[] { host })
+                // No allowNavigation: the PC's own links (its host and scheme, any port) stay in the
+                // WebView already, and Capacitor turns each entry into another bridge origin rule
+                // (https://host, or a host starting with "http" as is: invalid, which again drops the
+                // bridge's origin check). Other links go to the browser.
                 .setErrorPath("error.html")
                 .setWebContentsDebuggingEnabled(debuggable)
                 .setLoggingEnabled(debuggable)

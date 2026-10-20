@@ -233,7 +233,9 @@ The same `app/` pages and client run in Capacitor's Android shell (`app/android`
 pieces are the Java twins of the iOS ones, in `app/android/app/src/main/java/sh/ovis/app`:
 
 - `MainActivity` builds Capacitor's config at runtime when a PC is chosen. It sets
-  `setServerUrl` to the PC, `setAllowNavigation` to its host and `setErrorPath("error.html")`.
+  `setServerUrl` to the PC's bare origin (a pairing link's path and query come in through
+  `setStartPath`) and `setErrorPath("error.html")`. It sets no `allowNavigation`: Capacitor turns
+  each entry into another origin for its bridge, and the PC's own links stay in the WebView anyway.
   Opening or leaving a PC starts the activity again, so the next page is a first load and the
   old WebView goes with the old activity.
 - `onPause` flushes WebView cookies. Without it, a pairing made a moment before the app was
