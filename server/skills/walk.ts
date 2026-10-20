@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { parse } from "jsonc-parser";
 import { SkillIgnore } from "../skill-ignore.ts";
@@ -41,10 +41,22 @@ function parseFrontmatter(markdown: string): Readonly<Record<string, unknown>> |
 // much, and only when it is a regular file (a link to /dev/zero or a huge file would stall it).
 const MAX_SKILL_BYTES = 64 * 1024;
 
+/**
+ * The path checked before it is opened, then the descriptor itself: a FIFO swapped in between would
+ * block a plain open, so it opens non-blocking (a regular file ignores the flag) and is refused there.
+ */
+function openRegular(path: string): number {
+  if (!statSync(path).isFile()) throw new Error(`not a regular file: ${path}`);
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  let regular = false;
+  try { regular = fstatSync(fd).isFile(); } finally { if (!regular) closeSync(fd); }
+  if (!regular) throw new Error(`not a regular file: ${path}`);
+  return fd;
+}
+
 /** The first MAX_SKILL_BYTES of a regular file; throws when `path` is no regular file. */
 export function readSkillText(path: string): string {
-  if (!statSync(path).isFile()) throw new Error(`not a regular file: ${path}`);
-  const fd = openSync(path, "r");
+  const fd = openRegular(path);
   try {
     const buffer = Buffer.alloc(MAX_SKILL_BYTES);
     let length = 0;
@@ -56,8 +68,7 @@ export function readSkillText(path: string): string {
 /** Reads only through the closing frontmatter delimiter, without reading the skill body. */
 export function readFrontmatter(path: string): Readonly<Record<string, unknown>> | null {
   try {
-    if (!statSync(path).isFile()) return null;
-    const fd = openSync(path, "r");
+    const fd = openRegular(path);
     let markdown = "";
     try {
       // one buffer, bounded: a header longer than MAX_SKILL_BYTES is no frontmatter

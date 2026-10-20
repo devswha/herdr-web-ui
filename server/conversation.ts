@@ -1201,7 +1201,10 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
         catch { /* no readable installed plugin */ }
       }
     }
-    return { omo: { agentDir, pluginDir, held: identity.heldIds.length > 0 }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null };
+    // a holder counts only while this pid's start is readable: without it (Windows) a crashed omo's
+    // record could name a pid another process reuses
+    const held = identity.heldIds.length > 0 && processStartedAt(process.pid) !== null;
+    return { omo: { agentDir, pluginDir, held }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null };
   }
   return { omo: null, environ: matched ? processEnviron(matched.pid) : null, pid: matched?.pid ?? null, cwd: matched?.cwd || null };
 }
