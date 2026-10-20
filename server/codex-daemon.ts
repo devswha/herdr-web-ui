@@ -402,13 +402,16 @@ export function createCodexDaemonSource(options: CodexDaemonOptions = {}): Codex
   };
 }
 
-let registered: CodexDaemonSource | null = null;
-let registeredHome: (() => string) | undefined;
+let registered: { home: string | undefined; source: CodexDaemonSource; unregister: () => void } | null = null;
 
-/** Registers the provider once; a later call only changes the Codex home it reads. */
+/**
+ * Registers the provider for one Codex home. A call for another home replaces it, closing the old one,
+ * so no connection, cache or refusal of the old home's daemon is ever used for the new one.
+ */
 export function registerCodexDaemonSource(codexHome?: string): void {
-  registeredHome = codexHome === undefined ? undefined : () => codexHome;
-  if (registered) return;
-  registered = createCodexDaemonSource({ codexHome: () => (registeredHome ?? defaultCodexHome)() });
-  registerCatalogSource(registered);
+  if (registered && registered.home === codexHome) return;
+  registered?.unregister();
+  registered?.source.close();
+  const source = createCodexDaemonSource(codexHome === undefined ? {} : { codexHome: () => codexHome });
+  registered = { home: codexHome, source, unregister: registerCatalogSource(source) };
 }

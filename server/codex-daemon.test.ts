@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { CatalogPane } from "./catalog-sources.ts";
-import { createCodexDaemonSource, DaemonConnection } from "./codex-daemon.ts";
+import { mergeCatalogSources } from "./catalog-sources.ts";
+import { createCodexDaemonSource, DaemonConnection, registerCodexDaemonSource } from "./codex-daemon.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -117,6 +118,26 @@ const source = (home: string, warnings: string[] = []) => {
 const ask = (provider: ReturnType<typeof source>, cwd = "/w") => provider.rows(pane, cwd, new AbortController().signal);
 
 describe("codex daemon skills", () => {
+  it("reads only the registered Codex home: another home drops the old connection and cache", async () => {
+    const first = fakeDaemon({ skills: [skill("from-first")] });
+    const second = fakeDaemon({ skills: [skill("from-second")] });
+    const names = async () => (await mergeCatalogSources("codex", pane, "/w", [])).map((row) => row.name);
+    try {
+      registerCodexDaemonSource(first.home);
+      expect(await names()).toEqual(["from-first"]);
+      // a second server in the same process, with its own home
+      registerCodexDaemonSource(second.home);
+      expect(await names()).toEqual(["from-second"]);
+      await until(() => first.connections.closed === first.connections.opened);
+      registerCodexDaemonSource(second.home);
+      expect(await names()).toEqual(["from-second"]);
+      expect(second.connections.opened).toBe(1);
+    } finally {
+      // a home with no socket: the registered provider reads nothing after this test
+      registerCodexDaemonSource(temp("codex-daemon-none-"));
+    }
+  });
+
   it("gives native skill rows, enabled ones only, and sends nothing but initialize and skills/list", async () => {
     const fake = fakeDaemon({ skills: [skill("alpha"), skill("off", { enabled: false }), skill("beta", { scope: "repo" }), skill("plug", { pluginId: "p@m" })] });
     const rows = await ask(source(fake.home));
