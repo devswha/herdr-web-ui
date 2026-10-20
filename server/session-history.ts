@@ -14,7 +14,7 @@
  * drive (session-history-routes.ts), and it is never logged.
  */
 import { Database } from "bun:sqlite";
-import { closeSync, constants, lstatSync, opendirSync, openSync, readSync, realpathSync, statSync, type BigIntStats, type Dir, type Dirent, type Stats } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readSync, realpathSync, statSync, type BigIntStats, type Dir, type Dirent, type Stats } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,8 +54,8 @@ export interface SessionHistoryOptions {
   codexHome?: string;
   opencodeDb?: string;
   hermesHome?: string;
-  /** Reads at most `max` bytes from the start of an already resolved file (tests count the bytes). */
-  readHead?: (path: string, max: number) => Buffer;
+  /** Reads at most `max` bytes from the start of an already resolved file, the one `checked` names (tests count the bytes). */
+  readHead?: (path: string, max: number, checked?: { dev: number; ino: number }) => Buffer;
   /** Stats a path the listing looks at (tests count the calls). */
   stat?: (path: string, bigint?: boolean) => Stats | BigIntStats;
   /** Resolves a path the listing looks at (tests count the calls); defaults to realpathSync. */
@@ -159,10 +159,14 @@ const inside = (root: string, path: string): boolean => {
   return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 };
 
-function defaultReadHead(path: string, max: number): Buffer {
-  // O_NONBLOCK: a FIFO put where a file was is not waited on
-  const fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+function defaultReadHead(path: string, max: number, checked?: { dev: number; ino: number }): Buffer {
+  // O_NONBLOCK: a FIFO put where a file was is not waited on; O_NOFOLLOW: a link put there since
+  // the check is not followed. The file opened must be the one checked (a folder above it swapped
+  // for a link reaches another file by the same path)
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
   try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || (checked !== undefined && (opened.dev !== checked.dev || opened.ino !== checked.ino))) throw new Error("not the file that was checked");
     const buffer = Buffer.alloc(max);
     const length = readSync(fd, buffer, 0, max, 0);
     return buffer.subarray(0, length);
@@ -247,32 +251,32 @@ class Budget {
 
 /** A store being read: its resolved root, the listing's budget, and how files are read. */
 class Scan {
-  constructor(readonly root: string, readonly budget: Budget, private readonly reader: (path: string, max: number) => Buffer) {}
+  constructor(readonly root: string, readonly budget: Budget, private readonly reader: (path: string, max: number, checked?: { dev: number; ino: number }) => Buffer) {}
 
   get exhausted(): boolean { return this.budget.exhausted; }
 
   /** The file at this path, resolved, when it is a regular file inside the store. */
-  file(path: string): { real: string; mtimeMs: number; size: number } | null {
+  file(path: string): Found | null {
     const real = this.budget.resolve(path);
     if (real === null || !inside(this.root, real)) return null;
     const stat = this.budget.stat(real);
-    return stat?.isFile() ? { real, mtimeMs: stat.mtimeMs, size: stat.size } : null;
+    return stat?.isFile() ? { real, mtimeMs: stat.mtimeMs, size: stat.size, dev: stat.dev, ino: stat.ino } : null;
   }
 
   /** At most HEAD_BYTES of a resolved file, split in lines; `cut` when the file goes on past them. */
-  head(file: { real: string; size: number }): { lines: string[]; cut: boolean } {
+  head(file: Found): { lines: string[]; cut: boolean } {
     let head: Buffer;
-    try { head = this.reader(file.real, HEAD_BYTES); } catch { return { lines: [], cut: false }; }
+    try { head = this.reader(file.real, HEAD_BYTES, { dev: file.dev, ino: file.ino }); } catch { return { lines: [], cut: false }; }
     return { lines: head.toString("utf8").split("\n"), cut: head.length >= HEAD_BYTES && file.size > head.length };
   }
 
   /** The complete lines of the head: a cut last line is no record. */
-  lines(file: { real: string; size: number }): string[] {
+  lines(file: Found): string[] {
     const { lines, cut } = this.head(file);
     return cut ? lines.slice(0, -1) : lines;
   }
 
-  records(file: { real: string; size: number }): Json[] {
+  records(file: Found): Json[] {
     return this.lines(file).flatMap((line) => {
       if (line.trim() === "") return [];
       try { return [record(JSON.parse(line))]; } catch { return []; }
@@ -299,7 +303,7 @@ function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Di
   })).sort((a, b) => b.time - a.time).map((entry) => entry.path);
 }
 
-type Found = { real: string; mtimeMs: number; size: number };
+type Found = { real: string; mtimeMs: number; size: number; dev: number; ino: number };
 
 /**
  * The `.jsonl` files directly in these directories (subagent folders beside them are not read), newest

@@ -198,6 +198,28 @@ describe("listSessions", () => {
     expect(resolutions + stats).toBeLessThanOrEqual(MAX_STATS);
   });
 
+  it.skipIf(!SYMLINKS)("reads nothing from a session file swapped for a link out of the store after it was checked", () => {
+    const home = newHome();
+    mkdirSync(piStore(home), { recursive: true });
+    const outside = join(root, `outside-swap-${homes}`);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "secret.jsonl"), piHeader(ID(9)) + piPrompt("outside the store"));
+    const session = join(piStore(home), "session.jsonl");
+    writeFileSync(session, piHeader(ID(1)) + piPrompt("inside the store"));
+    const checked = realpathSync(session);
+    const rows = listSessions("pi", CWD, {
+      home, env: {},
+      // the file is checked, then swapped for a link out of the store before it is opened
+      stat: (path) => {
+        const stat = statSync(path);
+        if (path === checked) { rmSync(path); symlinkSync(join(outside, "secret.jsonl"), path); }
+        return stat;
+      },
+    });
+    expect(rows.map((row) => row.firstMessage)).not.toContain("outside the store");
+    expect(rows).toEqual([]);
+  });
+
   it(`reads at most ${MAX_ENTRIES} entries of a folder, however many it holds`, () => {
     const home = newHome();
     mkdirSync(piStore(home), { recursive: true });
