@@ -1,8 +1,8 @@
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { AgentCommandSource } from "./index.ts";
-import { environValue, parseJsonc, plainObject, walkSkills } from "./walk.ts";
+import { environValue, parseJsonc, plainObject, readSkillText, walkSkills } from "./walk.ts";
 import type { SlashCommand } from "../../shared/protocol.ts";
 
 /** Catalog inputs: Senpi 46d15a1c93551df9a879125d4d4235010434a639 and OmO senpi b6230fcd621f35f6f504883067d889d6f13b4d8e. */
@@ -130,7 +130,8 @@ function disabledSkills(home: string, cwd: string | null | undefined, env: reado
   const disabled = new Set<string>();
   const load = (path: string): Record<string, unknown> => {
     try {
-      return plainObject(parseJsonc(readFileSync(path, "utf8")));
+      // bounded and regular files only: project configs are looked up above the pane's folder
+      return plainObject(parseJsonc(readSkillText(path)));
     } catch { return {}; /* upstream drops a source layer on read or parse errors */ }
   };
   const configPath = (directory: string): string => {

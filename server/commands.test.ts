@@ -524,3 +524,40 @@ describe("pi's slash commands", () => {
     expect(paneCommands("pi", temp("pi-cwd-"), temp("pi-home-")).every((command) => command.source === "builtin")).toBeTrue();
   });
 });
+
+// The catalog reads files above the skill roots; a FIFO named like one of them must not block the
+// server. Discovery runs in a child with a deadline, since a blocking read would hang this process.
+describe.skipIf(process.platform === "win32")("files that are not regular files", () => {
+  const discoverInChild = (agent: string, args: Record<string, unknown>) => {
+    const script = `const { AGENT_SOURCES } = await import(${JSON.stringify(join(import.meta.dir, "skills", "index.ts"))});`
+      + `console.log(JSON.stringify(AGENT_SOURCES[${JSON.stringify(agent)}].discover(${JSON.stringify(args)}).map((row) => row.name)));`;
+    const child = Bun.spawnSync([process.execPath, "-e", script], { timeout: 5_000, stdout: "pipe", stderr: "pipe" });
+    return { exitCode: child.exitCode, names: child.exitCode === 0 ? JSON.parse(child.stdout.toString()) as string[] : [] };
+  };
+  const fifo = (path: string) => {
+    mkdirSync(join(path, ".."), { recursive: true });
+    expect(Bun.spawnSync(["mkfifo", path]).exitCode).toBe(0);
+  };
+
+  it("skips a FIFO named like a Codex plugin manifest above a skill", () => {
+    const home = temp("codex-fifo-");
+    mkdirSync(join(home, ".agents", "skills", "shared"), { recursive: true });
+    writeFileSync(join(home, ".agents", "skills", "shared", "SKILL.md"), "---\nname: shared\ndescription: Shared.\n---\n");
+    fifo(join(home, ".agents", "plugin.json"));
+    expect(discoverInChild("codex", { home, cwd: null, repoRoot: null, env: null, roots: {}, version: null })).toEqual({ exitCode: 0, names: ["shared"] });
+  });
+
+  it("skips a FIFO named like an OmO project config above the pane's folder", () => {
+    const root = temp("omo-fifo-");
+    const home = join(root, "home");
+    const cwd = join(root, "project");
+    const pluginDir = join(root, "plugin");
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(join(pluginDir, "skills", "bundled-x"), { recursive: true });
+    writeFileSync(join(pluginDir, "skills", "bundled-x", "SKILL.md"), "---\nname: bundled-x\ndescription: Bundled.\n---\n");
+    fifo(join(root, ".omo", "omo.jsonc"));
+    const result = discoverInChild("omo", { home, cwd, repoRoot: cwd, env: null, roots: { pluginDir } });
+    expect(result.exitCode).toBe(0);
+    expect(result.names).toContain("skill:bundled-x");
+  });
+});
