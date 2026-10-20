@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, expect, it } from "bun:test";
+import { afterEach, beforeEach, expect, it, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexOpenRollout, codexTranscriptPath } from "./codex.ts";
+import * as processStart from "./process-start.ts";
 import { processStartedAt, processStartLowerBound } from "./process-start.ts";
 
 // Native stores and the real RPC client; only herdr's foreground metadata is synthetic.
@@ -16,6 +17,8 @@ let path: string;
 let screen: string;
 let peerScreens: Map<string, string | Error>;
 let foreground: { pid: number; name?: string; argv?: string[] }[];
+/** A pane's own foreground, where it is not [foreground]. */
+let foregrounds: Map<string, { pid: number; name?: string; argv?: string[] }[]>;
 let listener: ReturnType<typeof Bun.listen>;
 let socketBefore: string | undefined;
 const children: ReturnType<typeof Bun.spawn>[] = [];
@@ -36,6 +39,7 @@ beforeEach(() => {
   screen = "";
   peerScreens = new Map();
   foreground = [];
+  foregrounds = new Map();
   socketBefore = process.env["HERDR_SOCKET"];
   const socket = join(root, "herdr.sock");
   process.env["HERDR_SOCKET"] = socket;
@@ -53,7 +57,7 @@ beforeEach(() => {
           return;
         }
         const result = request.method === "agent.get" ? { agent: {} }
-          : request.method === "pane.process_info" ? { process_info: { foreground_processes: foreground } }
+          : request.method === "pane.process_info" ? { process_info: { foreground_processes: foregrounds.get(request.params?.pane_id ?? "") ?? foreground } }
           : request.method === "pane.read" ? { read: { text: peerScreen ?? screen } }
           : null;
         if (result === null) throw new Error(`unexpected RPC ${request.method}`);
@@ -353,6 +357,52 @@ shortIt("still cannot tell when nothing ties the other thread to another pane", 
   peerNewThread(created + 1000, "ok");
   peerScreens.set("peer", peerScreenOf("ok"));
   expect(await codexTranscriptPath(root, root, home, [fixturePane(root), fixturePane("peer")])).toBeNull();
+});
+
+// --- the pane that started first, beside a later pane's short first exchange ---
+
+it("tells the first-started pane's thread once the later pane shows its own first exchange", async () => {
+  // A's Codex started at 1000 s and began its thread at 1001.3; B's started at 1005 and began
+  // its own at 1006.7: both began after A started, so A tells only once B shows its own
+  const starts = new Map([[900001, 1_000_000], [900002, 1_005_000]]);
+  const bound = spyOn(processStart, "processStartLowerBound").mockImplementation((pid) => starts.has(pid) ? starts.get(pid)! : null);
+  try {
+    const db = new Database(join(home, "state_5.sqlite"));
+    db.exec("ALTER TABLE threads ADD COLUMN first_user_message TEXT");
+    db.exec("ALTER TABLE threads ADD COLUMN created_at_ms INTEGER");
+    db.query("UPDATE threads SET created_at = 1001, created_at_ms = 1001300, first_user_message = ?").run(shortPrompt);
+    db.close();
+    shortRollout(path);
+    const theirs = join(home, "sessions", "rollout-bravo.jsonl");
+    writeFileSync(theirs, [
+      { type: "session_meta", payload: { id: "bravo", cwd: root } },
+      { type: "event_msg", payload: { type: "user_message", message: "Reply with exactly one word: bravo" } },
+      { type: "event_msg", payload: { type: "agent_message", message: "bravo" } },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    addShortThread("bravo", theirs, 1_006_700, "Reply with exactly one word: bravo");
+    foregrounds.set(root, [{ pid: 900001, argv: [join(root, "codex")] }]);
+    foregrounds.set("peer", [{ pid: 900002, argv: [join(root, "codex")] }]);
+    screen = shortScreen;
+    const bravo = "OpenAI Codex (v1.0)\n\n› Reply with exactly one word: bravo\n\n• bravo\n\n› ";
+    peerScreens.set("peer", bravo);
+    const panes = [fixturePane(root), fixturePane("peer")];
+    expect(await codexTranscriptPath(root, root, home, panes)).toBe(path);
+    expect(await codexTranscriptPath("peer", root, home, panes)).toBe(theirs);
+
+    // unsure stays unavailable: B's start unknown, B scrolled past its header, or this
+    // pane showing B's exchange as well
+    starts.delete(900002);
+    expect(await codexTranscriptPath(root, root, home, panes)).toBeNull();
+    starts.set(900002, 1_005_000);
+    peerScreens.set("peer", "› Reply with exactly one word: bravo\n\n• bravo\n\n› ");
+    expect(await codexTranscriptPath(root, root, home, panes)).toBeNull();
+    peerScreens.set("peer", bravo);
+    screen = bravo;
+    expect(await codexTranscriptPath(root, root, home, panes)).toBeNull();
+    // a later exchange of this pane's own is no claim on B's: its first exchange is still its own
+    screen = `${shortScreen}Reply with exactly one word: bravo\n\n• bravo\n\n› `;
+    expect(await codexTranscriptPath(root, root, home, panes)).toBe(path);
+  } finally { bound.mockRestore(); }
 });
 
 shortIt("claims nothing for a long answer another pane shows under some other prompt (pasted, quoted)", async () => {

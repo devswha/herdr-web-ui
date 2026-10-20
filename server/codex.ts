@@ -1341,6 +1341,46 @@ async function heldByOtherPanes(
 }
 
 /**
+ * The threads other Codex panes of the cwd show as their own first exchange, each matched the
+ * way this pane's is (matchCodexFirstExchange, from that pane's own start bound), leaving out
+ * those already found: the pane that started last tells first, and an earlier one in turn. A
+ * pane started first never tells by its own start, since every later pane's thread began after
+ * it too; that pane's first exchange, begun after it started and the only such one there, is
+ * its conversation by the evidence that would bind it there. One this pane shows as well stays
+ * open; null when another pane shows a thread one pane took: something is not as it seems.
+ * Nothing here binds: a first exchange is read again each time.
+ */
+async function peersFirstExchanges(
+  own: string, candidates: readonly CodexFirstExchangeCandidate[], peers: readonly HerdrPane[], screens: readonly string[],
+  excluded: ReadonlySet<string>,
+): Promise<Set<string> | null> {
+  const starts = await Promise.all(peers.map(async (peer) => {
+    const { list } = await codexProcessesOf(peer.pane_id);
+    const bounds = list.map(({ pid }) => processStartLowerBound(pid));
+    return bounds.length === 0 || bounds.some((bound) => bound === null) ? null : Math.min(...bounds as number[]);
+  }));
+  const owners = new Map<string, number>();
+  for (let found = true; found;) {
+    found = false;
+    peers.forEach((_, index) => {
+      const start = starts[index];
+      if (start === null || start === undefined || [...owners.values()].includes(index)) return;
+      const path = matchCodexFirstExchange(screens[index]!, candidates, start, new Set([...excluded, ...owners.keys()]));
+      if (path === null) return;
+      // this pane's screen shows that exchange too: whose it is stays open
+      if (matchingCodexExchanges(own, candidates.filter((candidate) => candidate.path === path), 1).length > 0) return;
+      owners.set(path, index);
+      found = true;
+    });
+  }
+  for (const [path, owner] of owners) {
+    const thread = candidates.filter((candidate) => candidate.path === path);
+    if (screens.some((screen, index) => index !== owner && matchingCodexExchanges(screen, thread, 1).length > 0)) return null;
+  }
+  return new Set(owners.keys());
+}
+
+/**
  * The prompt is not ownership evidence on its own. Require its submitted answer,
  * compare older conversations and other same-directory panes too. A peer showing the
  * same exchange leaves ownership ambiguous. No weak binding survives a poll.
@@ -1378,13 +1418,23 @@ async function shortThreadFromProcess(
     const held = since.length > 1 ? await heldByOtherPanes(paneId, cwd, since.map(rolloutOf), rows, home, peers, rolloutOf) : new Set<string>();
     // bound to another pane, or held by it: still competing exchanges, never this pane's
     const elsewhere = new Set(since.map(rolloutOf).filter((rollout) => theirs([rollout], paneId, held).length === 0));
-    if (since.filter((row) => !elsewhere.has(rolloutOf(row))).length !== 1) return null;
+    const begun = since.filter((row) => !elsewhere.has(rolloutOf(row)));
+    if (begun.length === 0) return null;
     const candidates = await safeShortThreads(rows, home);
     if (candidates === null) return null;
-    const path = matchCodexFirstExchange(screen, candidates, notBefore, elsewhere);
-    if (path === null || theirs([path], paneId, held).length !== 1) return null;
-    const peerScreens = await Promise.all(codexPeersIn(peers, paneId, cwd).map((peer) =>
+    const peerPanes = codexPeersIn(peers, paneId, cwd);
+    const peerScreens = await Promise.all(peerPanes.map((peer) =>
       paneRead({ paneId: peer.pane_id, source: "recent", lines: 400, stripAnsi: true })));
+    // a pane that started first sees every later pane's thread begun since too: those panes show
+    // them as their own first exchange, and say so first
+    let excluded = elsewhere;
+    if (begun.length > 1) {
+      const shown = await peersFirstExchanges(screen, candidates, peerPanes, peerScreens.map((peer) => peer.text), excluded);
+      if (shown === null) return null;
+      excluded = new Set([...excluded, ...shown]);
+    }
+    const path = matchCodexFirstExchange(screen, candidates, notBefore, excluded);
+    if (path === null || theirs([path], paneId, held).length !== 1) return null;
     const own = candidates.filter((candidate) => candidate.path === path);
     for (const peer of peerScreens) {
       // Headerless exchanges can disprove ownership, but never establish it.
