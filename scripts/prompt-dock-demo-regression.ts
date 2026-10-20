@@ -659,7 +659,8 @@ try {
           await setPrompt(page, { ...FORM, id: "demo-form-moved" });
           await page.locator(".prompt-card-option-label").first().click();
           await page.locator(".prompt-card").getByText("The question on screen changed; check it and answer again.").waitFor();
-          // two more failed reads: at least one comes from the restarted poll, so a restart that cleared the notice has happened by now
+          // the refusal's note and the poll restart land in one render, which cancels the old poll: past at
+          // most one read still in flight, the next failed read is the restarted poll's, so two more prove one
           const failed = await page.evaluate(() => (window as unknown as { formFailedReads: number }).formFailedReads);
           await page.waitForFunction((n) => (window as unknown as { formFailedReads: number }).formFailedReads >= n + 2, failed, { timeout: 10_000 });
           assert.equal(await status.textContent(), STALE, "a refused answer restarts the reads without clearing the notice");
