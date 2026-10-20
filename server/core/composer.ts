@@ -53,6 +53,53 @@ export const closeMention = (text: string): string => {
   return /(?:^|\s)@\S+$/.test(body) ? `${open}${body} ${close}` : text;
 };
 
+/** between the reads of an omp input box a message may still wait in (enterWhileOmpHolds) */
+const OMP_SUBMIT_CHECK_MS = 1_000;
+
+/** how long after a send an omp input box is looked at for it: omp starting from cold takes up to about 20 s */
+const OMP_SUBMIT_RETRY_MS = 30_000;
+
+/**
+ * What omp's input box holds (omp 18.12.3), as the screen's last lines show it: its top border
+ * (the status line), the rows of a longer draft between `│`, and the last row inside its bottom
+ * border (`╰─ /effort  ─╯`). Null when the screen does not end in such a box (a picker
+ * over it, a widget under it).
+ */
+export function ompInputText(screen: string): string | null {
+  const lines = screen.split(/\r?\n/).map((line) => line.trimEnd());
+  let bottom = lines.length - 1;
+  while (bottom >= 0 && !lines[bottom]) bottom -= 1;
+  const last = /^╰─(.*?)─*╯$/.exec(lines[bottom] ?? "");
+  if (!last) return null;
+  let top = bottom - 1;
+  while (top >= 0 && lines[top]!.startsWith("│")) top -= 1;
+  if (!lines[top]?.startsWith("╭─")) return null;
+  const rows = lines.slice(top + 1, bottom).map((line) => line.replace(/^│/, "").replace(/│$/, "").trim());
+  return [...rows, last[1]!.trim()].join("\n").trim();
+}
+
+const compactText = (text: string): string => text.replace(/\s+/g, "");
+
+/**
+ * omp (18.12.3) draws its input box before it takes an Enter: it connects its submit handler only
+ * once its commands are loaded, so a message agent.prompt sends meanwhile stays typed in the box,
+ * and stays there after omp is ready. While the box still holds exactly the message, Enter is
+ * pressed again, until omp takes it or `untilMs` passes. A box that reads anything else (empty once
+ * sent, a picker the message opened, what the user typed since) ends it, so nothing is pressed twice
+ * into a message that went.
+ */
+async function enterWhileOmpHolds(paneId: string, text: string, checkMs: number, untilMs: number): Promise<void> {
+  const wanted = compactText(text);
+  if (!wanted) return;
+  for (const deadline = Date.now() + untilMs; Date.now() < deadline;) {
+    await Bun.sleep(checkMs);
+    const box = ompInputText((await paneRead({ paneId, source: "visible", format: "text" })).text);
+    if (box === null || compactText(box) !== wanted) return;
+    await paneSendKeys(paneId, ["Enter"]);
+  }
+  console.warn("omp input: a sent message still waits in the input box after", untilMs, "ms");
+}
+
 /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
 export async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> {
   const pane = await paneGet(paneId).catch((error: unknown) => {
@@ -148,7 +195,7 @@ export async function freeClaudeBox(paneId: string, working: boolean, authorize:
 }
 
 export function createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS }: {
-  options: { submitDeadlineMs?: number; submitDelayMs?: number };
+  options: { submitDeadlineMs?: number; submitDelayMs?: number; ompSubmitCheckMs?: number };
   lastTyped: Map<string, number>;
   attachments: ReadonlyMap<string, { cols: number }>;
   terminalAttach: () => Promise<boolean>;
@@ -310,6 +357,11 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         try {
           await agentPrompt(paneId, closeMention(sent));
           noteSubmitted(paneId, sent);
+          // looked at after the send is answered: a message omp took at once costs one read
+          if (pane && resolveAgent(pane).agent === "omp") {
+            void enterWhileOmpHolds(paneId, sent, options.ompSubmitCheckMs ?? OMP_SUBMIT_CHECK_MS, OMP_SUBMIT_RETRY_MS)
+              .catch((error: unknown) => console.warn("omp input:", error instanceof HerdrError ? error.code : String(error)));
+          }
           return;
         } catch (error) {
           if (!(error instanceof HerdrError)) throw error;
