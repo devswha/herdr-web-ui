@@ -153,4 +153,35 @@ describe("Command Code's permission prompt is a card", () => {
     const screen = permission.split("\n").slice(0, -2).join("\n");
     expect(parseInteractivePrompt("cmd", screen)).toBeNull();
   });
+
+  it("makes the card stale when the command it asks about changes", () => {
+    const footer = permission.split("\n").slice(-2);
+    const run = (command: string) => ["Run Command", "", command, "", "Do you want to run this command?", "", "\u276f 1. Yes", "  2. Yes, and don't ask again", "  3. No, tell Command Code what to do differently", "", ...footer].join("\n");
+    const harmless = parseInteractivePrompt("cmd", run("printf harmless | head -5"));
+    const replaced = parseInteractivePrompt("cmd", run("delete-important-files | head -5"));
+    expect(harmless?.body).toContain("printf harmless | head -5");
+    expect(replaced?.id).toBeString();
+    expect(replaced?.id).not.toBe(harmless?.id);
+  });
+
+  it("takes no dialog for a live one when a line typed below follows its footer", () => {
+    expect(parseInteractivePrompt("cmd", `${permission}\n\n\u276f my next message`)).toBeNull();
+    expect(parseInteractivePrompt("cmd", `${permission}\nsomething the agent printed`)).toBeNull();
+  });
+
+  it("still reads the footer wrapped over three lines on a narrow pane", () => {
+    const narrow = [...permission.split("\n").slice(0, -2), "\u2191/\u2193 navigate \u00b7 enter select \u00b7 ctrl+e", "explain \u00b7 Run cmd --yolo to bypass all", "permissions (Docs \u2197)"].join("\n");
+    expect(parseInteractivePrompt("cmd", narrow)?.title).toBe("Create File");
+  });
+});
+
+// A FIFO where the catalog is expected must not block the server: read in a child with a deadline,
+// since a blocking read would hang this process itself.
+it.skipIf(process.platform === "win32")("reads no window from a FIFO in the catalog's place", () => {
+  const fifo = join(root, "catalog-fifo.json");
+  expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+  const script = `const { cmdContextWindow } = await import(${JSON.stringify(join(import.meta.dir, "cmd.ts"))}); console.log(JSON.stringify(cmdContextWindow("m", ${JSON.stringify(fifo)})));`;
+  const child = Bun.spawnSync([process.execPath, "-e", script], { timeout: 5_000, stdout: "pipe", stderr: "pipe" });
+  expect(child.exitCode).toBe(0);
+  expect(child.stdout.toString().trim()).toBe("null");
 });

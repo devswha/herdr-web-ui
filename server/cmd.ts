@@ -2,8 +2,7 @@ import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, rea
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { homedir } from "node:os";
 
-import { agentGet, paneProcessInfo } from "./herdr/client.ts";
-import { processEnviron } from "./omo.ts";
+import { agentGet } from "./herdr/client.ts";
 
 /**
  * Command Code's session store. One directory per project (the cwd), under
@@ -74,40 +73,10 @@ export function unwrittenSession(path: string, sessionDir: string): { id: string
   }
 }
 
-const CMD_EXECUTABLE = /(^|[\\/])command[-_]?code(?:\.exe|\.[cm]?js)?$/i;
-const CMD_NPM_ENTRY = /(^|[\\/])node_modules[\\/]command-code[\\/]/i;
-
-export function isCmdProcess(argv: readonly string[]): boolean {
-  if (argv.length === 0) return false;
-  const exec = argv[0] ?? "";
-  const base = exec.split(/[\\/]/).pop()!.toLowerCase().replace(/\.(?:exe|cmd|js|mjs|cjs)$/i, "");
-  if (base === "commandcode" || base === "cmdc" || base === "command-code" || base === "cmd") {
-    // only treat `cmd` as Command Code when it actually runs command-code
-    if (base === "cmd") {
-      return argv.some((word) => /command[-_]?code/i.test(word));
-    }
-    return true;
-  }
-  if (/(?:^|[\\/])(?:bun|node)(?:\.exe)?$/i.test(exec) && argv.slice(1).some((word) => CMD_NPM_ENTRY.test(word) || /command[-_]?code/i.test(word))) {
-    return true;
-  }
-  return CMD_EXECUTABLE.test(exec);
-}
-
-type CmdProcess = { pid?: number; argv?: readonly string[] | null; cwd?: string | null };
 type CmdTranscriptOptions = {
   agent?: Awaited<ReturnType<typeof agentGet>> | null;
-  processes?: readonly CmdProcess[];
-  environOf?: (pid: number) => readonly string[] | null;
-  argvOf?: (pid: number) => readonly string[] | null;
   home?: string;
 };
-
-function processArgv(pid: number): readonly string[] | null {
-  if (process.platform !== "linux") return null;
-  try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean); }
-  catch { return null; }
-}
 
 export async function cmdTranscriptPath(
   paneId: string,
@@ -121,37 +90,12 @@ export async function cmdTranscriptPath(
   if (!cwd) return null;
   const projectDir = defaultCmdProjectDir(cwd);
 
-  // session value reported by herdr (if any)
+  // Only herdr's report names the session, as for pi. The process environment's
+  // COMMANDCODE_SESSION_ID is set at start-up or inherited, so after /clear, /resume or in a child it
+  // names another session: shown as this pane's, another conversation would be read as this one.
   const session = agent.agent_session;
-  const reportedPath = (session?.agent === "cmd" && session.source === "herdr:cmd" && session.kind === "path"
+  const candidate = (session?.agent === "cmd" && session.source === "herdr:cmd" && session.kind === "path"
     && typeof session.value === "string") ? session.value : null;
-
-  const info = options.processes === undefined
-    ? await paneProcessInfo(paneId).catch(() => undefined)
-    : { foreground_processes: [...options.processes] };
-  const environOf = options.environOf ?? processEnviron;
-  const argvOf = options.argvOf ?? processArgv;
-
-  const cmdProcesses: { pid: number; argv: readonly string[] }[] = [];
-  for (const entry of info?.foreground_processes ?? []) {
-    if (typeof entry.pid !== "number") continue;
-    const argv = entry.argv?.length ? entry.argv : argvOf(entry.pid);
-    if (argv?.length && isCmdProcess(argv)) cmdProcesses.push({ pid: entry.pid, argv });
-  }
-
-  // session id from environ
-  let sessionId: string | null = null;
-  for (const process of cmdProcesses) {
-    const env = environOf(process.pid);
-    if (!env) continue;
-    const entry = env.find((word) => word.startsWith("COMMANDCODE_SESSION_ID="));
-    if (entry) { sessionId = entry.slice("COMMANDCODE_SESSION_ID=".length); break; }
-  }
-
-  // candidate path
-  let candidate: string | null = reportedPath;
-  if (candidate === null && sessionId) candidate = join(projectDir, `${sessionId}.jsonl`);
-
   if (candidate === null) return null;
   const path = cmdTranscriptInStore(candidate, projectDir);
   if (path !== null) return { path };
@@ -166,12 +110,25 @@ export async function cmdTranscriptPath(
  */
 let cmdCatalogCache: { path: string; mtimeMs: number; windows: Map<string, number> } | null = null;
 
+const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
+
+/** The catalog's text, read only as a regular file of bounded size: a FIFO there must not block the server. */
+function readCatalog(path: string): string | null {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    const stat = fstatSync(fd);
+    return stat.isFile() && stat.size <= MAX_CATALOG_BYTES ? readFileSync(fd, "utf8") : null;
+  } catch { return null; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
+
 export function cmdContextWindow(model: string, catalogPath = cmdModelCatalogPath()): number | null {
   let mtimeMs: number;
   try { mtimeMs = statSync(catalogPath).mtimeMs; } catch { return null; }
   if (cmdCatalogCache === null || cmdCatalogCache.path !== catalogPath || cmdCatalogCache.mtimeMs !== mtimeMs) {
-    let text: string;
-    try { text = readFileSync(catalogPath, "utf8"); } catch { return null; }
+    const text = readCatalog(catalogPath);
+    if (text === null) return null;
     let parsed: unknown;
     try { parsed = JSON.parse(text.replace(/^\uFEFF/, "")); } catch { return null; }
     const windows = new Map<string, number>();

@@ -59,6 +59,8 @@ function parseCmdQuestion(screen: string): ParsedPrompt | null {
   const firstRowIndex = lines.findIndex((line, index) => index >= blockStart && /^\s*[❯›>]?\s*1\.\s+/.test(line));
   // the heading: the first line of the dialog above the question (e.g. "Create File")
   let title = "Permission request";
+  // where the dialog's text starts: just below the title, else below whatever ended the search
+  let titleIndex = -1;
   if (firstRowIndex >= 0) {
     let index = firstRowIndex - 1;
     while (index >= 0) {
@@ -72,6 +74,7 @@ function parseCmdQuestion(screen: string): ParsedPrompt | null {
       if (cleaned) title = cleaned;
       break;
     }
+    titleIndex = index;
   }
   // the question: the line asking for approval, the last one above the rows
   let question = title;
@@ -83,10 +86,11 @@ function parseCmdQuestion(screen: string): ParsedPrompt | null {
       if (/Do you want to .+\?/i.test(cleaned) || /needs to (execute|run|approve|create|edit|write|delete)/i.test(cleaned)) { question = cleaned; break; }
     }
   }
-  // the body: what the agent wants to do (the command, the file), between the question and the rows
-  const questionIndex = firstRowIndex >= 0 ? lines.slice(0, firstRowIndex).reduce((acc, line, index) => (/Do you want to .+\?/i.test(cleanLine(line)) || /needs to (execute|run|approve|create|edit|write|delete)/i.test(cleanLine(line))) ? index : acc, -1) : -1;
-  const bodyLines = (questionIndex >= 0 && firstRowIndex >= 0) ? lines.slice(questionIndex + 1, firstRowIndex) : [];
-  const body = bodyLines.map(cleanLine).filter((line) => line && !isDivider(line) && !/ctrl\+e/i.test(line)).join("\n") || null;
+  // the body: what the agent wants to do (the command, the file), every line of the dialog between
+  // its title and the rows but the question, so a command shown above the question is in the card's
+  // id too: a command replaced under the card makes it stale instead of approving the new one
+  const bodyLines = firstRowIndex >= 0 ? lines.slice(titleIndex + 1, firstRowIndex) : [];
+  const body = bodyLines.map(cleanLine).filter((line) => line && line !== question && !isDivider(line) && !/ctrl\+e/i.test(line)).join("\n") || null;
   return finishPrompt("cmd", {
     kind: "approval", title, question, body,
     options: rows.map((row) => ({ label: row.label, description: null })),
