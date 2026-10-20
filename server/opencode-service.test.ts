@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, readlinkSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Socket } from "node:net";
@@ -326,6 +326,31 @@ describe("opencode-service", () => {
       service.stop(true);
     }
   }, 5_000);
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("reads service.json again only when its stat changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "opencode-service-stat-"));
+    const file = join(root, "service.json");
+    await withService((request) => new URL(request.url).pathname === "/api/info" ? Response.json({ version: "2.0.32", pid: process.pid }) : new Response(null, { status: 404 }), async (config) => {
+      writeFileSync(file, JSON.stringify({ url: config.baseUrl, pid: process.pid, password: "stat-pass" }));
+      try {
+        forgetOpenCodeService();
+        expect((await openCodeService(root))?.version).toBe("2.0.32");
+        // unreadable now, with the same size and mtime (chmod changes neither): a lookup that read it again would find no service
+        const { mtime } = statSync(file);
+        chmodSync(file, 0o000);
+        forgetOpenCodeService();
+        expect((await openCodeService(root))?.version).toBe("2.0.32");
+        // a changed file is read again
+        utimesSync(file, mtime, new Date(mtime.getTime() + 2_000));
+        forgetOpenCodeService();
+        expect(await openCodeService(root)).toBeNull();
+      } finally {
+        chmodSync(file, 0o600);
+        forgetOpenCodeService();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
 
   it("verifies service.json on Windows only for a caller that asks for it", async () => {
     const platform = Object.getOwnPropertyDescriptor(process, "platform")!;

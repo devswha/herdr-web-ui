@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { request } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -207,7 +207,7 @@ export const openCodeServiceOptions: { stateDir?: string } = {};
  */
 export async function openCodeService(stateDir?: string, signal?: AbortSignal, { onWindows = false }: { onWindows?: boolean } = {}): Promise<OpenCodeService | null> {
   if (process.platform === "win32" && !onWindows) return null;
-  const config = readOpenCodeService(stateDir ?? openCodeServiceOptions.stateDir);
+  const config = serviceFile(stateDir ?? openCodeServiceOptions.stateDir ?? opencodeStateDir());
   if (!config) return null;
   const key = JSON.stringify(config);
   if (verified?.key === key && verified.until > Date.now()) return verified.service;
@@ -215,6 +215,25 @@ export async function openCodeService(stateDir?: string, signal?: AbortSignal, {
   if (!version) return null;
   verified = { key, until: Date.now() + VERIFIED_MS, service: { config, version } };
   return verified.service;
+}
+
+/** service.json as last read, by path: every lookup stats it, and only a changed file is read and parsed again. */
+const files = new Map<string, { stamp: string; config: OpenCodeServiceConfig | null }>();
+
+function serviceFile(stateDir: string): OpenCodeServiceConfig | null {
+  const path = join(stateDir, "service.json");
+  let stamp: string;
+  try {
+    const stat = statSync(path);
+    stamp = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+  } catch { files.delete(path); return null; }
+  const known = files.get(path);
+  if (known?.stamp === stamp) return known.config;
+  const config = readOpenCodeService(stateDir);
+  files.delete(path);
+  files.set(path, { stamp, config });
+  if (files.size > 16) files.delete(files.keys().next().value!);
+  return config;
 }
 
 export function forgetOpenCodeService(): void {
