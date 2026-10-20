@@ -53,11 +53,21 @@ function codexVersion(path: string, reader: ByteReader): string | null {
   const bytes = reader.read(path, 0, Math.min(VERSION_WINDOW_BYTES, reader.size(path)));
   const text = new TextDecoder().decode(bytes);
   const end = text.indexOf("\n");
-  if (end === -1 && bytes.length === VERSION_WINDOW_BYTES) return null;
+  if (end === -1 && bytes.length === VERSION_WINDOW_BYTES) return truncatedCodexVersion(text);
   const record = parse(end === -1 ? text : text.slice(0, end));
   if (record?.type !== "session_meta") return null;
   const payload = record.payload;
   return payload !== null && typeof payload === "object" ? versionOf((payload as Record<string, unknown>).cli_version) : null;
+}
+
+/**
+ * A `session_meta` line longer than the window (Codex embeds its instructions in it) cannot be
+ * parsed, but Codex writes `cli_version` before those instructions: read it from the record's head.
+ */
+function truncatedCodexVersion(text: string): string | null {
+  const payload = text.indexOf('"payload":{');
+  if (payload === -1 || !text.slice(0, payload).includes('"type":"session_meta"')) return null;
+  return versionOf(/"cli_version":"([^"\\]*)"/.exec(text.slice(payload))?.[1]);
 }
 
 /** Claude: the `version` of the last record that carries one, within the transcript's last 64 KiB. */
@@ -80,10 +90,10 @@ export function storeAgentVersion(agent: string | null | undefined, source: Vers
     if (agent === "claude") return claudeVersion(source.path, reader);
     if (agent === "codex") return codexVersion(source.path, reader);
     if (agent === "opencode") return source.sessionId ? versionOf(opencodeSessionVersion(source.path, source.sessionId)) : null;
-  } catch (error) {
-    // no file, or one we may not read: no version, the commands stay unverified
-    if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "EACCES") return null;
-    throw error;
+  } catch {
+    // a store we cannot read (missing, unreadable, a directory, a corrupt database): no version,
+    // so the commands stay unverified; the version never decides whether they are listed
+    return null;
   }
   return null;
 }

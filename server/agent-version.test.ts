@@ -59,6 +59,20 @@ describe("storeAgentVersion", () => {
     expect(reader.bytes).toBeLessThanOrEqual(WINDOW);
   });
 
+  it("reads the version of a session_meta line longer than the window, within the window", () => {
+    const path = join(temp(), "rollout.jsonl");
+    const meta = { timestamp: "2026-10-14T15:23:59.850Z", type: "session_meta", payload: { id: "s", cwd: "/w", cli_version: "0.162.1", base_instructions: { text: "x".repeat(200 * 1024) } } };
+    writeFileSync(path, `${JSON.stringify(meta)}\n${filler(1024)}`);
+    const reader = counting();
+    expect(storeAgentVersion("codex", { path }, reader)).toBe("0.162.1");
+    expect(reader.bytes).toBeLessThanOrEqual(WINDOW);
+    // a long first line of another record type names no version, nor does a version past the window
+    writeFileSync(path, `${JSON.stringify({ type: "turn_context", payload: { cli_version: "0.162.1", text: "x".repeat(WINDOW) } })}\n`);
+    expect(storeAgentVersion("codex", { path })).toBeNull();
+    writeFileSync(path, `${JSON.stringify({ type: "session_meta", payload: { text: "x".repeat(WINDOW), cli_version: "0.162.1" } })}\n`);
+    expect(storeAgentVersion("codex", { path })).toBeNull();
+  });
+
   it("reads a 10 MB Claude transcript from at most its last 64 KiB", () => {
     const dir = temp();
     const tail = readFileSync(join(FIXTURES, "claude.jsonl"), "utf8");
@@ -100,6 +114,11 @@ describe("storeAgentVersion", () => {
     writeFileSync(wrong, `${JSON.stringify({ type: "user", version: 2 })}\n`);
     expect(storeAgentVersion("claude", { path: wrong })).toBeNull();
     expect(storeAgentVersion("claude", { path: join(dir, "absent.jsonl") })).toBeNull();
+    // a store that fails to read for any other reason leaves the commands unverified, never unlisted
+    expect(storeAgentVersion("claude", { path: dir })).toBeNull();
+    expect(storeAgentVersion("codex", { path: dir })).toBeNull();
+    const failing: ByteReader = { size: () => { throw Object.assign(new Error("busy"), { code: "EBUSY" }); }, read: () => new Uint8Array() };
+    expect(storeAgentVersion("claude", { path: bad }, failing)).toBeNull();
     expect(storeAgentVersion("pi", { path: join(FIXTURES, "claude.jsonl") })).toBeNull();
     expect(storeAgentVersion("claude", null)).toBeNull();
   });
