@@ -73,25 +73,26 @@ const OMP_REPORT_POLL_MS = 250;
  * nothing is pressed after a send. An omp without the integration (nothing would report it), one that has
  * run longer, or one whose start is unknown is sent to at once, as before.
  */
-async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => void, pollMs: number, startupMs: number): Promise<void> {
-  if (pane.agent_session?.source === "herdr:omp") return;
+async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => void, pollMs: number, startupMs: number): Promise<HerdrPane> {
+  if (pane.agent_session?.source === "herdr:omp") return pane;
   const omp = await ompProcess(paneId);
   inTime();
   const pid = omp?.pid ?? null;
   const started = omp?.integrated ? processStartedAt(omp.pid) : null;
-  if (started === null || Date.now() >= started + startupMs) return;
+  if (started === null || Date.now() >= started + startupMs) return pane;
   while (Date.now() < started + startupMs) {
     await Bun.sleep(pollMs);
     inTime();
-    const current = await paneGet(paneId);
+    pane = await paneGet(paneId);
     // an omp that quit while it started leaves its shell: the message was for omp, so it is not typed there
-    if (resolveAgent(current).agent !== "omp") throw new HerdrError("pending_target_changed", "The omp this message waited for stopped while it started; nothing was sent");
-    if (current.agent_session?.source === "herdr:omp") break;
+    if (resolveAgent(pane).agent !== "omp") throw new HerdrError("pending_target_changed", "The omp this message waited for stopped while it started; nothing was sent");
+    if (pane.agent_session?.source === "herdr:omp") break;
   }
   // reported or out of time, a pane restarted into another omp meanwhile is not the one the message waited for
   // (a lookup that finds no omp proves nothing: the look above already found the pane's agent still omp)
   const now = (await ompProcess(paneId))?.pid ?? null;
   if (now !== null && now !== pid) throw new HerdrError("pending_target_changed", "The omp this message waited for was replaced while it started; nothing was sent");
+  return pane;
 }
 
 /** herdr's omp integration (`herdr integration install omp`), in the extensions of the agent directory an omp loads. */
@@ -260,7 +261,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
     // answer into an open menu included, where agent.prompt would refuse
     try {
       if (!fromTerminal) {
-        const pane = await paneGet(paneId).catch((error: unknown) => {
+        let pane = await paneGet(paneId).catch((error: unknown) => {
           if (error instanceof HerdrError && error.code === "pane_not_found") return undefined;
           throw error;
         });
@@ -371,7 +372,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // the chat's `/model` opens omp's session-only picker, the one its card answers
         const sent = (pane?.agent ?? pane?.agent_session?.agent) === "omp" && text.trim() === "/model" ? "/switch" : text;
         if (pane && resolveAgent(pane).agent === "omp") {
-          await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS, options.ompStartupMs ?? OMP_STARTUP_MS);
+          pane = await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS, options.ompStartupMs ?? OMP_STARTUP_MS);
           // the last look waited on herdr: the device may have lost its access meanwhile
           inTime();
         }

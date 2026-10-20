@@ -184,7 +184,7 @@ export function noteCommandEvidence(paneId: string, id: string, evidence: NonNul
 async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: InteractivePrompt | null, screen: string | undefined, readSendId: string | undefined, codexHome?: string): Promise<NonNullable<PanePromptResponse["outcomes"]>> {
   if (!chatSent.get(paneId)?.commands.length) return [];
   chatSent.get(paneId)?.reservations.prune(Date.now());
-  screen ??= await liveScreen(paneId);
+  screen ??= await liveScreen(paneId).catch(() => "");
   const commands = chatSent.get(paneId)?.commands ?? [];
   const now = Date.now();
   // The transcript can be megabytes; read it only while a send can still change from it.
