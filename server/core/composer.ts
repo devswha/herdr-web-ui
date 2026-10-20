@@ -69,24 +69,24 @@ const OMP_REPORT_POLL_MS = 250;
  * nothing is pressed after a send. An omp that has run longer, or whose start is unknown, is sent to at
  * once as before: it may run without the integration.
  */
-async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => void, pollMs: number): Promise<void> {
+async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => void, pollMs: number, startupMs: number): Promise<void> {
   if (pane.agent_session?.source === "herdr:omp") return;
   const { pid } = await paneProcessRoots(paneId, "omp");
   inTime();
   const started = pid === null ? null : processStartedAt(pid);
-  if (started === null) return;
-  while (Date.now() < started + OMP_STARTUP_MS) {
+  if (started === null || Date.now() >= started + startupMs) return;
+  while (Date.now() < started + startupMs) {
     await Bun.sleep(pollMs);
     inTime();
     const current = await paneGet(paneId);
     // an omp that quit while it started leaves its shell: the message was for omp, so it is not typed there
     if (resolveAgent(current).agent !== "omp") throw new HerdrError("pending_target_changed", "The omp this message waited for stopped while it started; nothing was sent");
-    if (current.agent_session?.source === "herdr:omp") {
-      // a pane restarted into another omp meanwhile reports for that one: the message was for the omp waited on
-      if ((await paneProcessRoots(paneId, "omp")).pid !== pid) throw new HerdrError("pending_target_changed", "The omp this message waited for was replaced while it started; nothing was sent");
-      return;
-    }
+    if (current.agent_session?.source === "herdr:omp") break;
   }
+  // reported or out of time, a pane restarted into another omp meanwhile is not the one the message waited for
+  // (a lookup that finds no omp proves nothing: the look above already found the pane's agent still omp)
+  const now = (await paneProcessRoots(paneId, "omp")).pid;
+  if (now !== null && now !== pid) throw new HerdrError("pending_target_changed", "The omp this message waited for was replaced while it started; nothing was sent");
 }
 
 /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
@@ -184,7 +184,7 @@ export async function freeClaudeBox(paneId: string, working: boolean, authorize:
 }
 
 export function createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS }: {
-  options: { submitDeadlineMs?: number; submitDelayMs?: number; ompReportPollMs?: number };
+  options: { submitDeadlineMs?: number; submitDelayMs?: number; ompReportPollMs?: number; ompStartupMs?: number };
   lastTyped: Map<string, number>;
   attachments: ReadonlyMap<string, { cols: number }>;
   terminalAttach: () => Promise<boolean>;
@@ -344,7 +344,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // the chat's `/model` opens omp's session-only picker, the one its card answers
         const sent = (pane?.agent ?? pane?.agent_session?.agent) === "omp" && text.trim() === "/model" ? "/switch" : text;
         if (pane && resolveAgent(pane).agent === "omp") {
-          await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS);
+          await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS, options.ompStartupMs ?? OMP_STARTUP_MS);
           // the last look waited on herdr: the device may have lost its access meanwhile
           inTime();
         }

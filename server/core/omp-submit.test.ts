@@ -142,6 +142,24 @@ describe("a message sent to omp", () => {
     }
   });
 
+  it.skipIf(!posix)("sends nothing when the wait runs out on another omp the pane was restarted into", async () => {
+    ompPid = startedNow();
+    const replacement = Bun.spawn(["sleep", "60"]);
+    try {
+      const sent = createSubmitText({
+        // past processStartedAt's up to one second of boot-time rounding, so the wait really runs
+        options: { submitDelayMs: 0, ompReportPollMs: 5, ompStartupMs: 2_500 }, lastTyped: new Map(), attachments: new Map(), terminalAttach: async () => false,
+        SUBMIT_DEADLINE_MS: 20_000, TYPED_SETTLE_MS: 0, DRAFT_CLEAR_WAIT_MS: 0, DRAFT_CLEAR_POLL_MS: 0, SUBMIT_DELAY_MS: 0,
+      })("w:p1", "/effort", "/effort", Date.now());
+      await until("a look at the starting omp", () => count("pane.get") >= 2);
+      ompPid = replacement.pid;
+      await expect(sent).rejects.toThrow("was replaced");
+      expect(count("agent.prompt")).toBe(0);
+    } finally {
+      replacement.kill();
+    }
+  });
+
   it.skipIf(!posix)("sends nothing when omp stops while it is waited for", async () => {
     ompPid = startedNow();
     const sent = submitter()("w:p1", "/effort", "/effort", Date.now());
