@@ -1,44 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSubmitText, ompInputText } from "./composer.ts";
-
-// Captured from omp 18.12.3 in an isolated herdr session: /effort sent by agent.prompt while omp
-// was still starting, left typed in its input box (the pane's folder renamed).
-const STARTING = readFileSync(new URL("../fixtures/omp-input-18.12.3-starting.txt", import.meta.url), "utf8");
-const header = `╭── π > ◒ Opus 5.5 👁 > 🗑 project > (sub) ▶─1%${"─".repeat(60)}╮`;
-const box = (...rows: string[]): string => {
-  const last = rows.pop() ?? "";
-  return ["", header, ...rows.map((row) => `│  ${row.padEnd(100)}  │`), `╰─ ${last.padEnd(100)} ─╯`, ""].join("\n");
-};
-const EMPTY = box("");
-
-describe("ompInputText", () => {
-  it("reads what omp's input box holds, a row wrapped into its bottom border included", () => {
-    expect(ompInputText(STARTING)).toBe("/effort");
-    expect(ompInputText(EMPTY)).toBe("");
-    expect(ompInputText(box("x".repeat(100), "xx end"))).toBe(`${"x".repeat(100)}\nxx end`);
-  });
-
-  it("reads no box under which anything else ends the screen", () => {
-    expect(ompInputText(`${STARTING}\nlater output\n`)).toBeNull();
-    expect(ompInputText("$ ls\nREADME.md\n")).toBeNull();
-  });
-});
+import { createSubmitText } from "./composer.ts";
 
 // The real RPC client against a unix socket this test owns; only herdr's answers are synthetic.
 let root: string;
 let listener: ReturnType<typeof Bun.listen>;
 let socketBefore: string | undefined;
 let agent: string;
-let screen: string;
-let calls: { method: string; params: Record<string, unknown>; shown?: string }[];
+/** whether herdr's omp integration has reported the pane's session (omp's session_start) */
+let reported: boolean;
+let ompPid: number;
+let calls: { method: string; params: Record<string, unknown> }[];
+/** a process started just now, standing in for an omp that is still starting */
+let fresh: ReturnType<typeof Bun.spawn> | undefined;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "herdr-web-ui-omp-submit-"));
   agent = "omp";
-  screen = EMPTY;
+  reported = false;
+  ompPid = 1;
   calls = [];
   socketBefore = process.env["HERDR_SOCKET"];
   const socket = join(root, "herdr.sock");
@@ -51,11 +33,11 @@ beforeEach(() => {
         socket.data.buffer += chunk.toString();
         if (!socket.data.buffer.includes("\n")) return;
         const request = JSON.parse(socket.data.buffer) as { id: string; method: string; params?: Record<string, unknown> };
-        calls.push({ method: request.method, params: request.params ?? {}, ...(request.method === "pane.read" ? { shown: screen } : {}) });
+        calls.push({ method: request.method, params: request.params ?? {} });
+        const session = reported ? { agent_session: { agent: "omp", kind: "path", source: "herdr:omp", value: join(root, "session.jsonl") } } : {};
         const result = request.method === "pane.get"
-          ? { pane: { pane_id: "w:p1", workspace_id: "w", tab_id: "w:t1", terminal_id: "w:p1", cwd: root, focused: false, revision: 0, agent } }
-          : request.method === "pane.process_info" ? { process_info: { foreground_processes: [] } }
-          : request.method === "pane.read" ? { read: { text: screen } }
+          ? { pane: { pane_id: "w:p1", workspace_id: "w", tab_id: "w:t1", terminal_id: "w:p1", cwd: root, focused: false, revision: 0, agent, ...session } }
+          : request.method === "pane.process_info" ? { process_info: { foreground_processes: [{ pid: ompPid, argv: ["omp"], cwd: root }] } }
           : request.method === "agent.prompt" || request.method === "pane.send_keys" ? {}
           : null;
         if (result === null) throw new Error(`unexpected RPC ${request.method}`);
@@ -66,6 +48,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  fresh?.kill();
+  fresh = undefined;
   listener.stop(true);
   if (socketBefore === undefined) delete process.env["HERDR_SOCKET"];
   else process.env["HERDR_SOCKET"] = socketBefore;
@@ -73,11 +57,14 @@ afterEach(() => {
 });
 
 const submitter = () => createSubmitText({
-  options: { submitDelayMs: 0, ompSubmitCheckMs: 5 }, lastTyped: new Map(), attachments: new Map(), terminalAttach: async () => false,
+  options: { submitDelayMs: 0, ompReportPollMs: 5 }, lastTyped: new Map(), attachments: new Map(), terminalAttach: async () => false,
   SUBMIT_DEADLINE_MS: 20_000, TYPED_SETTLE_MS: 0, DRAFT_CLEAR_WAIT_MS: 0, DRAFT_CLEAR_POLL_MS: 0, SUBMIT_DELAY_MS: 0,
 });
 const count = (method: string): number => calls.filter((call) => call.method === method).length;
-const enters = (): number => calls.filter((call) => call.method === "pane.send_keys" && (call.params["keys"] as string[]).join() === "Enter").length;
+const startedNow = (): number => {
+  fresh = Bun.spawn(["sleep", "60"]);
+  return fresh.pid;
+};
 async function until(what: string, done: () => boolean): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (!done()) {
@@ -85,68 +72,50 @@ async function until(what: string, done: () => boolean): Promise<void> {
     await Bun.sleep(5);
   }
 }
+const posix = process.platform !== "win32";
 
 describe("a message sent to omp", () => {
-  it("presses Enter again while omp's box still holds the message, and stops once omp took it", async () => {
-    screen = STARTING;
+  it("is sent at once to an omp whose integration has reported its session", async () => {
+    reported = true;
+    ompPid = posix ? startedNow() : 1;
     await submitter()("w:p1", "/effort", "/effort", Date.now());
-    expect(calls.some((call) => call.method === "agent.prompt" && call.params["text"] === "/effort")).toBeTrue();
-    await until("a second Enter", () => enters() >= 1);
-    // omp is ready and takes the Enter: its box reads empty at the next look
-    screen = EMPTY;
-    await until("the empty box read", () => calls.some((call) => call.shown === EMPTY));
-    const emptied = calls.findIndex((call) => call.shown === EMPTY);
-    expect(calls.slice(emptied).some((call) => call.method === "pane.send_keys"), "no Enter into a box the message has left").toBeFalse();
-    expect(calls.slice(0, emptied).every((call) => call.method !== "pane.send_keys" || (call.params["keys"] as string[]).join() === "Enter")).toBeTrue();
+    expect(count("agent.prompt")).toBe(1);
+    expect(count("pane.process_info")).toBe(0);
   });
 
-  it("compares the box with what went to omp: a bare /model goes as /switch", async () => {
-    screen = box("/switch");
-    await submitter()("w:p1", "/model", "/model", Date.now());
-    expect(calls.some((call) => call.method === "agent.prompt" && call.params["text"] === "/switch")).toBeTrue();
-    await until("a second Enter", () => enters() >= 1);
-    // the look ends at the emptied box, so it reads nothing of the next test's herdr
-    screen = EMPTY;
-    await until("the empty box read", () => calls.some((call) => call.shown === EMPTY));
+  it.skipIf(!posix)("waits while an omp started moments ago has not reported, then sends once and presses nothing", async () => {
+    ompPid = startedNow();
+    const sent = submitter()("w:p1", "/effort", "/effort", Date.now());
+    await until("a few looks at the starting omp", () => count("pane.get") >= 3);
+    expect(count("agent.prompt"), "nothing is sent before omp takes input").toBe(0);
+    reported = true;
+    await sent;
+    expect(count("agent.prompt")).toBe(1);
+    expect(count("pane.send_keys")).toBe(0);
   });
 
-  it("looks once and presses nothing when omp took the message at once", async () => {
+  it("sends at once to an omp that has run for long, which may have no integration", async () => {
+    ompPid = 1;
     await submitter()("w:p1", "/effort", "/effort", Date.now());
-    await until("the box read", () => count("pane.read") >= 1);
-    // fixed wait: nothing may be pressed after the read; ten of the loop's 5 ms looks pass
-    await Bun.sleep(50);
-    expect(enters()).toBe(0);
-    expect(count("pane.read"), "the look ends at a box the message has left").toBe(1);
+    expect(count("agent.prompt")).toBe(1);
+    expect(count("pane.get")).toBe(1);
   });
 
-  it("presses nothing into a box that holds something else", async () => {
-    screen = box("/effort and what the user typed since");
-    await submitter()("w:p1", "/effort", "/effort", Date.now());
-    await until("the box read", () => count("pane.read") >= 1);
-    // fixed wait: nothing may be pressed after the read; ten of the loop's 5 ms looks pass
-    await Bun.sleep(50);
-    expect(enters()).toBe(0);
-    expect(count("pane.read")).toBe(1);
-  });
-
-  it("asks again whether the sender may still send before each Enter, and presses none once it may not", async () => {
-    screen = STARTING;
+  it.skipIf(!posix)("stops waiting once the sender may no longer send, and sends nothing", async () => {
+    ompPid = startedNow();
     let permitted = true;
-    let refused = 0;
-    const authorize = () => { if (!permitted) { refused += 1; throw new Error("revoked"); } };
-    await submitter()("w:p1", "/effort", "/effort", Date.now(), false, authorize);
+    const sent = submitter()("w:p1", "/effort", "/effort", Date.now(), false, () => { if (!permitted) throw new Error("revoked"); });
+    await until("a look at the starting omp", () => count("pane.get") >= 2);
     permitted = false;
-    await until("the sender asked again", () => refused > 0);
-    expect(enters()).toBe(0);
+    await expect(sent).rejects.toThrow("revoked");
+    expect(count("agent.prompt")).toBe(0);
   });
 
-  it("does not look at another agent's screen", async () => {
+  it.skipIf(!posix)("does not wait for another agent", async () => {
     agent = "codex";
-    screen = STARTING;
+    ompPid = startedNow();
     await submitter()("w:p1", "/effort", "/effort", Date.now());
-    // fixed wait: no read may come; ten of the omp loop's 5 ms looks pass
-    await Bun.sleep(50);
-    expect(count("pane.read")).toBe(0);
-    expect(enters()).toBe(0);
+    expect(count("agent.prompt")).toBe(1);
+    expect(count("pane.get"), "no look at a starting omp").toBe(1);
   });
 });

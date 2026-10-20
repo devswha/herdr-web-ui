@@ -10,6 +10,7 @@ import { agentPrompt, HerdrError, paneGet, paneRead, paneScrollInfo, paneSendKey
 import { mirrorInput } from "../mirror-input.ts";
 import { paneAgentOf, resolveAgent, typingRoots } from "../pane-context.ts";
 import { paneProcessRoots } from "../conversation.ts";
+import { processStartedAt } from "../process-start.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, heldCandidate, hermesInputDraft, lastChatSubmitted, noteSubmitted, parseInteractivePrompt, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
@@ -53,53 +54,33 @@ export const closeMention = (text: string): string => {
   return /(?:^|\s)@\S+$/.test(body) ? `${open}${body} ${close}` : text;
 };
 
-/** between the reads of an omp input box a message may still wait in (enterWhileOmpHolds) */
-const OMP_SUBMIT_CHECK_MS = 1_000;
+/** How long after its process starts an omp that has not reported is waited for: from cold it takes up to about 20 s. */
+const OMP_STARTUP_MS = 30_000;
 
-/** how long after a send an omp input box is looked at for it: omp starting from cold takes up to about 20 s */
-const OMP_SUBMIT_RETRY_MS = 30_000;
-
-/**
- * What omp's input box holds (omp 18.12.3), as the screen's last lines show it: its top border
- * (the status line), the rows of a longer draft between `│`, and the last row inside its bottom
- * border (`╰─ /effort  ─╯`). Null when the screen does not end in such a box (a picker
- * over it, a widget under it).
- */
-export function ompInputText(screen: string): string | null {
-  const lines = screen.split(/\r?\n/).map((line) => line.trimEnd());
-  let bottom = lines.length - 1;
-  while (bottom >= 0 && !lines[bottom]) bottom -= 1;
-  const last = /^╰─(.*?)─*╯$/.exec(lines[bottom] ?? "");
-  if (!last) return null;
-  let top = bottom - 1;
-  while (top >= 0 && lines[top]!.startsWith("│")) top -= 1;
-  if (!lines[top]?.startsWith("╭─")) return null;
-  const rows = lines.slice(top + 1, bottom).map((line) => line.replace(/^│/, "").replace(/│$/, "").trim());
-  return [...rows, last[1]!.trim()].join("\n").trim();
-}
-
-const compactText = (text: string): string => text.replace(/\s+/g, "");
+/** Between the looks at an omp still starting (untilOmpReported). */
+const OMP_REPORT_POLL_MS = 250;
 
 /**
- * omp (18.12.3) draws its input box before it takes an Enter: it connects its submit handler only
- * once its commands are loaded, so a message agent.prompt sends meanwhile stays typed in the box,
- * and stays there after omp is ready. While the box still holds exactly the message, Enter is
- * pressed again, until omp takes it or `untilMs` passes. A box that reads anything else (empty once
- * sent, a picker the message opened, what the user typed since) ends it, so nothing is pressed twice
- * into a message that went.
+ * omp (18.12.3) draws its input box before it takes an Enter: it connects its submit handler only once
+ * its slash commands are loaded, so a message agent.prompt sends meanwhile stays typed in the box and
+ * never runs. herdr's omp integration reports the session from omp's `session_start`, which omp emits
+ * only after connecting that handler, so while an omp that started moments ago has not reported, the
+ * send waits for the report (at most OMP_STARTUP_MS after the process started) and then sends once:
+ * nothing is pressed after a send. An omp that has run longer, or whose start is unknown, is sent to at
+ * once as before: it may run without the integration.
  */
-async function enterWhileOmpHolds(paneId: string, text: string, checkMs: number, untilMs: number, allowed: () => boolean): Promise<void> {
-  const wanted = compactText(text);
-  if (!wanted) return;
-  for (const deadline = Date.now() + untilMs; Date.now() < deadline;) {
-    await Bun.sleep(checkMs);
-    const box = ompInputText((await paneRead({ paneId, source: "visible", format: "text" })).text);
-    if (box === null || compactText(box) !== wanted) return;
-    // the sender may have lost access since the send: asked before each Enter, like every key write here
-    if (!allowed()) return;
-    await paneSendKeys(paneId, ["Enter"], undefined, allowed);
+async function untilOmpReported(paneId: string, pane: HerdrPane, inTime: () => void, pollMs: number): Promise<void> {
+  if (pane.agent_session?.source === "herdr:omp") return;
+  const { pid } = await paneProcessRoots(paneId, "omp");
+  inTime();
+  const started = pid === null ? null : processStartedAt(pid);
+  if (started === null) return;
+  while (Date.now() < started + OMP_STARTUP_MS) {
+    await Bun.sleep(pollMs);
+    inTime();
+    const current = await paneGet(paneId);
+    if (resolveAgent(current).agent !== "omp" || current.agent_session?.source === "herdr:omp") return;
   }
-  console.warn("omp input: a sent message still waits in the input box after", untilMs, "ms");
 }
 
 /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
@@ -197,7 +178,7 @@ export async function freeClaudeBox(paneId: string, working: boolean, authorize:
 }
 
 export function createSubmitText({ options, lastTyped, attachments, terminalAttach, SUBMIT_DEADLINE_MS, TYPED_SETTLE_MS, DRAFT_CLEAR_WAIT_MS, DRAFT_CLEAR_POLL_MS, SUBMIT_DELAY_MS }: {
-  options: { submitDeadlineMs?: number; submitDelayMs?: number; ompSubmitCheckMs?: number };
+  options: { submitDeadlineMs?: number; submitDelayMs?: number; ompReportPollMs?: number };
   lastTyped: Map<string, number>;
   attachments: ReadonlyMap<string, { cols: number }>;
   terminalAttach: () => Promise<boolean>;
@@ -356,15 +337,10 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // later sessions, while omp itself calls the command "Switch model for this session":
         // the chat's `/model` opens omp's session-only picker, the one its card answers
         const sent = (pane?.agent ?? pane?.agent_session?.agent) === "omp" && text.trim() === "/model" ? "/switch" : text;
+        if (pane && resolveAgent(pane).agent === "omp") await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS);
         try {
           await agentPrompt(paneId, closeMention(sent));
           noteSubmitted(paneId, sent);
-          // looked at after the send is answered: a message omp took at once costs one read
-          if (pane && resolveAgent(pane).agent === "omp") {
-            const allowed = (): boolean => { try { authorize(); return true; } catch { return false; } };
-            void enterWhileOmpHolds(paneId, sent, options.ompSubmitCheckMs ?? OMP_SUBMIT_CHECK_MS, OMP_SUBMIT_RETRY_MS, allowed)
-              .catch((error: unknown) => console.warn("omp input:", error instanceof HerdrError ? error.code : String(error)));
-          }
           return;
         } catch (error) {
           if (!(error instanceof HerdrError)) throw error;
