@@ -289,9 +289,13 @@ export const source: AgentCommandSource = {
     for (const candidate of candidates) grouped.set(candidate.key, [...(grouped.get(candidate.key) ?? []), candidate]);
     const result: SlashCommand[] = [];
     for (const [key, rows] of grouped) {
+      // a same-named local, repo or user skill overrides the bundled copy; a plugin skill overrides
+      // nothing and keeps its plugin:name, so only native skills contest the bare name
+      const overridden = rows.some((candidate) => candidate.scope !== "bundled" && candidate.row.origin !== "plugin");
       const scopes = new Map<string, (typeof rows)[number]>();
-      for (const candidate of rows) if (!scopes.has(candidate.scope)) scopes.set(candidate.scope, candidate);
-      const collision = scopes.size > 1 || Object.hasOwn(GROK_DESCRIPTIONS, key);
+      for (const candidate of rows) if (!scopes.has(candidate.scope) && !(overridden && candidate.scope === "bundled")) scopes.set(candidate.scope, candidate);
+      const native = [...scopes.values()].filter((candidate) => candidate.row.origin !== "plugin").length;
+      const collision = native > 1 || Object.hasOwn(GROK_DESCRIPTIONS, key);
       for (const [scope, candidate] of scopes) {
         const name = `${scope}:${key}`;
         result.push({ ...candidate.row, name: collision || candidate.row.origin === "plugin" ? name : key });

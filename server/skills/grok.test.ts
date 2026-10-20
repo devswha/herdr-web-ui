@@ -308,8 +308,20 @@ describe("grok skills", () => {
     expect(rows.map(({ name }) => name)).toContain("user-command");
     expect(rows.map(({ name }) => name)).toContain("user:duplicate");
     expect(rows.map(({ name }) => name)).toContain("local:duplicate");
-    expect(rows.map(({ name }) => name)).toContain("bundled:duplicate");
+    // the user and local skills override the bundled copy: it is not offered
+    expect(rows.map(({ name }) => name).filter((name) => name.endsWith("duplicate"))).toEqual(["local:duplicate", "user:duplicate"]);
     expect(rows.map(({ name }) => name)).toContain("synced-user");
+  });
+
+  it("lets a native skill keep its bare name over a bundled or plugin skill of that name", () => {
+    const home = temp();
+    skill(join(home, ".grok", "bundled", "skills"), "review", "Bundled review");
+    skill(join(home, ".grok", "skills"), "review", "User review");
+    skill(join(home, ".grok", "plugins", "team", "skills"), "review", "Plugin review");
+    expect(skillsOf(paneCommands("grok", null, home))).toEqual([
+      { name: "review", origin: "user", description: "User review" },
+      { name: "team:review", origin: "plugin", description: "Plugin review" },
+    ]);
   });
 
   it("compiles pager commands as visible terminal forms", () => {
