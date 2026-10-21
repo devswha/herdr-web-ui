@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readdirSync, type BigIntStats, type Dir, type Dirent, type Stats, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readdirSync, type BigIntStats, type Dir, type Dirent, type Stats, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -494,6 +494,28 @@ describe("listSessions", () => {
       });
       expect([wal, listed]).toEqual([wal, []]);
     }
+  });
+
+  it("never reads a crashed writer's uncommitted change from a rollback-journal store", () => {
+    const home = newHome();
+    install("hermes", home);
+    const db = join(home, ".hermes", "state.db");
+    const writer = new Database(db);
+    // a writer whose uncommitted pages reach the main file (a tiny cache spills them), then a crash:
+    // the main file and its hot -journal, as they are on disk
+    writer.exec("PRAGMA journal_mode = DELETE; PRAGMA cache_spill = ON; PRAGMA cache_size = 1");
+    writer.transaction(() => { for (let n = 0; n < 2000; n++) writer.query("INSERT INTO messages (session_id, role, content, timestamp) VALUES ('20261004_090000_fx0004', 'assistant', ?, 1791104401)").run(`pad ${"x".repeat(500)}`); })();
+    writer.exec("BEGIN; UPDATE messages SET content = 'uncommitted prompt' WHERE role = 'user'");
+    writer.exec(`UPDATE messages SET content = '${"y".repeat(500)}' WHERE role = 'assistant'`);
+    const crashed = newHome();
+    mkdirSync(join(crashed, ".hermes"));
+    copyFileSync(db, join(crashed, ".hermes", "state.db"));
+    expect(existsSync(`${db}-journal`)).toBe(true);
+    copyFileSync(`${db}-journal`, join(crashed, ".hermes", "state.db-journal"));
+    writer.exec("ROLLBACK");
+    writer.close();
+    const rows = listSessions("hermes", CWD, { home: crashed, env: {} });
+    expect(rows.map((row) => row.firstMessage)).not.toContain("uncommitted prompt");
   });
 
   it("lists a session still in a WAL store's log while its agent writes", () => {

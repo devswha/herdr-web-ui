@@ -775,7 +775,8 @@ const liveLog = (budget: Budget, real: string): boolean => budget.modified(`${re
  *
  * On Linux and macOS SQLite opens the checked descriptor as /dev/fd/N: macOS opens the descriptor
  * itself, and Linux the file it names now (the checked file, wherever it went). macOS would look for a
- * live log beside /dev/fd/N, so a live WAL there opens by its path. Windows has no /dev/fd: there and
+ * live log or a crashed writer's hot journal beside /dev/fd/N, so only an immutable read opens the
+ * descriptor there; a live WAL and a rollback-journal store open by their path. Windows has no /dev/fd: there and
  * for a live WAL on macOS, the path is opened and must still be the checked file after the open (a
  * file swapped in between the descriptor's check and that open, then back, is not caught: the
  * residual, while an agent writes on macOS, or on Windows).
@@ -785,7 +786,9 @@ function openDatabase(budget: Budget, real: string, fd: number, checked: { dev: 
   const wal = readSync(fd, header, 0, 20, 0) === 20 && header[18] === 2 && header[19] === 2;
   const logged = wal && liveLog(budget, real);
   const immutable = mayBeImmutable && wal && !logged;
-  const descriptor = process.platform === "linux" || (process.platform === "darwin" && !logged) ? `/dev/fd/${fd}` : null;
+  // macOS looks for a store's -wal or -journal beside /dev/fd/N, where there is none: only an immutable
+  // read, which reads neither, opens the descriptor there
+  const descriptor = process.platform === "linux" || (process.platform === "darwin" && immutable) ? `/dev/fd/${fd}` : null;
   const flags = sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_URI;
   if (descriptor !== null) {
     const db = new Database(immutable ? `file:${descriptor}?immutable=1` : descriptor, flags);
