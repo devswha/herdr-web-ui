@@ -62,7 +62,7 @@ export function PortalPanel({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       )}
       {control}
-      {progress !== null && <p className="settings-item settings-hint" role="status">{progress}</p>}
+      {progress !== null && <p className="settings-item settings-hint portal-progress" role="status">{progress}</p>}
       {error !== null && <p className="settings-item settings-hint portal-error" role="alert">{error}</p>}
       {/* the server's account of the last failure, then Portal's own words */}
       {status.phase === "error" && status.error !== null && (
