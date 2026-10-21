@@ -4,7 +4,8 @@
  * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 16384 candidate
  * entries (a session file, a Codex day folder, a Grok session folder: other entries, such as
  * Claude's per-session folders, are passed over at no cost) are taken per listing, each with its own
- * time (an lstat, bounded by those 16384, not counted as a check), and all of them are ordered by
+ * time (an lstat, up to three for a Grok session folder, bounded by those 16384, not counted as a
+ * check), and all of them are ordered by
  * time before any is checked, so the newest are checked first whatever the readdir order; at most
  * 400 checks are made per listing, a
  * check being one session file's resolution with its stat (spent whatever the resolution finds),
@@ -42,7 +43,8 @@ export const HEAD_BYTES = 64 * 1024;
 export const MAX_STATS = 400;
 /**
  * At most this many candidate entries are taken for one listing, every folder's together: each costs
- * one lstat (not a check) and a place in the sort. Entries the listing passes over by name or type
+ * one lstat (a Grok session folder up to three: its two files, else itself; none of them checks) and
+ * a place in the sort. Entries the listing passes over by name or type
  * are not counted. Bun's opendirSync still reads a whole folder from the kernel before any of this.
  */
 export const MAX_ENTRIES = 16384;
@@ -326,10 +328,10 @@ function scanOf(budget: Budget, path: string, read: SessionHistoryOptions["readH
 }
 
 /** These folders' entries newest first by their own times (a link not followed), within the listing's entry bound. */
-function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Dirent) => boolean): string[] {
+function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Dirent) => boolean, timeOf: (path: string) => number | null = (path) => budget.modified(path)): string[] {
   return dirs.flatMap((dir) => budget.list(dir, keep).flatMap((entry) => {
     const path = join(dir, entry.name);
-    const time = budget.modified(path);
+    const time = timeOf(path);
     return time === null ? [] : [{ path, time }];
   })).sort((a, b) => b.time - a.time).map((entry) => entry.path);
 }
@@ -569,9 +571,15 @@ function grokSessions(cwds: readonly string[], home: string, env: Record<string,
   const grokHome = env["GROK_HOME"] || join(home, ".grok");
   const scan = scanOf(budget, join(grokHome, "sessions"), read);
   if (scan === null) return [];
+  // a session's folder keeps its time while the session writes to its files: the newest of its two
+  // files says when it was last written (two lstats, not checks), the folder's own time without them
+  const written = (dir: string): number | null => {
+    const times = ["summary.json", "updates.jsonl"].map((name) => budget.modified(join(dir, name))).filter((time): time is number => time !== null);
+    return times.length > 0 ? Math.max(...times) : budget.modified(dir);
+  };
   const sessionDirs = (group: string): string[] => {
     // newest first, within the listing's entry bound, so the checks go to the newest sessions
-    return newestEntries(budget, [join(scan.root, group)], (entry) => entry.isDirectory());
+    return newestEntries(budget, [join(scan.root, group)], (entry) => entry.isDirectory(), written);
   };
   const rows: Row[] = [];
   const readGroup = (group: string) => {

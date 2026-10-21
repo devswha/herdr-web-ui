@@ -314,6 +314,25 @@ describe("listSessions", () => {
     }, 30_000);
   }
 
+  it("checks the Grok session written last first, by its files' times rather than its folder's", () => {
+    const home = newHome();
+    const group = join(home, ".grok", "sessions", FOLDERS.grok!);
+    const session = (id: string, updated: number, folder: number) => {
+      const dir = join(group, id);
+      mkdirSync(dir, { recursive: true });
+      for (const name of ["summary.json", "updates.jsonl"]) {
+        const path = join(dir, name);
+        writeFileSync(path, name === "summary.json" ? JSON.stringify({ info: { id, cwd: CWD }, updated_at: new Date(updated * 1000).toISOString() }) : "");
+        utimesSync(path, updated, updated);
+      }
+      // a folder's time moves when a file is made in it, not while a session keeps writing to one
+      utimesSync(dir, folder, folder);
+    };
+    for (let n = 0; n < 300; n++) session(`idle-${n}`, 1_790_000_000 + n, 1_790_500_000 + n);
+    session("active", 1_790_900_000, 1_789_000_000);
+    expect(listSessions("grok", CWD, { home, env: {} })[0]?.id).toBe("active");
+  });
+
   it("finds Grok sessions in a native hashed cwd group", () => {
     const home = newHome();
     const dir = join(home, ".grok", "sessions", "long-slug-abc123", ID(7));
