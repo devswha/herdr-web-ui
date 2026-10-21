@@ -5,7 +5,9 @@
  *
  * Every frame carries an ACK offset, and each step waits for its frame's ACK, which the client
  * sends from that frame's xterm write callback: the fixture records the clipboard calls and the
- * terminal's parse state at that moment (the test-hook build's `outputProbe`).
+ * terminal's parse state at that moment (the test-hook build's `outputProbe`). For a write still
+ * pending at a reconnect, reset or dispose, the fixture holds xterm's own parse of it (`hold`) and
+ * releases it once the new output has begun.
  * UI_EVIDENCE_DIR=<dir> also saves screenshots; REPLAY_CLIPBOARD_REPORT=<file> writes the results.
  */
 import assert from "node:assert/strict";
@@ -18,7 +20,7 @@ import { buildDemoApp } from "./demo-build.ts";
 import { chromePath } from "./chrome-path.ts";
 
 interface Step { data: string; replay?: true }
-interface Probe { open: boolean; id: number; idComplete: boolean; parsingReplay: boolean; replayOscOpen: boolean; queued: number; inFlight: number; peakInFlight: number; writes: number; written: string }
+interface Probe { open: boolean; id: number; idComplete: boolean; parsingReplay: boolean; replayOscOpen: boolean; retired: boolean; queued: number; inFlight: number; peakInFlight: number; writes: number; written: string }
 interface Ack { type: string; pane_id: string; stream_id: string; offset: number; socket: number; copies: number; probe: Probe | null }
 interface Fixture {
   copies: string[];
@@ -28,6 +30,14 @@ interface Fixture {
   acks: Ack[];
   sent: Array<{ type: string; pane_id?: string; mode?: string; socket: number }>;
   sockets: Array<WebSocket & { push(frame: Record<string, unknown>): void }>;
+  /** a pane the roster (`/api/machines`) says herdr could not restore */
+  unrestored: string | null;
+  /**
+   * Pushes these frames while xterm's parse of the first is held: it stays in flight, unparsed,
+   * and the rest wait queued in the client until `release` runs that parse.
+   */
+  hold(paneId: string, steps: Step[]): void;
+  release(): void;
   frames(paneId: string, steps: Step[], wait?: boolean): Promise<{ pushed: Array<Step & { offset: number }>; acks: Ack[] }>;
   restore(): void;
 }
@@ -43,7 +53,7 @@ const report: Record<string, unknown[]> = { "live-copy-after-replay": [], "split
 
 /** Installed before the app: a task-owned clipboard recorder and the demo socket's frame seam. */
 function installReplayFixture(): void {
-  const state = { copies: [], deny: false, acks: [], sent: [], sockets: [] } as unknown as Fixture;
+  const state = { copies: [], deny: false, acks: [], sent: [], sockets: [], unrestored: null } as unknown as Fixture;
   const waiters: Array<(ack: Ack) => void> = [];
   const offsets = new Map<string, number>();
   window.replayFixture = state;
@@ -56,6 +66,31 @@ function installReplayFixture(): void {
     },
   });
   state.restore = () => { delete (clipboard as unknown as Record<string, unknown>)["writeText"]; };
+  // the demo's roster, with the `unrestored` pane marked as herdr could not restore it
+  const demoFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const response = await demoFetch(input, init);
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (state.unrestored === null || new URL(href, location.href).pathname !== "/api/machines") return response;
+    const body = await response.json() as { machines: Array<{ snapshot?: { panes: Array<{ pane_id: string }> } }> };
+    for (const machine of body.machines) if (machine.snapshot) machine.snapshot.panes = machine.snapshot.panes.map((pane) => pane.pane_id === state.unrestored ? { ...pane, restore_error: "held by the fixture" } : pane);
+    return new Response(JSON.stringify(body), { status: response.status, headers: response.headers });
+  };
+  // xterm parses each write from a setTimeout(_innerWrite) of its own: the gate keeps that one callback
+  state.hold = (paneId, steps) => {
+    const schedule = window.setTimeout;
+    let held: (() => void) | null = null;
+    window.setTimeout = ((callback: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (!held && typeof callback === "function" && callback.toString().includes("._innerWrite(")) {
+        held = () => callback(...args);
+        return 0;
+      }
+      return schedule(callback, delay, ...args);
+    }) as typeof window.setTimeout;
+    try { void state.frames(paneId, steps, false); } finally { window.setTimeout = schedule; }
+    if (!held) throw new Error("xterm scheduled no parse for the held frames");
+    state.release = held;
+  };
   const probe = (): Probe | null => (document.querySelector(".pane-frame.is-current .pane-terminal") as unknown as { outputProbe?: () => Probe } | null)?.outputProbe?.() ?? null;
   const Demo = window.WebSocket;
   const Recorded = function (url: string | URL, protocols?: string | string[]) {
@@ -388,6 +423,130 @@ try {
       assert.deepEqual(disposeCopies, [], "a disposed terminal copies nothing");
       report["reconnect-replay"]!.push({ name: "dispose with a replayed OSC open", beforeDispose: { open: atDispose.open, id: atDispose.id, replayOscOpen: atDispose.replayOscOpen }, disposedTerminal: { queued: disposed.queued, replayOscOpen: disposed.replayOscOpen, parsingReplay: disposed.parsingReplay, writes: disposed.writes, peakInFlight: disposed.peakInFlight }, acksAfterDispose: disposeAcks.length - acksBefore, copies: disposeCopies });
       console.log("PASS dispose");
+      assert.deepEqual(pageErrors(page), []);
+      await fixture(page, (state) => state.restore());
+    } finally { await context.close(); }
+  }
+
+  // A write still pending when its output ends: xterm holds the first frame unparsed and the rest
+  // wait in the client. After a reconnect, a reset or a dispose, nothing from before copies, no frame
+  // is acknowledged again, and the new output is not marked ready by an old callback.
+  {
+    const STALE_COPY = `${ESC}]52;c;c3RhbGU=${BEL}`; // "stale"
+    const PENDING = [
+      { name: "replayed OSC in flight, its live end and a live copy queued", steps: [R(`${ESC}]52;c;${HISTORY}`), L(BEL), L(STALE_COPY)], replayOscOpen: true },
+      { name: "live copy in flight, another queued", steps: [L(STALE_COPY), L(STALE_COPY)], replayOscOpen: false },
+    ];
+    const context = await newContext(browser, url);
+    try {
+      const page = await openPage(context, url);
+      const acked = (): Promise<string[]> => fixture(page, (state) => state.acks.map((ack) => `${ack.socket}:${ack.stream_id}:${ack.offset}`));
+      const settled = (host: unknown): Promise<unknown> => page.waitForFunction((element) => {
+        const probe = (element as { outputProbe(): Probe }).outputProbe();
+        return probe.inFlight === 0 && probe.queued === 0;
+      }, host);
+      const hold = async (steps: Step[]): Promise<Probe> => {
+        await page.evaluate(([paneId, list]) => window.replayFixture.hold(paneId, list), [panes.shell, steps] as const);
+        const probe = await probeOf(page);
+        assert.equal(probe.inFlight, 1, "one write is pending in xterm");
+        assert.equal(probe.queued, steps.length - 1, "the other frames wait in the client");
+        assert.equal(probe.retired, false);
+        return probe;
+      };
+      const ready = (): Promise<number> => page.locator(".pane-frame.is-current [data-pane-content]").count();
+
+      for (const test of PENDING) {
+        await resetCase(page);
+        const host = await page.locator(".pane-frame.is-current .pane-terminal").evaluateHandle((element) => element);
+        const before = await acked();
+        const held = await hold(test.steps);
+        const sockets = await fixture(page, (state) => state.sockets.length);
+        await fixture(page, (state) => state.sockets.at(-1)!.close());
+        const retired = await probeOf(page);
+        assert.deepEqual({ queued: retired.queued, inFlight: retired.inFlight, retired: retired.retired }, { queued: 0, inFlight: 1, retired: true }, `${test.name}: the disconnect drops the queued frames and retires the pending one`);
+        await page.waitForFunction(([count, paneId]) => window.replayFixture.sent.some((frame) => frame.type === "attach" && frame.pane_id === paneId && frame.socket >= count), [sockets, panes.shell] as const);
+        await fixture(page, (state) => state.release());
+        await settled(host);
+        const after = await probeOf(page);
+        const copies = await fixture(page, (state) => [...state.copies]);
+        const acks = await acked();
+        const readyAfterOld = await ready();
+        assert.deepEqual(copies, [], `${test.name}: nothing from before the reconnect copies`);
+        assert.deepEqual(acks, before, `${test.name}: no old frame is acknowledged after the reconnect`);
+        assert.equal(after.writes, held.writes, `${test.name}: only the pending frame reached xterm`);
+        assert.equal(after.replayOscOpen, test.replayOscOpen, `${test.name}: a replayed OSC the old frame left open stays guarded`);
+        assert.equal(readyAfterOld, 0, `${test.name}: the old frame's callback does not mark the new output ready`);
+        // the new connection's own replay and live copy, as after any reconnect
+        const next = await frames(page, [R(`${ESC}\\${ESC}[2J${ESC}[Hrestored after reconnect${ESC}]52;c;${HISTORY}${BEL}`), L(LIVE_COPY)]);
+        const nextCopies = await fixture(page, (state) => [...state.copies]);
+        assert.deepEqual(nextCopies, ["live"], `${test.name}: the new output's live copy works`);
+        assert.deepEqual(next.acks.map((ack) => ack.offset), next.pushed.map((step) => step.offset), `${test.name}: one ACK per new frame`);
+        assert.equal(await ready(), 1, `${test.name}: the new output marks itself ready`);
+        report["reconnect-replay"]!.push({ name: `pending write at reconnect: ${test.name}`, pending: { inFlight: held.inFlight, queued: held.queued }, afterDisconnect: { queued: retired.queued, inFlight: retired.inFlight, retired: retired.retired }, copies, acksAfterDisconnect: acks.length - before.length, writesAfterRelease: after.writes - held.writes, replayOscOpen: after.replayOscOpen, readyFromOldCallback: readyAfterOld > 0, nextCopies });
+        console.log(`PASS pending write at reconnect: ${test.name}`);
+      }
+
+      // reset: herdr could not restore the pane, so its terminal is reset to no pane, with a write pending
+      {
+        await resetCase(page);
+        const host = await page.locator(".pane-frame.is-current .pane-terminal").evaluateHandle((element) => element);
+        const before = await acked();
+        const held = await hold(PENDING[0]!.steps);
+        const detaches = await page.evaluate((paneId) => window.replayFixture.sent.filter((frame) => frame.type === "detach" && frame.pane_id === paneId).length, panes.shell);
+        // the roster is read again on session-changed, and now says herdr could not restore the pane
+        await page.evaluate((paneId) => {
+          const state = window.replayFixture;
+          state.unrestored = paneId;
+          state.sockets.at(-1)!.push({ type: "session-changed" });
+        }, panes.shell);
+        await page.waitForFunction(([paneId, count]) => window.replayFixture.sent.filter((frame) => frame.type === "detach" && frame.pane_id === paneId).length > count, [panes.shell, detaches] as const);
+        const reset = await host.evaluate((element) => ({ mounted: element.isConnected, probe: (element as unknown as { outputProbe(): Probe }).outputProbe() }));
+        assert.equal(reset.mounted, true, "the same terminal is reset, not replaced");
+        assert.deepEqual({ queued: reset.probe.queued, inFlight: reset.probe.inFlight, retired: reset.probe.retired }, { queued: 0, inFlight: 1, retired: true }, "the reset drops the queued frames and retires the pending one");
+        await fixture(page, (state) => state.release());
+        await settled(host);
+        const after = await host.evaluate((element) => (element as unknown as { outputProbe(): Probe }).outputProbe());
+        const copies = await fixture(page, (state) => [...state.copies]);
+        const acks = await acked();
+        assert.deepEqual(copies, [], "reset: nothing from before copies");
+        assert.deepEqual(acks, before, "reset: no old frame is acknowledged after the reset");
+        assert.equal(after.writes, held.writes, "reset: only the pending frame reached xterm");
+        report["reconnect-replay"]!.push({ name: "pending write at reset (pane restore error)", pending: { inFlight: held.inFlight, queued: held.queued }, afterReset: { queued: reset.probe.queued, inFlight: reset.probe.inFlight, retired: reset.probe.retired }, copies, acksAfterReset: acks.length - before.length, writesAfterRelease: after.writes - held.writes });
+        // the pane is restored again: its terminal attaches afresh
+        const attaches = await page.evaluate((paneId) => window.replayFixture.sent.filter((frame) => frame.type === "attach" && frame.pane_id === paneId).length, panes.shell);
+        await page.evaluate(() => {
+          const state = window.replayFixture;
+          state.unrestored = null;
+          state.sockets.at(-1)!.push({ type: "session-changed" });
+        });
+        await page.waitForFunction(([paneId, count]) => window.replayFixture.sent.filter((frame) => frame.type === "attach" && frame.pane_id === paneId).length > count, [panes.shell, attaches] as const);
+        console.log("PASS pending write at reset");
+      }
+
+      // dispose: four other tabs push the pane out of the cached ones while its write is pending
+      {
+        await page.locator(`.pane-frame.is-current[data-layout-pane="${panes.shell}"] .pane-terminal`).waitFor({ state: "attached" });
+        await resetCase(page);
+        const host = await page.locator(".pane-frame.is-current .pane-terminal").evaluateHandle((element) => element);
+        const before = await acked();
+        const held = await hold(PENDING[0]!.steps);
+        for (const pane of [panes.web, panes.flaky, panes.omp, panes.cli]) {
+          await page.locator(`.workspace-select[data-pane="${pane}"]`).click();
+          await page.locator(`.pane-frame.is-current[data-layout-pane="${pane}"]`).waitFor({ state: "attached" });
+        }
+        await page.waitForFunction((element) => !element.isConnected, host);
+        const disposed = await host.evaluate((element) => (element as unknown as { outputProbe(): Probe }).outputProbe());
+        assert.deepEqual({ queued: disposed.queued, inFlight: disposed.inFlight, replayOscOpen: disposed.replayOscOpen, parsingReplay: disposed.parsingReplay }, { queued: 0, inFlight: 1, replayOscOpen: false, parsingReplay: false }, "dispose drops the queued frames and both flags");
+        await fixture(page, (state) => state.release());
+        const after = await host.evaluate((element) => (element as unknown as { outputProbe(): Probe }).outputProbe());
+        const copies = await fixture(page, (state) => [...state.copies]);
+        const acks = await acked();
+        assert.deepEqual(copies, [], "dispose: nothing from before copies");
+        assert.deepEqual(acks, before, "dispose: no old frame is acknowledged after the dispose");
+        assert.equal(after.writes, held.writes, "dispose: only the pending frame reached xterm");
+        report["reconnect-replay"]!.push({ name: "pending write at dispose", pending: { inFlight: held.inFlight, queued: held.queued }, afterDispose: { queued: disposed.queued, inFlight: disposed.inFlight, replayOscOpen: disposed.replayOscOpen, parsingReplay: disposed.parsingReplay }, copies, acksAfterDispose: acks.length - before.length, writesAfterRelease: after.writes - held.writes, inFlightAfterRelease: after.inFlight });
+        console.log("PASS pending write at dispose");
+      }
       assert.deepEqual(pageErrors(page), []);
       await fixture(page, (state) => state.restore());
     } finally { await context.close(); }

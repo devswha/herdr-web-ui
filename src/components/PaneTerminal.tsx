@@ -278,8 +278,8 @@ export function PaneTerminal({
   const fitRef = useRef<FitAddon | null>(null);
   /** OSC 8 links this app cannot open are not drawn (#739); its state ends with `term.reset()` */
   const hyperlinksRef = useRef(hyperlinkFilter());
-  /** Forgets a replayed OSC once xterm's parser no longer holds it open (pane switch, reconnect). */
-  const resetOutputOriginRef = useRef<() => void>(() => {});
+  /** Retires the output written before a pane switch or reconnect (see `retireOutput`). */
+  const retireOutputRef = useRef<() => void>(() => {});
   const socketRef = useRef<HerdrSocket | null>(null);
   const paneRef = useRef<string | null>(paneId);
   const onConnectionChangeRef = useRef(onConnectionChange);
@@ -1160,6 +1160,10 @@ export function PaneTerminal({
     const outputFrames: { data: string; replay: boolean; done?: () => void }[] = [];
     let writingOutput = false;
     let parsingReplay = false;
+    // Which output the frames belong to: a pane switch or reconnect starts new output, and the
+    // frame xterm is parsing then is the old output's (`parsingOwner`), which copies nothing.
+    let outputOwner = 0;
+    let parsingOwner = 0;
     // a replayed frame ended inside an OSC that may still dispatch as OSC 52 in a later live write
     let replayOscOpen = false;
     const writeNextOutput = (): void => {
@@ -1170,6 +1174,7 @@ export function PaneTerminal({
       }
       writingOutput = true;
       parsingReplay = frame.replay;
+      parsingOwner = outputOwner;
       term.write(frame.data, () => {
         parsingReplay = false;
         if (!disposed) {
@@ -1189,9 +1194,17 @@ export function PaneTerminal({
       outputFrames.push({ data, replay, done });
       if (!writingOutput) writeNextOutput();
     };
-    // a pane switch resets the parser, and a reconnect replays afresh: only an OSC still open in
-    // xterm keeps a replayed copy request pending
-    resetOutputOriginRef.current = () => { replayOscOpen = replayOscOpen && term.oscStringState().open; };
+    // A pane switch resets the parser, and a reconnect replays afresh: frames still queued from
+    // before are dropped unwritten (their connection or pane is gone, so they have no ACK to send),
+    // and the one xterm is parsing finishes with no clipboard write. Its callback still runs, and
+    // its own owner and generation checks keep it off the new output. Only an OSC still open in
+    // xterm keeps a replayed copy request pending.
+    const retireOutput = (): void => {
+      outputOwner++;
+      outputFrames.length = 0;
+      replayOscOpen = replayOscOpen && term.oscStringState().open;
+    };
+    retireOutputRef.current = retireOutput;
     if (__HERDR_TEST_HOOKS__) {
       // browser scripts read the parse state and count xterm writes in flight (never in a release build)
       let inFlight = 0;
@@ -1206,7 +1219,7 @@ export function PaneTerminal({
         peakInFlight = Math.max(peakInFlight, inFlight);
         write(data, () => { inFlight--; callback?.(); });
       };
-      Object.assign(host, { outputProbe: () => ({ ...term.oscStringState(), parsingReplay, replayOscOpen, queued: outputFrames.length, inFlight, peakInFlight, writes, written }) });
+      Object.assign(host, { outputProbe: () => ({ ...term.oscStringState(), parsingReplay, replayOscOpen, retired: writingOutput && parsingOwner !== outputOwner, queued: outputFrames.length, inFlight, peakInFlight, writes, written }) });
     }
 
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty
@@ -1219,7 +1232,7 @@ export function PaneTerminal({
       const replayed = parsingReplay || replayOscOpen;
       // OSCs do not nest: the replayed one the flag waited for ends here
       replayOscOpen = false;
-      if (!replayed && osc52AllowedRef.current) {
+      if (!replayed && parsingOwner === outputOwner && osc52AllowedRef.current) {
         const text = parseOsc52(payload);
         if (text !== null) {
           void navigator.clipboard?.writeText(text).then(
@@ -1461,7 +1474,7 @@ export function PaneTerminal({
       pendingEpochRef.current = session.epoch;
       outputGeneration++;
       outputRecovering = false;
-      resetOutputOriginRef.current();
+      retireOutputRef.current();
       setOutputReady(false);
       setInputReady(false);
       setConnected(false);
@@ -2198,7 +2211,7 @@ export function PaneTerminal({
       outputFrames.length = 0;
       parsingReplay = false;
       replayOscOpen = false;
-      resetOutputOriginRef.current = () => {};
+      retireOutputRef.current = () => {};
       osc52.dispose();
       osc8.dispose();
       modifyOtherKeysSet.dispose();
@@ -2386,7 +2399,7 @@ export function PaneTerminal({
     setDraft(saved);
     draftPaneRef.current = paneId;
     term.reset();
-    resetOutputOriginRef.current();
+    retireOutputRef.current();
     hyperlinksRef.current.reset();
     modifyOtherKeysRef.current = 0;
     if (!paneId) return;
