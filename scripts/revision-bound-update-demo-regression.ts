@@ -254,6 +254,7 @@ async function behaviour(browser: Browser, url: string): Promise<Record<string, 
     assert.match(await line.getByRole("link", { name: "How to restart", exact: true }).getAttribute("href") ?? "", /docs\/guide\.md#updates$/);
     await settingsOpen(page, "en");
     await settings.getByText(RESTART, { exact: true }).waitFor();
+    assert.match(await settings.getByRole("link", { name: "How to restart", exact: true }).getAttribute("href") ?? "", /docs\/guide\.md#updates$/);
     assert.equal(await install.isDisabled(), true, "Update and restart is disabled under an older supervisor");
     await install.click({ force: true });
     assert.equal(fixture.posts.length, posted, "nothing is posted under an older supervisor");

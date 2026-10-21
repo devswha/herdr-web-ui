@@ -99,7 +99,7 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
         status?.available ? t("Version {version} is available.", { version: versionLabel(status.latest_version, status.latest_revision) ?? "" }) : status?.checked_at ? t("Up to date.") : t("Waiting for an update check…"))}
     </p>}
     {restart && !error && !status?.error && blocked && <p className="settings-hint">{blocked}</p>}
-    {!installing && failure === "restart" && <p className="settings-hint"><span>{t("Restart Ovis on this PC to update from here: the server running now cannot install exactly the release shown.")}</span> <a className="settings-link" href={RESTART_HELP} target="_blank" rel="noreferrer">{t("How to restart")}</a></p>}
+    {!installing && failure === "restart" && <p className="settings-hint">{t("Restart Ovis on this PC to update from here: the server running now cannot install exactly the release shown.")}</p>}
     {notes && <ReleaseNotes notes={notes} label={t("What's new")} />}
     {/* under the release on offer, when there is one: what runs now stays to be read */}
     {installed && installed.releases.length > 0 && <ReleaseNotes notes={installed} label={t("What the last update brought")} />}
@@ -108,6 +108,8 @@ export function UpdateControls({ updates, bridgesFollow = false }: { updates: Up
       <div className="update-actions">
         <button type="button" className="btn" disabled={busy} onClick={() => void request({ command: "check" })}>{t("Check for updates")}</button>
         <button type="button" className="btn btn-primary" disabled={busy || offered === null || failure !== null} onClick={() => { if (offered) void request({ command: "install", expected_revision: offered }); }}>{t("Update and restart")}</button>
+        {/* the way forward when this server cannot install by revision: a control of the row, not a word in the sentence */}
+        {!installing && failure === "restart" && <a className="btn" href={RESTART_HELP} target="_blank" rel="noreferrer">{t("How to restart")}</a>}
       </div>
     </>}
     {status?.checked_at && <p className="settings-hint">{t("Last checked {when}", { when: new Date(status.checked_at).toLocaleString(locale) })}</p>}
