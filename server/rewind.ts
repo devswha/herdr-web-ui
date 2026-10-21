@@ -150,12 +150,18 @@ const cursorOf = (list: ClaudeRewindList): string => list.rows[list.cursor]!.lab
 /**
  * Never mind on the rewind card: its Esc took Claude Code back to the list (recorded), which the chat
  * offers no way out of. Once the list shows, one more Esc closes it (recorded); nothing is sent when the
- * list does not show within `stepMs`, so Claude's own input box never gets an Esc from here.
+ * list does not show within `stepMs`, so Claude's own input box never gets an Esc from here. Nor once the
+ * requester is `gone`, checked before the Esc and again by herdr's client right before its write.
  */
-export async function followClaudeNeverMind(paneId: string, stepMs = STEP_MS): Promise<void> {
+export async function followClaudeNeverMind(paneId: string, stepMs = STEP_MS, gone: () => boolean = () => false): Promise<void> {
   const read = async () => (await paneRead({ paneId, source: "detection", format: "text" })).text;
-  if (await waitFor({ read }, parseClaudeRewindList, stepMs) === null) return;
-  await paneSendKeys(paneId, [KEY.escape]);
+  if (await waitFor({ read }, parseClaudeRewindList, stepMs) === null || gone()) return;
+  try {
+    await paneSendKeys(paneId, [KEY.escape], undefined, () => !gone());
+  } catch (error) {
+    // the guard kept the Esc back: the requester left while it connected
+    if (!(error instanceof HerdrError && error.code === "cancelled")) throw error;
+  }
 }
 
 /**

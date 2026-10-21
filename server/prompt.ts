@@ -1824,12 +1824,15 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         const sendStep = async (step: AnswerStep, move: boolean, more: boolean): Promise<void> => {
           const first = !move && !committed;
           if (!move) committed = true;
+          // the rewind card's keys go only while its requester is there, asked once more right before the
+          // write (herdrRpc's guard): the requester can leave while the connection opens
+          const guard = responder === "claude-rewind" ? () => !request.signal.aborted : undefined;
           try {
-            if (step.keys) await paneSendKeys(body.pane_id, step.keys);
-            else if (step.text !== undefined) await paneSendText(body.pane_id, step.text);
+            if (step.keys) await paneSendKeys(body.pane_id, step.keys, undefined, guard);
+            else if (step.text !== undefined) await paneSendText(body.pane_id, step.text, undefined, guard);
           } catch (error) {
-            // herdr was never reached, so nothing was pressed: the card is still to be answered
-            if (first && error instanceof HerdrError && error.code === "connect_failed") committed = false;
+            // herdr was never reached, or the guard kept the write back, so nothing was pressed: the card is still to be answered
+            if (first && error instanceof HerdrError && (error.code === "connect_failed" || error.code === "cancelled")) committed = false;
             throw error;
           }
           if (more) await Bun.sleep(30);
@@ -1908,7 +1911,7 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       // Restore conversation on Claude Code's rewind card: once its screen shows it done, the chat follows at once
       if (responder === "claude-rewind" && body.option_index === 0) await followClaudeRestore(body.pane_id, parsedByPublicPrompt.get(target)!);
       // Never mind went back to the list: it is closed too, so nothing is left open
-      if (responder === "claude-rewind" && target.options[body.option_index!]?.label === CLAUDE_REWIND_NEVER_MIND) await followClaudeNeverMind(body.pane_id);
+      if (responder === "claude-rewind" && target.options[body.option_index!]?.label === CLAUDE_REWIND_NEVER_MIND) await followClaudeNeverMind(body.pane_id, undefined, () => request.signal.aborted);
       return jsonResponse({ ok: true });
     });
     // the wait for the form's next step only reads the pane: after the pane's turn, so a message

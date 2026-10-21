@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PanePromptResponse } from "../shared/protocol.ts";
 import * as conversation from "./conversation.ts";
-import { socketAddress } from "./herdr/client.ts";
+import * as client from "./herdr/client.ts";
+import { HerdrError, socketAddress } from "./herdr/client.ts";
 import { handlePromptRequest } from "./prompt.ts";
 
 afterEach(() => mock.restore());
@@ -63,5 +64,24 @@ it("answers a rewind Restore card only on the copy it was served for, through th
     expect(((await answered!.json()) as { error: { code: string } }).error.code).toBe("prompt_changed");
     expect(keys).toEqual([]);
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+it("writes the rewind card's Esc only while its requester is still there, herdr's write-time guard included", async () => {
+  const pane = { screen: recorded("confirm-apple-restore") };
+  await withFakeHerdr(pane, async (paneId) => {
+    const url = new URL(`http://localhost/api/pane/prompt?pane_id=${paneId}`);
+    const card = (await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse).prompt!;
+    const requester = new AbortController();
+    const written: string[][] = [];
+    // the requester leaves while the key's connection to herdr opens
+    spyOn(client, "paneSendKeys").mockImplementation(async (_pane, keys, _socket, guard) => {
+      requester.abort();
+      if (guard !== undefined && !guard()) throw new HerdrError("cancelled", "herdr pane.send_keys was not sent");
+      written.push(keys);
+    });
+    const answerUrl = new URL("http://localhost/api/pane/prompt/answer");
+    await handlePromptRequest(new Request(answerUrl, { method: "POST", signal: requester.signal, body: JSON.stringify({ pane_id: paneId, prompt_id: card.id, option_index: 1 }) }), answerUrl).catch(() => undefined);
+    expect(written).toEqual([]);
   });
 });
