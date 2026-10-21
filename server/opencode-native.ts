@@ -200,6 +200,7 @@ export function openCodeNativeState(): { stream: boolean; panes: string[] } {
 /** The verified service a pane's exact session lives in, or null (scan rows and screen paths stay). */
 export async function openCodePaneService(pane: Pick<HerdrPane, "agent" | "agent_session"> & { pane_id?: string }, signal?: AbortSignal, stateDir?: string): Promise<{ service: OpenCodeService; sessionID: string } | null> {
   const label = resolveAgent(pane).agent;
+  if (label !== "opencode") return null;
   const roots = pane.pane_id ? typingRoots(await paneProcessRoots(pane.pane_id, label)) : null;
   const agent = resolveAgent(pane, roots).agent;
   if (agent !== "opencode") return null;
@@ -317,7 +318,7 @@ async function boundCatalog(pane: HerdrPane, cwd: string | null, budgetMs: numbe
  */
 export async function openCodeSkillsToType(pane: HerdrPane, sent: Sent, text: string, screen = "", stateDir?: string): Promise<{ sent: Sent; skills: string[] }> {
   const label = resolveAgent(pane).agent;
-  if (process.platform === "win32" || !/(?:^|\s)@\S/u.test(text)) return { sent, skills: [] };
+  if (label !== "opencode" || process.platform === "win32" || !/(?:^|\s)@\S/u.test(text)) return { sent, skills: [] };
   const roots = typingRoots(await paneProcessRoots(pane.pane_id, label));
   if (resolveAgent(pane, roots).agent !== "opencode") return { sent, skills: [] };
   const tokensOf = (record: Sent): string[] => record?.agent === "opencode" ? skillTokens(text, record.invocations.map((invocation) => invocation.name)) : [];

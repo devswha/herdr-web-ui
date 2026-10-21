@@ -7,6 +7,9 @@ import type { HerdrPane } from "../shared/protocol.ts";
 import type { CommandSend } from "./outcome.ts";
 import * as herdr from "./herdr/client.ts";
 import * as omo from "./omo.ts";
+import { omoSessionFolder } from "./omo.ts";
+import { processStartedAt } from "./process-start.ts";
+import { paneProcessRoots } from "./conversation.ts";
 import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, openCodeSkillsToType, releaseOpenCodePane, skillsNotAttached, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
 import { commandOutcome } from "./outcome.ts";
 import * as service from "./opencode-service.ts";
@@ -70,22 +73,45 @@ describe("recording a send never waits on OpenCode's service", () => {
     expect(startOpenCodeWatch(pane, undefined)).toBeNull();
   });
 
-  it("does not treat an OmO pane herdr labels pi as OpenCode", async () => {
-    const omoPane = { ...pane, agent: "pi", agent_session: { agent: "pi", source: "herdr:pi", kind: "id", value: "ses_omo001" } } as unknown as HerdrPane;
-    const agentDir = join(root, "omo-agent", ".omo", "agent");
-    mkdirSync(agentDir, { recursive: true });
-    const lookup = spyOn(service, "openCodeService").mockResolvedValue(null);
+  it("does not treat an OmO pane herdr labels opencode as OpenCode", async () => {
+    const omoPane = { ...pane, agent: "opencode", agent_session: { agent: "opencode", source: "herdr:opencode", kind: "id", value: "ses_omo001" } } as unknown as HerdrPane;
+    const home = join(root, "omo-home");
+    const agentDir = join(home, ".omo", "agent");
+    const holders = join(agentDir, "sessions", omoSessionFolder(root), "session-holders", "sess_omo001");
+    mkdirSync(holders, { recursive: true });
+    writeFileSync(join(holders, `${process.pid}.json`), JSON.stringify({ pid: process.pid, processStartedAtMs: processStartedAt(process.pid), cwd: root }));
+    const oldHome = process.env["HOME"];
+    process.env["HOME"] = home;
     const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { foreground_processes: [{ pid: process.pid, argv: ["omo"], cwd: root }] } } as never);
-    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir, heldIds: ["session-1"], custom: true });
+    const environ = spyOn(omo, "processEnviron").mockReturnValue(null);
+    const lookup = spyOn(service, "openCodeService").mockResolvedValue(null);
     try {
+      expect((await paneProcessRoots(omoPane.pane_id, "opencode")).omo?.held).toBeTrue();
       expect(await openCodePaneService(omoPane)).toBeNull();
       expect(lookup).not.toHaveBeenCalled();
-      expect(startOpenCodeWatch(omoPane, sent)).toBeNull();
       const send = { ...sent, store: null };
-      expect(await openCodeSkillsToType(omoPane, send, "@skill")).toEqual({ sent: send, skills: [] });
-      expect(rpc).toHaveBeenCalledTimes(2);
+      const typed = await openCodeSkillsToType(omoPane, send, "@skill");
+      expect(typed).toEqual({ sent: send, skills: [] });
+      expect(lookup).not.toHaveBeenCalled();
     } finally {
-      identity.mockRestore();
+      if (oldHome === undefined) delete process.env["HOME"];
+      else process.env["HOME"] = oldHome;
+      environ.mockRestore();
+      rpc.mockRestore();
+      lookup.mockRestore();
+    }
+  });
+
+  it("does not probe process roots for a non-OpenCode skill send", async () => {
+    const claudePane = { ...pane, agent: "claude", agent_session: { agent: "claude", source: "herdr:claude", kind: "id", value: "ses_claude001" } } as unknown as HerdrPane;
+    const send = { ...sent, agent: "claude", store: null };
+    const rpc = spyOn(herdr, "herdrRpc");
+    const lookup = spyOn(service, "openCodeService");
+    try {
+      expect(await openCodeSkillsToType(claudePane, send, "@file")).toEqual({ sent: send, skills: [] });
+      expect(rpc).not.toHaveBeenCalled();
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
       rpc.mockRestore();
       lookup.mockRestore();
     }
