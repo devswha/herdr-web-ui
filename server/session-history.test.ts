@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -130,11 +130,11 @@ describe("listSessions", () => {
     let bytes = 0;
     const rows = listSessions("pi", CWD, {
       home, env: {},
-      readHead: (file, max) => {
+      readHead: (fd, max) => {
         const buffer = Buffer.alloc(max);
-        const fd = openSync(file, "r");
-        try { const read = readSync(fd, buffer, 0, max, 0); bytes += read; return buffer.subarray(0, read); }
-        finally { closeSync(fd); }
+        const read = readSync(fd, buffer, 0, max, 0);
+        bytes += read;
+        return buffer.subarray(0, read);
       },
     });
     expect(rows.map((row) => [row.id, row.firstMessage])).toEqual([[ID(5), "large prompt"]]);
@@ -260,6 +260,31 @@ describe("listSessions", () => {
       },
     });
     expect(swapped).toBe(true);
+    expect(rows.map((row) => row.firstMessage)).not.toContain("outside the store");
+    expect(rows).toEqual([]);
+  });
+
+  it.skipIf(!SYMLINKS)("gives a reader only the checked file, so no reader can read a file swapped in after the check", () => {
+    const home = newHome();
+    mkdirSync(piStore(home), { recursive: true });
+    const outside = join(root, `outside-reader-${homes}`);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "secret.jsonl"), piHeader(ID(9)) + piPrompt("outside the store"));
+    const session = join(piStore(home), "session.jsonl");
+    writeFileSync(session, piHeader(ID(1)) + piPrompt("inside the store"));
+    const checked = realpathSync(session);
+    const rows = listSessions("pi", CWD, {
+      home, env: {},
+      stat: (path) => {
+        const stat = statSync(path);
+        if (path === checked) { rmSync(path); symlinkSync(join(outside, "secret.jsonl"), path); }
+        return stat;
+      },
+      // a reader that does no check of its own: given a path it would follow the link
+      readHead: ((target: number | string, max: number) => typeof target === "number"
+        ? (() => { const buffer = Buffer.alloc(max); return buffer.subarray(0, readSync(target, buffer, 0, max, 0)); })()
+        : readFileSync(target).subarray(0, max)) as never,
+    });
     expect(rows.map((row) => row.firstMessage)).not.toContain("outside the store");
     expect(rows).toEqual([]);
   });

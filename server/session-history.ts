@@ -69,8 +69,8 @@ export interface SessionHistoryOptions {
   codexHome?: string;
   opencodeDb?: string;
   hermesHome?: string;
-  /** Reads at most `max` bytes from the start of an already resolved file, the one `checked` names (tests count the bytes). */
-  readHead?: (path: string, max: number, checked?: { dev: number; ino: number }) => Buffer;
+  /** Reads at most `max` bytes from the start of the checked file, opened (tests count the bytes): it gets the descriptor alone. */
+  readHead?: (fd: number, max: number) => Buffer;
   /** Stats a path the listing looks at (tests count the calls). */
   stat?: (path: string, bigint?: boolean) => Stats | BigIntStats;
   /** Resolves a path the listing looks at (tests count the calls); defaults to realpathSync. */
@@ -174,18 +174,26 @@ const inside = (root: string, path: string): boolean => {
   return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 };
 
-function defaultReadHead(path: string, max: number, checked?: { dev: number; ino: number }): Buffer {
-  // O_NONBLOCK: a FIFO put where a file was is not waited on; O_NOFOLLOW: a link put there since
-  // the check is not followed. The file opened must be the one checked (a folder above it swapped
-  // for a link reaches another file by the same path)
-  const fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+/** At most `max` bytes from the start of an open file. */
+function defaultReadHead(fd: number, max: number): Buffer {
+  const buffer = Buffer.alloc(max);
+  const length = readSync(fd, buffer, 0, max, 0);
+  return buffer.subarray(0, length);
+}
+
+/**
+ * The checked file, opened: O_NONBLOCK, so a FIFO put where a file was is not waited on; O_NOFOLLOW,
+ * so a link put there since the check is not followed; and the file opened must be the one checked
+ * (a folder above it swapped for a link reaches another file by the same path). A reader gets only
+ * this descriptor, so none can read another file.
+ */
+function openChecked(file: { real: string; dev: number; ino: number }): number {
+  const fd = openSync(file.real, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
   try {
     const opened = fstatSync(fd);
-    if (!opened.isFile() || (checked !== undefined && (opened.dev !== checked.dev || opened.ino !== checked.ino))) throw new Error("not the file that was checked");
-    const buffer = Buffer.alloc(max);
-    const length = readSync(fd, buffer, 0, max, 0);
-    return buffer.subarray(0, length);
-  } finally { closeSync(fd); }
+    if (!opened.isFile() || opened.dev !== file.dev || opened.ino !== file.ino) throw new Error("not the file that was checked");
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
 }
 
 /**
@@ -284,7 +292,7 @@ class Budget {
 
 /** A store being read: its resolved root, the listing's budget, and how files are read. */
 class Scan {
-  constructor(readonly root: string, readonly budget: Budget, private readonly reader: (path: string, max: number, checked?: { dev: number; ino: number }) => Buffer) {}
+  constructor(readonly root: string, readonly budget: Budget, private readonly reader: (fd: number, max: number) => Buffer) {}
 
   get exhausted(): boolean { return this.budget.exhausted; }
 
@@ -299,7 +307,10 @@ class Scan {
   /** At most HEAD_BYTES of a resolved file, split in lines; `cut` when the file goes on past them. */
   head(file: Found): { lines: string[]; cut: boolean } {
     let head: Buffer;
-    try { head = this.reader(file.real, HEAD_BYTES, { dev: file.dev, ino: file.ino }); } catch { return { lines: [], cut: false }; }
+    try {
+      const fd = openChecked(file);
+      try { head = this.reader(fd, HEAD_BYTES); } finally { closeSync(fd); }
+    } catch { return { lines: [], cut: false }; }
     return { lines: head.toString("utf8").split("\n"), cut: head.length >= HEAD_BYTES && file.size > head.length };
   }
 
