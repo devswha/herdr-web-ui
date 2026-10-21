@@ -12,7 +12,7 @@
  */
 import type { ParsedPrompt } from "./dialogs/shared.ts";
 import type { PaneRewindResponse } from "../shared/protocol.ts";
-import { CLAUDE_REWIND_CHOICES, parseClaudeRewindConfirm, parseClaudeRewindList, type ClaudeRewindConfirm, type ClaudeRewindList } from "./dialogs/claude.ts";
+import { CLAUDE_REWIND_CHOICES, claudeRewindOnScreen, parseClaudeRewindConfirm, parseClaudeRewindList, type ClaudeRewindConfirm, type ClaudeRewindList } from "./dialogs/claude.ts";
 import { KEY, normalizeText } from "./dialogs/shared.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, jsonResponse, readJsonObject } from "./http.ts";
 import { agentPrompt, paneRead, paneScrollInfo, paneSendKeys } from "./herdr/client.ts";
@@ -120,29 +120,32 @@ export async function followClaudeRestore(paneId: string, parsed: ParsedPrompt, 
 const cursorOf = (list: ClaudeRewindList): string => list.rows[list.cursor]!.label;
 
 /**
- * From a confirm step back to the list, the cursor on `label` again: ↓ one key at a time, each sent
- * once the screen shows the last one landed on the same message's step, and Enter only once "Never
- * mind" is shown selected. null: a key moved something else (or nothing within `stepMs`); no further
- * key is sent.
+ * From a confirm step back to the list, the cursor on `label` again: one Esc, which 2.1.304 takes on
+ * any of the step's rows (recorded). Never over the rows: on a Summarize row the step is an
+ * add-context field, which typed text and Enter commit. null: the list did not come back on that
+ * row within `stepMs`; no further key is sent here.
  */
-async function backToList(io: RewindIo, confirm: ClaudeRewindConfirm, label: string, stepMs: number): Promise<ClaudeRewindList | null> {
-  const never = CLAUDE_REWIND_CHOICES.length - 1;
-  for (let shown = confirm; shown.selected !== never;) {
-    if (shown.selected > never) return null;
-    const next = shown.selected + 1;
-    await io.keys([KEY.down]);
-    const moved = await waitFor(io, (screen) => {
-      const step = parseClaudeRewindConfirm(screen);
-      return step !== null && step.message === confirm.message && step.selected === next ? step : null;
-    }, stepMs);
-    if (moved === null) return null;
-    shown = moved;
-  }
-  await io.keys([KEY.enter]);
+async function backToList(io: RewindIo, label: string, stepMs: number): Promise<ClaudeRewindList | null> {
+  await io.keys([KEY.escape]);
   return await waitFor(io, (screen) => {
     const shown = parseClaudeRewindList(screen);
     return shown !== null && cursorOf(shown) === label ? shown : null;
   }, stepMs);
+}
+
+/**
+ * Leaves no rewind dialog behind: Esc while the screen still shows Claude Code's rewind panel, read or
+ * not, at most three times (recorded: on a confirm step or its add-context field Esc goes back to the
+ * list, on the list it closes it). Esc commits nothing there; once the panel is gone nothing is sent,
+ * so Claude's own input box never gets an Esc from here.
+ */
+async function closeRewind(io: RewindIo, stepMs: number): Promise<void> {
+  for (let presses = 0; presses < 3; presses += 1) {
+    const screen = await io.read();
+    if (!claudeRewindOnScreen(screen)) return;
+    await io.keys([KEY.escape]);
+    if (await waitFor(io, (shown) => shown !== screen ? true : null, stepMs) === null) return;
+  }
 }
 /** where the list stands: the row under the cursor and how much lies above it */
 const placeOf = (list: ClaudeRewindList): string => `${list.above}\0${list.cursor}\0${list.rows.map((row) => row.label).join("\n")}`;
@@ -151,9 +154,17 @@ const placeOf = (list: ClaudeRewindList): string => `${list.above}\0${list.curso
  * Opens Claude Code's /rewind and walks its list up to the message `text`, `later` other messages with
  * the same words being newer ones, then opens that message's confirm step. "shown": the step is on
  * screen, for the user to answer from its card. "not_found": the list holds no such message and was
- * closed again. "changed": the dialog did not show what a key should have done; nothing more is sent.
+ * closed again. "changed": the dialog did not show what a key should have done; no key but Esc follows,
+ * and only while a rewind panel is still on screen: whatever the walk ends in other than "shown", it
+ * leaves no dialog open.
  */
 export async function walkClaudeRewind(io: RewindIo, text: string, later: number, stepMs = STEP_MS): Promise<RewindWalk> {
+  const walked = await walkRewindList(io, text, later, stepMs);
+  if (walked !== "shown") await closeRewind(io, stepMs);
+  return walked;
+}
+
+async function walkRewindList(io: RewindIo, text: string, later: number, stepMs: number): Promise<RewindWalk> {
   await io.command("/rewind");
   let list = await waitFor(io, parseClaudeRewindList, stepMs);
   if (list === null) return "changed";
@@ -172,7 +183,7 @@ export async function walkClaudeRewind(io: RewindIo, text: string, later: number
         if (same && skip === 0) return "shown";
         if (same) skip -= 1;
         // a newer copy, or another message the cut row reads the same for: back to the list, on the same row
-        const back = await backToList(io, confirm, label, stepMs);
+        const back = await backToList(io, label, stepMs);
         if (back === null) return "changed";
         list = back;
       }

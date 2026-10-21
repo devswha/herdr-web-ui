@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { answerKeys, parseInteractivePrompt } from "../prompt.ts";
-import { readers } from "./claude.ts";
+import { claudeRewindOnScreen, readers } from "./claude.ts";
 import { executeInteractionPlan } from "./interaction-plan.ts";
 import type { ReaderContext } from "./registry.ts";
 import type { AnswerStep } from "./shared.ts";
@@ -77,6 +77,20 @@ describe("Claude Code's /rewind", () => {
     expect(await answer(rewind("confirm-long", 40))).toEqual({ result: "prompt_changed", sent: [] });
     expect(await answer(rewind("confirm-apple", 40))).toEqual({ result: "answered", sent: [{ keys: ["enter"] }] });
   });
+
+  // R1-NEW-1: the confirm step with the cursor on each row, recorded; the Summarize rows are add-context fields
+  for (const width of [40, 120]) {
+    test(`knows every recorded state of the rewind panel as one, the add-context fields included, at ${width} columns`, () => {
+      for (const state of ["confirm-apple-restore", "confirm-apple-summarize-from", "confirm-apple-summarize-up-to", "confirm-apple-never-mind", "confirm-apple-restore-esc", "confirm-apple-summarize-from-esc", "confirm-long-610"]) {
+        expect(claudeRewindOnScreen(rewind(state, width)), state).toBe(true);
+      }
+      // Esc on the list closes it: Claude's own input box is back
+      expect(claudeRewindOnScreen(rewind("confirm-apple-esc-esc", width))).toBe(false);
+      // a Summarize row is a text field, not the four choices: no card answers it
+      expect(parseInteractivePrompt("claude", rewind("confirm-apple-summarize-from", width))).toBeNull();
+      expect(parseInteractivePrompt("claude", rewind("confirm-apple-never-mind", width))?.options.map((option) => option.label)).toEqual(CHOICES);
+    });
+  }
 
   test("a list cut by a later line gets no card", () => {
     expect(parseInteractivePrompt("claude", `${rewind("select-banana", 120)}\n❯ hello`)).toBeNull();

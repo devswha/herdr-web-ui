@@ -518,6 +518,14 @@ function claudeRewindPanel(screen: string): string[][] | null {
   return blocks.length >= 3 && blocks[0]!.length === 1 && cleanLine(blocks[0]![0]!) === "Rewind" ? blocks.slice(1) : null;
 }
 
+/**
+ * Whether the screen ends in Claude Code's rewind panel, read or not: its list, a confirm step, or a
+ * confirm step's add-context field (the Summarize rows, which take typed text and Enter).
+ */
+export function claudeRewindOnScreen(screen: string): boolean {
+  return claudeRewindPanel(screen) !== null;
+}
+
 /** A row of the rewind list: its first line, the cursor's mark taken off, and the lines under it. */
 export interface ClaudeRewindRow { label: string; detail: string | null; cursor: boolean }
 

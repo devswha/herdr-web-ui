@@ -14,9 +14,21 @@ import { writeFileSync } from "node:fs";
 /** Claude Code 2.1.304's /rewind at 40 columns, recorded (server/fixtures) */
 const screen = (name: string): string => readFileSync(new URL(`./fixtures/claude-rewind-2.1.304-${name}-40.txt`, import.meta.url), "utf8");
 
-/** A recorded confirm step with the cursor on `choice`: the recordings show it on the first, and ↓ moves the `❯` down the numbered rows. */
-const withChoice = (shown: string, choice: number): string =>
-  shown.replace(/^ {3}(?:❯ | {2})([1-4])\. (.*)$/gm, (_, number: string, label: string) => `   ${Number(number) - 1 === choice ? "❯ " : "  "}${number}. ${label}`);
+/**
+ * Claude Code 2.1.304's confirm step with the cursor on each of its four rows, recorded at 40 columns:
+ * on the two Summarize rows the row turns into an add-context field ("Summarize from here: add
+ * context (optional)") under its own note, which typed text and Enter go to.
+ */
+const CONFIRM_ROWS = ["confirm-apple-restore", "confirm-apple-summarize-from", "confirm-apple-summarize-up-to", "confirm-apple-never-mind"];
+
+/** The recorded confirm step with the cursor on `choice`, quoting what `base` quotes. */
+function confirmAt(base: string, choice: number): string {
+  const quote = base.split("\n").filter((line) => line.startsWith("   │ "));
+  const lines = screen(CONFIRM_ROWS[choice]!).split("\n");
+  const from = lines.findIndex((line) => line.startsWith("   │ "));
+  const to = lines.length - 1 - [...lines].reverse().findIndex((line) => line.startsWith("   │ "));
+  return [...lines.slice(0, from), ...quote, ...lines.slice(to + 1)].join("\n");
+}
 
 /** The recorded list at 40 columns (select-long), its rows replaced: `labels` as a pane that narrow shows them, the cursor on `cursor`. */
 function listScreen(labels: string[], cursor: number): string {
@@ -37,16 +49,17 @@ type DialogState = { at: "closed" } | { at: "list"; row: number } | { at: "confi
 
 /**
  * The dialog as the recordings show it: the list's screen for each row the cursor is on, the
- * confirm step for some of them, ↑/↓ moving the cursor (on the list, and down the confirm step's
- * choices), Enter on a row opening its confirm step, Enter on the confirm step taking the choice
- * under the cursor ("Never mind" goes back to the same row, Restore conversation restores), Esc
- * closing the list. herdr's prompt types its text and Enter: over an open dialog, only the Enter
+ * confirm step for some of them, ↑/↓ moving the cursor (on the list, and over the confirm step's
+ * recorded rows), Enter on a row opening its confirm step, Enter on the confirm step taking the
+ * choice under the cursor ("Never mind" goes back to the same row, Restore conversation restores, a
+ * Summarize row summarizes), Esc on the confirm step going back to the list's same row, Esc on the
+ * list closing it. herdr's prompt types its text and Enter: over an open dialog, only the Enter
  * lands. `interfere` runs after each key, for a key the walker did not send.
  */
 function dialogModel(rowCount: number, list: (row: number) => string, confirm: (row: number) => string | undefined, interfere?: (key: string, press: (key: string) => void) => void) {
   let state: DialogState = { at: "closed" };
   const sent: string[] = [];
-  const read = (): string => state.at === "confirm" ? withChoice(confirm(state.row)!, state.choice)
+  const read = (): string => state.at === "confirm" ? confirmAt(confirm(state.row)!, state.choice)
     : state.at === "list" ? list(state.row) : state.at === "restored" ? screen("restored") : screen("closed");
   const apply = (key: string): void => {
     if (state.at === "list") {
@@ -57,6 +70,8 @@ function dialogModel(rowCount: number, list: (row: number) => string, confirm: (
     } else if (state.at === "confirm") {
       if (key === "down") state = { ...state, choice: Math.min(3, state.choice + 1) };
       else if (key === "up") state = { ...state, choice: Math.max(0, state.choice - 1) };
+      // Esc goes back to the list on the same row, from any of the four rows (recorded)
+      else if (key === "esc") state = { at: "list", row: state.row };
       else if (key === "enter") state = state.choice === 3 ? { at: "list", row: state.row } : { at: state.choice === 0 ? "restored" : "summarized", row: state.row };
     }
   };
@@ -79,9 +94,9 @@ function recordedDialog(rows: string[], confirms: Record<number, string>, interf
 }
 
 /** A dialog over `messages` (oldest first), each row cut to `width` characters as a narrow pane cuts it, from the recorded layouts. */
-function narrowDialog(messages: string[], width: number, interfere?: (key: string, press: (key: string) => void) => void) {
+function narrowDialog(messages: string[], width: number, interfere?: (key: string, press: (key: string) => void) => void, confirms: Record<number, string> = {}) {
   const labels = [...messages.map((message) => message.length > width ? `${message.slice(0, width - 1)}…` : message), "(current)"];
-  return dialogModel(labels.length, (row) => listScreen(labels, row), (row) => row < messages.length ? confirmScreen(messages[row]!) : undefined, interfere);
+  return dialogModel(labels.length, (row) => listScreen(labels, row), (row) => confirms[row] ?? (row < messages.length ? confirmScreen(messages[row]!) : undefined), interfere);
 }
 
 const fruit = () => recordedDialog(["after-never-mind", "select-banana", "select-current"], { 0: "confirm-apple" });
@@ -105,7 +120,8 @@ describe("walking Claude Code's rewind list", () => {
   it("goes back to the list when a cut row was another message, and closes the list when none is left", async () => {
     const dialog = long();
     expect(await walkClaudeRewind(dialog.io, "please describe the history of something else", 0)).toBe("not_found");
-    expect(dialog.sent).toEqual(["/rewind", "up", "up", "enter", "down", "down", "down", "enter", "up", "esc"]);
+    // back to the list with Esc (recorded), never over the confirm step's rows
+    expect(dialog.sent).toEqual(["/rewind", "up", "up", "enter", "esc", "up", "esc"]);
     expect(dialog.state()).toEqual({ at: "closed" });
   });
 
@@ -121,6 +137,9 @@ describe("walking Claude Code's rewind list", () => {
     const dialog = narrowDialog([LONG, LONG, OTHER], 31);
     expect(await walkClaudeRewind(dialog.io, LONG, 1)).toBe("shown");
     expect(dialog.state()).toEqual({ at: "confirm", row: 0, choice: 0 });
+    // B's and the newer A's confirm steps were left with Esc: no Down, so no add-context field
+    expect(dialog.sent.filter((key) => key === "down")).toEqual([]);
+    expect(dialog.sent.filter((key) => key === "esc")).toHaveLength(2);
   });
 
   it("counts only the same message's cut rows as the newer copies ([A, B, A])", async () => {
@@ -136,21 +155,23 @@ describe("walking Claude Code's rewind list", () => {
   });
 
   // HIGH 4 (merge pass r1): backing out of another message's confirm step
-  it("backs out of a confirm step one key at a time, each once the screen shows the last", async () => {
+  it("backs out of a confirm step with Esc alone, one key at a time, never over its rows", async () => {
     const dialog = long();
     const batches: string[][] = [];
     const io: RewindIo = { ...dialog.io, keys: async (keys) => { batches.push(keys); await dialog.io.keys(keys); } };
     expect(await walkClaudeRewind(io, "please describe the history of something else", 0)).toBe("not_found");
     expect(batches.every((keys) => keys.length === 1)).toBe(true);
+    expect(batches.flat()).not.toContain("down");
+    expect(dialog.state()).toEqual({ at: "closed" });
   });
 
-  it("sends no Enter on a confirm step once a key it did not send moved the cursor", async () => {
+  it("chooses nothing once a key it did not send moved the list under it, and leaves no dialog open", async () => {
     let moved = false;
-    const dialog = narrowDialog([LONG], 31, (key, apply) => { if (key === "down" && !moved) { moved = true; apply("up"); } });
+    const dialog = narrowDialog([LONG, OTHER], 31, (key, apply) => { if (key === "esc" && !moved) { moved = true; apply("down"); } });
     expect(await walkClaudeRewind(dialog.io, "please describe the history of something else", 0, 60)).toBe("changed");
-    // nothing chosen: still the confirm step, and the only Enter is the one that opened it
-    expect(dialog.state()).toMatchObject({ at: "confirm", row: 0 });
+    // the only Enter is the one that opened B's confirm step; Esc closes what is left
     expect(dialog.sent.filter((key) => key === "enter")).toEqual(["enter"]);
+    expect(dialog.state()).toEqual({ at: "closed" });
   });
 
   it("sends nothing more once the dialog does not show what a key did", async () => {
