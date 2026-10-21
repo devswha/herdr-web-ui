@@ -35,19 +35,31 @@ test("older failed read cannot replace newer success", () => {
   const settled = book;
   book = applyHealthRead(book, "local", 2, failed);
   expect(book).toBe(settled);
-  expect(machineHealth(book, "local")).toEqual({ confirmed: newer, failures: 0, read: 3 });
-  // nor does an older success replace a newer failure's place in the run
-  book = applyHealthRead(book, "local", 5, failed);
-  expect(applyHealthRead(book, "local", 4, ok(WINDOWS))).toBe(book);
+  expect(machineHealth(book, "local")).toEqual({ confirmed: newer, failures: 0, answered: 3, read: 3 });
+  // nor does an older success replace a newer success
+  expect(applyHealthRead(book, "local", 2, ok(WINDOWS))).toBe(settled);
+});
+
+test("older success after newer failure still brings capabilities", () => {
+  // cold start: read 1 is held, read 2 fails, then read 1 answers that this PC has no terminal attach
+  let book = applyHealthRead(empty, "local", 2, failed);
+  book = applyHealthRead(book, "local", 1, ok(WINDOWS));
+  expect(machineHealth(book, "local").confirmed).toBe(WINDOWS);
+  // the newer failure still stands: the header says unknown, naming the herdr that answered
+  expect(healthFreshness(machineHealth(book, "local"))).toBe("unknown");
+  // and a further failure is the second in the run
+  book = applyHealthRead(book, "local", 3, failed);
+  expect(healthFreshness(machineHealth(book, "local"))).toBe("unavailable");
+  expect(machineHealth(book, "local").confirmed?.terminal_attach).toBe(false);
 });
 
 test("machines never share stale identity", () => {
   let book = applyHealthRead(empty, "local", 1, ok(WINDOWS));
   book = applyHealthRead(book, "local", 2, failed);
   book = applyHealthRead(book, "remote", 1, failed);
-  expect(machineHealth(book, "remote")).toEqual({ confirmed: null, failures: 1, read: 1 });
+  expect(machineHealth(book, "remote")).toEqual({ confirmed: null, failures: 1, answered: 0, read: 1 });
   expect(healthFreshness(machineHealth(book, "remote"))).toBe("unknown");
-  expect(machineHealth(book, "never-read")).toEqual({ confirmed: null, failures: 0, read: 0 });
+  expect(machineHealth(book, "never-read")).toEqual({ confirmed: null, failures: 0, answered: 0, read: 0 });
   expect(healthFreshness(machineHealth(book, "never-read"))).toBe("pending");
   expect(machineHealth(book, "local").confirmed).toBe(WINDOWS);
   expect(machineHealth(book, "local").failures).toBe(1);

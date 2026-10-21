@@ -314,6 +314,27 @@ async function scopeAndCapability(browser: Browser, url: string): Promise<Record
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
   }
+  // reverse order on a cold start: the first read is held while a newer one fails, and its late answer
+  // still brings what the PC can do (a Windows herdr's chat lens) while the newer failure still stands
+  {
+    const { context, page, errors } = await openDemo(browser, url, { pane: panes.shell, herdr: JSON.stringify(WINDOWS) });
+    try {
+      const held = await firstRead(page);
+      const newer = await nextRead(page);
+      assert.ok(newer > held);
+      await release(page, newer, "error");
+      const cold = await headerAfter(page, "stale", "newer read failed first");
+      assert.equal(cold.soon, false, "nothing is known yet");
+      await release(page, held, "ok");
+      const late = await established(page, "late answer after a newer failure");
+      assert.equal(late.lens, "chat", "the late answer's terminal_attach: false gives the chat lens");
+      assert.equal(late.offline, null);
+      assert.equal(late.stale?.text, "Status unknown", "the newer failure still stands");
+      assert.match(late.stale?.title ?? "", /herdr 0\.9\.5 · protocol 22/, "the late answer is the last herdr seen");
+      cases.push({ case: "older-success-after-newer-failure", reads: { held, newer }, cold, late });
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
   // cold start: no answer yet, so no identity to borrow, and two failures are unavailable
   {
     const { context, page, errors } = await openDemo(browser, url, { pane: panes.shell, herdr: JSON.stringify(WINDOWS) });

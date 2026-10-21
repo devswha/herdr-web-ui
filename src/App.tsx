@@ -268,7 +268,7 @@ export function App() {
     focusWorkspaceListToggle();
   }, []);
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
-  // this PC's health reads (lib/healthPresentation.ts): its last answer is what its herdr can do,
+  // this PC's health reads (lib/healthPresentation.ts): its newest answer is what its herdr can do,
   // the failed reads since then only change what the header says
   const healthBook = useRef<HealthBook<HealthInfo>>(new Map());
   const healthReads = useRef(0);

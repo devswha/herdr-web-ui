@@ -6,8 +6,10 @@
  * makes the status unknown (the last answer's details stay named), and a second makes it
  * unavailable. Neither changes the PC's capabilities: those are the last answer the PC gave, and
  * only another answer replaces them, so a Windows herdr's `terminal_attach: false` is never
- * forgotten into the attach-capable default by a failed read. Reads are numbered as they start; one
- * that completes after a newer read has been taken in is dropped, whatever it says.
+ * forgotten into the attach-capable default by a failed read. Reads are numbered as they start. An
+ * answer is taken in unless a newer answer already was, even after a newer read failed: what the PC
+ * can do never waits on the order its reads fail in. The run of failures counts only failed reads
+ * newer than every read taken in, so an older read, failed or answered, never moves it.
  */
 
 export type HealthFreshness = "pending" | "fresh" | "unknown" | "unavailable";
@@ -18,7 +20,9 @@ export interface MachineHealth<T> {
   readonly confirmed: T | null;
   /** completed reads in a row that failed since that answer (or since the page opened) */
   readonly failures: number;
-  /** the newest read taken in; an older one that completes later is dropped */
+  /** the read that brought `confirmed`; an older answer that completes later is dropped */
+  readonly answered: number;
+  /** the newest read taken in, failed or answered; an older failure that completes later is dropped */
   readonly read: number;
 }
 
@@ -27,7 +31,7 @@ export type HealthBook<T> = ReadonlyMap<string, MachineHealth<T>>;
 /** failed reads in a row after which the header says unavailable rather than unknown */
 export const UNAVAILABLE_AFTER = 2;
 
-const NOTHING_YET: MachineHealth<never> = { confirmed: null, failures: 0, read: 0 };
+const NOTHING_YET: MachineHealth<never> = { confirmed: null, failures: 0, answered: 0, read: 0 };
 
 export function machineHealth<T>(book: HealthBook<T>, machineId: string): MachineHealth<T> {
   return book.get(machineId) ?? NOTHING_YET;
@@ -36,11 +40,14 @@ export function machineHealth<T>(book: HealthBook<T>, machineId: string): Machin
 /** Takes in one completed read of one PC; `read` is the number the read got as it started. */
 export function applyHealthRead<T>(book: HealthBook<T>, machineId: string, read: number, answer: HealthAnswer<T>): HealthBook<T> {
   const current = machineHealth(book, machineId);
-  if (read <= current.read) return book;
+  // a newer answer is already in, or (for a failure) a newer read of any kind
+  if (answer.ok ? read <= current.answered : read <= current.read) return book;
+  const newest = read > current.read;
   const next = new Map(book);
   next.set(machineId, answer.ok
-    ? { confirmed: answer.value, failures: 0, read }
-    : { confirmed: current.confirmed, failures: current.failures + 1, read });
+    // an answer that lands after a newer read failed brings its capabilities, and the failure still stands
+    ? { confirmed: answer.value, failures: newest ? 0 : current.failures, answered: read, read: newest ? read : current.read }
+    : { confirmed: current.confirmed, failures: current.failures + 1, answered: current.answered, read });
   return next;
 }
 
