@@ -1,12 +1,11 @@
 /**
  * Earlier sessions of a folder, read from each agent's own store, newest first (#1314).
  *
- * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 16384 candidate
- * entries (a session file, a Codex day folder, a Grok session folder: other entries, such as
- * Claude's per-session folders, are passed over at no cost) are taken per listing, each with its own
- * time (an lstat, up to three for a Grok session folder, bounded by those 16384, not counted as a
- * check), and all of them are ordered by
- * time before any is checked, so the newest are checked first whatever the readdir order; at most
+ * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 16384 units of
+ * listing work are done per listing (each directory entry walked, taken or passed over, is one, and
+ * each lstat that times a taken entry one more: a session file, a Codex day folder, a Grok session
+ * folder up to three), and the entries taken are all ordered by time before any is checked, so the
+ * newest are checked first whatever the readdir order; at most
  * 400 checks are made per listing, a
  * check being one session file's resolution with its stat (spent whatever the resolution finds),
  * or one resolution or stat of a store, a folder or a database; at most 50 rows are returned, and
@@ -42,10 +41,10 @@ export const HEAD_BYTES = 64 * 1024;
  */
 export const MAX_STATS = 400;
 /**
- * At most this many candidate entries are taken for one listing, every folder's together: each costs
- * one lstat (a Grok session folder up to three: its two files, else itself; none of them checks) and
- * a place in the sort. Entries the listing passes over by name or type
- * are not counted. Bun's opendirSync still reads a whole folder from the kernel before any of this.
+ * At most this much listing work for one listing, every folder's together: each directory entry
+ * walked costs one unit, taken or passed over (Claude's per-session folders, say), and each lstat
+ * that times a taken entry one more (a Grok session folder three: its two files, else itself). None
+ * of these is a check. Bun's opendirSync still reads a whole folder from the kernel before any of it.
  */
 export const MAX_ENTRIES = 16384;
 /** At most this many sessions are returned. */
@@ -79,6 +78,8 @@ export interface SessionHistoryOptions {
   lstat?: (path: string) => Stats;
   /** Stats an opened file's descriptor (tests change the identity it reports); defaults to fstatSync. */
   fstat?: (fd: number, bigint?: boolean) => Stats | BigIntStats;
+  /** Opens a folder to walk its entries (tests count the entries walked); defaults to opendirSync. */
+  opendir?: (dir: string) => Dir;
   /** Checks already spent when the listing starts (tests place a check at the bound). */
   spent?: number;
   /** The OS whose folder rules apply; defaults to this one's (tests take Windows's on any OS). */
@@ -216,6 +217,7 @@ class Budget {
     private readonly resolveOf: (path: string) => string = realpathSync,
     private readonly lstatOf: (path: string) => Stats = lstatSync,
     readonly fstatOf: (fd: number, bigint?: boolean) => Stats | BigIntStats = (fd, bigint) => bigint ? fstatSync(fd, { bigint: true }) : fstatSync(fd),
+    private readonly opendirOf: (dir: string) => Dir = opendirSync,
   ) {}
 
   get exhausted(): boolean { return this.used >= MAX_STATS; }
@@ -261,19 +263,22 @@ class Budget {
 
   /**
    * A folder's entries that `keep` takes (decided from the entry alone: its name and type), unordered,
-   * as many as the listing has left to take; none for an unreadable folder. An entry `keep` passes
-   * over (a Claude session's folder of subagent transcripts, say) costs no syscall and is not counted.
+   * as many as the listing's work has left. Every entry walked costs one unit, taken or passed over
+   * (a Claude session's folder of subagent transcripts, say), and a taken one also reserves `lstats`
+   * units for the times taken of it later; none for an unreadable folder.
    */
-  list(dir: string, keep: (entry: Dirent) => boolean = () => true): Dirent[] {
+  list(dir: string, keep: (entry: Dirent) => boolean = () => true, lstats = 0): Dirent[] {
     const found: Dirent[] = [];
     let handle: Dir | undefined;
     try {
-      handle = opendirSync(dir);
+      handle = this.opendirOf(dir);
       while (this.entries < MAX_ENTRIES) {
         const entry = handle.readSync();
         if (entry === null) break;
-        if (!keep(entry)) continue;
         this.entries++;
+        if (!keep(entry)) continue;
+        if (this.entries + lstats > MAX_ENTRIES) break;
+        this.entries += lstats;
         found.push(entry);
       }
     } catch { /* an unreadable folder lists nothing */ }
@@ -360,8 +365,8 @@ function scanOf(budget: Budget, path: string, read: SessionHistoryOptions["readH
 }
 
 /** These folders' entries newest first by their own times (a link not followed), within the listing's entry bound. */
-function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Dirent) => boolean, timeOf: (path: string) => number | null = (path) => budget.modified(path)): string[] {
-  return dirs.flatMap((dir) => budget.list(dir, keep).flatMap((entry) => {
+function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Dirent) => boolean, lstats = 1, timeOf: (path: string) => number | null = (path) => budget.modified(path)): string[] {
+  return dirs.flatMap((dir) => budget.list(dir, keep, lstats).flatMap((entry) => {
     const path = join(dir, entry.name);
     const time = timeOf(path);
     return time === null ? [] : [{ path, time }];
@@ -611,7 +616,8 @@ function grokSessions(cwds: readonly string[], home: string, env: Record<string,
   };
   const sessionDirs = (group: string): string[] => {
     // newest first, within the listing's entry bound, so the checks go to the newest sessions
-    return newestEntries(budget, [join(scan.root, group)], (entry) => entry.isDirectory(), written);
+    // up to three lstats each: its two files, else the folder itself
+    return newestEntries(budget, [join(scan.root, group)], (entry) => entry.isDirectory(), 3, written);
   };
   const rows: Row[] = [];
   const readGroup = (group: string, dirs: readonly string[] = sessionDirs(group)) => {
@@ -892,7 +898,7 @@ export function listSessions(agent: SessionHistoryAgent, cwd: string, options: S
   const env = options.env ?? process.env;
   const home = options.home ?? homedir();
   const read = options.readHead;
-  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat, options.fstat);
+  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat, options.fstat, options.opendir);
   budget.used = options.spent ?? 0;
   // the pane's cwd may be another spelling of the folder the agent recorded: a Windows 8.3 alias (a
   // child keeps the short cwd) or a link (macOS /var -> /private/var). Resolve it once, as one counted

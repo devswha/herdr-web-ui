@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, type BigIntStats, type Stats, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readdirSync, type BigIntStats, type Dir, type Stats, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -394,6 +394,49 @@ describe("listSessions", () => {
     // one check further and the identity is past the bound: nothing is listed
     expect(listed(MAX_STATS - 5)).toBe(0);
   });
+
+  // the entries a listing walks, taken or passed over, as the opendir seam counts them
+  const walking = () => {
+    const seen = { walked: 0, lstats: 0 };
+    const opendir = (dir: string): Dir => {
+      const handle = opendirSync(dir);
+      return Object.assign(Object.create(Object.getPrototypeOf(handle) as object) as Dir, {
+        readSync: () => { const entry = handle.readSync(); if (entry !== null) seen.walked++; return entry; },
+        closeSync: () => handle.closeSync(),
+      });
+    };
+    return { seen, opendir, lstat: (path: string) => { seen.lstats++; return lstatSync(path); } };
+  };
+
+  it(`walks at most ${MAX_ENTRIES} units of a folder, entries passed over included`, () => {
+    const home = newHome();
+    const project = join(home, ".claude", "projects", claudeProjectDir(CWD));
+    mkdirSync(project, { recursive: true });
+    // a project of folders the listing passes over (Claude's per-session folders), and a few sessions
+    for (let n = 0; n < MAX_ENTRIES + 4000; n++) mkdirSync(join(project, `folder-${n}`));
+    for (let n = 0; n < 10; n++) writeFileSync(join(project, `${n.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000.jsonl`), "");
+    const { seen, opendir, lstat } = walking();
+    try { listSessions("claude", CWD, { home, env: {}, opendir, lstat }); }
+    finally { rmSync(home, { recursive: true, force: true }); }
+    expect(seen.walked).toBeGreaterThan(0);
+    expect(seen.walked + seen.lstats).toBeLessThanOrEqual(MAX_ENTRIES);
+  }, 60_000);
+
+  it(`counts every lstat a Grok session folder takes within the ${MAX_ENTRIES} units`, () => {
+    const home = newHome();
+    const group = join(home, ".grok", "sessions", FOLDERS.grok!);
+    for (let n = 0; n < 6000; n++) {
+      const dir = join(group, `s-${n}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "summary.json"), "{}");
+      writeFileSync(join(dir, "updates.jsonl"), "");
+    }
+    const { seen, opendir, lstat } = walking();
+    try { listSessions("grok", CWD, { home, env: {}, opendir, lstat }); }
+    finally { rmSync(home, { recursive: true, force: true }); }
+    expect(seen.lstats).toBeGreaterThan(0);
+    expect(seen.walked + seen.lstats).toBeLessThanOrEqual(MAX_ENTRIES);
+  }, 60_000);
 
   it(`reads at most ${MAX_ENTRIES} entries of a folder, however many it holds`, () => {
     const home = newHome();
