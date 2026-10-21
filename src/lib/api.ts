@@ -2,8 +2,9 @@ import { apiFetch as fetch } from "./api-request-id.ts";
 import type { PreferencesChange, SharedPreferences } from "../../shared/preferences.ts";
 import type { SeenFinish } from "../../shared/seen.ts";
 import { resumeConnectionTraces } from "./connectionTrace.ts";
-import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
+import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type MachineRoster, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
+  WorkspaceMoved,
   AgentKind,
   AgentRenameRequest,
   CommandOutcome,
@@ -748,9 +749,13 @@ export async function renameWorkspace(workspaceId: string, label: string, machin
   await sendJson(machinePath(machineId, "workspace/rename"), "POST", { workspace_id: workspaceId, label });
 }
 
-/** POST /api/workspace/move: places the workspace at `insertIndex` in herdr's order (the sidebar order). */
-export async function moveWorkspace(workspaceId: string, insertIndex: number, machineId = "local"): Promise<void> {
-  await sendJson(machinePath(machineId, "workspace/move"), "POST", { workspace_id: workspaceId, insert_index: insertIndex });
+/**
+ * POST /api/workspace/move: places the workspace at `insertIndex` in herdr's order (the sidebar order).
+ * The receipt says which move this was in that PC's server's order (lib/workspaceOrder.ts).
+ */
+export async function moveWorkspace(workspaceId: string, insertIndex: number, machineId = "local"): Promise<WorkspaceMoved> {
+  const response = await sendJson(machinePath(machineId, "workspace/move"), "POST", { workspace_id: workspaceId, insert_index: insertIndex });
+  return (await response.json().catch(() => ({ ok: true }))) as WorkspaceMoved;
 }
 
 /** closeGroup takes the repository's open worktree workspaces with it; herdr refuses to close over them otherwise. */
@@ -843,6 +848,19 @@ export async function fetchMachines(signal?: AbortSignal): Promise<Machine[]> {
   const response = await fetch("/api/machines", { signal });
   if (!response.ok) throw await errorFrom("/api/machines", response);
   return ((await response.json()) as { machines: Machine[] }).machines;
+}
+/**
+ * GET /api/machines?verify_source_boot: the roster, and the boot id of the server behind `machineId`
+ * proved during this very request (shared/protocol.ts). Null when the server proves nothing: a
+ * refusal, or an older server that ignored the query. Bounded, and ended by `signal`.
+ */
+export async function verifySourceBoot(machineId: string, signal: AbortSignal): Promise<{ machines: Machine[]; boot_id: string } | null> {
+  const path = `/api/machines?verify_source_boot=${encodeURIComponent(machineId)}`;
+  const response = await fetch(path, { signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]), cache: "no-store" });
+  if (!response.ok) return null;
+  const body = (await response.json()) as MachineRoster;
+  const proof = body.verified_source_boot;
+  return proof?.machine_id === machineId && typeof proof.boot_id === "string" && proof.boot_id !== "" ? { machines: body.machines, boot_id: proof.boot_id } : null;
 }
 export async function machineRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(`/api/machines${path}`, { method, headers: { "content-type": "application/json", "x-herdr-machine": "1" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });

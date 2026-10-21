@@ -1097,6 +1097,20 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   open; always on touch; not drawn on a desktop, where a right-click opens the menu). Inline server failures
   stay beside their workspace. A repository's workspace moves past the
   next or previous group with its worktrees, and a worktree moves among its siblings only.
+  A dropped order shows at once and stays until herdr is known to have it, drawn in the same rows
+  and look (the Codex app's sidebar, as the rest of this list): nothing new is shown while it
+  waits. Each move's answer names it in that PC's server's order (`order_epoch`, `moved_seq`), and
+  each roster says how many moves its server had confirmed when the read began (`read_seq`). The
+  drag's order gives way to the first full roster of the same server read after its last move,
+  whatever order that roster shows (another browser's later move included), and a roster read
+  before it never brings the old order back, while names, status and added or closed workspaces
+  still update. A roster from another server lifetime changes the order only after that PC's
+  server, asked after the move, proves it restarted. Agent of Empires keeps a dragged order for a
+  fixed time; a time window ends before a slow move lands or holds a stale order after it, so here
+  the operation's own evidence ends it and no clock is read. Only the newest drag of a PC rolls
+  back or reports its own failure. A PC whose bridge predates this (until the next remote bundle
+  release) gets the old behaviour back from the first roster loaded after its moves settle, so it
+  can show an older cached order until the next full roster, event or poll.
 - A workspace is pinned from its row menu (**Pin workspace** / **Unpin workspace**, first in the
   menu), as Paseo pins a chat: pinned workspaces leave their place and stand first in their PC's
   list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`, under the same **Pinned** caption), with no mark

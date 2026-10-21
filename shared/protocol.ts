@@ -51,14 +51,38 @@ export type SessionSnapshot = Omit<HerdrSnapshot, "panes"> & {
   panes: HerdrPane[];
   /** Random per bridge start and observed herdr socket/marker replacement, independently per PC. */
   finish_epoch?: string;
+  /**
+   * Workspace-order evidence of the server that read this snapshot (server/order-sequence.ts):
+   * `order_epoch` is that server's `web_ui.boot_id`, and `read_seq` the number of workspace moves
+   * it had confirmed when this read started. Both or neither; a snapshot without them comes from an
+   * older server. Relays, caches and status patches carry the pair unchanged and never make one.
+   */
+  order_epoch?: string;
+  read_seq?: number;
 };
+/**
+ * POST /api/workspace/move's answer. `order_epoch` and `moved_seq` (from 1) say which move this was
+ * in the server's order: a snapshot of the same epoch with `read_seq >= moved_seq` was read after
+ * it. Absent from an older server.
+ */
+export interface WorkspaceMoved { ok: true; order_epoch?: string; moved_seq?: number }
 
-export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
+export type { Machine, MachineEvent, MachineRoster, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
 
 /** Machine API (same token gate; mutations require X-Herdr-Machine: 1 + same origin)
  * GET /api/health?scope=bridge -> BridgeHealth, never waits for herdr
  * GET /api/bridge -> authenticated BridgeIdentity (socket + runtime compatibility)
- * GET /api/machines -> { machines: Machine[] }; GET /api/machines/events -> MachineEvent SSE
+ * GET /api/machines -> MachineRoster { machines: Machine[] }; GET /api/machines/events -> MachineEvent SSE
+ * GET /api/machines?verify_source_boot=:id -> MachineRoster with verified_source_boot { machine_id, boot_id }:
+ *   the boot id of the server behind that PC, asked for during this request (the local one directly,
+ *   a remote one by the manager's authenticated GET /api/health over its connection), never a cached
+ *   answer. 400 for an empty or repeated query, 404 for an unknown PC, 503 source_unverified when no
+ *   fresh proof came (failed, superseded, or a call already running when the request came), and 503
+ *   with Retry-After: 1 when that PC's last health call started under a second ago. The manager runs
+ *   at most one such call per PC at a time and starts them at least 1000 ms apart: that, not the
+ *   client's coalescing or the 15 s deadline, is what bounds the load on a remote PC. The browser asks
+ *   only after a workspace move's receipt when a roster names another epoch (src/lib/workspaceOrder.ts).
+ *   An older server ignores the query and sends no verified_source_boot, which proves nothing.
  * Machine action_required=connect: a saved herdr PC awaits explicit POST /api/machines/setup before SSH.
  * Connection permission survives successful setup; installation/startup approval remains separate.
  * SetupJob/Machine action_required=bridge_conflict: align app versions, then retry setup without update_remote.
@@ -73,7 +97,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
  *                                          Windows herdr and on a bridge that cannot run the PTY sidecar; terminal_mirror: its
  *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
- *                                          web_ui: { boot_id: string | null, revision: string | null } }
+ *                                          web_ui: { boot_id: string, revision: string | null } } (boot_id: this server
+ *                                          lifetime's id, the supervisor's when managed; older servers sent null unmanaged)
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
@@ -227,7 +252,8 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         a workspace's last tab takes the workspace with it)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true } (trimmed; empty: 400
  *         missing_label, over MAX_LABEL_CHARS: 400 label_too_long)
- *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
+ *  POST   /api/workspace/move   { workspace_id, insert_index } -> WorkspaceMoved (sidebar reorder; the receipt's
+ *         order_epoch/moved_seq let the browser keep its order until a snapshot read after the move arrives)
  *  POST   /api/workspace/close  { workspace_id, close_group? } -> { ok: true } (close_group takes the
  *         repository's open worktree workspaces with it; without it herdr refuses: workspace_group_close_required)
  *  POST   /api/worktree/create { workspace_id, branch, base?, label?, path?, agent?: { kind, name?, args? } } -> WorktreeOpened

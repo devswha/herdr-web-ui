@@ -30,7 +30,6 @@ import commandsFixture from "./fixtures/commands.json";
 import panesFixture from "./fixtures/panes.json";
 import terminalFixture from "./fixtures/terminal.json";
 
-const DEMO_VERSION = "demo";
 /** Only an explicit `demo logs` command starts this fictional retained history. */
 const histories = new Map<string, DemoHistory>();
 const terminalGrids = new Map<string, { cols: number; rows: number }>();
@@ -328,8 +327,110 @@ function conversationChanged(paneId: string): void {
   for (const socket of sockets) socket.push({ type: "conversation-changed", pane_id: paneId, signature: `demo:${revision}` });
 }
 
+// ---- workspace order (server/order-sequence.ts) -------------------------------------------------
+// Each fictional PC's server keeps one move counter per lifetime: a read carries the count when it
+// starts, a confirmed move takes the next number. The regression script holds reads, cached GETs,
+// SSE rosters, move answers and boot proofs apart through `window.__herdrDemoOrder`, so each can
+// arrive in any order; the app itself only ever sees the answers.
+interface DemoOrder { epoch: string; seq: number; legacy: boolean }
+const orders = new Map<string, DemoOrder>();
+function orderOf(machineId: string): DemoOrder {
+  let order = orders.get(machineId);
+  if (!order) { order = { epoch: crypto.randomUUID(), seq: 0, legacy: false }; orders.set(machineId, order); }
+  return order;
+}
+/** a PC's roster as its server reads it now: the read's pair is taken when it starts */
+function readSnapshot(machine: Machine): SessionSnapshot | null {
+  if (!machine.snapshot) return null;
+  const order = orderOf(machine.id);
+  return order.legacy ? structuredClone(machine.snapshot) : { ...structuredClone(machine.snapshot), order_epoch: order.epoch, read_seq: order.seq };
+}
+function readRoster(): Machine[] {
+  return machines.map((machine) => {
+    const order = orderOf(machine.id);
+    const { source_boot_id: _proof, ...rest } = machine;
+    return { ...rest, snapshot: readSnapshot(machine), ...(order.legacy ? {} : { source_boot_id: order.epoch }) };
+  });
+}
+/** answer: proof with a fresh roster; proof-only: proof whose roster has no entry for the PC yet */
+type VerifyMode = "answer" | "proof-only" | "hold" | "refuse";
+const orderControl = {
+  /** rosters read now, delivered later by the script */
+  held: [] as Machine[][],
+  /** answers the next GET /api/machines gives instead of a fresh read (a cache that lags) */
+  cachedGets: [] as Machine[][],
+  /** SSE rosters wait while this is set: publication is held apart from the move's receipt */
+  holdSse: false,
+  /** move answers wait for release() while this is set */
+  holdMoves: false,
+  moves: [] as (() => void)[],
+  verifyMode: "answer" as VerifyMode,
+  verifies: [] as { machineId: string; release(mode?: VerifyMode): void }[],
+  log: [] as { kind: string; machine_id?: string; epoch?: string; seq?: number; at: number }[],
+};
+function note(kind: string, detail: { machine_id?: string; epoch?: string; seq?: number } = {}): void {
+  orderControl.log.push({ kind, ...detail, at: orderControl.log.length });
+}
+function publishRoster(roster: Machine[] = readRoster()): void {
+  note("publication", { machine_id: local.id, epoch: roster[0]?.snapshot?.order_epoch, seq: roster[0]?.snapshot?.read_seq });
+  emitSse({ type: "machines", machines: roster });
+}
+/** GET /api/machines?verify_source_boot=<id>: the PC's boot, asked of its server during this request */
+async function verifySourceBoot(machineId: string): Promise<Response> {
+  if (machineId === "") return error("invalid_query", "verify_source_boot names one PC", 400);
+  const machine = machines.find((candidate) => candidate.id === machineId);
+  if (!machine) return error("machine_not_found", "PC not found", 404);
+  note("verify-start", { machine_id: machineId });
+  let mode = orderControl.verifyMode;
+  if (mode === "hold") mode = await new Promise<VerifyMode>((resolve) => { orderControl.verifies.push({ machineId, release: (next = "answer") => resolve(next) }); });
+  const order = orderOf(machineId);
+  note(`verify-${mode}`, { machine_id: machineId, epoch: order.epoch });
+  if (mode === "refuse" || order.legacy) return json({ error: { code: "source_unverified", message: "This PC's server could not be verified now" } }, 503, { "retry-after": "1" });
+  return json({ machines: mode === "proof-only" ? readRoster().filter((candidate) => candidate.id !== machineId) : readRoster(), verified_source_boot: { machine_id: machineId, boot_id: order.epoch } });
+}
+(window as unknown as { __herdrDemoOrder: unknown }).__herdrDemoOrder = {
+  /** a roster read now, for later delivery; its index */
+  hold: () => orderControl.held.push(readRoster()) - 1,
+  deliverSse: (index: number) => { const roster = orderControl.held[index]!; note("publication", { machine_id: local.id, epoch: roster[0]?.snapshot?.order_epoch, seq: roster[0]?.snapshot?.read_seq }); emitSse({ type: "machines", machines: roster }); },
+  cacheNextGet: (index: number) => { orderControl.cachedGets.push(orderControl.held[index]!); },
+  holdSse: (on: boolean) => { orderControl.holdSse = on; },
+  publish: () => publishRoster(),
+  holdMoves: (on: boolean) => { orderControl.holdMoves = on; },
+  releaseMove: () => { orderControl.moves.shift()?.(); },
+  /** stop holding move answers and answer every held one */
+  releaseAllMoves: () => { orderControl.holdMoves = false; for (const release of orderControl.moves.splice(0)) release(); },
+  pendingMoves: () => orderControl.moves.length,
+  verifyMode: (mode: VerifyMode) => { orderControl.verifyMode = mode; },
+  releaseVerify: (mode?: VerifyMode) => { orderControl.verifies.shift()?.release(mode); },
+  pendingVerifies: () => orderControl.verifies.length,
+  /** the PC's server restarts: a new epoch, counted from 0 again */
+  restart: (machineId = local.id) => { const order = orderOf(machineId); order.epoch = crypto.randomUUID(); order.seq = 0; return order.epoch; },
+  /** the PC's server is one from before order evidence: no pairs, no receipts' numbers, no proof */
+  legacy: (on: boolean, machineId = local.id) => { orderOf(machineId).legacy = on; },
+  /** another client moves a workspace: herdr's order and the counter change, nothing is published */
+  otherClientMove: (workspaceId: string, insertIndex: number) => {
+    const snap = snapshot();
+    const order = movedTabOrder(snap.workspaces.map((workspace) => workspace.workspace_id), workspaceId, insertIndex);
+    if (order) snap.workspaces.sort((a, b) => order.indexOf(a.workspace_id) - order.indexOf(b.workspace_id));
+    snap.workspaces.forEach((workspace, index) => { workspace.number = index + 1; });
+    orderOf(local.id).seq++;
+  },
+  /** a second fictional PC, with its own server and order */
+  addPc: () => {
+    if (machines.some((machine) => machine.id === "laptop")) return "laptop";
+    machines.push({ ...structuredClone(local), id: "laptop", name: "laptop", kind: "ssh" } as Machine);
+    publishRoster();
+    return "laptop";
+  },
+  /** a pane's status patch on the local PC: no full roster */
+  status: (paneId: string, status: AgentStatus) => setStatus(paneId, status),
+  epoch: (machineId = local.id) => orderOf(machineId).epoch,
+  seq: (machineId = local.id) => orderOf(machineId).seq,
+  log: () => orderControl.log,
+};
+
 function structureChanged(): void {
-  emitSse({ type: "machines", machines });
+  if (!orderControl.holdSse) publishRoster();
   emitSse({ type: "machine-message", machine_id: local.id, message: { type: "session-changed" } });
   for (const socket of sockets) socket.push({ type: "session-changed" });
 }
@@ -714,10 +815,16 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/health") {
     const auth = { required: false, authenticated: true };
     if (query.get("scope") === "bridge") return json({ ok: true, auth, bridge_protocol: 1 });
-    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { boot_id: DEMO_VERSION, revision: null } });
+    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { boot_id: orderOf(local.id).epoch, revision: null } });
   }
-  if (path === "/api/machines") return json({ machines });
-  if (path === "/api/session") return json({ snapshot: snapshot() });
+  if (path === "/api/machines") {
+    const asked = query.getAll("verify_source_boot");
+    if (asked.length > 1) return error("invalid_query", "verify_source_boot names one PC", 400);
+    if (asked.length === 1) return verifySourceBoot(asked[0]!);
+    note("read-start", { machine_id: local.id, epoch: orderOf(local.id).epoch, seq: orderOf(local.id).seq });
+    return json({ machines: orderControl.cachedGets.shift() ?? readRoster() });
+  }
+  if (path === "/api/session") return json({ snapshot: readSnapshot(local) });
   if (path === "/api/agents") return json(agentsFixture);
   if (path === "/api/integrations") return json({ integrations: integrationsFixture } satisfies IntegrationsResponse);
   if (path === "/api/updates") return json({ managed: false, auto_update: false, phase: "idle", current_revision: null, latest_revision: null, current_version: __APP_VERSION__, latest_version: null, available: false, checked_at: null, blocked_reason: null, error: null }, 200, { "cache-control": "no-store" });
@@ -1192,8 +1299,13 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const order = movedTabOrder(ids, workspace.workspace_id, Number(body["insert_index"] ?? 0));
     if (order) snap.workspaces.sort((a, b) => order.indexOf(a.workspace_id) - order.indexOf(b.workspace_id));
     snap.workspaces.forEach((w, i) => { w.number = i + 1; });
+    // confirmed: the receipt's number is taken before anything else waits
+    const counter = orderOf(local.id);
+    const receipt = { order_epoch: counter.epoch, moved_seq: ++counter.seq };
+    note("move", { machine_id: local.id, epoch: receipt.order_epoch, seq: receipt.moved_seq });
     structureChanged();
-    return json({ ok: true });
+    if (orderControl.holdMoves) await new Promise<void>((resolve) => orderControl.moves.push(resolve));
+    return json(counter.legacy ? { ok: true } : { ok: true, ...receipt });
   }
   if (path === "/api/workspace/directories" && method === "POST") {
     // New folder: the demo has no disk, so the folder opens empty and is not listed again
@@ -1311,7 +1423,7 @@ class DemoEventSource extends EventTarget {
     super();
     this.url = url;
     sseListeners.add(this.listener);
-    setTimeout(() => { this.onopen?.(new Event("open")); this.listener(new MessageEvent("message", { data: JSON.stringify({ type: "machines", machines } satisfies MachineEvent) })); }, 30);
+    setTimeout(() => { this.onopen?.(new Event("open")); this.listener(new MessageEvent("message", { data: JSON.stringify({ type: "machines", machines: readRoster() } satisfies MachineEvent) })); }, 30);
   }
   close(): void { this.readyState = 2; sseListeners.delete(this.listener); }
 }
@@ -1402,7 +1514,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch", "ping"], connection: this.connection });
+      this.push({ type: "snapshot", snapshot: readSnapshot(local)!, features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch", "ping"], connection: this.connection });
     }, 20);
     this.timers.add(opening);
   }

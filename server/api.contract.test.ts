@@ -1401,7 +1401,9 @@ describe("workspace and discovery endpoints", () => {
         body: JSON.stringify(body),
       });
       expect(changed.status).toBe(200);
-      expect(await changed.json()).toEqual({ ok: true });
+      // a move's receipt names it in this server's order (server/order-sequence.ts); the rest answer as before
+      if (path === "/api/workspace/move") expect(await changed.json()).toEqual({ ok: true, order_epoch: expect.any(String), moved_seq: expect.any(Number) });
+      else expect(await changed.json()).toEqual({ ok: true });
     }
 
     const close = await fetch(`${base()}/api/workspace/close`, {
@@ -3764,4 +3766,94 @@ describe("GET /api/sessions/history", () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 20_000);
+});
+
+describe("workspace order evidence", () => {
+  /** the first SSE roster whose local snapshot `check` accepts */
+  async function machinesEvent(origin: string, check: (snapshot: SessionSnapshot) => boolean): Promise<SessionSnapshot> {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 15_000);
+    try {
+      const response = await fetch(`${origin}/api/machines/events`, { signal: abort.signal });
+      const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error("event stream ended");
+        buffer += value;
+        let end: number;
+        while ((end = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+          const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("");
+          if (!data) continue;
+          const event = JSON.parse(data) as { type: string; machines?: { id: string; snapshot: SessionSnapshot | null }[] };
+          const local = event.type === "machines" ? event.machines?.find((machine) => machine.id === "local")?.snapshot : null;
+          if (local && check(local)) return local;
+        }
+      }
+    } finally { clearTimeout(timer); abort.abort(); }
+  }
+
+  it("health, session, websocket and move answers share one order per server lifetime", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-order-"));
+    const state = join(root, "state");
+    const first = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-order-first" });
+    const second = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-order-second" });
+    const managedBoot = process.env["HERDR_WEB_BOOT_ID"];
+    delete process.env["HERDR_WEB_BOOT_ID"];
+    let app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state });
+    try {
+      let origin = `http://127.0.0.1:${app.port}`;
+      const health = async () => ((await (await fetch(`${origin}/api/health`)).json()) as { web_ui: { boot_id: string } }).web_ui.boot_id;
+      const session = async () => ((await (await fetch(`${origin}/api/session`)).json()) as { snapshot: SessionSnapshot }).snapshot;
+      const move = async (workspaceId: string) => {
+        const response = await fetch(`${origin}/api/workspace/move`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workspace_id: workspaceId, insert_index: 0 }) });
+        expect(response.status).toBe(200);
+        return response.json();
+      };
+      const boot = await health();
+      expect(boot).toEqual(expect.any(String));
+      // reads never count: two GETs, then the opening websocket snapshot, all at 0
+      expect(await session()).toMatchObject({ order_epoch: boot, read_seq: 0 });
+      expect(await session()).toMatchObject({ order_epoch: boot, read_seq: 0 });
+      const ws = new WebSocket(`ws://127.0.0.1:${app.port}/ws`);
+      const opening = await new Promise<SessionSnapshot>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("no opening snapshot")), 10_000);
+        ws.addEventListener("message", (event) => {
+          const message = JSON.parse(String(event.data)) as { type: string; snapshot?: SessionSnapshot };
+          if (message.type === "snapshot") { clearTimeout(timer); resolve(message.snapshot!); }
+        });
+      });
+      ws.close();
+      expect(opening).toMatchObject({ order_epoch: boot, read_seq: 0 });
+      expect(await move(second.workspace.workspace_id)).toEqual({ ok: true, order_epoch: boot, moved_seq: 1 });
+      expect(await session()).toMatchObject({ order_epoch: boot, read_seq: 1 });
+      const roster = machinesEvent(origin, (snapshot) => (snapshot.read_seq ?? 0) >= 2);
+      expect(await move(first.workspace.workspace_id)).toEqual({ ok: true, order_epoch: boot, moved_seq: 2 });
+      // the move's own roster read follows it: the manager's copy carries the source's pair as read
+      expect(await roster).toMatchObject({ order_epoch: boot, read_seq: 2 });
+      const machines = (await (await fetch(`${origin}/api/machines`)).json()) as { machines: { id: string; source_boot_id?: string }[]; verified_source_boot?: unknown };
+      expect(machines.machines[0]).toMatchObject({ id: "local", source_boot_id: boot });
+      expect(machines.verified_source_boot).toBeUndefined();
+      const verified = await fetch(`${origin}/api/machines?verify_source_boot=local`);
+      expect(verified.status).toBe(200);
+      expect(((await verified.json()) as { verified_source_boot: unknown }).verified_source_boot).toEqual({ machine_id: "local", boot_id: boot });
+      expect((await fetch(`${origin}/api/machines?verify_source_boot=`)).status).toBe(400);
+      expect((await fetch(`${origin}/api/machines?verify_source_boot=nobody`)).status).toBe(404);
+      // a restart is a new epoch, counted again from 0, and health says the same boot
+      app.stop();
+      app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state });
+      origin = `http://127.0.0.1:${app.port}`;
+      const restarted = await health();
+      expect(restarted).not.toBe(boot);
+      expect(await session()).toMatchObject({ order_epoch: restarted, read_seq: 0 });
+      expect(await move(second.workspace.workspace_id)).toEqual({ ok: true, order_epoch: restarted, moved_seq: 1 });
+    } finally {
+      app.stop();
+      if (managedBoot === undefined) delete process.env["HERDR_WEB_BOOT_ID"]; else process.env["HERDR_WEB_BOOT_ID"] = managedBoot;
+      await workspaceClose(first.workspace.workspace_id).catch(() => {});
+      await workspaceClose(second.workspace.workspace_id).catch(() => {});
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
