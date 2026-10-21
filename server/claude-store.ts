@@ -99,10 +99,13 @@ async function windowsClaudeStores(home: string): Promise<string[]> {
   return [...stores.values()];
 }
 
-/** More than one store holds a live PID record of the process: which one it writes cannot be told (#586). */
+/**
+ * More than one store holds a live PID record of the process, or the state of the background job
+ * a `claude attach` shows: which one it uses cannot be told (#586).
+ */
 export class AmbiguousClaudeStore extends Error {
-  constructor(pid: number) {
-    super(`more than one Claude store holds process ${pid}`);
+  constructor(what: number | string) {
+    super(`more than one Claude store holds ${typeof what === "number" ? `process ${what}` : `job ${what}`}`);
     this.name = "AmbiguousClaudeStore";
   }
 }
@@ -360,20 +363,42 @@ export async function claudeProcessSession(
 export async function claudeForegroundSession(
   processes: readonly { pid: number; name?: string | null; argv0?: string | null; argv?: readonly string[] | null }[],
   home = process.env["HOME"] ?? "",
+  platform: string = process.platform,
+  table: () => Promise<ProcessRow[]> = recentProcessTable,
 ): Promise<string | null> {
   const claude = processes.filter((entry) => isClaudeProcess({ name: entry.name ?? undefined, argv0: entry.argv0 ?? undefined, argv: entry.argv ?? undefined }));
   if (claude.length !== 1) return null;
   const only = claude[0]!;
   try {
-    const dir = await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""], home);
+    const dir = await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""], home, platform, table);
     const job = attachedJob(only.argv);
     // `claude attach <job>` shows a background job and keeps no PID record of its own: the job's state names its session
-    if (job !== null) return await claudeJobSession(dir || defaultClaudeConfigDir(home), job);
+    if (job !== null) return (await attachedJobSession(home, job, dir, platform))?.session ?? null;
     return await claudeProcessSession(home, only.pid, dir || defaultClaudeConfigDir(home));
   } catch {
     // two stores claim the process, or one cannot be read: no session to pin
     return null;
   }
+}
+
+/**
+ * The store and session of background job `job` a `claude attach` process shows. [dir]: the
+ * process's own store, when known. On Windows an attach client has no PID record to find its store
+ * by: of the default store and each `~/.claude-*` (windowsClaudeStores), the one whose state of the
+ * job names its session; AmbiguousClaudeStore when several do. Elsewhere the process's
+ * CLAUDE_CONFIG_DIR, or the default store.
+ */
+export async function attachedJobSession(home: string, job: string, dir: string | null, platform: string = process.platform): Promise<{ store: string; session: string } | null> {
+  if (dir || platform !== "win32") {
+    const store = dir || defaultClaudeConfigDir(home);
+    const session = await claudeJobSession(store, job);
+    return session === null ? null : { store, session };
+  }
+  const stores = await windowsClaudeStores(home);
+  const found = (await Promise.all(stores.map(async (store) => ({ store, session: await claudeJobSession(store, job).catch(() => null) }))))
+    .filter((match): match is { store: string; session: string } => match.session !== null);
+  if (found.length > 1) throw new AmbiguousClaudeStore(job);
+  return found[0] ?? null;
 }
 
 /** The background job a `claude attach <job>` process shows, by its eight-digit id; null for any other Claude. */

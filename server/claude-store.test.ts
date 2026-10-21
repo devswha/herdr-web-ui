@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import { AmbiguousClaudeStore, attachedJob, claudeForegroundSession, claudeJobSession, claudeProcessSession, claudeSessionTempDir, claudeStoreKey, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
+import { AmbiguousClaudeStore, attachedJob, attachedJobSession, claudeForegroundSession, claudeJobSession, claudeProcessSession, claudeSessionTempDir, claudeStoreKey, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import type { ProcessRow } from "./windows-processes.ts";
 
 const NATIVE = process.platform === "linux" || process.platform === "darwin";
@@ -43,6 +43,52 @@ describe("claude attach", () => {
     const none = mkdtempSync(join(tmpdir(), "herdr-claude-job-"));
     roots.push(none);
     expect(await claudeJobSession(join(none, ".claude"), "5e1f0a2b")).toBeNull();
+  });
+});
+
+describe("claude attach on Windows, beside a second account's store", () => {
+  const roots: string[] = [];
+  const configDir = process.env["CLAUDE_CONFIG_DIR"];
+  beforeEach(() => { delete process.env["CLAUDE_CONFIG_DIR"]; });
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+    if (configDir === undefined) delete process.env["CLAUDE_CONFIG_DIR"]; else process.env["CLAUDE_CONFIG_DIR"] = configDir;
+  });
+  const JOB = "5e1f0a2b";
+  const SESSION = "5e1f0a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+  /** A home whose stores hold the job's state: `.claude`, `.claude-work`, … */
+  function homeWith(...stores: string[]): string {
+    const home = mkdtempSync(join(tmpdir(), "herdr-claude-stores-"));
+    roots.push(home);
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    for (const store of stores) {
+      mkdirSync(join(home, store, "jobs", JOB), { recursive: true });
+      writeFileSync(join(home, store, "jobs", JOB, "state.json"), JSON.stringify({ state: "running", sessionId: SESSION }));
+    }
+    return home;
+  }
+
+  it("finds the job in the one store that holds it", async () => {
+    const home = homeWith(".claude-work");
+    expect(await attachedJobSession(home, JOB, null, "win32")).toEqual({ store: join(home, ".claude-work"), session: SESSION });
+    // the attach client has no PID record to find its store by: the job's state finds it
+    const attach = { pid: 2_000_000_000, name: "2.1.303", argv0: "claude", argv: ["claude", "attach", JOB] };
+    expect(await claudeForegroundSession([attach], home, "win32", async () => [])).toBe(SESSION);
+  });
+
+  it("tells nothing when two stores hold the job, or none does", async () => {
+    await expect(attachedJobSession(homeWith(".claude", ".claude-work"), JOB, null, "win32")).rejects.toBeInstanceOf(AmbiguousClaudeStore);
+    expect(await attachedJobSession(homeWith(), JOB, null, "win32")).toBeNull();
+    const attach = { pid: 2_000_000_000, name: "2.1.303", argv0: "claude", argv: ["claude", "attach", JOB] };
+    expect(await claudeForegroundSession([attach], homeWith(".claude", ".claude-work"), "win32", async () => [])).toBeNull();
+  });
+
+  it("keeps to the process's own store where it is known, and to the default one elsewhere", async () => {
+    const home = homeWith(".claude-work");
+    expect(await attachedJobSession(home, JOB, join(home, ".claude-work"), "win32")).toEqual({ store: join(home, ".claude-work"), session: SESSION });
+    // Linux and macOS read CLAUDE_CONFIG_DIR from the process: without one it is the default store
+    expect(await attachedJobSession(home, JOB, null, "linux")).toBeNull();
+    expect(await attachedJobSession(homeWith(".claude"), JOB, null, "darwin")).toEqual({ store: expect.stringContaining(".claude"), session: SESSION });
   });
 });
 

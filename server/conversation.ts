@@ -42,7 +42,7 @@ import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
 import { resolveAgent } from "./pane-context.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, forgetAllCodexState, forgetCodexStateFor, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir, attachedJob, claudeJobSession } from "./claude-store.ts";
+import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir, attachedJob, attachedJobSession } from "./claude-store.ts";
 import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
@@ -1597,11 +1597,22 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
     if (error instanceof AmbiguousClaudeStore) throw new ConversationUnavailable("no_session_id");
     throw error;
   }
-  const configDir = processDir || defaultClaudeConfigDir(home);
+  let configDir = processDir || defaultClaudeConfigDir(home);
   if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) {
-    // `claude attach <job>` keeps no PID record: the background job's state names the session it shows
+    // `claude attach <job>` keeps no PID record: the background job's state names the session it
+    // shows, in the store it was found in (on Windows, one of the candidate stores)
     const job = attachedJob(only.argv);
-    session = job !== null ? await claudeJobSession(configDir, job) : await claudeProcessSession(home, only.pid, configDir);
+    if (job !== null) {
+      const attached = await attachedJobSession(home, job, processDir).catch((error: unknown) => {
+        // two stores hold the job: which one it shows cannot be told, as for a process (#586)
+        if (error instanceof AmbiguousClaudeStore) throw new ConversationUnavailable("no_session_id");
+        throw error;
+      });
+      session = attached?.session;
+      if (attached) configDir = attached.store;
+    } else {
+      session = await claudeProcessSession(home, only.pid, configDir);
+    }
   }
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
   const path = await claudeTranscriptFile(home, session, cwds, configDir);
