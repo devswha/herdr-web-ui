@@ -2,20 +2,21 @@
  * The sessions Resume started a moment ago (lib/sessionHistory.ts RecentResume), kept by App for as
  * long as they stand: across the session list's openings, so a list reopened before herdr has
  * reported the new pane's session offers Open (the new pane) and not a second Resume. A record is
- * marked seen once the PC's roster lists its pane, and leaves once it is over on evidence (the
- * session reported, the pane closed after being seen) or, for a pane the roster never listed,
+ * marked seen once the PC's roster lists its pane (and ran once that pane runs the resumed agent),
+ * and leaves once it is over on evidence (the session reported, the agent stopped after it ran, the
+ * pane closed after being seen) or, for a pane the roster never listed,
  * past RECENT_RESUME_MS; a pane still listed without a session keeps it however long ago.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HerdrPane } from "../../shared/protocol.ts";
-import { recentResumeEnded, type RecentResume } from "./sessionHistory.ts";
+import { observeRecentResume, recentResumeEnded, type RecentResume } from "./sessionHistory.ts";
 
 interface RosteredMachine { id: string; snapshot?: { panes: readonly HerdrPane[] } | null }
 
 export function useRecentResumes(machines: readonly RosteredMachine[]): {
   /** the records that stand now, for the dialog */
   standing: readonly RecentResume[];
-  remember: (record: Omit<RecentResume, "at" | "seen">) => void;
+  remember: (record: Omit<RecentResume, "at" | "seen" | "ran">) => void;
 } {
   const [records, setRecords] = useState<readonly RecentResume[]>([]);
   const machinesRef = useRef(machines);
@@ -28,19 +29,19 @@ export function useRecentResumes(machines: readonly RosteredMachine[]): {
       let changed = false;
       const next = current.flatMap((record) => {
         const panes = panesOf(record.machineId);
-        if (recentResumeEnded(record, panes, now)) { changed = true; return []; }
-        if (record.seen || !panes?.some((pane) => pane.pane_id === record.paneId)) return [record];
-        changed = true;
-        return [{ ...record, seen: true }];
+        const observed = observeRecentResume(record, panes);
+        if (observed !== record) changed = true;
+        if (recentResumeEnded(observed, panes, now)) { changed = true; return []; }
+        return [observed];
       });
       return changed ? next : current;
     });
   }, [machines, panesOf]);
-  const remember = useCallback((record: Omit<RecentResume, "at" | "seen">) => {
+  const remember = useCallback((record: Omit<RecentResume, "at" | "seen" | "ran">) => {
     const now = Date.now();
     setRecords((current) => [
       ...current.filter((kept) => !(kept.machineId === record.machineId && kept.workspaceId === record.workspaceId && kept.agent === record.agent && kept.id === record.id) && !recentResumeEnded(kept, panesOf(kept.machineId), now)),
-      { ...record, at: now, seen: panesOf(record.machineId)?.some((pane) => pane.pane_id === record.paneId) ?? false },
+      observeRecentResume({ ...record, at: now, seen: false }, panesOf(record.machineId)),
     ]);
   }, [panesOf]);
   const standing = useMemo(() => {

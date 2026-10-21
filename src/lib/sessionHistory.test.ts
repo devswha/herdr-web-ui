@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { HerdrPane, SessionHistoryRow } from "../../shared/protocol.ts";
 import { formatChatTimestamp } from "./chatTimestamp.ts";
 import type { Translate } from "./i18n.ts";
-import { inFlightGuard, paneShowingSession, RECENT_RESUME_MS, recentlyResumedPane, recentResumeEnded, resumeTabRequest, sessionHistoryAgent, sessionHistoryListAgent, sessionRowTime, standingResume, type RecentResume } from "./sessionHistory.ts";
+import { inFlightGuard, observeRecentResume, paneShowingSession, RECENT_RESUME_MS, recentlyResumedPane, recentResumeEnded, resumeTabRequest, sessionHistoryAgent, sessionHistoryListAgent, sessionRowTime, standingResume, type RecentResume } from "./sessionHistory.ts";
 
 const pane = (overrides: Partial<HerdrPane>): HerdrPane => ({
   pane_id: "p1", tab_id: "t1", terminal_id: "term1", workspace_id: "w1", agent: "codex", agent_status: "idle", focused: false, revision: 1, ...overrides,
@@ -130,13 +130,33 @@ describe("a session resumed a moment ago (the reopen window)", () => {
     expect(recentResumeEnded(record, [pane({ pane_id: "p-new", agent_session: { agent: "codex", kind: "id", source: "herdr:codex", value: "another" } })], 2_000)).toBe(true);
     expect(recentResumeEnded(record, [pane({ pane_id: "p1" })], 2_000)).toBe(true);
   });
-  it("ends once the pane no longer runs the resumed agent: back at its shell, or another agent in it", () => {
+  it("ends once a pane seen running the resumed agent no longer runs it: back at its shell, or another agent in it", () => {
     const later = 1_000 + 10 * RECENT_RESUME_MS;
-    for (const seen of [true, false]) {
-      expect(recentResumeEnded({ ...record, seen }, [pane({ pane_id: "p-new", agent: null, agent_session: null })], 2_000)).toBe(true);
-      expect(recentResumeEnded({ ...record, seen }, [pane({ pane_id: "p-new", agent: "claude", agent_session: null })], later)).toBe(true);
+    const ran = { ...record, ran: true };
+    expect(recentResumeEnded(ran, [pane({ pane_id: "p-new", agent: null, agent_session: null })], 2_000)).toBe(true);
+    expect(recentResumeEnded(ran, [pane({ pane_id: "p-new", agent: "claude", agent_session: null })], later)).toBe(true);
+    expect(standingResume([ran], [pane({ pane_id: "p-new", agent: null, agent_session: null })], "local", "w1", "codex", id, 2_000)).toBeUndefined();
+  });
+  it("holds through the new pane's startup: no agent yet, or another agent's name for a moment", () => {
+    // herdr has not labelled the new pane yet, or an omo pane shows as pi or claude while it starts
+    for (const agent of [null, "pi", "claude"]) {
+      const starting = [pane({ pane_id: "p-new", agent, agent_session: null })];
+      expect([agent, recentResumeEnded(record, starting, 2_000)]).toEqual([agent, false]);
+      expect(standingResume([record], starting, "local", "w1", "codex", id, 2_000)).toBe(record);
     }
-    expect(standingResume([record], [pane({ pane_id: "p-new", agent: null, agent_session: null })], "local", "w1", "codex", id, 2_000)).toBeUndefined();
+  });
+  it("follows a pane through startup, its agent, and back to its shell", () => {
+    const omo: RecentResume = { ...record, agent: "omo", seen: false };
+    let current = omo;
+    const step = (agent: string | null): boolean => {
+      const panes = [pane({ pane_id: "p-new", agent, agent_session: null })];
+      current = observeRecentResume(current, panes);
+      return recentResumeEnded(current, panes, 2_000);
+    };
+    expect([null, "pi", "claude", "omo", "omo"].map(step)).toEqual([false, false, false, false, false]);
+    expect(current.seen && current.ran).toBe(true);
+    // the agent exits back to the shell: the pane no longer shows the session, and Resume returns
+    expect(step(null)).toBe(true);
   });
   it("keeps Open, never Resume, for a pane still listed without a session however long ago: at +121 s and beyond", () => {
     const later = 1_000 + 121_000;

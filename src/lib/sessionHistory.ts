@@ -65,13 +65,19 @@ export interface RecentResume {
   at: number;
   /** the roster has listed the pane since: once it is gone again, the pane was closed */
   seen: boolean;
+  /**
+   * the roster has shown the pane running the resumed agent since: only after that does another agent
+   * in it, or none, mean the agent stopped (while it starts the pane has no agent yet, and an omo pane
+   * shows as pi or claude for a moment)
+   */
+  ran?: boolean;
 }
 /** How long a record whose pane the roster never lists stands: after that the pane never appeared, and the record ends. */
 export const RECENT_RESUME_MS = 2 * 60_000;
 /**
  * The record is over on evidence alone: herdr reported a session for the pane (whichever: then the
- * pane's own `agent_session` decides), the pane no longer runs the resumed agent (back at its shell,
- * or another agent in it), or the pane the roster had listed is gone. A pane still
+ * pane's own `agent_session` decides), the pane was seen running the resumed agent and no longer
+ * runs it (back at its shell, or another agent in it), or the pane the roster had listed is gone. A pane still
  * listed without a session keeps it however long ago the Resume was: time alone never brings
  * Resume back for a pane that is there. Only a pane the roster never listed ends it, after
  * RECENT_RESUME_MS. A roster not known (the PC between snapshots) keeps it.
@@ -79,11 +85,18 @@ export const RECENT_RESUME_MS = 2 * 60_000;
 export function recentResumeEnded(record: RecentResume, panes: readonly HerdrPane[] | undefined, now: number): boolean {
   if (panes === undefined) return false;
   const pane = panes.find((candidate) => candidate.pane_id === record.paneId);
-  // a pane back at its shell (the agent exited, or never started) or running another agent no longer shows the session
-  if (pane !== undefined && sessionHistoryAgent(pane.agent) !== record.agent) return true;
+  // a pane seen running the agent, now back at its shell or running another agent, no longer shows the session
+  if (pane !== undefined && record.ran === true && sessionHistoryAgent(pane.agent) !== record.agent) return true;
   if (pane !== undefined) return pane.agent_session !== null && pane.agent_session !== undefined;
   if (record.seen) return true;
   return now - record.at > RECENT_RESUME_MS;
+}
+/** The record as the roster shows it now: `seen` once it lists the pane, `ran` once that pane runs the resumed agent. */
+export function observeRecentResume(record: RecentResume, panes: readonly HerdrPane[] | undefined): RecentResume {
+  const pane = panes?.find((candidate) => candidate.pane_id === record.paneId);
+  if (pane === undefined) return record;
+  const ran = record.ran === true || sessionHistoryAgent(pane.agent) === record.agent;
+  return record.seen && record.ran === ran ? record : { ...record, seen: true, ran };
 }
 /** The standing record of this session's Resume, if there is one: no Resume is offered while it stands. */
 export function standingResume(records: readonly RecentResume[], panes: readonly HerdrPane[] | undefined, machineId: string, workspaceId: string, agent: SessionHistoryAgent, id: string, now: number): RecentResume | undefined {
