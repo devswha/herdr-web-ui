@@ -645,6 +645,13 @@ export function PaneTerminal({
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
     const syncInputViewport = (): void => {
+      // only a grid this browser does not size (a mirror, an observer's, a followed one) scrolls its helper
+      // out of view; a grid it drives keeps stock xterm: the browser brings the prompt back into view, and a
+      // long IME preedit at the right edge stays whole
+      if (!fixedGridRef.current && !observeRef.current && !followRef.current) {
+        term.setTextAreaViewportBounds(undefined);
+        return;
+      }
       const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
       if (!screen) return;
       const hostRect = host.getBoundingClientRect();
@@ -1275,6 +1282,7 @@ export function PaneTerminal({
         // no fit runs while observing: a font shrunk for this client's own grid would stay
         if (nowObserving) term.options.fontSize = baseFontRef.current;
         setObserving(nowObserving);
+        syncInputViewport();
         term.options.disableStdin = nowObserving || heldRef.current;
         onRoleAckRef.current?.(message.mode);
         if (!nowObserving && !fixedGridRef.current && !chatViewRef.current && inUse() && !keyboardHolds(true)) {
@@ -1297,6 +1305,7 @@ export function PaneTerminal({
           fixedGridRef.current = true;
           // nor while the grid is fixed (a mirrored pane): back to the user's size
           term.options.fontSize = baseFontRef.current;
+          syncInputViewport();
         }
         // kept while the terminal lens ignores it: another device may drive the grid, and the
         // chat lens entered later must draw its hidden screen for that grid, not this device's
