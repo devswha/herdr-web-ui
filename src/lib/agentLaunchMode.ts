@@ -6,7 +6,11 @@
  * Besides its mode, a launch from the new workspace and tab dialogs may name a model and an
  * effort level and start on a first prompt (#774, #1311), each only where the agent's own CLI
  * reference documents the flag or argument (launchCapabilities); nothing is guessed for the rest.
+ * The bridge checks them again by the same rules (shared/launch-rules.ts).
  */
+import { argumentText, CLAUDE_EFFORTS, CODEX_EFFORTS, MODEL_NAME } from "../../shared/launch-rules.ts";
+
+export { CLAUDE_EFFORTS, CODEX_EFFORTS };
 
 /** Claude Code's `--permission-mode` choices; "default" leaves the flag out */
 export const CLAUDE_LAUNCH_MODES = ["default", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"] as const;
@@ -21,17 +25,6 @@ const CODEX_ARGS: Record<Exclude<CodexLaunchMode, "default">, string[]> = {
   auto: ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"],
   fullAccess: ["--sandbox", "danger-full-access", "--ask-for-approval", "never"],
 };
-
-/**
- * Claude Code's `--effort` levels: "Options: low, medium, high, xhigh, max, or ultracode. Available
- * levels depend on the model." (code.claude.com/docs/en/cli-reference, read 2026-10-20)
- */
-export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultracode"] as const;
-/**
- * Codex's `model_reasoning_effort` levels: "such as low, medium, high, xhigh, max, or ultra. Available
- * levels depend on the model and client." (developers.openai.com/codex/config-reference, read 2026-10-20)
- */
-export const CODEX_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
 
 /** What a new agent's launch takes besides its mode, as its own CLI reference documents it. */
 export interface LaunchCapabilities {
@@ -94,9 +87,6 @@ export interface LaunchChoices {
   prompt?: string;
 }
 
-/** A model name as the CLIs take it after `--model`: one word, never one that reads as a flag. */
-const MODEL_NAME = /^[A-Za-z0-9][\w.:/-]*$/;
-
 /**
  * Why `choices` cannot start `kind`: the first choice the launch does not take, or null when it takes them
  * all. The dialog disables what this would refuse; the launch itself refuses it again.
@@ -114,12 +104,13 @@ export function launchChoiceFault(kind: string, choices: LaunchChoices): "model"
 /**
  * Where a first prompt for `kind` goes: `positional` as the agent's own argument after `--`, `pending` as
  * the create request's `first_message`, which the bridge queues for the agent's first ready turn
- * (server/core/pending.ts); null for no prompt.
+ * (server/core/pending.ts); null for no prompt. A prompt with a tab or a line break is no one-line
+ * argument: it goes as the first message, which keeps them.
  */
 export function firstPromptDelivery(kind: string, prompt: string | undefined): "positional" | "pending" | null {
   const text = prompt?.trim() ?? "";
   if (text === "" || kind === "") return null;
-  return launchCapabilities(kind).positionalPrompt ? "positional" : "pending";
+  return launchCapabilities(kind).positionalPrompt && argumentText(text) ? "positional" : "pending";
 }
 
 /** The arguments a new agent of `kind` starts with; undefined when there are none to add. */

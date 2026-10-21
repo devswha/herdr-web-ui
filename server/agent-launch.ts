@@ -7,6 +7,7 @@ import { freeAgentName } from "./agent-name.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { isShellAgentKind, startShellAgent } from "./shell-agent.ts";
 import { agentStart, HerdrError, sessionSnapshot } from "./herdr/client.ts";
+import { launchArgsFault } from "../shared/launch-rules.ts";
 
 export type AgentPayload = { kind?: unknown; name?: unknown; args?: unknown };
 
@@ -18,7 +19,8 @@ export function agentFault(agent: AgentPayload | undefined): string | null {
     || (agent.args !== undefined && (!Array.isArray(agent.args) || !agent.args.every((arg) => typeof arg === "string")))) {
     return "agent.name must be a string and agent.args must be an array of strings";
   }
-  return null;
+  // the dialog's model, effort and Codex prompt, checked as the dialog checks them: a client is not trusted to
+  return agent.args === undefined ? null : launchArgsFault(agent.kind, agent.args as string[]);
 }
 
 /**
