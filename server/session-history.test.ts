@@ -478,6 +478,24 @@ describe("listSessions", () => {
     expect(rows.map((row) => row.firstMessage)).toEqual(["Fixture hermes prompt 2", "Fixture hermes prompt 1"]);
   });
 
+  it("lists nothing from a SQLite store whose path names another file once SQLite has opened it", () => {
+    for (const wal of [false, true]) {
+      const home = newHome();
+      install("hermes", home);
+      const db = join(home, ".hermes", "state.db");
+      if (wal) { const setup = new Database(db); setup.exec("PRAGMA journal_mode = WAL"); setup.close(); }
+      const checked = realpathSync(db);
+      let opened = false;
+      const listed = listSessions("hermes", CWD, {
+        home, env: {},
+        opened: () => { opened = true; },
+        // once SQLite has opened the store, its path reports another file
+        stat: (path, bigint) => path === checked && opened ? withIno(statAs(path, bigint), NEAR + 9n) : statAs(path, bigint),
+      });
+      expect([wal, listed]).toEqual([wal, []]);
+    }
+  });
+
   it("lists a session still in a WAL store's log while its agent writes", () => {
     const home = newHome();
     install("hermes", home);

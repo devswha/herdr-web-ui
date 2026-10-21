@@ -790,6 +790,10 @@ function openDatabase(budget: Budget, real: string, fd: number, checked: { dev: 
   if (descriptor !== null) {
     const db = new Database(immutable ? `file:${descriptor}?immutable=1` : descriptor, flags);
     budget.onOpened(real, immutable, db);
+    // Linux resolves /dev/fd/N to the path that names the descriptor's file and opens that: the path
+    // must still be the checked file once SQLite has it (part of the database's one check)
+    const again = budget.identity(real, true);
+    if (!again?.isFile || again.dev !== checked.dev || again.ino !== checked.ino) { db.close(); return null; }
     return { db, immutable };
   }
   const db = new Database(immutable ? `${pathToFileURL(real).href}?immutable=1` : real, flags | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
