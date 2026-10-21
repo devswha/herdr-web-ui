@@ -2193,6 +2193,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   its own gesture, even when Ctrl+C clears the highlight; a new drag, pane or terminal cancels
   the old request. Leaving the active terminal, including for a cached tab, split sibling or
   chat lens, ends that copy even if the same terminal is shown again before the read finishes.
+  A surviving highlight keeps its resolved full text for a later explicit copy.
   A failed read or unsupported deferred clipboard write reports a partial copy.
   Pointer hover preserves the highlight
   and quote offer in either mode. Like [Zed's terminal](https://zed.dev/docs/terminal#copy-on-select),

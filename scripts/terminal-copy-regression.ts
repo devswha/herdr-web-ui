@@ -521,7 +521,12 @@ setInterval(() => {}, 1000);
 
     // Cached tabs and split siblings retain the same terminal mount after navigation.
     const other = await tabCreate({ workspaceId: created.workspace.workspace_id, label: "Copy cancellation" });
-    for (const destination of ["tab", "split"] as const) {
+    for (const { destination, copy } of [
+      { destination: "tab", copy: "pending" },
+      { destination: "split", copy: "pending" },
+      { destination: "tab", copy: "native" },
+      { destination: "split", copy: "Control+c" },
+    ] as const) {
       const sibling = destination === "split" ? await paneSplit(pane, "right", false) : null;
       const frame = page.locator(`.pane-frame[data-layout-pane="${pane}"]`);
       await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
@@ -551,10 +556,12 @@ setInterval(() => {}, 1000);
         await page.mouse.up();
         await asked.promise;
         assert.ok(lines(expected).length > screen.height / height, "the cancelled read covers more than the visible viewport");
-        const beforeWrites = await page.evaluate(() => (window as any).clipboardGesture.writes.length as number);
-        await page.keyboard.press("Control+c");
-        await frame.locator(".xterm-selection div").first().waitFor({ state: "detached" });
-        assert.equal(await page.evaluate(() => (window as any).clipboardGesture.writes.length as number), beforeWrites + 1, "Copy reserved its pending history text");
+        if (copy === "pending") {
+          const beforeWrites = await page.evaluate(() => (window as any).clipboardGesture.writes.length as number);
+          await page.keyboard.press("Control+c");
+          await frame.locator(".xterm-selection div").first().waitFor({ state: "detached" });
+          assert.equal(await page.evaluate(() => (window as any).clipboardGesture.writes.length as number), beforeWrites + 1, "Copy reserved its pending history text");
+        }
         if (sibling) {
           await page.locator(`.pane-frame[data-layout-pane="${sibling.pane_id}"] .pane-frame-head`).click();
           await page.locator(`.pane-frame.is-current[data-layout-pane="${sibling.pane_id}"]`).waitFor();
@@ -570,7 +577,14 @@ setInterval(() => {}, 1000);
         release.resolve();
         await (await selectionRead).finished();
         await settled();
-        assert.equal(await clipboard(page), "keep this clipboard", `a pending copy stays cancelled after visiting another ${destination} and returning`);
+        assert.equal(await clipboard(page), "keep this clipboard", `the held response leaves the clipboard alone after visiting another ${destination} and returning`);
+        if (copy !== "pending") {
+          assert.ok(await frame.locator(".xterm-selection div").count(), "the full-range highlight survives navigation without copying first");
+          if (copy === "native") assert.equal(await page.evaluate(() => document.execCommand("copy")), true);
+          else await page.keyboard.press(copy);
+          await settled();
+          assert.equal(await clipboard(page), expected, `${copy} after returning copies the retained selection's full text`);
+        }
       } finally {
         release.resolve();
         await page.unroute("**/api/pane/selection?*");

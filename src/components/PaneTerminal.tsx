@@ -1136,7 +1136,8 @@ export function PaneTerminal({
       if (copyOnSelect) copySelection(true);
       const generation = selectionGeneration;
       const lifetime = selectionLifetimeRef.current;
-      const current = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration && lifetime === selectionLifetimeRef.current;
+      const selectionCurrent = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration;
+      const current = (): boolean => selectionCurrent() && lifetime === selectionLifetimeRef.current;
       // offered to the chat draft at once with what is on screen; herdr's text and rows replace it below
       if (d.pane !== "") setSelectionQuote({ pane: d.pane, text: visibleText, range: null });
       let range: [Cell, Cell] | null = null;
@@ -1166,11 +1167,13 @@ export function PaneTerminal({
       }) };
       selectionRead = read;
       const text = read.text.then((value) => {
-        if (!current()) throw new Error("selection changed");
+        if (!selectionCurrent()) throw new Error("selection changed");
         // A redraw can remove the range before herdr reads it. Keep what the user
         // actually selected instead of replacing a successful copy with nothing.
         copiedText = value || visibleText;
         setSelectionQuote({ pane: d.pane, text: copiedText, range: read.complete ? { start: range[0].row, end: range[1].row } : null });
+        // Navigation cancels this clipboard write, while a retained highlight keeps its full text.
+        if (!current()) throw new Error("copy cancelled");
         return copiedText;
       });
       // Reserve the write NOW, supplying the server text when it arrives. Never
