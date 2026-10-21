@@ -34,7 +34,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
@@ -643,7 +643,7 @@ function readStream(stream: TranscriptStream, from: number, to: number): Buffer 
  * again) leaves the turns it went back over in place, and the next prompt hangs from the record it
  * went back to (null: from before the first message), not from the last one written (recorded on
  * 2.1.304). Such a prompt forks the session: what lies between that record and the prompt is off
- * the branch, when an answer lies there too (or the chat rewound it, ClaudeRewind). A send cancelled
+ * the branch, when an answer lies there too. A send cancelled
  * before any reply and sent again is a sibling of the same kind, and stays with the cancelled-prompt
  * rule (pushPrompt, turnStarts): it moves no history. Only a prompt forks, or a slash command's echo
  * (a /context sent first after a Restore hangs from the record gone back to, and the prompts after it
@@ -672,118 +672,6 @@ function claudeForks(branch: ClaudeBranch): [number, number][] {
   return branch.echo && branch.last !== null && branch.echo.line.has(branch.last) ? [...branch.forks, branch.echo.range] : branch.forks;
 }
 
-/**
- * A rewind the chat asked for and saw Claude Code carry out: "Restore conversation" confirmed, its
- * input box holding the message again. Claude writes nothing then (recorded on 2.1.304): the file
- * shows the old branch until the next prompt. So the bridge keeps what it saw, by transcript, and the
- * chat ends before that message (`start`) until the transcript forks after `length` (the file's size
- * when it was seen); the fork's own projection takes over then and the rewind is dropped.
- *
- * It belongs to one Claude process (`pid`) on one pane (`paneId`), and so does the message back in
- * that process's input box (`restored`, the chat's own until the chat sends again: the next send
- * may empty the box first). Both hold only while the pane's one Claude process on this transcript is
- * that pid (observeClaudeIdentity): another process drops the rewind (a restarted Claude resumes the
- * old branch, and its box is no box the chat filled), and a pane where no single Claude process is
- * found shows the whole transcript and owns no box until it is. The rewind is kept with the server's
- * state, never in the transcript, so a restart of the server keeps both.
- */
-export interface ClaudeRewind { uuid: string; start: number; end: number; length: number; pid: number; paneId: string; restored: string | null }
-const claudeRewinds = new Map<string, ClaudeRewind>();
-/** rewinds kept at most, the oldest let go first: one per transcript a Claude pane has restored */
-const MAX_CLAUDE_REWINDS = 256;
-let claudeRewindFile: string | null = null;
-/** each transcript's one Claude process as last resolved (paneTranscript), null when not exactly one; nothing until resolved */
-const claudeIdentities = new Map<string, number | null>();
-
-const isRewind = (value: unknown): value is ClaudeRewind => {
-  const rewind = value as Partial<ClaudeRewind> | null;
-  return typeof rewind?.uuid === "string" && [rewind.start, rewind.end, rewind.length].every((n) => Number.isSafeInteger(n) && n! >= 0)
-    && Number.isSafeInteger(rewind.pid) && typeof rewind.paneId === "string" && (rewind.restored === null || typeof rewind.restored === "string");
-};
-
-/** Where the rewinds are kept (createServer: the state directory), read back at once; null keeps them in memory. A fresh start knows no process yet. */
-export function configureClaudeRewinds(file: string | null): void {
-  claudeRewindFile = file;
-  claudeRewinds.clear();
-  claudeIdentities.clear();
-  if (file === null) return;
-  let saved: unknown;
-  try { saved = JSON.parse(readFileSync(file, "utf8")); } catch { return; }
-  if (saved === null || typeof saved !== "object") return;
-  let pruned = false;
-  for (const [path, rewind] of Object.entries(saved)) {
-    // a transcript gone since (a session deleted, a project moved) has nothing left to hide: read once, at start
-    if (isRewind(rewind) && existsSync(path)) claudeRewinds.set(path, rewind);
-    else pruned = true;
-  }
-  if (boundClaudeRewinds() || pruned) saveClaudeRewinds();
-}
-
-/** Lets the oldest kept rewinds go past MAX_CLAUDE_REWINDS; whether any went. */
-function boundClaudeRewinds(): boolean {
-  let dropped = false;
-  while (claudeRewinds.size > MAX_CLAUDE_REWINDS) { claudeRewinds.delete(claudeRewinds.keys().next().value!); dropped = true; }
-  return dropped;
-}
-
-function saveClaudeRewinds(): void {
-  if (claudeRewindFile === null) return;
-  try {
-    mkdirSync(nodePath.dirname(claudeRewindFile), { recursive: true });
-    const temporary = `${claudeRewindFile}.${process.pid}.tmp`;
-    writeFileSync(temporary, JSON.stringify(Object.fromEntries(claudeRewinds)));
-    renameSync(temporary, claudeRewindFile);
-  } catch (error) {
-    console.error(`claude rewinds: not saved: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function dropClaudeRewind(path: string): void {
-  if (claudeRewinds.delete(path)) saveClaudeRewinds();
-}
-
-/** The rewind kept for this transcript, whether or not it holds now. */
-export function claudeRewindOf(path: string): ClaudeRewind | null {
-  return claudeRewinds.get(path) ?? null;
-}
-
-/** The rewind for this transcript, only while the pane's one Claude process on it is the rewind's own. */
-function heldClaudeRewind(path: string): ClaudeRewind | null {
-  const rewind = claudeRewinds.get(path);
-  return rewind !== undefined && claudeIdentities.get(path) === rewind.pid ? rewind : null;
-}
-
-/**
- * The pane's Claude process on this transcript as just resolved: `pid` when exactly one runs there,
- * null when none or several do (not known). A rewind seen under another process is dropped; one that
- * cannot be tied to a single process stays kept but does not hold (heldClaudeRewind).
- */
-export function observeClaudeIdentity(path: string, pid: number | null): void {
-  remember(claudeIdentities, path, pid, 256);
-  const rewind = claudeRewinds.get(path);
-  if (rewind && pid !== null && rewind.pid !== pid) dropClaudeRewind(path);
-}
-
-/** The message in Claude's input box the chat owns after a rewind on transcript `path` of pane `paneId`, while the rewind holds; null otherwise. */
-export function claudeRestoredOwnedAt(path: string, paneId: string): string | null {
-  const rewind = heldClaudeRewind(path);
-  return rewind !== null && rewind.paneId === paneId ? rewind.restored : null;
-}
-
-/** claudeRestoredOwnedAt for the pane's transcript and process as they are now: read only when the pane has a restored message kept. */
-export async function claudeRestoredOwned(paneId: string): Promise<string | null> {
-  if (![...claudeRewinds.values()].some((rewind) => rewind.paneId === paneId && rewind.restored !== null)) return null;
-  const resolved = await paneTranscript(paneId).catch(() => null);
-  return resolved?.source === "claude-transcript" ? claudeRestoredOwnedAt(resolved.path, paneId) : null;
-}
-
-/** The chat sent again to the pane: whatever it put in a box before is no longer its own to clear. */
-export function releaseClaudeRestored(paneId: string): void {
-  let changed = false;
-  for (const rewind of claudeRewinds.values()) if (rewind.paneId === paneId && rewind.restored !== null) { rewind.restored = null; changed = true; }
-  if (changed) saveClaudeRewinds();
-}
-
 /** whether an assistant record starts in [from, to) */
 function answeredBetween(answers: readonly number[], from: number, to: number): boolean {
   let low = 0, high = answers.length;
@@ -800,7 +688,7 @@ function claudeCommandEchoRecord(entry: { type?: unknown; subtype?: unknown; isM
 /** a record longer than this is not parsed for its links: it leaves the chain unknown */
 const CLAUDE_CHAIN_LINE_BYTES = 1024 * 1024;
 
-function followClaudeBranch(branch: ClaudeBranch, line: Buffer, start: number, end: number, floor: number, rewoundAt: number): void {
+function followClaudeBranch(branch: ClaudeBranch, line: Buffer, start: number, end: number, floor: number): void {
   if (!line.includes('"uuid"')) return;
   if (line.length > CLAUDE_CHAIN_LINE_BYTES) { branch.last = null; return; }
   let entry: TranscriptEntry & { isSidechain?: unknown; logicalParentUuid?: unknown };
@@ -816,7 +704,7 @@ function followClaudeBranch(branch: ClaudeBranch, line: Buffer, start: number, e
   } else if (prompt) branch.echo = undefined;
   if (branch.last !== null && parent !== undefined && parent !== branch.last && (prompt || echo)) {
     const from = parent === null ? floor : branch.ends.get(parent);
-    if (from !== undefined && Math.max(from, floor) < start && (start >= rewoundAt || answeredBetween(branch.answers, Math.max(from, floor), start))) {
+    if (from !== undefined && Math.max(from, floor) < start && answeredBetween(branch.answers, Math.max(from, floor), start)) {
       const range: [number, number] = [Math.max(from, floor), start];
       if (prompt) branch.forks.push(range);
       else branch.echo = { range, line: new Set([entry.uuid]) };
@@ -841,9 +729,6 @@ function applyHistoryBoundary(path: string, stream: TranscriptStream, source: Re
     scan = { id: stream.id, scanned: 0, floor: 0, tail: "", settings: {}, ...(source === "claude-transcript" ? { branch: { last: null, ends: new Map(), answers: [], forks: [] } } : {}) };
   }
   const branch = scan.branch;
-  const kept = branch ? claudeRewinds.get(path) : undefined;
-  // a rewind not tied to the pane's one Claude process now hides nothing (heldClaudeRewind)
-  const rewind = kept !== undefined ? heldClaudeRewind(path) ?? undefined : undefined;
   let position = scan.scanned;
   let carry = Buffer.alloc(0);
   let skipping = false;
@@ -867,7 +752,7 @@ function applyHistoryBoundary(path: string, stream: TranscriptStream, source: Re
       }
       if (branch) {
         if (skipping) branch.last = null;
-        else followClaudeBranch(branch, line, base + offset, base + newline + 1, scan.floor, kept?.length ?? Infinity);
+        else followClaudeBranch(branch, line, base + offset, base + newline + 1, scan.floor);
       }
       skipping = false;
       offset = newline + 1;
@@ -890,121 +775,6 @@ function applyHistoryBoundary(path: string, stream: TranscriptStream, source: Re
     // the branch moved: what was read before reads otherwise now, as after a clear
     stream.id += `-fork-${hidden.length}-${hidden.at(-1)![1].toString(36)}`;
   }
-  if (kept && branch && (branch.ends.get(kept.uuid) !== kept.end || forks.some(([, prompt]) => prompt >= kept.length))) {
-    // the transcript forked since (the new branch's own projection hides the rest), or no longer
-    // holds the message where it was seen: the rewind is done with
-    dropClaudeRewind(path);
-  } else if (rewind && branch) {
-    if (rewind.start >= stream.floor) {
-      stream.hidden = [...hidden, [rewind.start, stream.length]];
-      stream.id += `-rewound-${rewind.start.toString(36)}`;
-    }
-  }
-}
-
-/**
- * Claude Code restored its conversation to before a message the chat asked for (server/rewind.ts
- * saw the confirm step answered and the message back in its input box): keeps that rewind for the
- * pane's transcript (ClaudeRewind). The message is the newest prompt still on the branch with these
- * words, past `later` newer ones with the same words; `later` null (a restore picked in a dialog the
- * chat did not walk): the message's one copy, nothing when it has several. Its own text comes back, as
- * the transcript holds it; null when the pane's transcript does not show it (nothing is kept then).
- */
-export async function rewindClaudeTranscript(paneId: string, text: string, later: number | null): Promise<{ said: string; at: number | null } | null> {
-  const resolved = await paneTranscript(paneId);
-  if (resolved.source !== "claude-transcript") return null;
-  return rewindClaudeRecord(resolved.path, text, later, { pid: claudeIdentities.get(resolved.path) ?? null, paneId });
-}
-
-/**
- * rewindClaudeTranscript for the transcript at `path`, whose one Claude process is `pid` on pane
- * `paneId`. Nothing is kept without that process (null): a rewind no process owns would hold for none.
- */
-export function rewindClaudeTranscriptAt(path: string, text: string, later: number | null, owner: { pid: number | null; paneId: string }): string | null {
-  return rewindClaudeRecord(path, text, later, owner)?.said ?? null;
-}
-
-/**
- * Whether a confirm step's quote that Claude Code cut (2.1.304 cuts a long message at 500 characters,
- * with no mark) stands for `text` alone among the transcript's prompts: every prompt starting with it
- * has `text`'s words (copies are the walk's to count). False when the window read may leave out
- * older prompts.
- */
-export function claudeCutQuoteUnambiguousAt(path: string, text: string, quote: string): boolean {
-  const stream = transcriptStream("claude-transcript", path, statSync(path), defaultCodexHome());
-  applyHistoryBoundary(path, stream, "claude-transcript");
-  const from = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
-  if (from !== stream.floor) return false;
-  const words = (value: string): string => value.replace(/\s+/g, " ").trim();
-  const wanted = words(text);
-  const shown = words(quote);
-  let found = false;
-  for (const line of readStream(stream, from, stream.length).toString("utf8").split("\n")) {
-    if (!line.includes('"user"') || !opensTurn("claude-transcript", line)) continue;
-    let entry: TranscriptEntry;
-    try { entry = JSON.parse(line) as TranscriptEntry; } catch { continue; }
-    const content = entry.message?.content;
-    const said = words(typeof content === "string" ? content : Array.isArray(content)
-      ? content.flatMap((block: { type?: unknown; text?: unknown } | null) => block?.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n") : "");
-    if (!said.startsWith(shown)) continue;
-    if (said !== wanted) return false;
-    found = true;
-  }
-  return found;
-}
-
-/** claudeCutQuoteUnambiguousAt for the pane's transcript; false when the pane's transcript is not Claude Code's. */
-export async function claudeCutQuoteUnambiguous(paneId: string, text: string, quote: string): Promise<boolean> {
-  const resolved = await paneTranscript(paneId);
-  return resolved.source === "claude-transcript" && claudeCutQuoteUnambiguousAt(resolved.path, text, quote);
-}
-
-/** rewindClaudeTranscriptAt with the time Claude wrote the restored message (`at`, null when its record has none). */
-function rewindClaudeRecord(path: string, text: string, later: number | null, owner: { pid: number | null; paneId: string }): { said: string; at: number | null } | null {
-  const pid = owner.pid;
-  if (pid === null) return null;
-  const resolved = { path };
-  const stream = transcriptStream("claude-transcript", resolved.path, statSync(resolved.path), defaultCodexHome());
-  applyHistoryBoundary(resolved.path, stream, "claude-transcript");
-  const from = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
-  const bytes = readStream(stream, from, stream.length);
-  const wanted = text.replace(/\s+/g, " ").trim();
-  let skip = later ?? 0;
-  // `later` null: a restore from a dialog the chat did not walk, so which copy was picked is not
-  // known; only a message with one copy in the transcript is kept (an older copy may lie before the window)
-  let only: { entry: TranscriptEntry & { uuid: string }; startAt: number; lineEnd: number; said: string } | null = null;
-  const keep = (entry: TranscriptEntry & { uuid: string }, startAt: number, lineEnd: number, said: string): { said: string; at: number | null } => {
-    // the newest is kept last, so the bound lets the oldest go
-    claudeRewinds.delete(resolved.path);
-    claudeRewinds.set(resolved.path, { uuid: entry.uuid, start: from + startAt, end: from + lineEnd, length: stream.length, pid, paneId: owner.paneId, restored: said });
-    boundClaudeRewinds();
-    saveClaudeRewinds();
-    const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
-    return { said, at: Number.isNaN(at) ? null : at };
-  };
-  for (let end = bytes.length; end > 0;) {
-    // (a negative offset would search from the buffer's end)
-    const startAt = end >= 2 ? bytes.lastIndexOf(0x0a, end - 2) + 1 : 0;
-    const line = bytes.subarray(startAt, end).toString("utf8").trimEnd();
-    const lineEnd = end;
-    end = startAt;
-    if (!line.includes('"user"') || !opensTurn("claude-transcript", line)) continue;
-    let entry: TranscriptEntry;
-    try { entry = JSON.parse(line) as TranscriptEntry; } catch { continue; }
-    const content = entry.message?.content;
-    const said = typeof content === "string" ? content : Array.isArray(content)
-      ? content.flatMap((block: { type?: unknown; text?: unknown } | null) => block?.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n") : "";
-    if (typeof entry.uuid !== "string" || said.replace(/\s+/g, " ").trim() !== wanted) continue;
-    const found = entry as TranscriptEntry & { uuid: string };
-    if (later === null) {
-      if (only !== null) return null;
-      only = { entry: found, startAt, lineEnd, said };
-      continue;
-    }
-    if (skip > 0) { skip -= 1; continue; }
-    return keep(found, startAt, lineEnd, said);
-  }
-  return only !== null && from === stream.floor ? keep(only.entry, only.startAt, only.lineEnd, only.said) : null;
 }
 
 /** Bytes that every line opening a turn contains: a cheap filter before JSON.parse. */
@@ -1744,9 +1514,7 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
     }
     // Claude's project is the directory it started in, the process's own cwd more often than the pane's
     if (agent === "claude") {
-      let pid: number | null = null;
-      const path = await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd], (found) => { pid = found; });
-      observeClaudeIdentity(path, pid);
+      const path = await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]);
       return { source: "claude-transcript", path };
     }
     if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId, sessionCwd) };

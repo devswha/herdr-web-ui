@@ -30,8 +30,6 @@ import type {
   PanePlan,
   PanePromptResponse,
   PaneReadResult,
-  PaneRewindRequest,
-  PaneRewindResponse,
   PaneResized,
   RepoDiffFileList,
   RepoDiffFilePatch,
@@ -819,11 +817,6 @@ export async function fetchPanePromptState(paneId: string, machineId = "local"):
 /** POST /api/pane/prompt/answer: ApiError 409 `prompt_changed` when the menu moved on. */
 export async function answerPanePrompt(answer: PromptAnswer, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/prompt/answer"), "POST", answer);
-}
-
-/** POST /api/pane/rewind: Claude Code's confirm step comes up as a card (`interaction-required`); grok's and agy's own picker opens in the terminal (`terminal-required`). */
-export async function rewindPane(request: PaneRewindRequest, machineId = "local"): Promise<PaneRewindResponse> {
-  return await (await sendJson(machinePath(machineId, "pane/rewind"), "POST", request)).json() as PaneRewindResponse;
 }
 
 /** GET /api/push: the server's VAPID key, the `applicationServerKey` this device subscribes with. */

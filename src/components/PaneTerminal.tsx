@@ -410,7 +410,7 @@ export function PaneTerminal({
   // input typed while disconnected, held for the user to review and send
   const [draftState, setDraftState] = useState<{ owner: string | null; value: InputDraft }>({ owner: null, value: EMPTY_DRAFT });
   const draft = draftState.value;
-  // a message's "Rewind in terminal" (grok, agy): which pane's terminal says to run the agent's own
+  // a message's "Rewind in terminal" (Claude Code, grok, agy): which pane's terminal says to run the agent's own
   // rewind, until dismissed or the chat is back. Nothing is typed for it: a draft stays as it was
   const [rewindHint, setRewindHint] = useState<string | null>(null);
   const rewindInTerminal = useCallback(() => { setRewindHint(paneId); onOpenTerminal?.(); }, [paneId, onOpenTerminal]);

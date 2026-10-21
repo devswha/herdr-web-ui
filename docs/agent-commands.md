@@ -138,15 +138,15 @@ move it, how it commits, and when it gives up to the terminal. Running a plan al
 screen again before the committing key and refuses when the prompt changed; `rereadMoves`, set
 for `each-move` readers and for list readers, adds a check after each move as well.
 
-Readers that show results in Chat today include Claude Code's `/goal` status card and its
-`/rewind` steps, Hermes's informational results, and the steps of omp's `/handoff` that can be
+Readers that show results in Chat today include Claude Code's `/goal` status card,
+Hermes's informational results, and the steps of omp's `/handoff` that can be
 answered from a card. A step that needs an editor or native editing ends as `terminal-required`
 and keeps the draft.
 
-Rewinding from a message is Claude Code only: `POST /api/pane/rewind` walks its `/rewind` list
-key by key, each key sent once the screen shows the one before it worked, and the chat follows
-the restored conversation. Grok and agy keep their own rewind in the terminal, because nothing
-reads their input box and a draft there could join the command.
+A message with Claude Code, grok or Antigravity offers **Rewind in terminal**. It opens the
+pane's terminal with a hint to run the agent's own `/rewind`, sends nothing and keeps drafts.
+Rewind dialogs are answered only in the terminal. Chat follows the native transcript's active
+branch when the agent records it; Claude Code records that branch on the next prompt or command.
 
 ## Earlier sessions
 
@@ -229,5 +229,5 @@ There is no single place for a new agent. These files each need it:
 These are tracked as issues rather than built: sending a command through an agent's own API, a
 link between a Codex pane and its thread, opt-in companions that would let an agent report its
 own runtime commands, probes that are certified free of side effects, versions for the nine
-agents whose stores do not record one, translations of card labels the server writes, rewind
-for more agents, and skill activity rows for Grok, agy and Devin.
+agents whose stores do not record one, translations of card labels the server writes,
+and skill activity rows for Grok, agy and Devin.
