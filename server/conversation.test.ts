@@ -2072,7 +2072,8 @@ describe("Agy native ledger through shared paging", () => {
     expect(turns[2]!.role).toBe("user");
   });
   it("keeps paging and refs stable on append, then rejects them on a DB-only idle rewind", () => {
-    for (let i = 0; i < 80; i++) { add(i * 2, "USER_INPUT", `prompt ${i}`); add(i * 2 + 1, "GENERIC", "x".repeat(5000)); }
+    // one commit: 160 separate ones each wait for the disk, seconds under load
+    db.transaction(() => { for (let i = 0; i < 80; i++) { add(i * 2, "USER_INPUT", `prompt ${i}`); add(i * 2 + 1, "GENERIC", "x".repeat(5000)); } })();
     const first = page();
     expect(first.cursor).not.toBeNull();
     const older = transcriptPage("agy-transcript", path, { before: first.cursor! });
