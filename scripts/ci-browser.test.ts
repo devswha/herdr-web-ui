@@ -121,7 +121,7 @@ describe("browser lane", () => {
     for (const script of ["sticky-modifiers-regression.ts", "file-viewer-regression.ts"]) {
       expect(text).toMatch(new RegExp(`STEP=scripts/${script} EVIDENCE=.+/browser-evidence`));
     }
-    for (const script of ["ui-regression.ts", "ui-contexts-regression.ts", "key-bar-customization-demo-regression.ts"]) {
+    for (const script of ["ui-regression.ts", "ui-contexts-regression.ts", "key-bar-customization-demo-regression.ts", "attention-jump-demo-regression.ts"]) {
       expect(text).toContain(`STEP=scripts/${script} EVIDENCE=\n`);
     }
   });
