@@ -1647,8 +1647,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   (`.work-row-tool`, mono, dim) and the row's title.
 - Detail copy: the opened detail labels its Input and Output (Error) in the caps `h4` the Output
   label already had, each with a quiet copy at the far end of that line (`.chat-tool-copy`: glyph
-  + words, `--fs-xs`, `--text-dim`, `--chip-h` high with a `--pointer-target` expander, a
-  `--touch-target` button on touch). It copies the call's raw text, never the drawn view: the
+  + words in `--text`, `--fs-md` with a mouse and `--chat-fs-body` on touch, `--chip-h` high with a
+  `--pointer-target` expander, a `--touch-target` button on touch). Its focus ring is drawn inside
+  it, since the detail's edge clips past it; a mouse's press is `.icon-button:active`'s plate as an
+  inset accent edge; a disabled copy turns `--text-dim` rather than fading below AA. It copies the call's raw text, never the drawn view: the
   input as the agent sent it (not the diff, checklist or question card made from it), and the
   output as far as the page has it, a todo call's raw answer included. Its words say how much that
   is: Copy output for a complete output, Copy partial output while a cut output's rest is only on
