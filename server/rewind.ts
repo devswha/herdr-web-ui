@@ -212,8 +212,9 @@ async function walkRewindList(io: RewindIo, text: string, later: number, stepMs:
     const label = cursorOf(list);
     if (label !== "(current)" && rowMatches(label, text)) {
       // a whole row is this message; a row cut short may be another one that starts the same, so only
-      // its confirm step's quote counts it as one of the newer copies
-      if (skip > 0 && normalizeText(label) === normalizeText(text)) skip -= 1;
+      // its confirm step's quote counts it as one of the newer copies. A row ending in "…" is opened
+      // even when it reads as the message: a message may itself end in "…", as a longer one is cut to
+      if (skip > 0 && normalizeText(label) === normalizeText(text) && !label.endsWith("…")) skip -= 1;
       else {
         await io.keys([KEY.enter]);
         const confirm = await waitFor(io, parseClaudeRewindConfirm, stepMs);

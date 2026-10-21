@@ -155,6 +155,15 @@ describe("walking Claude Code's rewind list", () => {
     expect(missing.state()).toEqual({ at: "closed" });
   });
 
+  // Codex on db8d72b5 (2): a message that itself ends in "…" reads as exactly what a longer one is cut to
+  it("opens and compares a row ending in \"…\" even when it reads as the message itself", async () => {
+    const ending = "please describe the history of…";
+    const longer = "please describe the history of the mill, the river and the town around them";
+    const dialog = narrowDialog([ending, ending, longer], 31);
+    expect(await walkClaudeRewind(dialog.io, ending, 1)).toBe("shown");
+    expect(dialog.state()).toEqual({ at: "confirm", row: 0, choice: 0 });
+  });
+
   // HIGH 4 (merge pass r1): backing out of another message's confirm step
   it("backs out of a confirm step with Esc alone, one key at a time, never over its rows", async () => {
     const dialog = long();
