@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { answerKeys, parseInteractivePrompt } from "../prompt.ts";
+import { readers } from "./claude.ts";
+import { executeInteractionPlan } from "./interaction-plan.ts";
+import type { ReaderContext } from "./registry.ts";
+import type { AnswerStep } from "./shared.ts";
 
 const fixture = (state: string, width: number): string =>
   readFileSync(new URL(`../fixtures/claude-goal-2.1.304-${state}-${width}.txt`, import.meta.url), "utf8");
@@ -58,6 +62,20 @@ describe("Claude Code's /rewind", () => {
     expect(parseInteractivePrompt("claude", shown.replace("2. Summarize from here", "2. Restore code"))).toBeNull();
     expect(parseInteractivePrompt("claude", shown.replace("   Rewind\n", "   Rollback\n"))).toBeNull();
     expect(parseInteractivePrompt("claude", `${shown}\n❯ hello`)).toBeNull();
+  });
+
+  // HIGH 2 (merge pass r1): every confirm step reads "Restore conversation"; the quote tells them apart
+  test("an answer made for one message's confirm step sends no Enter on another message's", async () => {
+    const reader = readers.find((candidate) => candidate.id === "claude-rewind")!;
+    const answer = async (shown: string) => {
+      const sent: AnswerStep[] = [];
+      const context: ReaderContext = { agent: "claude", omoAsk: null, omoTrusted: true, omoOpen: [], sent: null, working: false };
+      const plan = reader.interaction!(reader.parse(rewind("confirm-apple", 40), context)!);
+      const result = await executeInteractionPlan(plan, 0, { rereadMoves: true, read: async () => shown, send: async (step) => { sent.push(step); }, active: () => true, cancelled: () => false });
+      return { result, sent };
+    };
+    expect(await answer(rewind("confirm-long", 40))).toEqual({ result: "prompt_changed", sent: [] });
+    expect(await answer(rewind("confirm-apple", 40))).toEqual({ result: "answered", sent: [{ keys: ["enter"] }] });
   });
 
   test("a list cut by a later line gets no card", () => {

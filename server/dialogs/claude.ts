@@ -917,7 +917,10 @@ export const readers: readonly DialogReader[] = [
     id: "claude-rewind", agents: ["claude"], priority: 6,
     // a window on the session's messages: looked at again after each move, and before the Enter
     reread: "before-commit", list: "letter-window",
-    interaction: (parsed) => pickerPlan(parsed, parseClaudeRewind, parsed.optionSteps ?? [], (shown, cursor) => shown.menuLabels[cursor]),
+    // every confirm step reads "Restore conversation": the message it quotes is part of the row, so an
+    // answer made for one message gets no Enter on another's
+    interaction: (parsed) => pickerPlan(parsed, parseClaudeRewind, parsed.optionSteps ?? [], (shown, cursor) =>
+      shown.menuLabels[cursor] === undefined ? undefined : CLAUDE_REWIND_CONFIRM_RE.test(shown.question) ? `${shown.body?.split("\n")[0] ?? ""}\0${shown.menuLabels[cursor]}` : shown.menuLabels[cursor]),
     parse: (screen) => {
       const parsed = parseClaudeRewind(screen);
       return parsed?.responder === "claude-rewind" ? parsed : null;
