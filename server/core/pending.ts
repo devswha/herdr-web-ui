@@ -342,11 +342,14 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       reply = { ok: false, ...pendingFault(error) };
     }
     const code = reply.code ?? "";
-    // a first message its page could not type yet stays queued for that page's next attach or turn; with the page gone it is held
+    // a first message its page could not type yet stays queued for that page's next attach or turn. One whose
+    // page left or closed during its own automatic send is held as at that leaving, never retried: no page is
+    // left to type it, and queued again it would head the pane's queue ahead of the other devices' messages
     const requester = requesters.get(item);
-    const retry = automatic && (["pending_wait", "agent_blocked"].includes(code)
-      || (!isClient(item.owner) && requester !== undefined && present(requester) && FIRST_MESSAGE_RETRY_CODES.has(code)));
-    pending.settle(item, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed", retry);
+    const unattended = automatic && !isClient(item.owner) && (requester === undefined || !present(requester));
+    const retryable = ["pending_wait", "agent_blocked"].includes(code) || (!isClient(item.owner) && FIRST_MESSAGE_RETRY_CODES.has(code));
+    const fault = reply.ok ? undefined : unattended && retryable ? FIRST_MESSAGE_UNATTENDED : { code: reply.code!, message: reply.message! };
+    pending.settle(item, fault, reply.code === "submit_changed", automatic && retryable && !unattended);
     return reply;
   }
   function drainPending(paneId: string): void {

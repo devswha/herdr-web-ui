@@ -1399,6 +1399,46 @@ describe("a create request's first message", () => {
     expect(readFileSync(log, "utf8")).toBe("");
   }, 30_000);
 
+  it("whose page leaves during its own automatic send, is held for Send now or Discard, never re-queued ahead of the pane's other messages", async () => {
+    const f = await setup("first-left-mid-send", "codex");
+    const message = await f.server.queueFirstMessage(f.pane, "FIRST-MID", "codex", await f.socket.connection());
+    await listed(f.socket, f.pane, message.id);
+    const device = await f.another();
+    device.send({ type: "submit", id: 7, pane_id: f.pane, text: "MARKER", payload: "unused\r", delivery: "queue" });
+    const queued = await device.result(7);
+    expect(queued.ok).toBe(true);
+    // the automatic send's own screen read, inside its checks (pendingContext), waits until the page has left
+    const realRead = herdrClient.paneRead;
+    let reached!: () => void; const atRead = new Promise<void>((resolve) => { reached = resolve; });
+    let release!: () => void; const released = new Promise<void>((resolve) => { release = resolve; });
+    const read = spyOn(herdrClient, "paneRead").mockImplementation(async (options) => {
+      if (options.paneId === f.pane && options.source === "detection" && new Error().stack?.includes("pendingContext")) { reached(); await released; }
+      return realRead(options);
+    });
+    try {
+      await f.state("idle", device);
+      await atRead;
+      // the page leaves the pane; its role's answer says the server has taken the detach
+      const from = f.socket.seen.length;
+      f.socket.send({ type: "detach", pane_id: f.pane });
+      f.socket.send({ type: "role", mode: "interact" });
+      await f.socket.wait((frame) => frame.type === "role-ack", from);
+      // an answerable prompt is on the screen when the read goes on: the send ends agent_blocked
+      await f.showScreen(approval);
+      const held = listed(device, f.pane, message.id, "held");
+      release();
+      expect((await held).messages.find((item: PendingMessage) => item.id === message.id).error.code).toBe("first_message_unattended");
+    } finally { release(); read.mockRestore(); }
+    // the pane's other message goes once the prompt is gone
+    await f.showScreen("\u203a Message\n");
+    await f.state("working", device);
+    const markerSent = f.removed(queued.pending.id, "sent", device);
+    await f.state("idle", device);
+    await markerSent;
+    await f.waitBytes(`${paste("MARKER")}\r`);
+    expect(f.bytes()).toBe(`${paste("MARKER")}\r`);
+  }, 30_000);
+
   it("is discarded by an attached connection, and then never typed", async () => {
     const f = await setup("first-discard");
     const message = await f.server.queueFirstMessage(f.pane, "FIRST-DISCARD", "claude", await f.socket.connection());
