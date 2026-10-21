@@ -1,6 +1,7 @@
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
 import { connectionData, createCore, type SocketData } from "./core/index.ts";
 import { ClientConnectionLog } from "./client-connection-log.ts";
+import { RequestLog } from "./request-log.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
 import { paneContext, resolveAgent } from "./pane-context.ts";
 import { randomBytes } from "node:crypto";
@@ -276,6 +277,7 @@ export function createServer(
     maxRequestBodySize: BUN_BODY_CEILING,
 
     async fetch(request, bunServer) {
+      return requestLog.handle(request, async (headers) => {
       const startup = portalStartupResult ?? await portalStartup;
       if (!startup.ok) return compressResponse(request, errorResponse(startup.error));
       // the route's answer, gzipped for a browser that takes it (server/compress.ts)
@@ -397,14 +399,14 @@ export function createServer(
           try {
             relay = new MachineRelay(machines, machineId, readOnly);
             await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: connectionData({ relay, deviceId, readOnly }) });
-            if (upgraded) return undefined as unknown as Response;
+            const upgraded = bunServer.upgrade(request, { headers, data: connectionData({ relay, deviceId, readOnly }) });
+            if (upgraded) return undefined;
             relay.close();
           } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
           return new Response("websocket upgrade required", { status: 426 });
         }
-        const upgraded = bunServer.upgrade(request, { data: connectionData({ deviceId, readOnly }) });
-        if (upgraded) return undefined as unknown as Response;
+        const upgraded = bunServer.upgrade(request, { headers, data: connectionData({ deviceId, readOnly }) });
+        if (upgraded) return undefined;
         return new Response("websocket upgrade required", { status: 426 });
       }
 
@@ -695,10 +697,13 @@ export function createServer(
       // static client - public even when the API is gated, so the login UI can load
       return serveStatic(pathname, request.headers.get("accept-encoding"), requestOrigin(request));
       })());
+      });
     },
 
     websocket: core.websocket,
   });
+
+  const requestLog = new RequestLog(options.stateDir ?? defaultStateDir());
 
   if (options.portal) {
     let resume: Promise<void>;
@@ -736,6 +741,7 @@ export function createServer(
         closeCodexDaemonSources();
       });
       server.stop(true);
+      requestLog.close();
     },
   };
 }

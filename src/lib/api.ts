@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "./api-request-id.ts";
 import type { PreferencesChange, SharedPreferences } from "../../shared/preferences.ts";
 import type { SeenFinish } from "../../shared/seen.ts";
 import { resumeConnectionTraces } from "./connectionTrace.ts";
