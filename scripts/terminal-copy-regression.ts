@@ -408,6 +408,72 @@ setInterval(() => {}, 1000);
     assert.ok(copied[0]! < offTop, "explicit Copy includes text above the first viewport");
     if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-copy-on-select-off.png") });
 
+    // Copy can precede a slow history read. Ctrl+C clears the highlight, but still owns its copy.
+    for (const { method, result } of [
+      { method: "Control+c", result: "full" },
+      { method: "native", result: "full" },
+      { method: "Control+c", result: "failed" },
+      { method: "Control+c", result: "unsupported" },
+    ] as const) {
+      await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
+      await rowWith("S299").waitFor();
+      const firstTop = await topRow();
+      const release = Promise.withResolvers<void>();
+      const asked = Promise.withResolvers<void>();
+      let expected = "";
+      await page.route("**/api/pane/selection?*", async (route) => {
+        const response = await route.fetch();
+        expected = (await response.json()).text;
+        asked.resolve();
+        await release.promise;
+        if (result === "failed") await route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "temporarily unavailable" } } });
+        else await route.fulfill({ response });
+      });
+      try {
+        await page.evaluate(() => navigator.clipboard.writeText("keep this clipboard"));
+        await page.mouse.move(offScreen.x + 200, start.y);
+        await press();
+        await page.mouse.move(end.x, end.y, { steps: 4 });
+        await page.mouse.wheel(0, -offScreen.height - offHeight * 20);
+        await page.waitForFunction((top) => Number(document.querySelector(".pane-terminal .xterm-rows > div")?.textContent?.trim().slice(1)) < top, firstTop);
+        await page.mouse.move(start.x, start.y, { steps: 4 });
+        const selectionRead = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/pane/selection");
+        await page.mouse.up();
+        await asked.promise;
+        assert.ok(lines(expected)[0]! < firstTop, "the delayed range includes rows above the first viewport");
+        assert.ok(lines(expected).length > offScreen.height / offHeight, "the delayed range is larger than the visible viewport");
+        assert.equal(await clipboard(page), "keep this clipboard", "a delayed off-mode release leaves the clipboard alone");
+        if (result === "unsupported") await page.evaluate(() => {
+          (window as any).savedClipboardItem = window.ClipboardItem;
+          (window as any).ClipboardItem = undefined;
+        });
+        const beforeWrites = await page.evaluate(() => (window as any).clipboardGesture.writes.length as number);
+        const beforeKey = inputs.length;
+        if (method === "native") assert.equal(await page.evaluate(() => document.execCommand("copy")), true);
+        else await page.keyboard.press(method);
+        const reserved = await page.evaluate(() => (window as any).clipboardGesture.writes.length as number);
+        if (method === "Control+c") await page.locator(".pane-terminal .xterm-selection div").first().waitFor({ state: "detached" });
+        release.resolve();
+        await (await selectionRead).finished();
+        await settled();
+        if (result === "full") assert.equal(await clipboard(page), expected, `${method} before the history response copies the whole selection`);
+        else {
+          const partial = lines(await clipboard(page));
+          assert.ok(consecutive(partial) && partial.length < lines(expected).length, "unavailable full copy keeps the visible rows");
+          await page.locator(".terminal-banner", { hasText: "copied the visible part" }).waitFor();
+        }
+        assert.equal(reserved, beforeWrites + (result === "unsupported" ? 0 : 1), "supported explicit copy reserves the async write before the response");
+        assert.deepEqual(inputs.slice(beforeKey), [], "copy while a range is pending sends no terminal input");
+      } finally {
+        release.resolve();
+        await page.unroute("**/api/pane/selection?*");
+        if (result === "unsupported") await page.evaluate(() => {
+          (window as any).ClipboardItem = (window as any).savedClipboardItem;
+          delete (window as any).savedClipboardItem;
+        });
+      }
+    }
+
     // A failed config read does not imply the host uses the default. Recovery retries the read.
     for (const failure of ["network", "server"] as const) {
       await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });

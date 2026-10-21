@@ -2189,7 +2189,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the terminal mounts. An unreadable preference leaves automatic copying off and retries on
   network or socket recovery; only a missing route uses the older server's default. Like the sidebar rows, this uses the web UI host's config for local and
   remote panes alike. With it off, release only selects; explicit Copy or Ctrl+C still copies
-  the full range, including rows scrolled out of view. Pointer hover preserves the highlight
+  the full range, including rows scrolled out of view. Copy reserves a pending history read in
+  its own gesture, even when Ctrl+C clears the highlight; a new drag or pane cancels the old
+  request. A failed read or unsupported deferred clipboard write reports a partial copy.
+  Pointer hover preserves the highlight
   and quote offer in either mode. Like [Zed's terminal](https://zed.dev/docs/terminal#copy-on-select),
   selecting need not replace the clipboard; herdr's preference owns the choice here, with no
   separate web setting. No code or pixels are copied from Zed.

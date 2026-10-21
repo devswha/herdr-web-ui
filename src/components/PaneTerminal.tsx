@@ -838,7 +838,12 @@ export function PaneTerminal({
 
     /** herdr's text for the last drag, while its highlight is still the selection */
     let copiedText: string | null = null;
+    type SelectionRead = { pane: string; scrolled: boolean; complete: boolean; pending: boolean; text: Promise<string> };
+    let selectionRead: SelectionRead | null = null;
     let selectionGeneration = 0;
+    // Explicit copies outlive Ctrl+C clearing the highlight; a new drag still cancels them.
+    let clipboardGeneration = 0;
+    let copyingSelection = false;
     let disposed = false;
     // Do not replace the clipboard before the preference arrives. Older servers use herdr's default.
     let copyOnSelect = false;
@@ -860,21 +865,45 @@ export function PaneTerminal({
     };
     readUiPreference();
     window.addEventListener("online", readUiPreference);
+    const reserveSelectionCopy = (nativeCopied: boolean): boolean => {
+      const read = selectionRead;
+      if (!read?.pending || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") return false;
+      const generation = ++clipboardGeneration;
+      const current = (): boolean => !disposed && paneRef.current === read.pane && generation === clipboardGeneration;
+      const blob = read.text.then((value) => {
+        if (!current()) throw new Error("copy cancelled");
+        return new Blob([value], { type: "text/plain" });
+      });
+      void blob.catch(() => {});
+      void navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).then(() => {
+        if (current()) noteClipboard(read.scrolled && !read.complete ? "copied the visible part" : "copied to clipboard");
+      }, () => {
+        if (current()) noteClipboard(nativeCopied ? (read.scrolled ? "copied the visible part" : "copied to clipboard") : "clipboard write blocked by the browser");
+      });
+      return true;
+    };
     // Run after xterm's own copy listener, including for Cmd+C and context-menu
     // Copy. Its buffer contains only the visible part of a scrolled selection.
     const onCopy = (event: ClipboardEvent): void => {
       if (!term.hasSelection() || copiedText === null || !event.clipboardData) return;
       event.clipboardData.setData("text/plain", copiedText);
       event.preventDefault();
+      if (!copyingSelection && !reserveSelectionCopy(true) && selectionRead?.scrolled && !selectionRead.complete) noteClipboard("copied the visible part");
     };
     host.addEventListener("copy", onCopy);
-    const copySelection = (): void => {
+    const copySelection = (automatic = false): void => {
       const text = copiedText ?? term.getSelection();
       if (!text) return;
       // Native copy still works in a user gesture when a Chromium/PWA site has
       // denied the async clipboard permission, or plain HTTP has no clipboard API.
-      if (document.execCommand("copy")) {
-        noteClipboard("copied to clipboard");
+      let nativeCopied: boolean;
+      copyingSelection = true;
+      try { nativeCopied = document.execCommand("copy"); }
+      finally { copyingSelection = false; }
+      if (!automatic && reserveSelectionCopy(nativeCopied)) return;
+      const copiedNote = selectionRead?.scrolled && !selectionRead.complete ? "copied the visible part" : "copied to clipboard";
+      if (nativeCopied) {
+        noteClipboard(copiedNote);
         return;
       }
       if (!navigator.clipboard) {
@@ -882,13 +911,14 @@ export function PaneTerminal({
         return;
       }
       void navigator.clipboard.writeText(text).then(
-        () => { if (!disposed) noteClipboard("copied to clipboard"); },
+        () => { if (!disposed) noteClipboard(copiedNote); },
         () => { if (!disposed) noteClipboard("clipboard write blocked by the browser"); },
       );
     };
     const selectionChange = term.onSelectionChange(() => {
       if (!term.hasSelection()) {
         copiedText = null;
+        selectionRead = null;
         selectionGeneration++;
         setSelectionQuote(null);
       }
@@ -1013,7 +1043,9 @@ export function PaneTerminal({
         ? { ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey } : null;
       if (reporting) Object.defineProperty(event, isMac ? "altKey" : "shiftKey", { value: true });
       copiedText = null;
+      selectionRead = null;
       selectionGeneration++;
+      clipboardGeneration++;
       setSelectionQuote(null);
       const pane = paneRef.current;
       const { cell } = cellAt(event);
@@ -1097,7 +1129,7 @@ export function PaneTerminal({
       if (!term.hasSelection()) return;
       const visibleText = term.getSelection();
       copiedText = visibleText;
-      if (copyOnSelect) copySelection();
+      if (copyOnSelect) copySelection(true);
       const generation = selectionGeneration;
       const current = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration;
       // offered to the chat draft at once with what is on screen; herdr's text and rows replace it below
@@ -1118,16 +1150,22 @@ export function PaneTerminal({
       // herdr's text covers the whole range; the visible text in its place does not, so the quote
       // then names no line range rather than one its text does not hold
       let fromHerdr = true;
-      const text = fetchPaneSelection(d.pane, range[0], range[1], machineId).catch(() => {
+      const read: SelectionRead = { pane: d.pane, scrolled: d.scrolled, complete: false, pending: true, text: fetchPaneSelection(d.pane, range[0], range[1], machineId).catch(() => {
         if (current() && d.scrolled) noteClipboard("could not read the selection from herdr");
         fromHerdr = false;
         return visibleText;
       }).then((value) => {
+        read.complete = fromHerdr && value !== "";
+        read.pending = false;
+        return value || visibleText;
+      }) };
+      selectionRead = read;
+      const text = read.text.then((value) => {
         if (!current()) throw new Error("selection changed");
         // A redraw can remove the range before herdr reads it. Keep what the user
         // actually selected instead of replacing a successful copy with nothing.
         copiedText = value || visibleText;
-        setSelectionQuote({ pane: d.pane, text: copiedText, range: fromHerdr && value ? { start: range[0].row, end: range[1].row } : null });
+        setSelectionQuote({ pane: d.pane, text: copiedText, range: read.complete ? { start: range[0].row, end: range[1].row } : null });
         return copiedText;
       });
       // Reserve the write NOW, supplying the server text when it arrives. Never
