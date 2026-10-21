@@ -51,6 +51,8 @@ type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; messa
 const FIRST_MESSAGE_RETRY_CODES = new Set(["input_not_ready", "pending_lease_lost", "disconnected", "read_only"]);
 /** a first message whose page left before it went, or that named none: held for an explicit Send now or Discard */
 const FIRST_MESSAGE_UNATTENDED = { code: "first_message_unattended", message: "The page that sent this first message is gone; send it now or discard it" };
+/** a first message whose launched agent came up and left before it went: held for an explicit Send now or Discard */
+const LAUNCH_GONE = { code: "pending_target_changed", message: "The agent started for this message has ended; review the message before sending it" };
 /** receipts of first messages kept per pane, so a connection that attaches later drops a stale copy */
 const FIRST_MESSAGE_RECEIPTS = 8;
 
@@ -93,10 +95,13 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   let nextFirstRequestId = -1;
   /** first messages still learning the agent launched for them (queueFirstMessage, learnLaunched) */
   const launchBound = new WeakSet<PendingItem>();
-  /** the pane's launch-bound first messages, held ones included */
+  /**
+   * The pane's launch-bound first messages that still wait to go. A held one learns no more at events: it
+   * goes only on an explicit Send now, which reads the pane then (bindLaunched).
+   */
   const launchBoundIn = (paneId: string): PendingItem[] => pending.list(FIRST_MESSAGE_OWNER, paneId)
     .map((message) => pending.get(FIRST_MESSAGE_OWNER, paneId, message.id))
-    .filter((item): item is PendingItem => item !== undefined && launchBound.has(item));
+    .filter((item): item is PendingItem => item !== undefined && launchBound.has(item) && item.message.state === "queued");
   /** the page connection that sent each first message: the only one that types it on its own */
   const requesters = new WeakMap<PendingItem, Client>();
   const requested = new WeakMap<Client, Set<PendingItem>>();
@@ -430,18 +435,37 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     const items = launchBoundIn(paneId);
     if (items.length === 0) return;
     const { identity } = await currentIdentity(paneId);
-    for (const item of items) learn(item, identity);
+    for (const item of items) {
+      // its agent came up and left: held at once, as the pane may never be at rest for a send to find it gone
+      if (launchGone(item, identity)) pending.holdItem(item, LAUNCH_GONE);
+      else learn(item, identity);
+    }
   }
   /**
-   * A first message before a send: while herdr names no agent in its terminal yet it waits ("wait");
-   * otherwise it learns from what runs there (learn) and goes to pendingContext's checks ("bound").
+   * A first message before a send. While herdr names no agent in its terminal it waits ("wait") only for a
+   * launch still coming up: no process learned yet, or the learned one still in front. A launched agent
+   * that came up and left is no longer waited for: pendingContext finds no agent of its kind there and
+   * holds the message with pending_target_changed. Otherwise it learns from what runs there (learn) and
+   * goes to pendingContext's checks ("bound").
    */
   async function bindLaunched(item: PendingItem): Promise<"bound" | "wait"> {
     if (!launchBound.has(item)) return "bound";
     const { identity } = await currentIdentity(item.paneId);
-    if (identity.terminalId === item.identity.terminalId && identity.agent === null) return "wait";
+    if (identity.terminalId === item.identity.terminalId && identity.agent === null && !launchGone(item, identity)) return "wait";
     learn(item, identity);
     return "bound";
+  }
+  /**
+   * Whether the agent launched for a first message came up and left: herdr names no agent in its terminal
+   * and the process learned for it is no longer the one in front.
+   */
+  function launchGone(item: PendingItem, identity: PendingIdentity): boolean {
+    const launched = item.identity.processPid;
+    if (launched == null || identity.terminalId !== item.identity.terminalId || identity.agent !== null) return false;
+    return identity.processPid !== launched
+      // macOS reads a birth to the whole second (samePendingIdentity)
+      || (item.identity.processBirth != null && identity.processBirth != null
+        && Math.abs(identity.processBirth - item.identity.processBirth) > (process.platform === "darwin" ? 1000 : 0));
   }
   /** A connection's end: its own messages are held, and so are the first messages its page sent that have not gone yet. */
   function closeConnection(client: Client): void {
