@@ -65,8 +65,9 @@ function nextId(): string {
  * (server/fixtures/opencode-autocomplete-2.0.32-ansi-third-selected.ansi, 40 rows) is 10,466 bytes,
  * 12,742 once JSON-escaped (about 319 bytes a row); the bridge's largest fixed read is 400 recent rows
  * (server/codex.ts), about 128 KB at that rate. A schema-complete snapshot of 25 workspaces, 200 tabs
- * and 2,000 panes, with every pane's agent and every tab's layout, is 3,598,115 bytes of JSON and a
- * reply line under 3,598,200 bytes (about 1,800 bytes a pane; server/herdr/seam.test.ts builds it).
+ * and 2,000 panes, with every pane's agent and every tab's layout, is 3,598,115 bytes of JSON; its
+ * reply line adds 58 bytes of envelope, the request id and the newline, 3,598,174 bytes plus the id
+ * (under 3,598,200; about 1,800 bytes a pane; server/herdr/seam.test.ts builds it and checks this sum).
  * Twice each of those stays far below the floors, so the floors stand: 64 MiB for pane.read and
  * session.snapshot (server/herdr/seam.test.ts answers both at exactly that size), 16 MiB for every
  * other reply and for each line of an event stream. A subscription has no lifetime total: only

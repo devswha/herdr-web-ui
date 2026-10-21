@@ -350,17 +350,22 @@ it("accepts largest supported pane and snapshot replies", async () => {
 
   // The snapshot sizing evidence in client.ts: a schema-complete snapshot of 25 workspaces of 8 tabs
   // of 10 panes (2,000 panes, with every pane's agent and every tab's layout) is 3,598,115 bytes of
-  // JSON, its whole reply line under 3,598,200, about 1,800 bytes a pane; twice that is under 8 MiB.
+  // JSON. Its whole reply line before padding is that plus 58 bytes of envelope
+  // ({"id":"","result":{"type":"session_snapshot","snapshot":}}), the id's bytes and the newline:
+  // 3,598,174 + id bytes (3,598,188 for a 14-byte id), about 1,800 bytes a pane; twice that is under 8 MiB.
   const full = fullSnapshot(25, 8, 10);
   expect([full.workspaces.length, full.tabs.length, full.layouts.length, full.panes.length, full.agents.length]).toEqual([25, 200, 200, 2000, 2000]);
   expect(Buffer.byteLength(JSON.stringify(full))).toBe(3_598_115);
   let unpadded = 0;
+  let idBytes = 0;
   reply = ({ id }) => {
-    unpadded = Buffer.byteLength(JSON.stringify({ id, result: { type: "session_snapshot", snapshot: full } }));
+    idBytes = Buffer.byteLength(id);
+    unpadded = Buffer.byteLength(`${JSON.stringify({ id, result: { type: "session_snapshot", snapshot: full } })}\n`);
     // the same snapshot, padded through one extension field to exactly the ceiling
     return exactLine(LARGE_REPLY_BYTES, (pad) => ({ id, result: { type: "session_snapshot", snapshot: { ...full, added_later: pad } } }));
   };
   const snapshot = await sessionSnapshot(path, 30_000);
+  expect(unpadded).toBe(3_598_115 + 58 + idBytes + 1);
   expect(unpadded).toBeLessThan(3_598_200);
   expect(2 * unpadded).toBeLessThan(8 * 1024 * 1024);
   expect(snapshot).toEqual({ ...full, added_later: expect.any(String) } as never);
