@@ -76,6 +76,8 @@ export function SessionHistory({ workspace, panes, agent: firstAgent, recent = N
     const frame = window.requestAnimationFrame(() => {
       const active = document.activeElement;
       if (surface.current?.contains(active) && active !== placed.current) return;
+      // an open agent list keeps the focus: its keys and Escape still belong to the list
+      if (picker.current?.getAttribute("aria-expanded") === "true") return;
       const target = list.current?.querySelector<HTMLElement>("button:not(:disabled)") ?? picker.current;
       target?.focus();
       placed.current = target ?? null;
