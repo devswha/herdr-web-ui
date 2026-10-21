@@ -38,7 +38,7 @@ try {
   browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   await context.addInitScript((ids) => {
-    for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal");
+    for (const id of ids) localStorage.setItem(`ovis:view:${id}`, "terminal");
     const page = window as unknown as { fakeHidden?: boolean };
     Object.defineProperty(Document.prototype, "visibilityState", { configurable: true, get: () => (page.fakeHidden ? "hidden" : "visible") });
     Object.defineProperty(Document.prototype, "hidden", { configurable: true, get: () => page.fakeHidden === true });

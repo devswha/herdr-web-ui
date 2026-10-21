@@ -202,7 +202,7 @@ try {
       await placeholder.waitFor();
       assert.ok((await placeholder.textContent())?.trim(), "the cached app draws its connection state, not a blank root");
       assert.equal(await page.locator('script[type="module"][src]').getAttribute("src"), entry);
-      assert.equal(await page.evaluate((key) => localStorage.getItem(key), `herdr-web-ui:composer-draft:${pane}`), draft,
+      assert.equal(await page.evaluate((key) => localStorage.getItem(key), `ovis:composer-draft:${pane}`), draft,
         "the draft survives while the offline composer is unmounted");
       assert.ok(requests.some((request) => request.phase === phase && request.url === new URL(entry, origin).href && request.status === 200 && request.fromWorker),
         "the entry really loads from the service worker while offline");

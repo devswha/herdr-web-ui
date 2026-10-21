@@ -694,7 +694,7 @@ describe("Codex rollout resolution", () => {
   const short = [
     "세 사진을 확인하고 한 장으로 합칠게요. 이미지 편집을 위해 imagegen 스킬을 사용할게요.",
     "세 화면이 모두 보이도록, 올려주신 순서대로 가로로 나란히 배치할게요.",
-    "imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n[합친 이미지 다운로드](/home/user/repo/.herdr-web-ui/combined-20261002.png)",
+    "imagegen으로 세 사진을 올려주신 순서대로 가로로 합쳤어요.\n\n[합친 이미지 다운로드](/home/user/repo/.ovis/combined-20261002.png)",
   ];
   const shortRollout = jsonl(
     message("user", "이거 세개 사진 합처서 하나의 이미지로 만들어줘."),

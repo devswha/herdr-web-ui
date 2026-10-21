@@ -66,7 +66,7 @@ bun run build
 bun run test:unit
 ```
 
-**Integration and browser** needs herdr on `PATH` (or `HERDR_WEB_HERDR_BIN`) and Chrome
+**Integration and browser** needs herdr on `PATH` (or `OVIS_HERDR_BIN`) and Chrome
 (`CHROME_PATH`, default `/opt/google/chrome/chrome`):
 
 ```bash

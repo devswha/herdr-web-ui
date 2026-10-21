@@ -115,7 +115,7 @@ class Pc {
   }
   stars(): number { return this.ghCalls().filter((call) => call.includes("--method PUT")).length; }
   private environment(extra: Record<string, string> = {}): Record<string, string> {
-    return { PATH: join(this.scratch, "bin"), HOME: this.scratch, SCRATCH: this.scratch, SHELL: "/bin/sh", TERM: "xterm", HERDR_WEB_UI_REF: "v0.0.0", ...extra };
+    return { PATH: join(this.scratch, "bin"), HOME: this.scratch, SCRATCH: this.scratch, SHELL: "/bin/sh", TERM: "xterm", OVIS_REF: "v0.0.0", ...extra };
   }
 
   /** as a script or an agent runs it: the script on stdin, and no terminal */
@@ -267,7 +267,7 @@ describe.skipIf(platform() === "win32")("install.sh and the browser", () => {
     expect(await pc.opened(false)).toBeNull();
   });
 
-  for (const [name, env] of [["HERDR_WEB_NO_OPEN", { HERDR_WEB_NO_OPEN: "1" }], ["CI", { CI: "1" }]] as const) {
+  for (const [name, env] of [["OVIS_NO_OPEN", { OVIS_NO_OPEN: "1" }], ["CI", { CI: "1" }]] as const) {
     it.concurrent(`opens nothing with ${name} set, and says where the app is`, async () => {
       const pc = new Pc().running();
       const { out, exitCode } = await pc.unattended({ DISPLAY: ":0", ...env });

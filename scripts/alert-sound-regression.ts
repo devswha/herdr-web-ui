@@ -34,7 +34,7 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     await report(thirdPane, "idle");
 
     await context.addInitScript(() => {
-      if (localStorage.getItem("herdr-web-ui:settings") === null) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertDone: "off", alertSound: true }));
+      if (localStorage.getItem("ovis:settings") === null) localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", alertDone: "off", alertSound: true }));
       const notes: number[] = [];
       const recorded = window as unknown as { chimes: number[]; chimeEnd: number };
       recorded.chimes = notes;
@@ -158,7 +158,7 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     const sound = page.getByRole("switch", { name: "Sound", exact: true });
     await sound.click();
     assert.equal(await sound.getAttribute("aria-checked"), "false");
-    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertSound), false);
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("ovis:settings") ?? "{}").alertSound), false);
     await sound.click();
     await page.waitForFunction(() => (window as unknown as { chimes: number[] }).chimes.length >= 4);
     assert.deepEqual((await chimes()).slice(2), [880, 660], "turning it on plays a preview");

@@ -75,7 +75,7 @@ process.stdout.write(Array.from({ length: 400 }, (_, n) => "history " + n + "\\r
     tailscaleOwner: null, usage: new UsageService(undefined, []) });
   browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US", hasTouch: true });
-  await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({
+  await context.addInitScript(() => localStorage.setItem("ovis:settings", JSON.stringify({
     language: "en", defaultView: "terminal", terminalInputMode: "direct", terminalWheelSpeed: 2, alertsOn: false,
   })));
   const page = await context.newPage();

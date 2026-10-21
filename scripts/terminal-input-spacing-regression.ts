@@ -18,10 +18,10 @@ import { chromePath } from "./chrome-path.ts";
 type KeyboardQA = Window & { keyboardQA: (height: number | null) => void };
 
 export async function checkTerminalInputSpacing(browser: Browser, origin: string, evidence?: string): Promise<void> {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-input-spacing-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ovis-input-spacing-")));
   let workspaceId: string | null = null;
   try {
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-input-spacing" });
+    const created = await workspaceCreate({ cwd: root, label: "ovis-test-input-spacing" });
     workspaceId = created.workspace.workspace_id;
     for (const size of [
       { label: "folded 412x915", width: 412, height: 915, inset: 0, keyboard: 0 },
@@ -33,7 +33,7 @@ export async function checkTerminalInputSpacing(browser: Browser, origin: string
       const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: "en-US" });
       try {
         await context.addInitScript(() => {
-          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
+          localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
           const viewport = window.visualViewport!;
           let height: number | null = null;
           Object.defineProperty(viewport, "height", { get: () => height ?? window.innerHeight });
@@ -117,7 +117,7 @@ if (import.meta.main) {
   const { chromium } = await import("playwright-core");
   const { createServer } = await import("../server/index.ts");
   const { UsageService } = await import("../server/usage.ts");
-  const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-input-spacing-state-"));
+  const state = mkdtempSync(join(tmpdir(), "ovis-input-spacing-state-"));
   const evidence = process.env["UI_EVIDENCE_DIR"];
   if (evidence) mkdirSync(evidence, { recursive: true });
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, usage: new UsageService(undefined, []) });

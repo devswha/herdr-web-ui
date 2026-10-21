@@ -78,7 +78,7 @@ async function pane(): Promise<string> {
  * repeats); `real` runs the real attach.
  */
 function scriptedHerdr(attempts: string[]): { path: string; attempts: () => number } {
-  const real = process.env["HERDR_WEB_HERDR_BIN"] || Bun.which("herdr") || "herdr";
+  const real = process.env["OVIS_HERDR_BIN"] || Bun.which("herdr") || "herdr";
   const dir = mkdtempSync(join(rootB, "scripted-herdr-"));
   const count = join(dir, "count");
   const path = join(dir, "herdr");
@@ -100,11 +100,11 @@ function scriptedHerdr(attempts: string[]): { path: string; attempts: () => numb
 }
 
 async function withHerdr<T>(path: string, run: () => Promise<T>): Promise<T> {
-  const previous = process.env["HERDR_WEB_HERDR_BIN"];
-  process.env["HERDR_WEB_HERDR_BIN"] = path;
+  const previous = process.env["OVIS_HERDR_BIN"];
+  process.env["OVIS_HERDR_BIN"] = path;
   try { return await run(); } finally {
-    if (previous === undefined) delete process.env["HERDR_WEB_HERDR_BIN"];
-    else process.env["HERDR_WEB_HERDR_BIN"] = previous;
+    if (previous === undefined) delete process.env["OVIS_HERDR_BIN"];
+    else process.env["OVIS_HERDR_BIN"] = previous;
   }
 }
 

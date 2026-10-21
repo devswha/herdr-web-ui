@@ -347,7 +347,7 @@ describe("voice API", () => {
         return new Response(`data: ${JSON.stringify({ type: "transcript.text.done", text: "git status" })}\n\n`, { headers: { "content-type": "text/event-stream" } });
       },
     });
-    const voice = new VoiceService({ stateDir: voiceState, env: { HERDR_WEB_OPENAI_BASE_URL: `http://127.0.0.1:${provider.port}/v1` }, fetch });
+    const voice = new VoiceService({ stateDir: voiceState, env: { OVIS_OPENAI_BASE_URL: `http://127.0.0.1:${provider.port}/v1` }, fetch });
     const open = createServer({ port: 0, stateDir: voiceState, voice });
     const gated = createServer({ port: 0, stateDir: voiceState, voice, token: "test-voice-token" });
     const at = (path: string) => `http://localhost:${open.port}${path}`;
@@ -1994,7 +1994,7 @@ describe("POST /api/pane/image", () => {
     expect(body.ok).toBe(true);
     // the prompt must reference a file the agent can read without leaving its project
     expect(body.path.startsWith(qaCwd!)).toBe(true);
-    expect(body.path.includes(".herdr-web-ui")).toBe(true);
+    expect(body.path.includes(".ovis")).toBe(true);
     expect(body.path.endsWith(".png")).toBe(true);
     const stored = statSync(body.path);
     expect(stored.size).toBeGreaterThan(0);
@@ -2010,7 +2010,7 @@ describe("POST /api/pane/image", () => {
 
   const bytes = (...parts: (string | number[])[]) => Buffer.concat(parts.map((part) => typeof part === "string" ? Buffer.from(part, "latin1") : Buffer.from(part)));
   const RASTER_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-  const pasted = () => existsSync(join(qaCwd!, ".herdr-web-ui")) ? readdirSync(join(qaCwd!, ".herdr-web-ui")).sort() : [];
+  const pasted = () => existsSync(join(qaCwd!, ".ovis")) ? readdirSync(join(qaCwd!, ".ovis")).sort() : [];
 
   it("names each raster after its signature, whichever supported type it claims", async () => {
     for (const [extension, data] of [
@@ -2024,7 +2024,7 @@ describe("POST /api/pane/image", () => {
         const res = await post({ pane_id: qaPaneId, content_type, data_base64: data.toString("base64"), name: "shot.jpeg" });
         expect(res.status).toBe(200);
         const { path } = (await res.json()) as { path: string };
-        expect(dirname(path)).toBe(join(qaCwd!, ".herdr-web-ui"));
+        expect(dirname(path)).toBe(join(qaCwd!, ".ovis"));
         expect(basename(path)).toMatch(new RegExp(`^paste-\\d{8}-\\d{6}-[0-9a-f]{8}\\.${extension}$`));
         expect(readFileSync(path)).toEqual(data);
       }
@@ -2080,7 +2080,7 @@ describe("POST /api/pane/image", () => {
     const res = await post({ pane_id: qaPaneId, content_type: "image/svg+xml", data_base64: svg, name: "../omo icon.SVG" });
     expect(res.status).toBe(200);
     const { path } = (await res.json()) as { path: string };
-    expect(path.startsWith(join(qaCwd!, ".herdr-web-ui") + "/")).toBe(true);
+    expect(path.startsWith(join(qaCwd!, ".ovis") + "/")).toBe(true);
     expect(basename(path)).toMatch(/^omo_icon-\d{8}-\d{6}-[0-9a-f]{8}\.svg$/);
     expect(readFileSync(path, "utf8")).toBe('<svg xmlns="http://www.w3.org/2000/svg"/>');
     // no name, or one without a usable extension: still stored, as .bin
@@ -3373,16 +3373,16 @@ describe("pairing and identity", () => {
 
   it("lets the owner's own device in with no login header, where serve is the only ingress and one login owns the tailnet", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-sole-user-"));
-    const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    const savedServeOnly = process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"];
-    delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
+    const savedOwner = process.env["OVIS_TAILSCALE_OWNER"];
+    const savedServeOnly = process.env["OVIS_TAILSCALE_SERVE_ONLY"];
+    delete process.env["OVIS_TAILSCALE_OWNER"];
     // what `tailscale status --json` says for the reported tailnet: one login, every node untagged
     const NODE = "denisss-macbook-pro-m1.tail5cc90b.ts.net";
     const status = JSON.stringify({ BackendState: "Running", Self: { DNSName: `${NODE}.`, UserID: 7, TailscaleIPs: ["100.101.102.103"] }, Peer: { phone: { DNSName: "phone.tail5cc90b.ts.net.", UserID: 7 } }, User: { "7": { LoginName: OWNER } } });
     const tailnet = new TailnetIdentitySource(async () => status);
-    process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = "1";
+    process.env["OVIS_TAILSCALE_SERVE_ONLY"] = "1";
     const sole = createServer({ port: 0, stateDir: state, tailnet });
-    if (savedServeOnly === undefined) delete process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"]; else process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] = savedServeOnly;
+    if (savedServeOnly === undefined) delete process.env["OVIS_TAILSCALE_SERVE_ONLY"]; else process.env["OVIS_TAILSCALE_SERVE_ONLY"] = savedServeOnly;
     const off = createServer({ port: 0, stateDir: state, tailscaleServeOnly: false, tailnet });
     const named = createServer({ port: 0, stateDir: state, tailscaleOwner: OWNER, tailscaleServeOnly: true, tailnet });
     const other = createServer({ port: 0, stateDir: state, tailscaleOwner: "named@example.com", tailscaleServeOnly: true, tailnet });
@@ -3416,15 +3416,15 @@ describe("pairing and identity", () => {
       off.stop();
       named.stop();
       other.stop();
-      if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
+      if (savedOwner === undefined) delete process.env["OVIS_TAILSCALE_OWNER"]; else process.env["OVIS_TAILSCALE_OWNER"] = savedOwner;
       rmSync(state, { recursive: true, force: true });
     }
   });
 
   it("refuses a serve request inside the cache's TTL once a node is tagged since the cache was read", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-stale-identity-"));
-    const savedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
+    const savedOwner = process.env["OVIS_TAILSCALE_OWNER"];
+    delete process.env["OVIS_TAILSCALE_OWNER"];
     const NODE = "stale-pc.example.ts.net";
     const self = { DNSName: `${NODE}.`, TailscaleIPs: ["100.101.102.103"], UserID: 7 };
     const sole = JSON.stringify({ BackendState: "Running", Self: self, User: { "7": { LoginName: OWNER } } });
@@ -3438,15 +3438,15 @@ describe("pairing and identity", () => {
       expect(auth).toMatchObject({ authenticated: false, reason: "pairing_required" });
     } finally {
       serveOnly.stop();
-      if (savedOwner === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = savedOwner;
+      if (savedOwner === undefined) delete process.env["OVIS_TAILSCALE_OWNER"]; else process.env["OVIS_TAILSCALE_OWNER"] = savedOwner;
       rmSync(state, { recursive: true, force: true });
     }
   });
 
-  it("takes the login named in HERDR_WEB_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
+  it("takes the login named in OVIS_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-named-owner-"));
-    const before = process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    process.env["HERDR_WEB_TAILSCALE_OWNER"] = " named@example.com ";
+    const before = process.env["OVIS_TAILSCALE_OWNER"];
+    process.env["OVIS_TAILSCALE_OWNER"] = " named@example.com ";
     const named = createServer({ port: 0, stateDir: state });
     try {
       const at = async (headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${named.port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
@@ -3455,7 +3455,7 @@ describe("pairing and identity", () => {
       expect(await at(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
     } finally {
       named.stop();
-      if (before === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = before;
+      if (before === undefined) delete process.env["OVIS_TAILSCALE_OWNER"]; else process.env["OVIS_TAILSCALE_OWNER"] = before;
       rmSync(state, { recursive: true, force: true });
     }
   });
@@ -3476,7 +3476,7 @@ describe("pairing and identity", () => {
     const paired = await fetch(`${base()}/api/devices/pair`, { method: "POST", headers: { ...guard, ...proxied() }, body: JSON.stringify({ code, label: "  Test  phone " }) });
     expect(paired.status).toBe(204);
     const setCookie = paired.headers.get("set-cookie") ?? "";
-    expect(setCookie).toMatch(/^herdr_web_device=[0-9a-f]{64}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=/);
+    expect(setCookie).toMatch(/^ovis_device=[0-9a-f]{64}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=/);
     cookie = setCookie.split(";")[0]!;
     // the device is in, from anywhere; a stranger no longer is; this PC still is
     expect(await auth({ ...proxied(), cookie })).toMatchObject({ authenticated: true, via: "device" });
@@ -3494,7 +3494,7 @@ describe("pairing and identity", () => {
     const renamed = await fetch(`${base()}/api/devices/${deviceId}`, { method: "PATCH", headers: guard, body: JSON.stringify({ label: "Kitchen iPad" }) });
     expect(((await renamed.json()) as { label: string }).label).toBe("Kitchen iPad");
     const out = await fetch(`${base()}/api/auth`, { method: "DELETE", headers: { cookie } });
-    expect(out.headers.get("set-cookie") ?? "").toContain("herdr_web_device=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+    expect(out.headers.get("set-cookie") ?? "").toContain("ovis_device=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
     expect((await fetch(`${base()}/api/devices/${deviceId}`, { method: "DELETE", headers: guard })).status).toBe(204);
     expect((await fetch(`${base()}/api/devices/${deviceId}`, { method: "DELETE", headers: guard })).status).toBe(404);
     // the revoked device is out, and so are strangers: revoking the last device never reopens the gate
@@ -3508,7 +3508,7 @@ describe("pairing and identity", () => {
     try {
       // spawned asynchronously: a synchronous spawn would block the very server the script asks
       const pairCli = async (port: number) => {
-        const child = Bun.spawn(["bun", "scripts/plugin.ts", "pair"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", HERDR_PLUGIN_CONFIG_DIR: configDir, HERDR_WEB_TOKEN: "" }, stdout: "pipe", stderr: "pipe" });
+        const child = Bun.spawn(["bun", "scripts/plugin.ts", "pair"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", HERDR_PLUGIN_CONFIG_DIR: configDir, OVIS_TOKEN: "" }, stdout: "pipe", stderr: "pipe" });
         const [out, err, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
         return { out, err, exitCode };
       };
@@ -3526,12 +3526,12 @@ describe("pairing and identity", () => {
       const tokenState = mkdtempSync(join(tmpdir(), "herdr-pair-cli-token-"));
       const secured = createServer({ port: 0, stateDir: tokenState, token: "cli-t0k3n", tailscaleOwner: null });
       try {
-        writeFileSync(join(configDir, ".env"), "HERDR_WEB_TOKEN=cli-t0k3n\n");
+        writeFileSync(join(configDir, ".env"), "OVIS_TOKEN=cli-t0k3n\n");
         const withToken = await pairCli(secured.port);
         expect(withToken.exitCode, withToken.err).toBe(0);
         expect(withToken.out).toMatch(/Pairing code: \d{3} \d{3}/);
         // `.env` wins over a stale token in the older `env` file
-        writeFileSync(join(configDir, "env"), "HERDR_WEB_TOKEN=stale\n");
+        writeFileSync(join(configDir, "env"), "OVIS_TOKEN=stale\n");
         const withLegacy = await pairCli(secured.port);
         expect(withLegacy.exitCode, withLegacy.err).toBe(0);
         expect(withLegacy.out).toMatch(/Pairing code: \d{3} \d{3}/);
@@ -3548,8 +3548,8 @@ describe("pairing and identity", () => {
       expect(await at({ authorization: "Bearer wrong" })).toEqual({ required: true, authenticated: false, reason: "token_required" });
       expect(await at({ authorization: "Bearer t0k3n" })).toMatchObject({ authenticated: true, via: "token", bearer: true });
       // a token held in the sign-in cookie is one signing out can clear
-      expect(await at({ cookie: "herdr_web_token=t0k3n" })).toEqual({ required: false, authenticated: true, via: "token", role: "drive" });
-      expect(await at({ cookie: "herdr_web_token=t0k3n", authorization: "Bearer wrong" })).toEqual({ required: false, authenticated: true, via: "token", role: "drive" });
+      expect(await at({ cookie: "ovis_token=t0k3n" })).toEqual({ required: false, authenticated: true, via: "token", role: "drive" });
+      expect(await at({ cookie: "ovis_token=t0k3n", authorization: "Bearer wrong" })).toEqual({ required: false, authenticated: true, via: "token", role: "drive" });
       // another proxy on this PC can pass a visitor's copy of the login header on: the token is asked for anyway
       expect(await at(proxied(OWNER))).toMatchObject({ authenticated: false, reason: "token_required" });
       expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "token_required" });
@@ -3625,7 +3625,7 @@ describe("token auth", () => {
     type HealthBody = { auth: HealthAuth; lan_exposure?: LanExposure };
     const health = async (port: number, headers: Record<string, string> = {}): Promise<HealthBody> =>
       (await (await fetch(`http://127.0.0.1:${port}/api/health`, { headers })).json()) as HealthBody;
-    // no token and nothing paired, pinned so an inherited HERDR_WEB_TOKEN cannot gate the case
+    // no token and nothing paired, pinned so an inherited OVIS_TOKEN cannot gate the case
     const bound = (hostname: string) => {
       const stateDir = mkdtempSync(join(tmpdir(), "herdr-lan-"));
       const instance = createServer({ port: 0, hostname, token: "", stateDir });
@@ -3684,7 +3684,7 @@ describe("token auth", () => {
     });
     expect(res.status).toBe(204);
     const cookie = res.headers.get("set-cookie") ?? "";
-    expect(cookie).toContain(`herdr_web_token=${TOKEN}`);
+    expect(cookie).toContain(`ovis_token=${TOKEN}`);
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Strict");
     expect(cookie).toContain("Max-Age=31536000");
@@ -3692,7 +3692,7 @@ describe("token auth", () => {
 
   it("accepts the session cookie", async () => {
     const res = await fetch(`${securedBase()}/api/session`, {
-      headers: { cookie: `herdr_web_token=${TOKEN}` },
+      headers: { cookie: `ovis_token=${TOKEN}` },
     });
     expect(res.status).toBe(200);
   });
@@ -3730,7 +3730,7 @@ describe("token auth", () => {
   }, 10000);
 
   it("upgrades a websocket that carries the cookie", async () => {
-    const ws = connectWithCookie(wsUrl(), `herdr_web_token=${TOKEN}`);
+    const ws = connectWithCookie(wsUrl(), `ovis_token=${TOKEN}`);
     const first = await new Promise<{ type: string }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("no message within 5000ms")), 5000);
       ws.addEventListener("error", () => {
@@ -4049,12 +4049,12 @@ describe("workspace order evidence", () => {
   }
 
   it("health, session, websocket and move answers share one order per server lifetime", async () => {
-    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-order-"));
+    const root = mkdtempSync(join(tmpdir(), "ovis-order-"));
     const state = join(root, "state");
-    const first = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-order-first" });
-    const second = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-order-second" });
-    const managedBoot = process.env["HERDR_WEB_BOOT_ID"];
-    delete process.env["HERDR_WEB_BOOT_ID"];
+    const first = await workspaceCreate({ cwd: root, label: "ovis-test-order-first" });
+    const second = await workspaceCreate({ cwd: root, label: "ovis-test-order-second" });
+    const managedBoot = process.env["OVIS_BOOT_ID"];
+    delete process.env["OVIS_BOOT_ID"];
     let app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state });
     try {
       let origin = `http://127.0.0.1:${app.port}`;
@@ -4104,7 +4104,7 @@ describe("workspace order evidence", () => {
       expect(await move(second.workspace.workspace_id)).toEqual({ ok: true, order_epoch: restarted, moved_seq: 1 });
     } finally {
       app.stop();
-      if (managedBoot === undefined) delete process.env["HERDR_WEB_BOOT_ID"]; else process.env["HERDR_WEB_BOOT_ID"] = managedBoot;
+      if (managedBoot === undefined) delete process.env["OVIS_BOOT_ID"]; else process.env["OVIS_BOOT_ID"] = managedBoot;
       await workspaceClose(first.workspace.workspace_id).catch(() => {});
       await workspaceClose(second.workspace.workspace_id).catch(() => {});
       rmSync(root, { recursive: true, force: true });

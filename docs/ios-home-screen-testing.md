@@ -100,7 +100,7 @@ server credentials/push keys as a workaround.
 | Pairing/authentication | HttpOnly cookies plus server device records | Keep the QA server state unchanged; check access/role before and after; record whether fresh pairing is needed |
 | Notifications | OS permission, service-worker subscription and server registration | Record permission and subscription presence; verify with an owned test device/fake endpoint; note any permission or registration step needed |
 
-For developer QA, privately capture only the test origin's `herdr-web-ui:*`
+For developer QA, privately capture only the test origin's `ovis:*`
 local-storage records, together with the origin and PC/pane identifiers, and
 verify recovery in an owned fixture before any disposable-install removal.
 Composer/queue records are handled by `src/lib/composerDraft.ts` and

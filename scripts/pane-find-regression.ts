@@ -26,8 +26,8 @@ export async function checkPaneFind(browser: Browser, origin: string): Promise<v
     });
     await ready;
     await context.addInitScript((id) => {
-      localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal");
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ theme: "system" }));
+      localStorage.setItem(`ovis:view:${id}`, "terminal");
+      localStorage.setItem("ovis:settings", JSON.stringify({ theme: "system" }));
     }, pane);
     const page = await context.newPage();
     page.setDefaultTimeout(10000);

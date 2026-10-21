@@ -54,7 +54,7 @@ final class Model: ObservableObject {
         }
         defer { try? FileManager.default.removeItem(at: script) }
         phase = .working(L("Installing herdr, Bun, Node and herdr web UI…", "herdr, Bun, Node, herdr web UI를 설치하는 중…"))
-        let result = await run("/bin/sh", [script.path], env: ["HERDR_WEB_NO_OPEN": "1"], onLine: appendLine)
+        let result = await run("/bin/sh", [script.path], env: ["OVIS_NO_OPEN": "1"], onLine: appendLine)
         guard result.status == 0 else {
             fail(L("The installer stopped with an error.", "설치 중 오류가 났습니다."))
             return

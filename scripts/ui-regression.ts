@@ -94,8 +94,8 @@ try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
     // only the first load: a reload must keep what Settings stored, such as the language
-    if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-    for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
+    if (!localStorage.getItem("ovis:settings")) localStorage.setItem("ovis:settings", JSON.stringify({ language: "en" }));
+    for (const id of ids) localStorage.setItem(`ovis:view:${id}`, "chat");
   }, panes);
   // A hook for a check that changes the roster on a page already loaded: a route cannot reach the
   // /api/machines/events stream the page has open, so `window.__rewriteMachinesFrame`, while set,
@@ -191,7 +191,7 @@ try {
   // must close without selecting the highlighted result, and Enter on a row runs that row.
   const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
   const paletteSearch = palette.getByRole("searchbox", { name: "Search panes and actions", exact: true });
-  const selectedPane = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")?.pane_id as string | undefined);
+  const selectedPane = () => page.evaluate(() => JSON.parse(sessionStorage.getItem("ovis:selection") ?? "null")?.pane_id as string | undefined);
   const openPalette = async (): Promise<void> => {
     await page.keyboard.press("ControlOrMeta+Shift+k");
     await palette.waitFor();
@@ -378,7 +378,7 @@ try {
   assert.equal(completion?.agent_status, "done", "the bridge retains the completed turn");
   assert.ok(completion?.finish_id && Number.isSafeInteger(completion.finish_id), "the completed turn has a server finish ID");
   assert.equal(typeof completionSnapshot?.finish_epoch, "string");
-  const finishKey = `herdr-web-ui:finish:local:${encodeURIComponent(completionSnapshot!.finish_epoch!)}:${encodeURIComponent(paneA)}`;
+  const finishKey = `ovis:finish:local:${encodeURIComponent(completionSnapshot!.finish_epoch!)}:${encodeURIComponent(paneA)}`;
   assert.equal(await page.locator(".pane-frame.is-current [data-pane-content]").count(), 0, "an unavailable conversation is not presented content");
   assert.equal(await page.evaluate((key) => localStorage.getItem(key), finishKey), null, "an unavailable chat does not acknowledge its finish");
   await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
@@ -401,7 +401,7 @@ try {
   assert.equal(await agentRow(paneA).isVisible(), true, "PC folding leaves Agents visible");
   await agentRow(paneB).locator(".agent-select").click();
   await agentRow(paneB).locator('.agent-select[aria-current="true"]').waitFor();
-  assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")),
+  assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("ovis:selection") ?? "null")),
     { machine_id: "local", pane_id: paneB }, "Agent selection retains its machine and pane target");
   assert.equal(await machineToggle.getAttribute("aria-expanded"), "false", "Agent selection preserves the user's PC fold");
   painted.delete(paneA);
@@ -423,7 +423,7 @@ try {
   const offlineContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   let offlineEvidence: BrowserEvidenceSession | undefined;
   try {
-    await offlineContext.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false })));
+    await offlineContext.addInitScript(() => localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", alertsOn: false })));
     await offlineContext.route("**/api/machines", (route) => route.fulfill({ json: { machines: offlineMachines } }));
     await offlineContext.route("**/api/machines/events", (route) => route.fulfill({
       contentType: "text/event-stream", body: `retry: 60000\ndata: ${JSON.stringify({ type: "machines", machines: offlineMachines })}\n\n`,
@@ -443,9 +443,9 @@ try {
       button?.focus();
       return element.contains(document.activeElement);
     }), false, "offline workspace controls cannot take keyboard focus");
-    const selectionBefore = await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection"));
+    const selectionBefore = await offlinePage.evaluate(() => sessionStorage.getItem("ovis:selection"));
     await offlineAgent.dispatchEvent("click");
-    assert.equal(await offlinePage.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection")), selectionBefore,
+    assert.equal(await offlinePage.evaluate(() => sessionStorage.getItem("ovis:selection")), selectionBefore,
       "offline Agent clicks leave the current selection unchanged");
     // the linked pane is shown from the cache, and offers no plan it could not read
     await offlinePage.locator(".view-switch").waitFor();
@@ -748,7 +748,7 @@ try {
   const sidebarWidths = () => page.evaluate(() => ({
     sidebar: Math.round(document.querySelector(".sidebar")!.getBoundingClientRect().width),
     header: Math.round(document.querySelector(".header-side")!.getBoundingClientRect().width),
-    stored: localStorage.getItem("herdr-web-ui:sidebar-width"),
+    stored: localStorage.getItem("ovis:sidebar-width"),
   }));
   const defaultWidths = await sidebarWidths();
   assert.equal(defaultWidths.stored, null, "no sidebar width is stored before the edge is dragged");
@@ -786,7 +786,7 @@ try {
   const rowsSetting = page.locator('.settings-dialog .segmented[aria-label="Sidebar rows"]');
   await rowsSetting.getByRole("button", { name: "Two lines", exact: true }).click();
   await page.locator(".workspace-copy.is-two-line").first().waitFor();
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarRows), "two");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("ovis:settings") ?? "{}").sidebarRows), "two");
   assert.ok(await page.locator(".workspace-header").first().evaluate((row) => row.getBoundingClientRect().height) > oneLineHeight, "a two-line row is taller");
   await page.locator(".agents-sidebar.is-one-line").waitFor({ state: "detached" });
   assert.ok(await page.locator(".agents-sidebar .agent-row").first().evaluate((row) => row.getBoundingClientRect().height) > oneLineAgentHeight, "a two-line agent row is taller");
@@ -865,7 +865,7 @@ try {
   await runMoreItem(page, "Alerts");
   await until(async () => await alertsState(page) === "Off on this device", "alerts off");
   assert.equal(await alertsOffMarked(page), true, "alerts that are off mark the More button, in its dot and its name");
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("ovis:settings") ?? "{}").alertsOn), false);
   assert.equal(await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription()) ?? null), null, "turning alerts off drops the push subscription");
   await runMoreItem(page, "Alerts");
   await until(async () => /^On[ ,]/.test(await alertsState(page)), "alerts on again");
@@ -875,7 +875,7 @@ try {
   // where notifications are blocked the item is still there, and switches the in-app alerts
   const blocked = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await blocked.addInitScript(() => {
-    if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
+    if (!localStorage.getItem("ovis:settings")) localStorage.setItem("ovis:settings", JSON.stringify({ language: "en" }));
     Object.defineProperty(Notification, "permission", { configurable: true, get: () => "denied" });
   });
   const blockedPage = await blocked.newPage();
@@ -888,7 +888,7 @@ try {
   await runMoreItem(blockedPage, "Alerts");
   await until(async () => await alertsState(blockedPage) === "Off on this device", "blocked alerts off");
   assert.equal(await alertsOffMarked(blockedPage), true);
-  assert.equal(await blockedPage.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
+  assert.equal(await blockedPage.evaluate(() => JSON.parse(localStorage.getItem("ovis:settings") ?? "{}").alertsOn), false);
   await runMoreItem(blockedPage, "Alerts");
   await until(async () => await alertsState(blockedPage) === "On in the app", "blocked alerts on again");
   assert.equal(await alertsOffMarked(blockedPage), false);
@@ -997,7 +997,7 @@ try {
   const report = (state: string) => herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state });
   await report("working");
   await page.evaluate(({ pane, texts }) => {
-    localStorage.setItem(`herdr-web-ui:queue:${pane}`, JSON.stringify({ version: 1, messages: texts.map((text, index) => ({ id: `legacy-browser-${index}`, text })) }));
+    localStorage.setItem(`ovis:queue:${pane}`, JSON.stringify({ version: 1, messages: texts.map((text, index) => ({ id: `legacy-browser-${index}`, text })) }));
   }, { pane: paneA, texts: ["printf 'browser-queue-ok\\n'", "# second queued message", "# third queued message"] });
   await page.reload(); await page.locator(".conn-live").waitFor();
   await until(async () => await page.locator(".composer-queue-text").count() === 3, "legacy held rows restored");
@@ -1643,7 +1643,7 @@ try {
   await agentRow(worktree.pane_id).waitFor();
   await repoHeader.locator(".workspace-select").click();
   await repoHeader.locator('.workspace-select[aria-current="true"]').waitFor();
-  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")?.pane_id),
+  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem("ovis:selection") ?? "null")?.pane_id),
     repoWorkspace.root_pane.pane_id, "selecting the parent after its branch returns to the parent's own pane");
   const repoToggle = repoHeader.locator(".workspace-toggle");
   await repoToggle.click();
@@ -1836,7 +1836,7 @@ try {
   await tabDialog.waitFor({ state: "hidden" });
   await page.unroute("**/api/tab/create");
   await page.unroute("**/api/agents");
-  await page.evaluate(() => localStorage.removeItem("herdr-web-ui:new-session-agent"));
+  await page.evaluate(() => localStorage.removeItem("ovis:new-session-agent"));
   console.log("PASS reopening after a failed agent start owns focus before paint, enables its fields and closes with Escape");
   // the PC's + is New workspace again, not a tab in the workspace the last dialog was for
   await page.getByRole("button", { name: /^New workspace on / }).click();
@@ -2162,10 +2162,10 @@ try {
     await page.locator(".conn.conn-live").waitFor();
     await half("left").locator(`.pane-frame[data-layout-pane="${paneA}"]`).getByRole("log").waitFor();
     await half("right").locator(`.pane-frame[data-layout-pane="${paneB}"]`).getByRole("log").waitFor();
-    assert.match(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:split") ?? ""), /"active":"a"/, "the split is kept for a reload");
+    assert.match(await page.evaluate(() => sessionStorage.getItem("ovis:split") ?? ""), /"active":"a"/, "the split is kept for a reload");
     await half("right").getByRole("button", { name: "Close this half", exact: true }).click();
     await until(async () => await page.locator(".pane-slot").count() === 1, "one pane after closing a half");
-    assert.equal(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:split")), null);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem("ovis:split")), null);
     await page.locator(`.pane-frame[data-layout-pane="${paneA}"]`).getByRole("log").waitFor();
   }
   console.log("PASS a dragged row opens its pane beside the open one; a press switches the active half; a half closes");
@@ -2199,7 +2199,7 @@ try {
   // a phone: the composer's chip shows the plan's count on the status line's one row, and its steps
   // open above the card without making the page scroll sideways
   const planPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-  await planPhone.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "chat" })));
+  await planPhone.addInitScript(() => localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", defaultView: "chat" })));
   const phone = await planPhone.newPage();
   phone.on("pageerror", (error) => errors.push(error.message));
   const unroutePhonePlanned = await planned(phone, { events: true });
@@ -2403,7 +2403,7 @@ try {
   await confirmClose.getByRole("button", { name: "Close", exact: true }).click();
   workspaces.splice(workspaces.indexOf(created.workspace_id), 1);
   await until(async () => {
-    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("ovis:selection") ?? "null"));
     return selected?.pane_id && selected.pane_id !== created.pane_id;
   }, "closed pane selection recovered");
   // the pane selected in its place must not take the keyboard: a phone would raise it over
@@ -2415,10 +2415,10 @@ try {
   await page.locator(".pane-item.is-selected .pane-select").click();
   await until(async () => await page.evaluate(() => document.activeElement?.matches("textarea, input, [contenteditable]") ?? false),
     "picking the auto-selected pane focuses its input");
-  await page.evaluate(() => sessionStorage.setItem("herdr-web-ui:selection", JSON.stringify({ machine_id: "local", pane_id: "obsolete-pane" })));
+  await page.evaluate(() => sessionStorage.setItem("ovis:selection", JSON.stringify({ machine_id: "local", pane_id: "obsolete-pane" })));
   await page.reload();
   await until(async () => {
-    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("ovis:selection") ?? "null"));
     return selected?.pane_id && selected.pane_id !== "obsolete-pane";
   }, "obsolete saved selection recovered");
   console.log("PASS closed and obsolete saved panes recover their selection");

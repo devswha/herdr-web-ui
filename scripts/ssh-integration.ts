@@ -25,7 +25,7 @@ let sshd: ReturnType<typeof Bun.spawn> | undefined;
 let server: ReturnType<typeof createServer> | undefined;
 const initialSocket = process.env["HERDR_SOCKET"];
 process.env["HERDR_SOCKET"] = join(root, "local-offline.sock");
-process.env["HERDR_WEB_BUNDLE_MANIFEST"] = resolve(`remote-bundles/manifest-${process.platform}-${process.arch}.json`);
+process.env["OVIS_BUNDLE_MANIFEST"] = resolve(`remote-bundles/manifest-${process.platform}-${process.arch}.json`);
 const sockets: WebSocket[] = [];
 let port = 0;
 let originalKey = "";
@@ -116,7 +116,7 @@ try {
   assert.equal(job.phase, "connected", job.error ?? "");
   const machineId = job.machine_id;
   assert.ok(existsSync(join(state, "ssh", machineId)), "dedicated key stored");
-  assert.ok(remoteFile(join(remoteHome, ".ssh/authorized_keys")).includes(`herdr-web-ui:${machineId}`));
+  assert.ok(remoteFile(join(remoteHome, ".ssh/authorized_keys")).includes(`ovis:${machineId}`));
   assert.ok(!readFileSync(join(state, "machines.json"), "utf8").includes(password), "password is never persisted");
   console.log("PASS first install, fingerprint, secret authentication and dedicated-key registration");
   const second = await setup({ ...target, identity_file: join(state, "ssh", machineId), session: "ssh-second", name: "QA second PC" });
@@ -182,15 +182,15 @@ try {
   assert.ok(!existsSync(join(remoteHome, ".config/herdr/sessions/ssh-cancel/herdr.sock")));
   console.log("PASS cancellation before installation leaves remote session absent");
 
-  const manifest = process.env["HERDR_WEB_BUNDLE_MANIFEST"]!;
+  const manifest = process.env["OVIS_BUNDLE_MANIFEST"]!;
   const badManifest = join(root, "invalid-manifest.json");
   const data = JSON.parse(readFileSync(manifest, "utf8"));
   data.version = "incompatible-test-version";
   writeFileSync(badManifest, JSON.stringify(data));
-  process.env["HERDR_WEB_BUNDLE_MANIFEST"] = badManifest;
+  process.env["OVIS_BUNDLE_MANIFEST"] = badManifest;
   const idempotentUpdate = await setup({ ...target, machine_id: machineId, identity_file: join(state, "ssh", machineId), update_remote: true });
   assert.equal(idempotentUpdate.phase, "connected", idempotentUpdate.error ?? "");
-  process.env["HERDR_WEB_BUNDLE_MANIFEST"] = manifest;
+  process.env["OVIS_BUNDLE_MANIFEST"] = manifest;
   assert.ok((await api<{ snapshot: SessionSnapshot }>(path + "/session")).snapshot.panes.some((p) => p.pane_id === paneId));
   assert.ok((await api<{ snapshot: SessionSnapshot }>(secondPath + "/session")).snapshot.panes.length);
   console.log("PASS compatible bridge update is idempotent and preserves both daemons");

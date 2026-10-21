@@ -515,7 +515,7 @@ export function PaneTerminal({
   draftHeldForRef.current = paneId !== null && draftState.owner === paneStorageId(machineId, paneId) && !draftIsEmpty(draft) ? paneId : null;
   useEffect(() => {
     if (!paneId || draftState.owner !== paneStorageId(machineId, paneId)) return;
-    const key = `herdr-web-ui:terminal-draft:${draftState.owner}`;
+    const key = `ovis:terminal-draft:${draftState.owner}`;
     try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify({ ...draft, at: Date.now() })); } catch {}
   }, [draftState, paneId, machineId, draft]);
   // transient OSC 52 feedback ("copied") — a pill in the banner column
@@ -1688,7 +1688,7 @@ export function PaneTerminal({
         if (message.code === "attach_failed") {
           if (message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
           // the server could not start herdr: nothing is coming, so say why instead of waiting
-          setOutputError(t("herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_WEB_HERDR_BIN to its full path."));
+          setOutputError(t("herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set OVIS_HERDR_BIN to its full path."));
           setEnded(true);
           term.options.disableStdin = true;
           setConnected(socket.connected);
@@ -2653,7 +2653,7 @@ export function PaneTerminal({
     // a record past its TTL, an undated one, and a hand-edited one all restore as nothing held
     let saved = EMPTY_DRAFT;
     try {
-      saved = paneId ? restoreDraft(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`), Date.now()) : EMPTY_DRAFT;
+      saved = paneId ? restoreDraft(localStorage.getItem(`ovis:terminal-draft:${paneStorageId(machineId, paneId)}`), Date.now()) : EMPTY_DRAFT;
     } catch {}
     setDraft(saved);
     draftPaneRef.current = paneId;
@@ -3429,7 +3429,7 @@ export function PaneTerminal({
             onClick={() => {
               const block = formatTerminalQuote({ label: title?.trim() || paneId, range: selectionQuote.range, text: selectionQuote.text });
               if (block === null) return;
-              const key = `herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`;
+              const key = `ovis:composer-draft:${paneStorageId(machineId, paneId)}`;
               const next = appendQuote(composerDrafts.read(key).text, block, MAX_COMPOSER_CHARS);
               if (next === null) { noteClipboard(t("Too long for the message draft")); return; }
               composerDrafts.set(key, next);

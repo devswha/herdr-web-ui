@@ -67,8 +67,8 @@ try {
   const page = await context.newPage();
   // a pane opens its terminal the first time; this QA is about the chat lens
   await page.addInitScript((id) => {
-    localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-    localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
+    localStorage.setItem("ovis:settings", JSON.stringify({ language: "en" }));
+    localStorage.setItem(`ovis:view:${id}`, "chat");
   }, paneId);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -257,7 +257,7 @@ try {
   add(message("assistant", `\`\`\`sh\n${code}\n\`\`\``, "final_answer"), 9);
   persist();
   const insecure = await page.context().newPage();
-  await insecure.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "chat"), paneId);
+  await insecure.addInitScript((id) => localStorage.setItem(`ovis:view:${id}`, "chat"), paneId);
   insecure.on("pageerror", (error) => errors.push(error.message));
   await insecure.goto(`http://clipboard.test:${server.port}/?pane=${encodeURIComponent(paneId)}`);
   const insecureLog = insecure.locator(`.pane-frame[data-layout-pane="${paneId}"]`).getByRole("log");

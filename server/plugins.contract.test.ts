@@ -150,7 +150,7 @@ platforms = ["linux", "macos"]
       tab_id: created.tab.tab_id,
       tab_label: created.tab.label,
       focused_pane_id: paneId,
-      invocation_source: "herdr-web-ui",
+      invocation_source: "ovis",
     });
   });
 

@@ -190,8 +190,8 @@ try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   page = await context.newPage();
   await page.addInitScript((ids) => {
-    localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-    for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
+    localStorage.setItem("ovis:settings", JSON.stringify({ language: "en" }));
+    for (const id of ids) localStorage.setItem(`ovis:view:${id}`, "chat");
   }, [paneA, paneB, paneL, paneN]);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

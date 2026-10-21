@@ -52,8 +52,8 @@ async function open(browser: Browser, server: ReturnType<typeof createServer>, n
   await until(async () => (await paneRead({ paneId: pane, source: "visible" })).text.includes("PROBE READY plain"), `${name}: raw probe ready`);
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript(({ pane }) => {
-    localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-    localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+    localStorage.setItem("ovis:settings", JSON.stringify({ language: "en" }));
+    localStorage.setItem(`ovis:view:${pane}`, "terminal");
   }, { pane });
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(`${name}: ${error.message}`));

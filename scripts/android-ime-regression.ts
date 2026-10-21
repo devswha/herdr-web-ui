@@ -66,8 +66,8 @@ try {
   context = await device.launchBrowser({ hasTouch: true, viewport: null, args: ["--no-first-run", "--disable-fre"] });
   const page = await context.newPage();
   await page.addInitScript((pane) => {
-    localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
-    localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+    localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
+    localStorage.setItem(`ovis:view:${pane}`, "terminal");
     (window as any).nativeImeEvents = [];
     for (const type of ["compositionstart", "compositionupdate", "compositionend", "keydown", "input"]) document.addEventListener(type, (event: any) => {
       if (event.target?.tagName === "TEXTAREA") (window as any).nativeImeEvents.push({ type, data: event.data, key: event.key, composing: event.isComposing, value: event.target.value });

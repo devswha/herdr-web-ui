@@ -102,7 +102,7 @@ export async function checkTelemetrySettings(browser: Browser): Promise<void> {
 
     context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
     await context.addInitScript((settings) => {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify(settings));
+      localStorage.setItem("ovis:settings", JSON.stringify(settings));
     }, fixture);
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);

@@ -47,7 +47,7 @@ try {
   page.setDefaultTimeout(12_000);
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.addInitScript(id => localStorage.setItem(`herdr-web-ui:view:${id}`, "chat"), pane);
+  await page.addInitScript(id => localStorage.setItem(`ovis:view:${id}`, "chat"), pane);
   await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);
   const log = page.locator(`.pane-frame[data-layout-pane="${pane}"]`).getByRole("log");
   const activity = log.locator(".chat-activity");

@@ -44,7 +44,7 @@ beforeAll(() => {
   const paired = devices.pair(devices.startPairing().code, "Watch", "watch")!;
   // a first pairing is dropped unless the device is seen once
   expect(devices.match(paired.token)).not.toBeNull();
-  watchCookie = `herdr_web_device=${encodeURIComponent(paired.token)}`;
+  watchCookie = `ovis_device=${encodeURIComponent(paired.token)}`;
   watched = createServer({ port: 0, stateDir: watchState });
   watchBase = `http://127.0.0.1:${watched.port}`;
 });

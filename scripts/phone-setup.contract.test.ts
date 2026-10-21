@@ -22,7 +22,7 @@ it("herdr loads the Phone setup entrypoint and keeps its QR and code visible in 
   ]);
   // The real pane entry, without installation/startup hooks that launch an app daemon.
   writeFileSync(join(plugin, "herdr-plugin.toml"), `id = "${manifest.id}"\nname = "Phone setup QA"\nversion = "0.0.0"\nmin_herdr_version = "0.9.0"\nplatforms = ["linux", "macos"]\n[[panes]]\nid = "phone"\ntitle = "Phone setup"\nplacement = "${phone.placement}"\ncommand = ${JSON.stringify([process.execPath, join(source, phone.command[2]), phone.command[3]])}\n`);
-  const binary = process.env["HERDR_WEB_HERDR_BIN"] || Bun.which("herdr")!;
+  const binary = process.env["OVIS_HERDR_BIN"] || Bun.which("herdr")!;
   const session = "phone-setup-qa";
   const socket = join(config, "herdr", "sessions", session, "herdr.sock");
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("HERDR_"))), ...testShellEnv(config), XDG_CONFIG_HOME: config };
@@ -44,7 +44,7 @@ it("herdr loads the Phone setup entrypoint and keeps its QR and code visible in 
   try {
     await cli("plugin", "link", plugin);
     const pluginConfig = await cli("plugin", "config-dir", manifest.id);
-    writeFileSync(join(pluginConfig, ".env"), `PORT=${app.port}\nHOST=127.0.0.1\nHERDR_WEB_TOKEN=\nHERDR_WEB_STATE_DIR=${join(root, "app-state")}\n`);
+    writeFileSync(join(pluginConfig, ".env"), `PORT=${app.port}\nHOST=127.0.0.1\nOVIS_TOKEN=\nOVIS_STATE_DIR=${join(root, "app-state")}\n`);
     daemon = Bun.spawn([binary, "--session", session, "server"], { env, stdout: "ignore", stderr: "ignore" });
     const deadline = Date.now() + 10_000;
     for (;;) {

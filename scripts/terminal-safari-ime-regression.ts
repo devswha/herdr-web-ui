@@ -11,8 +11,8 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
   });
   await context.addInitScript((pane) => {
     Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
-    localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "direct" }));
-    localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+    localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", terminalInputMode: "direct" }));
+    localStorage.setItem(`ovis:view:${pane}`, "terminal");
   }, pane);
   const page = await context.newPage();
   const sent: Array<{ pane_id: string; text: string }> = [];
@@ -202,7 +202,7 @@ export async function checkSafariIme(browser: Browser, origin: string, pane: str
     // A programmatic pane change does not blur first: reset must cancel pending text.
     ready = false;
     await page.locator(`.pane-select[title^="${otherPane} —"]`).first().evaluate((node: HTMLElement) => node.click());
-    await until(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:selection")!).pane_id)) === otherPane);
+    await until(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem("ovis:selection")!).pane_id)) === otherPane);
     await until(() => ready);
     await input.press("Control+g");
     await until(() => sent.at(-1)?.text === "\x07");

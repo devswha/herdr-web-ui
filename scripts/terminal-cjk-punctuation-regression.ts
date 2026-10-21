@@ -54,7 +54,7 @@ setInterval(() => {}, 1 << 30);
   browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   // a Chinese page, as the report's: under zh every fullwidth mark is trimmed, not only ，（）
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "zh-CN" });
-  await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({
+  await context.addInitScript(() => localStorage.setItem("ovis:settings", JSON.stringify({
     language: "zh", defaultView: "terminal", alertsOn: false,
   })));
   const page = await context.newPage();

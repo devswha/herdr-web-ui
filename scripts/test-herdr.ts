@@ -34,7 +34,7 @@ export function testSocketPath(env: Record<string, string | undefined> = process
 }
 
 function herdrBinary(): string | null {
-  const configured = process.env["HERDR_WEB_HERDR_BIN"];
+  const configured = process.env["OVIS_HERDR_BIN"];
   if (configured) return configured;
   const found = Bun.which("herdr");
   return found ?? null;

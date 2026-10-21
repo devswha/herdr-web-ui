@@ -20,15 +20,15 @@ type InputWindow = Window & { typed_: { pane: string; text: string }[] };
 const SENT: Record<string, string | null> = { Control: null, Enter: "\r", Escape: "\x1b" };
 
 export async function checkKeyBarKeepsKeyboardDown(browser: Browser, origin: string): Promise<void> {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-keybar-focus-")));
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-keybar-focus" });
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ovis-keybar-focus-")));
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-keybar-focus" });
   const pane = created.root_pane.pane_id;
   try {
     for (const { mode, touch } of [{ mode: "direct", touch: true }, { mode: "line", touch: true }, { mode: "direct", touch: false }]) {
       const tag = touch ? mode : `${mode}, fine pointer`;
       const context = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: touch, hasTouch: touch, deviceScaleFactor: 2.625 });
       try {
-        await context.addInitScript((m) => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: m })), mode);
+        await context.addInitScript((m) => localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", terminalInputMode: m })), mode);
         // every input frame the page sends, as it leaves for the socket
         await context.addInitScript(() => {
           const typed: InputWindow["typed_"] = [];
@@ -84,7 +84,7 @@ if (import.meta.main) {
   const { chromium } = await import("playwright-core");
   const { createServer } = await import("../server/index.ts");
   const { UsageService } = await import("../server/usage.ts");
-  const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-keybar-focus-state-"));
+  const state = mkdtempSync(join(tmpdir(), "ovis-keybar-focus-state-"));
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, usage: new UsageService(undefined, []) });
   const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   try {

@@ -78,7 +78,7 @@ async function openRecording(browser: Browser, contexts: BrowserContext[], origi
   const context = await browser.newContext({ locale: "en-US", ...options });
   contexts.push(context);
   await context.addInitScript((stored) => {
-    localStorage.setItem("herdr-web-ui:settings", JSON.stringify(stored));
+    localStorage.setItem("ovis:settings", JSON.stringify(stored));
     // every frame this page's socket sends and receives, to wait on the server's answers
     const frames: { dir: "in" | "out"; type: string; keep_size?: boolean; pane_id?: string; cols?: number; rows?: number }[] = [];
     (window as unknown as { frames_: typeof frames }).frames_ = frames;
@@ -646,7 +646,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
           const ready = Promise.withResolvers<void>();
           const deadline = setTimeout(() => ready.reject(new Error("holder produced no attach stream")), 15_000);
           holder = new PtySession({
-            command: process.env.HERDR_WEB_HERDR_BIN ?? "herdr", args: ["terminal", "attach", heldTerminal],
+            command: process.env.OVIS_HERDR_BIN ?? "herdr", args: ["terminal", "attach", heldTerminal],
             cols: 80, rows: 24, env: { HERDR_SOCKET_PATH: herdrSocketPath() },
             onData: () => ready.resolve(), onExit: () => ready.reject(new Error("holder ended before the test")),
           });
@@ -966,7 +966,7 @@ export async function checkInactiveAttachLifecycle(browser: Browser, origin: str
       // An intercepted iframe document has no network address space until Chrome grants it.
       await context.grantPermissions(["local-network-access"], { origin });
       await context.addInitScript(() => {
-        localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", defaultView: "terminal" }));
+        localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", defaultView: "terminal" }));
         Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
       });
       const page = await context.newPage();

@@ -19,9 +19,9 @@ const files = [...new Bun.Glob("{src,shared,server,scripts,telemetry}/**/*.test.
 const needsHerdr = (file: string) => file.endsWith(".contract.test.ts") || file === "server/updater.test.ts" || file.startsWith("server/herdr/") || file.startsWith("server/pty/");
 const selected = files.filter((file) => needsHerdr(file) === (suite === "integration"));
 if (!selected.length) throw new Error(`No ${suite} tests found`);
-const herdr = process.env["HERDR_WEB_HERDR_BIN"] || "herdr";
+const herdr = process.env["OVIS_HERDR_BIN"] || "herdr";
 if (suite === "integration" && !Bun.which(herdr)) {
-  throw new Error("Integration tests require herdr on PATH (or HERDR_WEB_HERDR_BIN)");
+  throw new Error("Integration tests require herdr on PATH (or OVIS_HERDR_BIN)");
 }
 if (suite === "integration" && process.env["HERDR_TEST_LIVE"] === "1") {
   throw new Error("CI integration tests must use an isolated herdr session");

@@ -1,5 +1,5 @@
 # Native Windows install: irm https://ovis.sh/install.ps1 | iex
-param([string]$Ref = $env:HERDR_WEB_UI_REF)
+param([string]$Ref = $(if ($env:OVIS_REF) { $env:OVIS_REF } else { $env:HERDR_WEB_UI_REF }))
 
 & {
 $ErrorActionPreference = 'Stop'
@@ -116,7 +116,7 @@ if ($server.running) {
     $origin = [regex]::Match(($status | Where-Object { $_ -match '^running ' } | Select-Object -First 1), '^running (\S+)').Groups[1].Value
     $opened = $false
     if ($newInstall -and $origin -match '^https?://(127\.0\.0\.1|localhost)(:\d+)?(?:/|$)' -and
-        -not $env:CI -and -not $env:HERDR_WEB_NO_OPEN -and -not $env:SSH_CONNECTION -and
+        -not $env:CI -and -not $env:OVIS_NO_OPEN -and -not $env:HERDR_WEB_NO_OPEN -and -not $env:SSH_CONNECTION -and
         [Environment]::UserInteractive) {
         try {
             Start-Process $origin

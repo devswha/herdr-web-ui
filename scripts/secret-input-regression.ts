@@ -31,7 +31,7 @@ process.stdin.on("data", chunk => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   try {
     await context.addInitScript((pane) => {
-      localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+      localStorage.setItem(`ovis:view:${pane}`, "terminal");
       const Native = window.WebSocket;
       const sockets = new Set<WebSocket>();
       window.WebSocket = class extends Native {
@@ -123,7 +123,7 @@ process.stdin.on("data", chunk => {
     const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     try {
       await desktop.addInitScript((pane) => {
-        localStorage.setItem(`herdr-web-ui:view:${pane}`, "terminal");
+        localStorage.setItem(`ovis:view:${pane}`, "terminal");
         const Native = window.WebSocket;
         const sockets = new Set<WebSocket>();
         window.WebSocket = class extends Native {
@@ -134,7 +134,7 @@ process.stdin.on("data", chunk => {
       for (const mode of ["direct", "line"] as const) {
         const view = await desktop.newPage();
         view.setDefaultTimeout(10_000);
-        await view.addInitScript((mode) => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: mode })); }, mode);
+        await view.addInitScript((mode) => { localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", terminalInputMode: mode })); }, mode);
         await view.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
         await view.locator(".pane-terminal .xterm-screen").waitFor();
         if (mode === "line") await view.getByRole("textbox", { name: "Terminal input line", exact: true }).waitFor();

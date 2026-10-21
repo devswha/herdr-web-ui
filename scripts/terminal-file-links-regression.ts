@@ -24,7 +24,7 @@ try {
   });
   for (const width of [1280, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 800 }, hasTouch: width === 390, isMobile: width === 390 });
-    await context.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal"), pane);
+    await context.addInitScript((id) => localStorage.setItem(`ovis:view:${id}`, "terminal"), pane);
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);

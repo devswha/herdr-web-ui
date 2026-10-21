@@ -31,7 +31,7 @@ if (!process.env.HERDR_SSH_QA_CONFIG) {
 }
 const container = `herdr-profiles-qa-${process.pid}`;
 const state = join(root, "state");
-const oldManifest = process.env.HERDR_WEB_BUNDLE_MANIFEST, oldSocket = process.env.HERDR_SOCKET;
+const oldManifest = process.env.OVIS_BUNDLE_MANIFEST, oldSocket = process.env.HERDR_SOCKET;
 process.env.HERDR_SOCKET = join(root, "local-offline.sock");
 let server: ReturnType<typeof createServer> | undefined;
 let rows: ReturnType<typeof parseHerdrProfiles> = [];
@@ -94,7 +94,7 @@ try {
   const platform = remote("uname -m") === "x86_64" ? "linux-x64" : "linux-arm64";
   const manifest = join(root, "manifest.json");
   writeFileSync(manifest, JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { [platform]: { url: filename, sha256 } } }));
-  process.env.HERDR_WEB_BUNDLE_MANIFEST = manifest;
+  process.env.OVIS_BUNDLE_MANIFEST = manifest;
   rows = [{ ...catalog[0]!, target: { ...catalog[0]!.target!, destination: "herdr-profile-fixture", port } }];
   assert.equal(rows[0]!.target!.session, undefined);
   server = start();
@@ -179,6 +179,6 @@ try {
 } finally {
   for (const ws of sockets) ws.close(); server?.stop();
   Bun.spawnSync(["docker", "rm", "-f", container]);
-  for (const [key, value] of [["HERDR_WEB_BUNDLE_MANIFEST", oldManifest], ["HERDR_SOCKET", oldSocket]]) { if (value === undefined) delete process.env[key!]; else process.env[key!] = value; }
+  for (const [key, value] of [["OVIS_BUNDLE_MANIFEST", oldManifest], ["HERDR_SOCKET", oldSocket]]) { if (value === undefined) delete process.env[key!]; else process.env[key!] = value; }
   rmSync(root, { recursive: true, force: true });
 }

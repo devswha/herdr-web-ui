@@ -13,14 +13,14 @@ import { workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { chromePath } from "./chrome-path.ts";
 
 export async function checkTerminalKeyboardSuggestions(browser: Browser, origin: string): Promise<void> {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-suggestions-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ovis-suggestions-")));
   let workspaceId: string | null = null;
   const context = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, locale: "en-US" });
   try {
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-suggestions" });
+    const created = await workspaceCreate({ cwd: root, label: "ovis-test-suggestions" });
     workspaceId = created.workspace.workspace_id;
     await context.addInitScript(() => {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
+      localStorage.setItem("ovis:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
     });
     const page = await context.newPage();
     await page.goto(`${origin}/?pane=${encodeURIComponent(created.root_pane.pane_id)}`);
@@ -48,7 +48,7 @@ if (import.meta.main) {
   const { chromium } = await import("playwright-core");
   const { createServer } = await import("../server/index.ts");
   const { UsageService } = await import("../server/usage.ts");
-  const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-suggestions-state-"));
+  const state = mkdtempSync(join(tmpdir(), "ovis-suggestions-state-"));
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, usage: new UsageService(undefined, []) });
   const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   try {

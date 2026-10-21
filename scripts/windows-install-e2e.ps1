@@ -18,7 +18,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$env:HERDR_WEB_NO_OPEN = '1'
+$env:OVIS_NO_OPEN = '1'
 $origin = 'http://127.0.0.1:7317'
 $pluginId = 'devswha.herdr-web-ui'
 # where the official installers put both tools; a terminal opened before them has neither on PATH
@@ -50,9 +50,9 @@ function Get-ReleaseTags {
 }
 function Invoke-Installer([string]$InstallRef) {
     if ($Installer -match '^https://') {
-        $env:HERDR_WEB_UI_REF = $InstallRef
+        $env:OVIS_REF = $InstallRef
         try { Invoke-RestMethod $Installer | Invoke-Expression }
-        finally { Remove-Item Env:\HERDR_WEB_UI_REF -ErrorAction SilentlyContinue }
+        finally { Remove-Item Env:\OVIS_REF -ErrorAction SilentlyContinue }
     } else { & $Installer -Ref $InstallRef }
 }
 # $Expected is a full commit or a release tag.

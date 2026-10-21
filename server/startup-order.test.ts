@@ -14,9 +14,9 @@ it("starts the tailnet identity read only after the Node probe has returned", as
   // leaves the owner unknown for five minutes: with no token and nothing paired, another tailnet user
   // would get in as `open` (#1393).
   const stateDir = mkdtempSync(join(tmpdir(), "ovis-startup-"));
-  const namedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
+  const namedOwner = process.env["OVIS_TAILSCALE_OWNER"];
   // a named owner is taken as it is, and nothing is read
-  delete process.env["HERDR_WEB_TAILSCALE_OWNER"];
+  delete process.env["OVIS_TAILSCALE_OWNER"];
   const steps: string[] = [];
   let identityRead!: () => void;
   const read = new Promise<void>((resolve) => { identityRead = resolve; });
@@ -30,7 +30,7 @@ it("starts the tailnet identity read only after the Node probe has returned", as
     expect(steps).toEqual(["probe", "identity read"]);
   } finally {
     server.stop();
-    if (namedOwner !== undefined) process.env["HERDR_WEB_TAILSCALE_OWNER"] = namedOwner;
+    if (namedOwner !== undefined) process.env["OVIS_TAILSCALE_OWNER"] = namedOwner;
     rmSync(stateDir, { recursive: true, force: true });
   }
 });

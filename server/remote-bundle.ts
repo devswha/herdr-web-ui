@@ -11,7 +11,7 @@ export interface BundleManifest {
 interface BundleSourceOptions { manifest?: string; directory?: string }
 export async function bundleManifestSource(platform: string, options: BundleSourceOptions = {}): Promise<string> {
   if (!/^((linux|darwin)-(x64|arm64)|win32-x64)$/.test(platform)) throw new Error(`Unsupported bundle platform: ${platform}`);
-  const configured = options.manifest ?? process.env["HERDR_WEB_BUNDLE_MANIFEST"];
+  const configured = options.manifest ?? process.env["OVIS_BUNDLE_MANIFEST"];
   if (configured) return configured;
   // Development installs can distribute locally built runtimes without publishing
   // a release. Resolve beside this server, never against its launch directory.
@@ -90,7 +90,7 @@ export async function bundleFile(platform: string, signal: AbortSignal, options:
   const https = source.startsWith("https://");
   const manifest: BundleManifest = https
     ? await fetch(source, { signal }).then(async (r) => {
-      if (!r.ok) { await discard(r); throw new Error(`Remote bundle for ${platform} is unavailable (HTTP ${r.status}). On the web server, run bun run build:remote ${platform}, or configure HERDR_WEB_BUNDLE_MANIFEST.`); }
+      if (!r.ok) { await discard(r); throw new Error(`Remote bundle for ${platform} is unavailable (HTTP ${r.status}). On the web server, run bun run build:remote ${platform}, or configure OVIS_BUNDLE_MANIFEST.`); }
       return readCappedJson<BundleManifest>(r, REMOTE_LIMITS.bundleManifest);
     })
     : JSON.parse(await readFile(source, { encoding: "utf8", signal }));

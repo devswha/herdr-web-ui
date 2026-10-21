@@ -23,9 +23,9 @@ export async function checkDefaultView(browser: Browser, origin: string): Promis
     }
     const [one, two] = panes as [string, string];
     await context.addInitScript((pane) => {
-      if (localStorage.getItem("herdr-web-ui:settings") !== null) return;
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-      localStorage.setItem(`herdr-web-ui:view:local:${pane}`, "terminal"); // a pane that remembered the terminal
+      if (localStorage.getItem("ovis:settings") !== null) return;
+      localStorage.setItem("ovis:settings", JSON.stringify({ language: "en" }));
+      localStorage.setItem(`ovis:view:local:${pane}`, "terminal"); // a pane that remembered the terminal
     }, two);
     const page = await context.newPage();
     const errors: string[] = [];
@@ -42,7 +42,7 @@ export async function checkDefaultView(browser: Browser, origin: string): Promis
     await page.waitForFunction(() => document.querySelector(".view-switch button[aria-pressed='true']")?.getAttribute("title")?.startsWith("Chat transcript") === true);
     await page.locator(`.pane-select[title^="${two} —"]`).click();
     await page.waitForFunction(() => document.querySelector(".view-switch button[aria-pressed='true']")?.getAttribute("title")?.startsWith("Chat transcript") === true);
-    assert.equal(await page.evaluate((pane) => localStorage.getItem(`herdr-web-ui:view:local:${pane}`), two), null, "what a pane remembered gives way to the choice");
+    assert.equal(await page.evaluate((pane) => localStorage.getItem(`ovis:view:local:${pane}`), two), null, "what a pane remembered gives way to the choice");
     // a pane switched by hand keeps its lens until the choice changes again
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
     await page.locator(`.pane-select[title^="${one} —"]`).click();
