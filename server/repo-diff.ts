@@ -147,7 +147,8 @@ async function repositoryOf(context: Context, cwd: string): Promise<RepoDiffRepo
 }
 
 const REVISION = /^[A-Za-z0-9][A-Za-z0-9._/~^@{}-]{0,199}$/;
-const OID = /^[0-9a-f]{40,64}$/;
+/** A full git object id: 40 hex digits (SHA-1) or 64 (SHA-256), nothing between. */
+const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 /** A branch as the picker offers it, by its full name: one that `git check-ref-format` accepts names that ref and nothing else. */
 const FULL_REFNAME = /^refs\/(?:heads|remotes)\/[^\0-\x1f\x7f]+$/;
 const MAX_REFNAME_BYTES = 1_024;

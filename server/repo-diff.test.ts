@@ -383,6 +383,10 @@ describe("a branch against a base", () => {
     await expect(repoDiffFile(other, pinned(list, { path: "shared.txt" }))).rejects.toMatchObject({ code: "comparison_changed", status: 409 });
     // the shape is checked first, and a merge base the ids do not make is no identity of this repository's
     const malformed: unknown[] = ["{", "[]", "null", JSON.stringify({ ...identity, extra: 1 }), JSON.stringify({ ...identity, merge_base_oid: "HEAD" }), JSON.stringify({ ...identity, repository_root: "" }), JSON.stringify({ head_oid: identity.head_oid }), "x".repeat(9_000)];
+    // a full git id is 40 (SHA-1) or 64 (SHA-256) hex digits, nothing between or around
+    for (const key of ["head_oid", "base_oid", "merge_base_oid"] as const) {
+      for (const length of [39, 41, 63, 65]) malformed.push(JSON.stringify({ ...identity, [key]: "a".repeat(length) }));
+    }
     for (const comparison of malformed) {
       await expect(repoDiffFile(root, query({ scope: "branch", comparison: comparison as string, path: "shared.txt" }))).rejects.toMatchObject({ code: "invalid_comparison", status: 400 });
     }

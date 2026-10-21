@@ -4117,6 +4117,8 @@ describe("repository diff of a pane's folder", () => {
       // a malformed identity, one of another HEAD, and a patch asked by the base's name instead of the identity
       for (const [search, status, code] of [
         [`scope=branch&path=b.txt&comparison=${encodeURIComponent("{\"head_oid\":1}")}`, 400, "invalid_comparison"],
+        // a full git id is 40 or 64 hex digits: 41 is a malformed shape, not a moved HEAD or a missing commit
+        ...(["head_oid", "base_oid", "merge_base_oid"] as const).map((key) => [`scope=branch&path=b.txt&comparison=${encodeURIComponent(JSON.stringify({ ...compared.comparison, [key]: "a".repeat(41) }))}`, 400, "invalid_comparison"] as const),
         [`scope=branch&path=b.txt&comparison=${encodeURIComponent(JSON.stringify({ ...compared.comparison, head_oid: "0".repeat(40) }))}`, 409, "comparison_changed"],
         ["scope=branch&path=b.txt&base=main", 400, "invalid_comparison"],
       ] as const) {
