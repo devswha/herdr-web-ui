@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "./machineContext.tsx";
 
@@ -23,6 +23,17 @@ export function forgetSessionHistoryProbe(machineId: string): void {
 }
 
 /**
+ * Forgets the answer of every PC the PCs' own states show away (not connected, or no longer listed),
+ * so a PC that comes back is asked again whether or not a pane or menu of it was mounted to see it
+ * go. App calls it with every change of the PC list, which owns their connection states.
+ */
+export function forgetSessionHistoryProbesOfPcsAway(machines: readonly { id: string; state: string }[]): void {
+  for (const machineId of [...probes.keys()]) {
+    if (!machines.some((machine) => machine.id === machineId && machine.state === "connected")) probes.delete(machineId);
+  }
+}
+
+/**
  * Whether this PC's bridge lists earlier sessions (GET /api/sessions/history): this PC's bridge
  * does; another PC's is asked once while it is online, without listing anything (a bridge from
  * before the route answers 404), and again whenever it comes back. The workspace row's menu and
@@ -32,14 +43,9 @@ export function useSessionHistoryOffered(online: boolean): boolean {
   const machineId = useMachineId();
   const { sessionHistoryOffered } = useMachineApi();
   const [offered, setOffered] = useState(machineId === LOCAL_MACHINE);
-  const wasOnline = useRef(false);
   useEffect(() => {
-    if (machineId === LOCAL_MACHINE) return;
-    // only a PC seen going away is asked again: a pane mounting before its socket connects is not that
-    const left = wasOnline.current && !online;
-    wasOnline.current = online;
-    if (left) forgetSessionHistoryProbe(machineId);
-    if (!online) return;
+    // a PC away is forgotten by App from the PCs' states (forgetSessionHistoryProbesOfPcsAway)
+    if (machineId === LOCAL_MACHINE || !online) return;
     let live = true;
     sharedSessionHistoryProbe(machineId, sessionHistoryOffered).then((answer) => { if (live) setOffered(answer); }, () => { /* not reached: asked again when it is back */ });
     return () => { live = false; };

@@ -17,6 +17,7 @@ import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDial
 import { SessionHistory } from "./components/SessionHistory.tsx";
 import { sessionHistoryAgent, sessionHistoryListAgent } from "./lib/sessionHistory.ts";
 import { useRecentResumes } from "./lib/useRecentResumes.ts";
+import { forgetSessionHistoryProbesOfPcsAway } from "./lib/useSessionHistoryOffered.ts";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { usePreferencesSync } from "./lib/preferencesSync.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
@@ -1521,6 +1522,9 @@ export function App() {
   const closeSessionHistory = useCallback(() => setSessionHistory(null), []);
   // the Resumes of a moment ago, kept across the list's openings until herdr reports their panes' sessions
   const { standing: recentResumes, remember: rememberResume } = useRecentResumes(machines);
+  // the PCs' states are owned here: a PC away loses its cached answer to whether it lists sessions,
+  // whether or not a pane or menu of it is mounted, so it is asked again once it is back
+  useEffect(() => { forgetSessionHistoryProbesOfPcsAway(machines); }, [machines]);
   // the workspace the open session list is of, as its PC's roster has it now; the list leaves with the workspace
   const sessionHistoryWorkspace = useMemo(() => {
     if (sessionHistory === null) return null;
