@@ -44,10 +44,39 @@ export function firstMessageFault(value: unknown, agent: unknown): string | null
   return null;
 }
 
+type LaunchFlag = "model" | "effort" | "config";
+/** the flags whose values are checked, by agent: Codex's `-c`/`--config` sets `model` and `model_reasoning_effort` too */
+const LAUNCH_FLAGS: Record<"claude" | "codex", Record<string, LaunchFlag>> = {
+  claude: { "--model": "model", "--effort": "effort" },
+  codex: { "--model": "model", "-m": "model", "--config": "config", "-c": "config" },
+};
+
+/**
+ * Which checked flag `arg` is, as the CLIs' parsers read it: `--flag value`, `--flag=value`, and for a
+ * short flag `-f value`, `-fvalue` or `-f=value`. `value` is undefined when the next argument holds it.
+ */
+function launchFlag(arg: string, flags: Record<string, LaunchFlag>): { flag: LaunchFlag; value?: string } | null {
+  for (const [name, flag] of Object.entries(flags)) {
+    if (arg === name) return { flag };
+    if (name.startsWith("--") ? arg.startsWith(`${name}=`) : arg.startsWith(name)) {
+      const value = arg.slice(name.length);
+      return { flag, value: value.startsWith("=") ? value.slice(1) : value };
+    }
+  }
+  return null;
+}
+
+/** a TOML string value as Codex's `-c` reads it, `"high"` or `'high'`, or the bare word it falls back to */
+const configValue = (value: string): string => {
+  const trimmed = value.trim();
+  return /^(["']).*\1$/su.test(trimmed) ? trimmed.slice(1, -1) : trimmed;
+};
+
 /**
  * What is wrong with an agent's launch arguments, in the API's words; null when they can be passed. No
  * argument may hold a control character. Claude Code's and Codex's model and effort flags take only
- * the values the dialog offers, and Codex's prompt after `--` follows a first message's rules.
+ * the values the dialog offers, in every spelling their CLIs accept, and Codex's prompt after `--`
+ * follows a first message's rules.
  */
 export function launchArgsFault(kind: string, args: readonly string[]): string | null {
   if (!args.every(argumentText)) return "agent.args must not contain control characters (a tab or a line break included)";
@@ -61,10 +90,24 @@ export function launchArgsFault(kind: string, args: readonly string[]): string |
       if (prompt.length !== 1 || firstMessageFault(prompt[0], true) !== null) return "agent.args must end in one prompt after --, nonempty text of at most 20000 characters";
       break;
     }
-    if (arg === "--model" && !MODEL_NAME.test(args[at + 1] ?? "")) return "agent.args --model must name one model";
-    if (kind === "claude" && arg === "--effort" && !efforts.includes(args[at + 1] ?? "")) return `agent.args --effort must be one of ${efforts.join(", ")}`;
-    if (kind === "codex" && arg === "-c" && (args[at + 1] ?? "").startsWith("model_reasoning_effort=")
-      && !efforts.includes(args[at + 1]!.slice("model_reasoning_effort=".length))) return `agent.args model_reasoning_effort must be one of ${efforts.join(", ")}`;
+    const read = launchFlag(arg, LAUNCH_FLAGS[kind]);
+    if (read === null) continue;
+    // the flag's value is the flag's own, a "--" there included: it is not read again as an argument
+    let value = read.value;
+    if (value === undefined) { at += 1; value = args[at] ?? ""; }
+    let model: string | null = read.flag === "model" ? value : null;
+    let effort: string | null = read.flag === "effort" ? value : null;
+    if (read.flag === "config") {
+      const split = value.indexOf("=");
+      const key = split < 0 ? value.trim() : value.slice(0, split).trim();
+      const setting = split < 0 ? "" : configValue(value.slice(split + 1));
+      if (key === "model") model = setting;
+      if (key === "model_reasoning_effort") effort = setting;
+    }
+    if (model !== null && !MODEL_NAME.test(model)) return "agent.args --model must name one model";
+    if (effort !== null && !efforts.includes(effort)) {
+      return kind === "claude" ? `agent.args --effort must be one of ${efforts.join(", ")}` : `agent.args model_reasoning_effort must be one of ${efforts.join(", ")}`;
+    }
   }
   return null;
 }

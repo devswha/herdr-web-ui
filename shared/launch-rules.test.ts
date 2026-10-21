@@ -26,6 +26,31 @@ describe("an agent's launch arguments", () => {
   });
 });
 
+describe("every spelling the CLIs accept for a model or an effort", () => {
+  it.each([
+    // [kind, args, the fault's flag, or null when the launch is fine]
+    ["codex", ["-m", "two words"], "--model"],
+    ["codex", ["-mtwo words"], "--model"],
+    ["codex", ["-m=two words"], "--model"],
+    ["codex", ["--model=two words"], "--model"],
+    ["codex", ["--config", "model_reasoning_effort=INVALID"], "model_reasoning_effort"],
+    ["codex", ["--config=model_reasoning_effort=INVALID"], "model_reasoning_effort"],
+    ["codex", ["-cmodel_reasoning_effort=INVALID"], "model_reasoning_effort"],
+    ["codex", ["-c", "model_reasoning_effort=\"INVALID\""], "model_reasoning_effort"],
+    ["codex", ["-c", "model=\"two words\""], "--model"],
+    ["claude", ["--effort=INVALID"], "--effort"],
+    ["claude", ["--model=two words"], "--model"],
+    ["codex", ["-m", "gpt-6.1", "--model=gpt-6.1", "--config", "model_reasoning_effort=high", "-c", "model_reasoning_effort=\"xhigh\"", "-c", "model=\"gpt-6.1\""], null],
+    ["claude", ["--effort=max", "--model=opus[1m]"], null],
+    // a flag's value is the flag's: "--" there is not the end of the options
+    ["codex", ["-m", "--"], "--model"],
+  ] as const)("%s %j", (kind, args, flag) => {
+    const fault = launchArgsFault(kind, args);
+    if (flag === null) expect(fault).toBeNull();
+    else expect(fault).toContain(flag);
+  });
+});
+
 describe("a model name", () => {
   it("is one word, with an optional bracketed variant such as Claude Code's [1m]", () => {
     for (const name of ["opus", "claude-opus-4-5", "opus[1m]", "sonnet[1m]", "gpt-6.1", "openrouter/qwen:free"]) expect(MODEL_NAME.test(name), name).toBeTrue();
