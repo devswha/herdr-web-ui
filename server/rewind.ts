@@ -156,13 +156,17 @@ export async function walkClaudeRewind(io: RewindIo, text: string, later: number
   for (let rows = 0; rows < MAX_ROWS; rows += 1) {
     const label = cursorOf(list);
     if (label !== "(current)" && rowMatches(label, text)) {
-      if (skip > 0) skip -= 1;
+      // a whole row is this message; a row cut short may be another one that starts the same, so only
+      // its confirm step's quote counts it as one of the newer copies
+      if (skip > 0 && normalizeText(label) === normalizeText(text)) skip -= 1;
       else {
         await io.keys([KEY.enter]);
         const confirm = await waitFor(io, parseClaudeRewindConfirm, stepMs);
         if (confirm === null) return "changed";
-        if (quoteMatches(confirm, text)) return "shown";
-        // another message the cut row reads the same for: back to the list, on the same row
+        const same = quoteMatches(confirm, text);
+        if (same && skip === 0) return "shown";
+        if (same) skip -= 1;
+        // a newer copy, or another message the cut row reads the same for: back to the list, on the same row
         const back = await backToList(io, confirm, label, stepMs);
         if (back === null) return "changed";
         list = back;

@@ -115,6 +115,26 @@ describe("walking Claude Code's rewind list", () => {
     expect(dialog.sent).toEqual(["/rewind", "up", "up", "esc"]);
   });
 
+  // HIGH 3 (merge pass r1) and CodeRabbit 4332440008: a narrow pane cuts A, A and B to the same row
+  const OTHER = "please describe the history of the old mill by the river";
+  it("opens the older of two same messages past a third the narrow list cuts the same, by each cut row's quote ([A, A, B])", async () => {
+    const dialog = narrowDialog([LONG, LONG, OTHER], 31);
+    expect(await walkClaudeRewind(dialog.io, LONG, 1)).toBe("shown");
+    expect(dialog.state()).toEqual({ at: "confirm", row: 0, choice: 0 });
+  });
+
+  it("counts only the same message's cut rows as the newer copies ([A, B, A])", async () => {
+    const older = narrowDialog([LONG, OTHER, LONG], 31);
+    expect(await walkClaudeRewind(older.io, LONG, 1)).toBe("shown");
+    expect(older.state()).toEqual({ at: "confirm", row: 0, choice: 0 });
+    const newer = narrowDialog([LONG, OTHER, LONG], 31);
+    expect(await walkClaudeRewind(newer.io, LONG, 0)).toBe("shown");
+    expect(newer.state()).toEqual({ at: "confirm", row: 2, choice: 0 });
+    const missing = narrowDialog([OTHER, LONG], 31);
+    expect(await walkClaudeRewind(missing.io, LONG, 1)).toBe("not_found");
+    expect(missing.state()).toEqual({ at: "closed" });
+  });
+
   // HIGH 4 (merge pass r1): backing out of another message's confirm step
   it("backs out of a confirm step one key at a time, each once the screen shows the last", async () => {
     const dialog = long();
