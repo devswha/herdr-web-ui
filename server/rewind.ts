@@ -103,7 +103,9 @@ export async function followClaudeRestore(paneId: string, parsed: ParsedPrompt, 
   const message = parsed.body.split("\n")[0]!;
   const walked = asked.get(paneId);
   asked.delete(paneId);
-  const later = walked && normalizeText(walked.text) === message ? walked.later : 0;
+  // a dialog the chat did not walk (opened in the terminal, or the list's own card): which copy of a
+  // repeated message was picked is not known, so only a message's one copy is kept
+  const later = walked && normalizeText(walked.text) === message ? walked.later : null;
   const read = async () => (await paneRead({ paneId, source: "detection", format: "text" })).text;
   if (await waitFor({ read }, (screen) => restoredOnScreen(screen, message) ? true : null, stepMs) === null) return;
   try {

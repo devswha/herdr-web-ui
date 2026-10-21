@@ -891,10 +891,11 @@ function applyHistoryBoundary(path: string, stream: TranscriptStream, source: Re
  * Claude Code restored its conversation to before a message the chat asked for (server/rewind.ts
  * saw the confirm step answered and the message back in its input box): keeps that rewind for the
  * pane's transcript (ClaudeRewind). The message is the newest prompt still on the branch with these
- * words, past `later` newer ones with the same words. Its own text comes back, as the transcript
- * holds it; null when the pane's transcript does not show it (nothing is kept then).
+ * words, past `later` newer ones with the same words; `later` null (a restore picked in a dialog the
+ * chat did not walk): the message's one copy, nothing when it has several. Its own text comes back, as
+ * the transcript holds it; null when the pane's transcript does not show it (nothing is kept then).
  */
-export async function rewindClaudeTranscript(paneId: string, text: string, later: number): Promise<{ said: string; at: number | null } | null> {
+export async function rewindClaudeTranscript(paneId: string, text: string, later: number | null): Promise<{ said: string; at: number | null } | null> {
   const resolved = await paneTranscript(paneId);
   if (resolved.source !== "claude-transcript") return null;
   return rewindClaudeRecord(resolved.path, text, later, { pid: claudeIdentities.get(resolved.path) ?? null, paneId });
@@ -904,12 +905,12 @@ export async function rewindClaudeTranscript(paneId: string, text: string, later
  * rewindClaudeTranscript for the transcript at `path`, whose one Claude process is `pid` on pane
  * `paneId`. Nothing is kept without that process (null): a rewind no process owns would hold for none.
  */
-export function rewindClaudeTranscriptAt(path: string, text: string, later: number, owner: { pid: number | null; paneId: string }): string | null {
+export function rewindClaudeTranscriptAt(path: string, text: string, later: number | null, owner: { pid: number | null; paneId: string }): string | null {
   return rewindClaudeRecord(path, text, later, owner)?.said ?? null;
 }
 
 /** rewindClaudeTranscriptAt with the time Claude wrote the restored message (`at`, null when its record has none). */
-function rewindClaudeRecord(path: string, text: string, later: number, owner: { pid: number | null; paneId: string }): { said: string; at: number | null } | null {
+function rewindClaudeRecord(path: string, text: string, later: number | null, owner: { pid: number | null; paneId: string }): { said: string; at: number | null } | null {
   const pid = owner.pid;
   if (pid === null) return null;
   const resolved = { path };
@@ -918,7 +919,16 @@ function rewindClaudeRecord(path: string, text: string, later: number, owner: { 
   const from = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
   const bytes = readStream(stream, from, stream.length);
   const wanted = text.replace(/\s+/g, " ").trim();
-  let skip = later;
+  let skip = later ?? 0;
+  // `later` null: a restore from a dialog the chat did not walk, so which copy was picked is not
+  // known; only a message with one copy in the transcript is kept (an older copy may lie before the window)
+  let only: { entry: TranscriptEntry & { uuid: string }; startAt: number; lineEnd: number; said: string } | null = null;
+  const keep = (entry: TranscriptEntry & { uuid: string }, startAt: number, lineEnd: number, said: string): { said: string; at: number | null } => {
+    claudeRewinds.set(resolved.path, { uuid: entry.uuid, start: from + startAt, end: from + lineEnd, length: stream.length, pid, paneId: owner.paneId, restored: said });
+    saveClaudeRewinds();
+    const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+    return { said, at: Number.isNaN(at) ? null : at };
+  };
   for (let end = bytes.length; end > 0;) {
     // (a negative offset would search from the buffer's end)
     const startAt = end >= 2 ? bytes.lastIndexOf(0x0a, end - 2) + 1 : 0;
@@ -932,13 +942,16 @@ function rewindClaudeRecord(path: string, text: string, later: number, owner: { 
     const said = typeof content === "string" ? content : Array.isArray(content)
       ? content.flatMap((block: { type?: unknown; text?: unknown } | null) => block?.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n") : "";
     if (typeof entry.uuid !== "string" || said.replace(/\s+/g, " ").trim() !== wanted) continue;
+    const found = entry as TranscriptEntry & { uuid: string };
+    if (later === null) {
+      if (only !== null) return null;
+      only = { entry: found, startAt, lineEnd, said };
+      continue;
+    }
     if (skip > 0) { skip -= 1; continue; }
-    claudeRewinds.set(resolved.path, { uuid: entry.uuid, start: from + startAt, end: from + lineEnd, length: stream.length, pid, paneId: owner.paneId, restored: said });
-    saveClaudeRewinds();
-    const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
-    return { said, at: Number.isNaN(at) ? null : at };
+    return keep(found, startAt, lineEnd, said);
   }
-  return null;
+  return only !== null && from === stream.floor ? keep(only.entry, only.startAt, only.lineEnd, only.said) : null;
 }
 
 /** Bytes that every line opening a turn contains: a cheap filter before JSON.parse. */

@@ -917,6 +917,20 @@ describe("parseClaudeTranscript", () => {
         expect(claudeRewindOf(path)).toBeNull();
       });
 
+      it("keeps a restore of a repeated message only when told which copy, never the newest by default", () => {
+        const path = file();
+        const entries = before.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type?: string; uuid?: string; parentUuid?: string | null; message?: { content?: unknown } });
+        const last = entries.at(-1)!;
+        const again = { ...entries.find((entry) => entry.message?.content === "apple")!, uuid: "apple-again", parentUuid: last.uuid };
+        writeFileSync(path, `${before}${JSON.stringify(again)}\n`);
+        seen(path, 4242);
+        // a dialog the chat did not open: which apple was picked is not known
+        expect(rewindClaudeTranscriptAt(path, "apple", null, { pid: 4242, paneId: "p1" })).toBeNull();
+        expect(claudeRewindOf(path)).toBeNull();
+        // the one copy of banana is known
+        expect(rewindClaudeTranscriptAt(path, "banana", null, { pid: 4242, paneId: "p1" })).toBe("banana");
+      });
+
       it("a send from the chat after the restore gives the box back", () => {
         const path = file();
         writeFileSync(path, before);

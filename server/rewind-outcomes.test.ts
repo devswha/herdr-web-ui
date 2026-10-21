@@ -34,3 +34,12 @@ it("forgets the outcomes of the chat's sends after a restore's point, and keeps 
   await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: "apple\n\nThe conversation will be forked." } as unknown as ParsedPrompt, 2_000);
   expect(await shown()).toEqual(["before"]);
 });
+
+it("records a restore from a dialog the chat did not open only as the message's one copy, never the newest of several", async () => {
+  const pane = { pane_id: "rewind-foreign", terminal_id: "terminal", workspace_id: "w", tab_id: "t", cwd: "/fixture", focused: false, revision: 0, agent: "claude", agent_status: "idle" };
+  const restored = readFileSync(new URL("./fixtures/claude-rewind-2.1.304-restored-40.txt", import.meta.url), "utf8");
+  spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: restored, source: "detection", format: "text", truncated: false });
+  const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
+  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: "apple\n\nThe conversation will be forked." } as unknown as ParsedPrompt, 2_000);
+  expect(recorded.mock.calls).toEqual([[pane.pane_id, "apple", null]]);
+});
