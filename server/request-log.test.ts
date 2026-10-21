@@ -1,9 +1,9 @@
 import { afterEach, expect, it, spyOn } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clientRequestId, RequestLog, requestMethod, requestRoute } from "./request-log.ts";
-import { errorResponse } from "./http.ts";
+import { clientRequestId, RequestLog, requestMethod } from "./request-log.ts";
+import { errorResponse, setRequestRoute } from "./http.ts";
 
 const roots: string[] = [];
 const writers: RequestLog[] = [];
@@ -21,6 +21,36 @@ function fixture() {
   const records = (): Record<string, unknown>[] => readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   return { root, writer, path, records };
 }
+
+it.skipIf(process.platform === "win32")("preserves an existing state directory's permissions", () => {
+  // Given: an operator-selected directory with an existing permission policy.
+  const root = mkdtempSync(join(tmpdir(), "herdr-request-permissions-"));
+  roots.push(root);
+  chmodSync(root, 0o750);
+  // When
+  const writer = new RequestLog(root);
+  writers.push(writer);
+  // Then
+  expect(statSync(root).mode & 0o777).toBe(0o750);
+  expect(statSync(join(root, "http-requests.jsonl")).mode & 0o777).toBe(0o600);
+});
+
+it.skipIf(process.platform === "win32")("neither follows nor writes a symlinked log path", async () => {
+  // Given: the log path is a symlink to another file.
+  const root = mkdtempSync(join(tmpdir(), "herdr-request-symlink-"));
+  roots.push(root);
+  const target = join(root, "untouched.txt");
+  writeFileSync(target, "unchanged", { mode: 0o640 });
+  symlinkSync(target, join(root, "http-requests.jsonl"));
+  // When
+  const writer = new RequestLog(root);
+  writers.push(writer);
+  const response = await writer.handle(new Request("http://localhost/api/preferences"), async () => new Response("still works"));
+  // Then: refusing the writer never changes HTTP or the symlink's target.
+  expect(await response?.text()).toBe("still works");
+  expect(readFileSync(target, "utf8")).toBe("unchanged");
+  expect(statSync(target).mode & 0o777).toBe(0o640);
+});
 
 it("validates client correlation without trusting uniqueness", async () => {
   // Given: repeated, maximum-length and hostile correlation values.
@@ -65,21 +95,22 @@ it("rotates within two one-MiB files", async () => {
 });
 
 it("normalizes secret-bearing paths", async () => {
-  // Given / When / Then: each path class has a finite template, never its private segment.
-  for (const [path, route] of [
-    ["/api/machines/private-pc/pane/conversation", "/api/machines/:machine_id/pane/conversation"],
-    ["/api/devices/private-label", "/api/devices/:device_id"],
-    ["/api/fs/page-media/private-token", "/api/fs/page-media/:media_id"],
-    ["/api/machines/setup/private-job", "/api/machines/setup/:job_id"],
-    ["/api/pane/private-pane", "unmatched"],
-    ["/api/machines/private-pc/private-path", "unmatched"],
-    ["/api/private-path", "unmatched"], ["/home/private-path", "static"],
-  ] as const) expect(requestRoute(path)).toBe(route);
-  const { writer, path } = fixture();
+  // Given: a request with private segments, a query and a secret-bearing custom method.
+  const { writer, path, records } = fixture();
   expect(requestMethod("private-secret")).toBe("OTHER");
-  await writer.handle(new Request("http://localhost/api/fs/file?path=/private-secret&token=private-secret"), async () => new Response(null, { status: 404 }));
+  // When: dispatch labels an operation, or leaves it unmatched; no URL is reconstructed.
+  await writer.handle(new Request("http://localhost/api/fs/file?path=/private-secret&token=private-secret"), async () => {
+    setRequestRoute("/api/fs/file");
+    return new Response(null, { status: 404 });
+  });
+  await writer.handle(new Request("http://localhost/api/private-secret"), async () => new Response(null, { status: 404 }));
+  await writer.handle(new Request("http://localhost/private-secret"), async () => {
+    setRequestRoute("static");
+    return new Response(null, { status: 404 });
+  });
+  // Then
   expect(readFileSync(path, "utf8")).not.toContain("private-secret");
-  expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({ method: "GET", route: "/api/fs/file", status: 404 });
+  expect(records().map((row) => row.route)).toEqual(["/api/fs/file", "unmatched", "static"]);
 });
 
 it("write failure preserves response", async () => {
@@ -126,6 +157,7 @@ it("records an upgrade once without turning it into a Response", async () => {
   const { writer, records } = fixture();
   // When
   const result = await writer.handle(new Request("http://localhost/ws"), async (headers) => {
+    setRequestRoute("/ws");
     expect(headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
     return undefined;
   });

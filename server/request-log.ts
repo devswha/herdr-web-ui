@@ -1,43 +1,13 @@
-import { chmodSync, closeSync, fstatSync, mkdirSync, openSync, renameSync, writeSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, renameSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { errorResponse, requestIdContext } from "./http.ts";
-import { MACHINE_PROXY_PATH } from "./machine-api.ts";
 
 const FILE_BYTES = 1024 * 1024;
 const CLIENT_ID = /^[A-Za-z0-9._-]{1,64}(?![\s\S])/;
 const METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"]);
-const ROUTES = new Set([
-  "/ws", "/api/bridge", "/api/health", "/api/access", "/api/auth",
-  "/api/devices", "/api/devices/pair", "/api/devices/pair/start",
-  "/api/updates", "/api/updates/check", "/api/updates/install",
-  "/api/updates/notes", "/api/updates/installed", "/api/herdr/update",
-  "/api/portal", "/api/portal/start", "/api/portal/stop",
-  "/api/connection-diagnostics", "/api/telemetry", "/api/preferences", "/api/seen",
-  "/api/usage", "/api/usage/login", "/api/voice", "/api/voice/config",
-  "/api/push", "/api/push/subscribe", "/api/push/test",
-  "/api/machines", "/api/machines/events", "/api/machines/setup", "/api/machines/settings",
-]);
 
 export const clientRequestId = (value: string | null): string | undefined => value !== null && CLIENT_ID.test(value) ? value : undefined;
 export const requestMethod = (value: string): string => METHODS.has(value) ? value : "OTHER";
-
-/** Finite route names only: no URL, query, filename, label or opaque credential can escape. */
-export function requestRoute(pathname: string): string {
-  if (ROUTES.has(pathname)) return pathname;
-  if (pathname.startsWith("/api/") && MACHINE_PROXY_PATH.test(pathname.slice(5))) return pathname;
-  if (/^\/api\/devices\/[^/]+$/.test(pathname)) return "/api/devices/:device_id";
-  if (/^\/api\/fs\/page-media\//.test(pathname)) return "/api/fs/page-media/:media_id";
-  if (pathname.startsWith("/api/cliproxy/") || pathname === "/api/cliproxy") return "/api/cliproxy/:route";
-  const machine = /^\/api\/machines\/[^/]+(?:\/(.*))?$/.exec(pathname);
-  if (machine) {
-    const route = machine[1];
-    if (route === undefined) return "/api/machines/:machine_id";
-    if (route === "update-bridge") return "/api/machines/:machine_id/update-bridge";
-    if (MACHINE_PROXY_PATH.test(route)) return `/api/machines/:machine_id/${route}`;
-  }
-  if (/^\/api\/machines\/setup\/[^/]+$/.test(pathname)) return "/api/machines/setup/:job_id";
-  return pathname.startsWith("/api/") ? "unmatched" : "static";
-}
 
 /** One synchronous, bounded writer per server; no queue, timer or streaming-body reader. */
 export class RequestLog {
@@ -49,7 +19,6 @@ export class RequestLog {
     this.path = join(stateDir, "http-requests.jsonl");
     try {
       mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-      chmodSync(stateDir, 0o700);
       this.open();
     } catch {
       // Completion telemetry is best effort, including unavailable or read-only state.
@@ -58,9 +27,14 @@ export class RequestLog {
   }
 
   private open(): void {
-    this.fd = openSync(this.path, "a", 0o600);
-    chmodSync(this.path, 0o600);
-    this.bytes = fstatSync(this.fd).size;
+    this.fd = openSync(this.path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+    const stat = fstatSync(this.fd);
+    if (!stat.isFile()) {
+      this.close();
+      return;
+    }
+    fchmodSync(this.fd, 0o600);
+    this.bytes = stat.size;
   }
 
   close(): void {
@@ -80,7 +54,8 @@ export class RequestLog {
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
     });
-    return requestIdContext.run(requestId, async () => {
+    const context = { id: requestId, route: "unmatched" };
+    return requestIdContext.run(context, async () => {
       let response: Response | undefined;
       try {
         response = await dispatch(headers);
@@ -99,7 +74,7 @@ export class RequestLog {
         request_id: requestId,
         ...(clientId === undefined ? {} : { client_request_id: clientId }),
         method: requestMethod(request.method),
-        route: requestRoute(new URL(request.url).pathname),
+        route: context.route,
         status: response?.status ?? 101,
         latency_ms: Math.round((performance.now() - started) * 1000) / 1000,
       }) + "\n";

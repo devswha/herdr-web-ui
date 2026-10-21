@@ -17,7 +17,7 @@ import { DeviceStore, handleDeviceRequest, type DeviceMatch } from "./devices.ts
 import { handlePreferencesRequest, PreferenceStore } from "./preferences.ts";
 import { handleSeenRequest, SeenStore } from "./seen.ts";
 import { remoteAccess, TailnetIdentitySource } from "./tailscale.ts";
-import { badRequest, errorResponse, jsonResponse, readJsonObject } from "./http.ts";
+import { badRequest, errorResponse, jsonResponse, readJsonObject, setRequestRoute } from "./http.ts";
 import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { claudePaneSession, configureClaudeRewinds } from "./conversation.ts";
@@ -279,7 +279,10 @@ export function createServer(
     async fetch(request, bunServer) {
       return requestLog.handle(request, async (headers) => {
       const startup = portalStartupResult ?? await portalStartup;
-      if (!startup.ok) return compressResponse(request, errorResponse(startup.error));
+      if (!startup.ok) {
+        setRequestRoute("startup");
+        return compressResponse(request, errorResponse(startup.error));
+      }
       // the route's answer, gzipped for a browser that takes it (server/compress.ts)
       return compressResponse(request, await (async (): Promise<Response | undefined> => {
       const url = new URL(request.url);
@@ -322,6 +325,7 @@ export function createServer(
       const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
 
       if (requiresAuth(pathname) && !authenticated) {
+        setRequestRoute("auth-refusal");
         // a script's Bearer guess is told to wait; a browser's cookie gets the usual 401 and its sign-in form
         if (presented === "held" && pathname !== "/ws" && request.headers.has("authorization")) return presentedTokenHeld(client);
         // The WS client never parses a body, so the upgrade refusal stays plain text.
@@ -331,6 +335,7 @@ export function createServer(
       const readOnly = access.level === "full" && access.role === "watch";
       const mutating = !["GET", "HEAD", "OPTIONS"].includes(request.method);
       if (pathname.startsWith("/api/") && mutating && !sameOrigin(request)) {
+        setRequestRoute("origin-refusal");
         return jsonResponse({ error: { code: "invalid_origin", message: "Use controls from this app" } }, 403);
       }
       // An empty segment ("//", or a trailing "/") or an encoded separator reads as another route to
@@ -356,6 +361,7 @@ export function createServer(
       // an agent's commands in a folder are read from that folder's command files, as a directory listing and a file read are
       const agentCommands = /^\/api\/(?:machines\/[^/]+\/)?agent\/commands$/.test(pathname);
       if (readOnly && (fileRead || directoryListing || repositoryDiff || sessionHistory || agentCommands || mutating && !ownPreferences)) {
+        setRequestRoute("watch-refusal");
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
@@ -368,6 +374,7 @@ export function createServer(
       if (pathname.startsWith("/api/") && authenticated) bunServer.timeout(request, 60);
 
       if (pathname === "/api/bridge") {
+        setRequestRoute(pathname);
         if (token === "" && !bridgeAuthorized) return unauthorizedJson();
         try { return jsonResponse(await bridgeIdentity(sidecar)); } catch (error) { return errorResponse(error); }
       }
@@ -389,6 +396,7 @@ export function createServer(
         }
       }
       if (pathname === "/ws") {
+        setRequestRoute(pathname);
         if (!sameOrigin(request)) return new Response("invalid origin", { status: 403 });
         const deviceId = access.level === "full" ? access.device?.id : undefined;
         const machineId = url.searchParams.get("machine_id");
@@ -411,6 +419,7 @@ export function createServer(
       }
 
       if (pathname === "/api/auth") {
+        setRequestRoute(pathname);
         // signing out also ends the page media this browser was given (by its device, else by its address)
         // a browser can hold the token and a device cookie at once, and its renders are then the
         // client's: signing out ends both kinds
@@ -436,19 +445,19 @@ export function createServer(
       if (pathname === "/api/updates" || pathname.startsWith("/api/updates/")) {
         return handleUpdateRequest(request, pathname, options.updates);
       }
-      if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
+      if (pathname === "/api/herdr/update") { setRequestRoute(pathname); return handleHerdrUpdateRequest(request, options.herdrUpdate); }
       if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
         return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
       }
-      if (pathname === "/api/connection-diagnostics") return clientConnectionLog.handle(request, client ?? "unknown");
-      if (pathname === "/api/telemetry") return handleTelemetryRequest(request, options.telemetry);
+      if (pathname === "/api/connection-diagnostics") { setRequestRoute(pathname); return clientConnectionLog.handle(request, client ?? "unknown"); }
+      if (pathname === "/api/telemetry") { setRequestRoute(pathname); return handleTelemetryRequest(request, options.telemetry); }
       // what every browser of this server shares; a watching device reads it and cannot change it (above)
-      if (pathname === "/api/preferences") return handlePreferencesRequest(request, preferences);
+      if (pathname === "/api/preferences") { setRequestRoute(pathname); return handlePreferencesRequest(request, preferences); }
       // the finishes read in some browser of this server; a watching device reads them and cannot add to them (above)
-      if (pathname === "/api/seen") return handleSeenRequest(request, seen);
+      if (pathname === "/api/seen") { setRequestRoute(pathname); return handleSeenRequest(request, seen); }
 
-      if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
-      if (pathname === "/api/usage/login") { bunServer.timeout(request, 30); return usageLogin.handle(request, collector.trackPane); }
+      if (pathname === "/api/usage") { setRequestRoute(pathname); return handleUsageRequest(request, url, usage); }
+      if (pathname === "/api/usage/login") { setRequestRoute(pathname); bunServer.timeout(request, 30); return usageLogin.handle(request, collector.trackPane); }
       if (pathname === "/api/cliproxy" || pathname.startsWith("/api/cliproxy/")) { bunServer.timeout(request, 60); return cliProxyRoutes.handle(request); }
       // a long clip can keep the provider silent past Bun's 10 s idle limit before the first line
       if (pathname === "/api/voice" || pathname.startsWith("/api/voice/")) { bunServer.timeout(request, 120); return handleVoiceRequest(request, pathname, voice); }
@@ -467,6 +476,7 @@ export function createServer(
       }
 
       if (pathname === "/api/health") {
+        setRequestRoute(pathname);
         const auth: HealthAuth = access.level === "full"
           ? { required: false, authenticated: true, via: access.via, role: access.role, ...(access.via === "token" && bearerMatches(request, token) ? { bearer: true as const } : {}) }
           : { required: true, authenticated, ...(authenticated ? {} : { reason: access.reason }) };
@@ -488,11 +498,13 @@ export function createServer(
       }
 
       if (pathname === "/api/access") {
+        setRequestRoute(pathname);
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         return jsonResponse(await remoteAccess(bunServer.port ?? DEFAULT_PORT), 200, { "cache-control": "no-store" });
       }
 
       if (pathname === "/api/session") {
+        setRequestRoute(pathname);
         try {
           return jsonResponse({ snapshot: await clientSnapshot() });
         } catch (error) {
@@ -501,6 +513,7 @@ export function createServer(
       }
 
       if (pathname === "/api/agents") {
+        setRequestRoute(pathname);
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         try {
           const kinds = new Set((await agentManifests()).manifests.map((manifest) => manifest.agent));
@@ -520,6 +533,7 @@ export function createServer(
 
       // read only: installing one changes an agent's own hooks, which stays the user's call in a terminal
       if (pathname === "/api/integrations") {
+        setRequestRoute(pathname);
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         try {
           return jsonResponse({ integrations: await integrationList() } satisfies IntegrationsResponse);
@@ -529,6 +543,7 @@ export function createServer(
       }
 
       if (pathname === "/api/fs/stat" || pathname === "/api/fs/file" || pathname === "/api/fs/favicon") {
+        setRequestRoute(pathname);
         if (request.method !== "GET" && request.method !== "HEAD") return badRequest("method_not_allowed", "use GET");
         if (crossSiteFileRead(request)) return jsonResponse({ error: { code: "cross_site", message: "A file is read from this app or opened in a tab, not loaded by another page" } }, 403);
         // a folder's project icon: every place it may be kept, in one answer that a miss is part of
@@ -557,6 +572,7 @@ export function createServer(
       // a rendered page's own video, by the address its render gave it: the page has no origin and
       // no cookie, so the address is all it holds (requiresAuth lets this path through)
       if (pathname.startsWith(PAGE_MEDIA_PATH)) {
+        setRequestRoute("/api/fs/page-media/:media_id");
         if (request.method !== "GET" && request.method !== "HEAD") return badRequest("method_not_allowed", "use GET");
         const media = pageMediaResponse(pathname.slice(PAGE_MEDIA_PATH.length), client);
         return media ?? jsonResponse({ error: { code: "not_found", message: "no such page media" } }, 404);
@@ -566,6 +582,7 @@ export function createServer(
       if (workspaceResponse) return workspaceResponse;
 
       if (pathname === "/api/plugins/actions") {
+        setRequestRoute(pathname);
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         try {
           const [plugins, actions] = await Promise.all([pluginList(), pluginActionList()]);
@@ -589,6 +606,7 @@ export function createServer(
       }
 
       if (pathname === "/api/plugin/action" && request.method === "GET") {
+        setRequestRoute(pathname);
         const pluginId = url.searchParams.get("plugin_id");
         const logId = url.searchParams.get("log_id");
         if (!pluginId) return badRequest("missing_plugin_id", "plugin_id is required");
@@ -602,6 +620,7 @@ export function createServer(
       }
 
       if (pathname === "/api/plugin/action") {
+        setRequestRoute(pathname);
         if (request.method !== "POST") return badRequest("method_not_allowed", "use GET or POST");
         const payload = await readJsonObject<{ plugin_id?: unknown; action_id?: unknown; pane_id?: unknown }>(request);
         if (payload instanceof Response) return payload;
@@ -634,6 +653,7 @@ export function createServer(
       if (paneResponse) return paneResponse;
 
       if (pathname === "/api/pane/omo-tasks") {
+        setRequestRoute(pathname);
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         const paneId = url.searchParams.get("pane_id");
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
@@ -657,6 +677,7 @@ export function createServer(
       }
 
       if (pathname === "/api/pane/plan") {
+        setRequestRoute(pathname);
         if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
         const paneId = url.searchParams.get("pane_id");
         if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
@@ -678,6 +699,7 @@ export function createServer(
       }
 
       if (pathname === SESSION_HISTORY_PATH) {
+        setRequestRoute(SESSION_HISTORY_PATH);
         return handleSessionHistoryRequest(request, url, { readOnly, stores: { codexHome: options.codexHome, opencodeDb: options.opencodeDb, hermesHome: options.hermesHome } });
       }
 
@@ -695,6 +717,7 @@ export function createServer(
       }
 
       // static client - public even when the API is gated, so the login UI can load
+      setRequestRoute("static");
       return serveStatic(pathname, request.headers.get("accept-encoding"), requestOrigin(request));
       })());
       });

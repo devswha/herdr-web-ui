@@ -9,7 +9,7 @@ import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type Queu
 import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot, type ProcessInfo } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
 import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
-import { badRequest, errorResponse, jsonResponse } from "./http.ts";
+import { badRequest, errorResponse, jsonResponse, setRequestRoute } from "./http.ts";
 import { claudePlanFile } from "./claude-plan.ts";
 import { listPendingQuestionForms, openCodeService, replyOpenCodeForm } from "./opencode-service.ts";
 import { opencodeSessionId } from "./opencode.ts";
@@ -1670,6 +1670,7 @@ async function withPlanFile(prompt: InteractivePrompt | null, transcript: string
 
 export async function handlePromptRequest(request: Request, url: URL, options: PromptRequestOptions = {}): Promise<Response | null> {
   if (url.pathname !== "/api/pane/prompt" && url.pathname !== "/api/pane/prompt/answer") return null;
+  setRequestRoute(url.pathname);
   // the answer being handled, once its body was read: what the log line says even when the handling throws
   let answerLog: { paneId: string; matched: boolean } | null = null;
   try {

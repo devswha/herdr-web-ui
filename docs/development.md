@@ -36,11 +36,15 @@ IDs never replace server uniqueness. Unexpected-error handles use the same serve
 
 The server keeps `http-requests.jsonl` in its resolved state directory, rotating before a write
 would exceed 1 MiB and retaining only `http-requests.jsonl.1`: at most two 1 MiB files. The
-directory is private (0700) and files are private (0600) on platforms with POSIX permissions.
+directory is created with mode 0700 when missing; an existing directory keeps the operator's
+permissions. Regular log files use mode 0600 on platforms with POSIX permissions; the writer
+refuses symlinked log paths where no-follow opens are supported.
 Each line is at most 1024 bytes and contains only `request_id`, optional `client_request_id`,
 normalized `method`, fixed `route` template, `status` and monotonic `latency_ms`. Unknown
 methods become `OTHER`; static and unmatched routes are fixed categories, and dynamic
-identifiers become placeholders. No URL queries, bodies, credentials, labels, file or socket
+identifiers become placeholders. Matched dispatch branches assign the templates; the writer
+never reconstructs them from URLs. Startup and access refusals use fixed categories too.
+No URL queries, bodies, credentials, labels, file or socket
 paths, or exception text enter this file. Storage failures never change HTTP responses.
 The per-server writer has no pending queue and closes at shutdown.
 

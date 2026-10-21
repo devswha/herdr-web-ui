@@ -8,7 +8,7 @@ import type { AgentRenameRequest, PaneDirection, PaneResized, PaneSplit, PaneSwa
 import { mergeCatalogSources } from "./catalog-sources.ts";
 import { paneCommands, rememberPaneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
-import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse, readJsonObject } from "./http.ts";
+import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse, readJsonObject, setRequestRoute } from "./http.ts";
 import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, paneTranscript, toolOutput } from "./conversation.ts";
 import { OPENCODE_TOOL_REF } from "./opencode.ts";
 import { openCodeInstalledVersion } from "./opencode-service.ts";
@@ -35,9 +35,10 @@ const READ_FORMATS = new Set<ReadFormat>(["ansi", "text"]);
 export async function handlePaneRequest(request: Request, url: URL, pathname: string, options: PaneStores,
   /** the pane's input order (core/input.ts): a rewind's keys wait behind a message in flight */
   serialize: <T>(paneId: string, task: () => Promise<T>) => Promise<T> = (_paneId, task) => task()): Promise<Response | null> {
-  if (pathname === "/api/pane/rewind") return handleRewindRequest(request, serialize);
+  if (pathname === "/api/pane/rewind") { setRequestRoute(pathname); return handleRewindRequest(request, serialize); }
 
   if (pathname === "/api/pane/rename") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<{ pane_id?: unknown; label?: unknown }>(request);
     if (payload instanceof Response) return payload;
@@ -52,6 +53,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/agent/rename") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<Partial<Record<keyof AgentRenameRequest, unknown>>>(request);
     if (payload instanceof Response) return payload;
@@ -72,6 +74,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   // of an agent binary (the catalog's convention), no process roots refine the scan, and no row is
   // verified against a running version.
   if (pathname === "/api/agent/commands") {
+    setRequestRoute(pathname);
     if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
     const agent = url.searchParams.get("agent");
     if (!agent) return badRequest("missing_agent", "agent query parameter is required");
@@ -87,6 +90,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/commands" || pathname === "/api/pane/files") {
+    setRequestRoute(pathname);
     if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
     const paneId = url.searchParams.get("pane_id");
     if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
@@ -119,6 +123,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/read") {
+    setRequestRoute(pathname);
     if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
     const paneId = url.searchParams.get("pane_id");
     if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
@@ -142,6 +147,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/find") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject(request);
     if (payload instanceof Response) return payload;
@@ -170,6 +176,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/scroll") {
+    setRequestRoute(pathname);
     if (request.method === "GET") {
       const paneId = url.searchParams.get("pane_id");
       if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
@@ -192,6 +199,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/selection") {
+    setRequestRoute(pathname);
     const paneId = url.searchParams.get("pane_id");
     if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
     const [anchorRow, anchorCol, cursorRow, cursorCol] = ["anchor_row", "anchor_col", "cursor_row", "cursor_col"]
@@ -208,6 +216,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/conversation/tool-output") {
+    setRequestRoute(pathname);
     const paneId = url.searchParams.get("pane_id");
     const ref = url.searchParams.get("ref");
     if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
@@ -223,6 +232,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/conversation/image") {
+    setRequestRoute(pathname);
     const paneId = url.searchParams.get("pane_id");
     const ref = url.searchParams.get("ref");
     if (!paneId || !ref) return badRequest("missing_parameter", "pane_id and ref query parameters are required");
@@ -238,6 +248,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/conversation") {
+    setRequestRoute(pathname);
     const paneId = url.searchParams.get("pane_id");
     if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
     const page = {
@@ -267,6 +278,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/input" || pathname === "/api/pane/keys") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<{ pane_id?: string; text?: string; keys?: string[] }>(request);
     if (payload instanceof Response) return payload;
@@ -292,6 +304,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/close") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<{ pane_id?: string }>(request);
     if (payload instanceof Response) return payload;
@@ -309,6 +322,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/layout/ratio") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<{ tab_id?: unknown; path?: unknown; ratio?: unknown }>(request);
     if (payload instanceof Response) return payload;
@@ -327,6 +341,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   // pane.created subscription and a moved border, zoom or swap through its layout.updated one,
   // both as session-changed, the same way the TUI's own changes do.
   if (pathname === "/api/pane/split" || pathname === "/api/pane/zoom" || pathname === "/api/pane/swap" || pathname === "/api/pane/resize" || pathname === "/api/pane/clear" || pathname === "/api/pane/focus") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     const payload = await readJsonObject<{ pane_id?: unknown; direction?: unknown; target_pane_id?: unknown; focus?: unknown; mode?: unknown; amount?: unknown }>(request);
     if (payload instanceof Response) return payload;
@@ -376,6 +391,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
   }
 
   if (pathname === "/api/pane/image") {
+    setRequestRoute(pathname);
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     let payload: { pane_id?: string; content_type?: string; data_base64?: string; name?: string };
     try {

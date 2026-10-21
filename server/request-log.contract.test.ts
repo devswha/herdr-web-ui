@@ -16,6 +16,46 @@ function records(root: string): Record<string, unknown>[] {
   return text === "" ? [] : text.split("\n").map((line) => JSON.parse(line));
 }
 
+it("attributes reserved setup job lookups to the dispatch branch rather than a machine proxy", async () => {
+  // Given: job ids collide with valid proxy endpoint names.
+  const root = mkdtempSync(join(tmpdir(), "herdr-request-route-dispatch-"));
+  const app = createServer({ port: 0, hostname: "127.0.0.1", stateDir: root, token: "", tailscaleOwner: null, sidecar: false });
+  try {
+    for (const jobId of ["session", "agents", "settings", "events"]) {
+      // When: the reserved setup branch answers the missing job.
+      const response = await fetch(`http://127.0.0.1:${app.port}/api/machines/setup/${jobId}`);
+      // Then
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ error: { code: "job_not_found" } });
+      const rows = records(root).filter((row) => row.request_id === response.headers.get("x-request-id"));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ route: "/api/machines/setup/:job_id", status: 404 });
+    }
+    // Adjacent dispatch branches keep their own templates and never copy private segments.
+    for (const [path, route, status] of [
+      ["/api/machines/private-pc/pane/conversation", "/api/machines/:machine_id/pane/conversation", 503],
+      ["/api/devices/private-label", "/api/devices/:device_id", 400],
+      ["/api/fs/page-media/private-token", "/api/fs/page-media/:media_id", 404],
+      ["/api/pane/private-pane", "unmatched", 404],
+      ["/api/machines/private-pc/private-path", "unmatched", 404],
+      ["/api/private-path", "unmatched", 404],
+      ["/home/private-path", "static", 200],
+    ] as const) {
+      const response = await fetch(`http://127.0.0.1:${app.port}${path}`, { headers: { "x-herdr-machine": "1" } });
+      expect(response.status).toBe(status);
+      await response.arrayBuffer();
+      const rows = records(root).filter((row) => row.request_id === response.headers.get("x-request-id"));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ route, status });
+    }
+    expect(readFileSync(join(root, "http-requests.jsonl"), "utf8")).not.toContain("private-");
+  } finally {
+    app.stop();
+    rmSync(root, { recursive: true, force: true });
+    console.log(`CLEANUP pid=${process.pid} ports=${app.port} removed=${root} sockets=closed readers=closed`);
+  }
+});
+
 /** Raw HTTP exposes the 101 headers that a browser's WebSocket API deliberately hides. */
 function handshake(port: number, path: string, extra = ""): Promise<{ status: number; headers: Headers }> {
   return new Promise((resolve, reject) => {
@@ -172,7 +212,7 @@ for (const writable of [true, false]) it(`correlates portal startup failure with
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     if (writable) {
       expect(records(root)).toHaveLength(1);
-      expect(records(root)[0]).toMatchObject({ request_id: id, status: 500, route: "/api/preferences" });
+      expect(records(root)[0]).toMatchObject({ request_id: id, status: 500, route: "startup" });
     }
   } finally {
     app.stop(); resume.mockRestore(); log.mockRestore();
