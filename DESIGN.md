@@ -1551,10 +1551,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   branch named `main`, and nothing is compared until **Compare**. One `.field`, **Base branch**,
   holds an editable combobox (`.input`, `role=combobox`) with a `ChevronDown` icon button at its
   end (**Choose a branch**, the touch target on a phone) and **Compare** beside it (`.btn-primary`,
-  disabled while the field is empty; beside the field on a phone too). Opening the list reads the
+  disabled while the field is empty; beside the field on a phone too, and the field as tall as it
+  there). Before the first Compare the list says `Choose a base, then Compare.` and the field's
+  placeholder `Branch or commit`; nothing is shown as loading. Opening the list reads the
   repository's local and remote branches (`GET /api/workspace/diff/refs`, nothing fetched) into a
-  `.menu` listbox fixed to the field as the agent picker's is, below the row or, with too little
-  room there, above it, never over **Compare**: one `.menu-item` per branch with a
+  `.menu` listbox in the form's own flow, under the field and **Compare** and as wide as both, at
+  every width: it pushes the files down instead of floating, so it never covers **Compare**, the
+  scopes or the sheet's header, and a phone gets no popover over its sheet. A click elsewhere
+  closes it once the click is done, so nothing moves under a press: one `.menu-item` per branch with a
   `GitBranch` glyph, its short name (`main`, `origin/main`) in mono and its commit's seven
   characters as the hint, the remote's symbolic HEAD left out, the typed text filtering the rows,
   the arrow keys walking them and Enter taking one (which compares against that branch by its
@@ -1572,7 +1576,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   comparison. A base that names no commit, a repository with no commit yet and a base sharing no
   history with HEAD are each refused in the list's own words, with nothing compared in their
   place; `Nothing changed since the base` is the empty state. The browser demo offers fictional
-  refs and one fictional branch comparison against `main`.
+  refs and one fictional branch comparison against `main`. Another PC, pane or folder starts the
+  scope over: the base is cleared, nothing is compared there until **Compare**, and a list still
+  on its way for the target left behind is dropped.
 
 ### Header context and connection
 - A selected pane shows agent mark + title (`--fs-md`), then on the same line the crumb

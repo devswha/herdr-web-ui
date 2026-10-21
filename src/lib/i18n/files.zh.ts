@@ -47,6 +47,8 @@ export const FILES_ZH: Record<string, string> = {
   "From commit": "起始提交",
   "To commit": "目标提交",
   "Base branch": "基准分支",
+  "Branch or commit": "分支或提交",
+  "Choose a base, then Compare.": "选择基准后按“比较”。",
   "Choose a branch": "选择分支",
   "This repository has no branches yet; a commit can still be typed.": "此仓库尚无分支；仍可直接输入提交。",
   "No branch matches; Compare takes the name as typed.": "没有匹配的分支；比较将按输入的名称进行。",

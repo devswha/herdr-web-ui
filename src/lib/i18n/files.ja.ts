@@ -47,6 +47,8 @@ export const FILES_JA: Record<string, string> = {
   "From commit": "比較元のコミット",
   "To commit": "比較先のコミット",
   "Base branch": "基準ブランチ",
+  "Branch or commit": "ブランチまたはコミット",
+  "Choose a base, then Compare.": "基準を選んでから「比較」を押してください。",
   "Choose a branch": "ブランチを選ぶ",
   "This repository has no branches yet; a commit can still be typed.": "このリポジトリにはまだブランチがありません。コミットを直接入力できます。",
   "No branch matches; Compare takes the name as typed.": "一致するブランチがありません。比較には入力した名前がそのまま使われます。",

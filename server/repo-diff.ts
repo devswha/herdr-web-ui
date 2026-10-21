@@ -148,9 +148,24 @@ async function repositoryOf(context: Context, cwd: string): Promise<RepoDiffRepo
 
 const REVISION = /^[A-Za-z0-9][A-Za-z0-9._/~^@{}-]{0,199}$/;
 const OID = /^[0-9a-f]{40,64}$/;
+/** A branch as the picker offers it, by its full name: one that `git check-ref-format` accepts names that ref and nothing else. */
+const FULL_REFNAME = /^refs\/(?:heads|remotes)\/[^\0-\x1f\x7f]+$/;
+const MAX_REFNAME_BYTES = 1_024;
+
+/**
+ * A revision that names one commit and is no option, range or path: a short expression such as
+ * `main` or `HEAD~1`, or a full branch name the refs route offers, whose letters (`+`, Hangul,
+ * any length up to the cap) a short expression does not allow; git's own refname rules hold it to
+ * a name, so `..`, `@{`, `~`, `^`, `:` and spaces stay refused.
+ */
+async function checkRevision(context: Context, root: string, name: string, value: string): Promise<void> {
+  if (REVISION.test(value) && !value.includes("..")) return;
+  if (FULL_REFNAME.test(value) && Buffer.byteLength(value) <= MAX_REFNAME_BYTES && (await runGit(context, root, ["check-ref-format", value], 1024)).code === 0) return;
+  throw new RepoDiffError("invalid_revision", `${name} must name one commit: a hash, a branch, a tag or an expression such as HEAD~1`, 400);
+}
 
 async function resolveRevision(context: Context, root: string, name: string, value: string): Promise<string> {
-  if (!REVISION.test(value) || value.includes("..")) throw new RepoDiffError("invalid_revision", `${name} must name one commit: a hash, a branch, a tag or an expression such as HEAD~1`, 400);
+  await checkRevision(context, root, name, value);
   const parsed = await runGit(context, root, ["rev-parse", "--quiet", "--verify", "--end-of-options", `${value}^{commit}`], 1024);
   const oid = parsed.stdout.trim();
   if (parsed.code !== 0 || !OID.test(oid)) throw new RepoDiffError("revision_not_found", `${name} names no commit in this repository`, 404);
@@ -241,7 +256,7 @@ async function comparisonOf(context: Context, repository: RepoDiffRepository, pa
   if (pinned !== null) throw new RepoDiffError("invalid_comparison", "comparison applies to a patch read; a list names its base", 400);
   if (base === null) throw new RepoDiffError("invalid_revision", "scope=branch needs a base branch or commit", 400);
   // a malformed base is refused before the repository's state is looked at
-  if (!REVISION.test(base) || base.includes("..")) throw new RepoDiffError("invalid_revision", "base must name one commit: a hash, a branch, a tag or an expression such as HEAD~1", 400);
+  await checkRevision(context, root, "base", base);
   // a detached HEAD on a commit compares as a branch does; one with no commit yet has nothing to compare from
   if (repository.head === null) throw new RepoDiffError("unborn_head", "the repository has no commit yet, so there is no branch to compare", 409);
   const from = await resolveRevision(context, root, "base", base);
@@ -411,7 +426,8 @@ export async function repoDiffRefs(cwd: string, options: RepoDiffOptions = {}): 
   // one ref per line, its fields NUL-separated; what follows the last newline was cut short
   for (const line of run.stdout.split("\n").slice(0, -1)) {
     const [name, oid, symref] = line.split("\0");
-    if (name === undefined || oid === undefined || symref === undefined || symref !== "" || !OID.test(oid)) continue;
+    // a name past the cap a base may have is not offered, so every row on the list can be compared
+    if (name === undefined || oid === undefined || symref === undefined || symref !== "" || !OID.test(oid) || Buffer.byteLength(name) > MAX_REFNAME_BYTES) continue;
     refs.push({ name, oid });
   }
   return {

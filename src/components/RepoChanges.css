@@ -74,12 +74,14 @@
   color: var(--accent);
 }
 
-/* the branches, a popover fixed to the field (RepoChanges.tsx places it), so the dialog's scroll box does not clip it */
+/* the branches, a list in the form's flow under the field and Compare (as wide as both): it pushes what
+   follows down instead of floating over it, so it never covers Compare, the scopes or the header at any width */
 .repo-changes-refs {
-  position: fixed;
-  z-index: var(--z-popover);
+  grid-column: 1 / -1;
+  max-height: 20rem;
   overflow-y: auto;
   overscroll-behavior: contain;
+  box-shadow: none;
 }
 
 .repo-changes-ref .menu-item-main {
@@ -364,13 +366,14 @@
     height: var(--touch-target);
   }
 
-  /* the field keeps --control-h; the toggle's hit area reaches the touch target past its glyph */
-  .repo-changes-base-toggle {
-    width: var(--touch-target);
+  /* the field is as tall as Compare beside it, a whole touch target, and the toggle as wide */
+  .repo-changes-base-input {
+    height: var(--touch-target);
+    padding-right: calc(var(--touch-target) + var(--space-1));
   }
 
-  .repo-changes-base-input {
-    padding-right: calc(var(--touch-target) + var(--space-1));
+  .repo-changes-base-toggle {
+    width: var(--touch-target);
   }
 }
 
@@ -394,8 +397,7 @@
     margin-left: auto;
   }
 
-  /* the three commit fields stack; the base field keeps Compare beside it, where the open list
-     (under the field) leaves it in reach */
+  /* the three commit fields stack; the base field keeps Compare beside it, with the open list under both */
   .repo-changes-commits {
     grid-template-columns: minmax(0, 1fr);
   }

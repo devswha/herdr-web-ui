@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type Page } from "playwright-core";
+import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { build as viteBuild } from "vite";
 import { repoDiffResponse } from "../server/repo-diff.ts";
 import { serveStatic } from "../server/static.ts";
@@ -210,6 +210,8 @@ const panes = new Map([["pane-main", repos.main], ["pane-conflict", repos.detach
 const requests: string[] = [];
 /** a patch request for `pane-held` waits on this until the check lets it through */
 let held = Promise.withResolvers<void>();
+/** each diff route's path with its query: which target and scope a read was for */
+const diffQueries: string[] = [];
 /** the query of each branch patch read: what identity the viewer carried back */
 const branchPatches: URLSearchParams[] = [];
 /** a PC whose branch list is held until released: a switch to another PC must not take its late answer */
@@ -233,6 +235,7 @@ async function api(request: Request, url: URL): Promise<Response | null> {
   const diff = /^\/api\/(?:machines\/([^/]+)\/)?workspace\/diff\/(files|file|refs)$/.exec(url.pathname);
   if (diff) {
     requests.push(url.pathname);
+    diffQueries.push(`${url.pathname}?${url.searchParams}`);
     const paneId = url.searchParams.get("pane_id");
     const kind = diff[2] as "files" | "file" | "refs";
     // a device that may only watch is refused as the server refuses it, before any repository is read
@@ -436,6 +439,9 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   await scopesSettled(page);
   assert.equal(await compare.isDisabled(), true, `${label}: Compare waits for a base`);
   assert.equal(await page.locator(".repo-changes-list[data-scope]").count(), 0, `${label}: nothing is compared before Compare`);
+  assert.equal(await page.locator(".repo-changes-list .repo-changes-note").textContent(), t("Choose a base, then Compare."), `${label}: the list says what it waits for`);
+  assert.equal(await page.locator(".repo-changes[aria-busy='true'], .repo-changes-loading").count(), 0, `${label}: and nothing is shown as loading`);
+  assert.equal(await base.inputValue(), "", `${label}: no base is guessed`);
   await shoot("rest");
   // Compare stays disabled while the field, focused, is empty
   await base.focus();
@@ -469,6 +475,12 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   }
   const widths = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, viewport: document.documentElement.clientWidth, menu: document.querySelector(".repo-changes-refs")!.getBoundingClientRect().right }));
   assert.ok(widths.page <= widths.viewport && widths.menu <= widths.viewport, `${label}: the picker stays on the screen: ${JSON.stringify(widths)}`);
+  // the list is in the form's flow under the field and Compare: it covers neither, nor the scopes above them
+  const placed = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    return { list: box(".repo-changes-refs").top, compare: box(".repo-changes-base-form button[type=submit]").bottom, field: box(".repo-changes-base-input").bottom, position: getComputedStyle(document.querySelector(".repo-changes-refs")!).position };
+  });
+  assert.ok(placed.position === "static" && placed.list >= placed.compare && placed.list >= placed.field, `${label}: the list sits under the field and Compare: ${JSON.stringify(placed)}`);
   // typed text filters the rows; the arrow keys walk them; Enter takes one, by its full refname
   await base.fill("zzz");
   assert.equal(await refNote(page), t("No branch matches; Compare takes the name as typed."), `${label}: no match says so`);
@@ -505,7 +517,22 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   const mergeBase = await page.locator(".repo-changes-list[data-scope='branch']").getAttribute("data-merge-base");
   assert.match(mergeBase ?? "", /^[0-9a-f]{40}$/, `${label}: the list carries its merge base`);
   await shoot("compared");
-  await page.evaluate(() => { const list = document.querySelector<HTMLElement>(".repo-changes-list")!; list.scrollTop = list.scrollHeight; });
+  // the list's own scroller at its end and the list's bottom edge on the screen: the last row whole and in view
+  const listEnd = await page.evaluate(() => {
+    const last = [...document.querySelectorAll<HTMLElement>(".repo-changes-list .repo-change")].at(-1)!;
+    let scroller = last.parentElement;
+    while (scroller !== null && !(/auto|scroll/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) scroller = scroller.parentElement;
+    // the list scrolls in itself (to its end), and on a phone the sheet around it too (to the list's bottom edge)
+    if (scroller !== null) {
+      scroller.scrollTop = scroller.scrollHeight;
+      scroller.scrollIntoView({ block: "end", behavior: "instant" });
+    }
+    const row = last.getBoundingClientRect();
+    const view = scroller?.getBoundingClientRect() ?? { top: 0, bottom: innerHeight };
+    const screen = visualViewport?.height ?? innerHeight;
+    return { path: last.querySelector(".repo-change-path")?.textContent ?? "", atEnd: scroller === null || scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 1, visible: row.top >= view.top - 1 && row.bottom <= Math.min(view.bottom, screen) + 1, row: [row.top, row.bottom], view: [view.top, view.bottom], screen, inner: innerHeight, scroller: scroller?.className ?? null };
+  });
+  assert.ok(listEnd.path.endsWith("untracked.ts") && listEnd.atEnd && listEnd.visible, `${label}: the file list scrolled to its last row: ${JSON.stringify(listEnd)}`);
   await shoot("compared-end");
 
   // the untracked file's patch is whole, read from the pinned identity
@@ -1273,6 +1300,65 @@ try {
     await closeFiles(page);
     await context.close();
     console.log("PASS a branch list still on its way is dropped when the reader switches PC");
+  }
+
+  // another pane, folder or PC starts the Branch scope over: no base carried along, nothing compared
+  // there until Compare; and a file list still on its way for the target left behind is dropped
+  for (const width of [1440, 390] as const) {
+    const phone = width === 390;
+    const context: BrowserContext = await browser.newContext({ viewport: { width, height: phone ? 844 : 900 }, deviceScaleFactor: phone ? 3 : 1, isMobile: phone, hasTouch: phone });
+    await context.addInitScript(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", theme: "dark" })));
+    const page: Page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(origin);
+    const base = page.getByRole("combobox", { name: EN.base, exact: true });
+    const compare = page.getByRole("button", { name: EN.compare, exact: true });
+    const awaiting = page.locator(".repo-changes-list .repo-changes-note").filter({ hasText: "Choose a base, then Compare." });
+    const targets = [["pane-fork", "local"], ["pane-main", "local"], ["pane-main", "remote-fixture"]] as const;
+    await openFiles(page, targets[0][0], targets[0][1]);
+    await changeRows(page);
+    await page.getByRole("button", { name: EN.branch, exact: true }).click();
+    for (let index = 1; index < targets.length; index += 1) {
+      await base.fill("main");
+      await compare.click();
+      await page.locator(".repo-changes-list[data-scope='branch']").waitFor();
+      diffQueries.length = 0;
+      const [paneId, machine] = targets[index]!;
+      await openFiles(page, paneId, machine);
+      await awaiting.waitFor();
+      const state = { base: await base.inputValue(), compareDisabled: await compare.isDisabled(), branchPressed: await page.getByRole("button", { name: EN.branch, exact: true }).getAttribute("aria-pressed"), repositoryLines: await page.locator(".repo-changes-repo").count(), branchReads: diffQueries.filter((query) => query.includes("/diff/files") && query.includes("scope=branch")) };
+      assert.deepEqual(state, { base: "", compareDisabled: true, branchPressed: "true", repositoryLines: 0, branchReads: [] }, `${width}px: ${paneId} on ${machine} starts the Branch scope over: ${JSON.stringify(state)}`);
+      if (index === 1) await branchShot(page, `${width}-dark-target-change`);
+    }
+    // a working-tree list held for pane-fork; the reader picks Branch, then another pane; the held list lands late
+    await page.getByRole("button", { name: "Working tree", exact: true }).click();
+    await changeRows(page);
+    const staleList = holdNext("files");
+    await openFiles(page, "pane-fork", "local");
+    await staleList.reached;
+    await page.getByRole("button", { name: EN.branch, exact: true }).click();
+    await openFiles(page, "pane-main", "local");
+    await awaiting.waitFor();
+    const landed = page.waitForResponse((response) => response.url().includes("/workspace/diff/files") && response.url().includes("pane_id=pane-fork"));
+    staleList.release();
+    await (await landed).finished();
+    // the answer is in; React has had a frame to (wrongly) show it
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const after: Record<string, number | boolean> = { rows: await page.locator(".repo-change").count(), repositoryLines: await page.locator(".repo-changes-repo").count(), awaiting: await awaiting.count(), compareDisabled: await compare.isDisabled() };
+    assert.deepEqual(after, { rows: 0, repositoryLines: 0, awaiting: 1, compareDisabled: true }, `${width}px: the late list of the pane left behind is dropped: ${JSON.stringify(after)}`);
+    await branchShot(page, `${width}-dark-stale-list-dropped`);
+    // and one still on its way when the view closes lands on nothing
+    const closing = holdNext("files");
+    await page.getByRole("button", { name: "Working tree", exact: true }).click();
+    await openFiles(page, "pane-fork", "local");
+    await closing.reached;
+    await closeFiles(page);
+    closing.release();
+    assert.deepEqual(errors, [], `${width}px: no errors across the target switches`);
+    await context.close();
+    console.log(`PASS ${width}px: another pane, folder or PC starts the Branch scope over, and a list read for the target left behind is dropped`);
   }
 
   // a remote PC's repository reads through its bridge, the file too

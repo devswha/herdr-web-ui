@@ -434,6 +434,33 @@ describe("a branch against a base", () => {
     updateRefs(root, many.map((name) => `delete ${name}`));
   });
 
+  it("compares every branch the refs list offers, by its full name, and still refuses expressions in that shape", async () => {
+    // valid refnames a short expression does not allow: a plus sign, Hangul, and a long name
+    const offered = ["refs/heads/topic+base", "refs/heads/topic/한글", `refs/heads/topic/${"x".repeat(192)}`, "refs/remotes/origin/release+1"];
+    updateRefs(root, offered.map((name) => `create ${name} ${fork}`));
+    try {
+      const listed = (await repoDiffRefs(root)).refs.map((ref) => ref.name);
+      for (const name of offered) {
+        expect(listed).toContain(name);
+        const list = await repoDiffFiles(root, branchQuery({ base: name }));
+        expect(list.comparison).toEqual({ repository_root: root, head_oid: head, base_oid: fork, merge_base_oid: fork });
+        expect(parsed((await repoDiffFile(root, pinned(list, { path: "feature.txt" }))).patch).map((file) => file.name)).toEqual(["feature.txt"]);
+      }
+      expect(offered[2]!.length).toBe(209);
+      // a full name with letters a short expression refuses is a name and nothing more: no range, reflog,
+      // peel, path, space or option rides on it, and none past the cap
+      const marker = join(scratch, "refname-option-ran");
+      for (const base of ["refs/heads/topic+base..main", "refs/heads/topic+base@{1}", "refs/heads/topic+base^{tree}", "refs/heads/topic+base~1", "refs/heads/topic+base:feature.txt", "refs/heads/topic+base ", `refs/heads/topic+base --output=${marker}`, "refs/heads/topic+base.lock", "refs/heads/topic+base/", `refs/heads/topic+${"x".repeat(1_100)}`, "refs/tags/v1+x", "refs/heads/topic+base\0"]) {
+        await expect(repoDiffFiles(root, branchQuery({ base }))).rejects.toMatchObject({ code: "invalid_revision", status: 400 });
+      }
+      // a valid name that starts like an option is still only a refname, and here names nothing
+      await expect(repoDiffFiles(root, branchQuery({ base: "refs/heads/-p" }))).rejects.toMatchObject({ code: "revision_not_found", status: 404 });
+      expect(existsSync(marker)).toBeFalse();
+    } finally {
+      updateRefs(root, offered.map((name) => `delete ${name}`));
+    }
+  });
+
   it("never fetches, checks out or writes while comparing a branch", async () => {
     const log = join(scratch, "git-calls.log");
     const logging = join(scratch, "logging-git");

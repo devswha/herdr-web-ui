@@ -25,8 +25,6 @@ const PENDING: Load = { status: "pending" };
 /** The branches offered as a base: read when the picker opens, never before. */
 type Refs = { status: "idle" } | { status: "pending" } | { status: "failed"; error: unknown } | { status: "ready"; listing: RepoDiffRefs };
 const NO_REFS: Refs = { status: "idle" };
-/** the branch list stops at the field's right edge or, with less room below, above it */
-const REFS_MENU_HEIGHT = 320;
 
 /**
  * What changed in the repository the pane sits in: the working tree, the index, two commits, or
@@ -38,7 +36,9 @@ const REFS_MENU_HEIGHT = 320;
  * repository line stays and placeholder rows hold its height. A base is never guessed: the
  * Branch scope starts empty, offers the repository's branches when its picker opens, and compares
  * on Compare alone; the identity a branch list answers with (HEAD, base, merge base) is what each
- * of its files is read from, so a base that moves on changes nothing until Refresh.
+ * of its files is read from, so a base that moves on changes nothing until Refresh. Another PC,
+ * pane or folder starts the Branch scope over (no base, nothing compared until Compare), and an
+ * answer read for a target or comparison no longer shown is dropped.
  */
 export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps) {
   const t = useT();
@@ -53,6 +53,36 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
   // the last listing, kept while the next is read: its repository line stays and its rows size the placeholders
   const [last, setLast] = useState<RepoDiffFileList | null>(null);
   const request = useRef(0);
+
+  // the base picker: the typed text, the row picked from the list (while the text still reads as it), and the list itself
+  const [baseRef, setBaseRef] = useState("");
+  const [picked, setPicked] = useState<RepoDiffRefs["refs"][number] | null>(null);
+  const [refs, setRefs] = useState<Refs>(NO_REFS);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const refsRequest = useRef(0);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const refsRef = useRef<HTMLDivElement>(null);
+  const baseInputRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
+  const baseLabelId = useId();
+
+  // another PC, pane or folder: nothing read or chosen for the last one is an answer for this one.
+  // Reset while rendering, so the read below never starts the last target's branch comparison here.
+  const target = useMemo(() => ({ paneId, directory }), [fetchRepoDiffFiles, fetchRepoDiffRefs, paneId, directory]);
+  const [shownTarget, setShownTarget] = useState(target);
+  if (shownTarget !== target) {
+    setShownTarget(target);
+    setLast(null);
+    setRefs(NO_REFS);
+    setPickerOpen(false);
+    setBaseRef("");
+    setPicked(null);
+    setLoad(PENDING);
+    if (scope === "branch") setAsked(null);
+  }
+  // and what is still on its way for the last target (or for a closed view) is dropped when it lands
+  useEffect(() => () => { request.current += 1; refsRequest.current += 1; }, [target]);
 
   const read = useCallback((comparison: RepoComparison) => {
     const id = ++request.current;
@@ -69,26 +99,6 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
 
   useEffect(() => { if (asked !== null) read(asked); }, [asked, read]);
 
-  // the base picker: the typed text, the row picked from the list (while the text still reads as it), and the list itself
-  const [baseRef, setBaseRef] = useState("");
-  const [picked, setPicked] = useState<RepoDiffRefs["refs"][number] | null>(null);
-  const [refs, setRefs] = useState<Refs>(NO_REFS);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const [place, setPlace] = useState<CSSProperties>({});
-  const refsRequest = useRef(0);
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const baseInputRef = useRef<HTMLInputElement>(null);
-  const listId = useId();
-  const baseLabelId = useId();
-
-  // another PC, pane or folder: what was listed for the last one is no answer for this one
-  useEffect(() => {
-    refsRequest.current += 1;
-    setRefs(NO_REFS);
-    setPickerOpen(false);
-  }, [fetchRepoDiffRefs, paneId, directory]);
-
   const loadRefs = useCallback(() => {
     const id = ++refsRequest.current;
     setRefs({ status: "pending" });
@@ -98,27 +108,7 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
     );
   }, [fetchRepoDiffRefs, paneId, directory]);
 
-  const placePicker = useCallback((): void => {
-    // fixed to the field, so the dialog's scroll box does not clip the list (as the agent picker's is),
-    // and as wide as the form, so a long branch name has the room Compare's column leaves below it
-    const field = pickerRef.current!;
-    const rect = field.getBoundingClientRect();
-    const form = field.closest("form");
-    const right = form === null ? rect.right : form.getBoundingClientRect().right - parseFloat(getComputedStyle(form).paddingRight);
-    // above or below the whole row: Compare is taller than the field on a touch screen, and the list never
-    // covers it, nor (opening upwards) cuts across the field's label
-    const submit = form?.querySelector("button[type=submit]")?.getBoundingClientRect();
-    const labelled = field.closest(".field")?.getBoundingClientRect() ?? rect;
-    const top = Math.min(labelled.top, submit?.top ?? rect.top);
-    const bottom = Math.max(rect.bottom, submit?.bottom ?? rect.bottom);
-    const below = window.innerHeight - bottom - 16;
-    const up = below < 160 && top > below;
-    const room = up ? top - 16 : below;
-    setPlace({ left: rect.left, width: right - rect.left, maxHeight: Math.min(REFS_MENU_HEIGHT, room), ...(up ? { bottom: window.innerHeight - top + 4 } : { top: bottom + 4 }) });
-  }, []);
-
   const openPicker = (): void => {
-    placePicker();
     setActive(0);
     setPickerOpen(true);
     loadRefs();
@@ -126,30 +116,16 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
 
   useEffect(() => {
     if (!pickerOpen) return;
-    const onPointerDown = (event: PointerEvent): void => {
-      if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false);
+    // the list sits in the form, under the field and Compare, so it moves with them and covers neither;
+    // a click anywhere else closes it once the click is done: closing on the press would move Compare
+    // (and what is under it) away from the pointer before it is released
+    const onClick = (event: MouseEvent): void => {
+      const target = event.target as Node;
+      if (!pickerRef.current?.contains(target) && !refsRef.current?.contains(target)) setPickerOpen(false);
     };
-    const onMove = (event: Event): void => {
-      // only an ancestor's scroll can move the anchor; the list's own scroll stays
-      if (event.type === "resize" || (event.target instanceof Node && pickerRef.current !== null && event.target.contains(pickerRef.current))) setPickerOpen(false);
-    };
-    // a list opened while the sheet around it still slides in is placed again once it has settled
-    const onSettle = (event: Event): void => {
-      if (event.target instanceof Node && pickerRef.current !== null && event.target.contains(pickerRef.current)) placePicker();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("scroll", onMove, true);
-    document.addEventListener("animationend", onSettle, true);
-    document.addEventListener("transitionend", onSettle, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("scroll", onMove, true);
-      document.removeEventListener("animationend", onSettle, true);
-      document.removeEventListener("transitionend", onSettle, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [pickerOpen, placePicker]);
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [pickerOpen]);
 
   const refsListing = refs.status === "ready" ? refs.listing : null;
   const typed = baseRef.trim();
@@ -198,7 +174,8 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
   const choose = (next: RepoDiffScope): void => {
     setScope(next);
     setPickerOpen(false);
-    if (next === "commit" || next === "branch") { setAsked(null); setLoad(PENDING); return; }
+    // a list still on its way is no answer for a scope that waits for Compare
+    if (next === "commit" || next === "branch") { request.current += 1; setAsked(null); setLoad(PENDING); return; }
     setAsked({ scope: next, base: null, head: null, comparison: null });
   };
   const compare = (event: FormEvent): void => {
@@ -216,6 +193,8 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
   };
 
   const listing = load.status === "ready" ? load.listing : null;
+  // the Branch scope before its first Compare: nothing is read, so nothing is shown as loading
+  const awaitingBase = scope === "branch" && asked === null;
   // a file is read from the comparison the list answered for: a commit comparison's hashes, a branch comparison's identity
   const answered: RepoComparison | null = listing === null ? null
     : listing.scope === "branch" ? { scope: "branch", base: refName(asked?.base ?? ""), head: null, comparison: listing.comparison ?? null }
@@ -273,7 +252,7 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
   });
 
   return (
-    <div className="repo-changes" role="group" aria-label={t("Changes")} aria-busy={load.status === "pending"}>
+    <div className="repo-changes" role="group" aria-label={t("Changes")} aria-busy={load.status === "pending" && !awaitingBase}>
       <div className="repo-changes-bar">
         <div className="segmented repo-changes-scopes" role="group" aria-label={t("Compare")}>
           <button type="button" aria-pressed={scope === "workspace"} onClick={() => choose("workspace")}>{t("Working tree")}</button>
@@ -310,7 +289,7 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
             <div className="repo-changes-base" ref={pickerRef}>
               <input ref={baseInputRef} className="input repo-changes-base-input" role="combobox" aria-labelledby={baseLabelId} aria-autocomplete="list" aria-expanded={pickerOpen} aria-controls={listId}
                 aria-activedescendant={pickerOpen && activeOption !== undefined ? `${listId}-${activeOption.name}` : undefined}
-                value={baseRef} placeholder="origin/main" autoComplete="off" spellCheck={false} required
+                value={baseRef} placeholder={t("Branch or commit")} autoComplete="off" spellCheck={false} required
                 onChange={(event) => { setBaseRef(event.target.value); setActive(0); if (!pickerOpen) openPicker(); }}
                 onClick={() => { if (!pickerOpen) openPicker(); }}
                 onKeyDown={onBaseKeyDown} />
@@ -318,26 +297,27 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
                 onClick={() => { if (pickerOpen) setPickerOpen(false); else { openPicker(); baseInputRef.current?.focus(); } }}>
                 <ChevronDown aria-hidden="true" />
               </button>
-              {pickerOpen && (
-                <div id={listId} className="menu repo-changes-refs" role="listbox" aria-labelledby={baseLabelId} aria-busy={refs.status === "pending"} style={place}>
-                  {refs.status === "pending" && <div className="repo-changes-refs-note" role="status">{t("Loading…")}</div>}
-                  {refs.status === "failed" && <div className="repo-changes-refs-note repo-changes-error" role="alert">{diffErrorMessage(t, refs.error)}</div>}
-                  {refsListing !== null && refsListing.refs.length === 0 && <div className="repo-changes-refs-note">{t("This repository has no branches yet; a commit can still be typed.")}</div>}
-                  {refsListing !== null && refsListing.refs.length > 0 && options.length === 0 && <div className="repo-changes-refs-note">{t("No branch matches; Compare takes the name as typed.")}</div>}
-                  {options.map((ref) => (
-                    <div key={ref.name} id={`${listId}-${ref.name}`} className="menu-item repo-changes-ref" role="option" aria-selected={ref === activeOption} title={ref.name}
-                      onPointerEnter={() => setActive(options.indexOf(ref))} onMouseDown={(event) => event.preventDefault()} onClick={() => pick(ref)}>
-                      <GitBranch aria-hidden="true" />
-                      <span className="menu-item-main">{refName(ref.name)}</span>
-                      <span className="menu-item-hint">{shortHash(ref.oid)}</span>
-                    </div>
-                  ))}
-                  {refsListing?.truncated && <div className="repo-changes-refs-note" role="status">{t("Only the first {count} branches are listed; another can be typed by name.", { count: refsListing.limits.max_refs.toLocaleString(locale) })}</div>}
-                </div>
-              )}
             </div>
           </div>
           <button type="submit" className="btn btn-primary" disabled={typed === ""}>{t("Compare")}</button>
+          {/* a row is made active by a pointer moving over it, not by the list opening under a resting one */}
+          {pickerOpen && (
+            <div id={listId} ref={refsRef} className="menu repo-changes-refs" role="listbox" aria-labelledby={baseLabelId} aria-busy={refs.status === "pending"}>
+              {refs.status === "pending" && <div className="repo-changes-refs-note" role="status">{t("Loading…")}</div>}
+              {refs.status === "failed" && <div className="repo-changes-refs-note repo-changes-error" role="alert">{diffErrorMessage(t, refs.error)}</div>}
+              {refsListing !== null && refsListing.refs.length === 0 && <div className="repo-changes-refs-note">{t("This repository has no branches yet; a commit can still be typed.")}</div>}
+              {refsListing !== null && refsListing.refs.length > 0 && options.length === 0 && <div className="repo-changes-refs-note">{t("No branch matches; Compare takes the name as typed.")}</div>}
+              {options.map((ref) => (
+                <div key={ref.name} id={`${listId}-${ref.name}`} className="menu-item repo-changes-ref" role="option" aria-selected={ref === activeOption} title={ref.name}
+                  onPointerMove={() => setActive(options.indexOf(ref))} onMouseDown={(event) => event.preventDefault()} onClick={() => pick(ref)}>
+                  <GitBranch aria-hidden="true" />
+                  <span className="menu-item-main">{refName(ref.name)}</span>
+                  <span className="menu-item-hint">{shortHash(ref.oid)}</span>
+                </div>
+              ))}
+              {refsListing?.truncated && <div className="repo-changes-refs-note" role="status">{t("Only the first {count} branches are listed; another can be typed by name.", { count: refsListing.limits.max_refs.toLocaleString(locale) })}</div>}
+            </div>
+          )}
         </form>
       )}
       {repository !== null && (
@@ -354,7 +334,8 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
       {load.status === "failed"
         ? <p className="repo-changes-note repo-changes-error" role="alert">{diffErrorMessage(t, load.error)}</p>
         : <ul className="repo-changes-list" aria-label={t("Changed files")} data-scope={listing?.scope} data-merge-base={listing?.comparison?.merge_base_oid}>
-          {load.status === "pending" && <li className="repo-changes-loading" role="status">
+          {awaitingBase && <li className="repo-changes-note">{t("Choose a base, then Compare.")}</li>}
+          {load.status === "pending" && !awaitingBase && <li className="repo-changes-loading" role="status">
             <span className="visually-hidden">{t("Loading…")}</span>
             {skeletonRows(last === null ? null : last.files.length).map((width, index) => <span key={index} className="repo-change-skeleton" aria-hidden="true">
               <Skeleton className="repo-change-skeleton-mark" />
