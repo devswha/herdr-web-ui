@@ -9,6 +9,8 @@ import { HEAD_BYTES, listSessions, MAX_ENTRIES, MAX_ROWS, MAX_STATS, MAX_WALK, S
 import { handleSessionHistoryRequest, workspaceFolder } from "./session-history-routes.ts";
 import { claudeProjectDir } from "./claude-store.ts";
 
+/** A stat as the listing asks for it: with `bigint`, the identity an NTFS file ID above 2^53 keeps exactly. */
+const statAs = (path: string, bigint?: boolean): Stats | BigIntStats => bigint ? statSync(path, { bigint: true }) : statSync(path);
 const FIXTURES = join(import.meta.dir, "fixtures", "session-history");
 const WINDOWS = process.platform === "win32";
 const CWD = WINDOWS ? "C:\\work\\project" : "/work/project";
@@ -172,7 +174,7 @@ describe("listSessions", () => {
       writeFileSync(join(dir, "summary.json"), JSON.stringify({ info: { id: `session-${n}`, cwd: CWD }, updated_at: "2026-10-01T09:00:00Z" }));
     }
     let stats = 0;
-    const rows = listSessions("grok", CWD, { home, env: {}, stat: (path) => { stats++; return statSync(path); } });
+    const rows = listSessions("grok", CWD, { home, env: {}, stat: (path, bigint) => { stats++; return statAs(path, bigint); } });
     expect(stats).toBeGreaterThan(MAX_ROWS);
     expect(stats).toBeLessThanOrEqual(MAX_STATS);
     expect(rows).toHaveLength(MAX_ROWS);
@@ -191,7 +193,7 @@ describe("listSessions", () => {
     const rows = listSessions("pi", CWD, {
       home, env: {},
       resolve: (path) => { resolutions++; return realpathSync(path); },
-      stat: (path) => { stats++; return statSync(path); },
+      stat: (path, bigint) => { stats++; return statAs(path, bigint); },
     });
     expect(rows).toEqual([]);
     expect(resolutions).toBeGreaterThan(MAX_ROWS);
@@ -210,8 +212,8 @@ describe("listSessions", () => {
     const rows = listSessions("pi", CWD, {
       home, env: {},
       // the file is checked, then swapped for a link out of the store before it is opened
-      stat: (path) => {
-        const stat = statSync(path);
+      stat: (path, bigint) => {
+        const stat = statAs(path, bigint);
         if (path === checked) { rmSync(path); symlinkSync(join(outside, "secret.jsonl"), path); }
         return stat;
       },
@@ -253,8 +255,8 @@ describe("listSessions", () => {
     const rows = listSessions("hermes", CWD, {
       home, env: {},
       // the database is checked, then swapped for a link to another one before it is opened
-      stat: (path) => {
-        const stat = statSync(path);
+      stat: (path, bigint) => {
+        const stat = statAs(path, bigint);
         if (path === checked && !swapped) { swapped = true; rmSync(path); symlinkSync(join(elsewhere, ".hermes", "state.db"), path); }
         return stat;
       },
@@ -275,8 +277,8 @@ describe("listSessions", () => {
     const checked = realpathSync(session);
     const rows = listSessions("pi", CWD, {
       home, env: {},
-      stat: (path) => {
-        const stat = statSync(path);
+      stat: (path, bigint) => {
+        const stat = statAs(path, bigint);
         if (path === checked) { rmSync(path); symlinkSync(join(outside, "secret.jsonl"), path); }
         return stat;
       },
@@ -293,7 +295,6 @@ describe("listSessions", () => {
   const NEAR = 2n ** 60n;
   const withIno = <T extends Stats | BigIntStats>(stat: T, ino: bigint): T =>
     Object.assign(Object.create(Object.getPrototypeOf(stat) as object) as T, stat, { ino: typeof stat.ino === "bigint" ? ino : Number(ino) });
-  const statAs = (path: string, bigint?: boolean): Stats | BigIntStats => bigint ? statSync(path, { bigint: true }) : statSync(path);
 
   it("refuses a session file whose opened identity differs from the checked one only past 2^53", () => {
     const home = newHome();
@@ -743,7 +744,7 @@ describe("listSessions", () => {
     for (let n = 0; n < MAX_STATS + 10; n++) grokSession("foreign-slug-aaa111", `foreign-${n}`, "/elsewhere", home);
     grokSession("target-slug-bbb222", ID(7), CWD, home);
     let stats = 0;
-    const rows = listSessions("grok", CWD, { home, env: {}, stat: (path) => { stats++; return statSync(path); } });
+    const rows = listSessions("grok", CWD, { home, env: {}, stat: (path, bigint) => { stats++; return statAs(path, bigint); } });
     expect(rows.map((row) => row.id)).toEqual([ID(7)]);
     expect(stats).toBeLessThan(20);
   });
