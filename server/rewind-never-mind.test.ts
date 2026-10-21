@@ -4,7 +4,9 @@ import * as client from "./herdr/client.ts";
 import { HerdrError } from "./herdr/client.ts";
 import * as conversation from "./conversation.ts";
 import { claudeRewindOnScreen } from "./dialogs/claude.ts";
-import { followClaudeNeverMind } from "./rewind.ts";
+import { parsedByPublicPrompt } from "./dialogs/shared.ts";
+import { parseInteractivePrompt } from "./prompt.ts";
+import { followClaudeNeverMind, followClaudeRestore, rememberRewind } from "./rewind.ts";
 
 afterEach(() => mock.restore());
 
@@ -34,6 +36,19 @@ it("closes the list Never mind went back to with one more Esc, and ends with no 
   expect(claude.keys).toEqual([["esc"]]);
   expect(claudeRewindOnScreen(claude.screen)).toBe(false);
   expect(record).not.toHaveBeenCalled();
+});
+
+it("forgets the walk Never mind answered, so a later restore of the message is not counted as the walked copy", async () => {
+  claudeAfterNeverMind(recorded("confirm-apple-restore-esc"));
+  rememberRewind(pane.pane_id, "apple", 1);
+  await followClaudeNeverMind(pane.pane_id, 2_000);
+  mock.restore();
+  // later: another copy's confirm step opened in the terminal, restored from Chat's card
+  const record = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
+  spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: recorded("restored"), source: "detection", format: "text", truncated: false });
+  const card = parsedByPublicPrompt.get(parseInteractivePrompt("claude", recorded("confirm-apple-restore"))!)!;
+  await followClaudeRestore(pane.pane_id, card, 2_000);
+  expect(record.mock.calls).toEqual([[pane.pane_id, "apple", null]]);
 });
 
 it("sends no Esc once the list is not on screen: Claude's own input box never gets one from here", async () => {

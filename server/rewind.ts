@@ -27,12 +27,12 @@ class RequesterGone extends Error {}
 const UNREAD_INPUT = new Set(["grok", "agy"]);
 
 /** the message each pane's rewind was walked to, for the restore that may follow (followClaudeRestore) */
-const asked = new Map<string, { text: string; later: number; age: string }>();
+const asked = new Map<string, { text: string; later: number }>();
 
-/** The message a walk opened on this pane (`later` newer copies past, `age` its confirm step's), for the restore that may follow. */
-export function rememberRewind(paneId: string, text: string, later: number, age: string): void {
+/** The message a walk opened on this pane (`later` newer copies past), for the restore that may follow. */
+export function rememberRewind(paneId: string, text: string, later: number): void {
   asked.delete(paneId);
-  asked.set(paneId, { text, later, age });
+  asked.set(paneId, { text, later });
   if (asked.size > 128) asked.delete(asked.keys().next().value!);
 }
 
@@ -48,8 +48,6 @@ export interface RewindIo {
   command(text: string): Promise<void>;
   /** whether a quote Claude Code cut stands for the message alone among the user's messages; absent: not known */
   unambiguous?(quote: string): Promise<boolean>;
-  /** the confirm step the walk opened for the message */
-  opened?(confirm: ClaudeRewindConfirm): void;
 }
 
 export type RewindWalk = "shown" | "not_found" | "changed" | "ambiguous";
@@ -128,13 +126,10 @@ export async function followClaudeRestore(paneId: string, parsed: ParsedPrompt, 
   const quoted = parsed.body.split("\n")[0]!;
   const walked = asked.get(paneId);
   asked.delete(paneId);
-  // the walk's count of newer copies holds only for the copy it opened: a restore of another copy (the
-  // walk cancelled, then another opened in the terminal) is known by its words alone
-  const sameCopy = walked !== undefined && walked.age === parsed.occurrence;
   // the message the walk opened, its quote whole or cut at 500 characters (quoteCut): the restored box
   // and the transcript hold all of it
   const words = walked === undefined ? "" : normalizeText(walked.text);
-  const ours = sameCopy && (words === quoted || (quoted.length >= QUOTE_CUT_MIN && quoted.length < words.length && words.startsWith(quoted)));
+  const ours = walked !== undefined && (words === quoted || (quoted.length >= QUOTE_CUT_MIN && quoted.length < words.length && words.startsWith(quoted)));
   const message = ours ? walked.text : quoted;
   // a dialog the chat did not walk (opened in the terminal, or the list's own card): which copy of a
   // repeated message was picked is not known, so only a message's one copy is kept
@@ -159,6 +154,8 @@ const cursorOf = (list: ClaudeRewindList): string => list.rows[list.cursor]!.lab
  * requester is `gone`, checked before the Esc and again by herdr's client right before its write.
  */
 export async function followClaudeNeverMind(paneId: string, stepMs = STEP_MS, gone: () => boolean = () => false): Promise<void> {
+  // no restore follows the walk Never mind answered: a later one (another copy opened in the terminal) is not the walked copy
+  asked.delete(paneId);
   const read = async () => (await paneRead({ paneId, source: "detection", format: "text" })).text;
   if (await waitFor({ read }, parseClaudeRewindList, stepMs) === null || gone()) return;
   try {
@@ -235,7 +232,7 @@ async function walkRewindList(io: RewindIo, text: string, later: number, stepMs:
         const cutLength = quoteCut(confirm, text) || (quoteMatches(confirm, text) && confirm.message.length >= QUOTE_CUT_MIN);
         if (cutLength && await io.unambiguous?.(confirm.message) !== true) return "ambiguous";
         const same = quoteMatches(confirm, text) || quoteCut(confirm, text);
-        if (same && skip === 0) { io.opened?.(confirm); return "shown"; }
+        if (same && skip === 0) return "shown";
         if (same) skip -= 1;
         // a newer copy, or another message the cut row reads the same for: back to the list, on the same row
         const back = await backToList(io, label, stepMs);
@@ -294,8 +291,6 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
         return conflictResponse("dialog_open", "Claude Code is showing a dialog; answer or close it first");
       }
       if (await claudeBoxHoldsDraft(paneId)) return conflictResponse("input_draft", "Claude Code's input box holds a draft; send or clear it first");
-      // the copy the walk opened, so a restore of another copy does not take the walk's count
-      const opened: { age?: string } = {};
       // a disconnect mid-walk stops the keys after it
       const walked = gone() ? "changed" : await walkClaudeRewind({
         read: async () => (await paneRead({ paneId, source: "detection", format: "text" })).text,
@@ -303,7 +298,6 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
         keys: async (keys) => { if (gone()) throw new RequesterGone(); await paneSendKeys(paneId, keys, undefined, () => !gone()); },
         command: async (command) => { if (gone()) throw new RequesterGone(); await agentPrompt(paneId, command, undefined, () => !gone()); },
         unambiguous: (quote) => claudeCutQuoteUnambiguous(paneId, text, quote).catch(() => false),
-        opened: (confirm) => { opened.age = confirm.age; },
       }, text, later).catch((error: unknown) => {
         // herdr's guard refused the write: the requester left while it connected
         if (error instanceof RequesterGone || (error instanceof HerdrError && error.code === "cancelled" && gone())) return "changed" as const;
@@ -312,7 +306,7 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
       if (walked === "not_found") return conflictResponse("rewind_not_found", "Claude Code's rewind list does not hold this message");
       if (walked === "ambiguous") return conflictResponse("rewind_ambiguous", "Claude Code's rewind dialog shows this message cut short, and another message starts the same; rewind from the terminal");
       if (walked === "changed") return conflictResponse("prompt_changed", "Claude Code's rewind dialog did not show what was expected; finish it in the terminal");
-      rememberRewind(paneId, text, later, opened.age ?? "");
+      rememberRewind(paneId, text, later);
       return jsonResponse({ ok: true, outcome: "interaction-required" } satisfies PaneRewindResponse);
     });
   } catch (error) {

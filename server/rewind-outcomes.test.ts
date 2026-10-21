@@ -63,23 +63,9 @@ it("follows a restore of a long message the walk opened by the whole message, no
   const restored = [...lines.slice(0, box), `❯ ${long}`, ...lines.slice(box + 1)].join("\n");
   spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: restored, source: "detection", format: "text", truncated: false });
   const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
-  const card = confirmCard("confirm-long-610-120");
-  rememberRewind(pane.pane_id, long, 0, card.occurrence!);
-  await followClaudeRestore(pane.pane_id, card, 2_000);
+  rememberRewind(pane.pane_id, long, 0);
+  await followClaudeRestore(pane.pane_id, confirmCard("confirm-long-610-120"), 2_000);
   expect(recorded.mock.calls).toEqual([[pane.pane_id, long, 0]]);
-});
-
-it("keeps no walked count for a restore of another copy than the one the walk opened", async () => {
-  const pane = { pane_id: "rewind-other-copy", terminal_id: "terminal", workspace_id: "w", tab_id: "t", cwd: "/fixture", focused: false, revision: 0, agent: "claude", agent_status: "idle" };
-  const restored = readFileSync(new URL("./fixtures/claude-rewind-2.1.304-restored-40.txt", import.meta.url), "utf8");
-  spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: restored, source: "detection", format: "text", truncated: false });
-  const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
-  const card = confirmCard("confirm-apple-restore-40");
-  // the walk opened an older copy of apple (one newer copy past) and was cancelled; the copy restored is
-  // the one whose step the terminal opened since, its age another
-  rememberRewind(pane.pane_id, "apple", 1, `${card.occurrence} older`);
-  await followClaudeRestore(pane.pane_id, card, 2_000);
-  expect(recorded.mock.calls).toEqual([[pane.pane_id, "apple", null]]);
 });
 
 it("follows a card answer as a restore only when the card's first choice is Restore conversation", async () => {
