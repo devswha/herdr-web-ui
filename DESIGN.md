@@ -1752,13 +1752,23 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 ### Plan (`.bg-tasks-plan`, `.bg-step`, `.plan-count`)
 - A pane's plan has no control of its own: it shares the composer's background-task chip
   (`.bg-tasks-toggle`, beside the add button in the input card's last row). With a plan the chip
-  starts with the list-checks glyph, the word **Plan** and `done/total` in tabular figures; running
-  background tasks follow after a hairline as their glyph and number. The chip keeps the working
-  tint while a step or a task is left, and goes quiet once every step is done and nothing runs. A
-  narrow card drops the words and keeps the glyphs and numbers; a finger gets a `--touch-target` hit
-  area through an invisible expander while the chip stays the `--chip-h` pill it is beside a mouse. The chip shows only in the chat lens, and not for an offline PC's cached
-  plan. The sidebar's agent row repeats the count beside the background count, in its quiet mono
-  figures and with no box (`.plan-count`).
+  starts with the list-checks glyph, the word **Plan** and `done/total` in tabular figures, then,
+  after a middle dot, the step in progress in the agent's own words (`.bg-tasks-current`, #1040):
+  one line, cut with an ellipsis past `16em` beside a mouse and `8em` on a narrow card, whole in
+  the button's name and title. The figures and the task count are never cut for it, and on a card
+  narrower than the row's controls the step gives its room back before the add button, the model
+  pill or the round button do (a one-line clamp, so its narrowest size is one glyph); with no step
+  in progress, between steps or once every step is done, the chip shows the figures alone and
+  infers nothing from them. Running background tasks follow after a hairline as their glyph and
+  number. The chip keeps the working tint while a step or a task is left, and goes quiet once every
+  step is done and nothing runs. A narrow card drops the word and keeps the glyphs, the numbers and
+  the step; a finger gets a `--touch-target` hit area through an invisible expander while the chip
+  stays the `--chip-h` pill it is beside a mouse. The chip shows only in the chat lens, and not for
+  an offline PC's cached plan. The sidebar's agent row repeats the count beside the background
+  count, in its quiet mono figures and with no box (`.plan-count`). The step in the chip follows
+  the Claude and Codex apps, whose plan rows name the step being worked on beside its progress;
+  herdr keeps it inside its one shared chip rather than agent-of-empires' separate always-visible
+  strip or a progress bar, so the status line stays one row on a phone.
 - The chip opens one list above the card: a **Plan** heading with `N of M done`, the steps in wave
   order (a status glyph, the name, what a running step does now, then a dim state · time · teammate
   line; a waiting step's name is dim), then a **Background tasks** heading over the tasks list when

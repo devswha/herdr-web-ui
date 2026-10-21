@@ -75,7 +75,7 @@ describe("browser lane", () => {
   it("summarizes every script and exits zero on success without enabling local evidence", async () => {
     const { text, code, evidence } = await lane();
     expect(code).toBe(0);
-    expect(rows(text)).toHaveLength(82);
+    expect(rows(text)).toHaveLength(83);
     expect(rows(text).map((row) => row.script)).toContain("scripts/phone-glass-header-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/replay-clipboard-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/theme-first-paint-demo-regression.ts");
@@ -95,6 +95,7 @@ describe("browser lane", () => {
     expect(rows(text).map((row) => row.script)).toContain("scripts/pwa-update-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/omo-chat-browser-qa.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/omo-plan-browser-regression.ts");
+    expect(rows(text).map((row) => row.script)).toContain("scripts/plan-chip-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/agent-skill-menu-demo-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/portal-regression.ts");
     expect(rows(text).map((row) => row.script)).toContain("scripts/agy-chat-browser-qa.ts");
