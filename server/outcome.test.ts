@@ -3,10 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PanePromptResponse, SlashCommand } from "../shared/protocol.ts";
+import type { HerdrPane, PanePromptResponse, SlashCommand } from "../shared/protocol.ts";
 import { commandInvocations, commandOutcome, CommandReservations, type CommandSend } from "./outcome.ts";
 import { finishPrompt, type DialogReader } from "./dialogs/shared.ts";
-import { handlePromptRequest, noteSubmitted } from "./prompt.ts";
+import { commandSendFrom, handlePromptRequest, noteCommandEvidence, noteSubmitted } from "./prompt.ts";
 import { socketAddress } from "./herdr/client.ts";
 import { registry } from "./dialogs/registry.ts";
 import { source as claudeSource } from "./skills/claude.ts";
@@ -309,12 +309,14 @@ const resultReader: DialogReader = {
   },
 };
 
+let readerPaneSequence = 0;
+
 /** A herdr stand-in serving one pane whose screen the test sets; keys sent to it are kept. */
-async function withFakeHerdr(pane: { agent: string; status: string; screen: string }, run: (paneId: string, keys: unknown[]) => Promise<void>): Promise<void> {
+async function withFakeHerdr(pane: { agent: string; status: string; screen: string; terminal_id?: string; agent_session?: HerdrPane["agent_session"] }, run: (paneId: string, keys: unknown[]) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-outcome-reader-"));
   const socketPath = join(root, "herdr.sock");
   const previous = process.env.HERDR_SOCKET;
-  const paneId = `outcome-reader-${Date.now()}`;
+  const paneId = `outcome-reader-${++readerPaneSequence}`;
   const keys: unknown[] = [];
   const server = createServer((socket) => {
     let input = "";
@@ -325,7 +327,7 @@ async function withFakeHerdr(pane: { agent: string; status: string; screen: stri
       if (request.method === "pane.send_keys") keys.push(request.params?.keys);
       if (request.method === "pane.send_text") keys.push(request.params?.text);
       const result = request.method === "session.snapshot"
-        ? { snapshot: { panes: [{ pane_id: paneId, agent: pane.agent, agent_status: pane.status }], layouts: [] } }
+        ? { snapshot: { panes: [{ pane_id: paneId, agent: pane.agent, agent_status: pane.status, terminal_id: pane.terminal_id, agent_session: pane.agent_session }], layouts: [] } }
         : { read: { text: pane.screen } };
       socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
     });
@@ -346,6 +348,96 @@ const fixture = (name: string): string => readFileSync(new URL(`./fixtures/${nam
 const promptUrl = (paneId: string): URL => new URL(`http://localhost/api/pane/prompt?pane_id=${paneId}`);
 const served = async (paneId: string): Promise<PanePromptResponse> =>
   await (await handlePromptRequest(new Request(promptUrl(paneId)), promptUrl(paneId)))?.json() as PanePromptResponse;
+
+describe("session-scoped command outcomes", () => {
+  const session = (value: string) => ({ agent: "claude", kind: "id", source: "herdr:claude", value });
+  const target = () => ({
+    pane_id: "fixture", workspace_id: "w", tab_id: "t", terminal_id: "terminal",
+    focused: false, revision: 0, agent: "claude", agent_status: "idle", status: "idle",
+    agent_session: session("earlier"), screen: "",
+  });
+  const submit = (paneId: string, pane: HerdrPane, text: string) => {
+    const command = commandSendFrom(pane, "claude", [row("context"), row("clear"), row("new"), row("resume", "terminal")], text);
+    if (!command) throw new Error("fixture command was not recorded");
+    noteSubmitted(paneId, text, command);
+    return command;
+  };
+
+  it("omits earlier session sends after an agent restart", async () => {
+    const pane = target();
+    await withFakeHerdr(pane, async (paneId) => {
+      submit(paneId, pane, "/context");
+      expect((await served(paneId)).outcomes).toHaveLength(1);
+      pane.agent_session = session("restarted");
+      expect((await served(paneId)).outcomes).toBeUndefined();
+    });
+  });
+
+  for (const text of ["/clear", "/new", "/resume next"]) {
+    it(`keeps only the initiating ${text} row across its session change without inventing evidence`, async () => {
+      const pane = target();
+      await withFakeHerdr(pane, async (paneId) => {
+        submit(paneId, pane, "/context");
+        const current = submit(paneId, pane, text);
+        pane.agent_session = session("changed");
+        const shown = await served(paneId);
+        expect(shown.outcomes).toMatchObject([{ id: current.id, text, evidence: [] }]);
+        expect(shown.outcomes?.[0]?.state).not.toBe("result-observed");
+        expect((await served(paneId)).outcomes?.map((item) => item.id)).toEqual([current.id]);
+        pane.agent_session = session("restarted-again");
+        expect((await served(paneId)).outcomes).toBeUndefined();
+      });
+    });
+  }
+
+  it("keeps every current-session outcome after an earlier session send", async () => {
+    const pane = target();
+    await withFakeHerdr(pane, async (paneId) => {
+      submit(paneId, pane, "/context");
+      pane.agent_session = session("current");
+      const first = submit(paneId, pane, "/context");
+      const second = submit(paneId, pane, "/context");
+      expect((await served(paneId)).outcomes?.map((item) => item.id)).toEqual([first.id, second.id]);
+    });
+  });
+
+  it("does not carry a session-changing command into a replacement terminal", async () => {
+    const pane = target();
+    await withFakeHerdr(pane, async (paneId) => {
+      submit(paneId, pane, "/clear");
+      pane.terminal_id = "replacement";
+      pane.agent_session = session("restarted");
+      expect((await served(paneId)).outcomes).toBeUndefined();
+    });
+  });
+
+  it("keeps correlated evidence on a session-changing send and later current sends", async () => {
+    const pane = target();
+    await withFakeHerdr(pane, async (paneId) => {
+      const current = submit(paneId, pane, "/clear");
+      noteCommandEvidence(paneId, current.id, { kind: "native", at: current.at + 1 });
+      pane.agent_session = session("changed");
+      expect((await served(paneId)).outcomes).toMatchObject([{ id: current.id, state: "result-observed", evidence: [{ kind: "native" }] }]);
+      const next = submit(paneId, pane, "/context");
+      expect((await served(paneId)).outcomes?.map((item) => item.id)).toEqual([current.id, next.id]);
+    });
+  });
+
+  it("does not carry a skill named clear or a closed clear send into another session", async () => {
+    const pane = target();
+    await withFakeHerdr(pane, async (paneId) => {
+      const skill = commandSendFrom(pane, "claude", [{ ...row("clear"), source: "skill" }], "/clear");
+      if (!skill) throw new Error("fixture skill was not recorded");
+      noteSubmitted(paneId, skill.text, skill);
+      pane.agent_session = session("after-skill");
+      expect((await served(paneId)).outcomes).toBeUndefined();
+      submit(paneId, pane, "/clear");
+      noteSubmitted(paneId, "ordinary follow-up");
+      pane.agent_session = session("restarted");
+      expect((await served(paneId)).outcomes).toBeUndefined();
+    });
+  });
+});
 
 describe("integrated dialog readers", () => {
   it("keeps a skill running after answering its incidental question below the echo", async () => {

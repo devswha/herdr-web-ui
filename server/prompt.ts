@@ -138,13 +138,18 @@ export function pendingOmoAsk(jsonl: string): OmoAsk | null {
 const heldCandidates = new Map<string, { text: string; at: number }>();
 /** Long enough to read the card and answer it; a message kept past this is the user's own business */
 const HELD_WINDOW_MS = 10 * 60_000;
+type PaneCommandSend = CommandSend & {
+  store: string | null;
+  /** Visibility only: never changes the send identity used to correlate evidence. */
+  sessionChange?: { readonly terminalId: string; identity?: string };
+};
 /** What the chat last sent to each pane: Claude Code puts that text back in its input box when the send is cancelled right after it. */
-const chatSent = new Map<string, { text: string; commands: (CommandSend & { store: string | null })[]; reservations: CommandReservations }>();
+const chatSent = new Map<string, { text: string; commands: PaneCommandSend[]; reservations: CommandReservations }>();
 
 const outcomeIdentity = (pane: HerdrPane): string => JSON.stringify([pane.terminal_id, pane.agent_session]);
 
 /** Capture only existing data before delivery. Discovery and transcript reads belong to the poll. */
-export function prepareCommandSend(pane: HerdrPane, text: string, screen = ""): (CommandSend & { store: string | null }) | undefined {
+export function prepareCommandSend(pane: HerdrPane, text: string, screen = ""): PaneCommandSend | undefined {
   if (!/(?:^|\s)[/$@]\S/u.test(text)) return undefined;
   const cached = cachedPaneCommands(pane);
   const agent = cached?.agent ?? resolveAgent(pane).agent;
@@ -153,15 +158,18 @@ export function prepareCommandSend(pane: HerdrPane, text: string, screen = ""): 
 }
 
 /** The send record for `text` against a given catalog: the remembered one above, or one the delivery already waited for. */
-export function commandSendFrom(pane: HerdrPane, agent: string, commands: SlashCommand[], text: string, screen = ""): (CommandSend & { store: string | null }) | undefined {
+export function commandSendFrom(pane: HerdrPane, agent: string, commands: SlashCommand[], text: string, screen = ""): PaneCommandSend | undefined {
   const invocations = commandInvocations(agent, text, commands);
   if (invocations.length === 0) return undefined;
+  const sessionChange = /^\/(?:clear|new|reset|resume)(?:\s|$)/iu.test(text.trim())
+    && commands.some((row) => row.source === "builtin" && row.name === invocations[0]?.name);
   return { id: randomBytes(12).toString("hex"), text, at: Date.now(), agent, identity: outcomeIdentity(pane),
-    screen, invocations, form: invocations[0]?.form ?? null, store: null };
+    screen, invocations, form: invocations[0]?.form ?? null, store: null,
+    ...(sessionChange ? { sessionChange: { terminalId: pane.terminal_id } } : {}) };
 }
 
 /** A message the chat just sent to a pane: one with invisible characters may be held by Claude Code. */
-export function noteSubmitted(paneId: string, text: string, command?: CommandSend & { store: string | null }): void {
+export function noteSubmitted(paneId: string, text: string, command?: PaneCommandSend): void {
   const previous = chatSent.get(paneId)?.commands ?? [];
   const reservations = chatSent.get(paneId)?.reservations ?? new CommandReservations();
   reservations.close(command?.text ?? text, command?.at ?? Date.now());
@@ -261,6 +269,20 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     });
     sent.outcome = observed;
     return observed;
+  }).filter((_, index) => {
+    const sent = commands[index]!;
+    const identity = outcomeIdentity(pane);
+    if (sent.identity === identity || sent.sessionChange?.identity === identity) return true;
+    // The last Chat /clear, /new or resume may itself change sessions. Keep its receipt in
+    // that next conversation only; a session change is not proof that the command completed.
+    const change = sent.sessionChange;
+    if (change && change.identity === undefined && index === commands.length - 1 && index <= readIndex
+      && sent.closedAt === undefined && now < sent.at + COMMAND_WINDOW_MS
+      && pane.agent_session && change.terminalId === pane.terminal_id) {
+      change.identity = identity;
+      return true;
+    }
+    return false;
   });
 }
 
