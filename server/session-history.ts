@@ -78,6 +78,8 @@ export interface SessionHistoryOptions {
   lstat?: (path: string) => Stats;
   /** Stats an opened file's descriptor (tests change the identity it reports); defaults to fstatSync. */
   fstat?: (fd: number, bigint?: boolean) => Stats | BigIntStats;
+  /** Called right after a store's database opens, before it is read (tests write to the store then). */
+  opened?: (path: string, immutable: boolean) => void;
   /** Opens a folder to walk its entries (tests count the entries walked); defaults to opendirSync. */
   opendir?: (dir: string) => Dir;
   /** Checks already spent when the listing starts (tests place a check at the bound). */
@@ -218,6 +220,7 @@ class Budget {
     private readonly lstatOf: (path: string) => Stats = lstatSync,
     readonly fstatOf: (fd: number, bigint?: boolean) => Stats | BigIntStats = (fd, bigint) => bigint ? fstatSync(fd, { bigint: true }) : fstatSync(fd),
     private readonly opendirOf: (dir: string) => Dir = opendirSync,
+    readonly onOpened: (path: string, immutable: boolean) => void = () => {},
   ) {}
 
   get exhausted(): boolean { return this.used >= MAX_STATS; }
@@ -710,9 +713,26 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
     fd = openSync(real, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
     const opened = budget.fstatOf(fd, true);
     if (!opened.isFile() || bigintOf(opened.dev) !== checked.dev || bigintOf(opened.ino) !== checked.ino) return null;
-    const database = openDatabase(budget, real, fd, checked);
-    if (database === null) return null;
-    db = database;
+    const first = openDatabase(budget, real, fd, checked, true);
+    if (first === null) return null;
+    db = first.db;
+    let answer: { value: T } | null = null;
+    try { db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`); answer = { value: read(db) }; } catch { /* read again below when immutable */ }
+    db.close();
+    db = undefined;
+    if (!first.immutable) return answer?.value ?? null;
+    // an immutable read is only sound while nobody writes: SQLite gives undefined results (stale rows,
+    // SQLITE_CORRUPT) when the file changes under it. Unchanged since the check (time, change time,
+    // size) and still no -wal: the answer holds. Else a writer is active, and the store is read once
+    // more as SQLite reads one being written (its side files are there by now); if that fails too,
+    // nothing is listed from it
+    const now = budget.fstatOf(fd, true) as BigIntStats;
+    const before = opened as BigIntStats;
+    const changed = now.mtimeNs !== before.mtimeNs || now.ctimeNs !== before.ctimeNs || now.size !== before.size || budget.modified(`${real}-wal`) !== null;
+    if (answer !== null && !changed) return answer.value;
+    const second = openDatabase(budget, real, fd, checked, false);
+    if (second === null) return null;
+    db = second.db;
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     return read(db);
   } catch { return null; }
@@ -723,7 +743,9 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
  * SQLite on the checked database, read-only, writing nothing into the user's store.
  *
  * - A WAL database with no `-wal` beside it has nothing in its log: it opens `immutable=1`, so SQLite
- *   neither locks it nor makes a `-wal` and `-shm` (a plain read-only open would make both).
+ *   neither locks it nor makes a `-wal` and `-shm` (a plain read-only open would make both). That read
+ *   holds only while nobody writes; withDatabase checks the file after it and reads once more, not
+ *   immutable, when a writer came in meanwhile.
  * - A WAL database whose `-wal` exists (its agent writes now) opens as such, so the sessions still in
  *   its log are read; its side files are there already.
  * - A rollback-journal database opens as such, with SQLite's locks against a writer mid-change.
@@ -735,18 +757,24 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
  * file swapped in between the descriptor's check and that open, then back, is not caught: the
  * residual, while an agent writes on macOS, or on Windows).
  */
-function openDatabase(budget: Budget, real: string, fd: number, checked: { dev: bigint; ino: bigint }): Database | null {
+function openDatabase(budget: Budget, real: string, fd: number, checked: { dev: bigint; ino: bigint }, mayBeImmutable: boolean): { db: Database; immutable: boolean } | null {
   const header = Buffer.alloc(20);
   const wal = readSync(fd, header, 0, 20, 0) === 20 && header[18] === 2 && header[19] === 2;
   const logged = wal && budget.modified(`${real}-wal`) !== null;
+  const immutable = mayBeImmutable && wal && !logged;
   const descriptor = process.platform === "linux" || (process.platform === "darwin" && !logged) ? `/dev/fd/${fd}` : null;
   const flags = sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_URI;
-  if (descriptor !== null) return new Database(wal && !logged ? `file:${descriptor}?immutable=1` : descriptor, flags);
-  const db = new Database(wal && !logged ? `${pathToFileURL(real).href}?immutable=1` : real, flags | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
+  if (descriptor !== null) {
+    const db = new Database(immutable ? `file:${descriptor}?immutable=1` : descriptor, flags);
+    budget.onOpened(real, immutable);
+    return { db, immutable };
+  }
+  const db = new Database(immutable ? `${pathToFileURL(real).href}?immutable=1` : real, flags | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
+  budget.onOpened(real, immutable);
   // part of the database's one check: a database checked at the 400th check is still listed
   const again = budget.identity(real, true);
   if (!again?.isFile || again.dev !== checked.dev || again.ino !== checked.ino) { db.close(); return null; }
-  return db;
+  return { db, immutable };
 }
 
 const tableExists = (db: Database, name: string) => db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== null;
@@ -898,7 +926,7 @@ export function listSessions(agent: SessionHistoryAgent, cwd: string, options: S
   const env = options.env ?? process.env;
   const home = options.home ?? homedir();
   const read = options.readHead;
-  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat, options.fstat, options.opendir);
+  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat, options.fstat, options.opendir, options.opened);
   budget.used = options.spent ?? 0;
   // the pane's cwd may be another spelling of the folder the agent recorded: a Windows 8.3 alias (a
   // child keeps the short cwd) or a link (macOS /var -> /private/var). Resolve it once, as one counted

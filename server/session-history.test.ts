@@ -363,8 +363,49 @@ describe("listSessions", () => {
     writer.exec("PRAGMA journal_mode = WAL");
     writer.close();
     const before = sideFiles(dirname(db));
-    expect(listSessions("hermes", CWD, { home, env: {} }).map((row) => row.id)).toEqual(EXPECTED.hermes);
+    let reads = 0;
+    expect(listSessions("hermes", CWD, { home, env: {}, opened: () => { reads++; } }).map((row) => row.id)).toEqual(EXPECTED.hermes);
     expect(sideFiles(dirname(db))).toEqual(before);
+    // nobody wrote meanwhile: the immutable read stands, and the store is read once
+    expect(reads).toBe(1);
+  });
+
+  it("reads a WAL store once more, as it is being written, when a writer checkpoints into it during an immutable read", () => {
+    const home = newHome();
+    install("hermes", home);
+    const db = join(home, ".hermes", "state.db");
+    const setup = new Database(db);
+    setup.exec("PRAGMA journal_mode = WAL");
+    setup.close();
+    let writer: Database | undefined;
+    let reads = 0;
+    try {
+      const rows = listSessions("hermes", CWD, {
+        home, env: {},
+        // between the immutable open and the query, another connection writes and checkpoints into the
+        // main file (an agent opening its store, writing, checkpointing); it stays open, as a writer does
+        opened: (_path, immutable) => {
+          reads++;
+          if (!immutable || writer) return;
+          writer = new Database(db);
+          writer.exec("PRAGMA wal_autocheckpoint = 0");
+          writer.transaction(() => {
+            writer!.query("INSERT INTO sessions VALUES ('20261005_090000_fx0005', 'cli', NULL, 1791190800, NULL, ?, 'Fresh hermes title', 1791194400)").run(CWD);
+            writer!.exec("INSERT INTO messages (session_id, role, content, timestamp) VALUES ('20261005_090000_fx0005', 'user', 'fresh prompt', 1791190801)");
+            writer!.exec("UPDATE messages SET content = 'rewritten prompt' WHERE role = 'user' AND session_id != '20261005_090000_fx0005'");
+            for (let n = 0; n < 6000; n++) writer!.query("INSERT INTO messages (session_id, role, content, timestamp) VALUES ('20261004_090000_fx0004', 'assistant', ?, 1791104401)").run(`filler ${n} ${"x".repeat(200)}`);
+          })();
+          writer.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        },
+      });
+      expect(rows.map((row) => [row.id, row.firstMessage])).toEqual([
+        ["20261005_090000_fx0005", "fresh prompt"],
+        ["20261002_090000_fx0002", "rewritten prompt"],
+        ["20261001_090000_fx0001", "rewritten prompt"],
+      ]);
+      // the immutable read, then the one read as SQLite reads a store being written
+      expect(reads).toBe(2);
+    } finally { writer?.close(); }
   });
 
   it("lists a session still in a WAL store's log while its agent writes", () => {
