@@ -29,7 +29,7 @@ const evidence = join(process.env["UI_EVIDENCE_DIR"] || join(repo, "evidence"), 
 mkdirSync(evidence, { recursive: true });
 
 interface Recorded { url: string; body: Record<string, unknown> }
-interface QaWindow { qaRequests: Recorded[]; qaHold: boolean; qaRelease: () => void; qaSubmits: string[]; qaDrop: () => void }
+interface QaWindow { qaRequests: Recorded[]; qaHold: boolean; qaRelease: () => void; qaSubmits: string[]; qaDrop: () => void; qaOldBridge: boolean }
 
 const settled = (page: Page) => page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))).then(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))));
 const recorded = (page: Page) => page.evaluate(() => (window as unknown as QaWindow).qaRequests);
@@ -74,6 +74,7 @@ try {
     const demoFetch = window.fetch;
     window.qaRequests = [];
     window.qaHold = false;
+    window.qaOldBridge = false;
     let release = null;
     window.qaRelease = () => { if (release) release(); release = null; };
     window.fetch = async (input, init) => {
@@ -81,6 +82,12 @@ try {
       if ((init?.method ?? "GET") === "POST" && (url.includes("/api/tab/create") || url.includes("/api/workspace/create"))) {
         window.qaRequests.push({ url, body: JSON.parse(String(init?.body ?? "null")) });
         if (window.qaHold) await new Promise((resolve) => { release = resolve; });
+        // a bridge from before first_message: it starts the agent and answers without the field
+        if (window.qaOldBridge) {
+          const answer = await demoFetch(input, init);
+          const { first_message: _, ...made } = await answer.json();
+          return new Response(JSON.stringify(made), { status: answer.status, headers: { "content-type": "application/json" } });
+        }
       }
       return demoFetch(input, init);
     };
@@ -266,6 +273,35 @@ try {
         assert.deepEqual(errors, []);
         console.log("PASS a connection that drops before the agent is ready gets the first message held, not typed, and sent exactly once on Send now");
       } finally { await reconnect.close(); }
+
+      // a bridge that ignores first_message: the agent starts without it, so the dialog stays open and says so,
+      // and Open shows the new tab with the text in its message box, not lost
+      const oldBridge = await desktop(browser, "dark");
+      try {
+        await oldBridge.addInitScript(settings, "dark");
+        const page = await oldBridge.newPage();
+        page.setDefaultTimeout(10_000);
+        const errors: string[] = [];
+        page.on("pageerror", (error) => { errors.push(error.message); console.error(error.stack); });
+        await openChat(page, url);
+        const dialog = await openDialog(page);
+        await pickAgent(page, dialog, "Oh My Pi");
+        await dialog.getByLabel("First message").fill("Keep me");
+        await page.evaluate(() => { (window as unknown as QaWindow).qaOldBridge = true; });
+        await dialog.getByRole("button", { name: "Start", exact: true }).click();
+        await dialog.getByRole("alert").filter({ hasText: "does not take a first message yet" }).waitFor();
+        assert.equal(await dialog.isVisible(), true, "the dialog stays open");
+        await settled(page);
+        await page.screenshot({ path: join(evidence, "desktop-dark-old-bridge-kept.png") });
+        await dialog.getByRole("button", { name: "Open", exact: true }).click();
+        await dialog.waitFor({ state: "detached" });
+        const box = page.getByRole("textbox", { name: "Message", exact: true });
+        await box.waitFor();
+        assert.equal(await box.inputValue(), "Keep me", "the text waits in the new tab's message box");
+        assert.deepEqual(await submits(page), [], "nothing is sent on its own");
+        assert.deepEqual(errors, []);
+        console.log("PASS a bridge that ignores first_message: the dialog stays open, says so, and Open shows the text in the new tab's message box");
+      } finally { await oldBridge.close(); }
 
       // validation and the keyboard: a model that is not one word disables Start and is said; another
       // agent drops the choices its launch does not take; Tab reaches every control; Escape closes

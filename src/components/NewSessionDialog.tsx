@@ -42,8 +42,8 @@ export interface NewSessionDialogProps {
   onClose: () => void;
   /**
    * `agentStarted`: the pane runs the agent asked for, so it opens in an agent's lens; `messageWaits`: the
-   * bridge queued the first message for the agent's first ready turn, so the pane opens in the chat lens,
-   * where the pending message shows
+   * bridge queued the first message for the agent's first ready turn, or its text was kept in the chat's
+   * message box when it was not queued, so the pane opens in the chat lens, where it shows
    */
   onCreated: (paneId: string, agentStarted: boolean, messageWaits?: boolean) => void;
   /** fields a link fills for this opening (`?new=`, lib/deepLink.ts); an agent herdr does not offer is left out */
@@ -110,6 +110,8 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const [createdPaneId, setCreatedPaneId] = useState<string | null>(null);
   /** the made pane runs the agent asked for: Open shows it in the agent's lens */
   const [createdStarted, setCreatedStarted] = useState(false);
+  /** the first message was not queued and waits in the made pane's chat box: Open shows the chat */
+  const [createdKept, setCreatedKept] = useState(false);
   const [browsing, setBrowsing] = useState(false);
   const [recentFolders, setRecentFolders] = useState(() => recentDirectories.read(machineId));
   // folders kept before worktrees and temporary folders were left out are left out here too
@@ -150,6 +152,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
     setPending(false);
     setCreatedPaneId(null);
     setCreatedStarted(false);
+    setCreatedKept(false);
     setBrowsing(false);
     setRecentFolders(recentDirectories.read(machineId));
     const remembered = rememberedAgent();
@@ -255,7 +258,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
 
   const startWorkspace = async (directory: string): Promise<void> => {
     if (pending || guard.current.busy()) return;
-    if (createdPaneId !== null) { onCreated(createdPaneId, createdStarted); return; }
+    if (createdPaneId !== null) { onCreated(createdPaneId, createdStarted, createdKept); return; }
     // a combination the launch does not take: Start is disabled for it, and an Enter in a field sends nothing
     if (launch === null) return;
     setPending(true);
@@ -294,6 +297,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
         });
         setCreatedPaneId(result.pane_id);
         setCreatedStarted(true);
+        setCreatedKept(true);
         return;
       }
       const messageWaits = outcome.kind === "queued";
