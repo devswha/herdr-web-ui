@@ -615,8 +615,9 @@ export async function paneSendText(paneId: string, text: string, socketPath?: st
  * Enter 300ms later, and returns after the Enter. Refuses with agent_blocked while the
  * agent waits for an answer, agent_not_found / agent_not_ready without an agent in front.
  */
-export async function agentPrompt(target: string, text: string, socketPath?: string): Promise<void> {
-  await herdrRpc("agent.prompt", { target, text }, socketPath);
+/** `guard`, when given, is asked once connected, right before the prompt is written (herdrRpc). */
+export async function agentPrompt(target: string, text: string, socketPath?: string, guard?: () => boolean): Promise<void> {
+  await herdrRpc("agent.prompt", { target, text }, socketPath, undefined, guard);
 }
 
 export async function paneSendKeys(paneId: string, keys: string[], socketPath?: string, guard?: () => boolean): Promise<void> {

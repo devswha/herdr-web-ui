@@ -1,4 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
+import * as client from "./herdr/client.ts";
+import { HerdrError } from "./herdr/client.ts";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -380,6 +382,27 @@ describe("POST /api/pane/rewind", () => {
       await handleRewindRequest(asked(paneId, requester.signal), async (_paneId, task) => await task());
       expect(dialog.sent).toEqual(["/rewind"]);
     });
+  });
+
+  // Codex on db8d72b5 (3): the requester can leave while a key's connection to herdr is still opening
+  it("gives herdr the disconnect as the write-time guard of the rewind's command and keys", async () => {
+    const dialog = fruit();
+    const requester = new AbortController();
+    const written: string[] = [];
+    // herdr's client asks the guard once connected, right before writing (server/herdr/client.ts herdrRpc)
+    const write = async (what: string, guard?: () => boolean) => {
+      requester.abort();
+      if (guard !== undefined && !guard()) throw new HerdrError("cancelled", `herdr ${what} was not sent`);
+      written.push(what);
+    };
+    const prompt = spyOn(client, "agentPrompt").mockImplementation((_target, text, _socket, guard) => write(text, guard));
+    const keys = spyOn(client, "paneSendKeys").mockImplementation((_pane, sent, _socket, guard) => write(sent.join(","), guard));
+    try {
+      await withHerdr({ agent: "claude", status: "idle" }, dialog, async (paneId) => {
+        await handleRewindRequest(asked(paneId, requester.signal), async (_paneId, task) => await task());
+        expect(written).toEqual([]);
+      });
+    } finally { prompt.mockRestore(); keys.mockRestore(); }
   });
 
   it("refuses a body without the message", async () => {

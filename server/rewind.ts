@@ -15,7 +15,7 @@ import type { PaneRewindResponse } from "../shared/protocol.ts";
 import { CLAUDE_REWIND_CHOICES, parseClaudeRewindConfirm, parseClaudeRewindList, type ClaudeRewindConfirm, type ClaudeRewindList } from "./dialogs/claude.ts";
 import { KEY, normalizeText } from "./dialogs/shared.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, jsonResponse, readJsonObject } from "./http.ts";
-import { agentPrompt, paneRead, paneScrollInfo, paneSendKeys } from "./herdr/client.ts";
+import { agentPrompt, HerdrError, paneRead, paneScrollInfo, paneSendKeys } from "./herdr/client.ts";
 import { paneContext } from "./pane-context.ts";
 import { claudeInputBoxContent, claudeInputDraft, claudeRewindOpen, forgetChatSendsAfter, parseInteractivePrompt, viewportShowsLive } from "./prompt.ts";
 import { claudeCutQuoteUnambiguous, rewindClaudeTranscript } from "./conversation.ts";
@@ -286,10 +286,15 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
       // a disconnect mid-walk stops the keys after it
       const walked = gone() ? "changed" : await walkClaudeRewind({
         read: async () => (await paneRead({ paneId, source: "detection", format: "text" })).text,
-        keys: async (keys) => { if (gone()) throw new RequesterGone(); await paneSendKeys(paneId, keys); },
-        command: async (command) => { if (gone()) throw new RequesterGone(); await agentPrompt(paneId, command); },
+        // checked once more by herdr's client once connected, right before the write (herdrRpc's guard)
+        keys: async (keys) => { if (gone()) throw new RequesterGone(); await paneSendKeys(paneId, keys, undefined, () => !gone()); },
+        command: async (command) => { if (gone()) throw new RequesterGone(); await agentPrompt(paneId, command, undefined, () => !gone()); },
         unambiguous: (quote) => claudeCutQuoteUnambiguous(paneId, text, quote).catch(() => false),
-      }, text, later).catch((error: unknown) => { if (error instanceof RequesterGone) return "changed" as const; throw error; });
+      }, text, later).catch((error: unknown) => {
+        // herdr's guard refused the write: the requester left while it connected
+        if (error instanceof RequesterGone || (error instanceof HerdrError && error.code === "cancelled" && gone())) return "changed" as const;
+        throw error;
+      });
       if (walked === "not_found") return conflictResponse("rewind_not_found", "Claude Code's rewind list does not hold this message");
       if (walked === "ambiguous") return conflictResponse("rewind_ambiguous", "Claude Code's rewind dialog shows this message cut short, and another message starts the same; rewind from the terminal");
       if (walked === "changed") return conflictResponse("prompt_changed", "Claude Code's rewind dialog did not show what was expected; finish it in the terminal");
