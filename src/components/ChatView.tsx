@@ -66,6 +66,8 @@ import { composerDrafts } from "../lib/composerDraft.ts";
 import { rewindOffer } from "../lib/rewindAction.ts";
 import { invalidatePaneCommands } from "../lib/paneCommandCache.ts";
 import { noteCatalogChanges, outcomeChip, outcomeCommand, outcomeLabel, outcomeNote, outcomeResultText, outcomeRows, type OutcomeState } from "../lib/outcomeChip.ts";
+import { typedTerminalCommand } from "../lib/compose.ts";
+import { usePaneCommands } from "../lib/usePaneCommands.ts";
 
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 // How long after scroll input an upward move still counts as the reader's own.
@@ -79,7 +81,7 @@ const ChatHistoryContext = createContext("");
  */
 const ImageViewerContext = createContext<(images: GalleryImage[], index: number) => void>(() => {});
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
-import type { AgentStatus, CommandOutcome, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult } from "../../shared/protocol.ts";
+import type { AgentStatus, CommandOutcome, ConversationMetadata, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt, OmoTaskResult, SlashCommand } from "../../shared/protocol.ts";
 import { chatIsBlank, type ChatRead } from "../lib/greeting.ts";
 import { TurnTime } from "./TurnTime.tsx";
 import { useT } from "../lib/i18n.ts";
@@ -658,6 +660,22 @@ function UserMessage({ text, skills = null }: { text: string; skills?: SkillMatc
 interface OutcomeActions {
   answer: (() => void) | null;
   terminal: (() => void) | null;
+  commands?: readonly SlashCommand[];
+}
+
+function terminalOnlyOutcome(outcome: CommandOutcome, actions: OutcomeActions | null): boolean {
+  return !outcome.result_text && !outcome.unattached_skills?.length
+    && typedTerminalCommand(actions?.commands ?? [], outcome.text) !== null;
+}
+
+function TerminalCommandRow({ outcome, actions }: { outcome: CommandOutcome; actions: OutcomeActions | null }) {
+  const t = useT();
+  return <article className="chat-turn chat-turn-user chat-terminal-command" data-outcome-id={outcome.id}>
+    <SquareTerminal aria-hidden="true" />
+    <code title={outcome.text}>{outcomeCommand(outcome.text)}</code>
+    <span>· {t("Ran in terminal")}</span>
+    {actions?.terminal && <button type="button" className="chat-outcome-action" onClick={actions.terminal}>{t("Open Terminal")}</button>}
+  </article>;
 }
 
 const OUTCOME_ICONS: Record<OutcomeState, ComponentType<LucideProps>> = {
@@ -707,6 +725,7 @@ function OutcomeChip({ outcome, actions }: { outcome: CommandOutcome; actions: O
 function OutcomeRow({ outcome, actions, skills = null }: { outcome: CommandOutcome; actions: OutcomeActions | null; skills?: SkillMatcher | null }) {
   const t = useT();
   const [copyFailed, setCopyFailed] = useChatRowToggle("copy-failed", false);
+  if (terminalOnlyOutcome(outcome, actions)) return <TerminalCommandRow outcome={outcome} actions={actions} />;
   return <article className="chat-turn chat-turn-user chat-turn-sent" data-outcome-id={outcome.id}>
     <div className="chat-user-row">
       <UserMessage text={outcome.text} skills={skills} />
@@ -841,6 +860,7 @@ const Turn = memo(function Turn({ paneId, turn, live, waiting, showThinking, ski
     </ChatDetails>;
   }
   if (turn.role === "user") {
+    if (outcome !== null && terminalOnlyOutcome(outcome, outcomeActions)) return <TerminalCommandRow outcome={outcome} actions={outcomeActions} />;
     const text = userText(turn);
     // a teammate's delivery is recorded as a user prompt, but nobody typed it here
     const teammateParts = teammateMessageParts(text);
@@ -960,6 +980,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   const { settings } = useSettings();
   const machineId = useMachineId();
   const skillMatcher = useSkillMatcher(paneId, agent);
+  const commands = usePaneCommands(paneId, agent);
   // polls pause while the page or the pane is hidden and pick up at once when it is back
   const pageVisible = usePageVisible();
   const visible = paneVisible && pageVisible;
@@ -1718,7 +1739,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     control?.focus();
   }, [promptDock]);
   const promptUp = prompt !== null;
-  const outcomeActions = useMemo((): OutcomeActions => ({ answer: promptUp ? focusPrompt : null, terminal: onOpenTerminal ?? null }), [promptUp, focusPrompt, onOpenTerminal]);
+  const outcomeActions = useMemo((): OutcomeActions => ({ answer: promptUp ? focusPrompt : null, terminal: onOpenTerminal ?? null, commands }), [promptUp, focusPrompt, onOpenTerminal, commands]);
   // Rewind to here: only while the agent waits with nothing up, the message box is empty (a draft
   // would be lost under the agent's own restore) and this connection may type into the pane
   const composerDraft = useSyncExternalStore(composerDrafts.subscribe, () => composerDrafts.read(`herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`));

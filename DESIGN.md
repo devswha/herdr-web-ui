@@ -1342,7 +1342,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 ### Session history (`.session-modal`)
 - From a workspace row's menu, **Earlier sessions…** (lucide `History`, beside Rename workspace),
   and from the chat: picking `/resume` in the `/` menu's Terminal commands opens it at once, and the
-  terminal command's row over the composer offers **Earlier sessions…** beside Open Terminal. The
+  same command typed and sent opens the list without sending anything. The
   dialog is the worktree dialog's anatomy: **Agent** is a `.select` of the PC's installed agents
   (the row's or the pane's agent first), under it the folder the sessions were started in, in
   mono, then one `.session-row` per session as `GET /api/sessions/history` lists them, newest
@@ -1524,7 +1524,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   terminal with a one-line `.chat-rewind-note` (`role="status"`) under the bubble. A refused rewind
   says why in the turn's `.chat-copy-error` line. The hover placement follows the message actions
   of the Claude and Codex apps.
-- A command sent from the chat says what became of it under its bubble (`.chat-outcome`,
+- A terminal-only command sent from Chat is one quiet right-aligned row, not a bubble:
+  `SquareTerminal`, the command in mono `--fs-sm`, **Ran in terminal** in `--text-dim`,
+  and one **Open Terminal** text button. It has no outcome chip or unconfirmed output preview.
+  The same row replaces a matching native user turn, so the command never appears twice.
+  Recognized informational result cards, including Hermes, keep their existing presentation.
+- An ordinary command sent from the chat says what became of it under its bubble (`.chat-outcome`,
   `lib/outcomeChip.ts`): one quiet `--fs-xs` line in `--text-dim` on the message's side, a 14px
   glyph and the state in words, read as a `role="status"` live region. It follows the delivery
   receipt messaging apps put under a sent bubble (iMessage's Delivered / Read; Claude's remote
@@ -1991,22 +1996,22 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   typed query too (`.composer-menu-badge`: the `.badge` primitive in the quiet register, `--text-dim`
   on `--bg-elevated`, never shrunk; the description beside it gives way). A row the agent's own
   menu hides (`agent-hidden`) is never listed, and typed by hand it is sent like any text. The
-  chat never sends a terminal command on its own: picking one keeps the draft and a row in the
-  notices' anatomy (`ComposerNotices`, its group labelled **Terminal command**) stands over the
-  card, lucide `SquareTerminal`, then `/config runs in the terminal; the chat cannot show what it
-  does.` with the command in mono, and two ways on in the held rows' buttons: **Open Terminal**
-  (the pane's terminal lens, nothing sent) and **Run in Terminal** (the usual send, then the
-  terminal lens once the send is acknowledged; a refusal keeps the text and its note here), then
-  the row's X. For `/resume` the row leads with **Earlier sessions…** (Session history), and
-  picking it from the menu opens that list at once. Typing such a command by hand and pressing Send shows the same row instead of
-  sending; Escape or the X puts it away with the text kept, and Send brings it back. A
-  connection that only observes has no composer at all (PaneTerminal mounts none for it, see
-  Role), so it sees neither the group nor the row; the composer still takes the connection's
-  `role`, and `terminalCommandActions` never offers Run in Terminal to one that observes. Both
-  buttons are in the Tab order, the row is a `role="status"` row, and a phone's card stays docked
-  while it shows, as with any notice. The split follows VS Code's Copilot Chat, whose shell code blocks carry **Insert into
-  Terminal** (and, later, **Run in Terminal**) rather than running the command from the chat
-  (microsoft/vscode #196990, #227707); here the draft stays exactly as the user wrote it.
+  menu inserts a terminal command like any other completion; Send/Enter submits it through the
+  ordinary input path. There is no extra composer notice or confirmation button.
+  Only an accepted direct send or explicit **Send now** opens this browser's Terminal lens.
+  Queue acceptance and automatic delivery do not switch lenses; refused or unconfirmed sends
+  keep the draft and existing note. `/resume` opens **Earlier sessions…** instead.
+  A dismissible **/command ran · Back to Chat · X** hint uses the existing terminal banner
+  column and rewind hint anatomy: neutral elevated surface, hairline, `--radius-md`,
+  `--fs-xs`, `--space-2` gaps and existing button targets. It overlays the grid rather than
+  consuming a row or resizing the pty. Long command names truncate; controls wrap as needed.
+  It lasts until dismissed or the lens is left, with no timer; another command replaces it.
+  Back to Chat restores the reader's saved position. Both actions are keyboard accessible,
+  with the existing focus ring and coarse-pointer targets. No new motion or tokens are needed.
+  View-only devices have no composer and never auto-switch. Nothing calls `pane.focus`.
+  This follows [Warp's real-terminal agent workflow](https://docs.warp.dev/agents/), where
+  interactive programs run on the terminal surface beside the conversation, adapted to Ovis's
+  existing two lenses and the supplied terminal-autoswitch mockup. No code or pixels are copied.
 - A pane whose rows carry `trigger: "@"` (OpenCode v2 skills, which it takes as `@skill-id`
   attachments) lists them in the `@` menu under a **Skills** heading before the **Files** group
   (the listbox is then **Skills and files**), a bare `@` opens that menu, and picking one inserts

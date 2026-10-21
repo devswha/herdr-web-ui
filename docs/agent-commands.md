@@ -77,10 +77,13 @@ folder and home, so its rows are never native and never verified.
 Some commands only make sense in the terminal: pickers the chat has no reader for, pagers, or
 reports the agent never writes to its transcript. Rows with `visibility: "terminal"`, or with a
 bare form whose interaction is `terminal`, are listed apart in the composer under Terminal
-commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one, or typing it and pressing
-send, keeps the draft and offers two actions: **Open Terminal**, which only switches the lens, and
-**Run in Terminal**, which sends it through the usual path and then switches. Chat never sends a
-terminal command on its own.
+commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one inserts it like any other
+completion. Send/Enter sends it through the usual path and, once accepted, opens this browser's
+Terminal lens. A dismissible command hint offers **Back to Chat**, restoring the reader's place;
+it stays until dismissed or the lens is left, without a timer. Busy commands wait in the existing
+queue: only an explicit **Send now** switches views, never automatic delivery. A refusal or
+unconfirmed send keeps the draft and note. View-only devices never send or switch, and no action
+moves herdr's focus. `/resume` keeps opening **Earlier sessions…**.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any
@@ -92,8 +95,10 @@ other command. No other row a source finds is ever hidden.
 the text by the same per-agent syntax the composer uses
 ([`shared/skill-syntax.ts`](../shared/skill-syntax.ts)). Recording an outcome never delays the
 send: delivery comes first and tracking catches up. The pane's outcomes ride on
-`GET /api/pane/prompt` as `outcomes`, and the chat shows each one as a chip under its bubble
-([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)).
+`GET /api/pane/prompt` as `outcomes`. Ordinary commands show a chip under their bubble
+([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)). Terminal-only commands instead show one
+quiet **Ran in terminal** row with **Open Terminal**, without chips or unconfirmed previews.
+Recognized Hermes informational result cards remain available.
 
 | State | Means | Set by |
 | --- | --- | --- |
