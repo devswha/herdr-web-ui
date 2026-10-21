@@ -1727,6 +1727,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
       const code = cause instanceof ApiError ? cause.code : null;
       const message = code === "input_draft" ? t("Not rewound: the agent's input box holds a draft. Send or clear it first.")
         : code === "agent_busy" ? t("Not rewound: the agent is not waiting for a message.")
+          : code === "dialog_open" ? t("Not rewound: one of Claude Code's dialogs is open in the terminal. Answer or close it first.")
+          : code === "rewind_ambiguous" ? t("Not rewound: Claude Code shows this long message cut short, and another message starts the same. Rewind from the terminal.")
           : code === "rewind_not_found" ? t("Not rewound: the agent's rewind list does not have this message.")
             : t("Not rewound. Finish the rewind in the terminal if it opened there.");
       setRewinding({ turn, state: "failed", message });
