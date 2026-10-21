@@ -15,14 +15,27 @@ import { findLastIndex } from "../dialogs/shared.ts";
 // third send on the earlier blocks fill the screen; from the fourth, a send's two reads, and the next send's, differ only
 // in the status bar's clock: only the history moved.
 type Read = { top: number; screen: string; colors?: string };
-const recorded = JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "hermes-results", "status-repeat-120.json"), "utf8")) as
-  { sends: { sent: Read; after: Read }[] };
+type Recorded = { sends: { sent: Read; after: Read }[] };
+const load = (name: string): Recorded =>
+  JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "hermes-results", `${name}.json`), "utf8")) as Recorded;
+const recorded = load("status-repeat-120");
+// A fresh Hermes 0.21.5 pane (120x40, same setup) on a loaded host, /status sent three times from a Chat page that had
+// just attached its terminal. Hermes redrew its input area for that attach: the first send's detection read shows the
+// input line alone, without the status bar and rules around it. The reads after each send are the screens once the block printed.
+const redrawn = load("status-first-redraw-120");
 
 afterEach(() => mock.restore());
 
+/** The block under the last /status echo of a read, as Chat shows it. */
+const ownBlock = (read: Read): string => {
+  const lines = read.screen.split("\n");
+  const echo = findLastIndex(lines, (line) => line === "⚙️  /status");
+  return lines.slice(echo + 1, lines.findIndex((line, at) => at > echo && line.startsWith("Agent Running: ")) + 1).join("\n");
+};
+
 /** The composer's send and the prompt route, over a herdr that shows `shown` and reports its history row. */
-function hermesPane(paneId: string) {
-  let shown: Read = recorded.sends[0]!.sent;
+function hermesPane(paneId: string, first: Read = recorded.sends[0]!.sent) {
+  let shown: Read = first;
   const pane = () => ({
     pane_id: paneId, workspace_id: "w", tab_id: "t", terminal_id: `${paneId}-terminal`, cwd: "/fixture", focused: false, revision: 0,
     agent: "hermes", agent_status: "idle" as const, scroll: { max_offset_from_bottom: shown.top, offset_from_bottom: 0, viewport_rows: 40 },
@@ -91,4 +104,18 @@ it("does not resolve a later /status from the earlier block when nothing new pri
   expect(silent).toHaveLength(2);
   expect(silent.at(-1)?.state).toBe("accepted");
   expect(silent.at(-1)).not.toHaveProperty("result_text");
+});
+
+it("owns a fresh pane's first /status, read while Hermes redrew its input area for a terminal that attached (F3 r2 D1)", async () => {
+  const pane = hermesPane("hermes-first-redraw", redrawn.sends[0]!.sent);
+  // the input line alone at the bottom: neither the status bar nor the rules were drawn yet
+  expect(redrawn.sends[0]!.sent.screen.trimEnd().split("\n").at(-1)).toStartWith("❯ ");
+  for (const [index, { sent, after }] of redrawn.sends.entries()) {
+    pane.show(sent);
+    await pane.send();
+    pane.show(after);
+    const shown = await pane.outcomes();
+    expect(shown).toHaveLength(index + 1);
+    expect(shown.at(-1)).toMatchObject({ state: "result-observed", result_text: ownBlock(after) });
+  }
 });
