@@ -122,6 +122,25 @@ describe("pane process roots", () => {
     }
   });
 
+  it("reads an npm Codex's roots from its native child, not the node launcher listed before it", async () => {
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({
+      process_info: { foreground_processes: [
+        { pid: 201, argv: ["node", "/tools/bin/codex"], cwd: "/launcher" },
+        { pid: 202, argv: ["/tools/vendor/x86_64-unknown-linux-musl/bin/codex"], cwd: "/native" },
+      ] },
+    });
+    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue(null);
+    const environ = spyOn(omo, "processEnviron").mockReturnValue(["CODEX_HOME=/fixture"]);
+    try {
+      expect(await paneProcessRoots("launcher-fixture", "codex")).toMatchObject({ pid: 202, cwd: "/native", environ: ["CODEX_HOME=/fixture"] });
+      expect(environ).toHaveBeenCalledWith(202);
+    } finally {
+      environ.mockRestore();
+      identity.mockRestore();
+      rpc.mockRestore();
+    }
+  });
+
   it("returns no process roots when the process probe fails", async () => {
     const rpc = spyOn(herdr, "herdrRpc").mockRejectedValue(new Error("fixture unavailable"));
     try {

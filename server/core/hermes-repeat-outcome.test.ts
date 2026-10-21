@@ -29,6 +29,8 @@ function hermesPane(paneId: string) {
   });
   spyOn(client, "paneGet").mockImplementation(async () => pane());
   spyOn(client, "paneScrollInfo").mockImplementation(async () => pane().scroll);
+  // each send's process binding: no foreground process, without asking a herdr
+  spyOn(client, "paneProcessInfo").mockResolvedValue(undefined);
   spyOn(client, "sessionSnapshot").mockImplementation(async () => ({
     panes: [pane()], layouts: [], agents: [], workspaces: [], tabs: [], protocol: 22, version: "fixture",
   }));

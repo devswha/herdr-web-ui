@@ -207,10 +207,15 @@ for (const dependency of ["send-time process", "scroll"] as const) {
       const noted = spyOn(prompt, "noteSubmitted");
       let answer = (): void => {};
       let reads = 0;
+      let sendRead: Promise<unknown> = Promise.resolve();
       // only the send's own read is disrupted: a later poll's read answers at once
-      const read = <T>(value: T): Promise<T> => reads++ > 0 ? Promise.resolve(value)
-        : failure === "failing" ? Promise.reject(new Error(`fixture: ${dependency} failed`))
-        : new Promise<T>((resolve) => { if (failure === "slow") answer = () => { now += 2000; resolve(value); }; });
+      const read = <T>(value: T): Promise<T> => {
+        if (reads++ > 0) return Promise.resolve(value);
+        const disrupted = failure === "failing" ? Promise.reject(new Error(`fixture: ${dependency} failed`))
+          : new Promise<T>((resolve) => { if (failure === "slow") answer = () => { now += 2000; resolve(value); }; });
+        sendRead = disrupted;
+        return disrupted;
+      };
       const asked = dependency === "scroll"
         ? spyOn(client, "paneScrollInfo").mockImplementation(() => read(target.scroll ?? null))
         : spyOn(client, "paneProcessInfo").mockImplementation(() => read({ pane_id: target.pane_id,
@@ -222,8 +227,8 @@ for (const dependency of ["send-time process", "scroll"] as const) {
       const sent = noted.mock.calls[0]?.[2];
       if (!sent) throw new Error("fixture command was not recorded");
       answer();
-      // the answer's handler runs once the event loop turns
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // the composer's handler was attached to the read first, so it has run once awaiting the read returns
+      if (failure !== "never answering") await sendRead.catch(() => {});
       // a row that answers after the send, and still equals the snapshot's, is kept; none is never invented
       if (dependency === "scroll") expect(sent.top).toBe(failure === "slow" ? 7 : undefined);
       const url = new URL(`http://localhost/api/pane/prompt?pane_id=${target.pane_id}`);
