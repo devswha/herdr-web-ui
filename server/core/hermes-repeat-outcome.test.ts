@@ -1,4 +1,4 @@
-import { afterEach, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PanePromptResponse } from "../../shared/protocol.ts";
@@ -6,6 +6,9 @@ import * as client from "../herdr/client.ts";
 import * as conversation from "../conversation.ts";
 import { createSubmitText } from "./composer.ts";
 import { handlePromptRequest } from "../prompt.ts";
+import { commandInvocations, commandOutcome, CommandReservations, type CommandSend } from "../outcome.ts";
+import { paneCommands } from "../commands.ts";
+import { registry } from "../dialogs/registry.ts";
 import { findLastIndex } from "../dialogs/shared.ts";
 
 // Hermes 0.21.5 in a 120x40 herdr 0.9.5 pane (isolated HERMES_HOME, fake key), /status sent six times in a row with
@@ -118,4 +121,49 @@ it("owns a fresh pane's first /status, read while Hermes redrew its input area f
     expect(shown).toHaveLength(index + 1);
     expect(shown.at(-1)).toMatchObject({ state: "result-observed", result_text: ownBlock(after) });
   }
+});
+
+describe("a /status whose earlier /status lost its anchor", () => {
+  const rows = paneCommands("hermes", null, "/nonexistent-home");
+  const readers = registry.readersFor("hermes");
+  const at = Date.parse("2026-10-21T00:00:00Z");
+  const send = (ledger: CommandReservations, read: Read, offset: number, screen = read.screen): CommandSend => {
+    const invocations = commandInvocations("hermes", "/status", rows);
+    const sent: CommandSend = { id: `send-${offset}`, text: "/status", at: at + offset * 1000, agent: "hermes", identity: "hermes-pane",
+      screen, top: read.top, invocations, form: invocations[0]?.form ?? null };
+    ledger.add(sent, readers);
+    return sent;
+  };
+  const observe = (sent: CommandSend, read: Read, nextAt?: number) =>
+    (sent.outcome = commandOutcome("pane-1", sent, { now: sent.at + 500, screen: read.screen, top: read.top, readers, ...(nextAt === undefined ? {} : { nextAt }) }));
+  // the earlier send's read torn at its last line, so its tail is never found again
+  const torn = (read: Read): string => read.screen.replace(/Agent Running: No(\n ☤ )/u, "Agent Run$1");
+  const [, , third, fourth, fifth] = recorded.sends as [unknown, unknown, { sent: Read; after: Read }, { sent: Read; after: Read }, { sent: Read; after: Read }];
+
+  it("lets each later send on a stable screen own its own block once the earlier block is complete on its screen", () => {
+    const ledger = new CommandReservations();
+    const lost = send(ledger, third.sent, 0, torn(third.sent));
+    expect(observe(lost, third.after).state).toBe("accepted");
+    // the next send's screen shows the lost send's block complete: what echoes after it is this send's
+    const next = send(ledger, fourth.sent, 1);
+    expect(observe(lost, fourth.sent, next.at).state).toBe("unknown");
+    expect(observe(next, fourth.after)).toMatchObject({ state: "result-observed", result_text: ownBlock(fourth.after) });
+    const last = send(ledger, fifth.sent, 2);
+    expect(observe(last, fifth.after)).toMatchObject({ state: "result-observed", result_text: ownBlock(fifth.after) });
+  });
+
+  it("keeps a later send unclaimed while the earlier send's block could still be the one it echoes", () => {
+    const ledger = new CommandReservations();
+    const lost = send(ledger, third.sent, 0, torn(third.sent));
+    // sent before the lost send's echo printed: one new block later cannot tell the two apart
+    const next = send(ledger, third.sent, 1);
+    expect(observe(next, third.after).state).toBe("accepted");
+    expect(observe(next, fourth.after).state).toBe("accepted");
+    expect(observe(lost, fourth.after, next.at).state).toBe("unknown");
+    // and a send whose screen kept no history row proves nothing either
+    const rowless = new CommandReservations();
+    send(rowless, third.sent, 3, torn(third.sent));
+    const blind = send(rowless, { ...fourth.sent, top: undefined as unknown as number }, 4);
+    expect(observe(blind, fourth.after).state).toBe("accepted");
+  });
 });
