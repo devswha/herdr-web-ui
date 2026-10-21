@@ -332,11 +332,14 @@ function conversationChanged(paneId: string): void {
 // starts, a confirmed move takes the next number. The regression script holds reads, cached GETs,
 // SSE rosters, move answers and boot proofs apart through `window.__herdrDemoOrder`, so each can
 // arrive in any order; the app itself only ever sees the answers.
-interface DemoOrder { epoch: string; seq: number; legacy: boolean }
+// The roster is the fictional manager's (server/machines.ts): it publishes a PC's snapshot of an
+// epoch only once its own sideband health call proved that epoch (`accepted`), keeps the last one it
+// accepted until then, and names the proved boot in source_boot_id.
+interface DemoOrder { epoch: string; seq: number; legacy: boolean; accepted: string; cached: SessionSnapshot | null }
 const orders = new Map<string, DemoOrder>();
 function orderOf(machineId: string): DemoOrder {
   let order = orders.get(machineId);
-  if (!order) { order = { epoch: crypto.randomUUID(), seq: 0, legacy: false }; orders.set(machineId, order); }
+  if (!order) { const epoch = crypto.randomUUID(); order = { epoch, seq: 0, legacy: false, accepted: epoch, cached: null }; orders.set(machineId, order); }
   return order;
 }
 /** a PC's roster as its server reads it now: the read's pair is taken when it starts */
@@ -349,16 +352,35 @@ function readRoster(): Machine[] {
   return machines.map((machine) => {
     const order = orderOf(machine.id);
     const { source_boot_id: _proof, ...rest } = machine;
-    return { ...rest, snapshot: readSnapshot(machine), ...(order.legacy ? {} : { source_boot_id: order.epoch }) };
+    if (order.legacy) return { ...rest, snapshot: readSnapshot(machine) };
+    // a restart its manager has not proved yet: the cache keeps the last accepted server's read
+    if (order.epoch !== order.accepted) return { ...rest, snapshot: structuredClone(order.cached), source_boot_id: order.accepted };
+    order.cached = readSnapshot(machine);
+    return { ...rest, snapshot: structuredClone(order.cached), source_boot_id: order.accepted };
   });
 }
-/** answer: proof with a fresh roster; proof-only: proof whose roster has no entry for the PC yet */
+/** answer: proof with a fresh roster; proof-only: proof whose roster has no entry for the PC yet; refuse: the health call fails */
 type VerifyMode = "answer" | "proof-only" | "hold" | "refuse";
+/** the manager's per-PC health-call admission: one call in flight, starts SOURCE_CHECK_INTERVAL_MS apart */
+interface Admission { inflight: Promise<VerifyMode> | null; lastStart: number | null }
+const admissions = new Map<string, Admission>();
+const admissionOf = (machineId: string): Admission => {
+  let admission = admissions.get(machineId);
+  if (!admission) { admission = { inflight: null, lastStart: null }; admissions.set(machineId, admission); }
+  return admission;
+};
 const orderControl = {
   /** rosters read now, delivered later by the script */
   held: [] as Machine[][],
   /** answers the next GET /api/machines gives instead of a fresh read (a cache that lags) */
   cachedGets: [] as Machine[][],
+  /** plain GET /api/machines answers wait for releaseGet() while this is set; each is read when it arrives */
+  holdGets: false,
+  gets: [] as (() => void)[],
+  /** moves to let through before the next one is refused (null: none refused) */
+  failAfter: null as number | null,
+  /** the admission's monotonic clock, in ms: only the script moves it */
+  clock: 0,
   /** SSE rosters wait while this is set: publication is held apart from the move's receipt */
   holdSse: false,
   /** move answers wait for release() while this is set */
@@ -375,18 +397,42 @@ function publishRoster(roster: Machine[] = readRoster()): void {
   note("publication", { machine_id: local.id, epoch: roster[0]?.snapshot?.order_epoch, seq: roster[0]?.snapshot?.read_seq });
   emitSse({ type: "machines", machines: roster });
 }
-/** GET /api/machines?verify_source_boot=<id>: the PC's boot, asked of its server during this request */
+const unverified = (headers: Record<string, string> = {}) => json({ error: { code: "source_unverified", message: "This PC's server could not be verified now" } }, 503, { "cache-control": "no-store", ...headers });
+/**
+ * GET /api/machines?verify_source_boot=<id>: the PC's boot, asked of its server during this request.
+ * Admitted like the manager's (server/machines.ts sourceCheck): an asker that finds a call in flight
+ * waits for it and is refused, and one within the interval of the last start is refused at once.
+ */
 async function verifySourceBoot(machineId: string): Promise<Response> {
   if (machineId === "") return error("invalid_query", "verify_source_boot names one PC", 400);
   const machine = machines.find((candidate) => candidate.id === machineId);
   if (!machine) return error("machine_not_found", "PC not found", 404);
+  note("verify-request", { machine_id: machineId });
+  const admission = admissionOf(machineId);
+  if (admission.inflight) {
+    await admission.inflight;
+    note("verify-joined", { machine_id: machineId });
+    return unverified();
+  }
+  if (admission.lastStart !== null && orderControl.clock - admission.lastStart < 1000) {
+    note("verify-interval", { machine_id: machineId });
+    return unverified({ "retry-after": "1" });
+  }
+  admission.lastStart = orderControl.clock;
   note("verify-start", { machine_id: machineId });
-  let mode = orderControl.verifyMode;
-  if (mode === "hold") mode = await new Promise<VerifyMode>((resolve) => { orderControl.verifies.push({ machineId, release: (next = "answer") => resolve(next) }); });
+  const call = orderControl.verifyMode === "hold"
+    ? new Promise<VerifyMode>((resolve) => { orderControl.verifies.push({ machineId, release: (next = "answer") => resolve(next) }); })
+    : Promise.resolve(orderControl.verifyMode);
+  admission.inflight = call;
+  const mode = await call;
+  admission.inflight = null;
   const order = orderOf(machineId);
   note(`verify-${mode}`, { machine_id: machineId, epoch: order.epoch });
-  if (mode === "refuse" || order.legacy) return json({ error: { code: "source_unverified", message: "This PC's server could not be verified now" } }, 503, { "retry-after": "1" });
-  return json({ machines: mode === "proof-only" ? readRoster().filter((candidate) => candidate.id !== machineId) : readRoster(), verified_source_boot: { machine_id: machineId, boot_id: order.epoch } });
+  if (mode === "refuse" || order.legacy) return unverified();
+  // the health call proved the server that answers now: the manager accepts its epoch
+  order.accepted = order.epoch;
+  const roster = readRoster();
+  return json({ machines: mode === "proof-only" ? roster.filter((candidate) => candidate.id !== machineId) : roster, verified_source_boot: { machine_id: machineId, boot_id: order.epoch } }, 200, { "cache-control": "no-store" });
 }
 (window as unknown as { __herdrDemoOrder: unknown }).__herdrDemoOrder = {
   /** a roster read now, for later delivery; its index */
@@ -403,8 +449,19 @@ async function verifySourceBoot(machineId: string): Promise<Response> {
   verifyMode: (mode: VerifyMode) => { orderControl.verifyMode = mode; },
   releaseVerify: (mode?: VerifyMode) => { orderControl.verifies.shift()?.release(mode); },
   pendingVerifies: () => orderControl.verifies.length,
-  /** the PC's server restarts: a new epoch, counted from 0 again */
+  /** the PC's server restarts: a new epoch, counted from 0 again, which its manager has not proved yet */
   restart: (machineId = local.id) => { const order = orderOf(machineId); order.epoch = crypto.randomUUID(); order.seq = 0; return order.epoch; },
+  /** the manager's own sideband health call proves the PC's current server: passive proof only */
+  proveSource: (machineId = local.id) => { const order = orderOf(machineId); order.accepted = order.epoch; note("sideband-proof", { machine_id: machineId, epoch: order.epoch }); },
+  /** move the admission clock on */
+  advance: (ms: number) => { orderControl.clock += ms; },
+  holdGets: (on: boolean) => { orderControl.holdGets = on; },
+  /** answer the oldest held GET /api/machines */
+  releaseGet: () => { orderControl.gets.shift()?.(); },
+  releaseAllGets: () => { orderControl.holdGets = false; for (const release of orderControl.gets.splice(0)) release(); },
+  pendingGets: () => orderControl.gets.length,
+  /** let `skip` moves through, then refuse the next one without moving anything */
+  failMove: (skip = 0) => { orderControl.failAfter = skip; },
   /** the PC's server is one from before order evidence: no pairs, no receipts' numbers, no proof */
   legacy: (on: boolean, machineId = local.id) => { orderOf(machineId).legacy = on; },
   /** another client moves a workspace: herdr's order and the counter change, nothing is published */
@@ -822,7 +879,9 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     if (asked.length > 1) return error("invalid_query", "verify_source_boot names one PC", 400);
     if (asked.length === 1) return verifySourceBoot(asked[0]!);
     note("read-start", { machine_id: local.id, epoch: orderOf(local.id).epoch, seq: orderOf(local.id).seq });
-    return json({ machines: orderControl.cachedGets.shift() ?? readRoster() });
+    const roster = orderControl.cachedGets.shift() ?? readRoster();
+    if (orderControl.holdGets) await new Promise<void>((resolve) => orderControl.gets.push(resolve));
+    return json({ machines: roster });
   }
   if (path === "/api/session") return json({ snapshot: readSnapshot(local) });
   if (path === "/api/agents") return json(agentsFixture);
@@ -1295,6 +1354,11 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const snap = snapshot();
     const workspace = snap.workspaces.find((w) => w.workspace_id === body["workspace_id"]);
     if (!workspace) return error("not_found", "no such workspace", 404);
+    if (orderControl.failAfter !== null && orderControl.failAfter-- === 0) {
+      orderControl.failAfter = null;
+      note("move-refused", { machine_id: local.id });
+      return error("herdr_error", "herdr refused the move", 500);
+    }
     const ids = snap.workspaces.map((workspace) => workspace.workspace_id);
     const order = movedTabOrder(ids, workspace.workspace_id, Number(body["insert_index"] ?? 0));
     if (order) snap.workspaces.sort((a, b) => order.indexOf(a.workspace_id) - order.indexOf(b.workspace_id));

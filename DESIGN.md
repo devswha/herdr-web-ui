@@ -1105,7 +1105,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   whatever order that roster shows (another browser's later move included), and a roster read
   before it never brings the old order back, while names, status and added or closed workspaces
   still update. A roster from another server lifetime changes the order only after that PC's
-  server, asked after the move, proves it restarted. Agent of Empires keeps a dragged order for a
+  server, asked after the move, proves it restarted. That question
+  (`GET /api/machines?verify_source_boot`) costs a remote PC one health call, and its load is bounded
+  by the manager alone: at most one call in flight per PC, started at least 1000 ms after the last,
+  with every other asker joining it or refused with 503 and `Retry-After: 1`. The browser's
+  coalescing and the 15-second deadline do not by themselves bound it, and this is no general HTTP
+  or DoS protection. Agent of Empires keeps a dragged order for a
   fixed time; a time window ends before a slow move lands or holds a stale order after it, so here
   the operation's own evidence ends it and no clock is read. Only the newest drag of a PC rolls
   back or reports its own failure. A PC whose bridge predates this (until the next remote bundle

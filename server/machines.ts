@@ -880,17 +880,15 @@ export class MachineManager {
   }
   /**
    * Whether a remote PC's full snapshot may replace its cached one. Pairs are the remote server's own,
-   * copied unchanged. Within the epoch its health proved, a read older than the cached one is dropped;
-   * another epoch is held back while the manager asks that PC's /api/health which server answers now.
-   * A snapshot without evidence (an older bridge) is taken as before.
+   * copied unchanged. Within the epoch its health proved over this connection, a read older than the
+   * cached one is dropped; any other epoch, the connection's first included, is held back while the
+   * manager asks that PC's /api/health which server answers now (a held one is offered again by the
+   * next refresh). A snapshot without evidence (an older bridge) is taken as before.
    */
   private admitRemote(runtime: Runtime, snapshot: SessionSnapshot): boolean {
     const epoch = snapshot.order_epoch;
     if (typeof epoch !== "string" || !Number.isSafeInteger(snapshot.read_seq)) return true;
-    if (runtime.acceptedEpoch === undefined || epoch === runtime.acceptedEpoch) {
-      if (runtime.acceptedEpoch === undefined) this.sourceCheck(runtime);
-      return !olderOrderRead(runtime.machine.snapshot, snapshot);
-    }
+    if (epoch === runtime.acceptedEpoch) return !olderOrderRead(runtime.machine.snapshot, snapshot);
     if (!olderOrderRead(runtime.candidate, snapshot)) runtime.candidate = snapshot;
     this.sourceCheck(runtime);
     return false;

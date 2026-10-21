@@ -289,10 +289,55 @@ describe("ReorderCoordinator", () => {
     expect(coordinator.state("local").held).toBe(false);
   });
 
+  test("a server that stops sending evidence cannot lift an acknowledged floor through the fallback", async () => {
+    const coordinator = new ReorderCoordinator();
+    coordinator.roster([entry("local", O, "E", 0)], event);
+    await dragged(coordinator, mover(), { ok: true, order_epoch: "E", moved_seq: 1 });
+    coordinator.roster([entry("local", A, "E", 1)], event);
+    expect(coordinator.state("local")).toMatchObject({ held: false, floors: { E: 1 } });
+    const moves = mover();
+    const done = coordinator.reorder("local", A, B, moves.move);
+    (await moves.next()).resolve({ ok: true });
+    await done;
+    // the post-settlement load the fallback would trust carries no evidence: the floor still holds B
+    coordinator.roster([entry("local", O)], { kind: "load", started: coordinator.loadStarted() });
+    expect(coordinator.order("local", O)).toEqual(B);
+    expect(coordinator.state("local")).toMatchObject({ held: true, floors: { E: 1 } });
+    // an SSE roster at the floor may predate that move; a post-settlement load at the floor releases it
+    coordinator.roster([entry("local", A, "E", 2)], event);
+    expect(coordinator.order("local", O)).toEqual(B);
+    coordinator.roster([entry("local", A, "E", 2)], { kind: "load", started: coordinator.loadStarted() });
+    expect(coordinator.order("local", O)).toEqual(A);
+    expect(coordinator.state("local")).toMatchObject({ held: false, floors: { E: 1 } });
+  });
+
+  test("a PC that leaves the roster settles a batch waiting for its roster, and keeps its floor", async () => {
+    const coordinator = new ReorderCoordinator();
+    const start = ["w", "x", "y", "z"];
+    const target = ["z", "y", "x", "w"];
+    coordinator.roster([{ id: "local", snapshot: null }, entry("remote", start, "E", 0)], event);
+    const moves = mover();
+    const first = coordinator.reorder("remote", start, target, moves.move);
+    (await moves.next()).resolve({ ok: true, order_epoch: "E", moved_seq: 1 });
+    const later = coordinator.reorder("remote", target, ["y", "z", "x", "w"], moves.move);
+    const refused = later.then(() => null, (error: unknown) => error);
+    (await moves.next()).reject(new Error("herdr refused"));
+    await first;
+    // still registered without a snapshot (a disconnect): the batch keeps waiting
+    coordinator.roster([{ id: "local", snapshot: null }, { id: "remote", snapshot: null }], event);
+    expect(coordinator.state("remote")).toMatchObject({ pending: 1, held: true });
+    coordinator.roster([{ id: "local", snapshot: null }], event);
+    expect(coordinator.state("remote")).toMatchObject({ pending: 0, held: false, floors: { E: 1 } });
+    expect(await refused).toBeInstanceOf(Error);
+    expect(moves.waiting()).toBe(0);
+    expect(coordinator.state("remote")).toMatchObject({ pending: 0, held: false, floors: { E: 1 } });
+  });
+
   test("a Sidebar remount or PC switch keeps the hold: it lives in the coordinator", async () => {
     const coordinator = new ReorderCoordinator();
     await dragged(coordinator, mover(), { ok: true, order_epoch: "E", moved_seq: 1 });
-    coordinator.roster([entry("other", B, "F", 0)], event);
+    // App's rosters list every PC; one without a snapshot is still registered
+    coordinator.roster([{ id: "local", snapshot: null }, entry("other", B, "F", 0)], event);
     expect(coordinator.order("other", B)).toEqual(B);
     expect(coordinator.order("local", O)).toEqual(A);
   });
@@ -406,7 +451,7 @@ describe("ReorderCoordinator", () => {
     const coordinator = new ReorderCoordinator({ verify: asks.verify });
     await dragged(coordinator, mover(), { ok: true, order_epoch: "E2", moved_seq: 1 });
     await dragged(coordinator, mover(), { ok: true, order_epoch: "R1", moved_seq: 1 }, "remote");
-    coordinator.roster([entry("remote", O, "R2", 0)], event);
+    coordinator.roster([{ id: "local", snapshot: null }, entry("remote", O, "R2", 0)], event);
     const ask = await asks.next();
     expect(ask.id).toBe("remote");
     ask.resolve({ machines: [entry("local", O, "E3", 0)], boot_id: "R2" });

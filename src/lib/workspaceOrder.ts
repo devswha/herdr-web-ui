@@ -128,7 +128,10 @@ interface PcOrder {
   /** the PC's move batches, one after another */
   chain: Promise<void>;
   failed: boolean;
-  waiters: ((ids: string[]) => void)[];
+  /** batches waiting, after a failed one, for a roster they may build on */
+  waiters: { generation: number; resolve: (ids: string[]) => void; reject: (error: Error) => void }[];
+  /** the PC left the roster: its claims settle, its protection stays in case it comes back */
+  gone: boolean;
   check: { key: string; abort: AbortController } | null;
 }
 
@@ -158,7 +161,7 @@ export class ReorderCoordinator {
   private pc(id: string): PcOrder {
     let pc = this.pcs.get(id);
     if (!pc) {
-      pc = { shown: null, last: null, generation: 0, pending: new Set(), desired: null, hold: null, floors: new Map(), protectedEpoch: null, guard: null, retired: new Set(), receipts: 0, chain: Promise.resolve(), failed: false, waiters: [], check: null };
+      pc = { shown: null, last: null, generation: 0, pending: new Set(), desired: null, hold: null, floors: new Map(), protectedEpoch: null, guard: null, retired: new Set(), receipts: 0, chain: Promise.resolve(), failed: false, waiters: [], gone: false, check: null };
       this.pcs.set(id, pc);
     }
     return pc;
@@ -180,10 +183,25 @@ export class ReorderCoordinator {
     return { pending: pc?.pending.size ?? 0, held: !!pc?.hold, floors: Object.fromEntries(pc?.floors ?? []), guard: pc?.guard ?? null, retired: [...pc?.retired ?? []], checking: !!pc?.check };
   }
 
-  /** A full roster App commits (never a pane patch). */
+  /** A full roster App commits (never a pane patch): every registered PC, so one it lacks has left. */
   roster(entries: readonly OrderRosterEntry[], source: RosterSource): void {
+    const listed = new Set(entries.map((entry) => entry.id));
+    for (const [id, pc] of this.pcs) {
+      if (listed.has(id)) pc.gone = false;
+      else this.depart(pc);
+    }
     for (const entry of entries) if (entry.snapshot) this.full(entry.id, entry.snapshot, source);
     this.notify();
+  }
+
+  /** A PC left the roster: no roster of it can come, so its waiting batches fail and its hold ends. */
+  private depart(pc: PcOrder): void {
+    if (pc.gone) return;
+    pc.gone = true;
+    this.invalidateCheck(pc);
+    // a waiting batch's claim ends now; one whose move is in flight ends when that move answers
+    for (const waiter of pc.waiters.splice(0)) { pc.pending.delete(waiter.generation); waiter.reject(new Error("This PC was removed")); }
+    if (pc.pending.size === 0) { pc.hold = null; pc.desired = null; }
   }
 
   private qualifies(pc: PcOrder, evidence: Evidence | null): boolean {
@@ -197,7 +215,7 @@ export class ReorderCoordinator {
     const evidence = evidenceOf(snapshot);
     pc.last = { ids, evidence };
     if (evidence && pc.retired.has(evidence.epoch)) return;
-    if (pc.waiters.length > 0 && this.qualifies(pc, evidence)) for (const resolve of pc.waiters.splice(0)) resolve(ids);
+    if (pc.waiters.length > 0 && this.qualifies(pc, evidence)) for (const waiter of pc.waiters.splice(0)) waiter.resolve(ids);
     if (pc.pending.size > 0 || pc.hold) {
       if (pc.pending.size === 0 && this.releases(pc, evidence, source)) { pc.hold = null; pc.desired = null; pc.shown = ids; return; }
       // the dragged order stays on screen; a roster it may trust is what a failed drag falls back to
@@ -215,9 +233,10 @@ export class ReorderCoordinator {
   private releases(pc: PcOrder, evidence: Evidence | null, source: RosterSource): boolean {
     const hold = pc.hold!;
     if (hold.epoch !== null) return !!evidence && evidence.epoch === hold.epoch && evidence.seq >= pc.floors.get(hold.epoch)!;
-    // an older server: the first roster of a load started after the moves settled
+    // an older server: the first roster of a load started after the moves settled; while a floor or
+    // guard protects the PC, only if that roster also qualifies for it (a missing pair never lifts one)
     return hold.legacy && hold.settleMark !== null && source.kind === "load" && source.started > hold.settleMark
-      && (evidence === null || pc.protectedEpoch === null);
+      && (pc.protectedEpoch === null || this.qualifies(pc, evidence));
   }
 
   /** A roster of another epoch than the protected one: ask the PC's server which boot answers now. */
@@ -281,7 +300,7 @@ export class ReorderCoordinator {
     this.notify();
     const run = pc.chain.then(async () => {
       // after a failed batch, herdr's order is what a roster read after its receipts says
-      const base = pc.failed ? await this.qualifiedBase(pc) : [...current];
+      const base = pc.failed ? await this.qualifiedBase(pc, generation) : [...current];
       pc.failed = false;
       for (const step of workspaceMoves(base, mergeOrder(next, base))) this.acknowledge(pc, await move(step));
     });
@@ -289,9 +308,10 @@ export class ReorderCoordinator {
     return run.then(() => this.settle(machineId, pc, generation, null), (error: unknown) => this.settle(machineId, pc, generation, error));
   }
 
-  private qualifiedBase(pc: PcOrder): Promise<string[]> {
+  private qualifiedBase(pc: PcOrder, generation: number): Promise<string[]> {
     if (pc.last && this.qualifies(pc, pc.last.evidence)) return Promise.resolve(pc.last.ids);
-    return new Promise((resolve) => pc.waiters.push(resolve));
+    if (pc.gone) return Promise.reject(new Error("This PC was removed"));
+    return new Promise((resolve, reject) => pc.waiters.push({ generation, resolve, reject }));
   }
 
   private acknowledge(pc: PcOrder, receipt: WorkspaceMoved | void): void {
@@ -315,7 +335,8 @@ export class ReorderCoordinator {
     // the newest order did not land: what herdr confirmed shows once a roster says so
     if (error !== null && latest) pc.desired = null;
     const hold = pc.hold;
-    if (pc.pending.size === 0 && hold) {
+    if (pc.pending.size === 0 && hold && pc.gone) { pc.hold = null; pc.desired = null; }
+    else if (pc.pending.size === 0 && hold) {
       if (hold.receipts === 0 || (hold.epoch === null && !hold.legacy)) {
         // nothing moved, or only in an epoch proved gone: no roster to wait for
         if (pc.desired) pc.shown = pc.desired;

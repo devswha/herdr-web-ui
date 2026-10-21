@@ -656,6 +656,48 @@ describe("workspace order evidence through the manager", () => {
     expect(remoteOf(manager)?.snapshot).toMatchObject({ order_epoch: "R", read_seq: 0 });
   });
 
+  it("a connection's first epoch is published only once its health proves it", async () => {
+    const { manager, send, setHealth } = await remoteFixture();
+    const health = gatedHealth();
+    setHealth(health.handler);
+    const pairs = remotePairs(manager);
+    send({ type: "snapshot", snapshot: paired("R", 0, "blocked") });
+    const call = await health.next();
+    await heard(manager, send);
+    expect(remoteOf(manager)?.snapshot?.order_epoch).toBeUndefined();
+    expect(pairs).toEqual([]);
+    const proved = published(manager, (machines) => machines.some((machine) => machine.id === "remote" && machine.snapshot?.order_epoch === "R"));
+    call.answer("R");
+    await proved;
+    expect(remoteOf(manager)).toMatchObject({ source_boot_id: "R", snapshot: { order_epoch: "R", read_seq: 0, panes: [{ agent_status: "blocked" }] } });
+  });
+
+  it("a reconnect cannot replace a cached epoch before health proves the new one", async () => {
+    let clock = 0;
+    const { manager, drive, remote, runtime, endpoint, setHealth } = await remoteFixture({ now: () => clock });
+    const health = gatedHealth();
+    setHealth(health.handler);
+    remote.set(paired("R1", 5));
+    await drive.refresh(runtime);
+    (await health.next()).answer("R1");
+    await published(manager, (machines) => machines.some((machine) => machine.id === "remote" && machine.source_boot_id === "R1"));
+    // the connection drops and comes back: the cache stays, its proof goes
+    drive.disconnect(runtime);
+    runtime.endpoint = endpoint;
+    clock = SOURCE_CHECK_INTERVAL_MS;
+    const pairs = remotePairs(manager);
+    remote.set(paired("R2", 0, "blocked"));
+    await drive.refresh(runtime);
+    const call = await health.next();
+    expect(remoteOf(manager)?.snapshot).toMatchObject({ order_epoch: "R1", read_seq: 5 });
+    expect(remoteOf(manager)?.source_boot_id).toBeUndefined();
+    expect(pairs).not.toContain("R2:0");
+    const proved = published(manager, (machines) => machines.some((machine) => machine.id === "remote" && machine.snapshot?.order_epoch === "R2"));
+    call.answer("R2");
+    await proved;
+    expect(remoteOf(manager)).toMatchObject({ source_boot_id: "R2", snapshot: { order_epoch: "R2", read_seq: 0 } });
+  });
+
   it("restored remote state has no boot proof", () => {
     const root = mkdtempSync(join(tmpdir(), "herdr-machine-restored-"));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
