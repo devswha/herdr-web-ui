@@ -23,10 +23,21 @@ export function processStartedAt(pid: number): number | null {
       return null;
     }
   }
+  return linuxStartedAt(pid);
+}
+
+/**
+ * Linux: the boot as the wall clock less the uptime, then the start's ticks after it, each to
+ * 10 ms. /proc/stat's `btime` is whole seconds and stays where it was when the clock is stepped
+ * later, so a start read from it can be up to a second early, before a thread its process made
+ * as it started. The wall clock is read first: the uptime read after it is at most one tick late.
+ */
+function linuxStartedAt(pid: number): number | null {
   try {
+    const now = Date.now();
+    const uptime = Number(readFileSync("/proc/uptime", "utf8").split(" ")[0]);
     const ticks = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").pop()!.split(" ")[19]);
-    const boot = Number(readFileSync("/proc/stat", "utf8").match(/^btime (\d+)$/m)?.[1]);
-    return Number.isFinite(ticks) && Number.isFinite(boot) ? boot * 1000 + ticks * 10 : null;
+    return Number.isFinite(ticks) && Number.isFinite(uptime) ? now - uptime * 1000 + ticks * 10 : null;
   } catch {
     return null;
   }
@@ -51,12 +62,7 @@ export function processStartLowerBound(pid: number): number | null {
     } catch { return null; }
   }
   if (process.platform !== "linux") return null;
-  try {
-    // the wall clock first, then uptime and the start ticks, each cut to 10 ms: the start is
-    // after now - uptime + ticks, less one tick for the uptime read last
-    const now = Date.now();
-    const uptime = Number(readFileSync("/proc/uptime", "utf8").split(" ")[0]);
-    const ticks = Number(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").pop()!.split(" ")[19]);
-    return Number.isFinite(ticks) && Number.isFinite(uptime) ? now - uptime * 1000 + ticks * 10 - 10 : null;
-  } catch { return null; }
+  // the start as read, less one tick for the uptime read after the clock
+  const started = linuxStartedAt(pid);
+  return started === null ? null : started - 10;
 }

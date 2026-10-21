@@ -33,4 +33,19 @@ describe("process start time", () => {
       expect(processStartLowerBound(2147483647)).toBeNull();
     } finally { child.kill(); }
   });
+
+  it.skipIf(process.platform !== "linux")("reads a Linux start to the tick, never before the process started", async () => {
+    // /proc/stat's btime is whole seconds: a start read from it could be up to a second early,
+    // before a thread the process made as it started, and below the lower bound
+    const before = Date.now();
+    const child = Bun.spawn([process.execPath, "-e", "await Bun.sleep(5000)"]);
+    const spawned = Date.now();
+    try {
+      const started = processStartedAt(child.pid)!;
+      expect(started).toBeGreaterThanOrEqual(before - 20);
+      expect(started).toBeLessThanOrEqual(spawned + 20);
+      // the bound is a tick below the start: a thread made as the process starts is above it
+      expect(processStartLowerBound(child.pid)!).toBeLessThanOrEqual(started);
+    } finally { child.kill(); }
+  });
 });
