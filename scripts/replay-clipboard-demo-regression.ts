@@ -436,6 +436,9 @@ try {
     const PENDING = [
       { name: "replayed OSC in flight, its live end and a live copy queued", steps: [R(`${ESC}]52;c;${HISTORY}`), L(BEL), L(STALE_COPY)], replayOscOpen: true },
       { name: "live copy in flight, another queued", steps: [L(STALE_COPY), L(STALE_COPY)], replayOscOpen: false },
+      // the old output's live OSC 52 is still open when it is retired: the new output's first live
+      // frame ends it, and that copy is the old output's
+      { name: "live OSC 52 left open in flight, a live copy queued", steps: [L(`${ESC}]52;c;c3RhbGU=`), L(STALE_COPY)], replayOscOpen: true, next: [L(`${BEL}${LIVE_COPY}`)] },
     ];
     const context = await newContext(browser, url);
     try {
@@ -477,13 +480,32 @@ try {
         assert.equal(after.replayOscOpen, test.replayOscOpen, `${test.name}: a replayed OSC the old frame left open stays guarded`);
         assert.equal(readyAfterOld, 0, `${test.name}: the old frame's callback does not mark the new output ready`);
         // the new connection's own replay and live copy, as after any reconnect
-        const next = await frames(page, [R(`${ESC}\\${ESC}[2J${ESC}[Hrestored after reconnect${ESC}]52;c;${HISTORY}${BEL}`), L(LIVE_COPY)]);
+        const next = await frames(page, test.next ?? [R(`${ESC}\\${ESC}[2J${ESC}[Hrestored after reconnect${ESC}]52;c;${HISTORY}${BEL}`), L(LIVE_COPY)]);
         const nextCopies = await fixture(page, (state) => [...state.copies]);
         assert.deepEqual(nextCopies, ["live"], `${test.name}: the new output's live copy works`);
         assert.deepEqual(next.acks.map((ack) => ack.offset), next.pushed.map((step) => step.offset), `${test.name}: one ACK per new frame`);
         assert.equal(await ready(), 1, `${test.name}: the new output marks itself ready`);
         report["reconnect-replay"]!.push({ name: `pending write at reconnect: ${test.name}`, pending: { inFlight: held.inFlight, queued: held.queued }, afterDisconnect: { queued: retired.queued, inFlight: retired.inFlight, retired: retired.retired }, copies, acksAfterDisconnect: acks.length - before.length, writesAfterRelease: after.writes - held.writes, replayOscOpen: after.replayOscOpen, readyFromOldCallback: readyAfterOld > 0, nextCopies });
         console.log(`PASS pending write at reconnect: ${test.name}`);
+      }
+
+      // the same with nothing pending: the old output's live OSC 52 was parsed whole and left open
+      {
+        await resetCase(page);
+        await frames(page, [L(`${ESC}]52;c;c3RhbGU=`)]);
+        const open = await probeOf(page);
+        assert.deepEqual({ open: open.open, id: open.id, inFlight: open.inFlight, queued: open.queued, replayOscOpen: open.replayOscOpen }, { open: true, id: 52, inFlight: 0, queued: 0, replayOscOpen: false }, "a live OSC 52 is open and nothing is pending");
+        const sockets = await fixture(page, (state) => state.sockets.length);
+        await fixture(page, (state) => state.sockets.at(-1)!.close());
+        await page.waitForFunction(([count, paneId]) => window.replayFixture.sent.some((frame) => frame.type === "attach" && frame.pane_id === paneId && frame.socket >= count), [sockets, panes.shell] as const);
+        const retired = await probeOf(page);
+        assert.equal(retired.replayOscOpen, true, "the old output's open OSC is guarded after the reconnect");
+        const next = await frames(page, [L(`${BEL}${LIVE_COPY}`)]);
+        const copies = await fixture(page, (state) => [...state.copies]);
+        assert.deepEqual(copies, ["live"], "the old output's OSC 52 copies nothing; the new live copy once");
+        assert.deepEqual(next.acks.map((ack) => ack.offset), next.pushed.map((step) => step.offset));
+        report["reconnect-replay"]!.push({ name: "live OSC 52 left open at reconnect, nothing pending", beforeDisconnect: { open: open.open, id: open.id }, replayOscOpenAfterReconnect: retired.replayOscOpen, copies });
+        console.log("PASS open live OSC at reconnect, nothing pending");
       }
 
       // reset: herdr could not restore the pane, so its terminal is reset to no pane, with a write pending

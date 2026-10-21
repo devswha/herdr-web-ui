@@ -1164,8 +1164,13 @@ export function PaneTerminal({
     // frame xterm is parsing then is the old output's (`parsingOwner`), which copies nothing.
     let outputOwner = 0;
     let parsingOwner = 0;
-    // a replayed frame ended inside an OSC that may still dispatch as OSC 52 in a later live write
+    // a replayed frame, or retired output, ended inside an OSC that may still dispatch as OSC 52 in a
+    // later live write
     let replayOscOpen = false;
+    const oscMayCopy = (): boolean => {
+      const osc = term.oscStringState();
+      return osc.open && (!osc.idComplete || osc.id === 52);
+    };
     const writeNextOutput = (): void => {
       const frame = outputFrames.shift();
       if (!frame || disposed) {
@@ -1174,14 +1179,14 @@ export function PaneTerminal({
       }
       writingOutput = true;
       parsingReplay = frame.replay;
-      parsingOwner = outputOwner;
+      const owner = parsingOwner = outputOwner;
       term.write(frame.data, () => {
         parsingReplay = false;
         if (!disposed) {
-          const osc = term.oscStringState();
-          if (frame.replay) replayOscOpen = osc.open && (!osc.idComplete || osc.id === 52);
+          // retired output is history to the new output, as a replayed frame is
+          if (frame.replay || owner !== outputOwner) replayOscOpen = oscMayCopy();
           // the replayed OSC ended without dispatching as OSC 52 (aborted, or another identifier)
-          else if (replayOscOpen && !osc.open) replayOscOpen = false;
+          else if (replayOscOpen && !term.oscStringState().open) replayOscOpen = false;
         }
         try {
           frame.done?.();
@@ -1197,12 +1202,12 @@ export function PaneTerminal({
     // A pane switch resets the parser, and a reconnect replays afresh: frames still queued from
     // before are dropped unwritten (their connection or pane is gone, so they have no ACK to send),
     // and the one xterm is parsing finishes with no clipboard write. Its callback still runs, and
-    // its own owner and generation checks keep it off the new output. Only an OSC still open in
-    // xterm keeps a replayed copy request pending.
+    // its own owner and generation checks keep it off the new output. An OSC the old output left
+    // open in xterm is guarded as a replayed one: its callback decides for a frame still parsing.
     const retireOutput = (): void => {
       outputOwner++;
       outputFrames.length = 0;
-      replayOscOpen = replayOscOpen && term.oscStringState().open;
+      if (!writingOutput) replayOscOpen = oscMayCopy();
     };
     retireOutputRef.current = retireOutput;
     if (__HERDR_TEST_HOOKS__) {

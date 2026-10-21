@@ -2249,7 +2249,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   another identifier, a whole live OSC 52 later in that same live frame is not copied either; one
   in the next frame is. An older bridge marks nothing, so its replay still counts as live output.
   A reconnect or a pane switch retires the output from before it: frames still waiting are dropped
-  unwritten, and the one xterm is still parsing copies nothing.
+  unwritten, the one xterm is still parsing copies nothing, and an OSC the old output left open is
+  guarded as a replayed one.
   The idea that a new viewer does not act on earlier writes is AoE's (Agent of Empires), whose
   clipboard consumer starts at the current point and never sees the replay; Ovis differs because a
   joining view needs the replay drawn, so only its side effect goes. Every xterm upgrade ports
