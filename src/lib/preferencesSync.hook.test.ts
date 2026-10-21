@@ -52,6 +52,7 @@ describe("preferences sync real send path", () => {
     retrying: boolean;
     retry: () => void;
     resubscribed: () => void;
+    disconnected: () => void;
     /** render again, with `syncEnabled` as it is now */
     rerender: () => void;
   }
@@ -133,7 +134,7 @@ describe("preferences sync real send path", () => {
     records.clear();
     records.set("herdr-web-ui:settings", JSON.stringify(raw));
     const unmounted = () => { throw new Error("not mounted"); };
-    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: unmounted, receive: unmounted, saveError: null, paused: false, retrying: false, retry: unmounted, resubscribed: unmounted, rerender: unmounted };
+    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: unmounted, receive: unmounted, saveError: null, paused: false, retrying: false, retry: unmounted, resubscribed: unmounted, disconnected: unmounted, rerender: unmounted };
     function Probe() {
       const context = useSettings();
       client.settings = context.settings;
@@ -146,6 +147,7 @@ describe("preferences sync real send path", () => {
       client.retrying = sync.retrying;
       client.retry = sync.retry;
       client.resubscribed = sync.resubscribed;
+      client.disconnected = sync.disconnected;
       return null;
     }
     const tree = () => createElement(SettingsProvider, null, createElement(Probe));
@@ -540,6 +542,59 @@ describe("preferences sync real send path", () => {
     refusing = null;
     syncEnabled = true;
     await act(async () => { client.rerender(); });
+    await send();
+    expect([bodies.length, answers, client.saveError]).toEqual([2, 1, null]);
+    expect(store.get().settings.darkTheme).toBe("tokyo-night");
+  });
+
+  it("a lost event stream cancels the wait, and its reopening resumes one chain", async () => {
+    const client = await open();
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await failSaves(1);
+    expect(retryWaits()).toEqual([5_000]);
+    await act(async () => { client.disconnected(); });
+    expect(retryWaits()).toEqual([]);
+    // an edit made while the stream is down stays here and is not sent either
+    await act(async () => { client.update({ lightTheme: "catppuccin" }); });
+    await longWait();
+    expect([refusals, client.paused, client.saveError !== null]).toEqual([1, false, true]);
+    expect(client.settings.lightTheme).toBe("catppuccin");
+
+    // the user's Retry still goes once, and its refusal sets no wait while the stream is down
+    await act(async () => { client.retry(); });
+    await send();
+    expect([refusals, client.retrying]).toEqual([2, false]);
+    expect(retryWaits()).toEqual([]);
+    await longWait();
+    expect(refusals).toBe(2);
+
+    refusing = null;
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
+    await send();
+    await longWait();
+    expect([bodies.length, answers, client.saveError, client.paused]).toEqual([3, 1, null, false]);
+    expect(bodies[2]?.settings).toMatchObject({ darkTheme: "tokyo-night", lightTheme: "catppuccin" });
+    expect(store.get().settings).toMatchObject({ darkTheme: "tokyo-night", lightTheme: "catppuccin" });
+  });
+
+  it("a refusal that arrives while the event stream is down sets no wait, and goes when it reopens", async () => {
+    const client = await open();
+    const gate = heldRefusal();
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await windows();
+    expect(bodies.length).toBe(1);
+    await act(async () => { client.disconnected(); });
+    await act(async () => { gate.resolve(); });
+    await act(async () => {});
+    // the answer is still read: the change stays unconfirmed here
+    expect(client.saveError).not.toBeNull();
+    expect(retryWaits()).toEqual([]);
+    await longWait();
+    expect(bodies.length).toBe(1);
+
+    refusing = null;
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
     await send();
     expect([bodies.length, answers, client.saveError]).toEqual([2, 1, null]);
     expect(store.get().settings.darkTheme).toBe("tokyo-night");

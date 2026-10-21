@@ -33,6 +33,14 @@ async function browserAt(browser: Awaited<ReturnType<typeof chromium.launch>>, o
       setItem.call(this, key, value);
       window.dispatchEvent(new Event("preferences-test-storage"));
     };
+    // the app's own event stream reporting its loss, as the browser does when the server goes away
+    const NativeEventSource = window.EventSource;
+    window.EventSource = class extends NativeEventSource {
+      constructor(url: string | URL, init?: EventSourceInit) {
+        super(url, init);
+        if (String(url).endsWith("/api/machines/events")) this.addEventListener("error", () => window.dispatchEvent(new Event("preferences-test-stream-lost")));
+      }
+    };
   }, [own, pins] as const);
   await before?.(context);
   const puts: Opened["puts"] = [];
@@ -354,6 +362,41 @@ try {
       assert.equal((await held()).settings["theme"], "dark");
       failing = false;
       console.log(`PASS undone-while-refused ${JSON.stringify({ puts: e.puts.length - putsBefore, alert: 0, server: (await held()).settings["theme"] })}`);
+
+      // disconnected-while-refused: after one settled refusal the server goes away; the browser's own
+      // EventSource error cancels the wait, nothing is sent while the stream is down, and its real
+      // reopening sends the latest change once, in one chain
+      const putsAtStart = e.puts.length;
+      failing = true;
+      await mode("Light");
+      assert.equal((await nextPut(e)).status(), 500);
+      await alert.waitFor();
+      await e.page.evaluate(() => {
+        Reflect.set(window, "__preferencesStreamLost", new Promise<void>((resolve) => window.addEventListener("preferences-test-stream-lost", () => resolve(), { once: true })));
+      });
+      const port = server.port;
+      server.stop();
+      const deadline = Promise.withResolvers<never>();
+      const lostTimer = setTimeout(() => deadline.reject(new Error("the event stream never reported its loss")), 120_000);
+      try { await Promise.race([e.page.evaluate(() => Reflect.get(window, "__preferencesStreamLost") as Promise<void>), deadline.promise]); } finally { clearTimeout(lostTimer); }
+      const atDisconnect = e.puts.length;
+      await quiet();
+      assert.equal(e.puts.length, atDisconnect, "a lost event stream cancels the wait for the next save");
+      assert.equal(atDisconnect, putsAtStart + 1);
+      failing = false;
+      const reopened = [e.page, f.page].map((page) => page.waitForResponse((response) => response.url().endsWith("/api/machines/events"), { timeout: 120_000 }));
+      server = serve(port);
+      await Promise.all(reopened);
+      assert.equal((await nextPut(e)).status(), 200);
+      await alert.waitFor({ state: "detached" });
+      await settingsHold(f.page, { theme: "light" });
+      await quiet();
+      assert.equal(e.puts.length, atDisconnect + 1, "the reopened stream sends the change once");
+      assert.equal((await held()).settings["theme"], "light");
+      assert.equal(mostAtOnce, 1);
+      const lost = { scenario: "disconnected-while-refused", putsBeforeDisconnect: atDisconnect - putsAtStart, putsWhileDisconnected: 0, putsAfterReopen: e.puts.length - atDisconnect, server: (await held()).settings["theme"], secondClient: "light", mostPutsAtOnce: mostAtOnce };
+      if (qaDir) writeFileSync(join(qaDir, "disconnected-while-refused.json"), JSON.stringify(lost, null, 2));
+      console.log(`PASS disconnected-while-refused ${JSON.stringify(lost)}`);
       for (const opened of [e, f]) await opened.context.close();
     } finally {
       await workspaceClose(pinnedWorkspace).catch((error) => { if (error?.code !== "workspace_not_found") throw error; });

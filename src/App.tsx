@@ -539,9 +539,10 @@ export function App() {
   const pushOnRef = useRef(pushOn);
   pushOnRef.current = pushOn;
   // the shared settings and pins, the same in every browser of this server, once the app is in
-  const { receive: receivePreferences, saveError: settingsSaveError, paused: settingsSavePaused, retrying: settingsSaveRetrying, retry: retrySettingsSave, resubscribed: preferencesResubscribed } = usePreferencesSync(locked === false);
+  const { receive: receivePreferences, saveError: settingsSaveError, paused: settingsSavePaused, retrying: settingsSaveRetrying, retry: retrySettingsSave, resubscribed: preferencesResubscribed, disconnected: preferencesDisconnected } = usePreferencesSync(locked === false);
   const receivePreferencesRef = useRef(receivePreferences); receivePreferencesRef.current = receivePreferences;
   const preferencesResubscribedRef = useRef(preferencesResubscribed); preferencesResubscribedRef.current = preferencesResubscribed;
+  const preferencesDisconnectedRef = useRef(preferencesDisconnected); preferencesDisconnectedRef.current = preferencesDisconnected;
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   // last-seen agent status per pane: the baseline that decides whether a push is news
@@ -681,6 +682,8 @@ export function App() {
     const events = new EventSource("/api/machines/events");
     // opened or reopened: a shared-settings save paused by failures gets a new round
     events.onopen = () => preferencesResubscribedRef.current();
+    // lost (the browser reconnects by itself): a shared-settings save waits for that instead of retrying
+    events.onerror = () => preferencesDisconnectedRef.current();
     events.onmessage = (event) => {
       let payload: MachineEvent;
       try { payload = JSON.parse(event.data); } catch { return; }

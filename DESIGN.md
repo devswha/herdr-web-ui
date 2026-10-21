@@ -2203,7 +2203,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   amber edge of a pressed icon button, a finger's fills it as a pressed settings row fills. Korean
   keeps each clause on one line. The
   change is sent again every few seconds; after three failures in a row sending pauses until Retry
-  or the event stream reopens, and edits made meanwhile go out with the next send. The alert clears
+  or the event stream reopens, and edits made meanwhile go out with the next send. While the event
+  stream is lost nothing is resent on its own (only Retry goes, once); its reopening sends what is
+  unsent, in the same one chain. The alert clears
   only when nothing unsent is left. This follows the app's actionable-error rule (one sentence and
   the control that does it, causes folded) as drawn in the Codex theme; it differs from AoE's
   per-field retry store because Ovis shares one ordered change set, so Retry resends the current

@@ -7,7 +7,8 @@
  * document each time the event stream opens, so a reconnected page catches up. Last write wins,
  * setting by setting: a change made here and not yet sent stays, and goes out over what arrived.
  * After three failed saves in a row, sending pauses until the user asks for Retry or the event stream
- * reopens; the change stays on this device meanwhile, and edits made then go out with it.
+ * reopens; the change stays on this device meanwhile, and edits made then go out with it. While the
+ * event stream is lost, nothing goes out on its own either: its reopening sends what is unsent.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { mirrorPalette, SHARED_SETTING_KEYS, type PreferencesChange, type SharedPreferences, type SharedSettingKey } from "../../shared/preferences.ts";
@@ -115,6 +116,8 @@ export interface PreferencesSync {
   retry(): void;
   /** the event stream opened again (App's EventSource): a paused change gets a new round */
   resubscribed(): void;
+  /** the event stream was lost (App's EventSource): no save goes out on its own until `resubscribed` */
+  disconnected(): void;
 }
 
 export function usePreferencesSync(enabled: boolean): PreferencesSync {
@@ -149,6 +152,11 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   const retryTimer = useRef<number | undefined>(undefined);
   // mounted and enabled: an answer that arrives after either ended is still read, but sets no wait
   const live = useRef(false);
+  // the event stream is lost: the server is likely unreachable, so nothing is sent until it reopens
+  const [streamLost, setStreamLost] = useState(false);
+  const streamLostRef = useRef(false);
+  // the user's Retry goes once even while the stream is lost; the send it starts clears this
+  const userRetry = useRef(false);
   // the baseline is a ref: a document that changes nothing here still moves what is pending
   const [, setTaken] = useState(0);
 
@@ -210,9 +218,20 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
     if (off.current || readOnly.current) return;
     // nothing unsent and nothing on its way: nothing is left to confirm, so nothing to wait for
     if (inFlight.current === null && preferencesChange(base.current, latest.current) === null) { standDown(); return; }
+    userRetry.current = true;
     setRetrying(true);
     resume();
   }, [resume, standDown]);
+  const resubscribed = useCallback(() => {
+    streamLostRef.current = false;
+    setStreamLost(false);
+    resume();
+  }, [resume]);
+  const disconnected = useCallback(() => {
+    streamLostRef.current = true;
+    setStreamLost(true);
+    window.clearTimeout(retryTimer.current);
+  }, []);
 
   const change = loaded ? preferencesChange(base.current, { settings, pins }) : null;
   const pending = change === null ? null : JSON.stringify(change);
@@ -227,7 +246,9 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   }, [enabled]);
   useEffect(() => {
     if (!enabled || !loaded || off.current || readOnly.current || paused || pending === null || inFlight.current !== null) return;
+    if (streamLost && !userRetry.current) return;
     const timer = window.setTimeout(() => {
+      userRetry.current = false;
       const body = JSON.parse(pending) as PreferencesChange;
       inFlight.current = body;
       savePreferences(body).then((saved) => {
@@ -263,12 +284,12 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
           setRetrying(false);
           failures.current += 1;
           if (failures.current >= PAUSE_AFTER) setPaused(true);
-          else if (live.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
+          else if (live.current && !streamLostRef.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
         }
       });
     }, SEND_AFTER_MS);
     return () => { window.clearTimeout(timer); window.clearTimeout(retryTimer.current); };
-  }, [enabled, loaded, paused, pending, attempt, absorb, settled, standDown]);
+  }, [enabled, loaded, paused, streamLost, pending, attempt, absorb, settled, standDown]);
 
-  return { receive, saveError, paused, retrying, retry, resubscribed: resume };
+  return { receive, saveError, paused, retrying, retry, resubscribed, disconnected };
 }
