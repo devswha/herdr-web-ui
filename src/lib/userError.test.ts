@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { ApiError } from "./api.ts";
 import { withChatReadDeadline } from "./chatReadDeadline.ts";
 import { setCurrentLanguage, translate } from "./i18n.ts";
-import { saysHerdrAway, userErrorMessage, userFailure } from "./userError.ts";
+import { RemoteResponseInvalid, RemoteResponseTooLarge } from "../../server/remote-json.ts";
+import { machineErrorText, saysHerdrAway, userErrorMessage, userFailure } from "./userError.ts";
 
 const api = (status: number, detail = "herdr said no") => new ApiError("/api/x", status, detail, null);
 
@@ -79,6 +80,23 @@ describe("saysHerdrAway", () => {
   it("reads the server's words for a herdr it could not reach, and no other failure", () => {
     expect(saysHerdrAway("cannot reach herdr at /tmp/x/herdr.sock: connect ENOENT /tmp/x/herdr.sock")).toBe(true);
     expect(saysHerdrAway("Disabled in herdr")).toBe(false);
+  });
+});
+
+describe("machineErrorText", () => {
+  const inKorean = (key: string) => translate("ko", key);
+
+  it("shows the server's sentences for an unusable PC answer in the UI language", () => {
+    for (const sentence of [new RemoteResponseTooLarge().message, new RemoteResponseInvalid().message]) {
+      const shown = machineErrorText(sentence, inKorean);
+      expect(shown).toBe(translate("ko", sentence));
+      expect(shown).not.toBe(sentence);
+      expect(machineErrorText(sentence, (key) => translate("en", key))).toBe(sentence);
+    }
+  });
+
+  it("passes any other words through unchanged", () => {
+    expect(machineErrorText("SSH connection ended", inKorean)).toBe("SSH connection ended");
   });
 });
 
