@@ -1115,7 +1115,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the operation's own evidence ends it and no clock is read. Only the newest drag of a PC rolls
   back or reports its own failure. A PC whose bridge predates this (until the next remote bundle
   release) gets the old behaviour back from the first roster loaded after its moves settle, so it
-  can show an older cached order until the next full roster, event or poll.
+  can show an older cached order until the next full roster, event or poll. A drag whose moves were
+  answered partly with and partly without these numbers waits for both: a roster of the same server
+  at its last numbered move, loaded after the moves settle.
 - A workspace is pinned from its row menu (**Pin workspace** / **Unpin workspace**, first in the
   menu), as Paseo pins a chat: pinned workspaces leave their place and stand first in their PC's
   list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`, under the same **Pinned** caption), with no mark

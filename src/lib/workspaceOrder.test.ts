@@ -311,6 +311,27 @@ describe("ReorderCoordinator", () => {
     expect(coordinator.state("local")).toMatchObject({ held: false, floors: { E: 1 } });
   });
 
+  test("evidence that disappears before an earlier hold releases still needs a post-settlement load", async () => {
+    const coordinator = new ReorderCoordinator();
+    coordinator.roster([entry("local", O, "E", 0)], event);
+    await dragged(coordinator, mover(), { ok: true, order_epoch: "E", moved_seq: 1 });
+    // no roster released that hold yet when the next move answers without evidence
+    const moves = mover();
+    const done = coordinator.reorder("local", A, B, moves.move);
+    (await moves.next()).resolve({ ok: true });
+    await done;
+    // an SSE roster at the earlier floor may predate the legacy move: B stays
+    coordinator.roster([entry("local", A, "E", 1)], event);
+    expect(coordinator.order("local", O)).toEqual(B);
+    expect(coordinator.state("local")).toMatchObject({ held: true, floors: { E: 1 } });
+    // an evidence-less load lifts nothing; a qualifying load started after settlement releases it
+    coordinator.roster([entry("local", A)], { kind: "load", started: coordinator.loadStarted() });
+    expect(coordinator.order("local", O)).toEqual(B);
+    coordinator.roster([entry("local", B, "E", 1)], { kind: "load", started: coordinator.loadStarted() });
+    expect(coordinator.order("local", O)).toEqual(B);
+    expect(coordinator.state("local")).toMatchObject({ held: false, floors: { E: 1 } });
+  });
+
   test("a PC that leaves the roster settles a batch waiting for its roster, and keeps its floor", async () => {
     const coordinator = new ReorderCoordinator();
     const start = ["w", "x", "y", "z"];

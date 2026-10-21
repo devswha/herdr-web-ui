@@ -232,11 +232,13 @@ export class ReorderCoordinator {
 
   private releases(pc: PcOrder, evidence: Evidence | null, source: RosterSource): boolean {
     const hold = pc.hold!;
-    if (hold.epoch !== null) return !!evidence && evidence.epoch === hold.epoch && evidence.seq >= pc.floors.get(hold.epoch)!;
-    // an older server: the first roster of a load started after the moves settled; while a floor or
-    // guard protects the PC, only if that roster also qualifies for it (a missing pair never lifts one)
-    return hold.legacy && hold.settleMark !== null && source.kind === "load" && source.started > hold.settleMark
-      && (pc.protectedEpoch === null || this.qualifies(pc, evidence));
+    if (hold.epoch === null && !hold.legacy) return false;
+    if (hold.epoch !== null && !(evidence && evidence.epoch === hold.epoch && evidence.seq >= pc.floors.get(hold.epoch)!)) return false;
+    // a receipt without evidence (an older server), even beside evidenced ones: the first roster of a load
+    // started after the moves settled; while a floor or guard protects the PC, only if that roster also
+    // qualifies for it (a missing pair never lifts one)
+    return !hold.legacy || (hold.settleMark !== null && source.kind === "load" && source.started > hold.settleMark
+      && (pc.protectedEpoch === null || this.qualifies(pc, evidence)));
   }
 
   /** A roster of another epoch than the protected one: ask the PC's server which boot answers now. */
