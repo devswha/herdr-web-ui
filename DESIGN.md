@@ -1329,13 +1329,15 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - From a workspace row's menu, **Earlier sessions…** (lucide `History`, beside Rename workspace),
   and from the chat: picking `/resume` in the `/` menu's Terminal commands opens it at once, and the
   same command typed and sent opens the list without sending anything. The
-  dialog is the worktree dialog's anatomy: **Agent** is a `.select` of the PC's installed agents
-  (the row's or the pane's agent first), under it the folder the sessions were started in, in
-  mono, then one `.session-row` per session as `GET /api/sessions/history` lists them, newest
-  first: the title (else the first prompt; else the id in mono) in `--fs-sm` medium, the first
-  prompt under it in `--text-dim`, each clamped to two lines, and at the trailing end the time it
-  was last touched (the chat turn's timestamp format; on hover the full date of its start, where the
-  store records one, and of its last touch) over the way on. The
+  dialog is the worktree dialog's anatomy: **Agent** is the New workspace dialog's picker
+  (`AgentPicker`: each agent with its mark, its chevron inset like the app's other controls, no
+  Shell entry; Escape on its open list closes the list, the next one the dialog) of the PC's
+  installed agents (the row's or the pane's agent first), under it the folder the sessions were
+  started in, in mono, then one `.session-row` per session as `GET /api/sessions/history` lists
+  them, newest first: the title (else the first prompt; else the id in mono) in `--fs-sm` medium,
+  the first prompt under it in `--text-dim`, each clamped to two lines, and at the trailing end
+  the time it was last touched (the chat turn's timestamp format; on hover the full date of its
+  start, where the store records one, and of its last touch) over the way on. The
   way on is a quiet `.btn` **Resume**, never the primary style: a list of up to fifty rows carries
   no fifty accents. A session a pane of the workspace already shows (its `agent_session`, by id or
   by file name) gets an **Already open** pill (over the button on a phone, beside it elsewhere) and
@@ -1504,12 +1506,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   transcript's edge cannot be tapped). With a mouse the copy and format buttons keep their `--chip-h`
   look and take a `--pointer-target` hit area through an invisible `::before` expander.
 - A user turn of Claude Code, grok or agy carries one more glyph button beside its copy, the same
-  `.chat-copy` look (`.chat-rewind`, lucide Undo2): **Rewind to here** for Claude Code, offered only
-  while the agent waits with no card up and the message box empty, and disabled while a rewind is
-  on its way; **Rewind in terminal** for grok and agy, which sends nothing and opens the pane's
-  terminal with a one-line `.chat-rewind-note` (`role="status"`) under the bubble. A refused rewind
-  says why in the turn's `.chat-copy-error` line. The hover placement follows the message actions
-  of the Claude and Codex apps.
+  `.chat-copy` look (`.chat-rewind`, lucide Undo2): **Rewind in terminal** sends nothing and
+  opens the pane's terminal with a dismissible, one-line `.terminal-banner-rewind` hint to run
+  the agent's own `/rewind`. Drafts stay intact. Chat follows the native transcript's active
+  branch once the agent records it; it never guesses a restore from a dialog's wording. The
+  hover placement follows the message actions of the Claude and Codex apps; the terminal handoff
+  deliberately differs from their native rewind controls because this bridge does not own them.
 - A terminal-only command sent from Chat is one quiet right-aligned row, not a bubble:
   `SquareTerminal`, the command in mono `--fs-sm`, **Ran in terminal** in `--text-dim`,
   and one **Open Terminal** text button. It has no outcome chip or unconfirmed output preview.

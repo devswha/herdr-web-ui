@@ -111,7 +111,7 @@ describe("machine boundaries", () => {
       method, headers: { origin: "http://localhost", "x-herdr-machine": "1", "content-type": "application/json" }, ...(method === "GET" ? {} : { body: "{}" }),
     }), manager, undefined, undefined, readOnly);
     try {
-      for (const [method, path] of [["POST", "pane/rewind"], ["POST", "tab/create"]] as const) {
+      for (const [method, path] of [["POST", "pane/input"], ["POST", "tab/create"]] as const) {
         const refused = await ask(method, path, true);
         expect(refused.status, path).toBe(403);
         expect((await refused.json() as { error: { code: string } }).error.code, path).toBe("read_only");
@@ -119,11 +119,11 @@ describe("machine boundaries", () => {
       expect(hits).toEqual([]);
       // the block is the access check's own rule (index.ts `mutating`): what it lets a watcher send goes through
       expect((await ask("GET", "pane/read?pane_id=p", true)).status).toBe(200);
-      expect((await ask("OPTIONS", "pane/rewind", true)).status).not.toBe(403);
-      expect(hits).toEqual(["GET /api/pane/read", "OPTIONS /api/pane/rewind"]);
+      expect((await ask("OPTIONS", "pane/input", true)).status).not.toBe(403);
+      expect(hits).toEqual(["GET /api/pane/read", "OPTIONS /api/pane/input"]);
       // a connection that may drive goes through
-      expect((await ask("POST", "pane/rewind", false)).status).toBe(200);
-      expect(hits).toEqual(["GET /api/pane/read", "OPTIONS /api/pane/rewind", "POST /api/pane/rewind"]);
+      expect((await ask("POST", "pane/input", false)).status).toBe(200);
+      expect(hits).toEqual(["GET /api/pane/read", "OPTIONS /api/pane/input", "POST /api/pane/input"]);
     } finally { endpoint.mockRestore(); bridge.stop(true); manager.stop(); rmSync(dir, { recursive: true, force: true }); }
   });
   it("refuses a watching connection another PC's folder commands before anything reaches that PC", async () => {
@@ -175,8 +175,8 @@ describe("machine boundaries", () => {
     for (const path of ["pane/focus/extra", "pane/move", "layout/apply", "layout/ratio/extra", "layout/../auth", "agent/commands/extra", "agent/start"]) expect(MACHINE_PROXY_PATH.test(path)).toBe(false);
     // the commands an agent offers in a folder before any pane runs it (the new workspace and tab dialogs)
     for (const path of ["agent/rename", "agent/commands"]) expect(MACHINE_PROXY_PATH.test(path)).toBe(true);
-    for (const path of ["auth", "push", "updates/install", "machines/setup", "bridge", "../auth", "pane/../../auth", "pane/prompt/answer/extra", "tab/move/extra", "tab/close/extra"]) expect(MACHINE_PROXY_PATH.test(path)).toBe(false);
-    for (const path of ["session", "agents", "integrations", "pane/files", "pane/find", "pane/image", "pane/prompt/answer", "pane/rewind", "workspace/create", "tab/create", "tab/rename", "tab/close"]) expect(MACHINE_PROXY_PATH.test(path)).toBe(true);
+    for (const path of ["auth", "push", "updates/install", "machines/setup", "bridge", "../auth", "pane/../../auth", "pane/prompt/answer/extra", "pane/rewind", "tab/move/extra", "tab/close/extra"]) expect(MACHINE_PROXY_PATH.test(path)).toBe(false);
+    for (const path of ["session", "agents", "integrations", "pane/files", "pane/find", "pane/image", "pane/prompt/answer", "pane/input", "workspace/create", "tab/create", "tab/rename", "tab/close"]) expect(MACHINE_PROXY_PATH.test(path)).toBe(true);
     for (const path of ["session", "agents", "integrations", "pane/files", "pane/find", "pane/image", "pane/prompt/answer", "pane/split", "pane/zoom", "pane/swap", "pane/resize", "pane/clear", "workspace/create", "tab/create", "tab/rename", "tab/close"]) expect(MACHINE_PROXY_PATH.test(path)).toBe(true);
   });
 });

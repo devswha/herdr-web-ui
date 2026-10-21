@@ -48,6 +48,18 @@ afterAll(() => {
 
 const base = () => `http://localhost:${server.port}`;
 
+describe("removed Chat rewind API", () => {
+  it("returns 404 for local and machine-prefixed rewind requests", async () => {
+    for (const path of ["/api/pane/rewind", "/api/machines/local/pane/rewind"]) {
+      const response = await fetch(base() + path, {
+        method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+        body: JSON.stringify({ pane_id: "not-a-live-pane", text: "nothing to send" }),
+      });
+      expect(response.status, path).toBe(404);
+    }
+  });
+});
+
 describe("Grok conversation API", () => {
   it.skipIf(process.platform !== "linux")("uses exact process/session evidence, validators and revision-bound output refs", async () => {
     const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-grok-contract-"));
