@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Download, Monitor, Plus, Settings, SlidersHorizontal, X } from "lucide-react";
 import type { Machine, MachineState, MachineUpdate } from "../../shared/machines.ts";
 import { MachineContext } from "../lib/machineContext.tsx";
-import { answerMachineSetup, machineRequest, shareSeen } from "../lib/api.ts";
+import { answerMachineSetup, machineRequest } from "../lib/api.ts";
 import { describeProgress } from "../lib/bridgeProgress.ts";
 import { keepDismissed, noticeKey, readDismissed, waitingMachines, writeDismissed } from "../lib/machineNotice.ts";
 import type { AppActions } from "../lib/actions.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { AgentSidebar } from "./AgentSidebar.tsx";
-import { SidebarActivityProvider, useSidebarActivityState } from "../lib/sidebarActivity.tsx";
+import { SidebarActivityProvider, type SidebarActivity } from "../lib/sidebarActivity.tsx";
 import { UsageMeters } from "./UsageMeters.tsx";
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
@@ -25,13 +25,13 @@ export const STATE_WORD: Readonly<Record<MachineState, string>> = {
   error: "Connection error",
 };
 
-interface Props { machines: Machine[]; selectedMachineId: string; selectedPaneId: string | null; presentedPaneId: string | null; paneInFront: () => boolean; actions: AppActions; watching?: boolean; onSelect(machineId: string, paneId: string | null): void; onNew(machineId: string): void; onSetup(machine: Machine, update?: boolean): void }
+/** `activity`: the live counters per PC and the finishes looked at here, App's (lib/sidebarActivity.tsx): both lists draw from it, as the keyboard's next agent needing attention does */
+interface Props { machines: Machine[]; selectedMachineId: string; selectedPaneId: string | null; activity: SidebarActivity; actions: AppActions; watching?: boolean; onSelect(machineId: string, paneId: string | null): void; onNew(machineId: string): void; onSetup(machine: Machine, update?: boolean): void }
 export function MachineSidebar(props: Props) {
   const t = useT();
   const { canInstall, installed, install, help } = useInstallPrompt();
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
-  // both lists draw from it: live counters per PC and the finishes looked at here (lib/sidebarActivity.tsx)
-  const activity = useSidebarActivityState(props.machines, props.selectedMachineId, props.presentedPaneId, props.paneInFront, shareSeen);
+  const activity = props.activity;
   // the roster's wait is a live region that is in the list from its first render, clipped while empty (never
   // display: none), and its words land a frame after it (lib/useAnnouncedText.ts)
   const loadingWords = useAnnouncedText(props.machines.length === 0 ? t("Loading PCs…") : null);

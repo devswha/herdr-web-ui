@@ -219,6 +219,7 @@ export const ZH: Record<string, string> = {
   "New workspace": "新建工作区",
   "Previous pane": "上一个窗格",
   "Next pane": "下一个窗格",
+  "Next agent needing attention": "下一个需要处理的代理",
 
   // ---- agent status words (lib/status.ts) ----
   "READY": "就绪",
@@ -1393,6 +1394,7 @@ export const ZH: Record<string, string> = {
   "logout log out lock": "退出 登出 锁定",
   "folder explorer open file": "文件夹 资源管理器 打开文件",
   "reload update sync": "重新加载 更新 同步",
+  "blocked input finished unread waiting jump cycle": "需要输入 完成 未读 等待 跳转 循环",
   "Search shortcuts": "搜索快捷键",
   "No shortcuts match.": "没有匹配的快捷键。",
   "Record": "录制",

@@ -2,7 +2,7 @@ import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEff
 import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
-import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
+import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, shareSeen, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
@@ -33,6 +33,10 @@ import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar
 import { SidebarResizer } from "./components/SidebarResizer.tsx";
 import { storedSidebarWidth } from "./lib/sidebarWidth.ts";
 import { receiveSeen } from "./lib/seenFinishes.ts";
+import { useSidebarActivityState } from "./lib/sidebarActivity.tsx";
+import { agentRoster } from "./lib/agentRoster.ts";
+import { attentionCandidates, nextAttentionTarget } from "./lib/attentionJump.ts";
+import { currentSidebarPins } from "./lib/sidebarPins.ts";
 import { FilePanelResizer } from "./components/FilePanelResizer.tsx";
 import { FILE_PANEL_DOCK_QUERY, storedFilePanelWidth } from "./lib/filePanelWidth.ts";
 import { openPresentation, type FilePresentation } from "./lib/filePresentation.ts";
@@ -1040,6 +1044,11 @@ export function App() {
     && !dialogCover && !paneCovered()
     && contentReady && paneContentPresented(contentKey),
   [locked, linkLanded, drawerOpen, settingsOpen, newSessionOpen, filesOpen, machineDialog, paletteOpen, diffViewing, viewing, fileDocked, dialogCover, contentReady, contentKey]);
+  // the live counters per PC and the finishes looked at here (lib/sidebarActivity.tsx): one source
+  // for the sidebar's two lists and the keyboard's next agent needing attention, so a finish opened
+  // here reads as ready to all of them at once
+  const activity = useSidebarActivityState(machines, selectedMachineId, presentedPaneId, paneInFront, shareSeen);
+  const activityRef = useRef(activity); activityRef.current = activity;
 
   const pickView = useCallback((machineId: string, paneId: string, next: PaneView) => {
     const key = paneStorageId(machineId, paneId);
@@ -1387,6 +1396,14 @@ export function App() {
         const next = panes[(index + direction + panes.length) % panes.length];
         if (next) selectPane(next.pane_id);
       },
+      selectNextAttention: () => {
+        // the Agents list's rows as it draws them, read at the press (lib/attentionJump.ts): a PC gone
+        // away or a finish read meanwhile is never jumped to
+        const roster = agentRoster(machinesRef.current, { byActivity: settings.agentOrder === "activity", seqs: activityRef.current.seqs, pinned: currentSidebarPins() });
+        const target = nextAttentionTarget(attentionCandidates([...roster.pinned, ...roster.rest], activityRef.current.status), selectionRef.current);
+        // this browser's pick alone, as a sidebar tap: herdr's focus and the other devices stay put
+        if (target !== null) selectTargetRef.current(target.machineId, target.paneId);
+      },
       setView,
       toggleView: () => { setView(view === "chat" ? "terminal" : "chat"); setDrawerOpen(false); },
       focusInput: () => paneControls.current?.focusInput(),
@@ -1474,7 +1491,7 @@ export function App() {
         void zoomPane(paneId, mode, machineId).then(() => void load()).catch((err) => layoutRefused("pane zoom failed", err));
       } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, settings.agentOrder, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
   );
 
   useShortcuts(actions, locked === false);
@@ -1704,7 +1721,7 @@ export function App() {
           {/* a sidebar that cannot be drawn leaves the panes working */}
           <RenderBoundary resetKey={null} fallback={(retry) => <RegionCrash message={t("The sidebar can't be shown.")} retry={retry} />}>
             <CrashProbe region="sidebar" />
-            <MachineSidebar machines={machines} watching={auth?.role === "watch"} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} presentedPaneId={presentedPaneId} paneInFront={paneInFront} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
+            <MachineSidebar machines={machines} watching={auth?.role === "watch"} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} activity={activity} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewTab(null); setNewSessionOpen(true); setDrawerOpen(false); }} />
           </RenderBoundary>
           <SidebarResizer width={sidebarWidth} onResize={setSidebarWidth} />
         </aside>

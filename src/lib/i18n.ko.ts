@@ -215,6 +215,7 @@ export const KO: Record<string, string> = {
   "New workspace": "새 워크스페이스",
   "Previous pane": "이전 패널",
   "Next pane": "다음 패널",
+  "Next agent needing attention": "확인이 필요한 다음 에이전트",
 
   // ---- agent status words (lib/status.ts) ----
   "READY": "대기",
@@ -1389,6 +1390,7 @@ export const KO: Record<string, string> = {
   "logout log out lock": "로그아웃 잠금",
   "folder explorer open file": "폴더 탐색기 파일 열기",
   "reload update sync": "새로고침 업데이트 동기화",
+  "blocked input finished unread waiting jump cycle": "입력 필요 완료 안 읽음 대기 이동 순환",
   "Search shortcuts": "단축키 검색",
   "No shortcuts match.": "일치하는 단축키가 없습니다.",
   "Record": "기록",

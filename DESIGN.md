@@ -598,6 +598,20 @@ The values are the ones in `src/styles.css`. Every token but `--fs-input` is `ca
   event, scoped to the active, presented pane and its PC; a modal or observe mode blocks it.
   It sends no text or keys and never takes an attach. The binding follows the existing shortcut
   customization and Mod+Shift policy.
+- Mod+Shift+A (**Next agent needing attention**, also a palette action) opens the next agent that
+  waits for a person: the Agents list's rows in the order it draws them (the pinned card first,
+  then each PC's roster or Activity order), partitioned into the blocked ones and then the finishes
+  nobody looked at yet, cycled from the selected PC and pane and round again (src/lib/agentRoster.ts,
+  src/lib/attentionJump.ts). The status is the one the row's badge draws, so a finish read in any
+  browser of this server leaves the cycle, and a PC that is not connected is skipped whatever its
+  saved roster says; background-wait, ready and unknown are not attention. Identity is PC + pane: two
+  PCs may reuse a pane id. The selection it makes is this browser's alone, as a sidebar tap
+  (`selectTarget`): no `pane.focus`, no take-over, no input, and the phone keyboard policy of a tap.
+  The cycle follows Agent of Empires' attention navigation, which flags sessions as needing attention
+  and steps through them with wrap; it differs in that the flags are not a state of their own but the
+  statuses the sidebar already shows, the order is the list's own rather than a recency sort, and
+  nothing moves on the multiplexer side. No Codex or Claude app offers an equivalent. Nothing of AoE's
+  code is copied.
 - All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
 
 ## 4. Spacing & Layout
@@ -2032,7 +2046,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   lead an empty query; arrows in the search field cycle through visible results, Enter activates
   and Escape closes. IME candidate, commit and cancel keys stay with composition. Buttons reached
   with Tab keep their native activation, and arrow navigation scrolls the selected result into view.
-- Actions cover new workspace, new tab, lens/sidebar/theme, settings, notifications, lock and refresh, with
+- Actions cover new workspace, new tab, the next agent needing attention, lens/sidebar/theme, settings,
+  notifications, lock and refresh, with
   `.kbd` hints resolved from this browser's shortcut settings; disabled bindings have no hint.
   With a pane selected they add herdr's **Split pane right / down**, the same **and open it**
   (herdr's `--focus`: the new pane is opened here only then) and, in a tab of several panes,

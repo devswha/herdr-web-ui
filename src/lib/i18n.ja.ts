@@ -217,6 +217,7 @@ export const JA: Record<string, string> = {
   "New workspace": "新しいワークスペース",
   "Previous pane": "前のペイン",
   "Next pane": "次のペイン",
+  "Next agent needing attention": "対応が必要な次のエージェント",
 
   // ---- agent status words (lib/status.ts) ----
   "READY": "待機",
@@ -1391,6 +1392,7 @@ export const JA: Record<string, string> = {
   "logout log out lock": "ログアウト ロック",
   "folder explorer open file": "フォルダ エクスプローラー ファイルを開く",
   "reload update sync": "再読み込み 更新 同期",
+  "blocked input finished unread waiting jump cycle": "入力待ち 完了 未読 待機 移動 巡回",
   "Search shortcuts": "ショートカットを検索",
   "No shortcuts match.": "一致するショートカットはありません。",
   "Record": "記録",
