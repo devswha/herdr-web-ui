@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { ApiError } from "./api.ts";
+import { ApiError, fetchSession } from "./api.ts";
 import { withChatReadDeadline } from "./chatReadDeadline.ts";
 import { setCurrentLanguage, translate } from "./i18n.ts";
 import { RemoteResponseInvalid, RemoteResponseTooLarge } from "../../server/remote-json.ts";
@@ -97,6 +97,36 @@ describe("machineErrorText", () => {
 
   it("passes any other words through unchanged", () => {
     expect(machineErrorText("SSH connection ended", inKorean)).toBe("SSH connection ended");
+  });
+});
+
+describe("the PC proxy's unusable-answer errors", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; setCurrentLanguage("en"); });
+  // what server/machine-api.ts answers for another PC's answer it would not pass on
+  const proxied = [
+    { code: "remote_response_too_large", message: new RemoteResponseTooLarge().message },
+    { code: "remote_response_invalid", message: new RemoteResponseInvalid().message },
+  ];
+  const failure = async (error: { code: string; message: string }) => {
+    globalThis.fetch = (async () => Response.json({ error }, { status: 502 })) as unknown as typeof fetch;
+    return await fetchSession("fixture-remote").then(() => null, (cause: unknown) => cause) as ApiError;
+  };
+
+  it("shows their words in the UI language wherever a failure's detail is drawn", async () => {
+    setCurrentLanguage("ko");
+    for (const error of proxied) {
+      const korean = translate("ko", error.message);
+      expect(korean).not.toBe(error.message);
+      const cause = await failure(error);
+      expect(cause).toMatchObject({ status: 502, code: error.code, detail: korean });
+      expect(userErrorMessage(cause).detail).toBe(korean);
+      expect(userFailure(cause).detail).toBe(korean);
+    }
+  });
+
+  it("keeps the server's own sentence in English", async () => {
+    for (const error of proxied) expect((await failure(error)).detail).toBe(error.message);
   });
 });
 

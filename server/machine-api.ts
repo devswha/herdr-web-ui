@@ -34,13 +34,14 @@ function transportFailure(id: string, path: string, error: unknown): Response {
     : fail("machine_unavailable", "The PC connection was interrupted; retry after reconnecting", 502);
 }
 
-/** An answer this app will not pass on: too large to hold, or unreadable where it must be redacted. Names none of it. */
+/**
+ * An answer this app will not pass on: too large to hold, or unreadable where it must be redacted.
+ * Its fixed message names none of it; the browser shows it in the UI language by the code (src/lib/api.ts).
+ */
 function unusableAnswer(id: string, path: string, error: RemoteResponseTooLarge | RemoteResponseInvalid): Response {
   const tooLarge = error instanceof RemoteResponseTooLarge;
   console.error(`machine proxy ${id}${path}: ${tooLarge ? "answer too large" : "answer unreadable"}`);
-  return tooLarge
-    ? fail("remote_response_too_large", "The PC's answer was too large to pass on", 502)
-    : fail("remote_response_invalid", "The PC's answer could not be read", 502);
+  return fail(tooLarge ? "remote_response_too_large" : "remote_response_invalid", error.message, 502);
 }
 
 export async function handleMachineRequest(request: Request, manager: MachineManager, onRevoke?: (close: () => void) => () => void,
