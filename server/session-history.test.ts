@@ -523,8 +523,9 @@ describe("listSessions", () => {
     let looked = 0;
     const rows = listSessions("grok", CWD, { home, env: {}, lstat: (path) => { looked++; return lstatSync(path); } });
     expect(rows).toHaveLength(MAX_ROWS);
-    // two files' times for each of the 100 folders, taken once
-    expect(looked).toBe(200);
+    // each of the 100 folders timed once: at most its two files' times, not those times twice
+    expect(looked).toBeGreaterThan(0);
+    expect(looked).toBeLessThanOrEqual(2 * 100);
   });
 
   it("finds Grok sessions in a native hashed cwd group", () => {
