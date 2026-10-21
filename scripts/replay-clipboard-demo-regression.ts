@@ -361,14 +361,17 @@ try {
       const switched = await page.evaluate(([shell, web]) => {
         const state = window.replayFixture;
         void state.frames(shell, [{ data: `${"\x1b"}]52;c;aGlzdG9yeQ==`, replay: true }, { data: "\x07" }, { data: "after the switch" }], false);
+        const { inFlight, queued } = (document.querySelector(".pane-frame.is-current .pane-terminal") as unknown as { outputProbe(): Probe }).outputProbe();
         (document.querySelector(`.workspace-select[data-pane="${web}"]`) as HTMLElement).click();
-        return state.acks.length;
+        return { acks: state.acks.length, inFlight, queued };
       }, [panes.shell, panes.web] as const);
+      assert.deepEqual({ inFlight: switched.inFlight, queued: switched.queued }, { inFlight: 1, queued: 2 }, "pane switch: one write pending and two queued when it happens");
       await page.waitForFunction((paneId) => window.replayFixture.sent.some((frame) => frame.type === "attach" && frame.pane_id === paneId), panes.web);
-      await page.waitForFunction(() => {
-        const probe = (document.querySelector(".pane-frame.is-current .pane-terminal") as unknown as { outputProbe(): Probe }).outputProbe();
+      // the barrier is the old terminal's own: every frame it held is written or dropped, its callbacks run
+      await page.waitForFunction((host) => {
+        const probe = (host as unknown as { outputProbe(): Probe }).outputProbe();
         return probe.queued === 0 && probe.inFlight === 0;
-      });
+      }, oldHost);
       const old = await oldHost.evaluate((host) => ({ connected: host.isConnected, current: host === document.querySelector(".pane-frame.is-current .pane-terminal"), probe: (host as unknown as { outputProbe(): Probe }).outputProbe() }));
       const switchCopies = await fixture(page, (state) => [...state.copies]);
       const lateAcks = await fixture(page, (state) => state.acks.map((ack) => `${ack.socket}:${ack.stream_id}:${ack.offset}`));
