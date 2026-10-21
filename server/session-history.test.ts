@@ -715,8 +715,9 @@ describe("listSessions", () => {
     let looked = 0;
     const rows = listSessions("grok", CWD, { home, env: {}, lstat: (path) => { looked++; return lstatSync(path); } });
     expect(rows).toHaveLength(MAX_ROWS);
-    // each of the 100 folders timed once: at most its two files' times, not those times twice
-    expect(looked).toBeGreaterThan(0);
+    // each of the 100 folders timed once: at least one lstat (its files, else itself), at most its two
+    // files' times, never those times twice
+    expect(looked).toBeGreaterThanOrEqual(100);
     expect(looked).toBeLessThanOrEqual(2 * 100);
   });
 
