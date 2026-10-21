@@ -161,6 +161,25 @@ const measure = (page: Page) => page.evaluate(() => {
 });
 type Row = Awaited<ReturnType<typeof measure>>;
 
+/** The computed type sizes of the chip and, when open, its list: the step adds no size of its own (it inherits the chip's --fs-xs) */
+const fonts = (page: Page) => page.evaluate(() => {
+  const size = (selector: string) => { const element = document.querySelector(selector); return element ? getComputedStyle(element).fontSize : null; };
+  return { chip: size(".bg-tasks-toggle"), label: size(".bg-tasks-toggle .bg-tasks-label"), figures: size(".bg-tasks-plan"), current: size(".bg-tasks-current"), count: size(".bg-tasks-count"),
+    heading: size(".bg-tasks-menu .menu-heading"), stepTitle: size(".bg-tasks-menu .bg-step .bg-task-title"), stepActive: size(".bg-tasks-menu .bg-step-active"), stepMeta: size(".bg-tasks-menu .bg-step .bg-task-meta"), note: size(".bg-tasks-menu .bg-tasks-note") };
+});
+
+/** The chip's real hit rectangle, probed with elementFromPoint outward from its centre: the drawn pill plus the coarse pointer's invisible expander */
+const hitBox = (page: Page) => page.evaluate(() => {
+  const chip = document.querySelector<HTMLElement>(".bg-tasks-toggle")!;
+  const rect = chip.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const hits = (x: number, y: number) => { const element = document.elementFromPoint(x, y); return element !== null && chip.contains(element); };
+  const reach = (dx: number, dy: number) => { let step = 0; while (step < 200 && hits(cx + dx * (step + 0.5), cy + dy * (step + 0.5))) step++; return step; };
+  const up = reach(0, -1), down = reach(0, 1), left = reach(-1, 0), right = reach(1, 0);
+  return { drawn: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, hit: { x: cx - left, y: cy - up, width: left + right, height: up + down },
+    coarse: matchMedia("(pointer: coarse)").matches, expander: getComputedStyle(chip, "::before").content !== "none" };
+});
+
 /** What every drawn chip must hold to: one row, the figures whole, nothing pushed over its neighbour or past the page. */
 function oneRow(row: Row, what: string): void {
   assert.ok(row.chip, `${what}: the chip is drawn`);
@@ -264,7 +283,12 @@ try {
         assert.equal(row.label?.drawn, !touch, `${what}: the word Plan is drawn beside a mouse and gives way on a phone`);
         assert.equal(row.count, null, `${what}: no task count without tasks`);
         await shot(page, width, theme, "en", null);
-        results.push({ what, state: "rest", chip: row.chip, current: row.current, plan: row.plan, model: row.model });
+        const target = await hitBox(page);
+        if (touch) {
+          assert.equal(target.coarse, true, `${what}: a phone is a coarse pointer`);
+          assert.ok(target.hit.width >= 44 && target.hit.height >= 44, `${what}: the chip's hit rectangle is at least 44x44: ${JSON.stringify(target)}`);
+        }
+        results.push({ what, state: "rest", chip: row.chip, current: row.current, plan: row.plan, model: row.model, fonts: await fonts(page), target });
         if (!touch) {
           await chipOf(page).hover();
           await shot(page, width, theme, "en", "hover");
@@ -293,6 +317,7 @@ try {
         assert.equal(row.chip?.expanded, "true");
         assert.deepEqual(row.menu?.steps, ["Trace replayed requests", "Count idempotent replays", "Cover the metric with tests"], `${what}: the list has the demo's three steps`);
         await shot(page, width, theme, "en", "open");
+        results.push({ what, state: "open", fonts: await fonts(page) });
         await close(page);
         // a long plan: the list keeps to its room and scrolls to its end
         await hook.answer(MANY);
