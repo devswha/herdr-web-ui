@@ -128,8 +128,9 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
     // earlier sessions carry their first prompts: never asked for a watching device with the PC's credential
     if (readOnly && path === "sessions/history") return fail("read_only", "this device can only watch", 403);
     if (MACHINE_PROXY_PATH.test(path)) {
-      // a connection that may only watch is refused here as well as at the access check: it writes nothing on another PC
-      if (readOnly && !["GET", "HEAD"].includes(request.method)) return fail("read_only", "this device can only watch", 403);
+      // a connection that may only watch is refused here as well as at the access check, by the same rule
+      // (index.ts `mutating`): it writes nothing on another PC
+      if (readOnly && !["GET", "HEAD", "OPTIONS"].includes(request.method)) return fail("read_only", "this device can only watch", 403);
       const endpoint = manager.endpoint(id);
       if (!endpoint) return fail("machine_offline", "This PC is disconnected", 503);
       // Explicit header allowlist: cookies, browser Authorization, forwarded headers

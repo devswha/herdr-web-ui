@@ -117,9 +117,13 @@ describe("machine boundaries", () => {
         expect((await refused.json() as { error: { code: string } }).error.code, path).toBe("read_only");
       }
       expect(hits).toEqual([]);
+      // the block is the access check's own rule (index.ts `mutating`): what it lets a watcher send goes through
+      expect((await ask("GET", "pane/read?pane_id=p", true)).status).toBe(200);
+      expect((await ask("OPTIONS", "pane/rewind", true)).status).not.toBe(403);
+      expect(hits).toEqual(["GET /api/pane/read", "OPTIONS /api/pane/rewind"]);
       // a connection that may drive goes through
       expect((await ask("POST", "pane/rewind", false)).status).toBe(200);
-      expect(hits).toEqual(["POST /api/pane/rewind"]);
+      expect(hits).toEqual(["GET /api/pane/read", "OPTIONS /api/pane/rewind", "POST /api/pane/rewind"]);
     } finally { endpoint.mockRestore(); bridge.stop(true); manager.stop(); rmSync(dir, { recursive: true, force: true }); }
   });
   it("separates equal pane IDs while preserving historical local storage", () => {
