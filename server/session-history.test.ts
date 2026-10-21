@@ -220,6 +220,26 @@ describe("listSessions", () => {
     expect(rows).toEqual([]);
   });
 
+  // a session file is one check (its resolution with its stat). On Windows a session of another
+  // folder also spends two on its folder's file IDs, so this many of them would use the budget there
+  it.skipIf(WINDOWS)("lists a folder's older Codex rollouts behind about 300 newer rollouts of other folders", () => {
+    const home = newHome();
+    const rollout = (day: string, n: number, at: number, cwd: string) => {
+      const dir = join(home, ".codex", "sessions", "2026", "10", day);
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `rollout-2026-10-${day}T09-00-00-${n.toString(16).padStart(12, "0")}.jsonl`);
+      writeFileSync(path, `${JSON.stringify({ type: "session_meta", payload: { id: `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`, cwd, source: "cli" } })}\n`);
+      utimesSync(path, at, at);
+    };
+    for (let n = 0; n < 300; n++) rollout(String(20 + (n % 3)), 0x1000 + n, 1_790_100_000 + n, "/elsewhere");
+    rollout("01", 1, 1_790_000_000, CWD);
+    rollout("01", 2, 1_790_000_001, CWD);
+    let resolutions = 0;
+    const rows = listSessions("codex", CWD, { home, env: {}, resolve: (path) => { resolutions++; return realpathSync(path); } });
+    expect(rows.map((row) => row.id)).toEqual([ID(2), ID(1)]);
+    expect(resolutions).toBeLessThanOrEqual(MAX_STATS);
+  });
+
   it(`reads at most ${MAX_ENTRIES} entries of a folder, however many it holds`, () => {
     const home = newHome();
     mkdirSync(piStore(home), { recursive: true });

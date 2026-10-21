@@ -1,10 +1,12 @@
 /**
  * Earlier sessions of a folder, read from each agent's own store, newest first (#1314).
  *
- * Bounded by the #1147 rules: at most the first 64 KiB of any file is read, at most 4096 directory
- * entries are read per listing (each candidate's own time taken then, so the newest are checked
- * first), at most 400 checks (a path resolution or a stat each, whatever it finds) are made per
- * listing, at most 50 rows are returned, and every path is resolved
+ * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 4096 directory
+ * entries are taken per listing, each with its own time (an lstat, bounded by those 4096, not counted
+ * as a check), so the newest of them are checked first; at most 400 checks are made per listing, a
+ * check being one session file's resolution with its stat (spent whatever the resolution finds),
+ * or one resolution or stat of a store, a folder or a database; at most 50 rows are returned, and
+ * every path is resolved
  * (realpath) and refused when it lands outside the agent's store, nested subagent files
  * included: only a store's own session files are listed, never a file a link makes look like
  * one. SQLite stores are opened read-only and asked for at most 50 sessions, their text cut in
@@ -29,9 +31,16 @@ import { opencodeDatabasePath } from "./opencode.ts";
 
 /** At most this much of any one file is read. */
 export const HEAD_BYTES = 64 * 1024;
-/** At most this many checks (a path resolution or a stat, each counted whatever it finds) for one listing. */
+/**
+ * At most this many checks for one listing. A check is one session file's resolution with its stat
+ * (spent even when the resolution fails or lands outside the store), or one resolution or stat of a
+ * store, a folder or a database. A listing's per-entry lstats are bounded by MAX_ENTRIES instead.
+ */
 export const MAX_STATS = 400;
-/** At most this many directory entries are read for one listing, every folder's together. */
+/**
+ * At most this many directory entries are taken for one listing, every folder's together. It bounds
+ * the lstats, sorting and checks; Bun's opendirSync still reads a whole folder from the kernel.
+ */
 export const MAX_ENTRIES = 4096;
 /** At most this many sessions are returned. */
 export const MAX_ROWS = 50;
@@ -202,6 +211,19 @@ class Budget {
     try { return this.resolveOf(path); } catch { return null; }
   }
 
+  /**
+   * A session file, as one check: its resolution, and its stat once it resolves inside `root`. The
+   * check is spent whatever the resolution finds (a dangling or outside link costs it too).
+   */
+  file(path: string, root: string): { real: string; stat: Stats } | null {
+    if (this.exhausted) return null;
+    this.used++;
+    let real: string;
+    try { real = this.resolveOf(path); } catch { return null; }
+    if (!inside(root, real)) return null;
+    try { return { real, stat: this.statOf(real) as Stats }; } catch { return null; }
+  }
+
   /** A folder's entries, unordered, as many as the listing has left to read; none for an unreadable one. */
   list(dir: string): Dirent[] {
     const found: Dirent[] = [];
@@ -257,10 +279,10 @@ class Scan {
 
   /** The file at this path, resolved, when it is a regular file inside the store. */
   file(path: string): Found | null {
-    const real = this.budget.resolve(path);
-    if (real === null || !inside(this.root, real)) return null;
-    const stat = this.budget.stat(real);
-    return stat?.isFile() ? { real, mtimeMs: stat.mtimeMs, size: stat.size, dev: stat.dev, ino: stat.ino } : null;
+    const checked = this.budget.file(path, this.root);
+    if (checked === null || !checked.stat.isFile()) return null;
+    const { real, stat } = checked;
+    return { real, mtimeMs: stat.mtimeMs, size: stat.size, dev: stat.dev, ino: stat.ino };
   }
 
   /** At most HEAD_BYTES of a resolved file, split in lines; `cut` when the file goes on past them. */
