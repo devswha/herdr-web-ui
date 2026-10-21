@@ -238,6 +238,28 @@ for (const dependency of ["send-time process", "scroll"] as const) {
   }
 }
 
+it("records a send's history row as the live screen's while another device has the terminal scrolled up", async () => {
+  // herdr's detection read is the live screen: its first row is max_offset_from_bottom, whatever a device scrolled
+  const target: HerdrPane = { ...pane, pane_id: "delivery-scrolled-device", agent: "claude",
+    agent_session: { agent: "claude", kind: "id", source: "herdr:claude", value: "known" },
+    scroll: { max_offset_from_bottom: 7, offset_from_bottom: 3, viewport_rows: 40 } };
+  spyOn(client, "paneGet").mockResolvedValue(target);
+  spyOn(conversation, "paneProcessRoots").mockResolvedValue(roots);
+  spyOn(conversation, "paneTranscript").mockRejectedValue(new Error("fixture: no native binding"));
+  spyOn(conversation, "readCommandTranscript").mockResolvedValue(null);
+  spyOn(client, "sessionSnapshot").mockResolvedValue({
+    panes: [target], layouts: [], agents: [], workspaces: [], tabs: [], protocol: 22, version: "fixture",
+  });
+  spyOn(client, "paneRead").mockResolvedValue({ ...target, text: "", source: "detection", format: "text", truncated: false });
+  spyOn(client, "agentPrompt").mockResolvedValue();
+  const scrollRead = Promise.resolve(target.scroll ?? null);
+  spyOn(client, "paneScrollInfo").mockImplementation(() => scrollRead);
+  const noted = spyOn(prompt, "noteSubmitted");
+  await submitter()(target.pane_id, "/myext", "/myext", Date.now());
+  await scrollRead;
+  expect(noted.mock.calls[0]?.[2]?.top).toBe(7);
+});
+
 it("delivers a terminal input-line command without requiring paneGet", async () => {
   const paneGet = spyOn(client, "paneGet").mockRejectedValue(new client.HerdrError("fixture_unavailable", "pane lookup failed"));
   const text = spyOn(client, "paneSendText").mockResolvedValue();

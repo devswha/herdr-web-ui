@@ -173,10 +173,24 @@ describe("a /status whose earlier /status lost its anchor", () => {
     expect(observe(next, third.after).state).toBe("accepted");
     expect(observe(next, fourth.after).state).toBe("accepted");
     expect(observe(lost, fourth.after, next.at).state).toBe("unknown");
-    // and a send whose screen kept no history row proves nothing either
+    // and a send whose screen kept no history row proves nothing either (no row: no place for the earlier screen)
     const rowless = new CommandReservations();
     send(rowless, third.sent, 3, torn(third.sent));
     const blind = send(rowless, { ...fourth.sent, top: undefined as unknown as number }, 4);
     expect(observe(blind, fourth.after).state).toBe("accepted");
+  });
+
+  it("counts every earlier send a later one may owe, not only the one whose count is known", () => {
+    const ledger = new CommandReservations();
+    const known = send(ledger, third.sent, 0);
+    // a send made before the known send's block printed, whose screen and row were lost: its block prints later
+    const pending = send(ledger, { ...third.sent, top: undefined as unknown as number }, 1, "");
+    expect(pending.resultEchoes?.["hermes-status"]).toBeNull();
+    expect(observe(known, third.after)).toMatchObject({ state: "result-observed", result_text: ownBlock(third.after) });
+    // the next send's screen shows only the known send's block complete: two blocks are owed before its own
+    const next = send(ledger, third.after, 2);
+    expect(observe(next, third.after).state).toBe("accepted");
+    // the pending send's block prints: it is not the next send's
+    expect(observe(next, fourth.after).state).toBe("accepted");
   });
 });
