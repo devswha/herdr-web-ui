@@ -147,6 +147,8 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   // the wait before a failed save goes again; a ref, so an answer that arrives after its effect was
   // cleaned up still sets a timer the next cleanup, a pause or unmounting cancels
   const retryTimer = useRef<number | undefined>(undefined);
+  // mounted and enabled: an answer that arrives after either ended is still read, but sets no wait
+  const live = useRef(false);
   // the baseline is a ref: a document that changes nothing here still moves what is pending
   const [, setTaken] = useState(0);
 
@@ -206,9 +208,11 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   }, []);
   const retry = useCallback(() => {
     if (off.current || readOnly.current) return;
+    // nothing unsent and nothing on its way: nothing is left to confirm, so nothing to wait for
+    if (inFlight.current === null && preferencesChange(base.current, latest.current) === null) { standDown(); return; }
     setRetrying(true);
     resume();
-  }, [resume]);
+  }, [resume, standDown]);
 
   const change = loaded ? preferencesChange(base.current, { settings, pins }) : null;
   const pending = change === null ? null : JSON.stringify(change);
@@ -216,6 +220,11 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   useEffect(() => {
     if (loaded && pending === null && inFlight.current === null) standDown();
   }, [loaded, pending, standDown]);
+  useEffect(() => {
+    if (!enabled) return;
+    live.current = true;
+    return () => { live.current = false; window.clearTimeout(retryTimer.current); };
+  }, [enabled]);
   useEffect(() => {
     if (!enabled || !loaded || off.current || readOnly.current || paused || pending === null || inFlight.current !== null) return;
     const timer = window.setTimeout(() => {
@@ -244,6 +253,9 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
         } else if (error instanceof ApiError && error.status === 404) {
           off.current = true;
           standDown();
+        } else if (preferencesChange(base.current, latest.current) === null) {
+          // undone while it was on its way (or another browser saved the same): nothing is unconfirmed
+          standDown();
         } else {
           // the same refusal every RETRY_MS is one state, not a render each time
           const next = userErrorMessage(error);
@@ -251,7 +263,7 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
           setRetrying(false);
           failures.current += 1;
           if (failures.current >= PAUSE_AFTER) setPaused(true);
-          else retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
+          else if (live.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
         }
       });
     }, SEND_AFTER_MS);

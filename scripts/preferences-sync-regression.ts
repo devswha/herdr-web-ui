@@ -88,13 +88,21 @@ async function nextPut(opened: Opened): Promise<Response> {
   for (let second = 0; second < 12 && !got; second++) await opened.page.clock.runFor(1_000);
   return await answered;
 }
-/** The event stream reopens for real: the server restarts on its port, and each page's EventSource reconnects. */
+/** how long each real reopen took, from the restart until every page's EventSource had its answer */
+const reopenMs: number[] = [];
+/**
+ * The event stream reopens for real: the server restarts on its port, and each page's EventSource
+ * reconnects. The reconnect is the browser's own (its retry wait is real time, not the page clock),
+ * which a loaded PC can stretch past Playwright's 30 s default, so the deadline is named here.
+ */
 async function restartServer(pages: readonly Page[]): Promise<void> {
-  const reopened = pages.map((page) => page.waitForResponse((response) => response.url().endsWith("/api/machines/events")));
+  const reopened = pages.map((page) => page.waitForResponse((response) => response.url().endsWith("/api/machines/events"), { timeout: 120_000 }));
   const port = server.port;
+  const started = Date.now();
   server.stop();
   server = serve(port);
   await Promise.all(reopened);
+  reopenMs.push(Date.now() - started);
 }
 async function chooseMode(opened: Opened, mode: "Light" | "Dark"): Promise<void> {
   const answered = opened.page.waitForResponse((response) => response.url().endsWith("/api/preferences") && response.request().method() === "PUT");
@@ -217,14 +225,14 @@ try {
       const refusal = { error: { code: "preferences_unwritable", message: "EACCES: permission denied, open '/state/preferences.json.tmp'" } };
       let failing = false;
       let hold: PromiseWithResolvers<void> | null = null;
-      const onWay = Promise.withResolvers<void>();
+      let onWay = Promise.withResolvers<void>();
       let sending = 0;
       let mostAtOnce = 0;
       const e = await browserAt(browser, {}, [], async (context) => {
         await context.route("**/api/preferences", async (route) => {
           if (route.request().method() !== "PUT") { await route.continue(); return; }
-          if (failing) { await route.fulfill({ status: 500, json: refusal }); return; }
           if (hold !== null) { onWay.resolve(); await hold.promise; }
+          if (failing) { await route.fulfill({ status: 500, json: refusal }); return; }
           await route.continue();
         });
       });
@@ -322,9 +330,30 @@ try {
       await settingsHold(f.page, { theme: "dark" });
       assert.equal((await held()).settings["theme"], "dark");
       assert.equal(mostAtOnce, 1);
-      const failure = { scenario: "persistent-save-refusal", firstRound, putsAfterPause: 0, ordinaryEventResumed: false, secondRound, reopenedRound, unchangedRevisionOnReopen: revisionBefore, afterRecovery: { theme: "dark", puts: e.puts.length }, mostPutsAtOnce: mostAtOnce, revisionsWritten: (await held()).revision - start };
+      const failure = { scenario: "persistent-save-refusal", firstRound, putsAfterPause: 0, ordinaryEventResumed: false, secondRound, reopenedRound, unchangedRevisionOnReopen: revisionBefore, afterRecovery: { theme: "dark", puts: e.puts.length }, mostPutsAtOnce: mostAtOnce, revisionsWritten: (await held()).revision - start, reopenMs };
       if (qaDir) writeFileSync(join(qaDir, "persistent-save-refusal.json"), JSON.stringify(failure, null, 2));
       console.log(`PASS persistent-save-refusal ${JSON.stringify(failure)}`);
+
+      // undone-while-refused: a change put back while its save is on the way, then refused, leaves
+      // nothing unconfirmed: no alert, no Retry waiting on a send that never starts, no more PUTs
+      const putsBefore = e.puts.length;
+      onWay = Promise.withResolvers<void>();
+      hold = Promise.withResolvers<void>();
+      failing = true;
+      await mode("Light");
+      await e.page.clock.runFor(600);
+      await onWay.promise;
+      await mode("Dark");
+      const refused = e.page.waitForResponse(isPut);
+      hold.resolve();
+      hold = null;
+      assert.equal((await refused).status(), 500);
+      await quiet();
+      assert.equal(await alert.count(), 0, "a refused save of a change already undone leaves no alert");
+      assert.equal(e.puts.length, putsBefore + 1, "nothing is sent for a change already undone");
+      assert.equal((await held()).settings["theme"], "dark");
+      failing = false;
+      console.log(`PASS undone-while-refused ${JSON.stringify({ puts: e.puts.length - putsBefore, alert: 0, server: (await held()).settings["theme"] })}`);
       for (const opened of [e, f]) await opened.context.close();
     } finally {
       await workspaceClose(pinnedWorkspace).catch((error) => { if (error?.code !== "workspace_not_found") throw error; });

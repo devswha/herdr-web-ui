@@ -30,7 +30,11 @@ describe("preferences sync real send path", () => {
   /** the next PUT's answer when the server refuses it, in its error envelope; stored nothing */
   let refuse: Response | null;
   /** every PUT's answer while set: a write error that persists, or a request that never reaches the PC */
-  let refusing: (() => Response) | null;
+  let refusing: (() => Response | Promise<Response>) | null;
+  /** the waits the hook has set and not yet cleared or run, with their length */
+  let waits: Map<unknown, number>;
+  /** what the next render passes as `enabled` */
+  let syncEnabled: boolean;
   let refusals: number;
   /** every PUT body in the order it was sent, refused or not */
   let bodies: PreferencesChange[];
@@ -48,17 +52,25 @@ describe("preferences sync real send path", () => {
     retrying: boolean;
     retry: () => void;
     resubscribed: () => void;
+    /** render again, with `syncEnabled` as it is now */
+    rerender: () => void;
   }
 
   beforeEach(() => {
     for (const key of ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT"]) descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     records = new Map();
+    waits = new Map();
+    syncEnabled = true;
     Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
     Object.defineProperty(globalThis, "navigator", { configurable: true, value: { languages: ["en-US"] } });
     Object.defineProperty(globalThis, "window", { configurable: true, value: {
       localStorage: { getItem: (key: string) => records.get(key) ?? null, setItem: (key: string, value: string) => records.set(key, value) },
-      setTimeout: (fn: () => void, ms: number) => globalThis.setTimeout(fn, ms),
-      clearTimeout: (id: number) => globalThis.clearTimeout(id),
+      setTimeout: (fn: () => void, ms: number) => {
+        const id = globalThis.setTimeout(() => { waits.delete(id); fn(); }, ms);
+        waits.set(id, ms);
+        return id;
+      },
+      clearTimeout: (id: number) => { waits.delete(id); globalThis.clearTimeout(id); },
       addEventListener() {}, removeEventListener() {},
     } });
     Object.defineProperty(globalThis, "document", { configurable: true, value: {
@@ -121,13 +133,13 @@ describe("preferences sync real send path", () => {
     records.clear();
     records.set("herdr-web-ui:settings", JSON.stringify(raw));
     const unmounted = () => { throw new Error("not mounted"); };
-    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: unmounted, receive: unmounted, saveError: null, paused: false, retrying: false, retry: unmounted, resubscribed: unmounted };
+    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: unmounted, receive: unmounted, saveError: null, paused: false, retrying: false, retry: unmounted, resubscribed: unmounted, rerender: unmounted };
     function Probe() {
       const context = useSettings();
       client.settings = context.settings;
       client.rendered = context.resolvedEntry;
       client.update = context.update;
-      const sync = usePreferencesSync(true);
+      const sync = usePreferencesSync(syncEnabled);
       client.receive = sync.receive;
       client.saveError = sync.saveError;
       client.paused = sync.paused;
@@ -136,9 +148,11 @@ describe("preferences sync real send path", () => {
       client.resubscribed = sync.resubscribed;
       return null;
     }
-    await act(async () => {
-      renderers.push(create(createElement(SettingsProvider, null, createElement(Probe))));
-    });
+    const tree = () => createElement(SettingsProvider, null, createElement(Probe));
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => { renderer = create(tree()); });
+    renderers.push(renderer!);
+    client.rerender = () => renderer!.update(tree());
     clients.push(client);
     return client;
   }
@@ -466,5 +480,68 @@ describe("preferences sync real send path", () => {
     await act(async () => { older.retry(); older.resubscribed(); });
     await longWait();
     expect([bodies.length, older.saveError, older.retrying]).toEqual([2, null, false]);
+  });
+
+  /** a refusal the server gives only once `gate` is resolved: the request is on its way until then */
+  function heldRefusal(): ReturnType<typeof Promise.withResolvers<void>> {
+    const gate = Promise.withResolvers<void>();
+    refusing = () => gate.promise.then(unwritable);
+    return gate;
+  }
+  const retryWaits = () => [...waits.values()].filter((ms) => ms === 5_000);
+
+  it("a change undone while its refused save is on the way leaves nothing for Retry to wait on", async () => {
+    const client = await open();
+    const gate = heldRefusal();
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await windows();
+    expect(bodies.length).toBe(1);
+    // back to what the server holds before the refusal arrives: nothing is unsent any more
+    await act(async () => { client.update({ darkTheme: DEFAULT_SETTINGS.darkTheme }); });
+    await act(async () => { gate.resolve(); });
+    await act(async () => {});
+    expect([client.saveError, client.retrying, client.paused]).toEqual([null, false, false]);
+    await act(async () => { client.retry(); });
+    expect(client.retrying).toBe(false);
+    await longWait();
+    expect([bodies.length, client.saveError, client.retrying, client.paused]).toEqual([1, null, false, false]);
+    expect(store.get().revision).toBe(0);
+  });
+
+  it("a refusal that arrives after unmounting sets no new wait", async () => {
+    await open();
+    const gate = heldRefusal();
+    await act(async () => { clients[0]!.update({ darkTheme: "tokyo-night" }); });
+    await windows();
+    expect(bodies.length).toBe(1);
+    await act(async () => { for (const renderer of renderers.splice(0)) renderer.unmount(); });
+    await act(async () => { gate.resolve(); });
+    await act(async () => {});
+    expect(refusals).toBe(1);
+    expect(retryWaits()).toEqual([]);
+  });
+
+  it("a refusal that arrives once sync is off sets no new wait, and the change goes when it is on again", async () => {
+    const client = await open();
+    const gate = heldRefusal();
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await windows();
+    expect(bodies.length).toBe(1);
+    syncEnabled = false;
+    await act(async () => { client.rerender(); });
+    await act(async () => { gate.resolve(); });
+    await act(async () => {});
+    // the answer is still read: the change stays unconfirmed here
+    expect(client.saveError).not.toBeNull();
+    expect(retryWaits()).toEqual([]);
+    await longWait();
+    expect(bodies.length).toBe(1);
+
+    refusing = null;
+    syncEnabled = true;
+    await act(async () => { client.rerender(); });
+    await send();
+    expect([bodies.length, answers, client.saveError]).toEqual([2, 1, null]);
+    expect(store.get().settings.darkTheme).toBe("tokyo-night");
   });
 });

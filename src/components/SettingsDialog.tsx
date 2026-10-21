@@ -1020,7 +1020,7 @@ function SaveFailure({ error, paused, retrying, onRetry }: { error: UserError; p
       <code>{error.detail}</code>
     </details>}
     <div className="settings-save-local">
-      <p>{t("Saved on this device; not confirmed on the server.")}</p>
+      <p>{retrying ? t("Saved on this device; sending it to the server…") : t("Saved on this device; not confirmed on the server.")}</p>
       <button type="button" className="btn" disabled={retrying} aria-busy={retrying} onClick={onRetry}>{t("Retry")}</button>
     </div>
   </div>;

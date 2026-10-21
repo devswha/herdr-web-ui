@@ -925,6 +925,7 @@ export const ZH: Record<string, string> = {
   "Try again; if it keeps failing, restart Ovis on the PC.": "请重试；如果一直失败，请在电脑上重启 Ovis。",
   "The server cannot save settings: check that its state folder is writable.": "服务器无法保存设置：请检查其状态文件夹是否可写。",
   "Saved on this device; not confirmed on the server.": "已保存在此设备上，但服务器尚未确认。",
+  "Saved on this device; sending it to the server…": "已保存在此设备上，正在发送到服务器…",
 
   // ---- sign-in ----
   "Enter all 6 digits of the pairing code.": "请输入配对码的全部 6 位数字。",

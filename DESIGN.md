@@ -2196,8 +2196,12 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   its fixed diagnostic is logged and returned by the hub status endpoint, never its saved key.
 - A shared setting or pin the server refused to save is one alert at the top of whichever page is
   open, never a mark on each row: the sentence in `--status-blocked` with the server's own words
-  behind Details, then a dim "Saved on this device; not confirmed on the server." and one `.btn`
-  Retry, which wraps below the words on a phone and is disabled while its save is on the way. The
+  behind Details, then a dim "Saved on this device; not confirmed on the server." at the reading
+  size (14 px, 15 px under a finger) and one `.btn` Retry, which wraps below the words on a phone.
+  While Retry's save is on the way the sentence says "sending it to the server" and Retry is
+  disabled, dimmed by its color rather than faded so it stays legible; a mouse's press draws the
+  amber edge of a pressed icon button, a finger's fills it as a pressed settings row fills. Korean
+  keeps each clause on one line. The
   change is sent again every few seconds; after three failures in a row sending pauses until Retry
   or the event stream reopens, and edits made meanwhile go out with the next send. The alert clears
   only when nothing unsent is left. This follows the app's actionable-error rule (one sentence and
