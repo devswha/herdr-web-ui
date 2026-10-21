@@ -8,8 +8,9 @@
  * only another answer replaces them, so a Windows herdr's `terminal_attach: false` is never
  * forgotten into the attach-capable default by a failed read. Reads are numbered as they start. An
  * answer is taken in unless a newer answer already was, even after a newer read failed: what the PC
- * can do never waits on the order its reads fail in. The run of failures counts only failed reads
- * newer than every read taken in, so an older read, failed or answered, never moves it.
+ * can do never waits on the order its reads fail in. The run of failures is the failed reads newer
+ * than the answer taken in, whatever order they complete in: an answer that lands late ends the
+ * failures before it and keeps the ones after it, and a failure older than that answer never counts.
  */
 
 export type HealthFreshness = "pending" | "fresh" | "unknown" | "unavailable";
@@ -18,12 +19,12 @@ export type HealthAnswer<T> = { ok: true; value: T } | { ok: false };
 export interface MachineHealth<T> {
   /** the PC's latest answer: its capabilities, until another answer replaces them */
   readonly confirmed: T | null;
-  /** completed reads in a row that failed since that answer (or since the page opened) */
+  /** failed reads newer than that answer (or since the page opened), counted up to UNAVAILABLE_AFTER */
   readonly failures: number;
-  /** the read that brought `confirmed`; an older answer that completes later is dropped */
+  /** the read that brought `confirmed`; an older read that completes later, failed or answered, is dropped */
   readonly answered: number;
-  /** the newest read taken in, failed or answered; an older failure that completes later is dropped */
-  readonly read: number;
+  /** the newest of those failed reads, at most UNAVAILABLE_AFTER: a late answer keeps the ones newer than it */
+  readonly failed: readonly number[];
 }
 
 export type HealthBook<T> = ReadonlyMap<string, MachineHealth<T>>;
@@ -31,7 +32,7 @@ export type HealthBook<T> = ReadonlyMap<string, MachineHealth<T>>;
 /** failed reads in a row after which the header says unavailable rather than unknown */
 export const UNAVAILABLE_AFTER = 2;
 
-const NOTHING_YET: MachineHealth<never> = { confirmed: null, failures: 0, answered: 0, read: 0 };
+const NOTHING_YET: MachineHealth<never> = { confirmed: null, failures: 0, answered: 0, failed: [] };
 
 export function machineHealth<T>(book: HealthBook<T>, machineId: string): MachineHealth<T> {
   return book.get(machineId) ?? NOTHING_YET;
@@ -40,14 +41,17 @@ export function machineHealth<T>(book: HealthBook<T>, machineId: string): Machin
 /** Takes in one completed read of one PC; `read` is the number the read got as it started. */
 export function applyHealthRead<T>(book: HealthBook<T>, machineId: string, read: number, answer: HealthAnswer<T>): HealthBook<T> {
   const current = machineHealth(book, machineId);
-  // a newer answer is already in, or (for a failure) a newer read of any kind
-  if (answer.ok ? read <= current.answered : read <= current.read) return book;
-  const newest = read > current.read;
+  // a newer answer is already in
+  if (read <= current.answered) return book;
+  // an answer that lands after newer reads failed brings its capabilities, and those failures still stand;
+  // only the newest failures are kept, as no more than UNAVAILABLE_AFTER of them change what the header says
+  const failed = answer.ok
+    ? current.failed.filter((failure) => failure > read)
+    : [...current.failed, read].sort((a, b) => a - b).slice(-UNAVAILABLE_AFTER);
   const next = new Map(book);
   next.set(machineId, answer.ok
-    // an answer that lands after a newer read failed brings its capabilities, and the failure still stands
-    ? { confirmed: answer.value, failures: newest ? 0 : current.failures, answered: read, read: newest ? read : current.read }
-    : { confirmed: current.confirmed, failures: current.failures + 1, answered: current.answered, read });
+    ? { confirmed: answer.value, failures: failed.length, answered: read, failed }
+    : { confirmed: current.confirmed, failures: failed.length, answered: current.answered, failed });
   return next;
 }
 

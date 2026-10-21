@@ -337,6 +337,54 @@ async function scopeAndCapability(browser: Browser, url: string): Promise<Record
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
   }
+  // two failed reads after an answer, the newer completing first: both count, so the header says unavailable
+  {
+    const { context, page, errors } = await openDemo(browser, url, { pane: panes.shell, herdr: JSON.stringify(WINDOWS) });
+    try {
+      await release(page, await firstRead(page), "ok");
+      const healthy = await established(page, "reverse failures");
+      const older = await nextRead(page);
+      const newer = await nextRead(page);
+      assert.ok(newer > older);
+      await release(page, newer, "error");
+      const first = await headerAfter(page, "stale", "newer read failed first");
+      assert.equal(first.offline, null, "one failure is unknown");
+      await release(page, older, "network");
+      const second = await headerAfter(page, "offline", "older read failed second");
+      assert.equal(second.offline?.text, "herdr unavailable", "the older failure is the second in the run");
+      sameCapabilities(healthy, second, "reverse failures");
+      cases.push({ case: "failures-in-reverse-order", reads: { older, newer }, first, second });
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
+  // an answer that lands late ends the failures before it and keeps only the ones after it
+  {
+    const { context, page, errors } = await openDemo(browser, url, { pane: panes.shell, herdr: JSON.stringify(WINDOWS) });
+    try {
+      await release(page, await firstRead(page), "ok");
+      const healthy = await established(page, "late success");
+      const before = await nextRead(page);
+      const late = await nextRead(page);
+      const after = await nextRead(page);
+      await release(page, before, "error");
+      await headerAfter(page, "stale", "failure before the late answer");
+      await release(page, after, "error");
+      const unavailable = await headerAfter(page, "offline", "failure after the late answer");
+      await release(page, late, "ok", { ...WINDOWS, version: "0.9.6" });
+      try {
+        await page.waitForFunction(() => document.querySelector(".header-meta .pill-offline") === null
+          && document.querySelector(".header-meta .pill-stale")?.getAttribute("title")?.includes("herdr 0.9.6") === true, undefined, { timeout: 10_000 });
+      } catch (error) {
+        throw new Error(`late success: the header never said unknown naming the late answer: ${JSON.stringify(await readHeader(page))}`, { cause: error });
+      }
+      await settled(page);
+      const reconciled = await readHeader(page);
+      assert.equal(reconciled.stale?.text, "Status unknown", "only the failure after the late answer stands");
+      sameCapabilities(healthy, reconciled, "late success");
+      cases.push({ case: "late-success-between-failures", reads: { before, late, after }, unavailable, reconciled });
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
   // cold start: no answer yet, so no identity to borrow, and two failures are unavailable
   {
     const { context, page, errors } = await openDemo(browser, url, { pane: panes.shell, herdr: JSON.stringify(WINDOWS) });
