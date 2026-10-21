@@ -706,6 +706,7 @@ const PLUGINS: PluginActions[] = [
   ] },
 ];
 
+/** Answers the demo's fictional HTTP API without contacting a real herdr server. */
 async function route(url: URL, method: string, init: RequestInit | undefined, input: RequestInfo | URL): Promise<Response> {
   const path = url.pathname;
   const query = url.searchParams;

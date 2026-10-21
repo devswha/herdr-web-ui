@@ -166,6 +166,7 @@ export interface PaneTerminalProps {
 /** The last refused Send now note per pane, kept across that pane's mounts (see queueError). */
 const heldRowNotes = new Map<string, { owner: string; id: string; text: string }>();
 
+/** Renders one pane's terminal and chat input, retaining its selections, drafts and connection state. */
 export function PaneTerminal({
   presentationKey,
   finishEpoch,
@@ -852,6 +853,7 @@ export function PaneTerminal({
     let copyOnSelect = false;
     let uiPreferenceLoaded = false;
     let uiPreferencePending = false;
+    /** Reads the host preference once successfully; transient failures remain available for recovery. */
     const readUiPreference = (): void => {
       if (disposed || uiPreferenceLoaded || uiPreferencePending) return;
       uiPreferencePending = true;
@@ -868,6 +870,7 @@ export function PaneTerminal({
     };
     readUiPreference();
     window.addEventListener("online", readUiPreference);
+    /** Reserves the full range in the copy gesture, with write ownership tied to this pane's lifetime. */
     const reserveSelectionCopy = (nativeCopied: boolean): boolean => {
       const read = selectionRead;
       if (!read?.pending || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") return false;

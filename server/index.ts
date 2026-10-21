@@ -149,6 +149,7 @@ export interface ServerInstance {
   stop: () => void;
 }
 
+/** Starts this install's HTTP/WebSocket bridge; tests supply isolated state and services. */
 export function createServer(
   options: {
     port?: number;
