@@ -521,13 +521,20 @@ setInterval(() => {}, 1000);
 
     // Cached tabs and split siblings retain the same terminal mount after navigation.
     const other = await tabCreate({ workspaceId: created.workspace.workspace_id, label: "Copy cancellation" });
+    // Finish the split layout and both attaches before selecting: a new split can
+    // replay mouse modes while its grid settles, which legitimately clears a selection.
+    const split = await paneSplit(pane, "right", false);
+    await page.locator(`.pane-frame[data-layout-pane="${split.pane_id}"] .pane-frame-head`).click();
+    await page.locator(`.pane-frame[data-layout-pane="${split.pane_id}"] [data-pane-content]`).waitFor();
+    await page.locator(`.pane-frame[data-layout-pane="${pane}"] .pane-frame-head`).click();
+    await page.locator(`.pane-frame[data-layout-pane="${pane}"] [data-pane-content]`).waitFor();
     for (const { destination, copy } of [
       { destination: "tab", copy: "pending" },
       { destination: "split", copy: "pending" },
       { destination: "tab", copy: "native" },
       { destination: "split", copy: "Control+c" },
     ] as const) {
-      const sibling = destination === "split" ? await paneSplit(pane, "right", false) : null;
+      const sibling = destination === "split" ? split : null;
       const frame = page.locator(`.pane-frame[data-layout-pane="${pane}"]`);
       await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
       await frame.locator(".xterm-rows > div", { hasText: /^S299\s*$/ }).waitFor();
@@ -579,7 +586,7 @@ setInterval(() => {}, 1000);
         await settled();
         assert.equal(await clipboard(page), "keep this clipboard", `the held response leaves the clipboard alone after visiting another ${destination} and returning`);
         if (copy !== "pending") {
-          assert.ok(await frame.locator(".xterm-selection div").count(), "the full-range highlight survives navigation without copying first");
+          assert.ok(await frame.locator(".xterm-selection div").count(), `the full-range highlight survives ${destination} navigation before ${copy}`);
           if (copy === "native") assert.equal(await page.evaluate(() => document.execCommand("copy")), true);
           else await page.keyboard.press(copy);
           await settled();
