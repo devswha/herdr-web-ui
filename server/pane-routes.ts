@@ -101,8 +101,9 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
           : null;
         const { version: stored } = resolveAgent(context.pane, roots, store);
         // a pane with no session yet has no stored version: OpenCode's service file still says how it types its skills
-        // (syntax only: the catalog's pin stays unverified, since only the store or a verified service may verify it)
-        const version = stored ?? (agent === "opencode" ? openCodeInstalledVersion(options.openCodeStateDir) : null);
+        // (syntax only: the catalog's pin stays unverified, since only the store or a verified service may verify it).
+        // A pane with a session whose transcript is unreadable gets none: that session may be an OpenCode 1 one
+        const version = stored ?? (agent === "opencode" && !context.pane.agent_session ? openCodeInstalledVersion(options.openCodeStateDir) : null);
         const scanned = paneCommands(agent, context.cwd, undefined, { ...roots.omo, environ: roots.environ }, version);
         const commands = await mergeCatalogSources(agent, context.pane, context.cwd, scanned, undefined, { codexHome: options.codexHome, openCodeStateDir: options.openCodeStateDir });
         rememberPaneCommands(context.pane, agent, commands);

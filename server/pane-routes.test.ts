@@ -229,6 +229,14 @@ it("offers a session-less OpenCode pane's skill in the form its installed versio
   });
 });
 
+it("does not give a pane with an OpenCode session it cannot read the service file's version", async () => {
+  // no opencode.db: the session's own version is unknown, and it may be an OpenCode 1 session
+  await openCodePane(async ({ state, skill }) => {
+    writeFileSync(join(state, "service.json"), JSON.stringify({ url: "http://127.0.0.1:9", pid: process.pid, password: "fixture", version: "2.0.32" }));
+    expect((await skill())?.trigger ?? "/").toBe("/");
+  }, "ses_paneRoutesUnread");
+});
+
 it("keeps the version a pane's own OpenCode session records over the service file's", async () => {
   const database = join(root, "opencode.db");
   const db = new Database(database, { create: true });
