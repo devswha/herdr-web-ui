@@ -612,6 +612,10 @@ function parseClaudeRewind(screen: string): ParsedPrompt | null {
       optionSteps: [...(restore ? [keySteps([KEY.enter])] : []), keySteps([KEY.escape])],
       // repeated messages quote the same words: the age under the quote tells the copies apart
       occurrence: confirm.age,
+    }, {
+      // and the card's id with it, so an answer for one copy is refused on another copy's step, through the
+      // answer route's own id check (the id then changes as the age ticks: an answer racing that is refused too)
+      body: [confirm.message, confirm.age, "", ...confirm.notes].join("\n"),
     });
   }
   const list = parseClaudeRewindList(screen);

@@ -53,9 +53,11 @@ describe("Claude Code's /rewind", () => {
     expect(prompt?.options.map((option) => option.label)).toEqual(OFFERED);
   });
 
-  test("the age under the message stays out of the card's identity", () => {
+  test("the age under the message is part of the card's identity: another copy of the same words is another card", () => {
     const shown = rewind("confirm-apple", 120);
-    expect(parseInteractivePrompt("claude", shown.replace("(3h ago)", "(4h ago)"))?.id).toBe(parseInteractivePrompt("claude", shown)?.id);
+    expect(parseInteractivePrompt("claude", shown.replace("(3h ago)", "(4h ago)"))?.id).not.toBe(parseInteractivePrompt("claude", shown)?.id);
+    // the card shows the message and its notes, not the age
+    expect(parseInteractivePrompt("claude", shown)?.body?.split("\n")[0]).toBe("apple");
   });
 
   test("a confirm step the recording does not show gets no card", () => {
