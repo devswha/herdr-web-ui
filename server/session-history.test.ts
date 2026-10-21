@@ -267,6 +267,29 @@ describe("listSessions", () => {
     expect(listSessions("claude", CWD, { home, env: {} }).map((row) => row.id)).toEqual(newest);
   });
 
+  // more entries than the 4096 the listing once took: which ones it saw followed readdir order
+  for (const [count, folders] of [[2500, true], [5000, false]] as const) {
+    it(`keeps the newest ${MAX_ROWS} of ${count} Claude sessions${folders ? " with their per-session folders" : ""}, whatever the readdir order`, () => {
+      const home = newHome();
+      const project = join(home, ".claude", "projects", claudeProjectDir(CWD));
+      mkdirSync(project, { recursive: true });
+      const written: { id: string; at: number }[] = [];
+      for (let n = 0; n < count; n++) {
+        const id = `${n.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`;
+        const path = join(project, `${id}.jsonl`);
+        writeFileSync(path, `${JSON.stringify({ type: "user", cwd: CWD, message: { role: "user", content: `prompt ${n}` } })}\n`);
+        // the times follow neither the names nor the order the files were made in
+        const at = (n * 7919) % count;
+        utimesSync(path, 1_790_000_000 + at, 1_790_000_000 + at);
+        // Claude keeps a folder of subagent transcripts beside a session
+        if (folders) mkdirSync(join(project, id));
+        written.push({ id, at });
+      }
+      const newest = written.sort((a, b) => b.at - a.at).slice(0, MAX_ROWS).map((entry) => entry.id);
+      expect(listSessions("claude", CWD, { home, env: {} }).map((row) => row.id)).toEqual(newest);
+    }, 30_000);
+  }
+
   it("finds Grok sessions in a native hashed cwd group", () => {
     const home = newHome();
     const dir = join(home, ".grok", "sessions", "long-slug-abc123", ID(7));

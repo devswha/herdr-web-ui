@@ -1,9 +1,12 @@
 /**
  * Earlier sessions of a folder, read from each agent's own store, newest first (#1314).
  *
- * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 4096 directory
- * entries are taken per listing, each with its own time (an lstat, bounded by those 4096, not counted
- * as a check), so the newest of them are checked first; at most 400 checks are made per listing, a
+ * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 16384 candidate
+ * entries (a session file, a Codex day folder, a Grok session folder: other entries, such as
+ * Claude's per-session folders, are passed over at no cost) are taken per listing, each with its own
+ * time (an lstat, bounded by those 16384, not counted as a check), and all of them are ordered by
+ * time before any is checked, so the newest are checked first whatever the readdir order; at most
+ * 400 checks are made per listing, a
  * check being one session file's resolution with its stat (spent whatever the resolution finds),
  * or one resolution or stat of a store, a folder or a database; at most 50 rows are returned, and
  * every path is resolved
@@ -34,14 +37,15 @@ export const HEAD_BYTES = 64 * 1024;
 /**
  * At most this many checks for one listing. A check is one session file's resolution with its stat
  * (spent even when the resolution fails or lands outside the store), or one resolution or stat of a
- * store, a folder or a database. A listing's per-entry lstats are bounded by MAX_ENTRIES instead.
+ * store, a folder or a database. A listing's per-candidate lstats are bounded by MAX_ENTRIES instead.
  */
 export const MAX_STATS = 400;
 /**
- * At most this many directory entries are taken for one listing, every folder's together. It bounds
- * the lstats, sorting and checks; Bun's opendirSync still reads a whole folder from the kernel.
+ * At most this many candidate entries are taken for one listing, every folder's together: each costs
+ * one lstat (not a check) and a place in the sort. Entries the listing passes over by name or type
+ * are not counted. Bun's opendirSync still reads a whole folder from the kernel before any of this.
  */
-export const MAX_ENTRIES = 4096;
+export const MAX_ENTRIES = 16384;
 /** At most this many sessions are returned. */
 export const MAX_ROWS = 50;
 const TITLE_CHARS = 200;
@@ -224,8 +228,12 @@ class Budget {
     try { return { real, stat: this.statOf(real) as Stats }; } catch { return null; }
   }
 
-  /** A folder's entries, unordered, as many as the listing has left to read; none for an unreadable one. */
-  list(dir: string): Dirent[] {
+  /**
+   * A folder's entries that `keep` takes (decided from the entry alone: its name and type), unordered,
+   * as many as the listing has left to take; none for an unreadable folder. An entry `keep` passes
+   * over (a Claude session's folder of subagent transcripts, say) costs no syscall and is not counted.
+   */
+  list(dir: string, keep: (entry: Dirent) => boolean = () => true): Dirent[] {
     const found: Dirent[] = [];
     let handle: Dir | undefined;
     try {
@@ -233,6 +241,7 @@ class Budget {
       while (this.entries < MAX_ENTRIES) {
         const entry = handle.readSync();
         if (entry === null) break;
+        if (!keep(entry)) continue;
         this.entries++;
         found.push(entry);
       }
@@ -318,7 +327,7 @@ function scanOf(budget: Budget, path: string, read: SessionHistoryOptions["readH
 
 /** These folders' entries newest first by their own times (a link not followed), within the listing's entry bound. */
 function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Dirent) => boolean): string[] {
-  return dirs.flatMap((dir) => budget.list(dir).filter(keep).flatMap((entry) => {
+  return dirs.flatMap((dir) => budget.list(dir, keep).flatMap((entry) => {
     const path = join(dir, entry.name);
     const time = budget.modified(path);
     return time === null ? [] : [{ path, time }];
@@ -502,7 +511,7 @@ function codexSessions(cwds: readonly string[], codexHome: string, budget: Budge
   const sessions = join(codexHome, "sessions");
   const scan = scanOf(budget, sessions, read);
   if (scan === null) return [];
-  const desc = (dir: string) => budget.list(dir).map((entry) => entry.name).filter((name) => /^\d+$/.test(name)).sort().reverse();
+  const desc = (dir: string) => budget.list(dir, (entry) => /^\d+$/.test(entry.name)).map((entry) => entry.name).sort().reverse();
   // newest day first, so the files looked at are the newest ones
   const files: Found[] = [];
   walk: for (const year of desc(sessions)) {
