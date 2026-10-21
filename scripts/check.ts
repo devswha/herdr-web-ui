@@ -31,7 +31,7 @@
  * while it checks it, and fast/lane modes build into dist/), herdr's worktree root, and Playwright's
  * browser cache. `run` does not rebuild dist/ unless asked with `--build`.
  */
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, createWriteStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
@@ -604,14 +604,33 @@ async function main(): Promise<void> {
   report.browserArtifact.provenance = report.browserArtifact.identity ? "pre-existing-unknown" : "unavailable";
   saveReport();
 
-  let child: ChildProcess | null = null;
+  // Every step's process group, from its start until it is proved empty. A step's processes can
+  // outlive it (a command that exits while something it started runs on, with or without the
+  // output pipes): what is left is ended when the step ends, and again before the teardown.
+  const owned = new Set<number>();
+  /** Ends what is left in an owned group; true when processes were left in it. */
+  const endOwned = async (group: number): Promise<boolean> => {
+    if (!owned.has(group)) return false;
+    let left = false;
+    // Windows has no process groups to signal
+    if (process.platform !== "win32") {
+      try { process.kill(-group, 0); left = true; }
+      catch (error) { left = (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+      if (left) {
+        const outcome = await endGroup(group, "SIGTERM");
+        if (outcome.result !== "gone") groupFailed(outcome);
+        else console.error(`check: ended processes left running in step process group ${group}`);
+      }
+    }
+    owned.delete(group);
+    return left;
+  };
   let activeStep: CheckStep | null = null;
   let activeStartedAtMs = 0;
   let activeStepFinished: Promise<void> | null = null;
   let ending = false;
   let interruptedBy: NodeJS.Signals | null = null;
-  // `check concurrent` runs the unit tests beside the lanes step, outside `run`'s single `child`.
-  let concurrentUnit: ChildProcess | null = null;
+  // `check concurrent` runs the unit tests beside the lanes step.
   let concurrentUnitFinished: Promise<number> | null = null;
   const finalize = (status: CheckReport["status"], exitCode: number): void => {
     for (const failure of teardownFailures) if (!report.errors.includes(`teardown: ${failure}`)) report.errors.push(`teardown: ${failure}`);
@@ -685,13 +704,15 @@ async function main(): Promise<void> {
           // The step runs in a process group of its own, and a lane starts processes of its own
           // in it: the whole group gets the signal, and has ended before the herdr and the
           // directory it uses are taken away.
-          const outcomes = await Promise.all([
-            child?.pid !== undefined ? endGroup(child.pid, signal) : undefined,
-            concurrentUnit?.pid !== undefined ? endGroup(concurrentUnit.pid, signal) : undefined,
-          ]);
-          for (const outcome of outcomes) if (outcome && outcome.result !== "gone") groupFailed(outcome);
-          if (activeStepFinished) await activeStepFinished;
-          if (concurrentUnitFinished) await concurrentUnitFinished;
+          const outcomes = await Promise.all([...owned].map((group) => endGroup(group, signal)));
+          const stuck = outcomes.filter((outcome) => outcome.result !== "gone");
+          for (const outcome of stuck) groupFailed(outcome);
+          // A step whose group ended settles at once. One that could not be stopped may never
+          // settle: its failure is recorded, and the run ends without it, keeping its state.
+          if (stuck.length === 0) {
+            if (activeStepFinished) await activeStepFinished;
+            if (concurrentUnitFinished) await concurrentUnitFinished;
+          }
         } catch (error) {
           teardownFailures.push(`could not end the interrupted steps: ${(error as Error).message}`);
         } finally {
@@ -751,6 +772,7 @@ async function main(): Promise<void> {
       activeStepFinished = stepFinished;
       let drainTimer: NodeJS.Timeout | null = null;
       let outputIncomplete = false;
+      let leftRunning = false;
       const stdout = createWriteStream(step.stdout, { flags: "w", mode: 0o600 });
       const stderr = createWriteStream(step.stderr, { flags: "w", mode: 0o600 });
       let logsFailed = false;
@@ -760,7 +782,6 @@ async function main(): Promise<void> {
         if (settled) return;
         settled = true;
         if (drainTimer) clearTimeout(drainTimer);
-        child = null;
         if (launchError) {
           console.error(`check: ${command[0]}: ${launchError.message}`);
           stderr.write(`${launchError.message}\n`);
@@ -778,6 +799,7 @@ async function main(): Promise<void> {
           else if (signal) step.reason = `process terminated by ${signal}`;
           else if (logsFailed) step.reason = "could not persist command output logs";
           else if (outputIncomplete) step.reason = "output may be incomplete: a process left running still held the output";
+          else if (leftRunning) step.reason = "ended processes the command left running";
           report.currentStep = null;
           if (step.status === "failure" && signal) report.errors.push(`${label} terminated by ${signal}`);
           else if (step.status === "failure" && !logsFailed) report.errors.push(`${label} exited with code ${step.exitCode}`);
@@ -791,7 +813,7 @@ async function main(): Promise<void> {
       };
       try {
         const started = spawn(command[0]!, command.slice(1), { stdio: ["inherit", "pipe", "pipe"], env, cwd: commandCwd, detached: true });
-        child = started;
+        if (started.pid !== undefined) owned.add(started.pid);
         const stdoutStream = started.stdout;
         const stderrStream = started.stderr;
         let stdoutClosed = !stdoutStream;
@@ -800,32 +822,34 @@ async function main(): Promise<void> {
         let terminatingGroup = false;
         let exitCode: number | null = null;
         let exitSignal: NodeJS.Signals | null = null;
+        // The command has exited: end what it left in its group, closed output or not, then settle.
+        const endLeftovers = (): void => {
+          if (terminatingGroup) return;
+          terminatingGroup = true;
+          void (async () => {
+            try {
+              if (started.pid !== undefined && await endOwned(started.pid)) leftRunning = true;
+            } catch (error) {
+              teardownFailures.push(`could not end ${label}'s process group: ${(error as Error).message}`);
+            } finally {
+              finish(exitCode, exitSignal);
+            }
+          })();
+        };
         const maybeFinishAfterExit = (): void => {
           if (!exited || settled || terminatingGroup) return;
           if (stdoutClosed && stderrClosed) {
-            finish(exitCode, exitSignal);
+            endLeftovers();
             return;
           }
           if (drainTimer) return;
           drainTimer = setTimeout(() => {
             drainTimer = null;
-            if (settled) return;
+            if (settled || terminatingGroup) return;
             outputIncomplete = true;
-            terminatingGroup = true;
             stdoutStream?.destroy();
             stderrStream?.destroy();
-            void (async () => {
-              try {
-                if (started.pid !== undefined) {
-                  const outcome = await endGroup(started.pid, "SIGTERM");
-                  if (outcome.result !== "gone") groupFailed(outcome);
-                }
-              } catch (error) {
-                teardownFailures.push(`could not end ${label}'s process group: ${(error as Error).message}`);
-              } finally {
-                finish(exitCode, exitSignal);
-              }
-            })();
+            endLeftovers();
           }, OUTPUT_DRAIN_GRACE_MS);
         };
         stdoutStream?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); stdout.write(chunk); });
@@ -923,7 +947,7 @@ async function main(): Promise<void> {
       unitStdout.on("error", (error) => { unitLogsFailed = true; console.error(`check: unit stdout log failed: ${error.message}`); });
       unitStderr.on("error", (error) => { unitLogsFailed = true; console.error(`check: unit stderr log failed: ${error.message}`); });
       const unit = spawn(bun, ["run", "test:unit"], { stdio: ["inherit", "pipe", "pipe"], env: plain, cwd, detached: true });
-      concurrentUnit = unit;
+      if (unit.pid !== undefined) owned.add(unit.pid);
       unit.stdout?.on("data", (chunk: Buffer) => { process.stdout.write(chunk); unitStdout.write(chunk); });
       unit.stderr?.on("data", (chunk: Buffer) => { process.stderr.write(chunk); unitStderr.write(chunk); });
       concurrentUnitFinished = (async () => {
@@ -931,7 +955,12 @@ async function main(): Promise<void> {
           unit.once("error", (error) => { unitStderr.write(`${error.message}\n`); done([127, null]); });
           unit.once("close", (closeCode, closeSignal) => done([closeCode, closeSignal]));
         });
-        concurrentUnit = null;
+        // the unit tests' output has closed, but something they started may still run in their group
+        try {
+          if (unit.pid !== undefined && await endOwned(unit.pid)) unitStep.reason = "ended processes the unit tests left running";
+        } catch (error) {
+          teardownFailures.push(`could not end the unit tests' process group: ${(error as Error).message}`);
+        }
         unitStdout.end();
         unitStderr.end();
         await Promise.all([finished(unitStdout).catch(() => undefined), finished(unitStderr).catch(() => undefined)]);
@@ -990,7 +1019,15 @@ async function main(): Promise<void> {
     report.errors.push(message);
     code = 1;
   } finally {
-    cleanup();
+    // an interrupt tears down by itself; otherwise a group no step ended (one whose step threw)
+    // is ended before its herdr and directory go
+    if (!ending) {
+      for (const group of [...owned]) {
+        try { await endOwned(group); }
+        catch (error) { teardownFailures.push(`could not end step process group ${group}: ${(error as Error).message}`); }
+      }
+      cleanup();
+    }
   }
   if (ending) return;
   // the commands passed, but what they started was not cleaned up: no green result

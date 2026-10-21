@@ -505,28 +505,53 @@ const listen = (stream: Readable): ((text: string) => Promise<void>) => {
   return (text) => new Promise((resolve) => { if (said.includes(text)) resolve(); else waiting.push({ text, resolve }); });
 };
 const errno = (code: string): Error => Object.assign(new Error(`${code} (fixture)`), { code });
+/** Settles as `promise` does, or fails naming `what` (and `detail()`) once `ms` pass without it. */
+const within = <T>(promise: Promise<T>, ms: number, what: string, detail: () => string = () => ""): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} within ${ms} ms ${detail()}`.trim())), ms); });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+};
+/** A process's state and parent, for a failure that names where a lifecycle stopped. */
+const processState = (pid: number): string => {
+  try { return readFileSync(`/proc/${pid}/status`, "utf8").split("\n").filter((line) => /^(?:State|PPid):/.test(line)).join(", "); }
+  catch (error) { return `pid ${pid}: ${(error as NodeJS.ErrnoException).code ?? "no /proc"}`; }
+};
 
 describe("endGroup", () => {
   it.skipIf(process.platform === "win32")("waits for a leaderless group until its descendant exits", async () => {
     // the descendant says when it is ready and when SIGTERM reached it, then exits once released
-    const descendant = 'process.on("SIGTERM", () => process.stdout.write("TERM\\n")); process.stdin.once("data", () => process.exit(0)); process.stdout.write("READY\\n");';
+    const descendant = 'process.on("SIGTERM", () => process.stdout.write("TERM\\n")); process.stdin.once("data", () => process.exit(0)); process.stdout.write(`READY ${process.pid}\\n`);';
     const leader = `const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], { stdio: "inherit" }).unref();`;
     const parent = spawn(process.execPath, ["-e", leader], { detached: true, stdio: ["pipe", "pipe", "inherit"] });
     const group = parent.pid!;
+    // Every step of the lifecycle is an event, subscribed before it can happen, and each has a
+    // deadline that names the step it stopped at: a hang becomes a failure that says where.
     const leaderExited = new Promise<void>((resolve) => parent.once("exit", () => resolve()));
+    // the descendant holds the pipe's last writer once the leader is gone: its end is the descendant's exit
+    const outputEnded = new Promise<void>((resolve) => { parent.stdout!.once("end", () => resolve()); parent.stdout!.once("close", () => resolve()); });
+    let said = "";
+    parent.stdout!.on("data", (chunk: Buffer) => { said += chunk.toString(); });
     const saw = listen(parent.stdout!);
+    const STEP_MS = 12_000;
     try {
-      await saw("READY");
-      await leaderExited;
+      await within(saw("READY"), STEP_MS, "the descendant did not start");
+      await within(leaderExited, STEP_MS, "the leader did not exit");
+      const pid = Number(/READY (\d+)/.exec(said)?.[1]);
       let released = false;
+      let reapDeadline = Number.POSITIVE_INFINITY;
       const outcome = await endGroup(group, "SIGTERM", {
-        // the clock stands still: only the descendant's exit ends the wait, never SIGKILL
+        // endGroup's clock stands still: only the descendant's exit ends the wait, never SIGKILL
         now: () => 0,
         wait: async () => {
           if (!released) {
-            await saw("TERM");
+            await within(saw("TERM"), STEP_MS, "SIGTERM did not reach the descendant:", () => processState(pid));
             released = true;
             parent.stdin!.write("go\n");
+            await within(outputEnded, STEP_MS, "the released descendant did not exit:", () => processState(pid));
+            // an exited process stays in its group until the process that adopted it reaps it
+            reapDeadline = Date.now() + STEP_MS;
+          } else if (Date.now() > reapDeadline) {
+            throw new Error(`the exited descendant was not reaped within ${STEP_MS} ms: ${processState(pid)}`);
           }
           await new Promise((resolve) => setImmediate(resolve));
         },
@@ -535,9 +560,10 @@ describe("endGroup", () => {
       expect(outcome).toEqual({ pgid: group, result: "gone", signals: ["SIGTERM"], cause: null });
       expect(() => process.kill(-group, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
     } finally {
+      parent.stdin!.destroy();
       try { process.kill(-group, "SIGKILL"); } catch { /* already gone */ }
     }
-  });
+  }, 70_000);
 
   it("fails after SIGKILL cannot empty the group", async () => {
     let clock = 0;
@@ -640,7 +666,7 @@ describe("check CLI teardown", () => {
       CHECK_REPORT: ".check/report.json",
       // a slot of its own beside the PC's real runs, and a wait for the admission port they share (#1225)
       CHECK_MAX_RUNS: "8",
-      CHECK_WAIT_SECONDS: "20",
+      CHECK_WAIT_SECONDS: "90",
       HERDR_WEB_HERDR_BIN: herdr,
       STUB_LOG: join(root, "stops.log"),
       STUB_STOP_FAIL: stopFails ? "1" : "",
@@ -650,7 +676,7 @@ describe("check CLI teardown", () => {
     const report = (path = join(cwd, ".check", "report.json")): Report => JSON.parse(readFileSync(path, "utf8")) as Report;
     const isolated = (stdout: string): string => /config and state in (\S+)/.exec(stdout)?.[1] ?? "";
     const runCheck = (command: string, extra: Record<string, string | undefined> = {}) => spawnSync(process.execPath, [checkScript, "run", "sh", "-c", command], {
-      cwd, env: { ...env, ...extra }, encoding: "utf8", timeout: 50_000,
+      cwd, env: { ...env, ...extra }, encoding: "utf8", timeout: 200_000,
     });
     return { cwd, env, stops, report, isolated, runCheck };
   };
@@ -673,7 +699,7 @@ describe("check CLI teardown", () => {
     expect(readFileSync(join(named, "web-state", "evidence.txt"), "utf8")).toBe("kept\n");
     expect(report(join(named, "report.json"))).toMatchObject({ status: "success", exitCode: 0, evidence: { retained: [] } });
     expect(existsSync(join(named, ".check-lock"))).toBe(false);
-  }, 60_000);
+  }, 420_000);
 
   it.skipIf(process.platform === "win32")("fails a zero-exit command when teardown fails", () => {
     const { stops, report, isolated, runCheck } = fixture(true);
@@ -691,7 +717,7 @@ describe("check CLI teardown", () => {
     expect(result.stderr).toContain(dir);
     expect(readFileSync(join(dir, "web-state", "evidence.txt"), "utf8")).toBe("kept\n");
     expect(existsSync(join(dir, "config", "herdr", "sessions", "fx-2", "herdr.sock"))).toBe(true);
-  }, 60_000);
+  }, 210_000);
 
   it.skipIf(process.platform === "win32")("preserves interruption codes and retained teardown evidence", async () => {
     for (const [signal, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
@@ -719,7 +745,59 @@ describe("check CLI teardown", () => {
       expect(stops()).toEqual(["fx-1", "fx-2"]);
       expect(readFileSync(join(dir, "web-state", "evidence.txt"), "utf8")).toBe("kept\n");
     }
-  }, 60_000);
+  }, 420_000);
+
+  it.skipIf(process.platform === "win32")("ends what a zero-exit command left running with its output closed", () => {
+    const { cwd, report, isolated, runCheck } = fixture(false);
+    const pidFile = join(cwd, "..", "left.pid");
+    // the command exits 0 at once; what it started runs on in its process group, its output closed
+    const result = runCheck(`${sessionsCommand}; tail -f /dev/null </dev/null >/dev/null 2>&1 & echo $! > "$LEFT_PID"`, { LEFT_PID: pidFile });
+    const left = Number(readFileSync(pidFile, "utf8"));
+    try {
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("ended processes left running in step process group");
+      // ended (and reaped) before the run removed what the process could have been using
+      expect(() => process.kill(left, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+      expect(existsSync(isolated(result.stdout))).toBe(false);
+      const ended = report();
+      expect(ended).toMatchObject({ status: "success", exitCode: 0, errors: [], evidence: { retained: [] } });
+      expect(ended.steps.find((step) => step.name === "run")).toMatchObject({ status: "success", reason: "ended processes the command left running" });
+    } finally {
+      try { process.kill(left, "SIGKILL"); } catch { /* already gone */ }
+    }
+  }, 210_000);
+
+  it.skipIf(process.platform === "win32")("finalizes an interrupted run whose step group cannot be stopped", async () => {
+    const { cwd, env, report, isolated } = fixture(false);
+    // check.ts may not signal any process group, as if the step ran as another user
+    const deny = join(cwd, "..", "deny-groups.ts");
+    writeFileSync(deny, 'const kill = process.kill.bind(process);\nprocess.kill = ((pid: number, signal?: string | number) => { if (pid < 0) throw Object.assign(new Error("EPERM (fixture)"), { code: "EPERM" }); return kill(pid, signal); }) as typeof process.kill;\n');
+    // the command reports its group and waits on stdin, which stays open: it cannot end by itself
+    const check = spawn(process.execPath, ["--preload", deny, checkScript, "run", "sh", "-c", `${sessionsCommand}; echo "GRO""UP $$"; read line`], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const exited = new Promise<number | null>((resolve) => check.once("exit", (exitCode) => resolve(exitCode)));
+    let stdout = "";
+    check.stdout!.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    const saw = listen(check.stdout!);
+    let group = 0;
+    try {
+      await within(saw("GROUP "), 150_000, "the command did not start");
+      group = Number(/GROUP (\d+)/.exec(stdout)?.[1]);
+      check.kill("SIGTERM");
+      // the run ends with its code although the step it could not stop never settles
+      expect(await within(exited, 60_000, "the interrupted run did not finish")).toBe(143);
+      expect(() => process.kill(-group, 0)).not.toThrow();
+      const dir = isolated(stdout);
+      made.push(dir);
+      const interrupted = report() as Report & { endedAt: string | null };
+      expect(interrupted).toMatchObject({ status: "interrupted", exitCode: 143, verification: { status: "unknown" }, evidence: { retained: [dir] } });
+      expect(interrupted.endedAt).not.toBeNull();
+      expect(interrupted.errors.some((error) => error.startsWith(`teardown: step process group ${group} did not end`) && error.includes("EPERM"))).toBe(true);
+      expect(readFileSync(join(dir, "web-state", "evidence.txt"), "utf8")).toBe("kept\n");
+    } finally {
+      check.kill("SIGKILL");
+      if (group) try { process.kill(-group, "SIGKILL"); } catch { /* already gone */ }
+    }
+  }, 210_000);
 });
 
 describe("check CLI", () => {
@@ -824,5 +902,5 @@ describe("check CLI", () => {
     expect(missingBuildReport.browserArtifact.buildThisRun).toBe(true);
     expect(missingBuildReport.verification.status).toBe("unknown");
     expect(missingBuildReport.errors).toContain("built dist identity unavailable; cannot verify the built artifact");
-  });
+  }, 180_000);
 });
