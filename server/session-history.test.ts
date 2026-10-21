@@ -326,6 +326,18 @@ describe("listSessions", () => {
     expect(listed(NEAR + 2n)).toBe(0);
   });
 
+  it(`lists a database whose check is the ${MAX_STATS}th: its identity after the open is part of that check`, () => {
+    const home = newHome();
+    install("hermes", home);
+    // a Hermes listing spends 6 checks up to its database's identity: the cwd's canonical form, the
+    // store's stat and resolution, the database's and its folder's resolutions, then the identity
+    const listed = (spent: number) => listSessions("hermes", CWD, { home, env: {}, spent }).length;
+    expect(listed(MAX_STATS - 7)).toBe(2);
+    expect(listed(MAX_STATS - 6)).toBe(2);
+    // one check further and the identity is past the bound: nothing is listed
+    expect(listed(MAX_STATS - 5)).toBe(0);
+  });
+
   it(`reads at most ${MAX_ENTRIES} entries of a folder, however many it holds`, () => {
     const home = newHome();
     mkdirSync(piStore(home), { recursive: true });

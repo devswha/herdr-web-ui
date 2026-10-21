@@ -79,6 +79,8 @@ export interface SessionHistoryOptions {
   lstat?: (path: string) => Stats;
   /** Stats an opened file's descriptor (tests change the identity it reports); defaults to fstatSync. */
   fstat?: (fd: number, bigint?: boolean) => Stats | BigIntStats;
+  /** Checks already spent when the listing starts (tests place a check at the bound). */
+  spent?: number;
   /** The OS whose folder rules apply; defaults to this one's (tests take Windows's on any OS). */
   platform?: NodeJS.Platform;
   /** Resolves a Windows cwd to its canonical long form (tests map an 8.3 alias); defaults to realpathSync.native. */
@@ -224,10 +226,15 @@ class Budget {
     try { return this.statOf(path) as Stats; } catch { return null; }
   }
 
-  /** A file's stat with its identity in bigint, as one counted check; null once spent, or when it is gone. */
-  identity(path: string): { isFile: boolean; dev: bigint; ino: bigint } | null {
-    if (this.exhausted) return null;
-    this.used++;
+  /**
+   * A file's stat with its identity in bigint, as one counted check; null once spent, or when it is
+   * gone. `again`: the same file's identity once more, part of the check already made, not another.
+   */
+  identity(path: string, again = false): { isFile: boolean; dev: bigint; ino: bigint } | null {
+    if (!again) {
+      if (this.exhausted) return null;
+      this.used++;
+    }
     try { const stat = this.statOf(path, true); return { isFile: stat.isFile(), dev: bigintOf(stat.dev), ino: bigintOf(stat.ino) }; } catch { return null; }
   }
 
@@ -695,7 +702,8 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
     // the open the path must still be the checked file (a folder above it swapped for a link, or
     // Windows), so a swap between the check and the open lists nothing
     db = new Database(real, sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
-    const opened = budget.identity(real);
+    // part of the database's one check: a database checked at the 400th check is still listed
+    const opened = budget.identity(real, true);
     if (!opened?.isFile || opened.dev !== checked.dev || opened.ino !== checked.ino) return null;
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     return read(db);
@@ -853,6 +861,7 @@ export function listSessions(agent: SessionHistoryAgent, cwd: string, options: S
   const home = options.home ?? homedir();
   const read = options.readHead;
   const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat, options.fstat);
+  budget.used = options.spent ?? 0;
   // the pane's cwd may be another spelling of the folder the agent recorded: a Windows 8.3 alias (a
   // child keeps the short cwd) or a link (macOS /var -> /private/var). Resolve it once, as one counted
   // stat, and key and match every store by both spellings
