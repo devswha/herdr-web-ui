@@ -54,7 +54,17 @@ class Fixture {
   /** what a held tab keeps reading */
   held = new Map<string, UpdateStatus>();
   posts: Post[] = [];
+  /** `watch`: a device paired to watch only, which the server refuses every mutation (server/index.ts) */
+  role: "drive" | "watch" = "drive";
+  /** the status cannot be fetched at all, as with the server out of reach */
+  unreachable = false;
   private waiters: Array<{ path: string; resolve: (post: Post) => void }> = [];
+  private reads: Array<() => void> = [];
+
+  /** Resolves once a tab has been answered (or failed) its next status read: asked for before the load. */
+  nextRead(): Promise<void> {
+    return new Promise((resolve) => this.reads.push(resolve));
+  }
 
   /** Resolves with the next POST to `path`: asked for before the press that sends it. */
   next(path: string): Promise<Post> {
@@ -63,7 +73,11 @@ class Fixture {
 
   answer(tab: string, path: string, method: string, body: string | null): { status: number; body: unknown } {
     if (method === "GET") {
-      if (path === "/api/updates") return { status: 200, body: this.held.get(tab) ?? this.status };
+      if (path === "/api/updates") {
+        for (const resolve of this.reads.splice(0)) resolve();
+        // status 0: the page's fetch rejects, as a network failure does
+        return this.unreachable ? { status: 0, body: null } : { status: 200, body: this.held.get(tab) ?? this.status };
+      }
       if (path === "/api/updates/notes") return { status: 200, body: this.notes };
       if (path === "/api/updates/installed") return { status: 200, body: { revision: null, version: null, previous_version: null, installed_at: null, releases: [], omitted: 0 } };
       return { status: 405, body: { error: { code: "method_not_allowed", message: "fixture" } } };
@@ -72,7 +86,9 @@ class Fixture {
     try { parsed = body === null ? null : JSON.parse(body); } catch { parsed = body; }
     const refuse = (status: number, code: string) => ({ status, body: { error: { code, message: `fixture ${code}` } } });
     let reply: { status: number; body: unknown };
-    if (path === "/api/updates/check") {
+    // as the server answers a watching device, before any update route is reached: nothing changes
+    if (this.role === "watch") reply = { status: 403, body: { error: { code: "read_only", message: "this device can only watch" } } };
+    else if (path === "/api/updates/check") {
       reply = { status: 202, body: { accepted: true } };
       this.status = { ...this.status, phase: "idle", error: null, error_code: null };
     } else {
@@ -103,6 +119,7 @@ const UPDATE_FETCH = `<script>(() => {
     const at = url.pathname.indexOf("/api/updates");
     if (at < 0) return demo(input, init);
     const answer = await window.__updateFixture(url.pathname.slice(at), (init && init.method) || "GET", init && typeof init.body === "string" ? init.body : null);
+    if (answer.status === 0) throw new TypeError("Failed to fetch");
     return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
   };
 })();</script>`;
@@ -123,7 +140,48 @@ async function open(browser: Browser, fixture: Fixture, options: { width: number
 }
 
 const label = (language: "en" | "ko", text: string) => language === "ko" ? KO[text] ?? text : text;
-const fits = async (page: Page, what: string) => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${what}: nothing overflows sideways`);
+/**
+ * Nothing overflows sideways: not the page, and not inside the update line, the Updates section or
+ * its notes, where a box that clips its overflow would hide a long word without widening the page.
+ */
+const fits = async (page: Page, what: string) => assert.deepEqual(await page.evaluate(() => {
+  const found: string[] = [];
+  if (document.documentElement.scrollWidth > window.innerWidth) found.push(`page ${document.documentElement.scrollWidth} > ${window.innerWidth}`);
+  for (const region of document.querySelectorAll(".update-notice, .settings-updates, .settings-updates .update-notes")) {
+    const box = region.getBoundingClientRect();
+    const name = region.className;
+    if (region.scrollWidth > region.clientWidth + 1) found.push(`${name} scrolls sideways: ${region.scrollWidth} > ${region.clientWidth}`);
+    for (const node of region.querySelectorAll("*")) {
+      const rect = node.getBoundingClientRect();
+      // a screen-reader-only clip is 1 px wide on purpose
+      if (rect.width <= 1 || rect.height <= 1) continue;
+      // what is read or pressed: text of its own, or a control. A progress bar's sliding fill has neither
+      const text = [...node.childNodes].some((child) => child.nodeType === Node.TEXT_NODE && child.textContent!.trim() !== "");
+      if (!text && !node.matches("button, a, input")) continue;
+      if (rect.left < box.left - 1 || rect.right > box.right + 1) found.push(`${name} > ${node.tagName.toLowerCase()}.${(node as HTMLElement).className}: ${Math.round(rect.left)}..${Math.round(rect.right)} outside ${Math.round(box.left)}..${Math.round(box.right)} ("${node.textContent?.slice(0, 40)}")`);
+    }
+  }
+  return found;
+}), [], `${what}: nothing overflows sideways`);
+/** Where the browser broke each line of a text: what a Korean reader sees split. */
+const lines = (page: Page, selector: string, text: string) => page.evaluate(({ selector, text }) => {
+  const node = [...document.querySelectorAll(`${selector}, ${selector} *`)].find((each) => each.textContent?.includes(text) && ![...each.children].some((child) => child.textContent?.includes(text)));
+  if (!node) return null;
+  const rows: Array<{ top: number; words: string[] }> = [];
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  for (let current = walker.nextNode(); current; current = walker.nextNode()) {
+    const value = current.textContent ?? "";
+    for (const match of value.matchAll(/\S+/g)) {
+      const range = document.createRange();
+      range.setStart(current, match.index!);
+      range.setEnd(current, match.index! + match[0].length);
+      const top = Math.round(range.getClientRects()[0]?.top ?? -1);
+      const row = rows.find((each) => Math.abs(each.top - top) <= 2);
+      if (row) row.words.push(match[0]); else rows.push({ top, words: [match[0]] });
+    }
+  }
+  return rows.sort((a, b) => a.top - b.top).map((row) => row.words.join(" "));
+}, { selector, text });
 const settingsOpen = async (page: Page, language: "en" | "ko") => {
   // the shortcut is the app's once it has drawn: after a load or a reload, wait for it
   await page.locator(".conn-live").waitFor({ state: "attached" });
@@ -131,6 +189,9 @@ const settingsOpen = async (page: Page, language: "en" | "ko") => {
   await openSettingsPage(page, label(language, "About"), label(language, "Back to settings"));
   await page.locator(".settings-updates").scrollIntoViewIfNeeded();
 };
+
+/** Two animation frames: whatever the last answer set has been committed and painted. */
+const frames = (page: Page) => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 
 /** The functional checks, on a phone in English. */
 async function behaviour(browser: Browser, url: string): Promise<Record<string, unknown>> {
@@ -260,6 +321,25 @@ async function behaviour(browser: Browser, url: string): Promise<Record<string, 
     assert.equal(fixture.posts.length, posted, "nothing is posted under an older supervisor");
     receipts["old_supervisor"] = { capability: false, header: RESTART, settings_install_disabled: true, posts: fixture.posts.length - posted };
     console.log("PASS under an older supervisor no install is sent, and both places ask for a restart");
+
+    // observe-only: a watching device sees the offer, and its press changes nothing on the server
+    fixture.status = offer();
+    fixture.notes = notesFor(A, "9.9.9");
+    fixture.role = "watch";
+    await page.goto(url);
+    await line.getByText("Ovis v9.9.9 is available.", { exact: true }).waitFor();
+    const unchanged = JSON.stringify(fixture.status);
+    sent = fixture.next("/api/updates/install");
+    await line.getByRole("button", { name: "Update", exact: true }).click();
+    const watched = await sent;
+    assert.deepEqual([watched.body, watched.status, watched.code], [{ expected_revision: A }, 403, "read_only"], "a watching device's install is refused");
+    await line.getByText("The update could not be installed.", { exact: true }).waitFor();
+    await settingsOpen(page, "en");
+    await settings.getByText("this device can only watch", { exact: false }).first().waitFor();
+    assert.equal(JSON.stringify(fixture.status), unchanged, "the refused install changed no status");
+    receipts["observe"] = { status: watched.status, code: watched.code, status_unchanged: true };
+    fixture.role = "drive";
+    console.log("PASS a watching device's install is refused and changes nothing");
     assert.deepEqual(errors, []);
     receipts["posts"] = fixture.posts;
     return receipts;
@@ -283,12 +363,18 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
     { state: "moved-offer", status: () => offer(B, "9.9.10", { phase: "error", error_code: "update_offer_changed", error: "A different release is on offer than the one asked for, so nothing was installed. Review it, then update again." }), notes: () => notesFor(B, "9.9.10") },
     { state: "restart-required", status: () => offer(A, "9.9.9", { revision_bound_install: undefined }) },
     { state: "retry", status: () => offer(A, "9.9.9", { phase: "error", error: "bun run build failed: fixture" }) },
-    { state: "long", status: () => offer(LONG, `9.9.9-${"rc".repeat(30)}`, { phase: "error", error: longError }), notes: () => notesFor(LONG, `9.9.9-${"rc".repeat(30)}`) },
+    // a 64-hex revision and an unbroken path in the error: the updater offers only plain vX.Y.Z tags, so the version stays one
+    { state: "long", status: () => offer(LONG, "9.9.9", { phase: "error", error: longError }), notes: () => notesFor(LONG, "9.9.9") },
     { state: "notes-end", status: () => offer(), notes: () => notesFor(A, "9.9.9", 8) },
     { state: "hover", status: () => offer(), only: 1440 },
     { state: "focus-visible", status: () => offer() },
     { state: "pressed", status: () => offer() },
     { state: "disabled", status: () => offer(A, "9.9.9", { phase: "checking", available: false }) },
+    // nothing to install: the controls must offer none
+    { state: "unmanaged", status: () => ({ ...offer(), managed: false, available: false, latest_revision: null, latest_version: null, revision_bound_install: undefined }) },
+    { state: "up-to-date", status: () => offer(A, "9.9.9", { available: false, latest_revision: null, latest_version: null }) },
+    { state: "unreachable", status: () => offer() },
+    { state: "observe", status: () => offer() },
   ];
   const combos = [
     ...[390, 1440].flatMap((width) => (["light", "dark"] as const).map((theme) => ({ width, theme, language: "en" as const }))),
@@ -306,6 +392,9 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
         for (const surface of ["header", "settings"] as const) {
           fixture.status = status();
           fixture.notes = notes?.() ?? notesFor(fixture.status.latest_revision ?? A, fixture.status.latest_version ?? "9.9.9");
+          fixture.role = state === "observe" ? "watch" : "drive";
+          fixture.unreachable = state === "unreachable";
+          const read = fixture.nextRead();
           await page.goto(url);
           await page.locator(".conn-live").waitFor({ state: "attached" });
           const line = page.locator(".update-notice");
@@ -323,10 +412,22 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
             } else if (state === "moved-offer") await line.getByText(t(MOVED), { exact: true }).waitFor();
             else if (state === "restart-required") await line.getByText(t(RESTART), { exact: true }).waitFor();
             else if (state === "building") await line.getByText(t("Building the app"), { exact: true }).waitFor();
-            else if (state === "retry" || state === "long") await line.getByRole("button", { name: t("Try again"), exact: true }).waitFor();
-            else if (state === "notes-end") continue;
+            else if (state === "retry") await line.getByRole("button", { name: t("Try again"), exact: true }).waitFor();
+            else if (state === "notes-end" || state === "long") continue;
+            else if (state === "unmanaged" || state === "up-to-date" || state === "unreachable") {
+              // the status was answered (or failed) and drawn: the line must then be absent
+              await read;
+              await frames(page);
+              assert.equal(await line.count(), 0, `${state}: the header offers no update`);
+            } else if (state === "observe") {
+              const sent = fixture.next("/api/updates/install");
+              await line.getByRole("button", { name: t("Update"), exact: true }).click();
+              assert.equal((await sent).status, 403);
+              await line.getByText(t("The update could not be installed."), { exact: true }).waitFor();
+            }
             else await line.getByRole("button", { name: t("What's new"), exact: true }).waitFor();
-            target = line.getByRole("button", { name: t(state === "retry" || state === "long" ? "Try again" : "Update"), exact: true });
+            const empty = state === "unmanaged" || state === "up-to-date" || state === "unreachable";
+            target = empty ? null : line.getByRole("button", { name: t(state === "retry" || state === "observe" ? "Try again" : "Update"), exact: true });
           } else {
             await settingsOpen(page, combo.language);
             const section = page.locator(".settings-updates");
@@ -336,13 +437,28 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
             else if (state === "building") await section.getByText(t("Building the app"), { exact: true }).waitFor();
             else if (state === "retry") await section.getByText("bun run build failed: fixture", { exact: true }).waitFor();
             else if (state === "long") await section.getByText(longError, { exact: true }).waitFor();
-            else await section.locator(".update-notes").waitFor();
+            else if (state === "unmanaged" || state === "up-to-date" || state === "unreachable") {
+              await read;
+              await section.getByText(t(state === "unreachable" ? "Waiting for an update check…" : "Up to date."), { exact: true }).waitFor();
+            } else await section.locator(".update-notes").waitFor();
+            if (state === "observe") {
+              const sent = fixture.next("/api/updates/install");
+              await section.getByRole("button", { name: t("Update and restart"), exact: true }).click();
+              assert.equal((await sent).status, 403);
+              await section.getByText("this device can only watch", { exact: false }).first().waitFor();
+            }
             if (state === "notes-end") {
               await section.locator(".update-notes").evaluate((notesBox) => { notesBox.scrollTop = notesBox.scrollHeight; });
               await page.waitForFunction(() => { const box = document.querySelector(".settings-updates .update-notes"); return !!box && Math.abs(box.scrollTop + box.clientHeight - box.scrollHeight) <= 1; });
             }
             target = section.getByRole("button", { name: t("Update and restart"), exact: true });
-            if (state !== "building" && state !== "checking") await target.scrollIntoViewIfNeeded();
+            if (state === "unmanaged" || state === "unreachable") {
+              // no update is managed here, or none could be read: no control is drawn at all
+              assert.equal(await target.count(), 0, `${state}: Settings offers no install`);
+              assert.equal(await section.getByRole("button", { name: t("Check for updates"), exact: true }).count(), 0, `${state}: Settings offers no check`);
+              target = null;
+            } else if (state === "up-to-date") assert.equal(await target.isDisabled(), true, "nothing to install: Update and restart is disabled");
+            if (target && state !== "building" && state !== "checking") await target.scrollIntoViewIfNeeded();
           }
           if (state === "hover") await target!.hover();
           if (state === "focus-visible") {
@@ -368,8 +484,10 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
             await page.mouse.up();
           }
           shots.push({ file, width: combo.width, height: combo.width === 390 ? 844 : 900, theme: combo.theme, language: combo.language, state: `${surface}-${state}` });
-          if (state === "moved-offer" || state === "restart-required" || state === "offered") {
-            measurements.push({ file, ...await page.evaluate((selector) => {
+          if (["moved-offer", "restart-required", "offered", "observe", "unmanaged", "up-to-date", "unreachable"].includes(state)) {
+            const selector = surface === "header" ? ".update-notice" : ".settings-updates";
+            const korean = combo.language === "ko" ? { korean_lines: await lines(page, selector, t(state === "moved-offer" ? MOVED : RESTART)) } : {};
+            measurements.push({ file, ...korean, ...await page.evaluate((selector) => {
               const parse = (color: string) => (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
               const luminance = ([r, g, b]: number[]) => { const c = [r!, g!, b!].map((v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!; };
               const background = (node: Element | null): string => { for (let at = node; at; at = at.parentElement) { const color = getComputedStyle(at).backgroundColor; if (!/rgba\(.*, 0\)$/.test(color) && color !== "transparent") return color; } return "rgb(255, 255, 255)"; };
@@ -381,7 +499,7 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
                 text: text ? { content: text.textContent, fontSizePx: parseFloat(getComputedStyle(text).fontSize), contrast: contrast(text) } : null,
                 controls: [...(root?.querySelectorAll("button, a") ?? [])].map((node) => { const box = node.getBoundingClientRect(); return { name: node.textContent?.trim() || node.getAttribute("aria-label"), width: Math.round(box.width * 10) / 10, height: Math.round(box.height * 10) / 10, disabled: (node as HTMLButtonElement).disabled ?? false, contrast: contrast(node) }; }),
               };
-            }, surface === "header" ? ".update-notice" : ".settings-updates") });
+            }, selector) });
           }
         }
       }
@@ -399,7 +517,9 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
     "header-notes-end": "the header line carries no notes; they are read in Settings (settings-notes-end)",
     "header-disabled": "the header line never draws a disabled Update: while an install or check runs it shows the progress instead, and under an older supervisor it shows How to restart",
     "hover@390": "hover is captured at 1440 only; a phone has no hover",
-    "empty/offline": "the update controls show nothing without an offer (an unmanaged server, as the real demo is); the remote-PC offline banner is a separate line this change does not touch",
+    "header-long": "the header line words every failure as the generic \"The update could not be installed.\" (src/components/UpdateControls.tsx, `failed ?` in UpdateNotice) and never shows the revision or the error itself; the long revision and unbroken error are captured in Settings (settings-long)",
+    "remote-pc-offline": "the update controls are this server's own; a remote PC that is offline is drawn in its sidebar group (src/components/MachineSidebar.tsx .machine-offline), which this change does not touch, and the demo has no offline PC. The update states with no reachable status are captured as unreachable",
+    "empty": "captured as unmanaged (no managed install: no control drawn), up-to-date (managed, nothing on offer: Update and restart disabled) and unreachable (status read fails: no control drawn)",
   };
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ head, checklist_path: "/home/devswha/.nvm/versions/node/v24.18.0/lib/node_modules/omo-ai/plugin/skills/visual-qa/SKILL.md", not_applicable: notApplicable, shots }, null, 2));
   writeFileSync(join(dir, "measurements.json"), JSON.stringify({ head, measurements }, null, 2));
