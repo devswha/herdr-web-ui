@@ -1,4 +1,4 @@
-import { afterEach, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, expect, it, mock, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,12 +7,16 @@ import * as conversation from "../conversation.ts";
 import * as omo from "../omo.ts";
 import * as commands from "../commands.ts";
 import * as prompt from "../prompt.ts";
+import * as processStart from "../process-start.ts";
 import { createSubmitText } from "./composer.ts";
 import { handlePromptRequest, prepareCommandSend } from "../prompt.ts";
 import { commandOutcome } from "../outcome.ts";
-import type { PanePromptResponse } from "../../shared/protocol.ts";
+import type { HerdrPane, PanePromptResponse } from "../../shared/protocol.ts";
 
 afterEach(() => mock.restore());
+beforeEach(() => {
+  spyOn(client, "paneProcessInfo").mockResolvedValue(undefined);
+});
 
 const pane = { pane_id: "delivery-fixture", workspace_id: "w", tab_id: "t", terminal_id: "terminal",
   cwd: "/fixture", focused: false, revision: 0, agent: "pi", agent_status: "idle" };
@@ -21,6 +25,45 @@ const submitter = () => createSubmitText({
   options: { submitDelayMs: 0 }, lastTyped: new Map(), attachments: new Map(), terminalAttach: async () => true,
   SUBMIT_DEADLINE_MS: 1000, TYPED_SETTLE_MS: 0, DRAFT_CLEAR_WAIT_MS: 0, DRAFT_CLEAR_POLL_MS: 0, SUBMIT_DELAY_MS: 0,
 });
+
+for (const scenario of ["unpolled replacement", "wrapper restart", "first turn", "reused pid"] as const) {
+  it.skipIf(scenario === "reused pid" && process.platform !== "linux")(`binds a Codex command at send time: ${scenario}`, async () => {
+    const target: HerdrPane = { ...pane, pane_id: `codex-outcome-${scenario}`, agent: "codex", agent_session: null };
+    let pid = 2147483645;
+    let birth = 1000;
+    spyOn(client, "paneGet").mockResolvedValue(target);
+    const processes = spyOn(client, "paneProcessInfo").mockImplementation(async () => ({
+      pane_id: target.pane_id, foreground_process_group_id: 100,
+      foreground_processes: [
+        { pid: 100, name: "sh", argv: ["sh", "-c", "while :; do codex; sleep 1; done"] },
+        { pid: 101, name: "node", argv: ["node", "/fixture/codex/bin/codex.js"] },
+        { pid, name: "codex", argv: ["/fixture/native/codex"] },
+      ],
+    }));
+    spyOn(processStart, "processStartedAt").mockImplementation((candidate) => candidate === pid ? birth : 500);
+    const delivered = spyOn(client, "agentPrompt").mockResolvedValue();
+    spyOn(conversation, "readCommandTranscript").mockResolvedValue(null);
+    spyOn(client, "sessionSnapshot").mockResolvedValue({
+      panes: [target], layouts: [], agents: [], workspaces: [], tabs: [], protocol: 22, version: "fixture",
+    });
+    spyOn(client, "paneRead").mockResolvedValue({
+      ...target, text: "fixture-codex-screen", source: "detection", format: "text", truncated: false,
+    });
+    const url = new URL(`http://localhost/api/pane/prompt?pane_id=${target.pane_id}`);
+    const poll = async () => (await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse).outcomes;
+    await submitter()(target.pane_id, "/myext", "/myext", Date.now());
+    expect(delivered).toHaveBeenCalledTimes(1);
+    const readsAtSend = processes.mock.calls.length;
+    if (scenario !== "unpolled replacement") expect(await poll()).toMatchObject([{ state: "accepted" }]);
+    if (scenario === "unpolled replacement" || scenario === "wrapper restart") pid++;
+    if (scenario === "reused pid") birth++;
+    target.agent_session = { agent: "codex", kind: "id", source: "herdr:codex", value: "first-turn" };
+    const shown = await poll();
+    if (scenario === "first turn") expect(shown).toMatchObject([{ text: "/myext", state: "accepted", evidence: [] }]);
+    else expect(shown).toBeUndefined();
+    if (scenario !== "first turn") expect(readsAtSend).toBe(1);
+  });
+}
 
 it("does not preview an unchanged pi screen after immediate delivery without a screen baseline", async () => {
   const target = { ...pane, pane_id: "delivery-preview-fixture" };

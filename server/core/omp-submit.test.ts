@@ -93,7 +93,7 @@ describe("a message sent to omp", () => {
     ompPid = posix ? startedNow() : 1;
     await submitter()("w:p1", "/effort", "/effort", Date.now());
     expect(count("agent.prompt")).toBe(1);
-    expect(count("pane.process_info")).toBe(0);
+    expect(count("pane.process_info")).toBe(1);
   });
 
   it.skipIf(!posix)("waits while an omp started moments ago has not reported, then sends once and presses nothing", async () => {

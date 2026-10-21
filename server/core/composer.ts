@@ -16,7 +16,7 @@ import { viewportTop } from "../outcome.ts";
 import { processStartedAt } from "../process-start.ts";
 import { isOmpProcess, ompAgentDir } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
-import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, chatOwnedInput, heldCandidate, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
+import { bindCommandProcess, CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, chatOwnedInput, heldCandidate, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { CLAUDE_REWIND_OPEN_MESSAGE } from "../dialogs/claude.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
@@ -402,6 +402,7 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // agent.prompt pastes the whole text, and OpenCode v2 leaves a pasted @skill unattached
         let skills: string[] = [];
         if (pane) ({ sent: command, skills } = await openCodeSkillsToType(pane, command, text, beforeScreen, options.openCodeStateDir));
+        await bindCommandProcess(paneId, command);
         inTime();
         if (pane && command && skills.length > 0) {
           const expected = pendingIdentity(pane);

@@ -25,7 +25,7 @@ import type { ClientMessage, HerdrPane, PendingMessage, SessionSnapshot } from "
 import { typingGuards } from "../input-guard.ts";
 import { claudeForegroundSession } from "../claude-store.ts";
 import { HerdrError, paneProcessInfo, paneRead, paneSendKeys, paneSendText } from "../herdr/client.ts";
-import { claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, noteSubmitted, parseInteractivePrompt, prepareCommandSend, shownInputBox } from "../prompt.ts";
+import { bindCommandProcess, claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, noteSubmitted, parseInteractivePrompt, prepareCommandSend, shownInputBox } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { PendingInputs, samePendingIdentity, type PendingIdentity, type PendingRecord } from "../pending-input.ts";
@@ -267,6 +267,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       // catalog budget, at the pane's own version) is openCodeSkillsToType's, as for any other send
       const opencode = await openCodeSkillsToType(context.pane, prepareCommandSend(context.pane, text, context.screen), text, context.screen, options.openCodeStateDir);
       let command = opencode.sent;
+      await bindCommandProcess(paneId, command);
       const skills = opencode.skills;
       let attached: string[] = [];
       let prompt: PromptPiece[] = [{ pasted: closeMention(text) }];

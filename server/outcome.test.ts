@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { HerdrPane, PanePromptResponse, SlashCommand } from "../shared/protocol.ts";
 import { commandInvocations, commandOutcome, CommandReservations, type CommandSend } from "./outcome.ts";
 import { finishPrompt, type DialogReader } from "./dialogs/shared.ts";
-import { commandSendFrom, handlePromptRequest, noteCommandEvidence, noteSubmitted } from "./prompt.ts";
+import { bindCommandProcess, commandSendFrom, handlePromptRequest, noteCommandEvidence, noteSubmitted } from "./prompt.ts";
 import { socketAddress } from "./herdr/client.ts";
 import { registry } from "./dialogs/registry.ts";
 import { source as claudeSource } from "./skills/claude.ts";
@@ -358,9 +358,10 @@ describe("session-scoped command outcomes", () => {
     focused: false, revision: 0, agent: "claude", agent_status: "idle", status: "idle",
     agent_session: session("earlier"), screen: "",
   });
-  const submit = (paneId: string, pane: HerdrPane, text: string) => {
+  const submit = async (paneId: string, pane: HerdrPane, text: string) => {
     const command = commandSendFrom(pane, "claude", [row("context"), row("clear"), row("new"), row("resume", "terminal")], text);
     if (!command) throw new Error("fixture command was not recorded");
+    await bindCommandProcess(paneId, command);
     noteSubmitted(paneId, text, command);
     return command;
   };
@@ -375,6 +376,7 @@ describe("session-scoped command outcomes", () => {
             ? [{ ...row("imagegen"), source: "skill", trigger: "$" }] : [row("context")];
           const command = commandSendFrom(pane, agent, catalog, text);
           if (!command) throw new Error("fixture command was not recorded");
+          await bindCommandProcess(paneId, command);
           noteSubmitted(paneId, text, command);
           expect((await served(paneId)).outcomes).toMatchObject([{ id: command.id, state: "accepted", evidence: [] }]);
           pane.agent_session = { ...session("first-turn"), agent };
@@ -392,8 +394,8 @@ describe("session-scoped command outcomes", () => {
   it("keeps all first-turn sends when the session is discovered before the first poll", async () => {
     const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
     await withFakeHerdr(pane, async (paneId) => {
-      const first = submit(paneId, pane, "/context");
-      const second = submit(paneId, pane, "/context");
+      const first = await submit(paneId, pane, "/context");
+      const second = await submit(paneId, pane, "/context");
       pane.agent_session = session("first-turn");
       expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([first.id, second.id]);
       pane.agent_session = session("other");
@@ -405,7 +407,7 @@ describe("session-scoped command outcomes", () => {
     it(`does not carry a first-turn ${text} into yet another session`, async () => {
       const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
       await withFakeHerdr(pane, async (paneId) => {
-        const current = submit(paneId, pane, text);
+        const current = await submit(paneId, pane, text);
         expect((await served(paneId)).outcomes).toHaveLength(1);
         pane.agent_session = session("first-turn");
         expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([current.id]);
@@ -419,7 +421,7 @@ describe("session-scoped command outcomes", () => {
     it(`does not carry a sessionless ${text} into a different agent process`, async () => {
       const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
       await withFakeHerdr(pane, async (paneId) => {
-        submit(paneId, pane, text);
+        await submit(paneId, pane, text);
         expect((await served(paneId)).outcomes).toHaveLength(1);
         pane.pid++;
         pane.agent_session = session("replacement");
@@ -431,11 +433,11 @@ describe("session-scoped command outcomes", () => {
     it(`keeps ${text}'s own row after first-turn discovery and its subsequent session change`, async () => {
       const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
       await withFakeHerdr(pane, async (paneId) => {
-        const earlier = submit(paneId, pane, "/context");
+        const earlier = await submit(paneId, pane, "/context");
         expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([earlier.id]);
         pane.agent_session = session("first-turn");
         expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([earlier.id]);
-        const current = submit(paneId, pane, text);
+        const current = await submit(paneId, pane, text);
         pane.agent_session = session("changed");
         expect((await served(paneId)).outcomes).toMatchObject([{ id: current.id, text, evidence: [] }]);
         pane.pid++;
@@ -447,7 +449,7 @@ describe("session-scoped command outcomes", () => {
   it("omits earlier session sends after an agent restart", async () => {
     const pane = target();
     await withFakeHerdr(pane, async (paneId) => {
-      submit(paneId, pane, "/context");
+      await submit(paneId, pane, "/context");
       expect((await served(paneId)).outcomes).toHaveLength(1);
       pane.agent_session = session("restarted");
       expect((await served(paneId)).outcomes).toBeUndefined();
@@ -458,8 +460,8 @@ describe("session-scoped command outcomes", () => {
     it(`keeps only the initiating ${text} row across its session change without inventing evidence`, async () => {
       const pane = target();
       await withFakeHerdr(pane, async (paneId) => {
-        submit(paneId, pane, "/context");
-        const current = submit(paneId, pane, text);
+        await submit(paneId, pane, "/context");
+        const current = await submit(paneId, pane, text);
         pane.agent_session = session("changed");
         const shown = await served(paneId);
         expect(shown.outcomes).toMatchObject([{ id: current.id, text, evidence: [] }]);
@@ -474,10 +476,10 @@ describe("session-scoped command outcomes", () => {
   it("keeps every current-session outcome after an earlier session send", async () => {
     const pane = target();
     await withFakeHerdr(pane, async (paneId) => {
-      submit(paneId, pane, "/context");
+      await submit(paneId, pane, "/context");
       pane.agent_session = session("current");
-      const first = submit(paneId, pane, "/context");
-      const second = submit(paneId, pane, "/context");
+      const first = await submit(paneId, pane, "/context");
+      const second = await submit(paneId, pane, "/context");
       expect((await served(paneId)).outcomes?.map((item) => item.id)).toEqual([first.id, second.id]);
     });
   });
@@ -485,7 +487,7 @@ describe("session-scoped command outcomes", () => {
   it("does not carry a session-changing command into a replacement terminal", async () => {
     const pane = target();
     await withFakeHerdr(pane, async (paneId) => {
-      submit(paneId, pane, "/clear");
+      await submit(paneId, pane, "/clear");
       pane.terminal_id = "replacement";
       pane.agent_session = session("restarted");
       expect((await served(paneId)).outcomes).toBeUndefined();
@@ -495,11 +497,11 @@ describe("session-scoped command outcomes", () => {
   it("keeps correlated evidence on a session-changing send and later current sends", async () => {
     const pane = target();
     await withFakeHerdr(pane, async (paneId) => {
-      const current = submit(paneId, pane, "/clear");
+      const current = await submit(paneId, pane, "/clear");
       noteCommandEvidence(paneId, current.id, { kind: "native", at: current.at + 1 });
       pane.agent_session = session("changed");
       expect((await served(paneId)).outcomes).toMatchObject([{ id: current.id, state: "result-observed", evidence: [{ kind: "native" }] }]);
-      const next = submit(paneId, pane, "/context");
+      const next = await submit(paneId, pane, "/context");
       expect((await served(paneId)).outcomes?.map((item) => item.id)).toEqual([current.id, next.id]);
     });
   });
@@ -507,9 +509,9 @@ describe("session-scoped command outcomes", () => {
   it("keeps the initiating receipt when the next session sends before the first poll", async () => {
     const pane = target();
     await withFakeHerdr(pane, async (paneId) => {
-      const current = submit(paneId, pane, "/clear");
+      const current = await submit(paneId, pane, "/clear");
       pane.agent_session = session("changed");
-      const next = submit(paneId, pane, "/context");
+      const next = await submit(paneId, pane, "/context");
       expect((await served(paneId)).outcomes?.map((item) => item.id)).toEqual([current.id, next.id]);
       pane.agent_session = session("restarted-again");
       expect((await served(paneId)).outcomes).toBeUndefined();
@@ -524,7 +526,7 @@ describe("session-scoped command outcomes", () => {
       noteSubmitted(paneId, skill.text, skill);
       pane.agent_session = session("after-skill");
       expect((await served(paneId)).outcomes).toBeUndefined();
-      submit(paneId, pane, "/clear");
+      await submit(paneId, pane, "/clear");
       noteSubmitted(paneId, "ordinary follow-up");
       pane.agent_session = session("restarted");
       expect((await served(paneId)).outcomes).toBeUndefined();

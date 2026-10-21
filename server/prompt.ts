@@ -6,8 +6,8 @@ import { resolveAgent } from "./pane-context.ts";
 import { processStartedAt } from "./process-start.ts";
 import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, viewportTop, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
-import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
-import { omoTranscriptForPane } from "./omo.ts";
+import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot, type ProcessInfo } from "./herdr/client.ts";
+import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
 import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
 import { claudePlanFile } from "./claude-plan.ts";
@@ -146,7 +146,7 @@ type PaneCommandSend = CommandSend & {
     readonly terminalId: string;
     discovering: boolean;
     identity: string;
-    process?: string;
+    process?: { readonly pid: number; readonly started: number | null } | null;
     replaced?: true;
   };
   /** Visibility only: never changes the send identity used to correlate evidence. */
@@ -157,12 +157,26 @@ const chatSent = new Map<string, { text: string; commands: PaneCommandSend[]; re
 
 const outcomeIdentity = (pane: HerdrPane): string => JSON.stringify([pane.terminal_id, pane.agent_session]);
 
-/** The foreground job survives its first turn, but not another agent launched in that terminal. */
-async function outcomeProcess(paneId: string): Promise<string | null> {
-  const info = await paneProcessInfo(paneId).catch(() => null);
-  const pid = info?.foreground_process_group_id ?? info?.foreground_processes?.[0]?.pid;
-  return pid === undefined || pid === null ? null
-    : JSON.stringify([pid, process.platform === "linux" ? processStartedAt(pid) : null]);
+/** Prefer the native agent to its interpreter launcher, never the shell or process-group leader. */
+function outcomeProcess(info: ProcessInfo | undefined, agent: string, bound?: number): { pid: number; started: number | null } | null {
+  const processes = info?.foreground_processes ?? [];
+  const binary = (word: string): string => word.replace(/\\/g, "/").split("/").at(-1)?.replace(/\.(?:exe|cmd|js|mjs|cjs)$/i, "") ?? "";
+  const native = processes.filter((entry) => binary(entry.argv?.[0] ?? entry.argv0 ?? entry.name) === agent);
+  const interpreted = processes.filter((entry) => {
+    const argv = entry.argv ?? [];
+    if (agent === "omo") return isOmoProcess(argv);
+    return ["node", "bun", "python", "python3"].includes(binary(argv[0] ?? ""))
+      && binary(argv[1] ?? "") === agent;
+  });
+  const candidates = [...native, ...interpreted];
+  const running = bound === undefined ? candidates[0] : candidates.find((entry) => entry.pid === bound);
+  return running ? { pid: running.pid, started: process.platform === "linux" ? processStartedAt(running.pid) : null } : null;
+}
+
+/** Bind before delivery, even when no browser polls until after an agent replacement. */
+export async function bindCommandProcess(paneId: string, command: PaneCommandSend | undefined): Promise<void> {
+  if (!command?.visibility) return;
+  command.visibility.process = outcomeProcess(await paneProcessInfo(paneId).catch(() => undefined), command.agent);
 }
 
 /** Capture only existing data before delivery. Discovery and transcript reads belong to the poll. */
@@ -247,14 +261,17 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
   const commands = chatSent.get(paneId)?.commands ?? [];
   const now = Date.now();
   const identity = outcomeIdentity(pane);
-  const process = commands.some((sent) => sent.visibility) ? await outcomeProcess(paneId) : null;
+  const processes = commands.some((sent) => sent.visibility?.process)
+    ? await paneProcessInfo(paneId).catch(() => undefined) : undefined;
   for (const sent of commands) {
     const visibility = sent.visibility;
     if (!visibility || visibility.replaced) continue;
-    if (visibility.process !== undefined && process !== null && visibility.process !== process) visibility.replaced = true;
-    if (process !== null) visibility.process ??= process;
+    const original = visibility.process;
+    const current = original && processes ? outcomeProcess(processes, sent.agent, original.pid) : null;
+    if (original && processes && (!current
+      || original.started !== null && current.started !== null && original.started !== current.started)) visibility.replaced = true;
     if (visibility.discovering && !visibility.replaced && pane.agent_session
-      && visibility.terminalId === pane.terminal_id) {
+      && visibility.terminalId === pane.terminal_id && original && current) {
       visibility.identity = identity;
       visibility.discovering = false;
       if (sent.sessionChange) sent.sessionChange.identity = identity;
