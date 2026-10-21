@@ -26,7 +26,7 @@ const submitter = () => createSubmitText({
   SUBMIT_DEADLINE_MS: 1000, TYPED_SETTLE_MS: 0, DRAFT_CLEAR_WAIT_MS: 0, DRAFT_CLEAR_POLL_MS: 0, SUBMIT_DELAY_MS: 0,
 });
 
-for (const scenario of ["unpolled replacement", "wrapper restart", "first turn", "reused pid", "suspended", "settled"] as const) {
+for (const scenario of ["unpolled replacement", "wrapper restart", "first turn", "reused pid", "suspended", "settled", "no agent process"] as const) {
   it.skipIf((scenario === "reused pid" || scenario === "suspended") && process.platform !== "linux")(`binds a Codex command at send time: ${scenario}`, async () => {
     const target: HerdrPane = { ...pane, pane_id: `codex-outcome-${scenario}`, agent: "codex", agent_session: null };
     let pid = 2147483645;
@@ -35,7 +35,8 @@ for (const scenario of ["unpolled replacement", "wrapper restart", "first turn",
     spyOn(client, "paneGet").mockResolvedValue(target);
     const processes = spyOn(client, "paneProcessInfo").mockImplementation(async () => ({
       pane_id: target.pane_id, foreground_process_group_id: 100,
-      foreground_processes: [
+      // native Windows: herdr lists only the shell
+      foreground_processes: scenario === "no agent process" ? [{ pid: 100, name: "pwsh", argv: ["pwsh.exe"] }] : [
         { pid: 100, name: "sh", argv: ["sh", "-c", "while :; do codex; sleep 1; done"] },
         { pid: 101, name: "node", argv: ["node", "/fixture/codex/bin/codex.js"] },
         ...foreground ? [{ pid, name: "codex", argv: ["/fixture/native/codex"] }] : [],
@@ -66,7 +67,7 @@ for (const scenario of ["unpolled replacement", "wrapper restart", "first turn",
     if (scenario === "reused pid") birth++;
     target.agent_session = { agent: "codex", kind: "id", source: "herdr:codex", value: "first-turn" };
     const shown = await poll();
-    const kept = scenario === "first turn" || scenario === "suspended" || scenario === "settled";
+    const kept = scenario === "first turn" || scenario === "suspended" || scenario === "settled" || scenario === "no agent process";
     if (kept) expect(shown).toMatchObject([{ text: "/myext", state: "accepted", evidence: [] }]);
     else expect(shown).toBeUndefined();
     expect(readsAtSend).toBe(1);

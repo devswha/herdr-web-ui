@@ -3,7 +3,7 @@ import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptR
 import { builtinCommands, cachedPaneCommands } from "./commands.ts";
 import { agentProcesses, claudeRestoredOwned, readCommandTranscript, releaseClaudeRestored } from "./conversation.ts";
 import { resolveAgent } from "./pane-context.ts";
-import { processStartedAt, processStartUpperBound } from "./process-start.ts";
+import { processAlive, processStartedAt, processStartUpperBoundAsync } from "./process-start.ts";
 import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot, viewportTop, type ProcessInfo } from "./herdr/client.ts";
@@ -148,6 +148,17 @@ type PaneCommandSend = CommandSend & {
     identity: string;
     /** The agent process the send went to (bindCommandProcess); null when it could not be told, none when not bound. */
     process?: { readonly pid: number; readonly started: number | null } | null;
+    /**
+     * No foreground process matched the agent when binding (native Windows lists only the shell; an executable
+     * named otherwise than its kind): nothing can show a replacement, so the reported session is adopted.
+     */
+    unmatched?: true;
+    /**
+     * The identity herdr still reported from an earlier process when this send went to a later one (a restarted
+     * Claude Code keeps its old session id until its first turn): the send waits for its own session, as one sent
+     * before any session does, and is never adopted into this one.
+     */
+    stale?: string;
     /** Set while the binding's read is out: a poll waits for it, within BINDING_WAIT_MS. */
     binding?: Promise<void>;
     /** Polls in a row that did not find the bound process in the foreground, where its start time cannot say. */
@@ -170,7 +181,11 @@ function outcomeProcess(info: ProcessInfo | undefined, agent: string, bound?: nu
 }
 
 /** How long a poll waits for a send's process binding before it judges that send without one, this time. */
-const BINDING_WAIT_MS = 1000;
+const BINDING_WAIT_MS = 250;
+
+/** The same process: one pid, and the same start time wherever both are known. */
+const sameProcess = (a: { pid: number; started: number | null }, b: { pid: number; started: number | null }): boolean =>
+  a.pid === b.pid && (a.started === null || b.started === null || a.started === b.started);
 
 /**
  * Records which agent process a send went to, so its row follows that process (commandOutcomes), also when no browser
@@ -191,11 +206,13 @@ export function bindCommandProcess(paneId: string, command: PaneCommandSend | un
       // the /proc start-time read waits until delivery has its turn
       await Promise.resolve();
       visibility.process = outcomeProcess(seen, command.agent);
+      if (!visibility.process) visibility.unmatched = true;
       return;
     }
     const found = outcomeProcess(await paneProcessInfo(paneId).catch(() => undefined), command.agent);
-    const startedBy = found ? processStartUpperBound(found.pid) : null;
+    const startedBy = found ? await processStartUpperBoundAsync(found.pid) : null;
     visibility.process = found && (startedBy === null || startedBy < sentAt) ? found : null;
+    if (!found) visibility.unmatched = true;
   })().finally(() => { visibility.binding = undefined; });
 }
 
@@ -211,12 +228,18 @@ function checkBoundProcess(visibility: NonNullable<PaneCommandSend["visibility"]
   }
   // Out of the foreground is not gone: a suspended agent (Ctrl+Z) or another process group holding the
   // terminal is still the same process. On Linux /proc says whether the pid is gone, or reused under another
-  // start time; where it cannot say, two looks in a row without the process say so.
-  const started = process.platform === "linux" ? processStartedAt(original.pid) : null;
-  if (process.platform === "linux" && (started === null || original.started !== null && started !== original.started)) visibility.replaced = true;
-  else if (process.platform !== "linux" || original.started === null) {
-    if ((visibility.misses = (visibility.misses ?? 0) + 1) >= 2) visibility.replaced = true;
+  // start time. Elsewhere a gone pid is proof; a live one is the same process on macOS and the other Unixes,
+  // which hand a pid out again only after the whole range, but not on Windows, which reuses a finished
+  // process's number at once. Where none of that can say, two looks in a row without the process say so.
+  if (process.platform === "linux") {
+    const started = processStartedAt(original.pid);
+    if (started === null || original.started !== null && started !== original.started) visibility.replaced = true;
+    else if (original.started === null && (visibility.misses = (visibility.misses ?? 0) + 1) >= 2) visibility.replaced = true;
+    return null;
   }
+  const alive = processAlive(original.pid);
+  if (!alive) visibility.replaced = true;
+  else if (process.platform === "win32" && (visibility.misses = (visibility.misses ?? 0) + 1) >= 2) visibility.replaced = true;
   return null;
 }
 
@@ -313,12 +336,23 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
   const watched = commands.filter((sent) => sent.visibility?.process && !sent.visibility.replaced
     && (sent.visibility.discovering || now < sent.at + COMMAND_WINDOW_MS));
   const processes = watched.length > 0 ? await paneProcessInfo(paneId).catch(() => undefined) : undefined;
-  for (const sent of commands) {
+  for (const [index, sent] of commands.entries()) {
     const visibility = sent.visibility;
     if (!visibility || visibility.replaced) continue;
+    // bound to another process than an earlier send under the same identity: herdr still reports the session
+    // of the process before, and this send waits for its own (a send no process was bound to is no evidence)
+    if (!visibility.discovering && visibility.stale === undefined && visibility.process
+      && commands.slice(0, index).some((earlier) => earlier.visibility?.identity === visibility.identity
+        && (earlier.visibility.replaced || earlier.visibility.process && !sameProcess(earlier.visibility.process, visibility.process!)))) {
+      visibility.discovering = true;
+      visibility.stale = visibility.identity;
+    }
     const current = processes && watched.includes(sent) ? checkBoundProcess(visibility, sent.agent, processes) : null;
-    if (visibility.discovering && !visibility.replaced && pane.agent_session
-      && visibility.terminalId === pane.terminal_id && current) {
+    // A send's own session is adopted while its bound process runs. With no process bound (native Windows
+    // lists only the shell; an executable named otherwise than its kind), nothing can show a replacement,
+    // so the session that appears in the same terminal is taken as its own.
+    if (visibility.discovering && !visibility.replaced && pane.agent_session && identity !== visibility.stale
+      && visibility.terminalId === pane.terminal_id && (current || visibility.unmatched)) {
       visibility.identity = identity;
       visibility.discovering = false;
       if (sent.sessionChange) sent.sessionChange.identity = identity;
@@ -333,7 +367,7 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
   if (transcript) chatSent.get(paneId)?.reservations.observeTranscript(outcomeIdentity(pane), transcript.identity, transcript.records, readSendId);
   const parsed = prompt ? parsedByPublicPrompt.get(prompt) : undefined;
   const readIndex = commands.findIndex((sent) => sent.id === readSendId);
-  return commands.map((sent, index) => {
+  const outcomes = commands.map((sent, index) => {
     // A send racing this GET must not inherit a screen read before that send.
     if (index > readIndex) return sent.outcome ?? commandOutcome(paneId, sent, { now });
     const same = sameSession(sent);
@@ -369,28 +403,25 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     });
     sent.outcome = observed;
     return observed;
-  }).filter((_, index) => {
-    const sent = commands[index]!;
-    if (sent.visibility?.replaced) return false;
-    if (sameSession(sent) || sent.sessionChange?.identity === identity) return true;
-    // The last Chat /clear, /new or resume may itself change sessions. Keep its receipt in
-    // that next conversation only; a session change is not proof that the command completed.
+  });
+  // The last Chat /clear, /new or resume may itself change sessions. Keep its receipt in
+  // that next conversation only; a session change is not proof that the command completed.
+  for (const [index, sent] of commands.entries()) {
     const change = sent.sessionChange;
+    if (!change || change.identity !== undefined || sent.visibility?.replaced || sameSession(sent)) continue;
     const next = commands[index + 1];
     // A send in the new session can arrive before its first poll. Its captured identity
     // scopes the initiating receipt even though that later send has closed its evidence window.
-    if (change && change.identity === undefined && next && next.identity !== sent.identity
-      && next.at < sent.at + COMMAND_WINDOW_MS && change.terminalId === pane.terminal_id) {
+    if (next && next.identity !== sent.identity && next.at < sent.at + COMMAND_WINDOW_MS && change.terminalId === pane.terminal_id) {
       change.identity = next.identity;
-      return change.identity === identity;
-    }
-    if (change && change.identity === undefined && index === commands.length - 1 && index <= readIndex
-      && sent.closedAt === undefined && now < sent.at + COMMAND_WINDOW_MS
-      && pane.agent_session && change.terminalId === pane.terminal_id) {
+    } else if (index === commands.length - 1 && index <= readIndex && sent.closedAt === undefined
+      && now < sent.at + COMMAND_WINDOW_MS && pane.agent_session && change.terminalId === pane.terminal_id) {
       change.identity = identity;
-      return true;
     }
-    return false;
+  }
+  return outcomes.filter((_, index) => {
+    const sent = commands[index]!;
+    return !sent.visibility?.replaced && (sameSession(sent) || sent.sessionChange?.identity === identity);
   });
 }
 

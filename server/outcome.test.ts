@@ -8,6 +8,7 @@ import { commandInvocations, commandOutcome, CommandReservations, type CommandSe
 import { finishPrompt, type DialogReader } from "./dialogs/shared.ts";
 import { bindCommandProcess, commandSendFrom, handlePromptRequest, noteCommandEvidence, noteSubmitted } from "./prompt.ts";
 import { socketAddress } from "./herdr/client.ts";
+import * as processStart from "./process-start.ts";
 import { registry } from "./dialogs/registry.ts";
 import { source as claudeSource } from "./skills/claude.ts";
 import { source as ompSource } from "./skills/omp.ts";
@@ -312,7 +313,7 @@ const resultReader: DialogReader = {
 let readerPaneSequence = 0;
 
 /** A herdr stand-in serving one pane whose screen the test sets; keys sent to it are kept. */
-async function withFakeHerdr(pane: { agent: string; status: string; screen: string; terminal_id?: string; agent_session?: HerdrPane["agent_session"]; pid?: number }, run: (paneId: string, keys: unknown[]) => Promise<void>): Promise<void> {
+async function withFakeHerdr(pane: { agent: string; status: string; screen: string; terminal_id?: string; agent_session?: HerdrPane["agent_session"]; pid?: number; argv?: string[] }, run: (paneId: string, keys: unknown[]) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-outcome-reader-"));
   const socketPath = join(root, "herdr.sock");
   const previous = process.env.HERDR_SOCKET;
@@ -329,7 +330,7 @@ async function withFakeHerdr(pane: { agent: string; status: string; screen: stri
       const result = request.method === "session.snapshot"
         ? { snapshot: { panes: [{ pane_id: paneId, agent: pane.agent, agent_status: pane.status, terminal_id: pane.terminal_id, agent_session: pane.agent_session }], layouts: [] } }
         : request.method === "pane.process_info"
-        ? { process_info: { foreground_processes: pane.pid === undefined ? [] : [{ pid: pane.pid, argv: [pane.agent] }] } }
+        ? { process_info: { foreground_processes: pane.pid === undefined ? [] : [{ pid: pane.pid, argv: pane.argv ?? [pane.agent] }] } }
         : { read: { text: pane.screen } };
       socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
     });
@@ -389,6 +390,27 @@ describe("session-scoped command outcomes", () => {
         });
       });
     }
+  }
+
+  // native Windows lists only the shell; a renamed agent executable matches no known program
+  for (const foreground of ["no process", "another program"] as const) {
+    it(`keeps codex's first-turn receipt through session discovery when its process cannot be told: ${foreground}`, async () => {
+      const pane = { ...target(), agent: "codex", agent_session: null as HerdrPane["agent_session"],
+        ...foreground === "another program" ? { pid: 2147483645, argv: ["/opt/fixture/agent-launcher", "--fixture"] } : {} };
+      await withFakeHerdr(pane, async (paneId) => {
+        const command = commandSendFrom(pane, "codex", [{ ...row("imagegen"), source: "skill", trigger: "$" }], "$imagegen");
+        if (!command) throw new Error("fixture command was not recorded");
+        bindCommandProcess(paneId, command);
+        noteSubmitted(paneId, "$imagegen", command);
+        expect((await served(paneId)).outcomes).toMatchObject([{ id: command.id, state: "accepted", evidence: [] }]);
+        pane.agent_session = { ...session("first-turn"), agent: "codex" };
+        expect((await served(paneId)).outcomes).toMatchObject([{ id: command.id, state: "accepted", evidence: [] }]);
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([command.id]);
+        // adopted into the session it started, it stays scoped to that session
+        pane.agent_session = { ...session("other"), agent: "codex" };
+        expect((await served(paneId)).outcomes).toBeUndefined();
+      });
+    });
   }
 
   it("keeps all first-turn sends when the session is discovered before the first poll", async () => {
@@ -453,6 +475,105 @@ describe("session-scoped command outcomes", () => {
       await submit(paneId, pane, "/context");
       expect((await served(paneId)).outcomes).toHaveLength(1);
       pane.pid++;
+      expect((await served(paneId)).outcomes).toBeUndefined();
+    });
+  });
+
+  for (const polled of [true, false]) {
+    it(`keeps a send to a restarted agent once herdr corrects the session id kept from the process before (${polled ? "polled" : "unpolled"})`, async () => {
+      const pane = { ...target(), pid: 2147483645 };
+      await withFakeHerdr(pane, async (paneId) => {
+        const earlier = await submit(paneId, pane, "/context");
+        await earlier.visibility?.binding;
+        if (polled) expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([earlier.id]);
+        // restarted, and herdr still reports the earlier process's session id
+        pane.pid++;
+        if (polled) expect((await served(paneId)).outcomes).toBeUndefined();
+        const fresh = await submit(paneId, pane, "/context");
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([fresh.id]);
+        pane.agent_session = session("corrected");
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([fresh.id]);
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([fresh.id]);
+        pane.agent_session = session("other");
+        expect((await served(paneId)).outcomes).toBeUndefined();
+      });
+    });
+  }
+
+  it("leaves a send unidentified when its process answers as started after the send, and never adopts it", async () => {
+    const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
+    const late = spyOn(processStart, "processStartUpperBoundAsync").mockImplementation(async () => Date.now() + 1000);
+    try {
+      await withFakeHerdr(pane, async (paneId) => {
+        const command = await submit(paneId, pane, "/context");
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([command.id]);
+        // a process it was never bound to cannot replace it
+        pane.pid++;
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([command.id]);
+        pane.agent_session = session("first-turn");
+        expect((await served(paneId)).outcomes).toBeUndefined();
+      });
+    } finally {
+      late.mockRestore();
+    }
+  });
+
+  it("hides a send whose process cannot be told apart only after two misses in a row", async () => {
+    const pane = { ...target(), pid: 2147483645 as number | undefined };
+    let bound = false;
+    // no start time at binding; afterwards the pid runs on
+    const started = spyOn(processStart, "processStartedAt").mockImplementation(() => bound ? 1000 : null);
+    const alive = spyOn(processStart, "processAlive").mockReturnValue(true);
+    // macOS takes a live pid as the same process (a pid is handed out again only after the whole range)
+    const counted = process.platform !== "darwin";
+    try {
+      await withFakeHerdr(pane, async (paneId) => {
+        const command = await submit(paneId, pane, "/context");
+        const shown = async () => (await served(paneId)).outcomes?.map(({ id }) => id);
+        expect(await shown()).toEqual([command.id]);
+        bound = true;
+        pane.pid = undefined;
+        expect(await shown()).toEqual([command.id]);
+        pane.pid = 2147483645;
+        expect(await shown()).toEqual([command.id]);
+        pane.pid = undefined;
+        expect(await shown()).toEqual([command.id]);
+        expect(await shown()).toEqual(counted ? undefined : [command.id]);
+      });
+    } finally {
+      alive.mockRestore();
+      started.mockRestore();
+    }
+  });
+
+  it("keeps a send while its live process is out of the foreground (Ctrl+Z)", async () => {
+    // the test runner stands in for the suspended agent, on every platform; it started before the send
+    const pane = { ...target(), pid: process.pid as number | undefined };
+    const before = spyOn(processStart, "processStartUpperBoundAsync").mockImplementation(async () => Date.now() - 60_000);
+    try {
+      await withFakeHerdr(pane, async (paneId) => {
+        const command = await submit(paneId, pane, "/context");
+        const shown = async () => (await served(paneId)).outcomes?.map(({ id }) => id);
+        expect(await shown()).toEqual([command.id]);
+        pane.pid = undefined;
+        expect(await shown()).toEqual([command.id]);
+        // Windows hands a finished process's number to the next one at once: there a live pid proves nothing
+        expect(await shown()).toEqual(process.platform === "win32" ? undefined : [command.id]);
+        expect(await shown()).toEqual(process.platform === "win32" ? undefined : [command.id]);
+      });
+    } finally {
+      before.mockRestore();
+    }
+  });
+
+  it("hides a send at the first look without its process once that process is gone", async () => {
+    const exited = Bun.spawn([process.execPath, "--version"], { stdout: "ignore", stderr: "ignore" });
+    await exited.exited;
+    const pane = { ...target(), pid: exited.pid as number | undefined };
+    await withFakeHerdr(pane, async (paneId) => {
+      const command = await submit(paneId, pane, "/context");
+      expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([command.id]);
+      pane.pid = undefined;
       expect((await served(paneId)).outcomes).toBeUndefined();
     });
   });
