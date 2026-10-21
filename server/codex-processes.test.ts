@@ -351,6 +351,16 @@ shortIt("leaves out the rollout herdr reports for another pane", async () => {
   expect(await codexTranscriptPath(root, root, home, [fixturePane(root), peer])).toBe(path);
 });
 
+shortIt("leaves out its only new thread when herdr reports it for another pane", async () => {
+  await shortSession();
+  // the other pane shows another exchange now; herdr says the thread is that pane's conversation
+  peerScreens.set("peer", "OpenAI Codex (v1.0)\n› Other fixture\n• A different short reply.\n› ");
+  const peer = { ...fixturePane("peer"), agent_session: { source: "herdr:codex", agent: "codex", kind: "path", value: path } };
+  expect(await codexTranscriptPath(root, root, home, [fixturePane(root), peer])).toBeNull();
+  // reported for nobody, the same screens tell it is this pane's
+  expect(await codexTranscriptPath(root, root, home, [fixturePane(root), fixturePane("peer")])).toBe(path);
+});
+
 shortIt("still cannot tell when nothing ties the other thread to another pane", async () => {
   const created = await shortSession();
   // a one-word answer there too, nothing reported: either pane might have begun it

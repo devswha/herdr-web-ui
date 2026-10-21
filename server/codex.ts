@@ -1415,7 +1415,8 @@ async function shortThreadFromProcess(
     // not one another pane holds by stronger evidence: after A's /new, B's one word still tells
     const rolloutOf = (row: CodexThreadRow) => codexRolloutPath(row.rolloutPath, home) ?? row.rolloutPath;
     const since = rows.filter((row) => row.createdAtMs >= notBefore);
-    const held = since.length > 1 ? await heldByOtherPanes(paneId, cwd, since.map(rolloutOf), rows, home, peers, rolloutOf) : new Set<string>();
+    // one thread begun since may be another pane's too: herdr reports it for that pane, or that pane shows its long answer
+    const held = since.length > 0 ? await heldByOtherPanes(paneId, cwd, since.map(rolloutOf), rows, home, peers, rolloutOf) : new Set<string>();
     // bound to another pane, or held by it: still competing exchanges, never this pane's
     const elsewhere = new Set(since.map(rolloutOf).filter((rollout) => theirs([rollout], paneId, held).length === 0));
     const begun = since.filter((row) => !elsewhere.has(rolloutOf(row)));
