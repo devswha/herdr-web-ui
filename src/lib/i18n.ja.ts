@@ -614,6 +614,8 @@ export const JA: Record<string, string> = {
   "App updated. Save unsent drafts before reloading.": "アプリが更新されました。再読み込みする前に未送信の下書きを保存してください。",
   "Part of the app could not load. Save unsent drafts, then reload.": "アプリの一部を読み込めませんでした。未送信の下書きを保存してから再読み込みしてください。",
   "Ovis was updated on this PC. Restart it there to load the update.": "このPCの Ovis が更新されました。更新を読み込むには、PCで再起動してください。",
+  "A newer release was published after you chose this update, so nothing was installed. Check again to review it.": "この更新を選んだ後に新しいリリースが公開されたため、何もインストールしていません。もう一度確認して内容を見てください。",
+  "Restart Ovis on this PC to update from here: the server running now cannot install exactly the release shown.": "ここから更新するには、このPCで Ovis を再起動してください。現在動いているサーバーは、表示されたリリースを正確にインストールできません。",
   "How to restart": "再起動の方法",
   "Ovis v{version} is available.": "Ovis v{version} が利用可能です。",
   "An Ovis update is available.": "Ovis の更新が利用可能です。",

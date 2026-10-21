@@ -7,6 +7,7 @@
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
+import { readUpdateIpcRequest } from "../shared/update.ts";
 import { defaultStateDir, HANDOVER_EXIT, updateStateDir } from "./update-state.ts";
 import { herdrSocketPath } from "./herdr/client.ts";
 import { Updater, type Release } from "./updater.ts";
@@ -52,7 +53,8 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
   const started = Promise.withResolvers<void>();
   const publish = () => {
     if (updater.status.phase === "error") console.error(`Update failed: ${updater.status.error}`);
-    try { child?.send({ type: "update-status", status: updater.status, notes: updater.notes, installed: updater.installed }); } catch { /* bridge restarting */ }
+    // revision_bound_install: this supervisor reads `update-install-revision` and installs only the revision it names
+    try { child?.send({ type: "update-status", status: { ...updater.status, revision_bound_install: true }, notes: updater.notes, installed: updater.installed }); } catch { /* bridge restarting */ }
   };
   async function stopChild() {
     const prior = child;
@@ -73,11 +75,12 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
         HERDR_WEB_REVISION: release?.revision ?? "" },
       ipc(message) {
         if (message?.type === "update-status-request") publish();
-        if (message?.type === "update-command" && (message.command === "check" || message.command === "install")) {
-          const command = message.command;
+        // an unbound `install` (an older bridge's) is refused: an install names the revision offered
+        const request = readUpdateIpcRequest(message);
+        if (request) {
           // a browser's Check or Update is a user's own request: it does not wait the unshallow
           // backoff out, the 5-minute timer does
-          void started.promise.then(() => updater.request(command, true));
+          void started.promise.then(() => updater.request(request.command, true, request.command === "install" ? request.expected_revision : undefined));
         }
       },
       onExit(proc, code) {

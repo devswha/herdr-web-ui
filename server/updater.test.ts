@@ -110,7 +110,10 @@ async function managedFixture(supervisor?: string, slowHealth = false) {
     }
   };
   const request = async (command: string) => {
-    const response = await fetch(`${origin}/api/updates/${command}`, { method: "POST", headers });
+    // an install names the release on offer, as the app's controls do
+    const offered = command === "install" ? (await readStatus())?.latest_revision : undefined;
+    const response = await fetch(`${origin}/api/updates/${command}`, offered === undefined ? { method: "POST", headers }
+      : { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ expected_revision: offered }) });
     expect(response.status).toBe(202);
   };
   const health = async () => (await (await fetch(`${origin}/api/health`)).json()) as { web_ui: { revision: string; boot_id: string } };
@@ -803,6 +806,53 @@ describe("managed source updates with real Git repositories and builds", () => {
     expect(updater.status.current_revision).toBe(target);
   });
 
+  it("pins accepted revision after discover", async () => {
+    const target = await release("accepted", "v0.2.0");
+    await updater.request("check");
+    expect(updater.status.latest_revision).toBe(target);
+    await updater.request("install", true, target);
+    expect(updater.status).toMatchObject({ phase: "idle", error: null, error_code: null, current_revision: target });
+    expect(await git(updater.release!.directory, "rev-parse", "HEAD")).toBe(target);
+  });
+
+  it("never stages a moved offer", async () => {
+    const offered = await release("offered", "v0.2.0");
+    let activations = 0;
+    // the check an install starts with waits at its tag fetch until the test lets it go
+    const reached = Promise.withResolvers<void>(), go = Promise.withResolvers<void>();
+    class PausedDiscover extends Updater {
+      protected async git(...args: string[]): Promise<string> {
+        if (args[0] === "fetch" && args.at(-1) === "+refs/tags/v*:refs/tags/v*") { reached.resolve(); await go.promise; }
+        return super.git(...args);
+      }
+    }
+    const published: Array<typeof updater.status> = [];
+    const paused = new PausedDiscover({ root, stateDir: join(directory, "paused-state"), autoUpdate: false,
+      publish(status) { published.push(status); }, activate: async (_next, persist) => { activations++; persist(); } });
+    await paused.initialize();
+    const installing = paused.request("install", true, offered);
+    await reached.promise;
+    // a release published between the person's yes and the install's check
+    const newer = await release("newer", "v0.3.0");
+    go.resolve();
+    await installing;
+    expect(paused.status).toMatchObject({ phase: "error", error_code: "update_offer_changed", latest_revision: newer, latest_version: "0.3.0", available: true });
+    // the new offer stays to be read; nothing was staged, built or activated
+    expect(paused.notes.revision).toBe(newer);
+    expect(published.some((status) => status.phase === "building" || status.step)).toBe(false);
+    expect(activations).toBe(0);
+    expect(paused.status.current_revision).toBe(await git(root, "rev-parse", "HEAD"));
+    expect(readdirSync(join(directory, "paused-state")).filter((name) => name.startsWith("release-") || name === "failed.json")).toEqual([]);
+    // and nothing tries again by itself: the error stands until someone asks
+    const after = published.length;
+    await Promise.resolve();
+    expect(published.length).toBe(after);
+    // the next check clears it, and the new offer is installed only by its own name
+    await paused.request("check", true);
+    expect(paused.status).toMatchObject({ phase: "idle", error: null, error_code: null, latest_revision: newer });
+    paused.stop();
+  });
+
   it("cancels an update command with a deadline", async () => {
     const start = Date.now();
     await expect(runCommand(root, [process.execPath, "--eval", "setInterval(() => {}, 1000)"], undefined, 100)).rejects.toThrow("timed out");
@@ -833,6 +883,8 @@ describe("managed source updates with real Git repositories and builds", () => {
     let processHandle = launch();
     try {
       await until(async () => (await readStatus())?.managed === true);
+      // this supervisor says over IPC that it installs only the revision it is sent
+      expect((await readStatus())?.revision_bound_install).toBe(true);
       const target = await release("managed second", "v0.2.0");
       await request("check");
       await until(async () => (await readStatus())?.available === true);

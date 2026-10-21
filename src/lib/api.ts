@@ -58,6 +58,7 @@ import type {
   SplitPaneRequest,
   SwapPaneRequest,
   TabCreated,
+  UpdateInstallRequest,
   UsageReport,
   WorkspaceCreated,
   PluginActionRequest,
@@ -71,7 +72,7 @@ import type {
 } from "../../shared/protocol.ts";
 import { SUPPORTED_AGENT_KINDS } from "../../shared/supported-agents.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
-import { readInstalledNotes, readUpdateNotes, type HerdrUpdateStatus, type InstalledNotes, type UpdateCommand, type UpdateNotes, type UpdateStatus } from "../../shared/update.ts";
+import { readInstalledNotes, readUpdateNotes, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes, type UpdateRequest, type UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { TelemetryChange, TelemetryStatus } from "../../shared/telemetry.ts";
 import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
@@ -123,9 +124,12 @@ export async function fetchInstalledNotes(): Promise<InstalledNotes> {
   return readInstalledNotes(await getJson<unknown>("/api/updates/installed"));
 }
 
-export async function requestUpdate(command: UpdateCommand): Promise<void> {
-  const url = `/api/updates/${command}`;
-  const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
+/** A check goes without a body; an install names the release the person was offered. */
+export async function requestUpdate(request: UpdateRequest): Promise<void> {
+  const url = `/api/updates/${request.command}`;
+  const response = await fetch(url, request.command === "install"
+    ? { method: "POST", headers: { "x-herdr-update": "1", "content-type": "application/json" }, body: JSON.stringify({ expected_revision: request.expected_revision } satisfies UpdateInstallRequest) }
+    : { method: "POST", headers: { "x-herdr-update": "1" } });
   if (!response.ok) throw await errorFrom(url, response);
 }
 

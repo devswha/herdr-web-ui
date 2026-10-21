@@ -616,6 +616,8 @@ export const ZH: Record<string, string> = {
   "App updated. Save unsent drafts before reloading.": "应用已更新。重新加载前请保存未发送的草稿。",
   "Part of the app could not load. Save unsent drafts, then reload.": "应用的一部分未能加载。请先保存未发送的草稿，再重新加载。",
   "Ovis was updated on this PC. Restart it there to load the update.": "此 PC 上的 Ovis 已更新。请在 PC 上重新启动它以加载更新。",
+  "A newer release was published after you chose this update, so nothing was installed. Check again to review it.": "你选择此更新后发布了更新的版本，因此没有安装任何内容。请再次检查以查看新版本。",
+  "Restart Ovis on this PC to update from here: the server running now cannot install exactly the release shown.": "请在此 PC 上重新启动 Ovis 后再从这里更新：当前运行的服务器无法准确安装所显示的版本。",
   "How to restart": "如何重新启动",
   "Ovis v{version} is available.": "Ovis v{version} 已发布。",
   "An Ovis update is available.": "Ovis 有可用更新。",

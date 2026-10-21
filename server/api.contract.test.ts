@@ -9,7 +9,7 @@ import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse
 import { SUPPORTED_AGENT_KINDS } from "../shared/supported-agents.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import { PortalService } from "./portal.ts";
-import { noInstalledNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes } from "../shared/update.ts";
+import { noInstalledNotes, noUpdateNotes, unmanagedUpdateStatus, type HerdrUpdateStatus, type InstalledNotes, type UpdateNotes, type UpdateStatus } from "../shared/update.ts";
 import { USAGE_PROVIDERS, UsageService } from "./usage.ts";
 import { VoiceService } from "./voice.ts";
 import { Telemetry } from "./telemetry.ts";
@@ -434,6 +434,57 @@ describe("update API", () => {
     const response = await fetch(`${base()}/api/updates/install`, { method: "POST", headers: { "x-herdr-update": "1" } });
     expect(response.status).toBe(409);
     expect((await response.json() as ApiError).error.code).toBe("updates_unmanaged");
+  });
+
+  it("installs only the revision the request names, and tells a release that moved later in the status", async () => {
+    const offered = "a".repeat(40), moved = "b".repeat(40);
+    let status: UpdateStatus = { ...unmanagedUpdateStatus(), managed: true, blocked_reason: null, available: true, latest_revision: offered,
+      latest_version: "9.9.9", current_revision: "c".repeat(40), revision_bound_install: true };
+    const requests: unknown[] = [];
+    const managedState = mkdtempSync(join(tmpdir(), "herdr-update-bound-"));
+    const managed = createServer({ port: 0, stateDir: managedState,
+      updates: { status: () => status, notes: noUpdateNotes, installed: noInstalledNotes, request: (request) => { requests.push(request); } } });
+    const origin = `http://localhost:${managed.port}`;
+    const install = (body: string | undefined, headers: Record<string, string> = { "x-herdr-update": "1", "content-type": "application/json" }) =>
+      fetch(`${origin}/api/updates/install`, { method: "POST", headers, ...(body === undefined ? {} : { body }) });
+    const code = async (response: Response) => ((await response.json()) as ApiError).error.code;
+    try {
+      // a body that names no full commit, or more than an install's 1 KiB
+      for (const body of [undefined, "{}", "not json", JSON.stringify({ expected_revision: "abc" }), JSON.stringify({ expected_revision: offered, pad: "x".repeat(1100) })]) {
+        const response = await install(body);
+        expect(response.status).toBe(400);
+        expect(await code(response)).toBe("invalid_update_install");
+      }
+      // the same-origin gate comes first, whatever the body
+      for (const headers of [{ "content-type": "application/json" }, { "x-herdr-update": "1", origin: "https://untrusted.invalid" }, { "x-herdr-update": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
+        expect((await install(JSON.stringify({ expected_revision: offered }), headers)).status).toBe(403);
+      }
+      // reading the status, as a watching device does, asks for nothing
+      expect(((await (await fetch(`${origin}/api/updates`)).json()) as UpdateStatus).revision_bound_install).toBe(true);
+      expect(requests).toEqual([]);
+      // another release on offer already: refused before the supervisor hears of it
+      status = { ...status, latest_revision: moved };
+      const stale = await install(JSON.stringify({ expected_revision: offered }));
+      expect(stale.status).toBe(409);
+      expect(await code(stale)).toBe("update_offer_changed");
+      expect(requests).toEqual([]);
+      // the offer as shown: accepted, and handed on with its revision
+      status = { ...status, latest_revision: offered };
+      const accepted = await install(JSON.stringify({ expected_revision: offered }));
+      expect(accepted.status).toBe(202);
+      expect(requests).toEqual([{ command: "install", expected_revision: offered }]);
+      // a release that moves after the 202 is told by the status, not by the request that finished
+      status = { ...status, phase: "error", latest_revision: moved, error_code: "update_offer_changed", error: "A different release is on offer than the one asked for, so nothing was installed. Review it, then update again." };
+      expect(await (await fetch(`${origin}/api/updates`)).json()).toMatchObject({ phase: "error", error_code: "update_offer_changed", latest_revision: moved });
+      // a supervisor that does not install by revision is sent no install
+      status = { ...status, phase: "idle", error: null, error_code: null, revision_bound_install: undefined };
+      const older = await install(JSON.stringify({ expected_revision: moved }));
+      expect(older.status).toBe(409);
+      expect(await code(older)).toBe("update_restart_required");
+      // a check stays bodyless
+      expect((await fetch(`${origin}/api/updates/check`, { method: "POST", headers: { "x-herdr-update": "1" } })).status).toBe(202);
+      expect(requests).toEqual([{ command: "install", expected_revision: offered }, { command: "check" }]);
+    } finally { managed.stop(); rmSync(managedState, { recursive: true, force: true }); }
   });
 
   it("keeps status and update actions behind the token gate", async () => {

@@ -89,7 +89,11 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         unreadable saved state or unverifiable cleanup fails closed with 500 internal_error.
  *  GET    /api/updates                   -> UpdateStatus (shared/update.ts), no-store
  *  POST   /api/updates/check             -> 202 { accepted: true }
- *  POST   /api/updates/install           -> 202 { accepted: true }
+ *  POST   /api/updates/install           -> 202 { accepted: true }; UpdateInstallRequest JSON body
+ *         (at most 1 KiB): 400 invalid_update_install for a missing or malformed revision,
+ *         409 update_restart_required where the supervisor does not advertise
+ *         revision_bound_install, 409 update_offer_changed when the offer is no longer that
+ *         revision. A release that moves after the 202 ends in UpdateStatus.error_code.
  *         Update POSTs require X-Herdr-Update: 1, same-origin browser requests,
  *         and the usual token gate. Managed starts only; status is polled during restart.
  *  POST   /api/connection-diagnostics    -> 204; ClientConnectionTrace, metadata only, same-origin
@@ -1398,6 +1402,10 @@ export interface ClientConnectionEvent {
   request_id?: number;
   attempt?: number;
   result?: "ok" | "refused";
+}
+/** POST /api/updates/install: the full commit id of the release the person was offered (UpdateStatus.latest_revision). */
+export interface UpdateInstallRequest {
+  expected_revision: string;
 }
 export interface ClientConnectionTrace {
   client_id: string;

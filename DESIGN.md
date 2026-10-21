@@ -2144,6 +2144,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   **herdr** section opens with
   **Running herdr X.Y.Z**; where herdr cannot be updated from here (Windows, an older server) the
   section is that line alone, from the health check.
+- An app update installs only the release the person was shown. **Update and restart** in Settings
+  and **Update** / **Try again** on the header line send the commit of the offer they were drawn
+  with; a release published in between installs nothing, and both places say so in one sentence
+  whose action is **Check for updates** (the header's **Try again** checks), so the new release is
+  read before it is installed. Under a server that cannot install by commit (an older supervisor)
+  **Update and restart** stays disabled with a restart sentence and **How to restart** beside it,
+  and the header line says the same as a wrapping warning line. No Codex or Claude app precedent
+  for update consent is established here: this keeps Ovis's existing controls and their places and
+  applies Agent of Empires' rule that consent covers one immutable offer, not a coding-agent-app
+  pattern.
 - Subscription usage keeps its meter preferences first, then an **Accounts** header with a dim total
   count and one **Add account** button (Plus + label). With meters off, one note follows it without
   provider placeholders; the configured hub connection remains available. With meters on, provider cards are ordered Claude,
