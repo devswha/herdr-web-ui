@@ -1560,7 +1560,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   scopes or the sheet's header, and a phone gets no popover over its sheet. A click elsewhere
   closes it once the click is done, so nothing moves under a press: one `.menu-item` per branch with a
   `GitBranch` glyph, its short name (`main`, `origin/main`) in mono and its commit's seven
-  characters as the hint, the remote's symbolic HEAD left out, the typed text filtering the rows,
+  characters as the hint (both mono `--fs-md`, and on a phone the name `--fs-xl`, the hint and
+  the list's notes `--fs-lg`: they are read and picked, not captions), the remote's symbolic HEAD
+  left out, the typed text filtering the rows,
   the arrow keys walking them and Enter taking one (which compares against that branch by its
   full refname, so a tag of the same name is never meant). What the list has to say takes a
   `.repo-changes-refs-note` in its own words: on its way, no branches yet (a commit can still be

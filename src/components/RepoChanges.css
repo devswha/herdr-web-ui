@@ -84,21 +84,23 @@
   box-shadow: none;
 }
 
+/* a branch is read and picked here, so its name, hash and the list's notes are body size, not captions
+   (a phone's are larger still, in the coarse-pointer block below) */
 .repo-changes-ref .menu-item-main {
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-md);
 }
 
 .repo-changes-ref .menu-item-hint {
   font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-md);
 }
 
 /* what the list says instead of, or after, its rows: on its way, none, none matching, cut short, refused */
 .repo-changes-refs-note {
   padding: var(--space-2);
   color: var(--text-dim);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-md);
 }
 
 .repo-changes-repo {
@@ -374,6 +376,16 @@
 
   .repo-changes-base-toggle {
     width: var(--touch-target);
+  }
+
+  /* on a phone a branch's name reads at body size, its hash and the list's notes one step under */
+  .repo-changes-ref .menu-item-main {
+    font-size: var(--fs-xl);
+  }
+
+  .repo-changes-ref .menu-item-hint,
+  .repo-changes-refs-note {
+    font-size: var(--fs-lg);
   }
 }
 
