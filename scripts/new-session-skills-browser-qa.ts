@@ -311,11 +311,15 @@ try {
           }));
         }
         assert.deepEqual(order, ["", "new-session-model", "new-session-effort", "new-session-prompt", "Add /review-pr to the message", "Add /changelog to the message", "Cancel", "Start", "Close dialog", "Claude Code"], `the tab order: ${JSON.stringify(order)}`);
+        // a model names one agent's models: Claude Code's is not carried to Codex, which also offers the field
+        await dialog.getByLabel("Model").fill("opus");
+        await pickAgent(page, dialog, "Codex");
+        assert.equal(await dialog.getByLabel("Model").inputValue(), "", "a Claude Code model is dropped on a switch to Codex");
         await page.keyboard.press("Escape");
         await dialog.waitFor({ state: "detached" });
         assert.equal((await recorded(page)).length, 0, "Escape starts nothing");
         assert.deepEqual(errors, []);
-        console.log("PASS a model that is not one word disables Start with a reason, another agent drops it, Tab reaches every control, Escape closes");
+        console.log("PASS a model that is not one word disables Start with a reason, another agent drops it, Codex does not take Claude Code's model, Tab reaches every control, Escape closes");
       } finally { await validation.close(); }
 
       // the other theme at each width, with Codex's skills and a message, for the evidence set
