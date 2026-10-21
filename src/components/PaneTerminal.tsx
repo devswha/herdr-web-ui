@@ -66,6 +66,7 @@ import { pinchFontSize } from "../lib/pinchFontSize.ts";
 import { narrowPaneFontSize } from "../lib/narrowPaneFont.ts";
 import { finalStep, HERDR_MOUSE_SCROLL_LINES, wheelSteps } from "../lib/wheelSteps.ts";
 import { attachTerminalWheel, canPanTerminalGrid } from "../lib/terminalWheel.ts";
+import { visibleTerminalInputBounds } from "../lib/terminalViewport.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
@@ -643,6 +644,27 @@ export function PaneTerminal({
     term.loadAddon(new WebLinksAddon((event, uri) => { if (isWebLink(uri) && !openWebRef.current(uri, event.shiftKey)) openWebLink(uri); }));
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
+    const syncInputViewport = (): void => {
+      const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+      if (!screen) return;
+      const hostRect = host.getBoundingClientRect();
+      const visibleHost = {
+        left: hostRect.left + host.clientLeft,
+        top: hostRect.top + host.clientTop,
+        right: hostRect.left + host.clientLeft + host.clientWidth,
+        bottom: hostRect.top + host.clientTop + host.clientHeight,
+        width: host.clientWidth,
+        height: host.clientHeight,
+      };
+      term.setTextAreaViewportBounds(visibleTerminalInputBounds(visibleHost, screen.getBoundingClientRect()));
+    };
+    syncInputViewport();
+    host.addEventListener("scroll", syncInputViewport, { passive: true });
+    const inputViewportResize = term.onResize(syncInputViewport);
+    // Font changes resize a fixed screen without changing its rows, columns or host.
+    const inputScreenResize = new ResizeObserver(syncInputViewport);
+    const inputScreen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+    if (inputScreen) inputScreenResize.observe(inputScreen);
     let compositionEndTimer: number | null = null;
     compositionCommitPendingRef.current = false;
     const compositionStart = () => {
@@ -737,7 +759,11 @@ export function PaneTerminal({
       drag: (event) => { if (!drag) return false; dragWheel(event); return true; },
       adopted: () => adopted(),
       mirrored: () => scrollableMirror(),
-      pan: (event) => scrollableMirror() && canPanTerminalGrid(host, event.deltaY),
+      pan: (event) => {
+        if (!scrollableMirror() || !canPanTerminalGrid(host, event.deltaY)) return false;
+        panned = true;
+        return true;
+      },
       scroll: (lines) => lineScroll.current?.(lines),
     });
     termRef.current = term;
@@ -797,6 +823,8 @@ export function PaneTerminal({
       // xterm's helper textarea can sit at the old grid's cursor row for a while and keep the host
       // scrollable: a view panned under the keyboard would stay panned past the grid's top
       host.scrollTop = 0;
+      if (!adopted()) host.scrollLeft = 0;
+      syncInputViewport();
     };
     keyboardHoldsRef.current = keyboardHolds;
     fittedRef.current = fitted;
@@ -1565,6 +1593,7 @@ export function PaneTerminal({
     // lagged: fit once the size has settled.
     let resizeTimer: number | null = null;
     const observer = new ResizeObserver(() => {
+      syncInputViewport();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         resizeTimer = null;
@@ -1749,6 +1778,7 @@ export function PaneTerminal({
     };
     /** `steps` line-mode wheel reports at the finger, each one herdr scroll step in the sign's direction */
     const sendTouchWheels = (steps: number): void => {
+      if (steps === 0) return;
       if (scrollableMirror() || wheelStateRef.current.omoQuestion) {
         lineScroll.current?.(-steps * HERDR_MOUSE_SCROLL_LINES);
         return;
@@ -2059,6 +2089,9 @@ export function PaneTerminal({
       document.removeEventListener("visibilitychange", onVisibility);
       onModifiedEnter.dispose();
       onCommandBackspace.dispose();
+      inputViewportResize.dispose();
+      inputScreenResize.disconnect();
+      host.removeEventListener("scroll", syncInputViewport);
       for (const type of keepTextOn) textarea?.removeEventListener(type, keepText, true);
       host.removeEventListener("keydown", onCommandArrow);
       onData.dispose();
