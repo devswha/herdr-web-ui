@@ -63,7 +63,7 @@ import { formatElapsed, taskCallItems, taskResultMarkdown } from "../lib/omoTask
 import { sendUserFileCall } from "../lib/sendUserFile.ts";
 import { shouldFoldUserMessage } from "../lib/userMessageFold.ts";
 import { composerDrafts } from "../lib/composerDraft.ts";
-import { rewindAction } from "../lib/rewindAction.ts";
+import { rewindOffer } from "../lib/rewindAction.ts";
 import { invalidatePaneCommands } from "../lib/paneCommandCache.ts";
 import { noteCatalogChanges, outcomeChip, outcomeCommand, outcomeLabel, outcomeNote, outcomeResultText, outcomeRows, type OutcomeState } from "../lib/outcomeChip.ts";
 
@@ -1709,8 +1709,9 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   // would be lost under the agent's own restore) and this connection may type into the pane
   const composerDraft = useSyncExternalStore(composerDrafts.subscribe, () => composerDrafts.read(`herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`));
   const [rewinding, setRewinding] = useState<RewindStatus | null>(null);
-  const rewindable = interactive && connected && !ended && rewindAction(agent) === "card" && state.source === "conversation"
-    && (agentStatus === "idle" || agentStatus === "done") && !promptUp && composerDraft.text.trim() === "" && !composerDraft.sending && rewinding?.state !== "pending";
+  const offered = rewindOffer({ agent, interactive, connected, ended, conversation: state.source === "conversation", agentStatus,
+    promptUp, draft: composerDraft.text, sending: composerDraft.sending, pending: rewinding?.state === "pending" });
+  const rewindable = offered === "card";
   const shownTurnsRef = useRef(shownTurns);
   shownTurnsRef.current = shownTurns;
   const rewindTo = useCallback((turn: ConversationTurn): void => {
@@ -1734,8 +1735,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   const onRewind = rewindable ? rewindTo : null;
   // grok and agy: nothing is typed (their input box is read by nothing), so a draft stays where it is
   // and the agent's state is the terminal's to judge: the action only opens it
-  const rewindInTerminal = interactive && connected && !ended && rewindAction(agent) === "terminal" && state.source === "conversation"
-    ? onRewindInTerminal ?? null : null;
+  const rewindInTerminal = offered === "terminal" ? onRewindInTerminal ?? null : null;
   const renderTurn = useCallback((row: ChatRow) => {
     if (row.turn === null) return <OutcomeRow outcome={row.outcome} actions={outcomeActions} skills={skillMatcher} />;
     const { turn } = row;
