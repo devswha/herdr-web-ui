@@ -2,8 +2,8 @@ import { afterEach, beforeEach, expect, it, mock, setSystemTime, spyOn } from "b
 import { readFileSync } from "node:fs";
 import * as client from "./herdr/client.ts";
 import * as conversation from "./conversation.ts";
-import { handlePromptRequest, noteSubmitted } from "./prompt.ts";
-import { followClaudeRestore } from "./rewind.ts";
+import { handlePromptRequest, noteSubmitted, parseInteractivePrompt } from "./prompt.ts";
+import { followClaudeRestore, rememberRewind } from "./rewind.ts";
 import { commandInvocations } from "./outcome.ts";
 import { CLAUDE_REWIND_CHOICES } from "./dialogs/claude.ts";
 import type { ParsedPrompt } from "./dialogs/shared.ts";
@@ -44,4 +44,21 @@ it("records a restore from a dialog the chat did not open only as the message's 
   const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
   await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: "apple\n\nThe conversation will be forked." } as unknown as ParsedPrompt, 2_000);
   expect(recorded.mock.calls).toEqual([[pane.pane_id, "apple", null]]);
+});
+
+it("follows a restore of a long message the walk opened by the whole message, not the quote Claude Code cut", async () => {
+  const pane = { pane_id: "rewind-long", terminal_id: "terminal", workspace_id: "w", tab_id: "t", cwd: "/fixture", focused: false, revision: 0, agent: "claude", agent_status: "idle" };
+  const long = "zeta " + "a long message that keeps going with plenty of words to wrap across several lines in the confirm step ".repeat(6) + "THE END";
+  // the confirm step's card quotes the message cut at 500 characters (recorded); the restored box holds all of it
+  const quoted = readFileSync(new URL("./fixtures/claude-rewind-2.1.304-confirm-long-610-120.txt", import.meta.url), "utf8");
+  const lines = readFileSync(new URL("./fixtures/claude-rewind-2.1.304-restored-120.txt", import.meta.url), "utf8").split("\n");
+  // the input box's own row (Claude draws it with a no-break space), under the transcript's "❯ apple"
+  const box = lines.length - 1 - [...lines].reverse().findIndex((line) => line.replace(/\u00a0/g, " ").trim() === "❯ apple");
+  const restored = [...lines.slice(0, box), `❯ ${long}`, ...lines.slice(box + 1)].join("\n");
+  spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: restored, source: "detection", format: "text", truncated: false });
+  const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
+  const card = parseInteractivePrompt("claude", quoted)!;
+  rememberRewind(pane.pane_id, long, 0);
+  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: card.body } as unknown as ParsedPrompt, 2_000);
+  expect(recorded.mock.calls).toEqual([[pane.pane_id, long, 0]]);
 });

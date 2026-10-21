@@ -29,6 +29,13 @@ const UNREAD_INPUT = new Set(["grok", "agy"]);
 /** the message each pane's rewind was walked to, for the restore that may follow (followClaudeRestore) */
 const asked = new Map<string, { text: string; later: number }>();
 
+/** The message a walk opened on this pane (`later` newer copies past), for the restore that may follow. */
+export function rememberRewind(paneId: string, text: string, later: number): void {
+  asked.delete(paneId);
+  asked.set(paneId, { text, later });
+  if (asked.size > 128) asked.delete(asked.keys().next().value!);
+}
+
 /** how long the dialog may take to show what a key did */
 const STEP_MS = 3000;
 /** list rows walked at most: a session longer than this is rewound from the terminal */
@@ -114,12 +121,17 @@ export function restoredOnScreen(screen: string, message: string): boolean {
  */
 export async function followClaudeRestore(paneId: string, parsed: ParsedPrompt, stepMs = STEP_MS): Promise<void> {
   if (parsed.menuLabels.join("\n") !== CLAUDE_REWIND_CHOICES.join("\n") || !parsed.body) return;
-  const message = parsed.body.split("\n")[0]!;
+  const quoted = parsed.body.split("\n")[0]!;
   const walked = asked.get(paneId);
   asked.delete(paneId);
+  // the message the walk opened, its quote whole or cut at 500 characters (quoteCut): the restored box
+  // and the transcript hold all of it
+  const words = walked === undefined ? "" : normalizeText(walked.text);
+  const ours = walked !== undefined && (words === quoted || (quoted.length >= QUOTE_CUT_MIN && quoted.length < words.length && words.startsWith(quoted)));
+  const message = ours ? walked.text : quoted;
   // a dialog the chat did not walk (opened in the terminal, or the list's own card): which copy of a
   // repeated message was picked is not known, so only a message's one copy is kept
-  const later = walked && normalizeText(walked.text) === message ? walked.later : null;
+  const later = ours ? walked.later : null;
   const read = async () => (await paneRead({ paneId, source: "detection", format: "text" })).text;
   if (await waitFor({ read }, (screen) => restoredOnScreen(screen, message) ? true : null, stepMs) === null) return;
   try {
@@ -265,8 +277,7 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
       if (walked === "not_found") return conflictResponse("rewind_not_found", "Claude Code's rewind list does not hold this message");
       if (walked === "ambiguous") return conflictResponse("rewind_ambiguous", "Claude Code's rewind dialog shows this message cut short, and another message starts the same; rewind from the terminal");
       if (walked === "changed") return conflictResponse("prompt_changed", "Claude Code's rewind dialog did not show what was expected; finish it in the terminal");
-      asked.set(paneId, { text, later });
-      if (asked.size > 128) asked.delete(asked.keys().next().value!);
+      rememberRewind(paneId, text, later);
       return jsonResponse({ ok: true, outcome: "interaction-required" } satisfies PaneRewindResponse);
     });
   } catch (error) {
