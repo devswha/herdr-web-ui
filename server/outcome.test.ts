@@ -423,6 +423,18 @@ describe("session-scoped command outcomes", () => {
     });
   });
 
+  it("keeps the initiating receipt when the next session sends before the first poll", async () => {
+    const pane = target();
+    await withFakeHerdr(pane, async (paneId) => {
+      const current = submit(paneId, pane, "/clear");
+      pane.agent_session = session("changed");
+      const next = submit(paneId, pane, "/context");
+      expect((await served(paneId)).outcomes?.map((item) => item.id)).toEqual([current.id, next.id]);
+      pane.agent_session = session("restarted-again");
+      expect((await served(paneId)).outcomes).toBeUndefined();
+    });
+  });
+
   it("does not carry a skill named clear or a closed clear send into another session", async () => {
     const pane = target();
     await withFakeHerdr(pane, async (paneId) => {

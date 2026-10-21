@@ -276,6 +276,14 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     // The last Chat /clear, /new or resume may itself change sessions. Keep its receipt in
     // that next conversation only; a session change is not proof that the command completed.
     const change = sent.sessionChange;
+    const next = commands[index + 1];
+    // A send in the new session can arrive before its first poll. Its captured identity
+    // scopes the initiating receipt even though that later send has closed its evidence window.
+    if (change && change.identity === undefined && next && next.identity !== sent.identity
+      && next.at < sent.at + COMMAND_WINDOW_MS && change.terminalId === pane.terminal_id) {
+      change.identity = next.identity;
+      return change.identity === identity;
+    }
     if (change && change.identity === undefined && index === commands.length - 1 && index <= readIndex
       && sent.closedAt === undefined && now < sent.at + COMMAND_WINDOW_MS
       && pane.agent_session && change.terminalId === pane.terminal_id) {
