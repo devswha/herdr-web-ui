@@ -24,7 +24,7 @@ import type { AttachmentView, TerminalSighting } from "./terminals.ts";
 import type { ClientMessage, HerdrPane, PendingMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import { typingGuards } from "../input-guard.ts";
 import { claudeForegroundSession } from "../claude-store.ts";
-import { HerdrError, paneProcessInfo, paneRead, paneSendKeys, paneSendText } from "../herdr/client.ts";
+import { HerdrError, paneProcessInfo, paneRead, paneSendKeys, paneSendText, type ProcessInfo } from "../herdr/client.ts";
 import { bindCommandProcess, claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, noteSubmitted, parseInteractivePrompt, prepareCommandSend, shownInputBox } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
@@ -181,7 +181,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    * one is among those in front: a wrapper that does not exec its agent (a shim, `sh -c` with more to run)
    * stays listed before it, and is not another agent.
    */
-  async function currentIdentity(paneId: string, bound: number | null = null): Promise<{ pane: HerdrPane; identity: PendingIdentity; shellPid: number | null }> {
+  async function currentIdentity(paneId: string, bound: number | null = null): Promise<{ pane: HerdrPane; identity: PendingIdentity; shellPid: number | null; processes: ProcessInfo | undefined }> {
     // The same normalized snapshot the client sees includes a known Codex finish that
     // herdr reports as unknown. Nothing is inferred from a bare unknown state.
     const pane = (await clientSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
@@ -190,16 +190,16 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     const foreground = info?.foreground_processes ?? [];
     const pid = (bound !== null && foreground.some((entry) => entry.pid === bound) ? bound : foreground[0]?.pid) ?? null;
     const base = pendingIdentity(pane);
-    return { pane, shellPid: info?.shell_pid ?? null, identity: {
+    return { pane, shellPid: info?.shell_pid ?? null, processes: info, identity: {
       ...base, processPid: pid, processBirth: pid === null ? null : processStartedAt(pid),
       omoSession: omo.sessionOf(paneId)?.sessionId ?? null,
       // Claude's own PID record says which session it runs, also without herdr's hook
       claudeSession: base.agent === "claude" ? await claudeForegroundSession(info?.foreground_processes ?? []) : null,
     } };
   }
-  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean; screen: string }> {
+  async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean; screen: string; processes: ProcessInfo | undefined }> {
     authorizePending(owner, paneId, lease);
-    const { pane, identity: current } = await currentIdentity(paneId, identity?.processPid ?? null);
+    const { pane, identity: current, processes } = await currentIdentity(paneId, identity?.processPid ?? null);
     if (identity && !samePendingIdentity(identity, current)) {
       throw new HerdrError("pending_target_changed", "The pane's terminal or agent session changed; review the message before sending it again");
     }
@@ -233,7 +233,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       throw new HerdrError("agent_not_ready", "The agent's current input state is not known");
     }
     authorizePending(owner, paneId, lease);
-    return { pane, identity: current, working: current.agent !== null && (pane.agent_status === "working" || collapsed), screen };
+    return { pane, identity: current, working: current.agent !== null && (pane.agent_status === "working" || collapsed), screen, processes };
   }
   /**
    * The live screen for claudeInputDraft, and the viewport's colors when viewportShowsLive verifies
@@ -267,7 +267,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       // catalog budget, at the pane's own version) is openCodeSkillsToType's, as for any other send
       const opencode = await openCodeSkillsToType(context.pane, prepareCommandSend(context.pane, text, context.screen), text, context.screen, options.openCodeStateDir);
       let command = opencode.sent;
-      await bindCommandProcess(paneId, command);
+      // the process this message goes to, from the identity read above: recording reads nothing more before the write
+      bindCommandProcess(paneId, command, context.processes);
       const skills = opencode.skills;
       let attached: string[] = [];
       let prompt: PromptPiece[] = [{ pasted: closeMention(text) }];

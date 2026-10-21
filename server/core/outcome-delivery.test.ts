@@ -31,13 +31,14 @@ for (const scenario of ["unpolled replacement", "wrapper restart", "first turn",
     const target: HerdrPane = { ...pane, pane_id: `codex-outcome-${scenario}`, agent: "codex", agent_session: null };
     let pid = 2147483645;
     let birth = 1000;
+    let foreground = true;
     spyOn(client, "paneGet").mockResolvedValue(target);
     const processes = spyOn(client, "paneProcessInfo").mockImplementation(async () => ({
       pane_id: target.pane_id, foreground_process_group_id: 100,
       foreground_processes: [
         { pid: 100, name: "sh", argv: ["sh", "-c", "while :; do codex; sleep 1; done"] },
         { pid: 101, name: "node", argv: ["node", "/fixture/codex/bin/codex.js"] },
-        { pid, name: "codex", argv: ["/fixture/native/codex"] },
+        ...foreground ? [{ pid, name: "codex", argv: ["/fixture/native/codex"] }] : [],
       ],
     }));
     spyOn(processStart, "processStartedAt").mockImplementation((candidate) => candidate === pid ? birth : 500);
@@ -61,7 +62,7 @@ for (const scenario of ["unpolled replacement", "wrapper restart", "first turn",
     const shown = await poll();
     if (scenario === "first turn") expect(shown).toMatchObject([{ text: "/myext", state: "accepted", evidence: [] }]);
     else expect(shown).toBeUndefined();
-    if (scenario !== "first turn") expect(readsAtSend).toBe(1);
+    expect(readsAtSend).toBe(1);
   });
 }
 
@@ -160,6 +161,57 @@ for (const dependency of ["process-info", "transcript", "catalog", "snapshot"] a
       const sent = prepareCommandSend(pane, "/myext");
       if (!sent) throw new Error("fixture command was not recorded");
       expect(commandOutcome(pane.pane_id, sent, { now: sent.at + 600_000 })).toMatchObject({ state: "unknown", evidence: [] });
+    });
+  }
+}
+
+// The send-time process read (bindCommandProcess) and the history row read (outcome.ts scrolledAnchor) only record
+// the send: neither may hold its delivery. `slow` answers 2 s after it is asked, once the send has been delivered.
+for (const dependency of ["send-time process", "scroll"] as const) {
+  for (const failure of ["slow", "failing", "never answering"] as const) {
+    it(`delivers before a ${failure} ${dependency} read for its outcome can affect its deadline`, async () => {
+      let now = 10_000;
+      spyOn(Date, "now").mockImplementation(() => now);
+      // a Claude Code pane keeps a send-time screen, whose history row the scroll read confirms; its box reads
+      // empty, so the box checks before delivery read no row of their own
+      const target: HerdrPane = dependency === "scroll"
+        ? { ...pane, pane_id: `delivery-scroll-${failure}`, agent: "claude", agent_session: { agent: "claude", kind: "id", source: "herdr:claude", value: "known" },
+          scroll: { max_offset_from_bottom: 7, offset_from_bottom: 0, viewport_rows: 40 } }
+        : { ...pane, pane_id: `delivery-send-process-${failure}`, agent_session: null };
+      spyOn(client, "paneGet").mockResolvedValue(target);
+      spyOn(conversation, "paneProcessRoots").mockResolvedValue(roots);
+      spyOn(conversation, "paneTranscript").mockRejectedValue(new Error("fixture: no native binding"));
+      spyOn(conversation, "readCommandTranscript").mockResolvedValue(null);
+      spyOn(client, "sessionSnapshot").mockResolvedValue({
+        panes: [target], layouts: [], agents: [], workspaces: [], tabs: [], protocol: 22, version: "fixture",
+      });
+      spyOn(client, "paneRead").mockResolvedValue({ ...target, text: "", source: "detection", format: "text", truncated: false });
+      const delivered = spyOn(client, "agentPrompt").mockResolvedValue();
+      const noted = spyOn(prompt, "noteSubmitted");
+      let answer = (): void => {};
+      let reads = 0;
+      // only the send's own read is disrupted: a later poll's read answers at once
+      const read = <T>(value: T): Promise<T> => reads++ > 0 ? Promise.resolve(value)
+        : failure === "failing" ? Promise.reject(new Error(`fixture: ${dependency} failed`))
+        : new Promise<T>((resolve) => { if (failure === "slow") answer = () => { now += 2000; resolve(value); }; });
+      const asked = dependency === "scroll"
+        ? spyOn(client, "paneScrollInfo").mockImplementation(() => read(target.scroll ?? null))
+        : spyOn(client, "paneProcessInfo").mockImplementation(() => read({ pane_id: target.pane_id,
+          foreground_processes: [{ pid: 2147483640, name: "pi", argv: ["pi"] }] }));
+      await submitter()(target.pane_id, "/myext", "/myext", now);
+      expect(delivered).toHaveBeenCalledTimes(1);
+      expect(asked).toHaveBeenCalledTimes(1);
+      expect(now).toBe(10_000);
+      const sent = noted.mock.calls[0]?.[2];
+      if (!sent) throw new Error("fixture command was not recorded");
+      answer();
+      // the answer's handler runs once the event loop turns
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // a row that answers after the send, and still equals the snapshot's, is kept; none is never invented
+      if (dependency === "scroll") expect(sent.top).toBe(failure === "slow" ? 7 : undefined);
+      const url = new URL(`http://localhost/api/pane/prompt?pane_id=${target.pane_id}`);
+      const shown = await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse;
+      expect(shown.outcomes).toMatchObject([{ text: "/myext", state: "accepted" }]);
     });
   }
 }

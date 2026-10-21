@@ -16,8 +16,11 @@ export interface CommandSend {
   readonly agent: string;
   readonly identity: string;
   readonly screen: string;
-  /** `screen`'s first row in the pane's history (viewportTop): the same row read before and after `screen`. */
-  readonly top?: number;
+  /**
+   * `screen`'s first row in the pane's history (herdr client viewportTop): the same row read before and after
+   * `screen`. The read after it runs alongside delivery, so the row is set once it answers, or never.
+   */
+  top?: number;
   readonly form: CommandForm | null;
   readonly invocations: readonly CommandInvocation[];
   /** One-based echo positions after this snapshot's tail, reserved at submission per result reader. */

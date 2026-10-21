@@ -3,7 +3,7 @@ import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptR
 import { builtinCommands, cachedPaneCommands } from "./commands.ts";
 import { agentProcesses, claudeRestoredOwned, readCommandTranscript, releaseClaudeRestored } from "./conversation.ts";
 import { resolveAgent } from "./pane-context.ts";
-import { processStartedAt } from "./process-start.ts";
+import { processStartedAt, processStartUpperBound } from "./process-start.ts";
 import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot, viewportTop, type ProcessInfo } from "./herdr/client.ts";
@@ -146,7 +146,10 @@ type PaneCommandSend = CommandSend & {
     readonly terminalId: string;
     discovering: boolean;
     identity: string;
+    /** The agent process the send went to (bindCommandProcess); null when it could not be told, none when not bound. */
     process?: { readonly pid: number; readonly started: number | null } | null;
+    /** Set while the binding's read is out: a poll waits for it, within BINDING_WAIT_MS. */
+    binding?: Promise<void>;
     replaced?: true;
   };
   /** Visibility only: never changes the send identity used to correlate evidence. */
@@ -164,10 +167,34 @@ function outcomeProcess(info: ProcessInfo | undefined, agent: string, bound?: nu
   return running ? { pid: running.pid, started: process.platform === "linux" ? processStartedAt(running.pid) : null } : null;
 }
 
-/** Bind before delivery, even when no browser polls until after an agent replacement. */
-export async function bindCommandProcess(paneId: string, command: PaneCommandSend | undefined): Promise<void> {
-  if (!command?.visibility) return;
-  command.visibility.process = outcomeProcess(await paneProcessInfo(paneId).catch(() => undefined), command.agent);
+/** How long a poll waits for a send's process binding before it judges that send without one, this time. */
+const BINDING_WAIT_MS = 1000;
+
+/**
+ * Records which agent process a send went to when the session its row will belong to is not known yet: the pane has
+ * none (the agent's first turn), or the send itself changes it (/clear, /new, a resume). Its row then follows that
+ * process (commandOutcomes), also when no browser polls until after a replacement; any other send's row follows
+ * its session alone. Recording never holds delivery: nothing here is awaited.
+ * `seen`: herdr's foreground answer read before this send, which is the process it went to. Without one, the read
+ * starts alongside delivery and can answer after a replacement: a process that started at or after the send never
+ * received it, so the send is left unidentified rather than bound to it. Outside Linux and macOS no start time is
+ * known and the answer is taken as the send-time one.
+ */
+export function bindCommandProcess(paneId: string, command: PaneCommandSend | undefined, seen?: ProcessInfo): void {
+  const visibility = command?.visibility;
+  if (!command || !visibility || !(visibility.discovering || command.sessionChange) || visibility.process !== undefined || visibility.binding) return;
+  const sentAt = Date.now();
+  visibility.binding = (async () => {
+    if (seen) {
+      // the /proc start-time read waits until delivery has its turn
+      await Promise.resolve();
+      visibility.process = outcomeProcess(seen, command.agent);
+      return;
+    }
+    const found = outcomeProcess(await paneProcessInfo(paneId).catch(() => undefined), command.agent);
+    const startedBy = found ? processStartUpperBound(found.pid) : null;
+    visibility.process = found && (startedBy === null || startedBy < sentAt) ? found : null;
+  })().finally(() => { visibility.binding = undefined; });
 }
 
 /** Capture only existing data before delivery. Discovery and transcript reads belong to the poll. */
@@ -252,6 +279,13 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
   const commands = chatSent.get(paneId)?.commands ?? [];
   const now = Date.now();
   const identity = outcomeIdentity(pane);
+  // a send's binding read runs alongside its delivery: it is waited for here, and only so long
+  const bindings = commands.flatMap((sent) => sent.visibility?.binding ? [sent.visibility.binding] : []);
+  if (bindings.length > 0) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([Promise.all(bindings), new Promise((resolve) => { timer = setTimeout(resolve, BINDING_WAIT_MS); })]);
+    clearTimeout(timer);
+  }
   const processes = commands.some((sent) => sent.visibility?.process)
     ? await paneProcessInfo(paneId).catch(() => undefined) : undefined;
   for (const sent of commands) {
@@ -262,7 +296,7 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     if (original && processes && (!current
       || original.started !== null && current.started !== null && original.started !== current.started)) visibility.replaced = true;
     if (visibility.discovering && !visibility.replaced && pane.agent_session
-      && visibility.terminalId === pane.terminal_id && original && current) {
+      && visibility.terminalId === pane.terminal_id && current) {
       visibility.identity = identity;
       visibility.discovering = false;
       if (sent.sessionChange) sent.sessionChange.identity = identity;

@@ -361,7 +361,7 @@ describe("session-scoped command outcomes", () => {
   const submit = async (paneId: string, pane: HerdrPane, text: string) => {
     const command = commandSendFrom(pane, "claude", [row("context"), row("clear"), row("new"), row("resume", "terminal")], text);
     if (!command) throw new Error("fixture command was not recorded");
-    await bindCommandProcess(paneId, command);
+    bindCommandProcess(paneId, command);
     noteSubmitted(paneId, text, command);
     return command;
   };
@@ -376,7 +376,7 @@ describe("session-scoped command outcomes", () => {
             ? [{ ...row("imagegen"), source: "skill", trigger: "$" }] : [row("context")];
           const command = commandSendFrom(pane, agent, catalog, text);
           if (!command) throw new Error("fixture command was not recorded");
-          await bindCommandProcess(paneId, command);
+          bindCommandProcess(paneId, command);
           noteSubmitted(paneId, text, command);
           expect((await served(paneId)).outcomes).toMatchObject([{ id: command.id, state: "accepted", evidence: [] }]);
           pane.agent_session = { ...session("first-turn"), agent };

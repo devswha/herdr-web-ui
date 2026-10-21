@@ -89,7 +89,7 @@ describe("pane process roots", () => {
       const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue(null);
       const environ = spyOn(omo, "processEnviron").mockReturnValue(["AGENT_HOME=/fixture"]);
       try {
-        expect(await paneProcessRoots("process-fixture", agent)).toEqual({
+        expect(await paneProcessRoots("process-fixture", agent)).toMatchObject({
           omo: null, environ: ["AGENT_HOME=/fixture"], pid: 102, cwd: "/agent",
         });
         expect(rpc).toHaveBeenCalledTimes(1);
@@ -114,7 +114,7 @@ describe("pane process roots", () => {
     const environ = spyOn(omo, "processEnviron").mockReturnValue(null);
     try {
       expect((await paneProcessRoots("runtime-fixture", "codex")).pid).toBe(102);
-      expect(await paneProcessRoots("runtime-fixture", "claude")).toEqual({ omo: null, environ: null, pid: null, cwd: null });
+      expect(await paneProcessRoots("runtime-fixture", "claude")).toMatchObject({ omo: null, environ: null, pid: null, cwd: null });
     } finally {
       environ.mockRestore();
       identity.mockRestore();

@@ -38,7 +38,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
-import { herdrRpc, paneRead, sessionSnapshot } from "./herdr/client.ts";
+import { herdrRpc, paneRead, sessionSnapshot, type ProcessInfo } from "./herdr/client.ts";
 import { resolveAgent } from "./pane-context.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, forgetAllCodexState, forgetCodexStateFor, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
@@ -1505,10 +1505,13 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
   environ: string[] | null;
   pid: number | null;
   cwd: string | null;
+  /** herdr's answer these were read from, for a caller that would otherwise ask again; none when it failed. */
+  processes?: ProcessInfo;
 }> {
   const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown; argv?: unknown; argv0?: unknown; name?: unknown; cwd?: unknown }[] } }>(
     "pane.process_info", { pane_id: paneId },
   ).catch(() => null);
+  const processes = info?.process_info as ProcessInfo | undefined;
   const home = process.env["HOME"] ?? "";
   const directory = (path: string | null): string | null => {
     try { return path && statSync(path).isDirectory() ? path : null; } catch { return null; }
@@ -1554,9 +1557,9 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
     // a holder counts only while this pid's start is readable: without it (Windows) a crashed omo's
     // record could name a pid another process reuses
     const held = identity.heldIds.length > 0 && processStartedAt(process.pid) !== null;
-    return { omo: { agentDir, pluginDir, held }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null };
+    return { omo: { agentDir, pluginDir, held }, environ: processEnviron(process.pid), pid: process.pid, cwd: process.cwd || null, ...(processes ? { processes } : {}) };
   }
-  return { omo: null, environ: matched ? processEnviron(matched.pid) : null, pid: matched?.pid ?? null, cwd: matched?.cwd || null };
+  return { omo: null, environ: matched ? processEnviron(matched.pid) : null, pid: matched?.pid ?? null, cwd: matched?.cwd || null, ...(processes ? { processes } : {}) };
 }
 
 /**
