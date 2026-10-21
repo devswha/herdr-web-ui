@@ -1445,6 +1445,38 @@ describe("a create request's first message", () => {
     expect(readFileSync(log, "utf8")).toBe("");
   }, 30_000);
 
+  it("bound to a launch that runs behind a wrapper in front of the pane, is typed once into that agent, not held", async () => {
+    const created = await herdrRpc<{ workspace: { workspace_id: string } }>("workspace.create", { label: "herdr-web-ui-test-pending-first-wrapped", cwd: root, focus: false });
+    const entry: (typeof active)[number] = { stop: () => {}, sockets: [], workspace: created.workspace.workspace_id }; active.push(entry);
+    const server = createServer({ port: 0, stateDir: join(root, "state-first-wrapped") });
+    entry.stop = server.stop;
+    const page = new Socket(server.port); entry.sockets.push(page);
+    const pane = (await herdrRpc<{ tab: { tab_id: string }; root_pane: { pane_id: string } }>("tab.create", { workspace_id: created.workspace.workspace_id, cwd: root, focus: false })).root_pane.pane_id;
+    await page.attach(pane);
+    // a wrapper that does not exec its agent (a shim, `sh -c` with more to run) stays in front of it
+    const log = join(root, "first-wrapped.jsonl");
+    const screenFile = join(root, "first-wrapped.screen");
+    writeFileSync(screenFile, "");
+    const up = written(() => existsSync(log), "the wrapped agent did not start", 10_000);
+    const before = page.seen.length;
+    await herdrRpc("pane.send_text", { pane_id: pane, text: `sh -c "'${join(root, "claude")}' '${join(root, "record.cjs")}' '${log}' '\u203a Message' '${screenFile}'; true"\n` });
+    await up;
+    const foreground = (await herdrClient.paneProcessInfo(pane))?.foreground_processes ?? [];
+    const agent = foreground.find((process) => process.name === "claude");
+    if (!agent) throw new Error("the wrapped agent is not in front of the pane");
+    expect(foreground[0]?.pid).not.toBe(agent.pid); // control: herdr lists the wrapper before the agent
+    await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "working" });
+    await herdrNames(page, pane, "claude", before);
+    // queued as the create route queues it for a shell-started launch: bound to the process the launch saw come up
+    const message = await server.queueFirstMessage(pane, "FIRST-WRAPPED", "claude", await page.connection(), agent.pid);
+    const sent = page.wait((frame) => frame.type === "pending-messages" && frame.pane_id === pane && frame.removed?.some((item: any) => item.id === message.id && item.outcome === "sent"));
+    await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "idle" });
+    await sent;
+    const bytes = () => readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as string).join("");
+    await written(() => bytes().endsWith(`${paste("FIRST-WRAPPED")}\r`), "input timeout", 8_000);
+    expect(bytes()).toBe(`${paste("FIRST-WRAPPED")}\r`);
+  }, 30_000);
+
   it("whose page leaves during its own automatic send, is held for Send now or Discard, never re-queued ahead of the pane's other messages", async () => {
     const f = await setup("first-left-mid-send", "codex");
     const message = await f.server.queueFirstMessage(f.pane, "FIRST-MID", "codex", await f.socket.connection());

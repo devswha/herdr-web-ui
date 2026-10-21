@@ -175,14 +175,20 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     if (facts.currentHeld) throw new HerdrError("attach_held", ATTACH_HELD_MESSAGE);
     if (!typingGuards.pendingLease(facts)) throw new HerdrError("input_not_ready", "The pending message's pane connection changed");
   }
-  /** The pane and the identity of what runs in it now, as a pending message is checked against them. */
-  async function currentIdentity(paneId: string): Promise<{ pane: HerdrPane; identity: PendingIdentity; shellPid: number | null }> {
+  /**
+   * The pane and the identity of what runs in it now, as a pending message is checked against them. Its
+   * process is the first in front of the pane, or `bound` (the process a message was bound to) while that
+   * one is among those in front: a wrapper that does not exec its agent (a shim, `sh -c` with more to run)
+   * stays listed before it, and is not another agent.
+   */
+  async function currentIdentity(paneId: string, bound: number | null = null): Promise<{ pane: HerdrPane; identity: PendingIdentity; shellPid: number | null }> {
     // The same normalized snapshot the client sees includes a known Codex finish that
     // herdr reports as unknown. Nothing is inferred from a bare unknown state.
     const pane = (await clientSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
     if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
     const info = await paneProcessInfo(paneId);
-    const pid = info?.foreground_processes?.[0]?.pid ?? null;
+    const foreground = info?.foreground_processes ?? [];
+    const pid = (bound !== null && foreground.some((entry) => entry.pid === bound) ? bound : foreground[0]?.pid) ?? null;
     const base = pendingIdentity(pane);
     return { pane, shellPid: info?.shell_pid ?? null, identity: {
       ...base, processPid: pid, processBirth: pid === null ? null : processStartedAt(pid),
@@ -193,7 +199,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   }
   async function pendingContext(owner: Client, paneId: string, lease: PendingLease, identity?: PendingIdentity, pasted = false): Promise<{ pane: HerdrPane; identity: PendingIdentity; working: boolean; screen: string }> {
     authorizePending(owner, paneId, lease);
-    const { pane, identity: current } = await currentIdentity(paneId);
+    const { pane, identity: current } = await currentIdentity(paneId, identity?.processPid ?? null);
     if (identity && !samePendingIdentity(identity, current)) {
       throw new HerdrError("pending_target_changed", "The pane's terminal or agent session changed; review the message before sending it again");
     }
@@ -406,7 +412,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       // bound to the terminal and the kind launched there, and to the process the launch left in front when
       // it is not the shell: a replacement of the same kind is not what the message was sent to. Right after
       // a launch herdr may name no agent yet; that binding is completed when it does (bindLaunched)
-      const { pane, identity, shellPid } = await currentIdentity(paneId);
+      const { pane, identity, shellPid } = await currentIdentity(paneId, launchedPid);
       // The launch's own word wins: a shell-started agent's launch says which process it came up as, which
       // may have ended already, and then an agent the user starts later is not the one launched
       const launchedProcess = launchedPid !== null
@@ -449,12 +455,13 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     item.identity.omoSession ??= identity.omoSession;
     item.identity.claudeSession ??= identity.claudeSession;
   }
-  /** Each launch-bound first message in the pane learns from one read of it, at each event of the pane (drainPending). */
+  /** Each launch-bound first message in the pane is checked against a read of it, at each event of the pane (drainPending). */
   async function learnLaunched(paneId: string): Promise<void> {
     const items = launchBoundIn(paneId);
     if (items.length === 0) return;
-    const { identity, shellPid } = await currentIdentity(paneId);
+    // read for each message's own bound process (a pane holds one first message, so one read in practice)
     for (const item of items) {
+      const { identity, shellPid } = await currentIdentity(paneId, item.identity.processPid ?? null);
       // its agent came up and left, or what herdr names there is not what was launched for it: held at once, as
       // pendingContext would hold it at a send, which a pane that is not at rest never gets to
       if (launchGone(item, identity)) holdFor(item, LAUNCH_GONE);
@@ -471,7 +478,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    */
   async function bindLaunched(item: PendingItem): Promise<"bound" | "wait"> {
     if (!launchBound.has(item)) return "bound";
-    const { identity, shellPid } = await currentIdentity(item.paneId);
+    const { identity, shellPid } = await currentIdentity(item.paneId, item.identity.processPid ?? null);
     if (identity.terminalId === item.identity.terminalId && identity.agent === null && !launchGone(item, identity)) return "wait";
     learn(item, identity, shellPid);
     return "bound";
