@@ -79,7 +79,7 @@ export interface SessionHistoryOptions {
   /** Stats an opened file's descriptor (tests change the identity it reports); defaults to fstatSync. */
   fstat?: (fd: number, bigint?: boolean) => Stats | BigIntStats;
   /** Called right after a store's database opens, before it is read (tests write to the store then). */
-  opened?: (path: string, immutable: boolean) => void;
+  opened?: (path: string, immutable: boolean, db: Database) => void;
   /** Opens a folder to walk its entries (tests count the entries walked); defaults to opendirSync. */
   opendir?: (dir: string) => Dir;
   /** Checks already spent when the listing starts (tests place a check at the bound). */
@@ -220,7 +220,7 @@ class Budget {
     private readonly lstatOf: (path: string) => Stats = lstatSync,
     readonly fstatOf: (fd: number, bigint?: boolean) => Stats | BigIntStats = (fd, bigint) => bigint ? fstatSync(fd, { bigint: true }) : fstatSync(fd),
     private readonly opendirOf: (dir: string) => Dir = opendirSync,
-    readonly onOpened: (path: string, immutable: boolean) => void = () => {},
+    readonly onOpened: (path: string, immutable: boolean, db: Database) => void = () => {},
   ) {}
 
   get exhausted(): boolean { return this.used >= MAX_STATS; }
@@ -723,18 +723,25 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
     if (!first.immutable) return answer?.value ?? null;
     // an immutable read is only sound while nobody writes: SQLite gives undefined results (stale rows,
     // SQLITE_CORRUPT) when the file changes under it. Unchanged since the check (time, change time,
-    // size) and still no -wal: the answer holds. Else a writer is active, and the store is read once
-    // more as SQLite reads one being written (its side files are there by now); if that fails too,
-    // nothing is listed from it
-    const now = budget.fstatOf(fd, true) as BigIntStats;
-    const before = opened as BigIntStats;
-    const changed = now.mtimeNs !== before.mtimeNs || now.ctimeNs !== before.ctimeNs || now.size !== before.size || budget.modified(`${real}-wal`) !== null;
-    if (answer !== null && !changed) return answer.value;
-    const second = openDatabase(budget, real, fd, checked, false);
+    // size) and still no -wal: the answer holds. Else it is read once more: as SQLite reads a store
+    // being written when a live -wal is there (its side files exist then), else immutable again,
+    // since a plain read-only open of a WAL store would make -wal and -shm (a writer that came and
+    // went, or a first read that failed with nobody writing). That second immutable read must find
+    // the file unchanged too, or nothing is listed from the store
+    const unchanged = (since: BigIntStats) => {
+      const now = budget.fstatOf(fd!, true) as BigIntStats;
+      return now.mtimeNs === since.mtimeNs && now.ctimeNs === since.ctimeNs && now.size === since.size && budget.modified(`${real}-wal`) === null;
+    };
+    if (answer !== null && unchanged(opened as BigIntStats)) return answer.value;
+    const live = budget.modified(`${real}-wal`) !== null;
+    const before = budget.fstatOf(fd, true) as BigIntStats;
+    const second = openDatabase(budget, real, fd, checked, !live);
     if (second === null) return null;
     db = second.db;
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-    return read(db);
+    const value = read(db);
+    if (second.immutable && !unchanged(before)) return null;
+    return value;
   } catch { return null; }
   finally { db?.close(); if (fd !== undefined) closeSync(fd); }
 }
@@ -744,8 +751,8 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
  *
  * - A WAL database with no `-wal` beside it has nothing in its log: it opens `immutable=1`, so SQLite
  *   neither locks it nor makes a `-wal` and `-shm` (a plain read-only open would make both). That read
- *   holds only while nobody writes; withDatabase checks the file after it and reads once more, not
- *   immutable, when a writer came in meanwhile.
+ *   holds only while nobody writes; withDatabase checks the file after it and reads it once more when
+ *   it changed: as such when a writer's -wal is live then, else immutable again, checked again.
  * - A WAL database whose `-wal` exists (its agent writes now) opens as such, so the sessions still in
  *   its log are read; its side files are there already.
  * - A rollback-journal database opens as such, with SQLite's locks against a writer mid-change.
@@ -766,11 +773,11 @@ function openDatabase(budget: Budget, real: string, fd: number, checked: { dev: 
   const flags = sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_URI;
   if (descriptor !== null) {
     const db = new Database(immutable ? `file:${descriptor}?immutable=1` : descriptor, flags);
-    budget.onOpened(real, immutable);
+    budget.onOpened(real, immutable, db);
     return { db, immutable };
   }
   const db = new Database(immutable ? `${pathToFileURL(real).href}?immutable=1` : real, flags | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
-  budget.onOpened(real, immutable);
+  budget.onOpened(real, immutable, db);
   // part of the database's one check: a database checked at the 400th check is still listed
   const again = budget.identity(real, true);
   if (!again?.isFile || again.dev !== checked.dev || again.ino !== checked.ino) { db.close(); return null; }

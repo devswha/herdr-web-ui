@@ -408,6 +408,54 @@ describe("listSessions", () => {
     } finally { writer?.close(); }
   });
 
+  it("reads a WAL store immutable once more, writing nothing into it, when its writer came and went during the read", () => {
+    const home = newHome();
+    install("hermes", home);
+    const db = join(home, ".hermes", "state.db");
+    const setup = new Database(db);
+    setup.exec("PRAGMA journal_mode = WAL");
+    setup.close();
+    let reads = 0;
+    let afterWriter: string[] | undefined;
+    const rows = listSessions("hermes", CWD, {
+      home, env: {},
+      // between the immutable open and the query an agent opens the store, writes, checkpoints and
+      // closes: its last close takes its side files with it
+      opened: (_path, immutable) => {
+        reads++;
+        if (!immutable || afterWriter) return;
+        const writer = new Database(db);
+        writer.exec("UPDATE messages SET content = 'rewritten prompt' WHERE role = 'user'");
+        writer.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        writer.close();
+        afterWriter = sideFiles(dirname(db));
+      },
+    });
+    // the listing made no side file of its own
+    expect(sideFiles(dirname(db))).toEqual(afterWriter!);
+    expect(rows.map((row) => row.firstMessage)).toEqual(["rewritten prompt", "rewritten prompt"]);
+    expect(reads).toBe(2);
+  });
+
+  it("reads a WAL store immutable once more, writing nothing into it, when the first read failed with no writer", () => {
+    const home = newHome();
+    install("hermes", home);
+    const db = join(home, ".hermes", "state.db");
+    const setup = new Database(db);
+    setup.exec("PRAGMA journal_mode = WAL");
+    setup.close();
+    const before = sideFiles(dirname(db));
+    let reads = 0;
+    const rows = listSessions("hermes", CWD, {
+      home, env: {},
+      // the first read fails (its connection is gone) while nobody writes
+      opened: (_path, immutable, opened) => { if (reads++ === 0 && immutable) opened.close(); },
+    });
+    expect(sideFiles(dirname(db))).toEqual(before);
+    expect(rows.map((row) => row.id)).toEqual(EXPECTED.hermes);
+    expect(reads).toBe(2);
+  });
+
   it("lists a session still in a WAL store's log while its agent writes", () => {
     const home = newHome();
     install("hermes", home);
