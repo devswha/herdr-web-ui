@@ -24,7 +24,7 @@ import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplay
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { DETACHED, usePaneBranch } from "../lib/paneBranch.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
-import { ApiError, AttachmentTooLargeError, assertAttachable, fetchHerdrUi, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
+import { ApiError, AttachmentTooLargeError, assertAttachable, fetchHerdrUi, fetchPaneScroll, fetchPaneSelection, routeMissing, scrollPane } from "../lib/api.ts";
 import { userErrorMessage } from "../lib/userError.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
 import { composerDrafts } from "../lib/composerDraft.ts";
@@ -842,7 +842,24 @@ export function PaneTerminal({
     let disposed = false;
     // Do not replace the clipboard before the preference arrives. Older servers use herdr's default.
     let copyOnSelect = false;
-    void fetchHerdrUi().then((ui) => { copyOnSelect = ui.copy_on_select; }, () => { copyOnSelect = true; });
+    let uiPreferenceLoaded = false;
+    let uiPreferencePending = false;
+    const readUiPreference = (): void => {
+      if (disposed || uiPreferenceLoaded || uiPreferencePending) return;
+      uiPreferencePending = true;
+      void fetchHerdrUi().then((ui) => {
+        if (disposed) return;
+        copyOnSelect = ui.copy_on_select;
+        uiPreferenceLoaded = true;
+      }, (error: unknown) => {
+        if (!disposed && routeMissing(error)) {
+          copyOnSelect = true;
+          uiPreferenceLoaded = true;
+        }
+      }).finally(() => { uiPreferencePending = false; });
+    };
+    readUiPreference();
+    window.addEventListener("online", readUiPreference);
     // Run after xterm's own copy listener, including for Cmd+C and context-menu
     // Copy. Its buffer contains only the visible part of a scrolled selection.
     const onCopy = (event: ClipboardEvent): void => {
@@ -1184,6 +1201,7 @@ export function PaneTerminal({
     let outputRecovering = false;
     let deferredAttach = false;
     const off = session.on((message, sent) => {
+      if (message.type === "snapshot") readUiPreference();
       onServerMessageRef.current?.(message);
       pendingScopeRef.current = session.scope;
       pendingEpochRef.current = session.epoch;
@@ -2087,6 +2105,7 @@ export function PaneTerminal({
       window.removeEventListener("mousemove", onMouseMove, { capture: true });
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("online", readUiPreference);
       host.removeEventListener("copy", onCopy);
       stopEdge();
       selectionChange.dispose();

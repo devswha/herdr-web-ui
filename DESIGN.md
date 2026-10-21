@@ -2186,7 +2186,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 
 ### Terminal host, key bar and drawer
 - Desktop terminal selection follows herdr's `[ui] copy_on_select` (default on), read when
-  the terminal mounts. Like the sidebar rows, this uses the web UI host's config for local and
+  the terminal mounts. An unreadable preference leaves automatic copying off and retries on
+  network or socket recovery; only a missing route uses the older server's default. Like the sidebar rows, this uses the web UI host's config for local and
   remote panes alike. With it off, release only selects; explicit Copy or Ctrl+C still copies
   the full range, including rows scrolled out of view. Pointer hover preserves the highlight
   and quote offer in either mode. Like [Zed's terminal](https://zed.dev/docs/terminal#copy-on-select),

@@ -31,7 +31,7 @@ setInterval(() => {}, 1000);
         releasing = true;
         setTimeout(() => { releasing = false; }, 0);
       }, { capture: true });
-      const state = { checking: false, copies: 0, writes: [] as boolean[], pending: 0, positions: { asked: 0, open: 0 } };
+      const state = { checking: false, copies: 0, writes: [] as boolean[], pending: 0, positions: { asked: 0, open: 0 }, preferences: { asked: 0, open: 0 } };
       (window as any).clipboardGesture = state;
       document.addEventListener("copy", () => { if (state.checking) state.copies++; });
       // A press reads the pane's scroll position, and only a release after it has arrived asks
@@ -41,12 +41,13 @@ setInterval(() => {}, 1000);
       (window as any).fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         const method = init?.method ?? (input instanceof Request ? input.method : "GET");
         const url = new URL(input instanceof Request ? input.url : String(input), location.href);
-        if (method !== "GET" || !url.pathname.endsWith("/pane/scroll")) return fetchPage(input, init);
-        state.positions.asked++;
-        state.positions.open++;
+        const reads = url.pathname === "/api/herdr-ui" ? state.preferences : url.pathname.endsWith("/pane/scroll") ? state.positions : null;
+        if (method !== "GET" || !reads) return fetchPage(input, init);
+        reads.asked++;
+        reads.open++;
         let closed = false;
         const close = (): void => {
-          if (!closed) state.positions.open--;
+          if (!closed) reads.open--;
           closed = true;
         };
         try {
@@ -406,6 +407,42 @@ setInterval(() => {}, 1000);
     assert.equal(copied.at(-1), offTop + 5, "explicit Copy ends at the original anchor");
     assert.ok(copied[0]! < offTop, "explicit Copy includes text above the first viewport");
     if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-copy-on-select-off.png") });
+
+    // A failed config read does not imply the host uses the default. Recovery retries the read.
+    for (const failure of ["network", "server"] as const) {
+      await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
+      await page.unroute("**/api/herdr-ui");
+      let reads = 0;
+      await page.route("**/api/herdr-ui", (route) => {
+        if (++reads > 1) return route.fulfill({ json: { copy_on_select: false } });
+        return failure === "network" ? route.abort("failed") : route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "temporarily unavailable" } } });
+      });
+      await page.reload();
+      await rowWith("S299").waitFor();
+      await page.waitForFunction(() => {
+        const { asked, open } = (window as any).clipboardGesture.preferences;
+        return asked >= 1 && open === 0;
+      });
+      const failureScreen = (await page.locator(".pane-terminal .xterm-screen").boundingBox())!;
+      const height = failureScreen.height / (await page.locator(".pane-terminal .xterm-rows > div").count());
+      const from = { x: failureScreen.x + 1, y: failureScreen.y + height * 5.5 };
+      const to = { x: failureScreen.x + 150, y: failureScreen.y + height * 8.5 };
+      await page.evaluate(() => navigator.clipboard.writeText("keep this clipboard"));
+      await page.evaluate(() => { (window as any).clipboardGesture.checking = true; });
+      await drag(from, to);
+      await settled();
+      assert.equal(await clipboard(page), "keep this clipboard", `${failure} preference failure leaves the clipboard alone`);
+      await page.evaluate(() => window.dispatchEvent(new Event("online")));
+      await page.waitForFunction(() => {
+        const { asked, open } = (window as any).clipboardGesture.preferences;
+        return asked >= 2 && open === 0;
+      });
+      await drag(from, to);
+      await settled();
+      assert.equal(await clipboard(page), "keep this clipboard", "the recovered disabled preference still leaves the clipboard alone");
+      assert.deepEqual(await page.evaluate(() => ({ copies: (window as any).clipboardGesture.copies, writes: (window as any).clipboardGesture.writes })),
+        { copies: 0, writes: [] }, "a failed or recovered disabled preference invokes no native or async copy");
+    }
 
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");
     console.log("PASS a selecting drag scrolls herdr by wheel and edge, and copies herdr's text for the whole range");
