@@ -1984,6 +1984,8 @@ export function PaneTerminal({
         return;
       }
       socket.detach(current);
+      // the attach's output is over: what is still queued has no ACK to send and copies nothing
+      retireOutput();
       // The server's detach receipt holds pending input on this still-live PC connection.
       setReleased(true);
       cachedReleaseRef.current = cachedRef.current;

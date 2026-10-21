@@ -548,6 +548,44 @@ try {
         console.log("PASS pending write at reset");
       }
 
+      // pane switch: the old pane's tab is cached, so its terminal stays mounted and lets go of its
+      // attach while its write is pending; the parse is released only after the next pane attached
+      {
+        await page.locator(`.pane-frame.is-current[data-layout-pane="${panes.shell}"] .pane-terminal`).waitFor({ state: "attached" });
+        await resetCase(page);
+        const host = await page.locator(".pane-frame.is-current .pane-terminal").evaluateHandle((element) => element);
+        const before = await acked();
+        const count = (type: string, paneId: string): Promise<number> => page.evaluate(([kind, id]) => window.replayFixture.sent.filter((frame) => frame.type === kind && frame.pane_id === id).length, [type, paneId] as const);
+        const detaches = await count("detach", panes.shell);
+        const attaches = await count("attach", panes.web);
+        const held = await hold(PENDING[0]!.steps);
+        await page.locator(`.workspace-select[data-pane="${panes.web}"]`).click();
+        await page.waitForFunction(([id, seen]) => window.replayFixture.sent.filter((frame) => frame.type === "attach" && frame.pane_id === id).length > seen, [panes.web, attaches] as const);
+        await page.waitForFunction(([id, seen]) => window.replayFixture.sent.filter((frame) => frame.type === "detach" && frame.pane_id === id).length > seen, [panes.shell, detaches] as const);
+        const cached = await host.evaluate((element) => ({ mounted: element.isConnected, current: element === document.querySelector(".pane-frame.is-current .pane-terminal"), probe: (element as unknown as { outputProbe(): Probe }).outputProbe() }));
+        assert.deepEqual({ mounted: cached.mounted, current: cached.current }, { mounted: true, current: false }, "pane switch: the old terminal is kept as a cached tab");
+        assert.deepEqual({ queued: cached.probe.queued, inFlight: cached.probe.inFlight, retired: cached.probe.retired }, { queued: 0, inFlight: 1, retired: true }, "pane switch: letting go of the attach drops the queued frames and retires the pending one");
+        await fixture(page, (state) => state.release());
+        await settled(host);
+        const after = await host.evaluate((element) => (element as unknown as { outputProbe(): Probe }).outputProbe());
+        const copies = await fixture(page, (state) => [...state.copies]);
+        const acks = await acked();
+        assert.deepEqual(copies, [], "pane switch: nothing the old pane had pending copies");
+        assert.deepEqual(acks, before, "pane switch: no old frame is acknowledged after the detach");
+        assert.equal(after.writes, held.writes, "pane switch: only the pending frame reached xterm");
+        assert.equal(after.replayOscOpen, true, "pane switch: the replayed OSC the old frame left open stays guarded");
+        const next = await frames(page, [R(RESTORED), L(LIVE_COPY)], panes.web);
+        const nextCopies = await fixture(page, (state) => [...state.copies]);
+        assert.deepEqual(nextCopies, ["live"], "pane switch: the next pane's live copy works");
+        assert.deepEqual(next.acks.map((ack) => ack.offset), next.pushed.map((step) => step.offset), "pane switch: one ACK per new frame");
+        report["reconnect-replay"]!.push({ name: "pending write at a pane switch to a cached tab", pending: { inFlight: held.inFlight, queued: held.queued }, afterDetach: { mounted: cached.mounted, current: cached.current, queued: cached.probe.queued, inFlight: cached.probe.inFlight, retired: cached.probe.retired }, copies, acksAfterDetach: acks.length - before.length, writesAfterRelease: after.writes - held.writes, replayOscOpen: after.replayOscOpen, nextCopies });
+        // back to the shell: its cached terminal attaches again
+        const reattaches = await count("attach", panes.shell);
+        await page.locator(`.workspace-select[data-pane="${panes.shell}"]`).click();
+        await page.waitForFunction(([id, seen]) => window.replayFixture.sent.filter((frame) => frame.type === "attach" && frame.pane_id === id).length > seen, [panes.shell, reattaches] as const);
+        console.log("PASS pending write at a pane switch");
+      }
+
       // dispose: four other tabs push the pane out of the cached ones while its write is pending
       {
         await page.locator(`.pane-frame.is-current[data-layout-pane="${panes.shell}"] .pane-terminal`).waitFor({ state: "attached" });
