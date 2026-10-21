@@ -80,6 +80,11 @@ it("names a raster by its signature and refuses short or truncated prefixes", ()
   expect(imageType(bytes("RIFF", [4, 0, 0, 0], "WEBP"))).toBe("image/webp");
   expect(imageType(bytes("RIFF", [4, 0, 0, 0], "WEB"))).toBeNull();
   expect(imageType(bytes("RIFF", [4, 0, 0, 0], "WAVE"))).toBeNull();
+  // each letter with its high bit set: an ASCII decode would read these as the signatures
+  expect(imageType(bytes([0xc7, 0xc9, 0xc6, 0x38, 0x37, 0xe1]))).toBeNull();
+  expect(imageType(bytes([0xc7, 0xc9, 0xc6, 0x38, 0x39, 0xe1]))).toBeNull();
+  expect(imageType(bytes([0xd2, 0xc9, 0xc6, 0xc6, 4, 0, 0, 0, 0xd7, 0xc5, 0xc2, 0xd0]))).toBeNull();
+  expect(imageType(bytes("RIFF", [4, 0, 0, 0], [0xd7, 0xc5, 0xc2, 0xd0]))).toBeNull();
   expect(imageType(bytes("not an image"))).toBeNull();
   expect(imageType(Buffer.alloc(0))).toBeNull();
 });

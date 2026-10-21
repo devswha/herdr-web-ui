@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { ConversationMonitor } from "./conversation-monitor.ts";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, IntegrationsResponse, LanExposure, PortalStatus, PushKey, RemoteAccess, SessionSnapshot, TabMoved, PaneFindResponse, PaneReadResult, UsageReport, WorkspaceCreated, WorktreeListing, WorktreeOpened, WorktreeRemoved } from "../shared/protocol.ts";
@@ -1939,7 +1939,7 @@ describe("POST /api/pane/image", () => {
         const res = await post({ pane_id: qaPaneId, content_type, data_base64: data.toString("base64"), name: "shot.jpeg" });
         expect(res.status).toBe(200);
         const { path } = (await res.json()) as { path: string };
-        expect(path.startsWith(join(qaCwd!, ".herdr-web-ui") + "/")).toBe(true);
+        expect(dirname(path)).toBe(join(qaCwd!, ".herdr-web-ui"));
         expect(basename(path)).toMatch(new RegExp(`^paste-\\d{8}-\\d{6}-[0-9a-f]{8}\\.${extension}$`));
         expect(readFileSync(path)).toEqual(data);
       }
@@ -1954,6 +1954,10 @@ describe("POST /api/pane/image", () => {
       bytes([255, 216]),
       bytes("GIF88a"),
       bytes("RIFF", [4, 0, 0, 0], "WEB"),
+      // GIF87a, GIF89a and RIFF....WEBP with each letter's high bit set
+      bytes([0xc7, 0xc9, 0xc6, 0x38, 0x37, 0xe1]),
+      bytes([0xc7, 0xc9, 0xc6, 0x38, 0x39, 0xe1]),
+      bytes([0xd2, 0xc9, 0xc6, 0xc6, 4, 0, 0, 0, 0xd7, 0xc5, 0xc2, 0xd0]),
     ]) {
       for (const content_type of RASTER_TYPES) {
         for (const pane_id of [qaPaneId, "w9999:p9999"]) {

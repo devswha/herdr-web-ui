@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type { PaneInfo } from "../shared/protocol.ts";
 import * as client from "./herdr/client.ts";
@@ -78,6 +78,10 @@ describe("savePaneImage", () => {
     bytes("GIF88a"),
     bytes("RIFF", [4, 0, 0, 0], "WEB"),
     bytes("RIFF", [4, 0, 0, 0], "WAVE"),
+    // GIF87a, GIF89a and RIFF....WEBP with each letter's high bit set, which an ASCII decode drops
+    bytes([0xc7, 0xc9, 0xc6, 0x38, 0x37, 0xe1]),
+    bytes([0xc7, 0xc9, 0xc6, 0x38, 0x39, 0xe1]),
+    bytes([0xd2, 0xc9, 0xc6, 0xc6, 4, 0, 0, 0, 0xd7, 0xc5, 0xc2, 0xd0]),
   ];
   const previous = process.env["HERDR_WEB_PASTE_DIR"];
   let cwd = "";
@@ -107,7 +111,7 @@ describe("savePaneImage", () => {
       // the browser infers the type from the file name, so a mislabeled raster still arrives
       for (const contentType of RASTER_TYPES) {
         const path = await save(contentType, data, "shot.png");
-        expect(path.startsWith(join(cwd, ".herdr-web-ui") + "/")).toBe(true);
+        expect(dirname(path)).toBe(join(cwd, ".herdr-web-ui"));
         expect(basename(path)).toMatch(new RegExp(`^paste-\\d{8}-\\d{6}-[0-9a-f]{8}\\.${extension}$`));
         expect(readFileSync(path).equals(data)).toBe(true);
         if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600);
