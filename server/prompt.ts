@@ -1,13 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptResponse, PromptAnswer, SessionSnapshot, SlashCommand } from "../shared/protocol.ts";
 import { builtinCommands, cachedPaneCommands } from "./commands.ts";
-import { claudeRestoredOwned, readCommandTranscript, releaseClaudeRestored } from "./conversation.ts";
+import { agentProcesses, claudeRestoredOwned, readCommandTranscript, releaseClaudeRestored } from "./conversation.ts";
 import { resolveAgent } from "./pane-context.ts";
 import { processStartedAt } from "./process-start.ts";
-import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, viewportTop, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
+import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
-import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot, type ProcessInfo } from "./herdr/client.ts";
-import { isOmoProcess, omoTranscriptForPane } from "./omo.ts";
+import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot, viewportTop, type ProcessInfo } from "./herdr/client.ts";
+import { omoTranscriptForPane } from "./omo.ts";
 import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
 import { claudePlanFile } from "./claude-plan.ts";
@@ -157,18 +157,9 @@ const chatSent = new Map<string, { text: string; commands: PaneCommandSend[]; re
 
 const outcomeIdentity = (pane: HerdrPane): string => JSON.stringify([pane.terminal_id, pane.agent_session]);
 
-/** Prefer the native agent to its interpreter launcher, never the shell or process-group leader. */
+/** The agent's own process (agentProcesses), keyed by its pid and, on Linux, its start time; never the process-group id. */
 function outcomeProcess(info: ProcessInfo | undefined, agent: string, bound?: number): { pid: number; started: number | null } | null {
-  const processes = info?.foreground_processes ?? [];
-  const binary = (word: string): string => word.replace(/\\/g, "/").split("/").at(-1)?.replace(/\.(?:exe|cmd|js|mjs|cjs)$/i, "") ?? "";
-  const native = processes.filter((entry) => binary(entry.argv?.[0] ?? entry.argv0 ?? entry.name) === agent);
-  const interpreted = processes.filter((entry) => {
-    const argv = entry.argv ?? [];
-    if (agent === "omo") return isOmoProcess(argv);
-    return ["node", "bun", "python", "python3"].includes(binary(argv[0] ?? ""))
-      && binary(argv[1] ?? "") === agent;
-  });
-  const candidates = [...native, ...interpreted];
+  const candidates = agentProcesses(info?.foreground_processes ?? [], agent);
   const running = bound === undefined ? candidates[0] : candidates.find((entry) => entry.pid === bound);
   return running ? { pid: running.pid, started: process.platform === "linux" ? processStartedAt(running.pid) : null } : null;
 }

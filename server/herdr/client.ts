@@ -516,6 +516,11 @@ export async function paneScrollInfo(paneId: string, socketPath?: string): Promi
   return pane.scroll ?? null;
 }
 
+/** Where a screen read starts in the pane's history: rows scrolled off above it, counted by herdr. */
+export function viewportTop(scroll: { max_offset_from_bottom: number; offset_from_bottom: number } | null | undefined): number | undefined {
+  return scroll ? scroll.max_offset_from_bottom - scroll.offset_from_bottom : undefined;
+}
+
 /** Scrolls the pane's viewport; herdr redraws every attached terminal. */
 export async function paneScroll(paneId: string, offsetFromBottom: number, socketPath?: string): Promise<PaneScrollInfo | null> {
   const result = await herdrRpc<{ pane: PaneInfo }>("pane.scroll", { pane_id: paneId, offset_from_bottom: offsetFromBottom }, socketPath);
@@ -525,7 +530,7 @@ export async function paneScroll(paneId: string, offsetFromBottom: number, socke
 /** Copy search is stateless; scrolling is the same shared viewport used by herdr's TUI. */
 export async function paneFind(request: PaneFindRequest, socketPath?: string): Promise<PaneFindResponse> {
   const scroll = await paneScrollInfo(request.pane_id, socketPath);
-  const row = scroll ? scroll.max_offset_from_bottom - scroll.offset_from_bottom : 0;
+  const row = viewportTop(scroll) ?? 0;
   // pane.read.revision is NOT copy_search's content_revision. copy_motion supplies the latter
   // without entering copy mode or changing any client's cursor.
   const motion = await herdrRpc<{ cursor: PaneTextPoint; content_revision: number }>("pane.copy_motion", {

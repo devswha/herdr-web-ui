@@ -44,7 +44,7 @@ import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, cod
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
 import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
-import { omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
+import { isOmoProcess, omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
 import { forgetOpencodeRead, forgetOpencodeState, OPENCODE_IMAGE_REF, opencodeConversation, opencodeDatabasePath, opencodeImage, opencodeReadKey, opencodeSessionId, opencodeToolOutput } from "./opencode.ts";
@@ -1480,6 +1480,24 @@ export async function paneRunsOmo(paneId: string): Promise<boolean> {
   );
 }
 
+/** A program's name in a process listing: its path's last part, without a Windows or script extension. */
+const programName = (word: string): string => nodePath.posix.basename(word.replace(/\\/g, "/")).replace(/\.(?:exe|cmd|js|mjs|cjs)$/i, "");
+
+/**
+ * The foreground processes that are `agent` itself: its native binary first, then an interpreter (node, bun,
+ * python) running the agent's script; for omo, its own process (isOmoProcess). Never the shell that started
+ * it. paneProcessRoots and the command outcomes' process binding both pick from here, so they cannot drift.
+ */
+export function agentProcesses<T extends { argv?: readonly string[] | null; argv0?: string | null; name?: string | null }>(processes: readonly T[], agent: string): T[] {
+  const native = processes.filter((entry) => programName(entry.argv?.[0] ?? entry.argv0 ?? entry.name ?? "") === agent);
+  const interpreted = processes.filter((entry) => {
+    const argv = entry.argv ?? [];
+    if (agent === "omo") return isOmoProcess(argv);
+    return ["node", "bun", "python", "python3"].includes(programName(argv[0] ?? "")) && programName(argv[1] ?? "") === agent;
+  });
+  return [...native, ...interpreted.filter((entry) => !native.includes(entry))];
+}
+
 /** Loaded roots and environment belong to the foreground agent, not the web server. */
 export async function paneProcessRoots(paneId: string, agent: string | null | undefined): Promise<{
   /** `held`: the omo process holds a session there (its own holder record), not only an omo-ai path in its argv. */
@@ -1488,26 +1506,23 @@ export async function paneProcessRoots(paneId: string, agent: string | null | un
   pid: number | null;
   cwd: string | null;
 }> {
-  const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown; argv?: unknown; cwd?: unknown }[] } }>(
+  const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid?: unknown; argv?: unknown; argv0?: unknown; name?: unknown; cwd?: unknown }[] } }>(
     "pane.process_info", { pane_id: paneId },
   ).catch(() => null);
   const home = process.env["HOME"] ?? "";
   const directory = (path: string | null): string | null => {
     try { return path && statSync(path).isDirectory() ? path : null; } catch { return null; }
   };
-  let matched: { pid: number; cwd: string } | null = null;
-  for (const candidate of info?.process_info?.foreground_processes ?? []) {
-    const process = {
-      pid: typeof candidate.pid === "number" ? candidate.pid : -1,
-      argv: Array.isArray(candidate.argv) ? candidate.argv.map(String) : [],
-      cwd: typeof candidate.cwd === "string" ? candidate.cwd : "",
-    };
-    const binary = (word: string): string => nodePath.posix.basename(word.replace(/\\/g, "/")).replace(/\.(?:exe|cmd|js|mjs|cjs)$/i, "");
-    const executable = binary(process.argv[0] ?? "");
-    const launched = ["node", "bun", "python", "python3"].includes(executable) ? binary(process.argv[1] ?? "") : executable;
-    if (!matched && agent && ["claude", "codex", "omp", "gjc", "pi", "opencode", "devin", "grok", "hermes", "agy"].includes(agent) && launched === agent) {
-      matched = process;
-    }
+  const foreground = (info?.process_info?.foreground_processes ?? []).map((candidate) => ({
+    pid: typeof candidate.pid === "number" ? candidate.pid : -1,
+    argv: Array.isArray(candidate.argv) ? candidate.argv.map(String) : [],
+    ...(typeof candidate.argv0 === "string" ? { argv0: candidate.argv0 } : {}),
+    ...(typeof candidate.name === "string" ? { name: candidate.name } : {}),
+    cwd: typeof candidate.cwd === "string" ? candidate.cwd : "",
+  }));
+  const matched = agent && ["claude", "codex", "omp", "gjc", "pi", "opencode", "devin", "grok", "hermes", "agy"].includes(agent)
+    ? agentProcesses(foreground, agent)[0] ?? null : null;
+  for (const process of foreground) {
     const identity = omoProcessIdentity(process, "", home);
     if (!identity) continue;
     const agentDir = directory(identity.agentDir);

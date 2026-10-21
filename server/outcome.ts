@@ -281,11 +281,6 @@ function anchorEnd(snapshot: readonly string[], lines: readonly string[]): numbe
   return end;
 }
 
-/** Where a screen read starts in the pane's history: rows scrolled off above it, counted by herdr. */
-export function viewportTop(scroll: { max_offset_from_bottom: number; offset_from_bottom: number } | null | undefined): number | undefined {
-  return scroll ? scroll.max_offset_from_bottom - scroll.offset_from_bottom : undefined;
-}
-
 /**
  * The snapshot's last line placed by how far the history moved between the two reads, when every line
  * of the snapshot still on screen is where that move puts it. Identical blocks repeated down the screen
