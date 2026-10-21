@@ -5,9 +5,10 @@ import { join } from "node:path";
 
 import type { HerdrPane } from "../shared/protocol.ts";
 import type { CommandSend } from "./outcome.ts";
-import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, releaseOpenCodePane, skillsNotAttached, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
+import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, openCodeSkillsToType, releaseOpenCodePane, skillsNotAttached, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
 import { commandOutcome } from "./outcome.ts";
 import * as service from "./opencode-service.ts";
+import * as paneContext from "./pane-context.ts";
 import { forgetOpenCodeService, openCodeServiceOptions } from "./opencode-service.ts";
 
 const root = mkdtempSync(join(tmpdir(), "opencode-native-test-"));
@@ -66,6 +67,23 @@ describe("recording a send never waits on OpenCode's service", () => {
     expect(startOpenCodeWatch({ ...pane, agent: "claude", agent_session: null } as unknown as HerdrPane, sent)).toBeNull();
     expect(startOpenCodeWatch(pane, { ...sent, form: { match: "bare", interaction: "terminal" } })).toBeNull();
     expect(startOpenCodeWatch(pane, undefined)).toBeNull();
+  });
+
+  it("does not treat an OmO pane herdr labels pi as OpenCode", async () => {
+    const omoPane = { ...pane, agent: "pi", agent_session: { agent: "omo", source: "herdr:omo", kind: "id", value: "ses_omo001" } } as unknown as HerdrPane;
+    const resolved = spyOn(paneContext, "resolveAgent").mockReturnValue({ agent: "omo", version: null });
+    const lookup = spyOn(service, "openCodeService").mockResolvedValue(null);
+    try {
+      expect(await openCodePaneService(omoPane)).toBeNull();
+      expect(startOpenCodeWatch(omoPane, sent)).toBeNull();
+      const send = { ...sent, store: null };
+      expect(await openCodeSkillsToType(omoPane, send, "@skill")).toEqual({ sent: send, skills: [] });
+      expect(lookup).not.toHaveBeenCalled();
+      expect(resolved).toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+      resolved.mockRestore();
+    }
   });
 });
 

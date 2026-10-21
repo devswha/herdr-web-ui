@@ -3,6 +3,7 @@ import * as client from "../herdr/client.ts";
 import * as conversation from "../conversation.ts";
 import * as commands from "../commands.ts";
 import * as prompt from "../prompt.ts";
+import * as paneContext from "../pane-context.ts";
 import { createSubmitText } from "./composer.ts";
 import { handlePromptRequest, prepareCommandSend } from "../prompt.ts";
 import { commandOutcome } from "../outcome.ts";
@@ -66,6 +67,15 @@ it("keeps repeated omp model outcomes under the original command rather than its
   const first = prepare.mock.results[0]?.value as ReturnType<typeof prepareCommandSend>;
   expect(first?.text).toBe("/model");
   expect(first?.transcriptClosedAt).toBeUndefined();
+});
+
+it("does not rewrite /model when the resolved pane agent is OmO", async () => {
+  const target = { ...pane, pane_id: "omo-labelled-omp", agent: "omp" };
+  spyOn(client, "paneGet").mockResolvedValue(target);
+  spyOn(paneContext, "resolveAgent").mockReturnValue({ agent: "omo", version: null });
+  const deliver = spyOn(client, "agentPrompt").mockResolvedValue();
+  await submitter()(target.pane_id, "/model", "/model", Date.now());
+  expect(deliver).toHaveBeenCalledWith(target.pane_id, "/model");
 });
 
 for (const dependency of ["process-info", "transcript", "catalog", "snapshot"] as const) {
