@@ -22,7 +22,7 @@ import type { Machine, MachineState } from "../shared/machines.ts";
 import type { AgentStatus, ConversationResponse } from "../shared/protocol.ts";
 
 type Forced = [machineId: string, paneId: string, status: AgentStatus, seq: number];
-interface WireCalls { ws: { machine: string; type: string; pane_id?: string }[]; posts: { machine: string; method: string; path: string }[] }
+interface WireCalls { ws: { machine: string; type: string; pane_id?: string; mode?: string }[]; posts: { machine: string; method: string; path: string }[]; acks: { machine: string; mode: string }[] }
 
 declare global {
   interface Window {
@@ -54,7 +54,10 @@ function installAttentionFixture(): void {
   const sources = new Set<EventSource>();
   const held = new Set<string>();
   const pending: (() => void)[] = [];
-  const calls: WireCalls = { ws: [], posts: [] };
+  const calls: WireCalls = { ws: [], posts: [], acks: [] };
+  // a device paired to watch (?observe): the server demotes each of its connections to observe, on
+  // every PC, whatever role the page asks for, and its role-ack says so (shared/protocol.ts "Roles")
+  const observe = new URLSearchParams(location.search).has("observe");
   let demoMachines: Machine[] = [];
   const roster = (): Machine[] => ["local", "remote"].map((id) => {
     const machine = structuredClone(demoMachines.find((item) => item.id === "local")!);
@@ -120,9 +123,14 @@ function installAttentionFixture(): void {
       const send = this.send.bind(this);
       this.send = (raw) => {
         const message = JSON.parse(String(raw));
-        calls.ws.push({ machine, type: message.type, pane_id: message.pane_id });
-        send(raw);
+        calls.ws.push({ machine, type: message.type, pane_id: message.pane_id, ...(message.type === "role" ? { mode: message.mode } : {}) });
+        send(observe && message.type === "role" ? JSON.stringify({ ...message, mode: "observe" }) : raw);
       };
+      // the role each socket was acknowledged in: the demo socket answers its role frame with role-ack
+      this.addEventListener("message", (event) => {
+        const message = JSON.parse(String((event as MessageEvent).data));
+        if (message.type === "role-ack") calls.acks.push({ machine, mode: message.mode });
+      });
     }
   };
   const DemoSource = window.EventSource;
@@ -194,6 +202,11 @@ const waitStatus = (page: Page, machine: string, pane: string, status: string) =
 const wireCalls = (page: Page) => page.evaluate(() => window.attentionFixture.calls);
 /** the chord of this page's platform: Meta on an Apple platform, Ctrl elsewhere, as the app reads it */
 const chord = async (page: Page) => (await page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent))) ? "Meta+Shift+A" : "Control+Shift+A";
+/** this PC's socket acknowledged as an observer (its last role-ack), and the open pane drawn view-only */
+const waitObserver = (page: Page, machine: string) => page.waitForFunction((machineId) => {
+  const acks = window.attentionFixture.calls.acks.filter((ack) => ack.machine === machineId);
+  return acks.length > 0 && acks.at(-1)!.mode === "observe" && document.querySelector(".pane-frame.is-current .terminal-banner-observe") !== null;
+}, machine, { timeout: 10_000 });
 /** one press, and the selection it leaves: written at once by the handler, so a no-op reads as the same value */
 async function press(page: Page, keys: string): Promise<string | null> {
   await page.keyboard.press(keys);
@@ -416,6 +429,36 @@ try {
         console.log("PASS the palette's Next agent needing attention runs the jump");
       }
 
+      // ---- a watching device: both PCs' sockets acknowledged as observers, and the jump still only moves the selection ----
+      {
+        const session = await open(browser, { query: "&observe=1", settings: { defaultView: "terminal" } });
+        const { page } = session;
+        const keys = await chord(page);
+        await setStatuses(page, quiet(["local", panes.omp, "blocked", 2], ["remote", panes.web, "blocked", 2]));
+        await waitStatus(page, "remote", panes.web, "blocked");
+        await waitObserver(page, "local");
+        const before = await wireCalls(page);
+        const steps: { action: string; selection: string | null }[] = [];
+        // the first press opens the remote's socket: it is acknowledged as an observer before the next press
+        const expected = [target("local", panes.omp), target("remote", panes.web), target("local", panes.omp), target("remote", panes.web)];
+        for (const [index, want] of expected.entries()) {
+          const got = await press(page, keys);
+          steps.push({ action: `observe press ${index + 1}`, selection: got });
+          assert.equal(got, want, `observe press ${index + 1}: the jump still moves this browser's selection`);
+          const [machine, pane] = want.split("/") as [string, string];
+          await waitSelected(page, machine, pane);
+          await waitObserver(page, machine);
+        }
+        const calls = await assertSelectionOnly(page, before, "observe");
+        const frames = calls.ws.slice(before.ws.length);
+        assert.deepEqual(frames.filter((frame) => frame.type === "resize"), [], "an observer's navigation resizes no pane");
+        assert.deepEqual([...new Set(calls.acks.map((ack) => ack.machine))].sort(), ["local", "remote"], "both PCs answered a role");
+        assert.ok(calls.acks.every((ack) => ack.mode === "observe"), "no socket of a watching device is acknowledged as interact");
+        record("task-5-aoe-borrowings-observe", { scenario: "observe-only device", steps, acks: calls.acks, ws: frames, posts: calls.posts.slice(before.posts.length), verdict: "PASS" });
+        await close(session, "observe");
+        console.log("PASS a watching device: both PCs acknowledged as observers, the jump moves only the selection, and no input, keys, submit, take-over or resize is sent");
+      }
+
       if (evidence) await captures(browser);
     } finally {
       await browser.close();
@@ -449,8 +492,8 @@ async function captures(browser: Browser): Promise<void> {
           manifest.push({ file, width: size?.width ?? device.width, height: size?.height ?? 0, theme, language, state, sha256: createHash("sha256").update(readFileSync(path)).digest("hex"), capturedAt: new Date().toISOString() });
         };
         const viewport = device.mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 };
-        const openFor = async (query = "", pins: string[] = []) => {
-          const session = await open(browser, { mobile: device.mobile, platform: device.mobile ? "iPad" : undefined, settings: { language, theme }, pins, query });
+        const openFor = async (query = "", pins: string[] = [], settings: object = {}) => {
+          const session = await open(browser, { mobile: device.mobile, platform: device.mobile ? "iPad" : undefined, settings: { language, theme, ...settings }, pins, query });
           await session.page.setViewportSize(viewport);
           return session;
         };
@@ -522,13 +565,16 @@ async function captures(browser: Browser): Promise<void> {
           await close(session, `captures ${device.width} ${theme} ${language} long/offline`);
         }
         {
-          const session = await openFor("&observe=1");
+          // the terminal lens draws the View only banner of an acknowledged observer
+          const session = await openFor("&observe=1", [], { defaultView: "terminal" });
           const { page } = session;
           await page.locator(".conn-live").waitFor({ state: "attached" });
           await setStatuses(page, quiet(["remote", panes.web, "blocked", 2]));
           await waitStatus(page, "remote", panes.web, "blocked");
+          await waitObserver(page, "local");
           await press(page, await chord(page));
           await waitSelected(page, "remote", panes.web);
+          await waitObserver(page, "remote");
           await showList(page);
           await shot(page, "observe");
           await close(session, `captures ${device.width} ${theme} ${language} observe`);
