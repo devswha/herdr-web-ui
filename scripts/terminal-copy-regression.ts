@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, Page } from "playwright-core";
-import { herdrRpc, paneSendText, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
+import { herdrRpc, paneSendText, paneSplit, tabCreate, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 
 /** A plain left drag in the desktop terminal selects and copies instead of reaching herdr. */
 export async function checkTerminalCopy(browser: Browser, origin: string): Promise<void> {
@@ -508,6 +508,65 @@ setInterval(() => {}, 1000);
       assert.equal(await clipboard(page), "keep this clipboard", "the recovered disabled preference still leaves the clipboard alone");
       assert.deepEqual(await page.evaluate(() => ({ copies: (window as any).clipboardGesture.copies, writes: (window as any).clipboardGesture.writes })),
         { copies: 0, writes: [] }, "a failed or recovered disabled preference invokes no native or async copy");
+    }
+
+    // Cached tabs and split siblings retain the same terminal mount after navigation.
+    const other = await tabCreate({ workspaceId: created.workspace.workspace_id, label: "Copy cancellation" });
+    for (const destination of ["tab", "split"] as const) {
+      const sibling = destination === "split" ? await paneSplit(pane, "right", false) : null;
+      const frame = page.locator(`.pane-frame[data-layout-pane="${pane}"]`);
+      await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
+      await frame.locator(".xterm-rows > div", { hasText: /^S299\s*$/ }).waitFor();
+      const mounted = await frame.locator(".xterm").elementHandle();
+      const screen = (await frame.locator(".xterm-screen").boundingBox())!;
+      const height = screen.height / (await frame.locator(".xterm-rows > div").count());
+      const firstTop = await topRow();
+      const release = Promise.withResolvers<void>();
+      const asked = Promise.withResolvers<void>();
+      let expected = "";
+      await page.route("**/api/pane/selection?*", async (route) => {
+        const response = await route.fetch();
+        expected = (await response.json()).text;
+        asked.resolve();
+        await release.promise;
+        await route.fulfill({ response });
+      });
+      try {
+        await page.mouse.move(screen.x + 200, screen.y + height * 5.5);
+        await press();
+        await page.mouse.move(screen.x + 150, screen.y + height * 8.5, { steps: 4 });
+        await page.mouse.wheel(0, -screen.height - height * 20);
+        await page.waitForFunction((top) => Number(document.querySelector(".pane-terminal .xterm-rows > div")?.textContent?.trim().slice(1)) < top, firstTop);
+        await page.mouse.move(screen.x + 1, screen.y + height * 5.5, { steps: 4 });
+        const selectionRead = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/pane/selection");
+        await page.mouse.up();
+        await asked.promise;
+        assert.ok(lines(expected).length > screen.height / height, "the cancelled read covers more than the visible viewport");
+        const beforeWrites = await page.evaluate(() => (window as any).clipboardGesture.writes.length as number);
+        await page.keyboard.press("Control+c");
+        await frame.locator(".xterm-selection div").first().waitFor({ state: "detached" });
+        assert.equal(await page.evaluate(() => (window as any).clipboardGesture.writes.length as number), beforeWrites + 1, "Copy reserved its pending history text");
+        if (sibling) {
+          await page.locator(`.pane-frame[data-layout-pane="${sibling.pane_id}"] .pane-frame-head`).click();
+          await page.locator(`.pane-frame.is-current[data-layout-pane="${sibling.pane_id}"]`).waitFor();
+          await frame.locator(".pane-frame-head").click();
+        } else {
+          await page.locator(`[role="tab"][data-tab-id="${other.tab.tab_id}"]`).click();
+          await page.locator(`.pane-frame.is-hidden[data-layout-pane="${pane}"]`).waitFor({ state: "attached" });
+          await page.locator(`[role="tab"][data-tab-id="${created.root_pane.tab_id}"]`).click();
+        }
+        await page.locator(`.pane-frame.is-current[data-layout-pane="${pane}"]`).waitFor();
+        assert.equal(await frame.locator(".xterm").evaluate((node, original) => node === original, mounted), true, "returning to the pane reuses its terminal mount");
+        await page.evaluate(() => navigator.clipboard.writeText("keep this clipboard"));
+        release.resolve();
+        await (await selectionRead).finished();
+        await settled();
+        assert.equal(await clipboard(page), "keep this clipboard", `a pending copy stays cancelled after visiting another ${destination} and returning`);
+      } finally {
+        release.resolve();
+        await page.unroute("**/api/pane/selection?*");
+        await mounted?.dispose();
+      }
     }
 
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");

@@ -233,6 +233,9 @@ export function PaneTerminal({
   const uploadFileRef = useRef(uploadPaneImage);
   uploadFileRef.current = uploadPaneImage;
   const chatView = view === "chat";
+  // Cached tabs and split siblings can leave and return without replacing their terminal.
+  const selectionLifetimeRef = useRef(0);
+  useLayoutEffect(() => { selectionLifetimeRef.current++; }, [active, presented, shown, chatView, paneId, terminalId]);
   const [findOpen, setFindOpen] = useState(false);
   const [terminal, setTerminal] = useState<Terminal | null>(null);
   const [searchState, setSearchState] = useState<TerminalSearchState | null>(null);
@@ -869,7 +872,8 @@ export function PaneTerminal({
       const read = selectionRead;
       if (!read?.pending || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") return false;
       const generation = ++clipboardGeneration;
-      const current = (): boolean => !disposed && paneRef.current === read.pane && generation === clipboardGeneration;
+      const lifetime = selectionLifetimeRef.current;
+      const current = (): boolean => !disposed && paneRef.current === read.pane && generation === clipboardGeneration && lifetime === selectionLifetimeRef.current;
       const blob = read.text.then((value) => {
         if (!current()) throw new Error("copy cancelled");
         return new Blob([value], { type: "text/plain" });
@@ -1131,7 +1135,8 @@ export function PaneTerminal({
       copiedText = visibleText;
       if (copyOnSelect) copySelection(true);
       const generation = selectionGeneration;
-      const current = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration;
+      const lifetime = selectionLifetimeRef.current;
+      const current = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration && lifetime === selectionLifetimeRef.current;
       // offered to the chat draft at once with what is on screen; herdr's text and rows replace it below
       if (d.pane !== "") setSelectionQuote({ pane: d.pane, text: visibleText, range: null });
       let range: [Cell, Cell] | null = null;
