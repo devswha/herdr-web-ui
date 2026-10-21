@@ -98,14 +98,19 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   /** first messages still learning the agent launched for them (queueFirstMessage, learnLaunched) */
   const launchBound = new WeakSet<PendingItem>();
   /**
-   * The pane's launch-bound first messages that learn at its events: a queued one, and a held one until
-   * the process launched for it is known. Then a held one reads the pane no more until its Send now
-   * (bindLaunched), which still tells a launch that came up and left from one not up yet.
+   * The pane's launch-bound first messages that are checked at its events: a queued one, and a held one
+   * until it is held for its launched agent having left or been replaced (pending_target_changed), the
+   * reason its card then gives; past that it reads the pane no more until its Send now (bindLaunched).
    */
   const launchBoundIn = (paneId: string): PendingItem[] => pending.list(FIRST_MESSAGE_OWNER, paneId)
     .map((message) => pending.get(FIRST_MESSAGE_OWNER, paneId, message.id))
     .filter((item): item is PendingItem => item !== undefined && launchBound.has(item)
-      && (item.message.state === "queued" || (item.message.state === "held" && item.identity.processPid == null)));
+      && (item.message.state === "queued" || (item.message.state === "held" && item.message.error?.code !== "pending_target_changed")));
+  /** A first message held for `fault`: a queued one is held, a held one takes it as its reason. */
+  const holdFor = (item: PendingItem, fault: { code: string; message: string }): void => {
+    if (item.message.state === "held") pending.rehold(item, fault);
+    else pending.holdItem(item, fault);
+  };
   /** the page connection that sent each first message: the only one that types it on its own */
   const requesters = new WeakMap<PendingItem, Client>();
   const requested = new WeakMap<Client, Set<PendingItem>>();
@@ -452,8 +457,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     for (const item of items) {
       // its agent came up and left, or what herdr names there is not what was launched for it: held at once, as
       // pendingContext would hold it at a send, which a pane that is not at rest never gets to
-      if (launchGone(item, identity)) pending.holdItem(item, LAUNCH_GONE);
-      else if (targetChanged(item, identity)) pending.holdItem(item, TARGET_CHANGED);
+      if (launchGone(item, identity)) holdFor(item, LAUNCH_GONE);
+      else if (targetChanged(item, identity)) holdFor(item, TARGET_CHANGED);
       else learn(item, identity, shellPid);
     }
   }
@@ -662,6 +667,8 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
           // A saved copy may already have completed this ID on another connection.
           if (!dispatched && pending.get(client, item.paneId, item.message.id) === item && pending.claim(item, false))
             pending.settle(item, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed");
+          // a pane's first message refused because what runs there is not what was launched for it: its card says so
+          if (!dispatched && !isClient(item.owner) && reply.code === "pending_target_changed") pending.rehold(item, { code: reply.code, message: reply.message! });
           return reply;
         });
         result(answer);

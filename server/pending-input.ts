@@ -255,6 +255,13 @@ export class PendingInputs<Owner, Lease> {
     this.publish(item.owner, item.paneId);
   }
 
+  /** A held message's reason, told anew when what holds it changed; a message not held is left alone. */
+  rehold(item: PendingRecord<Owner, Lease>, fault: Fault): void {
+    if (this.records.get(item.message.id) !== item || item.inFlight || item.message.state !== "held" || item.message.error?.code === fault.code) return;
+    item.message.error = fault;
+    this.publish(item.owner, item.paneId);
+  }
+
   holdPane(paneId: string, fault: Fault): void {
     for (const owner of new Set([...this.records.values()].filter((item) => item.paneId === paneId).map((item) => item.owner))) this.hold(owner, paneId, fault);
   }
