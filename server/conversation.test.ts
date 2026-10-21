@@ -2055,7 +2055,8 @@ describe("Agy native ledger through shared paging", () => {
     expect(transcriptToolOutput("agy-transcript", path, tool.output_ref!)).toBeNull();
     forgetTranscriptState();
     expect(page().turns).toEqual(rewound.turns.map((turn) => ({ ...turn, parts: turn.parts.map((part) => part.kind === "tool" ? { ...part, output_ref: expect.any(String) } : part) })));
-  });
+    // 160 rows (80 of 5,000 characters) paged several times: about 6 s alone, past bun's 5 s default
+  }, 30_000);
   it("replays repeated/backward indices and allows database-only rows", () => {
     add(0, "USER_INPUT", "one"); add(1, "PLANNER_RESPONSE", "old");
     db.query("INSERT INTO steps VALUES (?)").run(2);
