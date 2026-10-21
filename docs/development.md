@@ -547,7 +547,7 @@ before it uploads it, and its log shows totals only.
 It needs two repository secrets (Settings → Secrets and variables → Actions); without them the run
 says so and ends green:
 
-- `GROWTH_METRICS_TOKEN`: a fine-grained personal access token for devswha/herdr-web-ui only, with
+- `GROWTH_METRICS_TOKEN`: a fine-grained personal access token for devswha/ovis only, with
   the repository permissions **Administration: Read-only** (the traffic endpoints need it) and
   **Metadata: Read-only**. Such a token expires within a year: put the expiry date in the token's
   name. An expired or wrong token turns the run red (exit 1 for no access to the repository, exit
@@ -559,7 +559,7 @@ says so and ends green:
 Artifacts are kept 90 days. To read one:
 
 ```sh
-gh run download <run-id> -R devswha/herdr-web-ui -n growth-snapshot-<run-id>
+gh run download <run-id> -R devswha/ovis -n growth-snapshot-<run-id>
 GROWTH_SNAPSHOT_KEY=… openssl enc -d -aes-256-cbc -pbkdf2 -pass env:GROWTH_SNAPSHOT_KEY -in growth.tar.gz.enc | tar xzf -
 ```
 
