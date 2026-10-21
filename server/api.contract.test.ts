@@ -3606,6 +3606,19 @@ describe("GET /api/sessions/history", () => {
       ]);
       const unknown = await fetch(`http://localhost:${app.port}/api/sessions/history?workspace_id=${encodeURIComponent(created.workspace.workspace_id)}&agent=bash`);
       expect(unknown.status).toBe(400);
+      // another PC asks with the bridge token this server registered, not a browser's: the proxy's way in
+      const bridgeState = mkdtempSync(join(tmpdir(), "herdr-web-ui-session-history-bridge-"));
+      const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: bridgeState, codexHome, tailscaleOwner: null });
+      try {
+        const registered = JSON.parse(readFileSync(descriptorPath(), "utf8")) as BridgeDescriptor;
+        const manager = { endpoint: (id: string) => id === "history-remote" ? { url: `http://127.0.0.1:${bridge.port}`, token: registered.token } : null, trackTerminal: () => () => {} } as unknown as MachineManager;
+        const remote = await handleMachineRequest(new Request(`http://127.0.0.1/api/machines/history-remote/sessions/history?workspace_id=${encodeURIComponent(created.workspace.workspace_id)}&agent=codex`), manager);
+        expect(remote.status).toBe(200);
+        expect(((await remote.json()) as SessionHistoryResponse).sessions.map((row) => row.id)).toEqual([newer, older]);
+      } finally {
+        bridge.stop();
+        rmSync(bridgeState, { recursive: true, force: true });
+      }
     } finally {
       app.stop();
       await workspaceClose(created.workspace.workspace_id);
