@@ -39,9 +39,11 @@ const ownBlock = (read: Read): string => {
 /** The composer's send and the prompt route, over a herdr that shows `shown` and reports its history row. */
 function hermesPane(paneId: string, first: Read = recorded.sends[0]!.sent) {
   let shown: Read = first;
+  // rows another device has the terminal scrolled up by: herdr's detection read stays on the live screen
+  let scrolledUp = 0;
   const pane = () => ({
     pane_id: paneId, workspace_id: "w", tab_id: "t", terminal_id: `${paneId}-terminal`, cwd: "/fixture", focused: false, revision: 0,
-    agent: "hermes", agent_status: "idle" as const, scroll: { max_offset_from_bottom: shown.top, offset_from_bottom: 0, viewport_rows: 40 },
+    agent: "hermes", agent_status: "idle" as const, scroll: { max_offset_from_bottom: shown.top, offset_from_bottom: scrolledUp, viewport_rows: 40 },
   });
   spyOn(client, "paneGet").mockImplementation(async () => pane());
   spyOn(client, "paneScrollInfo").mockImplementation(async () => pane().scroll);
@@ -64,7 +66,7 @@ function hermesPane(paneId: string, first: Read = recorded.sends[0]!.sent) {
   const url = new URL(`http://localhost/api/pane/prompt?pane_id=${paneId}`);
   return {
     delivered,
-    show(read: Read) { shown = read; },
+    show(read: Read, scrolled = 0) { shown = read; scrolledUp = scrolled; },
     send: async () => await submit(paneId, "/status", "/status", Date.now()),
     outcomes: async () => (await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse).outcomes ?? [],
   };
@@ -120,6 +122,17 @@ it("owns a fresh pane's first /status, read while Hermes redrew its input area f
     const shown = await pane.outcomes();
     expect(shown).toHaveLength(index + 1);
     expect(shown.at(-1)).toMatchObject({ state: "result-observed", result_text: ownBlock(after) });
+  }
+});
+
+it("owns its /status block while another device has the terminal scrolled up: herdr's detection read is the live screen", async () => {
+  const pane = hermesPane("hermes-scrolled-device", recorded.sends[3]!.sent);
+  for (const { sent, after } of recorded.sends.slice(3)) {
+    pane.show(sent);
+    await pane.send();
+    // the history moved by one block, and a phone scrolled its terminal up by as much
+    pane.show(after, 12);
+    expect((await pane.outcomes()).at(-1)).toMatchObject({ state: "result-observed", result_text: ownBlock(after) });
   }
 });
 

@@ -17,7 +17,8 @@ export interface CommandSend {
   readonly identity: string;
   readonly screen: string;
   /**
-   * `screen`'s first row in the pane's history (herdr client viewportTop): the same row read before and after
+   * `screen`'s first row in the pane's history (herdr's max_offset_from_bottom: a detection read is the live screen,
+   * however far a device scrolled): the same row read before and after
    * `screen`. The read after it runs alongside delivery, so the row is set once it answers, or never.
    */
   top?: number;
@@ -95,7 +96,7 @@ export interface OutcomeObservation {
   readonly screen?: string;
   /** Older sends can still own result blocks, without receiving the newest send's preview. */
   readonly resultScreen?: string;
-  /** The observed screen's first row in the pane's history (viewportTop), read before that screen. */
+  /** The observed live screen's first row in the pane's history (max_offset_from_bottom), read before that screen. */
   readonly top?: number;
   readonly transcript?: string | readonly CommandTranscriptRecord[];
   /** Assigned by the pane's FIFO ledger, not by the timestamp window of its newest send. */

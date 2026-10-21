@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { HerdrPane } from "../../shared/protocol.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
-import { agentPrompt, HerdrError, paneGet, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, viewportTop, type ProcessInfo } from "../herdr/client.ts";
+import { agentPrompt, HerdrError, paneGet, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, type ProcessInfo } from "../herdr/client.ts";
 import { mirrorInput } from "../mirror-input.ts";
 import { paneAgentOf, resolveAgent, typingRoots } from "../pane-context.ts";
 import { paneProcessRoots } from "../conversation.ts";
@@ -419,10 +419,10 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // alongside delivery and is never awaited; one that answers after the echo scrolled disagrees, and one that
         // fails leaves the text anchor. One that agrees after the send was noted still sets the noted send's row;
         // that send's echo reservation was already made with the text anchor, so the row serves only later sends
-        const snapshotTop = viewportTop(pane?.scroll);
+        const snapshotTop = pane?.scroll?.max_offset_from_bottom;
         if (command && beforeScreen !== undefined && snapshotTop !== undefined) {
           void paneScrollInfo(paneId).then((scroll) => {
-            if (viewportTop(scroll) !== snapshotTop) return;
+            if (scroll?.max_offset_from_bottom !== snapshotTop) return;
             top = snapshotTop;
             if (noted) noted.top = snapshotTop;
           }, () => {});
