@@ -275,8 +275,19 @@ try {
         assert.equal(row.chip?.focusVisible, true, `${what}: the chip shows its focus ring from the keyboard`);
         oneRow(row, `${what} focused`);
         await shot(page, width, theme, "en", "focus");
+        // pressed: the pointer held on the chip before it lets go (a held touch is cancelled, so the tap below opens it)
+        const centre = await chipOf(page).boundingBox();
+        assert.ok(centre, `${what}: the chip has a box to press`);
+        const point = { x: centre.x + centre.width / 2, y: centre.y + centre.height / 2 };
+        const cdp = touch ? await page.context().newCDPSession(page) : null;
+        if (cdp) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+        else { await page.mouse.move(point.x, point.y); await page.mouse.down(); }
+        row = await measure(page);
+        oneRow(row, `${what} pressed`);
+        await shot(page, width, theme, "en", "pressed");
+        if (cdp) { await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] }); await cdp.detach(); }
         // open: the list above the card with the plan's steps, the chip pressed
-        await open(page, touch);
+        if (touch) await open(page, touch); else { await page.mouse.up(); await menuOf(page).waitFor(); }
         await menuOf(page).locator(".bg-step").nth(2).waitFor();
         row = await measure(page);
         assert.equal(row.chip?.expanded, "true");
@@ -308,6 +319,16 @@ try {
         assert.equal(row.chip?.name, "Plan: 1 of 3 done", `${what}: no step, no separator in the name`);
         assert.equal(row.chip?.idle, false);
         await shot(page, width, theme, "en", "empty");
+        // running: the plan moved on, a later step in progress after the new figures
+        await hook.status({ done: 2, total: 3, current: "Covering the metric with tests" }, 0);
+        await chipOf(page).filter({ hasText: "2/3" }).waitFor();
+        row = await measure(page);
+        oneRow(row, `${what} running`);
+        assert.equal(row.current?.text, "Covering the metric with tests");
+        assert.equal(row.chip?.name, "Plan: 2 of 3 done · Covering the metric with tests");
+        assert.equal(row.chip?.idle, false);
+        await shot(page, width, theme, "en", "running");
+        results.push({ what, state: "running", chip: row.chip, current: row.current, plan: row.plan });
         // every step done: quiet, no step
         await hook.status({ done: 3, total: 3, current: null }, 0);
         await page.locator(".bg-tasks-toggle.is-idle").waitFor();
@@ -403,7 +424,7 @@ try {
             results.push({ what, state: `split-${target}`, chip: row.chip, current: row.current, card: row.card, model: row.model });
           }
         }
-        console.log(`PASS ${what}: the step in the chip at rest, focused, open and scrolled, without a step, complete, with tasks, cut when long, the list's read states, observed, offline and split`);
+        console.log(`PASS ${what}: the step in the chip at rest, focused, pressed, open and scrolled, without a step, running a later one, complete, with tasks, cut when long, the list's read states, observed, offline and split`);
       });
 
       // Korean: the chip's words and the agent's own Korean step, unbroken and wrapped in the list
