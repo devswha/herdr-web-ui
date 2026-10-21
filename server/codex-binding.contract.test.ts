@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createServer } from "./index.ts";
 import { herdrRpc, paneRead, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
+import rolloutHeaders from "./fixtures/codex-rollout-headers.json";
 
 // Real herdr panes running a stand-in `codex` process: which rollout the chat reads
 // while nothing Codex said is on screen.
@@ -138,6 +139,47 @@ afterAll(async () => {
   for (const id of workspaces) await workspaceClose(id);
   rmSync(root, { recursive: true, force: true });
 });
+
+it("reads a resumed thread's rollout only when its header is an interactive thread of its own, a child beside its parent included", async () => {
+  const cwd = join(root, "classifier");
+  mkdirSync(cwd);
+  const UUID_IN_NAME = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/;
+  const cases = rolloutHeaders.cases.map((fixture) => {
+    // the thread the store and the command line name: the file's, or the header's for a name without one
+    const id = UUID_IN_NAME.exec(fixture.file)?.[1] ?? String(fixture.payload.id);
+    const answer = `The thread of the fixture "${fixture.name}" answers this from its own rollout file.`;
+    const path = join(codexHome, "sessions", fixture.file);
+    writeFileSync(path, [
+      JSON.parse(JSON.stringify({ type: "session_meta", payload: fixture.payload }).replaceAll('"{{CWD}}"', JSON.stringify(cwd))),
+      { type: "response_item", timestamp: "2026-10-20T09:00:00Z", payload: { type: "message", role: "user", content: [{ type: "input_text", text: `question for ${fixture.name}` }] } },
+      { type: "response_item", timestamp: "2026-10-20T09:00:05Z", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: answer }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    return { fixture, id, answer, path };
+  });
+  // every row is what the store lists as an interactive thread: only the rollout's own header tells a child
+  const db = new Database(join(codexHome, "state_5.sqlite"));
+  for (const { fixture, id, path } of cases) db.query("INSERT INTO threads VALUES (?, ?, ?, 0, NULL, 1, 1, 'cli', ?)").run(id, path, cwd, `question for ${fixture.name}`);
+  db.close();
+  const opened = workspaces.length;
+  try {
+    for (const { fixture, id, answer } of cases) {
+      const paneId = await pane(`classifier-${id.slice(-4)}`, `${join(root, "bin", "codex")} resume ${id}`, cwd);
+      const conversation = await read(paneId);
+      if (fixture.interactive) {
+        expect([fixture.name, conversation.source, lastAnswer(conversation)]).toEqual([fixture.name, "codex-transcript", answer]);
+      } else {
+        // no other rollout stands in for a refused one, its parent's included
+        expect([fixture.name, conversation.source]).toEqual([fixture.name, "scrollback"]);
+        expect(lastAnswer(conversation)).not.toBe(answer);
+      }
+    }
+  } finally {
+    const db = new Database(join(codexHome, "state_5.sqlite"));
+    for (const { id } of cases) db.query("DELETE FROM threads WHERE id = ?").run(id);
+    db.close();
+    for (const workspace of workspaces.splice(opened)) await workspaceClose(workspace);
+  }
+}, 180_000);
 
 it("reads a literal short first answer through the conversation endpoint (regression)", async () => {
   const cwd = join(root, "short-first");

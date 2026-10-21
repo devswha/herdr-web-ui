@@ -430,15 +430,59 @@ export async function paneCodexHome(paneId: string, configured?: string): Promis
   return defaultCodexHome();
 }
 
-/** The session_meta payload on a rollout's first line, or null when the file is not a rollout. */
-function rolloutHeader(path: string): RecordValue | null {
+/**
+ * A rollout's first line, parsed, when it is a session_meta; null when the file is not a rollout.
+ * Throws when that line is not JSON, a line longer than the read included: what it holds past
+ * the read cannot be checked.
+ */
+function rolloutMetaLine(path: string): RecordValue | null {
   const fd = openSync(path, "r");
   try {
     const buffer = Buffer.alloc(256 * 1024);
     const length = readSync(fd, buffer, 0, buffer.length, 0);
     const header = record(JSON.parse(buffer.subarray(0, length).toString("utf8").split("\n")[0]!));
-    return header.type === "session_meta" ? record(header.payload) : null;
+    return header.type === "session_meta" ? header : null;
   } finally { closeSync(fd); }
+}
+
+/** The session_meta payload on a rollout's first line, or null when the file is not a rollout. */
+function rolloutHeader(path: string): RecordValue | null {
+  const header = rolloutMetaLine(path);
+  return header === null ? null : record(header.payload);
+}
+
+/**
+ * The thread UUID a canonical rollout name carries: `rollout-<time>-<thread>.jsonl`, or a
+ * paginated rollout's `rollout-<time>-<thread>_<segment>.jsonl` (Codex 0.156).
+ */
+const ROLLOUT_NAME = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\.jsonl$/i;
+
+/**
+ * Whether a rollout's session_meta payload makes it an interactive conversation of its own: the
+ * one rule the live chat (codexRolloutPath) and the session history apply. Interactive is a TUI's
+ * (`cli`) or an editor's (`vscode`) thread; an older Codex wrote no source, thread_source or
+ * session_id, and such a header still counts. A child names its parent (`parent_thread_id`, a
+ * subagent source object, `thread_source` other than `user`, `agent_role`) and is never one, even
+ * when its own id matches its file.
+ *
+ * `id` and `session_id` (the root session, which is the thread itself unless it is a child,
+ * openai/codex#29327), when present, must be strings that name the same thread, and with a
+ * canonical file name that file's UUID, in any letter case. This proves the file is the thread it
+ * says, not that a self-consistent child is a parent. A name without a UUID, or a header without
+ * ids, has nothing to contradict.
+ */
+export function interactiveCodexRollout(payload: unknown, fileName: string): boolean {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const meta = payload as RecordValue;
+  const present = (value: unknown) => value !== undefined && value !== null;
+  if (present(meta.source) && meta.source !== "cli" && meta.source !== "vscode") return false;
+  if (present(meta.thread_source) && meta.thread_source !== "user") return false;
+  if (present(meta.parent_thread_id) || present(meta.agent_role)) return false;
+  const ids = [meta.id, meta.session_id].filter(present);
+  if (ids.some((id) => typeof id !== "string")) return false;
+  const key = (id: string) => UUID.test(id) ? id.toLowerCase() : id;
+  const named = ROLLOUT_NAME.exec(fileName)?.[1]?.toLowerCase();
+  return (ids as string[]).every((id) => key(id) === (named ?? key(ids[0] as string)));
 }
 
 /**
@@ -532,12 +576,10 @@ export function codexRolloutPath(path: string, codexHome: string): string | null
     const canonical = realpathSync(withoutVerbatimPrefix(path));
     if (!rolloutInsideStore(realpathSync(join(codexHome, "sessions")), canonical) || !canonical.endsWith(".jsonl")) return null;
     if (!statSync(canonical).isFile()) return null;
-    const metadata = rolloutHeader(canonical);
+    const header = rolloutMetaLine(canonical);
     // A child Codex can be in the foreground process group too. Its rollout
     // is not the conversation of the parent TUI.
-    if (metadata === null || (metadata.source && typeof metadata.source !== "string")
-      || metadata.source === "subagent" || (metadata.thread_source && metadata.thread_source !== "user")
-      || metadata.agent_role) return null;
+    if (header === null || !interactiveCodexRollout(header.payload, nodePath.basename(canonical))) return null;
     return canonical;
   } catch { return null; }
 }
