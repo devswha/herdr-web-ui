@@ -50,8 +50,9 @@ const FORMS: Record<string, CommandForm[]> = {
   // Models hub, which saves the default role for later sessions, and /switch its session-only
   // picker, which the omp-model card answers. /model <args> sets the model and is stored as a model change.
   model: [{ match: "bare", interaction: "dialog", dialog: "omp-model" }, { match: "other", interaction: "none" }],
-  // omp compacts in place since 17.4.0; the form that opens its own dialog arrives with the handoff reader.
-  handoff: [{ match: "bare", interaction: "unknown" }],
+  // omp compacts in place since 17.4.0, and with or without focus instructions shows only the
+  // "Generating handoff" status, cancelled with Esc (recorded on 18.8.7): no $EDITOR step.
+  handoff: [{ match: "bare", interaction: "dialog", dialog: "omp-handoff" }, { match: "other", interaction: "dialog", dialog: "omp-handoff" }],
   btw: [{ match: "bare", interaction: "none" }, { match: "other", interaction: "none" }],
 };
 

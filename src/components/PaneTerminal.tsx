@@ -31,6 +31,7 @@ import { composerDrafts } from "../lib/composerDraft.ts";
 import { appendQuote, formatTerminalQuote } from "../lib/terminalQuote.ts";
 import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { useSessionHistoryOffered } from "../lib/useSessionHistoryOffered.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar } from "./KeyBar.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
@@ -127,6 +128,8 @@ export interface PaneTerminalProps {
   view: PaneView;
   /** switches this pane to its terminal lens: where the chat's composer sends a terminal command on */
   onOpenTerminal?: () => void;
+  /** opens the folder's earlier sessions for the pane's agent (App's SessionHistory): the composer's /resume */
+  onOpenHistory?: () => void;
   findRequest?: number;
   controls?: { current: PaneControls | null };
   /** Only the selected tile may take keyboard focus after async work or a lens change. */
@@ -191,6 +194,7 @@ export function PaneTerminal({
   palette,
   role = "interact",
   onOpenTerminal,
+  onOpenHistory,
   onRoleAck,
   onConnectionChange,
   onServerMessage,
@@ -271,6 +275,8 @@ export function PaneTerminal({
   /** the socket has been connected on this page before (connectedSockets): not connected, this terminal, its
    *  chat and the header say Reconnecting; before the first connection they say Connecting */
   const [connectedBefore, setConnectedBefore] = useState(false);
+  // /resume opens the list only where this PC's bridge offers it, as the workspace row's menu does
+  const historyOffered = useSessionHistoryOffered(connected && onOpenHistory !== undefined);
   const pendingScopeRef = useRef<string | null>(null);
   /** The PC session's epoch: a receipt belongs to the connection on which its request left. */
   const pendingEpochRef = useRef(0);
@@ -2982,6 +2988,7 @@ export function PaneTerminal({
             promptDock={promptDock}
             onPromptAnswered={onPromptAnswered}
             title={title}
+            onOpenTerminal={onOpenTerminal}
           />
           </RenderBoundary>
         )}
@@ -3100,6 +3107,7 @@ export function PaneTerminal({
           notices={composerNotices}
           role={observing ? "observe" : role}
           onOpenTerminal={onOpenTerminal}
+          onOpenHistory={historyOffered ? onOpenHistory : undefined}
           greeting={greetingDue ? (
             <div className={`composer-greeting${greeted ? "" : " is-out"}`} ref={greetingRef} aria-hidden={greeted ? undefined : true}>
               <p className="composer-greeting-title">{t("What should {agent} do in {folder}?", { agent: agentDisplayLabel(agent), folder })}</p>

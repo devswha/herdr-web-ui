@@ -1,7 +1,7 @@
 import type { MachineEvent, SetupAction, SetupRequest } from "../shared/machines.ts";
 import type { AgentRowTokens } from "../shared/pane-tokens.ts";
 import type { SharedPreferences } from "../shared/preferences.ts";
-import type { InteractivePrompt } from "../shared/protocol.ts";
+import type { PanePromptResponse } from "../shared/protocol.ts";
 import type { SeenFinish } from "../shared/seen.ts";
 import { MachineManager } from "./machines.ts";
 import { canSendSecret, sameOrigin } from "./machine-security.ts";
@@ -9,7 +9,14 @@ import { isJsonObject, jsonResponse } from "./http.ts";
 import { crossSiteFileRead } from "./file-view.ts";
 
 const fail = (code: string, message: string, status: number) => jsonResponse({ error: { code, message } }, status);
-export const MACHINE_PROXY_PATH = /^(?:session|agents|integrations|pane\/(?:read|scroll|find|selection|conversation(?:\/image|\/tool-output)?|commands|files|omo-tasks|plan|prompt|prompt\/answer|input|keys|close|rename|image|split|zoom|swap|resize|clear|focus)|workspace\/(?:create|rename|move|close|directories|diff\/files|diff\/file)|worktree\/(?:create|list|open|remove)|tab\/(?:create|rename|close|move|move-to-workspace)|layout\/ratio|agent\/rename|plugins\/actions|plugin\/action|fs\/(?:stat|file|favicon))$/;
+
+/**
+ * A path no route is spelled as: an empty segment (`//`, or a trailing `/`) or an encoded separator.
+ * Path checks match the canonical spelling, and the PC proxy drops empty segments before it
+ * forwards, so such a path must be no route at all rather than "some other route".
+ */
+export const nonCanonicalPath = (pathname: string): boolean => pathname.includes("//") || (pathname.length > 1 && pathname.endsWith("/")) || /%2f|%5c/i.test(pathname);
+export const MACHINE_PROXY_PATH = /^(?:session|sessions\/history|agents|integrations|pane\/(?:read|scroll|find|selection|conversation(?:\/image|\/tool-output)?|commands|files|omo-tasks|plan|prompt|prompt\/answer|input|keys|close|rename|image|split|zoom|swap|resize|clear|focus)|workspace\/(?:create|rename|move|close|directories|diff\/files|diff\/file)|worktree\/(?:create|list|open|remove)|tab\/(?:create|rename|close|move|move-to-workspace)|layout\/ratio|agent\/rename|plugins\/actions|plugin\/action|fs\/(?:stat|file|favicon))$/;
 
 
 /**
@@ -40,7 +47,7 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
   if (fileRead && crossSiteFileRead(request)) return fail("cross_site", "A file is read from this app or opened in a tab, not loaded by another page", 403);
   if (!["GET", "HEAD"].includes(request.method) && request.headers.get("x-herdr-machine") !== "1") return fail("invalid_machine_request", "Use PC controls from this app", 403);
   // an empty segment is never a route: dropping it would forward `<id>//fs/file` as `fs/file`
-  if (url.pathname.includes("//")) return fail("not_found", "not found", 404);
+  if (nonCanonicalPath(url.pathname)) return fail("not_found", "not found", 404);
   const parts = url.pathname.slice("/api/machines".length).split("/").filter(Boolean);
   try {
     if (!parts.length && request.method === "GET") return jsonResponse({ machines: manager.list() });
@@ -118,6 +125,8 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
     }
     if (parts.length === 1 && request.method === "DELETE") { manager.remove(id); return jsonResponse({ ok: true }); }
     const path = parts.slice(1).join("/");
+    // earlier sessions carry their first prompts: never asked for a watching device with the PC's credential
+    if (readOnly && path === "sessions/history") return fail("read_only", "this device can only watch", 403);
     if (MACHINE_PROXY_PATH.test(path)) {
       const endpoint = manager.endpoint(id);
       if (!endpoint) return fail("machine_offline", "This PC is disconnected", 503);
@@ -156,13 +165,15 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
         const etag = response.headers.get("etag");
         let body = response.status === 304 ? null : await response.arrayBuffer();
         if (watchedPrompt && response.ok && body) {
-          const answer = JSON.parse(new TextDecoder().decode(body)) as { prompt?: InteractivePrompt | null };
+          const answer = JSON.parse(new TextDecoder().decode(body)) as PanePromptResponse;
           if (answer.prompt?.plan_file !== undefined) {
             // the body is the plan file's text and the screen's is not in the answer: the card keeps
             // its question and options, without a body
             const { plan_file: _planFile, ...card } = answer.prompt;
-            body = new TextEncoder().encode(JSON.stringify({ ...answer, prompt: { ...card, body: null } })).buffer as ArrayBuffer;
+            answer.prompt = { ...card, body: null };
           }
+          if (answer.outcomes) answer.outcomes = answer.outcomes.map(({ preview: _preview, result_text: _resultText, ...outcome }) => outcome);
+          body = new TextEncoder().encode(JSON.stringify(answer)).buffer as ArrayBuffer;
         }
         return new Response(body, { status: response.status, headers: {
           "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store", ...(etag ? { etag } : {}),

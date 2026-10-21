@@ -180,6 +180,9 @@ beforeAll(async () => {
   await herdrRpc("pane.report_agent", { pane_id: hermes.pane, source: "manual", agent: "hermes", state: "idle" });
   omp = await recorder("omp", join(root, "omp"));
   await herdrRpc("pane.report_agent", { pane_id: omp.pane, source: "manual", agent: "omp", state: "idle" });
+  // an omp with herdr's integration reports its session once it takes input; a send waits for that
+  await herdrRpc("pane.report_agent_session", { pane_id: omp.pane, source: "herdr:omp", agent: "omp", seq: Date.now() * 1000,
+    agent_session_path: join(root, "omp-session.jsonl"), session_start_source: "startup" });
 }, 30_000);
 
 afterAll(async () => {

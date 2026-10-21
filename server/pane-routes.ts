@@ -5,7 +5,8 @@
  * server's own state. The dispatcher in index.ts runs the access gate first.
  */
 import type { AgentRenameRequest, PaneDirection, PaneResized, PaneSplit, PaneSwapped, PaneZoomed, ReadFormat, ReadSource } from "../shared/protocol.ts";
-import { paneCommands } from "./commands.ts";
+import { mergeCatalogSources } from "./catalog-sources.ts";
+import { paneCommands, rememberPaneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, isJsonObject, jsonResponse, readJsonObject } from "./http.ts";
 import { conversationImage, ConversationUnavailable, forgetPaneTranscriptState, HistoryChanged, paneConversation, paneProcessRoots, paneTranscript, toolOutput } from "./conversation.ts";
@@ -17,7 +18,7 @@ import { paneContext, resolveAgent, versionSourceOf } from "./pane-context.ts";
 import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 
 /** the native stores createServer was given; unset, each reader finds its own */
-export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string };
+export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string; openCodeStateDir?: string };
 
 /** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
 const isPaneDirection = (value: unknown): value is PaneDirection => value === "left" || value === "right" || value === "up" || value === "down";
@@ -70,7 +71,10 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
           ? await paneTranscript(paneId, options.codexHome, undefined, options.devinDbPath, options.opencodeDb, options.hermesHome, options.grokHome).then(versionSourceOf, () => null)
           : null;
         const { version } = resolveAgent(context.pane, roots, store);
-        return jsonResponse({ commands: paneCommands(agent, context.cwd, undefined, { ...roots.omo, environ: roots.environ }, version) });
+        const scanned = paneCommands(agent, context.cwd, undefined, { ...roots.omo, environ: roots.environ }, version);
+        const commands = await mergeCatalogSources(agent, context.pane, context.cwd, scanned, undefined, { codexHome: options.codexHome, openCodeStateDir: options.openCodeStateDir });
+        rememberPaneCommands(context.pane, agent, commands);
+        return jsonResponse({ commands });
       }
       const limitRaw = url.searchParams.get("limit");
       const limit = limitRaw === null ? 20 : Number(limitRaw);

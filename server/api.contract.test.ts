@@ -22,7 +22,7 @@ import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
 import { TailnetIdentitySource } from "./tailscale.ts";
 import { forgetTranscriptState } from "./conversation.ts";
-import type { RepoDiffFileList, RepoDiffFilePatch } from "../shared/protocol.ts";
+import type { RepoDiffFileList, RepoDiffFilePatch, SessionHistoryResponse } from "../shared/protocol.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -3630,4 +3630,62 @@ describe("repository diff of a pane's folder", () => {
     expect(posted.status).toBe(400);
     expect(((await posted.json()) as ApiError).error.code).toBe("method_not_allowed");
   });
+});
+
+describe("GET /api/sessions/history", () => {
+  it("lists a workspace folder's Codex sessions from the server's store, newest first, and none a link puts outside it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-session-history-contract-"));
+    const project = join(root, "project");
+    mkdirSync(project);
+    const cwd = realpathSync(project);
+    const codexHome = join(root, "codex");
+    const rollout = (day: string, id: string, prompt: string) => {
+      const dir = join(codexHome, "sessions", "2026", "10", day);
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `rollout-2026-10-${day}T09-00-00-${id}.jsonl`);
+      writeFileSync(path, `${JSON.stringify({ type: "session_meta", payload: { id, timestamp: `2026-10-${day}T09:00:00.000Z`, cwd, source: "cli" } })}\n${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: prompt } })}\n`);
+      return path;
+    };
+    const older = "00000000-0000-4000-8000-000000000001";
+    const newer = "00000000-0000-4000-8000-000000000002";
+    utimesSync(rollout("01", older, "older prompt"), 1_790_000_000, 1_790_000_000);
+    utimesSync(rollout("02", newer, "newer prompt"), 1_790_000_100, 1_790_000_100);
+    const escaped = "00000000-0000-4000-8000-000000000009";
+    const outside = join(root, `rollout-2026-10-03T09-00-00-${escaped}.jsonl`);
+    writeFileSync(outside, `${JSON.stringify({ type: "session_meta", payload: { id: escaped, cwd, source: "cli" } })}\n`);
+    if (process.platform !== "win32") symlinkSync(outside, join(codexHome, "sessions", "2026", "10", "02", basename(outside)));
+    const created = await workspaceCreate({ cwd, label: "herdr-web-ui-test-session-history" });
+    const appState = mkdtempSync(join(tmpdir(), "herdr-web-ui-session-history-state-"));
+    const app = createServer({ port: 0, stateDir: appState, codexHome });
+    try {
+      const res = await fetch(`http://localhost:${app.port}/api/sessions/history?workspace_id=${encodeURIComponent(created.workspace.workspace_id)}&agent=codex`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as SessionHistoryResponse;
+      expect(body.cwd).toBe(cwd);
+      expect(body.sessions.map((row) => [row.id, row.firstMessage, row.resume?.argv])).toEqual([
+        [newer, "newer prompt", ["codex", "resume", newer]],
+        [older, "older prompt", ["codex", "resume", older]],
+      ]);
+      const unknown = await fetch(`http://localhost:${app.port}/api/sessions/history?workspace_id=${encodeURIComponent(created.workspace.workspace_id)}&agent=bash`);
+      expect(unknown.status).toBe(400);
+      // another PC asks with the bridge token this server registered, not a browser's: the proxy's way in
+      const bridgeState = mkdtempSync(join(tmpdir(), "herdr-web-ui-session-history-bridge-"));
+      const bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "test-browser-token", machines: false, registerBridge: true, stateDir: bridgeState, codexHome, tailscaleOwner: null });
+      try {
+        const registered = JSON.parse(readFileSync(descriptorPath(), "utf8")) as BridgeDescriptor;
+        const manager = { endpoint: (id: string) => id === "history-remote" ? { url: `http://127.0.0.1:${bridge.port}`, token: registered.token } : null, trackTerminal: () => () => {} } as unknown as MachineManager;
+        const remote = await handleMachineRequest(new Request(`http://127.0.0.1/api/machines/history-remote/sessions/history?workspace_id=${encodeURIComponent(created.workspace.workspace_id)}&agent=codex`), manager);
+        expect(remote.status).toBe(200);
+        expect(((await remote.json()) as SessionHistoryResponse).sessions.map((row) => row.id)).toEqual([newer, older]);
+      } finally {
+        bridge.stop();
+        rmSync(bridgeState, { recursive: true, force: true });
+      }
+    } finally {
+      app.stop();
+      await workspaceClose(created.workspace.workspace_id);
+      rmSync(appState, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

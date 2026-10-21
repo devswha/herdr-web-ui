@@ -13,7 +13,7 @@ import type { ClientMessage, HerdrPane, PendingMessage, SessionSnapshot } from "
 import { typingGuards } from "../input-guard.ts";
 import { claudeForegroundSession } from "../claude-store.ts";
 import { HerdrError, paneProcessInfo, paneRead, paneSendKeys, paneSendText } from "../herdr/client.ts";
-import { claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, noteSubmitted, parseInteractivePrompt, shownInputBox } from "../prompt.ts";
+import { claudeHeldIsGrey, codexQuestionsCollapsed, isClaudeHeld, heldCandidate, noteSubmitted, parseInteractivePrompt, prepareCommandSend, shownInputBox } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { PendingInputs, samePendingIdentity, type PendingIdentity, type PendingRecord } from "../pending-input.ts";
@@ -21,6 +21,8 @@ import { processStartedAt } from "../process-start.ts";
 import { PendingRequestBook } from "../pending-requests.ts";
 import { interruptCodexSteering } from "../codex-steering.ts";
 import type { OmoStatus } from "../omo-status.ts";
+import { startOpenCodeWatch, openCodeSkillsToType, type OpenCodeWatch, skillsNotAttached } from "../opencode-native.ts";
+import { herdrSkillAttachIo, type PromptPiece, typeWithSkills } from "../opencode-skill-attach.ts";
 
 type Frame<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;
 
@@ -34,7 +36,7 @@ type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; messa
  * called through: only a frame or a turn calls them, after `createServer` has returned.
  */
 export function createPendingDelivery({ options, clients, attachments, sight, serialize, lastTyped, submitText, authorizeSocket, clientSnapshot, omo, SUBMIT_DEADLINE_MS, SUBMIT_DELAY_MS, TYPED_SETTLE_MS }: {
-  options: { pendingStartTimeoutMs?: number; submitDeadlineMs?: number; submitDelayMs?: number };
+  options: { pendingStartTimeoutMs?: number; submitDeadlineMs?: number; submitDelayMs?: number; openCodeStateDir?: string };
   clients: Set<Client>;
   attachments: ReadonlyMap<string, AttachmentView>;
   sight: (client: Client, paneId: string) => TerminalSighting;
@@ -146,6 +148,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   async function dispatchPendingText(owner: Client, paneId: string, text: string, lease: PendingLease, identity: PendingIdentity,
     automatic: boolean, arrivedAt: number, committing: (working: boolean, restarting?: boolean) => void = () => {}, interruptWorkingCodex = false): Promise<SubmitReply> {
     let wrote = false;
+    let watch: OpenCodeWatch | null = null;
     // what the checks below read is older than a status event that arrives while they run
     let mark = pending.mark(paneId);
     try {
@@ -162,7 +165,15 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       // The box is the live screen's; only the viewport read tells Claude's grey text from a draft. The live
       // read comes after the colors, so text typed between the two is in the box and holds the message.
       if (context.identity.agent === "claude") await freeClaudeBox(paneId, context.working, () => authorizePending(owner, paneId, lease), arrivedAt + (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS));
-      else if (context.identity.agent === "hermes") await freeHermesInput(paneId, context.identity);
+      else if (context.identity.agent === "hermes") context.screen = await freeHermesInput(paneId, context.identity);
+      // OpenCode v2 attaches a skill only through its autocomplete, never from a paste
+      const opencode = await openCodeSkillsToType(context.pane, prepareCommandSend(context.pane, text, context.screen), text, context.screen, options.openCodeStateDir);
+      let command = opencode.sent;
+      const skills = opencode.skills;
+      let attached: string[] = [];
+      let prompt: PromptPiece[] = [{ pasted: closeMention(text) }];
+      // followed from before the first key: the send's own message can be announced before Enter returns
+      watch = startOpenCodeWatch(context.pane, command, options.openCodeStateDir);
       if (Date.now() - arrivedAt > (options.submitDeadlineMs ?? SUBMIT_DEADLINE_MS)) throw new HerdrError("submit_timeout", "The pending message waited too long; nothing was typed");
       authorizePending(owner, paneId, lease);
       // asked again right before herdr is written to: its connect is awaited (#666)
@@ -172,11 +183,32 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       // Pending input is a guarded literal paste + Enter, never Codex's native Tab queue.
       // Keep the final key here so a disconnect, pane switch or new menu can cancel it.
       wrote = true;
-      await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`, undefined, allowed).catch((error: unknown) => {
-        // a paste the guard refused was never written: the message is unsent, not uncertain
-        if (error instanceof HerdrError && error.code === "cancelled") { wrote = false; authorizePending(owner, paneId, lease); }
-        throw error;
-      });
+      if (command && skills.length > 0) {
+        let typed = false;
+        const typing = (): boolean => { const ok = allowed(); typed ||= ok; return ok; };
+        // the lookup above awaited the service: the pane, its session and its state are read again before every key
+        const revalidate = async (): Promise<void> => {
+          const current = await pendingContext(owner, paneId, lease, identity, typed);
+          if (automatic && !typed && current.working) throw new HerdrError("pending_wait", "The agent is working again; this message still waits for its next turn");
+        };
+        const result = await typeWithSkills(text, skills, typing, herdrSkillAttachIo(paneId), revalidate).catch((error: unknown) => {
+          // nothing was written before a refused check or guard: the message is unsent, not uncertain
+          if (!typed) {
+            wrote = false;
+            if (error instanceof HerdrError && error.code === "cancelled") authorizePending(owner, paneId, lease);
+          }
+          throw error;
+        });
+        attached = result.attached;
+        prompt = result.prompt;
+        command = skillsNotAttached(command, result.missed);
+      } else {
+        await paneSendText(paneId, `\u001b[200~${closeMention(text)}\u001b[201~`, undefined, allowed).catch((error: unknown) => {
+          // a paste the guard refused was never written: the message is unsent, not uncertain
+          if (error instanceof HerdrError && error.code === "cancelled") { wrote = false; authorizePending(owner, paneId, lease); }
+          throw error;
+        });
+      }
       // fixed wait: the TUI takes the paste before its Enter, which arriving with it could read as a newline
       await Bun.sleep(options.submitDelayMs ?? SUBMIT_DELAY_MS);
       const beforeEnter = await pendingContext(owner, paneId, lease, identity, true);
@@ -200,9 +232,11 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
         // write is refused when the lease, the deadline or the pane's status moved meanwhile
         escape: (fresh) => paneSendKeys(paneId, ["Escape"], undefined, () => allowed() && fresh() && pending.current(paneId) === statusAtRead),
       });
-      noteSubmitted(paneId, text);
+      noteSubmitted(paneId, text, command);
+      if (command) watch?.commit(command, prompt, attached);
       return { ok: true };
     } catch (error) {
+      watch?.cancel();
       const fault = wrote ? { code: "submit_changed", message: "Pending-message delivery could not be confirmed. Check the terminal before sending again." } : pendingFault(error);
       if (automatic && !wrote && fault.code === "agent_blocked") pending.observe(paneId, "blocked", mark);
       return { ok: false, ...fault };

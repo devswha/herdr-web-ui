@@ -56,8 +56,10 @@ import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
-import { handleMachineRequest } from "./machine-api.ts";
+import { handleMachineRequest, nonCanonicalPath } from "./machine-api.ts";
+import { handleSessionHistoryRequest, SESSION_HISTORY_PATH } from "./session-history-routes.ts";
 import { HerdrSidebarConfig, herdrConfigPath } from "./herdr-sidebar.ts";
+import { closeCodexDaemonSources } from "./codex-daemon.ts";
 import { MachineRelay } from "./machine-relay.ts";
 import { sameOrigin } from "./machine-security.ts";
 import { PLUGIN_LOG_LIMIT, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
@@ -269,7 +271,7 @@ export function createServer(
       const url = new URL(request.url);
       let { pathname } = url;
       const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname === "/api/agent/rename" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname === "/api/layout/ratio" || pathname.startsWith("/api/fs/") || pathname === "/ws";
+      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === SESSION_HISTORY_PATH || pathname === "/api/agents" || pathname === "/api/agent/rename" || pathname === "/api/integrations" || pathname === "/api/plugins/actions" || pathname === "/api/plugin/action" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/worktree/") || pathname.startsWith("/api/tab/") || pathname === "/api/layout/ratio" || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const loopback = ip !== null && isLoopbackAddress(ip.address);
       const forwarded = cameThroughProxy(request.headers);
@@ -317,9 +319,10 @@ export function createServer(
       if (pathname.startsWith("/api/") && mutating && !sameOrigin(request)) {
         return jsonResponse({ error: { code: "invalid_origin", message: "Use controls from this app" } }, 403);
       }
-      // An empty segment ("//") reads as another route to the checks below, while the PC proxy
-      // drops it before forwarding: `/api/machines/<id>//fs/file` would pass as not a file read.
-      if (pathname.startsWith("/api/") && pathname.includes("//")) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+      // An empty segment ("//", or a trailing "/") or an encoded separator reads as another route to
+      // the checks below, while the PC proxy drops empty segments before forwarding:
+      // `/api/machines/<id>//fs/file` would pass as not a file read, `<id>/sessions/history/` as no history.
+      if (pathname.startsWith("/api/") && nonCanonicalPath(pathname)) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
       // What a watching device must not reach, spelled out rather than inferred from the
       // method: file contents (those files include credentials) and a directory listing
       // (names and sizes are the shape of a repository the terminals never print), plus
@@ -334,7 +337,9 @@ export function createServer(
       const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe" || pathname === "/api/connection-diagnostics";
       // a repository's changes are file contents too: the patch of a credential file is that file
       const repositoryDiff = /^\/api\/(?:machines\/[^/]+\/)?workspace\/diff\//.test(pathname);
-      if (readOnly && (fileRead || directoryListing || repositoryDiff || mutating && !ownPreferences)) {
+      // earlier sessions carry their first prompts
+      const sessionHistory = /^\/api\/(?:machines\/[^/]+\/)?sessions\/history$/.test(pathname);
+      if (readOnly && (fileRead || directoryListing || repositoryDiff || sessionHistory || mutating && !ownPreferences)) {
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
@@ -356,7 +361,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/|layout\/ratio$|agent\/rename$|plugins\/actions$|plugin\/action$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|integrations|pane\/|workspace\/|worktree\/|tab\/|layout\/ratio$|agent\/rename$|plugins\/actions$|plugin\/action$|sessions\/history$)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           // a worktree made with an agent waits on git and then agent.start, up to 150 s on the PC
@@ -656,6 +661,10 @@ export function createServer(
         return jsonResponse(answer);
       }
 
+      if (pathname === SESSION_HISTORY_PATH) {
+        return handleSessionHistoryRequest(request, url, { readOnly, stores: { codexHome: options.codexHome, opencodeDb: options.opencodeDb, hermesHome: options.hermesHome } });
+      }
+
       if (pathname.startsWith("/api/pane/prompt")) {
         try {
           const response = await handlePromptRequest(request, url, { serialize, codexHome: options.codexHome, claudeTranscript: (paneId) => claudeAgents.sessionOf(paneId)?.path ?? null, readOnly, openCodeStateDir: options.openCodeStateDir, openCodeState });
@@ -708,6 +717,7 @@ export function createServer(
         openCodeState.clear();
         void options.portal?.shutdown();
         registration?.close();
+        closeCodexDaemonSources();
       });
       server.stop(true);
     },

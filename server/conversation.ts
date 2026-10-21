@@ -43,7 +43,7 @@ import { resolveAgent } from "./pane-context.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, forgetAllCodexState, forgetCodexStateFor, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { AmbiguousClaudeStore, claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessionFile, forgetClaudeSessions, isClaudeProcess, processClaudeConfigDir } from "./claude-store.ts";
-import { forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
+import { forgetGjcPane, forgetGjcState, gjcPidUnderShell, gjcTranscriptForPane, isGjcProcess, storeRelative } from "./gjc-runtime.ts";
 import { omoProcessIdentity, omoSessionForPane, processEnviron } from "./omo.ts";
 import { processStartedAt } from "./process-start.ts";
 import { ompHeldTranscript } from "./omp.ts";
@@ -67,6 +67,7 @@ import { agentTaskResult, claudePeerId, claudePeerNotice, isContextClear, MAX_TU
 import { forgetSubagents, lineNotifications, subagentDetails, taskNotification, type SubagentDetail } from "./claude-subagents.ts";
 import { launchedAgents } from "./launched-agents.ts";
 import { readsStartScreen, startScreenMetadata } from "./start-screen.ts";
+import { commandTranscriptRecords, type CommandTranscriptRecord } from "./outcome.ts";
 
 export { isOmoProcess } from "./omo.ts";
 
@@ -1048,6 +1049,7 @@ export function piPageCacheUsage(): { pages: number; settled: number; withinBudg
 export function forgetTranscriptState(): void {
   launchedAgents.clear();
   cache.clear();
+  commandTranscripts.clear();
   writtenSessions.clear();
   forgetClaudeSessions();
   forgetGjcState();
@@ -1078,6 +1080,7 @@ export function forgetPaneTranscriptState(paneId: string): void {
   const reads = paneReads.get(paneId);
   paneReads.delete(paneId);
   launchedAgents.forget(paneId);
+  forgetGjcPane(paneId);
   if (reads === undefined) return;
   // two panes can read one transcript (a resumed session, a shared store): what another pane
   // still reads stays
@@ -1090,6 +1093,7 @@ export function forgetPaneTranscriptState(paneId: string): void {
     if (shared((other) => other.paths, path)) continue;
     for (const key of [...cache.keys()]) if (key.startsWith(`${path}\0`)) cache.delete(key);
     transcriptRevisions.delete(path);
+    commandTranscripts.delete(path);
     liveScans.delete(path);
     for (const key of [...settledTurns.keys()]) if (key.startsWith(`${path}\0`)) settledTurns.delete(key);
     codexTurns.delete(path);
@@ -1628,6 +1632,90 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     try { return { ...answer, activity: grokProjection(resolved.path, statSync(resolved.path)).activity }; }
     catch { throw new ConversationUnavailable("transcript_missing"); }
   }
+  return answer;
+}
+
+/**
+ * Command evidence needs native control records that the conversation deliberately hides.
+ * Reuse its pane binding, but resolve evidence and pi ancestry from one bounded tail only.
+ * Database agents are observed through their readers/native events, never guessed from turns.
+ */
+interface CommandTranscript {
+  readonly identity: string;
+  readonly records: readonly CommandTranscriptRecord[];
+}
+const commandTranscripts = new Map<string, {
+  signature: string; file: string; start: number; end: number; bytes: Buffer;
+  partialStart: number; records: CommandTranscriptRecord[]; identity: string; answer: CommandTranscript | null;
+}>();
+
+export async function readCommandTranscript(paneId: string, codexHome?: string): Promise<CommandTranscript | null> {
+  const resolved = await paneTranscript(paneId, codexHome);
+  const { source, path } = resolved;
+  if (source !== "claude-transcript" && source !== "codex-transcript" && source !== "pi-transcript"
+    && source !== "omp-transcript" && source !== "omo-transcript" && source !== "gjc-transcript") return null;
+  const stat = statSync(path);
+  const file = `${source}:${stat.dev}:${stat.ino}`;
+  const signature = `${source}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+  const cached = commandTranscripts.get(path);
+  rememberPaneRead(paneId, path);
+  if (cached?.signature === signature) return cached.answer;
+  // Do not call transcriptStream here: building a cold pi index can read the entire file.
+  // The same read supplies validation bytes AND new bytes, so their total stays in budget.
+  const start = Math.max(0, stat.size - TRANSCRIPT_WINDOW_BYTES);
+  const bytes = Buffer.alloc(stat.size - start);
+  const fd = openSync(path, "r");
+  try {
+    if (readSync(fd, bytes, 0, bytes.length, start) !== bytes.length) return null;
+  } finally { closeSync(fd); }
+  let from = start;
+  if (start > 0) {
+    const newline = bytes.indexOf(0x0a);
+    from += newline < 0 ? bytes.length : newline + 1;
+  }
+  const append = cached?.file === file && stat.size > cached.end && start < cached.end
+    && cached.partialStart >= from
+    && createHash("sha256").update(cached.bytes.subarray(start - cached.start)).digest("hex")
+      === createHash("sha256").update(bytes.subarray(0, cached.end - start)).digest("hex");
+  const readFrom = append ? cached.partialStart : from;
+  const partialStart = Math.max(from, start + bytes.lastIndexOf(0x0a) + 1);
+  const records = [
+    ...(append ? cached.records.filter(record => record.offset >= from) : []),
+    ...commandTranscriptRecords(bytes.subarray(readFrom - start, partialStart - start).toString("utf8"), readFrom),
+  ];
+  // A complete JSON object without its newline is visible, but never retained twice on append.
+  let current = [...records, ...commandTranscriptRecords(bytes.subarray(partialStart - start).toString("utf8"), partialStart)];
+  const identity = append ? cached.identity : `${source}\0${path}\0${file}:${stat.size}:${stat.mtimeMs}`;
+  let branch = "";
+  if (source === "pi-transcript") {
+    const nodes = current.filter(record => typeof record.entry.id === "string");
+    const byId = new Map(nodes.map((record, index) => [String(record.entry.id), { record, index }]));
+    const active: CommandTranscriptRecord[] = [];
+    const forks: string[] = [];
+    let node = nodes.length ? byId.get(String(nodes[nodes.length - 1]!.entry.id)) : undefined;
+    let rooted = false;
+    while (node && byId.size === nodes.length) {
+      const { record, index } = node;
+      active.push(record);
+      const parentId = record.entry.parentId;
+      if (parentId === null) {
+        forks.push(String(record.entry.id)); rooted = true; break;
+      }
+      if (nodes[index - 1]?.entry.id !== parentId) forks.push(String(record.entry.id));
+      const parent = typeof parentId === "string" ? byId.get(parentId) : undefined;
+      // In append-only pi histories, ancestors beyond a cut window precede its active path.
+      if (!parent && typeof parentId === "string" && start > 0) { rooted = true; break; }
+      if (!parent || parent.record.offset >= record.offset) break;
+      node = parent;
+    }
+    // An unexplained missing ancestor or ambiguous index cannot prove branch ownership.
+    current = rooted ? active.reverse() : [];
+    branch = rooted ? createHash("sha256").update(forks.join("\0")).digest("hex") : "unresolved";
+  }
+  const cleared = current.reduce((last, { entry }, index) => isContextClear(entry, source) ? index : last, 0);
+  const answer = branch === "unresolved" ? null
+    : { identity: `${identity}\0${branch}`, records: cleared > 0 ? current.slice(cleared) : current };
+  remember(commandTranscripts, path, { signature, file, start, end: stat.size, bytes, partialStart, records, identity, answer }, 4);
   return answer;
 }
 

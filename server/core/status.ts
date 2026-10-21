@@ -12,6 +12,7 @@ import { startStatusCollector } from "../collector.ts";
 import { CompletionTracker, type OmoRest } from "../completion.ts";
 import { Finishes } from "../finishes.ts";
 import { claudePanePid, claudePaneSession, forgetPaneTranscriptState } from "../conversation.ts";
+import { releaseOpenCodePane, trackVerifiedOpenCodePanes } from "../opencode-native.ts";
 import type { DeviceStore } from "../devices.ts";
 import { createGjcStatus, gjcPanes, readOmoSnapshot, reconcileProviderStatus } from "../gjc-status.ts";
 import type { HerdrMachineProfile } from "../herdr-profiles.ts";
@@ -243,7 +244,11 @@ export function createStatusHub<Lease>({ options, devices, clients, present, pen
 
   const collector = startStatusCollector({
     onStatus: (paneId, read, agent, replay) => {
-      if (agent !== "opencode") options.openCodeState?.forget(paneId);
+      if (agent !== "opencode") {
+        options.openCodeState?.forget(paneId);
+        // no longer an OpenCode pane: it holds OpenCode's event stream open no more
+        releaseOpenCodePane(paneId);
+      }
       const raw = launchedAgents.settle(paneId, read);
       gjc.poll();
       // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
@@ -322,6 +327,7 @@ export function createStatusHub<Lease>({ options, devices, clients, present, pen
     },
     onPaneEnded: (paneId) => {
       options.openCodeState?.forget(paneId);
+      releaseOpenCodePane(paneId);
       finishes.ended(paneId);
       if (usageLogin.ended(paneId)) usage.invalidate();
       holdPendingPane(paneId, { code: "pane_not_found", message: "The pane ended; its pending messages were not sent" });
@@ -343,5 +349,9 @@ export function createStatusHub<Lease>({ options, devices, clients, present, pen
   waitTimer.unref?.();
   plans.start();
 
-  return { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector, waitTimer };
+  // a verified OpenCode pane is tracked like a usage-login pane: closing it reaches onPaneEnded above
+  const untrackOpenCode = trackVerifiedOpenCodePanes((paneId) => collector.trackPane(paneId));
+  const tracked = { ...collector, stop() { untrackOpenCode(); collector.stop(); } };
+
+  return { push, omo, gjc, claudeAgents, plans, clientSnapshot, countVisit, machines, broadcastAll, logPushError, collector: tracked, waitTimer };
 }

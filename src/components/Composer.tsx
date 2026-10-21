@@ -102,6 +102,9 @@ export interface ComposerProps {
   role?: ClientRole;
   /** switches the pane to its terminal lens, where a terminal command is followed; none: the pane has no terminal to show */
   onOpenTerminal?: () => void;
+  /** opens the folder's earlier sessions (SessionHistory): picking `resume` from the menu opens them, and the
+   * terminal command's row offers them; none: the pane's PC cannot list them */
+  onOpenHistory?: () => void;
   /** the pane's working folder, named in the strip tucked under the card; nothing is drawn for it while absent */
   cwd?: string | null;
   /** the pane's branch, beside the folder in that strip; nothing is drawn for it while absent */
@@ -246,6 +249,7 @@ export function Composer({
   notices = null,
   role = "interact",
   onOpenTerminal,
+  onOpenHistory,
   cwd = null,
   branch = null,
   worktreeRepo = null,
@@ -705,8 +709,12 @@ export function Composer({
       setTextAndCaret(completed.text, completed.caret);
       setMenuDismissed(true);
       if (typeof choice !== "string") {
-        // a terminal command picked keeps the draft and offers its two ways on; nothing is sent
-        if (terminalCommand(choice)) setTerminalOffer(choice.name);
+        // a terminal command picked keeps the draft and offers its two ways on; nothing is sent.
+        // resume has a third: the folder's earlier sessions open at once, with a Resume of their own
+        if (terminalCommand(choice)) {
+          setTerminalOffer(choice.name);
+          if (choice.name === "resume") onOpenHistory?.();
+        }
         const name = choice.name;
         setSlashUsage((current) => {
           const next = { ...current, [name]: (current[name] ?? 0) + 1 };
@@ -719,7 +727,7 @@ export function Composer({
         });
       }
     },
-    [agent, setTextAndCaret, text],
+    [agent, onOpenHistory, setTextAndCaret, text],
   );
 
   const pumpUploads = useCallback(() => {
@@ -1094,6 +1102,7 @@ export function Composer({
       id: `terminal:${terminalOffered.name}`, priority: "notice", revision: command, warning: false, mark: <SquareTerminal />,
       text: <>{before}<code>{command}</code>{after}</>,
       actions: <>
+        {terminalOffered.name === "resume" && onOpenHistory !== undefined && <button type="button" className="composer-notice-action" title={t("List this folder's earlier sessions. Nothing is sent.")} onClick={onOpenHistory}>{t("Earlier sessions…")}</button>}
         {onOpenTerminal !== undefined && <button type="button" className="composer-notice-action" title={t("Show the terminal. Nothing is sent.")} onClick={onOpenTerminal}>{t("Open Terminal")}</button>}
         {offered.includes("run") && <button type="button" className="composer-notice-action" title={t("Send {command}, then show the terminal.", { command })}
           disabled={!connected || uploading || roomless !== undefined || sending}

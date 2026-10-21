@@ -1281,6 +1281,46 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   leaves the worktree there: the dialog says why, locks its fields, and its button reads **Open**.
 - The browser demo answers the same list/create/open/remove worktree APIs with fictional
   checkout records, so its branch rows and dialogs work without a filesystem or live herdr.
+### Session history (`.session-modal`)
+- From a workspace row's menu, **Earlier sessions…** (lucide `History`, beside Rename workspace),
+  and from the chat: picking `/resume` in the `/` menu's Terminal commands opens it at once, and the
+  terminal command's row over the composer offers **Earlier sessions…** beside Open Terminal. The
+  dialog is the worktree dialog's anatomy: **Agent** is a `.select` of the PC's installed agents
+  (the row's or the pane's agent first), under it the folder the sessions were started in, in
+  mono, then one `.session-row` per session as `GET /api/sessions/history` lists them, newest
+  first: the title (else the first prompt; else the id in mono) in `--fs-sm` medium, the first
+  prompt under it in `--text-dim`, each clamped to two lines, and at the trailing end the time it
+  was last touched (the chat turn's timestamp format; on hover the full date of its start, where the
+  store records one, and of its last touch) over the way on. The
+  way on is a quiet `.btn` **Resume**, never the primary style: a list of up to fifty rows carries
+  no fifty accents. A session a pane of the workspace already shows (its `agent_session`, by id or
+  by file name) gets an **Already open** pill (over the button on a phone, beside it elsewhere) and
+  **Open**, which selects that pane in the browser and moves herdr's focus nowhere. A row whose
+  resume syntax is not verified (`resume: null`) is listed with no button. Resume sends one
+  `POST /api/tab/create` with the row's own argv as the agent (`{ kind, args }`) and the listed
+  folder; while it is in flight the row takes `--bg-hover`, every button is disabled, a
+  `role="status"` line reads **Resuming…**, and a second click sends nothing
+  (`lib/sessionHistory.ts` inFlightGuard). The list reopened before herdr has reported the new
+  pane's session shows that session as **Already open** with **Open** on the new pane (disabled
+  until the roster lists it) and no Resume: App keeps a record of each Resume
+  (`lib/useRecentResumes.ts`) that ends on evidence alone: herdr reports the pane's session, or the
+  pane it listed is gone; a pane still listed without a session keeps it however long ago the
+  Resume was (time never brings Resume back for a pane that is there), and only a pane the roster
+  never lists ends it, after two minutes. A refusal shows under the rows in the blocked colour.
+  An empty store says **No earlier Codex sessions in this folder.**; a PC whose bridge answers
+  404 for the route says the bridge does not offer this yet, and the workspace menu of such a PC
+  has no item (the bridge is asked once, without a workspace, so nothing is listed by the probe).
+- Keyboard: the first row's button takes the focus once the rows are in (the agent field until
+  then; focus the user moved meanwhile stays), ArrowUp/ArrowDown and Home/End move along the
+  rows' buttons, Tab stays inside, Enter resumes, Escape, the X, Cancel and the scrim close, and
+  the focus returns to what opened it. Rows carry their title and time as a label.
+- The design follows the resume pickers of Codex CLI (`/resume`) and Claude Code
+  (`claude --resume`): one session per row, newest first, the first prompt as the row's text, the
+  time it was last touched beside it, Enter resuming. Both are full-screen tables in the terminal;
+  here the list is a dialog over the pane, in the worktree dialog's rows, and the agent is a field
+  above them because the folder may hold several agents' sessions.
+- The browser demo answers `GET /api/sessions/history` with two fictional sessions per agent and
+  marks a tab resumed through it as showing that session, so the **Already open** path shows too.
 
 ### Changes list and diff viewer (`.repo-changes`, `.repo-diff*`)
 - Files has two faces, **Browse** | **Changes** (`.segmented` in its header). **Changes** lists
@@ -1419,6 +1459,34 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   first copy drops its own left inset so its glyph stays on the prose edge (an overhang past the
   transcript's edge cannot be tapped). With a mouse the copy and format buttons keep their `--chip-h`
   look and take a `--pointer-target` hit area through an invisible `::before` expander.
+- A command sent from the chat says what became of it under its bubble (`.chat-outcome`,
+  `lib/outcomeChip.ts`): one quiet `--fs-xs` line in `--text-dim` on the message's side, a 14px
+  glyph and the state in words, read as a `role="status"` live region. It follows the delivery
+  receipt messaging apps put under a sent bubble (iMessage's Delivered / Read; Claude's remote
+  clients show a read-receipt indicator under a sent prompt), not a toast or a notice row, and
+  unlike a receipt it names what the bridge saw: **Accepted** (hollow circle; the bridge sent it,
+  nothing more), **Waiting for your answer** (`CircleAlert` in `--status-blocked`, with **Answer**,
+  which focuses the waiting card), **Done · transcript / card answered / result on screen / agent
+  event / saved state** (`CircleCheck` in `--status-done`, the evidence that showed it), **Runs in
+  the terminal** (`SquareTerminal`, with **Open Terminal**) and **No result seen**
+  (`CircleQuestionMark`). A skill OpenCode did not attach adds a second line in the same quiet
+  register, **Not attached, sent as plain text: @effect** (`.chat-outcome-note`, the skill ids
+  from `unattached_skills`, in the user's language), as the Codex app says why a turn stopped in a
+  quiet line under it rather than in a notice. The word changes on evidence alone: a typed-only command is never done,
+  and nothing animates a change. A screen that changed after the send folds under the chip as
+  **Terminal output changed after /x, not confirmed** (`.chat-outcome-preview`, a `--radius-md`
+  hairline card on `--bg-elevated`, mono `--fs-xs` text with its line breaks kept, 60vh at most),
+  a passing view that never becomes a result. A result a registered reader recognized (Hermes
+  `/status`, `/version`, `/profile`, `/help`, `/reload-skills`) instead shows what the agent printed,
+  verbatim, in the same card open (`.chat-outcome-result`, `role="status"`, its text focusable for
+  scrolling) with **Dismiss**, which only hides it in this view and sends nothing, as an
+  informational sheet is closed in the Claude and Codex apps; no keys reach the pane.
+  The chip's **Answer** / **Open Terminal** are text
+  buttons in the fold control's register (`--chip-h`, `--touch-target` where the primary pointer
+  is coarse). A command the transcript keeps no turn for (Claude's `/btw`, an informational
+  command) still gets a sent row (`.chat-turn-sent`): the same neutral bubble, time and copy,
+  placed by its send time; once a transcript turn records the command the chip moves onto that
+  turn and the row goes, so a command never shows twice. Prose messages carry no chip.
 - Selecting text in chat copies the browser's rendered selection as plain text, not reconstructed
   Markdown. Safe rich HTML accompanies it for formatted paste; the explicit MD and TXT actions
   still copy the whole answer. This follows ordinary browser selection and the Claude/ChatGPT
@@ -1609,7 +1677,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - OpenCode multiselect Submit, custom Send and Enter send all checked choices and custom text
   together. A transient native-service failure keeps an existing question card and its edits;
   with no native question known, permissions and legacy prompts use the generic fallback card.
-- While an answer is on its way, a `--text-dim` `--fs-xs` line under the actions says `Sending your answer…` (`role="status"`), so a slow PC never looks like a dead button. The line is in the card from its first render, clipped and empty (`.visually-hidden`, never `display: none`) until the answer goes out: a live region that appears together with its content is not announced. The card's busy state (`aria-busy`) sits on its options group (`.prompt-card-options`), never on the card: Chromium fires no live-region event inside an `aria-busy` subtree, so the status line stays outside it.
+- While an answer is on its way, a `--text-dim` `--fs-xs` line under the actions says `Sending your answer…` (`role="status"`), so a slow PC never looks like a dead button. When two reads of the screen in a row fail, the same line says `Not updated: the question on screen may have changed.` and the card stays as it was; the next read that answers clears it, and a restarted poll (after a refused answer) keeps it. The line is in the card from its first render, clipped and empty (`.visually-hidden`, never `display: none`) until the answer goes out: a live region that appears together with its content is not announced. The card's busy state (`aria-busy`) sits on its options group (`.prompt-card-options`), never on the card: Chromium fires no live-region event inside an `aria-busy` subtree, so the status line stays outside it.
 - Options are flat full-width rows (`.prompt-card-option`), not boxes in the box: the menu's
   number as a keycap (mono, `--fs-2xs`, a `--border-strong` outline; the option's name keeps
   `1.`), the label, its description under it in `--text-dim`. All rows weigh the same: none is
@@ -1841,7 +1909,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   does.` with the command in mono, and two ways on in the held rows' buttons: **Open Terminal**
   (the pane's terminal lens, nothing sent) and **Run in Terminal** (the usual send, then the
   terminal lens once the send is acknowledged; a refusal keeps the text and its note here), then
-  the row's X. Typing such a command by hand and pressing Send shows the same row instead of
+  the row's X. For `/resume` the row leads with **Earlier sessions…** (Session history), and
+  picking it from the menu opens that list at once. Typing such a command by hand and pressing Send shows the same row instead of
   sending; Escape or the X puts it away with the text kept, and Send brings it back. A
   connection that only observes has no composer at all (PaneTerminal mounts none for it, see
   Role), so it sees neither the group nor the row; the composer still takes the connection's

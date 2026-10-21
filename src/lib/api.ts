@@ -5,6 +5,7 @@ import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type 
 import type {
   AgentKind,
   AgentRenameRequest,
+  CommandOutcome,
   ConversationResponse,
   CreateWorktreeRequest,
   CreateTabRequest,
@@ -28,6 +29,7 @@ import type {
   PaneDirection,
   PaneInfo,
   PanePlan,
+  PanePromptResponse,
   PaneReadResult,
   PaneResized,
   RepoDiffFileList,
@@ -46,6 +48,8 @@ import type {
   RemoteAccess,
   RemoveWorktreeRequest,
   ResizePaneRequest,
+  SessionHistoryAgent,
+  SessionHistoryResponse,
   SessionSnapshot,
   SetSplitRatioRequest,
   SlashCommand,
@@ -699,6 +703,25 @@ export async function openWorktree(request: OpenWorktreeRequest, machineId = "lo
   return (await response.json()) as WorktreeOpened;
 }
 
+/** GET /api/sessions/history: the earlier sessions of `agent` in the workspace's folder, newest first; never cached. */
+export function fetchSessionHistory(workspaceId: string, agent: SessionHistoryAgent, machineId = "local"): Promise<SessionHistoryResponse> {
+  const query = new URLSearchParams({ workspace_id: workspaceId, agent });
+  return getJson<SessionHistoryResponse>(`${machinePath(machineId, "sessions/history")}?${query.toString()}`, { cache: "no-store" });
+}
+/**
+ * Whether the PC's bridge has the session history route, asked without a query so no session is
+ * listed: a bridge that has it refuses the query (400), one from before it answers not_found (404).
+ * Any other refusal (403 for a device that only watches) still says the route is there; a PC that
+ * could not be asked rejects, so the caller asks again when it comes back.
+ */
+export async function sessionHistoryOffered(machineId = "local"): Promise<boolean> {
+  try { await getJson(machinePath(machineId, "sessions/history")); return true; }
+  catch (error) {
+    if (routeMissing(error)) return false;
+    if (error instanceof ApiError && error.status < 500) return true;
+    throw error;
+  }
+}
 /** POST /api/tab/create: another tab in an existing workspace, with the same agent launch. */
 export async function createTab(request: CreateTabRequest, machineId = "local"): Promise<TabCreated> {
   const response = await sendJson(machinePath(machineId, "tab/create"), "POST", request);
@@ -778,13 +801,14 @@ export async function fetchPanePrompt(paneId: string, machineId = "local"): Prom
   return (await fetchPanePromptState(paneId, machineId)).prompt;
 }
 
-/** The waiting prompt, and with none, the next prompt the agent suggests; restored is a send the agent put back in its input box when it was cancelled (older servers send neither). */
-export async function fetchPanePromptState(paneId: string, machineId = "local"): Promise<{ prompt: InteractivePrompt | null; suggestion: string | null; restored: string | null }> {
-  const body = await getJson<{ prompt: InteractivePrompt | null; suggestion?: string | null; restored?: string | null }>(machinePath(machineId, `pane/prompt?pane_id=${encodeURIComponent(paneId)}`));
+/** The waiting prompt, and with none, the next prompt the agent suggests; restored is a send the agent put back in its input box when it was cancelled; outcomes are the pane's tracked command sends (older servers send none of the three). */
+export async function fetchPanePromptState(paneId: string, machineId = "local"): Promise<{ prompt: InteractivePrompt | null; suggestion: string | null; restored: string | null; outcomes: CommandOutcome[] }> {
+  const body = await getJson<PanePromptResponse>(machinePath(machineId, `pane/prompt?pane_id=${encodeURIComponent(paneId)}`));
   return {
     prompt: body.prompt,
     suggestion: typeof body.suggestion === "string" && body.suggestion !== "" ? body.suggestion : null,
     restored: typeof body.restored === "string" && body.restored !== "" ? body.restored : null,
+    outcomes: Array.isArray(body.outcomes) ? body.outcomes : [],
   };
 }
 
