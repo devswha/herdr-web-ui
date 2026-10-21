@@ -496,7 +496,8 @@ const CLAUDE_REWIND_HINT_RE = /^Enter to continue · Esc to cancel$/;
 
 const CLAUDE_REWIND_LIST_RE = /^Restore the code and\/or conversation to the point before…$/;
 
-const CLAUDE_REWIND_CONFIRM_RE = /^Confirm you want to restore the conversation to the point before you sent this message:$/;
+// 2.1.305 asks "Confirm you want to restore to the point before…", without "the conversation"
+const CLAUDE_REWIND_CONFIRM_RE = /^Confirm you want to restore (?:the conversation )?to the point before you sent this message:$/;
 
 export const CLAUDE_REWIND_CHOICES = ["Restore conversation", "Summarize from here", "Summarize up to here", "Never mind"] as const;
 export const CLAUDE_REWIND_NEVER_MIND = CLAUDE_REWIND_CHOICES[3];

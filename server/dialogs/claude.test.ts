@@ -67,6 +67,43 @@ describe("Claude Code's /rewind", () => {
     expect(parseInteractivePrompt("claude", `${shown}\n❯ hello`)).toBeNull();
   });
 
+  // F3 r2 D3: Claude Code 2.1.305 drops "the conversation" from the confirm question. Fixtures are the
+  // F3 r2 recordings (rewind.390.confirm.txt, rewind.1280.fresh-msg.confirm.txt), whose dump dropped
+  // blank lines; they are put back between the panel's blocks, as 2.1.305's list (read live) draws them.
+  const rewind305 = (state: string, width: number): string =>
+    readFileSync(new URL(`../fixtures/claude-rewind-2.1.305-${state}-${width}.txt`, import.meta.url), "utf8");
+
+  test("reads Claude Code 2.1.305's confirm step, and answers it", async () => {
+    for (const [state, width, message] of [["confirm-kiwi", 145, "kiwi rewind 390"], ["confirm-cherry", 120, "cherry rewind 1280"]] as const) {
+      const shown = rewind305(state, width);
+      const prompt = parseInteractivePrompt("claude", shown);
+      expect(prompt?.options.map((option) => option.label), state).toEqual(OFFERED);
+      expect(prompt?.body?.split("\n")[0]).toBe(message);
+      expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
+      const reader = readers.find((candidate) => candidate.id === "claude-rewind")!;
+      const context: ReaderContext = { agent: "claude", omoAsk: null, omoTrusted: true, omoOpen: [], sent: null, working: false };
+      const sent: AnswerStep[] = [];
+      const plan = reader.interaction!(reader.parse(shown, context)!);
+      const result = await executeInteractionPlan(plan, 0, { rereadMoves: true, read: async () => shown, send: async (step) => { sent.push(step); }, active: () => true, cancelled: () => false });
+      expect({ result, sent }).toEqual({ result: "answered", sent: [{ keys: ["enter"] }] });
+    }
+  });
+
+  test("reads either wording, and no other confirm question", () => {
+    const older = rewind("confirm-apple", 120);
+    expect(parseInteractivePrompt("claude", older)?.options.map((option) => option.label)).toEqual(OFFERED);
+    const shown = rewind305("confirm-kiwi", 145);
+    const ask = "Confirm you want to restore to the point before you sent this message:";
+    for (const nearMiss of [
+      "Confirm you want to restore the code to the point before you sent this message:",
+      "Confirm you want to restore the code and conversation to the point before you sent this message:",
+      "Confirm you want to restore to the point before this message:",
+      "Confirm you want to delete the point before you sent this message:",
+    ]) {
+      expect(parseInteractivePrompt("claude", shown.replace(ask, nearMiss)), nearMiss).toBeNull();
+    }
+  });
+
   // HIGH 2 (merge pass r1): every confirm step reads "Restore conversation"; the quote tells them apart
   test("an answer made for one message's confirm step sends no Enter on another message's", async () => {
     const reader = readers.find((candidate) => candidate.id === "claude-rewind")!;
