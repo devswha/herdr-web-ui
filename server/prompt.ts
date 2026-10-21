@@ -150,6 +150,8 @@ type PaneCommandSend = CommandSend & {
     process?: { readonly pid: number; readonly started: number | null } | null;
     /** Set while the binding's read is out: a poll waits for it, within BINDING_WAIT_MS. */
     binding?: Promise<void>;
+    /** Polls in a row that did not find the bound process in the foreground, where its start time cannot say. */
+    misses?: number;
     replaced?: true;
   };
   /** Visibility only: never changes the send identity used to correlate evidence. */
@@ -195,6 +197,27 @@ export function bindCommandProcess(paneId: string, command: PaneCommandSend | un
     const startedBy = found ? processStartUpperBound(found.pid) : null;
     visibility.process = found && (startedBy === null || startedBy < sentAt) ? found : null;
   })().finally(() => { visibility.binding = undefined; });
+}
+
+/** Whether the send's bound process still runs in the pane; replaced only on proof, never on one look. */
+function checkBoundProcess(visibility: NonNullable<PaneCommandSend["visibility"]>, agent: string, processes: ProcessInfo):
+  { pid: number; started: number | null } | null {
+  const original = visibility.process!;
+  const current = outcomeProcess(processes, agent, original.pid);
+  if (current) {
+    visibility.misses = 0;
+    if (original.started !== null && current.started !== null && original.started !== current.started) visibility.replaced = true;
+    return current;
+  }
+  // Out of the foreground is not gone: a suspended agent (Ctrl+Z) or another process group holding the
+  // terminal is still the same process. On Linux /proc says whether the pid is gone, or reused under another
+  // start time; where it cannot say, two looks in a row without the process say so.
+  const started = process.platform === "linux" ? processStartedAt(original.pid) : null;
+  if (process.platform === "linux" && (started === null || original.started !== null && started !== original.started)) visibility.replaced = true;
+  else if (process.platform !== "linux" || original.started === null) {
+    if ((visibility.misses = (visibility.misses ?? 0) + 1) >= 2) visibility.replaced = true;
+  }
+  return null;
 }
 
 /** Capture only existing data before delivery. Discovery and transcript reads belong to the poll. */
@@ -286,15 +309,14 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     await Promise.race([Promise.all(bindings), new Promise((resolve) => { timer = setTimeout(resolve, BINDING_WAIT_MS); })]);
     clearTimeout(timer);
   }
-  const processes = commands.some((sent) => sent.visibility?.process)
-    ? await paneProcessInfo(paneId).catch(() => undefined) : undefined;
+  // the process is read only while some send still waits for its session, or is inside its window
+  const watched = commands.filter((sent) => sent.visibility?.process && !sent.visibility.replaced
+    && (sent.visibility.discovering || now < sent.at + COMMAND_WINDOW_MS));
+  const processes = watched.length > 0 ? await paneProcessInfo(paneId).catch(() => undefined) : undefined;
   for (const sent of commands) {
     const visibility = sent.visibility;
     if (!visibility || visibility.replaced) continue;
-    const original = visibility.process;
-    const current = original && processes ? outcomeProcess(processes, sent.agent, original.pid) : null;
-    if (original && processes && (!current
-      || original.started !== null && current.started !== null && original.started !== current.started)) visibility.replaced = true;
+    const current = processes && watched.includes(sent) ? checkBoundProcess(visibility, sent.agent, processes) : null;
     if (visibility.discovering && !visibility.replaced && pane.agent_session
       && visibility.terminalId === pane.terminal_id && current) {
       visibility.identity = identity;

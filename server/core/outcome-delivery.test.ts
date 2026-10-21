@@ -26,8 +26,8 @@ const submitter = () => createSubmitText({
   SUBMIT_DEADLINE_MS: 1000, TYPED_SETTLE_MS: 0, DRAFT_CLEAR_WAIT_MS: 0, DRAFT_CLEAR_POLL_MS: 0, SUBMIT_DELAY_MS: 0,
 });
 
-for (const scenario of ["unpolled replacement", "wrapper restart", "first turn", "reused pid"] as const) {
-  it.skipIf(scenario === "reused pid" && process.platform !== "linux")(`binds a Codex command at send time: ${scenario}`, async () => {
+for (const scenario of ["unpolled replacement", "wrapper restart", "first turn", "reused pid", "suspended", "settled"] as const) {
+  it.skipIf((scenario === "reused pid" || scenario === "suspended") && process.platform !== "linux")(`binds a Codex command at send time: ${scenario}`, async () => {
     const target: HerdrPane = { ...pane, pane_id: `codex-outcome-${scenario}`, agent: "codex", agent_session: null };
     let pid = 2147483645;
     let birth = 1000;
@@ -56,13 +56,29 @@ for (const scenario of ["unpolled replacement", "wrapper restart", "first turn",
     expect(delivered).toHaveBeenCalledTimes(1);
     const readsAtSend = processes.mock.calls.length;
     if (scenario !== "unpolled replacement") expect(await poll()).toMatchObject([{ state: "accepted" }]);
+    if (scenario === "suspended") {
+      // Ctrl+Z, then fg: the same process out of the foreground for one poll is not a replacement
+      foreground = false;
+      expect(await poll()).toMatchObject([{ state: "accepted" }]);
+      foreground = true;
+    }
     if (scenario === "unpolled replacement" || scenario === "wrapper restart") pid++;
     if (scenario === "reused pid") birth++;
     target.agent_session = { agent: "codex", kind: "id", source: "herdr:codex", value: "first-turn" };
     const shown = await poll();
-    if (scenario === "first turn") expect(shown).toMatchObject([{ text: "/myext", state: "accepted", evidence: [] }]);
+    const kept = scenario === "first turn" || scenario === "suspended" || scenario === "settled";
+    if (kept) expect(shown).toMatchObject([{ text: "/myext", state: "accepted", evidence: [] }]);
     else expect(shown).toBeUndefined();
     expect(readsAtSend).toBe(1);
+    if (scenario === "settled") {
+      // its session found and its window over, the send needs the pane's processes no more
+      const reads = processes.mock.calls.length;
+      const later = Date.now() + 600_000;
+      spyOn(Date, "now").mockImplementation(() => later);
+      await poll();
+      await poll();
+      expect(processes.mock.calls.length).toBe(reads);
+    }
   });
 }
 
