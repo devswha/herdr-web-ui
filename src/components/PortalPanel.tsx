@@ -22,8 +22,9 @@ export function PortalPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [typed, setTyped] = useState<string | null>(null);
   if (!status?.supported) return null;
   const relay = typed ?? status.relay ?? "";
-  const on = status.phase === "starting" || status.phase === "running" || status.phase === "stopping" || status.phase === "error";
-  const progress = status.phase === "starting" ? t("Starting…") : status.phase === "stopping" ? t("Stopping…") : null;
+  const on = status.phase !== "idle";
+  // a Portal that ended on its own is started again once by the server; Stop still ends it
+  const progress = status.phase === "starting" ? t("Starting…") : status.phase === "recovering" ? t("Recovering…") : status.phase === "stopping" ? t("Stopping…") : null;
   let control;
   if (on) {
     control = (

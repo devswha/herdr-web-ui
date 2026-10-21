@@ -446,7 +446,8 @@ export interface PortalStatus {
   readonly min_version: string;
   /** `version` is `min_version` or later: Start is offered */
   readonly usable: boolean;
-  readonly phase: "idle" | "starting" | "running" | "stopping" | "error";
+  /** recovering: a Portal that was serving ended on its own and is started again, once, with no address meanwhile */
+  readonly phase: "idle" | "starting" | "running" | "recovering" | "stopping" | "error";
   /** the relay the tunnel uses, or used last; an https origin */
   readonly relay: string | null;
   /** the public address while it runs, without the default port */
