@@ -1599,7 +1599,9 @@ class DemoSocket extends EventTarget {
               firstMessages.delete(message.pane_id);
               publishFirstMessage(message.pane_id, [{ id: first.id, outcome: "discarded" }]);
               result(true);
-            } else result(deliverFirstMessage(message.pane_id, this), ["idle", "done"].includes(paneOf(message.pane_id)?.agent_status ?? "") ? undefined : "agent_blocked");
+            // read before the send, which sets the pane working: at rest it goes, otherwise nothing is sent
+            } else if (!["idle", "done"].includes(paneOf(message.pane_id)?.agent_status ?? "")) result(false, "agent_blocked");
+            else result(deliverFirstMessage(message.pane_id, this));
             break;
           }
           const pending = this.pending.get(message.pane_id)?.find((item) => item.id === message.pending_id);
