@@ -499,13 +499,18 @@ describe("listSessions", () => {
 
   it("never reads a crashed writer's uncommitted change from a rollback-journal store", () => {
     const home = newHome();
-    install("hermes", home);
+    mkdirSync(join(home, ".hermes"));
     const db = join(home, ".hermes", "state.db");
-    const writer = new Database(db);
+    const writer = new Database(db, { create: true });
     // a writer whose uncommitted pages reach the main file (a tiny cache spills them), then a crash:
     // the main file and its hot -journal, as they are on disk
-    writer.exec("PRAGMA journal_mode = DELETE; PRAGMA cache_spill = ON; PRAGMA cache_size = 1");
-    writer.transaction(() => { for (let n = 0; n < 2000; n++) writer.query("INSERT INTO messages (session_id, role, content, timestamp) VALUES ('20261004_090000_fx0004', 'assistant', ?, 1791104401)").run(`pad ${"x".repeat(500)}`); })();
+    writer.exec("PRAGMA journal_mode = DELETE; PRAGMA synchronous = OFF");
+    // Setup needs no disk syncs; eight padded rows still spill beyond the crash's one-page cache.
+    writer.transaction(() => {
+      writer.exec(readFileSync(join(FIXTURES, "hermes", "dot-hermes", "state.sql"), "utf8").replaceAll(":cwd", sql(CWD)));
+      for (let n = 0; n < 8; n++) writer.query("INSERT INTO messages (session_id, role, content, timestamp) VALUES ('20261004_090000_fx0004', 'assistant', ?, 1791104401)").run(`pad ${"x".repeat(500)}`);
+    })();
+    writer.exec("PRAGMA synchronous = FULL; PRAGMA cache_spill = ON; PRAGMA cache_size = 1");
     writer.exec("BEGIN; UPDATE messages SET content = 'uncommitted prompt' WHERE role = 'user'");
     writer.exec(`UPDATE messages SET content = '${"y".repeat(500)}' WHERE role = 'assistant'`);
     const crashed = newHome();
