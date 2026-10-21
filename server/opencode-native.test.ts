@@ -198,6 +198,24 @@ describe("a verification still in flight is cancelled by a reset or by its pane'
     } finally { closeOpenCodeNative(); fake.release(); fake.server.stop(true); }
   });
 
+  it("keeps a pane released while its process roots are still being read unverified, with no stream", async () => {
+    const fake = gatedService(join(root, "inflight-roots"));
+    openCodeServiceOptions.stateDir = join(root, "inflight-roots");
+    forgetOpenCodeService();
+    closeOpenCodeNative();
+    const rootsAsked = Promise.withResolvers<void>();
+    const roots = Promise.withResolvers<unknown>();
+    const rpc = spyOn(herdr, "herdrRpc").mockImplementation((() => { rootsAsked.resolve(); return roots.promise; }) as never);
+    try {
+      const verifying = openCodePaneService(opencodePane("p_roots", "ses_roots"));
+      await within(rootsAsked.promise, "the process roots lookup");
+      releaseOpenCodePane("p_roots");
+      roots.resolve({ process_info: { foreground_processes: [] } });
+      expect(await verifying).toBeNull();
+      expect(openCodeNativeState()).toEqual({ stream: false, panes: [] });
+    } finally { rpc.mockRestore(); closeOpenCodeNative(); fake.server.stop(true); }
+  });
+
   for (const cancel of ["reset", "pane end"] as const) {
     it(`opens no stream and caches nothing after a ${cancel}`, async () => {
       const fake = gatedService(join(root, `inflight-${cancel}`));

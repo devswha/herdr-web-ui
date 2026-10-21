@@ -201,12 +201,8 @@ export function openCodeNativeState(): { stream: boolean; panes: string[] } {
 export async function openCodePaneService(pane: Pick<HerdrPane, "agent" | "agent_session"> & { pane_id?: string }, signal?: AbortSignal, stateDir?: string): Promise<{ service: OpenCodeService; sessionID: string } | null> {
   const label = resolveAgent(pane).agent;
   if (label !== "opencode") return null;
-  const roots = pane.pane_id ? typingRoots(await paneProcessRoots(pane.pane_id, label)) : null;
-  const agent = resolveAgent(pane, roots).agent;
-  if (agent !== "opencode") return null;
-  const sessionID = opencodeSessionId(pane);
-  if (!sessionID) return null;
   const paneId = pane.pane_id;
+  // registered before the first wait (the process roots too), so a release or reset meanwhile cancels it
   const verification: Verification = { cancelled: false };
   inFlight.add(verification);
   if (paneId !== undefined) {
@@ -216,7 +212,13 @@ export async function openCodePaneService(pane: Pick<HerdrPane, "agent" | "agent
   }
   let held: boolean;
   let service: OpenCodeService | null;
+  let sessionID: string;
   try {
+    const roots = paneId ? typingRoots(await paneProcessRoots(paneId, label)) : null;
+    if (verification.cancelled || resolveAgent(pane, roots).agent !== "opencode") return null;
+    const id = opencodeSessionId(pane);
+    if (!id) return null;
+    sessionID = id;
     service = await openCodeService(stateDir, signal);
     held = service !== null && Number(/^(\d+)\./u.exec(service.version)?.[1] ?? 0) >= 2 && await openCodeHasSession(service.config, sessionID, signal);
   } finally {
