@@ -17,7 +17,7 @@ import { KEY, navigationKeys, normalizeText } from "./dialogs/shared.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, jsonResponse, readJsonObject } from "./http.ts";
 import { agentPrompt, paneRead, paneScrollInfo, paneSendKeys } from "./herdr/client.ts";
 import { paneContext } from "./pane-context.ts";
-import { claudeInputBoxContent, claudeInputDraft, forgetChatSendsAfter, viewportShowsLive } from "./prompt.ts";
+import { claudeInputBoxContent, claudeInputDraft, forgetChatSendsAfter, parseInteractivePrompt, viewportShowsLive } from "./prompt.ts";
 import { rewindClaudeTranscript } from "./conversation.ts";
 
 /** agents with a rewind of their own but no reader of their input box: refused, a draft there could join the command */
@@ -185,6 +185,14 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
       if (pane.agent_status !== "idle" && pane.agent_status !== "done") return conflictResponse("agent_busy", "The agent is not waiting for a message; rewind once it is");
       // its input box is read by nothing here: it cannot be known empty, and /rewind typed over a draft would join it
       if (agent !== "claude") return conflictResponse("input_draft", "The agent's input box cannot be read here to be empty; rewind from the terminal");
+      // herdr reports Claude Code idle while one of its dialogs is up (this rewind's own confirm step, from
+      // any device, or one opened in the terminal), and a dialog shows no input box: the prompt's Enter
+      // would take the choice under its cursor. One rewind per pane: the next waits until its card is
+      // answered or dismissed.
+      const shown = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+      if (claudeInputBoxContent(shown) === null || parseInteractivePrompt("claude", shown) !== null) {
+        return conflictResponse("dialog_open", "Claude Code is showing a dialog; answer or close it first");
+      }
       if (await claudeBoxHoldsDraft(paneId)) return conflictResponse("input_draft", "Claude Code's input box holds a draft; send or clear it first");
       const walked = await walkClaudeRewind({
         read: async () => (await paneRead({ paneId, source: "detection", format: "text" })).text,

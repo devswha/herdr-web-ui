@@ -14,33 +14,53 @@ import { writeFileSync } from "node:fs";
 /** Claude Code 2.1.304's /rewind at 40 columns, recorded (server/fixtures) */
 const screen = (name: string): string => readFileSync(new URL(`./fixtures/claude-rewind-2.1.304-${name}-40.txt`, import.meta.url), "utf8");
 
+/** A recorded confirm step with the cursor on `choice`: the recordings show it on the first, and ↓ moves the `❯` down the numbered rows. */
+const withChoice = (shown: string, choice: number): string =>
+  shown.replace(/^ {3}(?:❯ | {2})([1-4])\. (.*)$/gm, (_, number: string, label: string) => `   ${Number(number) - 1 === choice ? "❯ " : "  "}${number}. ${label}`);
+
+type DialogState = { at: "closed" } | { at: "list"; row: number } | { at: "confirm"; row: number; choice: number } | { at: "restored" | "summarized"; row: number };
+
 /**
  * The dialog as the recordings show it: the list's screen for each row the cursor is on, the
- * confirm step recorded for some of them, ↑/↓ moving the cursor, Enter on a row opening its confirm
- * step, "Never mind" (the fourth choice) going back to the same row, Esc closing the list. A key the
- * recordings do not show leaves the screen as it is.
+ * confirm step for some of them, ↑/↓ moving the cursor (on the list, and down the confirm step's
+ * choices), Enter on a row opening its confirm step, Enter on the confirm step taking the choice
+ * under the cursor ("Never mind" goes back to the same row, Restore conversation restores), Esc
+ * closing the list. herdr's prompt types its text and Enter: over an open dialog, only the Enter
+ * lands. `interfere` runs after each key, for a key the walker did not send.
  */
-function recordedDialog(rows: string[], confirms: Record<number, string>) {
-  let state: { at: "closed" } | { at: "list"; row: number } | { at: "confirm"; row: number; choice: number } = { at: "closed" };
+function dialogModel(rowCount: number, list: (row: number) => string, confirm: (row: number) => string | undefined, interfere?: (key: string, press: (key: string) => void) => void) {
+  let state: DialogState = { at: "closed" };
   const sent: string[] = [];
-  const read = (): string => state.at === "closed" ? screen("closed") : state.at === "list" ? screen(rows[state.row]!) : screen(confirms[state.row]!);
-  const press = (key: string): void => {
-    sent.push(key);
+  const read = (): string => state.at === "confirm" ? withChoice(confirm(state.row)!, state.choice)
+    : state.at === "list" ? list(state.row) : state.at === "restored" ? screen("restored") : screen("closed");
+  const apply = (key: string): void => {
     if (state.at === "list") {
       if (key === "up") state = { at: "list", row: Math.max(0, state.row - 1) };
+      else if (key === "down") state = { at: "list", row: Math.min(rowCount - 1, state.row + 1) };
       else if (key === "esc") state = { at: "closed" };
-      else if (key === "enter" && confirms[state.row] !== undefined) state = { at: "confirm", row: state.row, choice: 0 };
+      else if (key === "enter" && confirm(state.row) !== undefined) state = { at: "confirm", row: state.row, choice: 0 };
     } else if (state.at === "confirm") {
       if (key === "down") state = { ...state, choice: Math.min(3, state.choice + 1) };
-      else if (key === "enter" && state.choice === 3) state = { at: "list", row: state.row };
+      else if (key === "up") state = { ...state, choice: Math.max(0, state.choice - 1) };
+      else if (key === "enter") state = state.choice === 3 ? { at: "list", row: state.row } : { at: state.choice === 0 ? "restored" : "summarized", row: state.row };
     }
   };
+  const press = (key: string): void => { sent.push(key); apply(key); interfere?.(key, apply); };
   const io: RewindIo = {
     read: async () => read(),
     keys: async (keys) => { for (const key of keys) press(key); },
-    command: async (text) => { sent.push(text); if (text === "/rewind" && state.at === "closed") state = { at: "list", row: rows.length - 1 }; },
+    command: async (text) => {
+      sent.push(text);
+      if (state.at === "closed" && text === "/rewind") state = { at: "list", row: rowCount - 1 };
+      else if (state.at !== "closed") apply("enter");
+    },
   };
   return { io, sent, state: () => state };
+}
+
+/** The recorded fruit and long-message dialogs, a recorded screen per row. */
+function recordedDialog(rows: string[], confirms: Record<number, string>, interfere?: (key: string, press: (key: string) => void) => void) {
+  return dialogModel(rows.length, (row) => screen(rows[row]!), (row) => confirms[row] === undefined ? undefined : screen(confirms[row]!), interfere);
 }
 
 const fruit = () => recordedDialog(["after-never-mind", "select-banana", "select-current"], { 0: "confirm-apple" });
@@ -196,6 +216,27 @@ describe("POST /api/pane/rewind", () => {
     await withHerdr({ agent: "claude", status: "idle" }, { ...drafted, io }, async (paneId, prompts) => {
       expect(await rewind({ pane_id: paneId, text: "apple" })).toEqual([409, { error: expect.objectContaining({ code: "input_draft" }) }]);
       expect(prompts).toEqual([]);
+    });
+  });
+
+  // HIGH 1 (merge pass r1): /rewind, up, up, enter, /rewind, Enter on choice 0
+  it("refuses a second rewind while Claude's confirm step or list is open, typing nothing", async () => {
+    const dialog = fruit();
+    await withHerdr({ agent: "claude", status: "idle" }, dialog, async (paneId, prompts) => {
+      expect((await rewind({ pane_id: paneId, text: "apple" }))[0]).toBe(200);
+      const keys = dialog.sent.length;
+      // herdr still reports the agent idle with the dialog up, and the dialog shows no input box
+      expect(await rewind({ pane_id: paneId, text: "banana" })).toEqual([409, { error: expect.objectContaining({ code: "dialog_open" }) }]);
+      expect(prompts).toEqual(["/rewind"]);
+      expect(dialog.sent.length).toBe(keys);
+      expect(dialog.state()).toEqual({ at: "confirm", row: 0, choice: 0 });
+    });
+    const opened = fruit();
+    await opened.io.command("/rewind");
+    await withHerdr({ agent: "claude", status: "idle" }, opened, async (paneId, prompts) => {
+      expect(await rewind({ pane_id: paneId, text: "apple" })).toEqual([409, { error: expect.objectContaining({ code: "dialog_open" }) }]);
+      expect(prompts).toEqual([]);
+      expect(opened.state()).toEqual({ at: "list", row: 2 });
     });
   });
 
