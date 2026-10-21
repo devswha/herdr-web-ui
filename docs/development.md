@@ -128,6 +128,14 @@ Read the verification status and source identity, not just a zero exit code. Cha
 run invalidate its source verification; a later edit or restack requires new verification.
 An unavailable source fingerprint, or an unreadable artifact after a successful build, fails
 the check even when its commands returned zero.
+So does a teardown that did not finish: a step's process group still there after SIGTERM, then
+SIGKILL and their grace (only "no such process" proves it gone; a process the run may not signal
+is still there), or a herdr session of the run whose stop failed. Every other stop is still
+tried. The run then keeps its isolated directory instead of removing it, prints its absolute
+path, lists it under `evidence.retained` in the report and adds the failures to `errors`. A
+run that passed exits 1 with status `failure`. An interrupted run keeps exit code 130 or 143
+and status `interrupted`, with the same errors and kept directory. Look through the kept
+directory, stop what is left, and remove the directory yourself.
 `check run --build` records the build made for the command. Without it, an existing `dist/`
 has unknown provenance and cannot establish that a browser tested current source. Report and
 log collection is for isolated fixtures: do not pass real credentials or live-user commands to
