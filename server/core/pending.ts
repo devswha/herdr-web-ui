@@ -10,9 +10,11 @@
  * its pending messages and may discard or send it now; one pane holds one. It is typed on its own only
  * through the page connection that sent the request (`first_message_connection`), while that connection
  * has the pane attached, with the same checks as its own queued messages. Once that connection closes
- * before it went, or when the request named none, it is held: nothing the user typed goes automatically
- * after a disconnect, and another device attaching later never types it on its own. It is bound to the
- * agent process that runs in the pane when it is queued, so a replacement of the same kind gets none.
+ * or leaves the pane before it went, or when the request named none, it is held: nothing the user typed
+ * goes automatically after a disconnect, another device attaching later never types it on its own, and
+ * the pane's other messages are not left behind it. It is bound to the agent the launch brought up: the
+ * process and session in front when it is queued, and what herdr says of that agent at each event of the
+ * pane after, so another session or process of the same kind gets none.
  * First messages live in memory: a restart of the bridge loses those not sent yet.
  */
 import { closeMention, type createSubmitText, freeClaudeBox, freeHermesInput, InputDraftError, pendingFault, pendingIdentity, pendingText } from "./composer.ts";
@@ -89,8 +91,12 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     }
   }, Date.now, options.pendingStartTimeoutMs, undefined, (owner) => !isClient(owner));
   let nextFirstRequestId = -1;
-  /** first messages still bound to the launched kind alone (queueFirstMessage, bindLaunched) */
+  /** first messages still learning the agent launched for them (queueFirstMessage, learnLaunched) */
   const launchBound = new WeakSet<PendingItem>();
+  /** the pane's launch-bound first messages, held ones included */
+  const launchBoundIn = (paneId: string): PendingItem[] => pending.list(FIRST_MESSAGE_OWNER, paneId)
+    .map((message) => pending.get(FIRST_MESSAGE_OWNER, paneId, message.id))
+    .filter((item): item is PendingItem => item !== undefined && launchBound.has(item));
   /** the page connection that sent each first message: the only one that types it on its own */
   const requesters = new WeakMap<PendingItem, Client>();
   const requested = new WeakMap<Client, Set<PendingItem>>();
@@ -117,6 +123,23 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     if (paneId === undefined) pendingAuthorities.delete(owner);
     else pendingAuthorities.get(owner)?.delete(paneId);
     pending.hold(owner, paneId);
+    holdRequested(owner, paneId);
+  }
+  /**
+   * The first messages `client`'s page sent, in `paneId` or in every pane, that have not gone: once it
+   * leaves the pane, may no longer type or closes, each is held for an explicit Send now or Discard, and
+   * the pane's other messages go at their turn. One on its way settles held, not retried.
+   */
+  function holdRequested(client: Client, paneId?: string): void {
+    const items = requested.get(client);
+    if (!items) return;
+    for (const item of [...items]) {
+      if (paneId !== undefined && item.paneId !== paneId) continue;
+      items.delete(item);
+      requesters.delete(item);
+      pending.holdItem(item, FIRST_MESSAGE_UNATTENDED);
+      drainPending(item.paneId);
+    }
   }
   function holdPendingPane(paneId: string, fault: { code: string; message: string }): void {
     for (const owner of clients) pendingAuthorities.get(owner)?.delete(paneId);
@@ -320,13 +343,21 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     return reply;
   }
   function drainPending(paneId: string): void {
-    if (pendingDrains.has(paneId) || pending.next(paneId) === null) return;
+    // a first message learns its launched agent at every event of its pane, also while no connection can type it
+    const learning = launchBoundIn(paneId).length > 0;
+    if (pending.next(paneId) === null && !learning) return;
+    if (pendingDrains.has(paneId)) {
+      // what the running drain read may predate this event: it runs once more
+      if (learning) drainAgain.add(paneId);
+      return;
+    }
     pendingDrains.add(paneId);
     const arrivedAt = Date.now();
     // drained again only after a dispatch: a message no connection can type yet waits for the next
     // attach, readiness or status event, where draining again at once would spin the event loop
     let dispatched = false;
     void serialize(paneId, async () => {
+      if (learning) await learnLaunched(paneId);
       const item = pending.next(paneId);
       if (!item) return;
       // a first message waits for its own page to have the pane attached and ready; a connection's own message has its owner
@@ -340,9 +371,11 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       await dispatchPending(item, true, arrivedAt, false, by);
     }).catch((error) => console.warn("pending message:", pendingFault(error).code)).finally(() => {
       pendingDrains.delete(paneId);
-      if (dispatched) drainPending(paneId);
+      const again = drainAgain.delete(paneId);
+      if (dispatched || again) drainPending(paneId);
     });
   }
+  const drainAgain = new Set<string>();
   /**
    * A create request's first message for the pane's agent, queued as the request's own send: typed once
    * the agent is ready through `requester`, the id of the page connection that sent the request, while it
@@ -359,8 +392,12 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       const { pane, identity, shellPid } = await currentIdentity(paneId);
       const launchedProcess = identity.processPid !== null && identity.processPid !== undefined && identity.processPid !== shellPid
         ? { processPid: identity.processPid, processBirth: identity.processBirth } : {};
+      // and to the sessions herdr, OmO or Claude's own record already name for that agent: a /resume
+      // before the message went is another session
+      const sessions = identity.agent === kind
+        ? { session: identity.session, omoSession: identity.omoSession ?? null, claudeSession: identity.claudeSession ?? null } : { session: null };
       const item = pending.enqueue(FIRST_MESSAGE_OWNER, paneId, nextFirstRequestId--, text, null,
-        { agent: kind, terminalId: pane.terminal_id, session: null, ...launchedProcess });
+        { agent: kind, terminalId: pane.terminal_id, ...sessions, ...launchedProcess });
       launchBound.add(item);
       // no page to type it, or one that closed meanwhile: held before any drain could see it queued
       if (page === undefined || !present(page)) pending.holdItem(item, FIRST_MESSAGE_UNATTENDED);
@@ -374,29 +411,42 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     return { ...message };
   }
   /**
-   * A first message's binding to what runs in its pane, settled at its first dispatch: once herdr names
-   * the launched kind in the same terminal, the message takes that agent's whole identity (process,
-   * session) and is checked against it from then on ("bound"); while herdr names no agent there yet it
-   * waits ("wait"). Another agent or another terminal is left to pendingContext, which holds the message
-   * with pending_target_changed: it is never typed into what was not launched for it.
+   * What a launch-bound first message learns of the agent launched for it from what runs in its pane now:
+   * the parts not known yet (process, sessions), once herdr names the launched kind in its terminal and
+   * nothing known disagrees. The first agent seen there is the launched one, and a part once learned is
+   * never replaced, so a later session or process of the same kind is another; pendingContext holds the
+   * message for it with pending_target_changed.
+   */
+  function learn(item: PendingItem, identity: PendingIdentity): void {
+    if (identity.terminalId !== item.identity.terminalId || identity.agent !== item.identity.agent || !samePendingIdentity(item.identity, identity)) return;
+    item.identity.session ??= identity.session;
+    item.identity.processPid ??= identity.processPid;
+    item.identity.processBirth ??= identity.processBirth;
+    item.identity.omoSession ??= identity.omoSession;
+    item.identity.claudeSession ??= identity.claudeSession;
+  }
+  /** Each launch-bound first message in the pane learns from one read of it, at each event of the pane (drainPending). */
+  async function learnLaunched(paneId: string): Promise<void> {
+    const items = launchBoundIn(paneId);
+    if (items.length === 0) return;
+    const { identity } = await currentIdentity(paneId);
+    for (const item of items) learn(item, identity);
+  }
+  /**
+   * A first message before a send: while herdr names no agent in its terminal yet it waits ("wait");
+   * otherwise it learns from what runs there (learn) and goes to pendingContext's checks ("bound").
    */
   async function bindLaunched(item: PendingItem): Promise<"bound" | "wait"> {
     if (!launchBound.has(item)) return "bound";
     const { identity } = await currentIdentity(item.paneId);
-    if (identity.terminalId !== item.identity.terminalId) return "bound";
-    if (identity.agent === null) return "wait";
-    // the same kind, and the process the message was queued under when one was known: another one is left to
-    // pendingContext, which holds the message with pending_target_changed
-    if (identity.agent === item.identity.agent && samePendingIdentity(item.identity, identity)) {
-      item.identity = identity;
-      launchBound.delete(item);
-    }
+    if (identity.terminalId === item.identity.terminalId && identity.agent === null) return "wait";
+    learn(item, identity);
     return "bound";
   }
   /** A connection's end: its own messages are held, and so are the first messages its page sent that have not gone yet. */
   function closeConnection(client: Client): void {
     pending.close(client);
-    for (const item of requested.get(client) ?? []) pending.holdItem(item, FIRST_MESSAGE_UNATTENDED);
+    holdRequested(client);
     requested.delete(client);
   }
   /** A connection that attached the pane: it sees the pane's first messages and their receipts, and may be the one to type them. */
