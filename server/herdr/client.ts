@@ -58,22 +58,85 @@ function nextId(): string {
 }
 
 /**
- * Splits a growing buffer into complete newline-terminated frames.
- * herdr frames arrive split across reads, so partial tails must be retained.
+ * The most bytes one herdr line may hold before its newline, checked before anything is decoded.
+ * herdr's schema sets no finite maximum for a reply (`PaneReadResult.text` is an unbounded string,
+ * `PaneReadParams.lines` a uint32, and a snapshot grows with every pane), so these are the bridge's
+ * supported ceilings, not herdr's. Sizing evidence: the largest ANSI pane fixture
+ * (server/fixtures/opencode-autocomplete-2.0.32-ansi-third-selected.ansi, 40 rows) is 10,466 bytes,
+ * 12,742 once JSON-escaped (about 319 bytes a row); the bridge's largest fixed read is 400 recent rows
+ * (server/codex.ts), about 128 KB at that rate; a snapshot carries well under 1 KB of metadata a pane.
+ * Twice each of those stays far below the floors, so the floors stand: 64 MiB for pane.read and
+ * session.snapshot (server/herdr/seam.test.ts answers both at exactly that size), 16 MiB for every
+ * other reply and for each line of an event stream. A subscription has no lifetime total: only
+ * each of its lines is bounded.
  */
-function makeLineReader(onLine: (line: string) => void): (chunk: Uint8Array) => void {
+export const LARGE_REPLY_BYTES = 64 * 1024 * 1024;
+export const LINE_BYTES = 16 * 1024 * 1024;
+const LARGE_REPLY_METHODS = new Set(["pane.read", "session.snapshot"]);
+
+/**
+ * Splits incoming bytes into newline-terminated lines of at most `limit` bytes each.
+ * herdr frames arrive split across reads, so a partial tail is kept as bytes and decoded only
+ * once its line is complete, which keeps a UTF-8 character split between reads whole. A line
+ * that passes `limit` before its newline is reported once through `onOversize`, its bytes are
+ * dropped, and the reader ignores everything after it. Exported for server/herdr/seam.test.ts.
+ */
+export function makeLineReader(
+  limit: number,
+  onLine: (line: string, bytes: number) => void,
+  onOversize: (bytes: number) => void,
+): (chunk: Uint8Array) => void {
   const decoder = new TextDecoder();
-  let buffer = "";
+  let parts: Uint8Array[] = [];
+  let held = 0;
+  let failed = false;
   return (chunk: Uint8Array) => {
-    buffer += decoder.decode(chunk, { stream: true });
-    let index = buffer.indexOf("\n");
-    while (index !== -1) {
-      const line = buffer.slice(0, index).trim();
-      buffer = buffer.slice(index + 1);
-      if (line.length > 0) onLine(line);
-      index = buffer.indexOf("\n");
+    let start = 0;
+    while (!failed && start < chunk.length) {
+      const end = chunk.indexOf(0x0a, start);
+      const piece = chunk.subarray(start, end === -1 ? chunk.length : end);
+      if (held + piece.length > limit) {
+        failed = true;
+        parts = [];
+        onOversize(held + piece.length);
+        return;
+      }
+      if (end === -1) {
+        // the socket may reuse its read buffer: keep a copy
+        parts.push(piece.slice());
+        held += piece.length;
+        return;
+      }
+      const bytes = held === 0 ? piece : Buffer.concat([...parts, piece]);
+      parts = [];
+      held = 0;
+      start = end + 1;
+      const line = decoder.decode(bytes).trim();
+      if (line.length > 0) onLine(line, bytes.length);
     }
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type Reply = { result: unknown } | { error: { code: string; message: string } };
+
+/**
+ * The reply to request `id` in a parsed line, or why the line is not one: herdr's envelope is an
+ * object whose string `id` is the request's, with exactly one of `result` (which may be null) and
+ * `error` (an object with string `code` and `message`). Fields herdr adds later are allowed.
+ */
+function readReply(frame: unknown, id: string): Reply | string {
+  if (!isRecord(frame)) return "not an object";
+  if (frame["id"] !== id) return "reply to another request";
+  const hasResult = Object.hasOwn(frame, "result");
+  if (hasResult === Object.hasOwn(frame, "error")) return hasResult ? "both result and error" : "neither result nor error";
+  if (hasResult) return { result: frame["result"] };
+  const error = frame["error"];
+  if (!isRecord(error) || typeof error["code"] !== "string" || typeof error["message"] !== "string") return "malformed error";
+  return { error: { code: error["code"], message: error["message"] } };
 }
 
 /**
@@ -149,23 +212,29 @@ export async function herdrRpc(
         timeoutMs,
       );
 
-      const handleLine = (line: string) => {
-        let frame: { id?: string; result?: unknown; error?: { code?: string; message?: string } };
+      // A reply that breaks the protocol fails this request alone, as `bad_frame`: it says nothing
+      // about whether herdr is running. The message names the method, the reason and the size,
+      // never the reply's text.
+      const invalid = (reason: string, bytes: number) =>
+        finish(() => reject(new HerdrError("bad_frame", `herdr sent an invalid reply to ${method} (${reason}, ${bytes} bytes)`)));
+
+      const handleLine = (line: string, bytes: number) => {
+        if (settled) return;
+        let frame: unknown;
         try {
-          frame = JSON.parse(line) as typeof frame;
+          frame = JSON.parse(line);
         } catch {
-          finish(() => reject(new HerdrError("bad_frame", `herdr sent unparseable frame: ${line.slice(0, 200)}`)));
+          invalid("unparseable frame", bytes);
           return;
         }
-        if (frame.error) {
-          const { code = "herdr_error", message = "herdr request failed" } = frame.error;
-          finish(() => reject(new HerdrError(code, message)));
-          return;
-        }
-        finish(() => resolve(frame.result));
+        const reply = readReply(frame, id);
+        if (typeof reply === "string") invalid(reply, bytes);
+        else if ("error" in reply) finish(() => reject(new HerdrError(reply.error.code, reply.error.message)));
+        else finish(() => resolve(reply.result));
       };
 
-      const onData = makeLineReader(handleLine);
+      const limit = LARGE_REPLY_METHODS.has(method) ? LARGE_REPLY_BYTES : LINE_BYTES;
+      const onData = makeLineReader(limit, handleLine, (bytes) => invalid(`over the ${limit}-byte line limit`, bytes));
 
       Bun.connect({
         unix: socketAddress(socketPath),
@@ -729,27 +798,51 @@ export function subscribeEvents(
   let closed = false;
   let socket: { end: () => void } | null = null;
   let started = false;
+  const id = nextId();
 
-  const onData = makeLineReader((line) => {
+  // A frame that breaks the protocol ends this subscription, reported once as `bad_frame` and
+  // then closed; it is no proof that herdr stopped. The subscriber decides whether to reopen.
+  const invalid = (reason: string, bytes: number) => {
+    if (closed) return;
+    closed = true;
+    handlers.onError?.(new HerdrError("bad_frame", `herdr sent an invalid events.subscribe frame (${reason}, ${bytes} bytes)`));
+    try {
+      socket?.end();
+    } catch {
+      /* already gone */
+    }
+    handlers.onClose?.();
+  };
+
+  const onData = makeLineReader(LINE_BYTES, (line, bytes) => {
     // closed by the caller: frames still buffered belong to a subscription it replaced
     if (closed) return;
-    let frame: { id?: string; result?: { type?: string }; error?: { code?: string; message?: string } } & EventFrame;
+    let frame: unknown;
     try {
-      frame = JSON.parse(line) as typeof frame;
+      frame = JSON.parse(line);
     } catch {
+      invalid("unparseable frame", bytes);
       return;
     }
-    if (frame.error) {
-      handlers.onError?.(new HerdrError(frame.error.code ?? "herdr_error", frame.error.message ?? "subscription failed"));
+    // herdr's answer to the subscribe request itself: an error, or the acknowledgement
+    if (!started || (isRecord(frame) && Object.hasOwn(frame, "error"))) {
+      const reply = readReply(frame, id);
+      if (typeof reply === "string") invalid(reply, bytes);
+      else if ("error" in reply) handlers.onError?.(new HerdrError(reply.error.code, reply.error.message));
+      else if (started || !isRecord(reply.result) || reply.result["type"] !== "subscription_started") invalid("unexpected acknowledgement", bytes);
+      else {
+        started = true;
+        handlers.onStarted?.();
+      }
       return;
     }
-    if (!started && frame.result?.type === "subscription_started") {
-      started = true;
-      handlers.onStarted?.();
+    // events carry no request id: an object with a string `event` and an object `data`
+    if (!isRecord(frame) || typeof frame["event"] !== "string" || !isRecord(frame["data"])) {
+      invalid("malformed event", bytes);
       return;
     }
-    handlers.onEvent(frame);
-  });
+    handlers.onEvent(frame as EventFrame);
+  }, (bytes) => invalid(`over the ${LINE_BYTES}-byte line limit`, bytes));
 
   Bun.connect({
     unix: socketAddress(socketPath),
@@ -778,7 +871,7 @@ export function subscribeEvents(
         }
         return;
       }
-      sock.write(`${JSON.stringify({ id: nextId(), method: "events.subscribe", params: { subscriptions } })}\n`);
+      sock.write(`${JSON.stringify({ id, method: "events.subscribe", params: { subscriptions } })}\n`);
     })
     .catch((err: Error) => {
       handlers.onError?.(new HerdrError("connect_failed", err.message));

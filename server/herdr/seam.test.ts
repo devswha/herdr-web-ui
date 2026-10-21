@@ -1,8 +1,12 @@
-import { afterEach, expect, it } from "bun:test";
+import { afterEach, expect, it, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentGet, herdrRpc, paneProcessInfo } from "./client.ts";
+import {
+  agentGet, HerdrError, herdrRpc, LARGE_REPLY_BYTES, LINE_BYTES, makeLineReader, paneProcessInfo, paneRead, sessionSnapshot,
+  subscribeEvents, type EventFrame,
+} from "./client.ts";
 
 // The typed herdr seam (server/herdr/methods.ts). `bun run typecheck` checks the lines marked
 // with ts-expect-error below: each must stay a compile error. They hold for a call without an explicit
@@ -34,42 +38,409 @@ async function typeOnly(): Promise<void> {
 }
 void typeOnly;
 
-// A stand-in herdr on a Unix socket: it records each request and answers with `result`.
-let dir = "";
-let listener: ReturnType<typeof Bun.listen> | null = null;
-afterEach(() => {
-  listener?.stop(true);
-  listener = null;
-  if (dir) rmSync(dir, { recursive: true, force: true });
-});
+// A stand-in herdr on a Unix socket. Each accepted connection gathers complete request lines (one
+// read is not one request) and hands each to `answer`, which writes whatever bytes it chooses: a
+// correlated reply, another request's id, a malformed envelope, a frame in pieces or an event
+// stream. Every connection's close is observable from the moment it is accepted, before a byte is
+// sent, and everything is torn down after each test.
+interface Request { id: string; method: string; params: unknown }
+interface Connection { socket: Socket; closed: Promise<void> }
+type Answer = (request: Request, connection: Connection) => void;
 
-function standIn(result: unknown): { path: string; written: { method: string; params: unknown }[] } {
-  dir = mkdtempSync(join(tmpdir(), "herdr-seam-"));
+const cleanups: (() => void | Promise<void>)[] = [];
+afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
+
+async function peer(answer: Answer) {
+  const dir = mkdtempSync(join(tmpdir(), "herdr-seam-"));
   const path = join(dir, "herdr.sock");
-  const written: { method: string; params: unknown }[] = [];
-  listener = Bun.listen({
-    unix: path,
-    socket: {
-      data(sock, chunk) {
-        const request = JSON.parse(chunk.toString()) as { id: string; method: string; params: unknown };
-        written.push({ method: request.method, params: request.params });
-        sock.write(`${JSON.stringify({ id: request.id, result })}\n`);
-      },
-    },
+  const requests: Request[] = [];
+  const connections: Connection[] = [];
+  const open = new Set<Socket>();
+  const server = createServer((socket) => {
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    const connection = { socket, closed };
+    connections.push(connection);
+    open.add(socket);
+    void closed.then(() => open.delete(socket));
+    socket.on("error", () => {});
+    let buffer = "";
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString();
+      for (let index = buffer.indexOf("\n"); index !== -1; index = buffer.indexOf("\n")) {
+        const request = JSON.parse(buffer.slice(0, index)) as Request;
+        buffer = buffer.slice(index + 1);
+        requests.push(request);
+        answer(request, connection);
+      }
+    });
   });
-  return { path, written };
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, resolve); });
+  cleanups.push(async () => {
+    for (const socket of open) socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  });
+  return { path, requests, connections, open };
 }
+
+function standIn(result: unknown) {
+  return peer((request, { socket }) => socket.end(`${JSON.stringify({ id: request.id, result })}\n`));
+}
+
+/** `promise`, or a rejection naming `what` once `ms` pass: an awaited event, never a fixed wait. */
+function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not happen within ${ms}ms`)), ms); });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+async function rejection(promise: Promise<unknown>): Promise<HerdrError> {
+  const error = await promise.then(() => null, (e: unknown) => e);
+  if (!(error instanceof HerdrError)) throw new Error(`expected a HerdrError, got ${String(error)}`);
+  return error;
+}
+
+/** One JSON line of exactly `bytes` bytes before its newline: `build` gets the padding to place. */
+function exactLine(bytes: number, build: (pad: string) => unknown): string {
+  const empty = Buffer.byteLength(JSON.stringify(build("")));
+  const line = JSON.stringify(build("a".repeat(bytes - empty)));
+  expect(Buffer.byteLength(line)).toBe(bytes);
+  return line;
+}
+
+/** The diagnostic lines herdrRpc writes, captured for one test and restored after it. */
+function captureDiagnostics() {
+  const lines: string[] = [];
+  const warn = spyOn(console, "warn").mockImplementation((line) => { lines.push(String(line)); });
+  cleanups.push(() => warn.mockRestore());
+  return { lines, records: () => lines.map((line) => JSON.parse(line) as Record<string, unknown>) };
+}
+
+/** Every timer `run` starts, so a test can see each was cleared again. */
+async function timersOf<T>(run: () => Promise<T>): Promise<{ value: T | HerdrError; open: number }> {
+  const started = new Set<unknown>();
+  const set = spyOn(globalThis, "setTimeout");
+  const clear = spyOn(globalThis, "clearTimeout");
+  try {
+    const value = await run().catch((e: unknown) => { if (e instanceof HerdrError) return e; throw e; });
+    for (const result of set.mock.results) started.add(result.value);
+    for (const [handle] of clear.mock.calls) started.delete(handle);
+    return { value, open: started.size };
+  } finally {
+    set.mockRestore();
+    clear.mockRestore();
+  }
+}
+
+/** A subscription's callbacks, each counted, with promises for the first of each. */
+function subscriber(path: string, expectEvents = 0) {
+  const events: EventFrame[] = [];
+  const errors: Error[] = [];
+  let closes = 0;
+  let started = 0;
+  const startedOnce = Promise.withResolvers<void>();
+  const errored = Promise.withResolvers<void>();
+  const closedOnce = Promise.withResolvers<void>();
+  const allEvents = Promise.withResolvers<void>();
+  if (expectEvents === 0) allEvents.resolve();
+  const subscription = subscribeEvents([{ type: "pane.agent_status_changed" }], {
+    onEvent: (frame) => { events.push(frame); if (events.length === expectEvents) allEvents.resolve(); },
+    onStarted: () => { started++; startedOnce.resolve(); },
+    onError: (error) => { errors.push(error); errored.resolve(); },
+    onClose: () => { closes++; closedOnce.resolve(); },
+  }, path);
+  cleanups.push(() => subscription.close());
+  return {
+    subscription, events, errors, closes: () => closes, started: () => started,
+    startedOnce: startedOnce.promise, errored: errored.promise, closedOnce: closedOnce.promise, allEvents: allEvents.promise,
+  };
+}
+
+const ack = (id: string) => `${JSON.stringify({ id, result: { type: "subscription_started" } })}\n`;
+const event = (n: number, pad = "") => ({ event: "pane.agent_status_changed", data: { pane_id: `pane-${n}`, agent_status: "working", pad }, future_field: n });
 
 it("asks pane.process_info by pane_id and answers its process_info", async () => {
   const process_info = { pane_id: "pane-1", shell_pid: 41, foreground_processes: [{ pid: 42, name: "codex", argv: ["codex"] }] };
-  const { path, written } = standIn({ type: "pane_process_info", process_info });
+  const { path, requests } = await standIn({ type: "pane_process_info", process_info });
   expect(await paneProcessInfo("pane-1", path)).toEqual(process_info);
-  expect(written).toEqual([{ method: "pane.process_info", params: { pane_id: "pane-1" } }]);
+  expect(requests.map(({ method, params }) => ({ method, params }))).toEqual([{ method: "pane.process_info", params: { pane_id: "pane-1" } }]);
 });
 
 it("asks agent.get by target and answers its agent", async () => {
   const agent = { pane_id: "pane-1", agent_session: { agent: "pi", kind: "path", source: "herdr:pi", value: "/s.jsonl" } };
-  const { path, written } = standIn({ type: "agent_info", agent });
+  const { path, requests } = await standIn({ type: "agent_info", agent });
   expect(await agentGet("pane-1", path)).toEqual(agent as never);
-  expect(written).toEqual([{ method: "agent.get", params: { target: "pane-1" } }]);
+  expect(requests.map(({ method, params }) => ({ method, params }))).toEqual([{ method: "agent.get", params: { target: "pane-1" } }]);
+});
+
+it("accepts a matching result and compatible unknown fields", async () => {
+  const replies = [
+    { result: { ok: true, added_later: { nested: [1, 2] } }, envelope_extra: "kept apart" },
+    { result: null },
+  ];
+  const { path, requests, connections } = await peer((request, { socket }) => {
+    socket.end(`${JSON.stringify({ id: request.id, ...replies[requests.length - 1] })}\n`);
+  });
+  expect(await herdrRpc<unknown>("fixture.read", {}, path)).toEqual({ ok: true, added_later: { nested: [1, 2] } });
+  expect(await herdrRpc("fixture.read", {}, path)).toBeNull();
+  // one connection per call, each with its own request id
+  expect(connections).toHaveLength(2);
+  expect(new Set(requests.map((r) => r.id)).size).toBe(2);
+});
+
+it("rejects null and incoherent envelopes", async () => {
+  const secret = "private-reply-text";
+  const cases: [string, (id: string) => unknown][] = [
+    ["not an object", () => null],
+    ["not an object", () => [secret]],
+    ["not an object", () => secret],
+    ["neither result nor error", (id) => ({ id, note: secret })],
+    ["both result and error", (id) => ({ id, result: { ok: true }, error: { code: "x", message: secret } })],
+    ["malformed error", (id) => ({ id, error: secret })],
+    ["malformed error", (id) => ({ id, error: null })],
+    ["malformed error", (id) => ({ id, error: { code: 7, message: secret } })],
+    ["malformed error", (id) => ({ id, error: { code: "x" } })],
+  ];
+  let reply: (id: string) => string = () => "";
+  const { path, requests } = await peer((request, { socket }) => socket.end(reply(request.id)));
+  for (const [reason, build] of cases) {
+    reply = (id) => `${JSON.stringify(build(id))}\n`;
+    const error = await rejection(herdrRpc("fixture.read", {}, path));
+    const sent = Buffer.byteLength(reply(requests.at(-1)!.id)) - 1;
+    expect([error.code, error.message]).toEqual(["bad_frame", `herdr sent an invalid reply to fixture.read (${reason}, ${sent} bytes)`]);
+    expect(error.message).not.toContain(secret);
+  }
+  reply = () => `{"id": "truncated", "result": ${secret}\n`;
+  const unparseable = await rejection(herdrRpc("fixture.read", {}, path));
+  expect(unparseable.code).toBe("bad_frame");
+  expect(unparseable.message).toBe(`herdr sent an invalid reply to fixture.read (unparseable frame, ${Buffer.byteLength(reply("")) - 1} bytes)`);
+  // a well-formed herdr error is still herdr's own answer, code and message
+  reply = (id) => `${JSON.stringify({ id, error: { code: "pane_not_found", message: "no such pane", detail: 1 } })}\n`;
+  const refused = await rejection(herdrRpc("fixture.read", {}, path));
+  expect([refused.code, refused.message]).toEqual(["pane_not_found", "no such pane"]);
+});
+
+it("rejects a mismatched reply id", async () => {
+  let reply: (id: string) => string = () => "";
+  const { path } = await peer((request, { socket }) => socket.end(reply(request.id)));
+  // another request's answer, a numeric or missing id: none is this request's reply
+  for (const id of ["br-someone-else", 7, null, undefined]) {
+    reply = () => `${JSON.stringify({ id, result: { stolen: true } })}\n`;
+    const error = await rejection(herdrRpc("fixture.read", {}, path));
+    expect(error.code).toBe("bad_frame");
+    expect(error.message).toContain("(reply to another request, ");
+  }
+  // two lines in one chunk: the foreign one first fails the call, the matching one after it is ignored
+  reply = (id) => `${JSON.stringify({ id: `${id}-other`, result: { stolen: true } })}\n${JSON.stringify({ id, result: { ok: true } })}\n`;
+  expect((await rejection(herdrRpc("fixture.read", {}, path))).message).toContain("reply to another request");
+  // and the matching one first wins, the rest of the chunk unread
+  reply = (id) => `${JSON.stringify({ id, result: { ok: true } })}\n${JSON.stringify({ id: "br-x", result: { stolen: true } })}\nnull\n`;
+  expect(await herdrRpc<unknown>("fixture.read", {}, path)).toEqual({ ok: true });
+});
+
+it("bounds bytes before a newline or UTF-8 decoding", async () => {
+  const encode = (text: string) => new TextEncoder().encode(text);
+  const read = (limit: number, chunks: Uint8Array[]) => {
+    const lines: [string, number][] = [];
+    const oversize: number[] = [];
+    const push = makeLineReader(limit, (line, bytes) => lines.push([line, bytes]), (bytes) => oversize.push(bytes));
+    const seen: number[] = [];
+    for (const chunk of chunks) { push(chunk); seen.push(oversize.length); }
+    return { lines, oversize, seen };
+  };
+  // exactly the limit passes; one byte more fails at the chunk that crosses it, with no newline yet
+  expect(read(8, [encode("12345678\n")])).toEqual({ lines: [["12345678", 8]], oversize: [], seen: [0] });
+  const over = read(8, [encode("1234"), encode("56789"), encode("more\n{\"after\":1}\n")]);
+  expect(over).toEqual({ lines: [], oversize: [9], seen: [0, 1, 1] });
+  // several frames in one chunk, and one frame across many chunks
+  expect(read(64, [encode("{\"a\":1}\n{\"b\":2}\n\n{\"c\":3}\n")]).lines.map(([line]) => line)).toEqual(['{"a":1}', '{"b":2}', '{"c":3}']);
+  const whole = encode("{\"text\":\"split frame\"}\n");
+  expect(read(64, [...whole].map((byte) => Uint8Array.of(byte))).lines).toEqual([['{"text":"split frame"}', whole.length - 1]]);
+  // a multibyte character split between reads decodes whole; CRLF ends a line like LF
+  const text = "{\"text\":\"한글 😀 ✓\"}";
+  const bytes = encode(`${text}\r\n`);
+  const cut = bytes.indexOf(0xf0) + 2; // inside the emoji's four bytes
+  const split = read(64, [bytes.subarray(0, bytes.indexOf(0xed) + 1), bytes.subarray(bytes.indexOf(0xed) + 1, cut), bytes.subarray(cut)]);
+  expect(split.lines).toEqual([[text, bytes.length - 1]]);
+  expect(JSON.parse(split.lines[0]![0])).toEqual({ text: "한글 😀 ✓" });
+  // the limit counts bytes, not characters: four three-byte characters are 12 bytes
+  expect(read(11, [encode("한한한한\n")]).oversize).toEqual([12]);
+
+  // through a real socket: an ordinary reply at exactly LINE_BYTES is answered, one byte more fails
+  // the call before any newline arrives, without waiting for the timeout
+  let reply: (id: string) => string = () => "";
+  const { path, connections } = await peer((request, { socket }) => socket.write(reply(request.id)));
+  reply = (id) => `${exactLine(LINE_BYTES, (pad) => ({ id, result: { text: `한 \u001b[1m✓ ${pad}` } }))}\n`;
+  const answered = await herdrRpc<{ text: string }>("fixture.read", {}, path, 30_000);
+  expect(answered.text.startsWith("한 \u001b[1m✓ a")).toBe(true);
+  await within(connections[0]!.closed, 5_000, "closing the answered connection");
+  reply = () => "x".repeat(LINE_BYTES + 1);
+  const error = await rejection(herdrRpc("fixture.read", {}, path, 30_000));
+  expect(error.code).toBe("bad_frame");
+  expect(error.message).toMatch(new RegExp(`^herdr sent an invalid reply to fixture\\.read \\(over the ${LINE_BYTES}-byte line limit, \\d+ bytes\\)$`));
+  expect(Number(error.message.match(/(\d+) bytes\)$/)![1])).toBeGreaterThan(LINE_BYTES);
+  await within(connections[1]!.closed, 5_000, "closing the oversized connection");
+}, 60_000);
+
+it("accepts largest supported pane and snapshot replies", async () => {
+  // escaped and multibyte text with ANSI colour, padded so each reply line is exactly the ceiling
+  const screen = "\u001b[1;38;5;208m한글 ✓ 😀\u001b[0m \"quoted\" back\\slash\ttab\r\n";
+  const pane = (n: number, title = "") => ({
+    pane_id: `pane-${n}`, workspace_id: "ws-1", tab_id: "tab-1", terminal_id: `term-${n}`, focused: n === 0, revision: n,
+    agent: "codex", display_agent: "Codex", agent_status: "working", cwd: `/home/user/projects/한글-${n}`, foreground_cwd: `/home/user/projects/한글-${n}`,
+    label: `label ${n}`, title, terminal_title: "codex — 작업", terminal_title_stripped: "codex — 작업",
+    agent_session: { agent: "codex", kind: "path", source: "herdr:codex", value: `/home/user/.codex/sessions/${n}.jsonl` },
+    scroll: { offset_from_bottom: 0, max_offset_from_bottom: 1000 }, state_labels: {}, tokens: {}, added_later: true,
+  });
+  const panes = Array.from({ length: 2000 }, (_, n) => pane(n));
+  let reply: (request: Request) => string = () => "";
+  const { path, connections, requests } = await peer((request, { socket }) => socket.end(`${reply(request)}\n`));
+
+  reply = ({ id }) => exactLine(LARGE_REPLY_BYTES, (pad) => ({
+    id, result: { type: "pane_read", read: { pane_id: "pane-1", workspace_id: "ws-1", tab_id: "tab-1", source: "recent", format: "ansi", text: `${screen.repeat(1000)}${pad}`, revision: 9, truncated: false, added_later: 1 } },
+  }));
+  const read = await paneRead({ paneId: "pane-1", source: "recent", format: "ansi", timeoutMs: 30_000 }, path);
+  expect(read.text.startsWith(screen.repeat(1000))).toBe(true);
+  expect(read.text.length).toBeGreaterThan(LINE_BYTES);
+  expect((read as unknown as { added_later: number }).added_later).toBe(1);
+
+  reply = ({ id }) => exactLine(LARGE_REPLY_BYTES, (pad) => ({
+    id, result: { type: "session_snapshot", snapshot: { workspaces: [{ workspace_id: "ws-1", label: "작업 공간" }], tabs: [{ tab_id: "tab-1", workspace_id: "ws-1" }], panes: [...panes, pane(2000, pad)] } },
+  }));
+  const snapshot = await sessionSnapshot(path, 30_000);
+  expect(snapshot.panes).toHaveLength(2001);
+  expect(snapshot.panes[1]).toEqual(panes[1] as never);
+  expect(Buffer.byteLength(JSON.stringify(panes[1]))).toBeLessThan(1024);
+
+  // the large ceiling is for those two methods only: the same 64 MiB answer to any other fails
+  const ordinary = await rejection(herdrRpc("pane.get", { pane_id: "pane-1" }, path, 30_000));
+  expect(ordinary.code).toBe("bad_frame");
+  expect(ordinary.message).toContain(`over the ${LINE_BYTES}-byte line limit`);
+  expect(connections).toHaveLength(3);
+  expect(requests.map((r) => r.method)).toEqual(["pane.read", "session.snapshot", "pane.get"]);
+}, 120_000);
+
+it("keeps subscriptions alive beyond the aggregate line cap", async () => {
+  // 2,100 events of about 8 KiB each: far more than LINE_BYTES in total, every line small
+  const count = 2100;
+  const pad = "e".repeat(8 * 1024);
+  const { path, connections } = await peer((request, { socket }) => {
+    socket.write(ack(request.id));
+    for (let n = 0; n < count; n += 50) socket.write(Array.from({ length: Math.min(50, count - n) }, (_, i) => `${JSON.stringify(event(n + i, pad))}\n`).join(""));
+  });
+  const s = subscriber(path, count);
+  await within(s.startedOnce, 5_000, "subscription_started");
+  await within(s.allEvents, 30_000, `${count} events`);
+  const total = s.events.reduce((sum, frame) => sum + Buffer.byteLength(JSON.stringify(frame)) + 1, 0);
+  expect(total).toBeGreaterThan(LINE_BYTES);
+  expect(s.events[count - 1]).toEqual(event(count - 1, pad) as never);
+  expect([s.errors, s.closes(), s.started()]).toEqual([[], 0, 1]);
+  // an explicit close ends the socket without an onClose
+  s.subscription.close();
+  await within(connections[0]!.closed, 5_000, "closing the subscription socket");
+  expect([s.errors, s.closes()]).toEqual([[], 0]);
+}, 60_000);
+
+it("validates subscription acknowledgement separately from events", async () => {
+  type Script = (id: string, socket: Socket) => void;
+  let script: Script = () => {};
+  const { path, connections } = await peer((request, { socket }) => script(request.id, socket));
+
+  // the acknowledgement must answer this subscribe's id; events after it carry none
+  script = (id, socket) => socket.write(`${ack(id)}${JSON.stringify(event(1))}\n${JSON.stringify(event(2))}\n`);
+  const good = subscriber(path, 2);
+  await within(good.allEvents, 5_000, "two events");
+  expect([good.started(), good.errors, good.events]).toEqual([1, [], [event(1), event(2)] as never]);
+  good.subscription.close();
+  await within(connections[0]!.closed, 5_000, "closing the good subscription");
+
+  // each bad acknowledgement: reported once, closed once, never started
+  const badAcks: [string, Script][] = [
+    ["reply to another request", (_id, socket) => socket.write(ack("br-someone-else"))],
+    ["unexpected acknowledgement", (id, socket) => socket.write(`${JSON.stringify({ id, result: { type: "pane_info" } })}\n`)],
+    ["not an object", (_id, socket) => socket.write("[1]\n")],
+    ["reply to another request", (_id, socket) => socket.write(`${JSON.stringify(event(1))}\n`)],
+  ];
+  for (const [reason, bad] of badAcks) {
+    script = bad;
+    const s = subscriber(path);
+    await within(s.closedOnce, 5_000, `closing on ${reason}`);
+    await within(connections.at(-1)!.closed, 5_000, "the peer seeing the close");
+    expect(s.errors.map((e) => [(e as HerdrError).code, e.message])).toEqual([["bad_frame", expect.stringContaining(`(${reason}, `)]]);
+    expect([s.started(), s.closes(), s.events]).toEqual([0, 1, []]);
+  }
+
+  // a herdr error answering the subscribe is herdr's own, reported as before
+  script = (id, socket) => socket.end(`${JSON.stringify({ id, error: { code: "invalid_request", message: "bad subscription" } })}\n`);
+  const refused = subscriber(path);
+  await within(refused.closedOnce, 5_000, "closing after herdr's error");
+  expect(refused.errors.map((e) => [(e as HerdrError).code, e.message])).toEqual([["invalid_request", "bad subscription"]]);
+  expect([refused.started(), refused.closes()]).toEqual([0, 1]);
+
+  // after the acknowledgement, a malformed event or an oversized line closes the stream once
+  const badEvents: [string, (id: string) => string][] = [
+    ["malformed event", () => "null\n"],
+    ["malformed event", () => "[1]\n"],
+    ["malformed event", () => `${JSON.stringify({ event: "pane.agent_status_changed" })}\n`],
+    ["malformed event", () => `${JSON.stringify({ event: 3, data: {} })}\n`],
+    // a second acknowledgement is no event either
+    ["malformed event", (id) => ack(id)],
+    ["unparseable frame", () => "{\"event\":\n"],
+    ["both result and error", (id) => `${JSON.stringify({ id, result: {}, error: { code: "x", message: "y" } })}\n`],
+    // no newline at all, and a three-byte character on every byte boundary
+    [`over the ${LINE_BYTES}-byte line limit`, () => "한".repeat(Math.ceil(LINE_BYTES / 3)) + "x"],
+  ];
+  for (const [reason, frame] of badEvents) {
+    script = (id, socket) => socket.write(`${ack(id)}${JSON.stringify(event(1))}\n${frame(id)}`);
+    const s = subscriber(path);
+    await within(s.closedOnce, 30_000, `closing on ${reason}`);
+    await within(connections.at(-1)!.closed, 5_000, "the peer seeing the close");
+    expect(s.errors.map((e) => [(e as HerdrError).code, e.message])).toEqual([["bad_frame", expect.stringContaining(`(${reason}, `)]]);
+    expect([s.started(), s.closes(), s.events]).toEqual([1, 1, [event(1)] as never]);
+  }
+}, 120_000);
+
+it("closes protocol failures without daemon-death proof", async () => {
+  const diagnostics = captureDiagnostics();
+  let broken = true;
+  const { path, connections } = await peer((request, { socket }) => {
+    if (!broken) { socket.end(`${JSON.stringify({ id: request.id, result: { ok: true } })}\n`); return; }
+    // two answers in one chunk, the first carrying another request's id; the socket stays open,
+    // so only the client can close it
+    socket.write(`${JSON.stringify({ id: "br-other", result: { secret: "private-reply-text" } })}\n${JSON.stringify({ id: request.id, result: { ok: true } })}\n`);
+  });
+  const failed = await timersOf(() => herdrRpc("fixture.read", {}, path, 10_000));
+  expect(failed.value).toBeInstanceOf(HerdrError);
+  const error = failed.value as HerdrError;
+  // a protocol failure, not one of the codes that say herdr is unreachable
+  expect(error.code).toBe("bad_frame");
+  expect(["connect_failed", "socket_missing", "closed", "socket_error", "timeout"]).not.toContain(error.code);
+  expect(failed.open).toBe(0);
+  // the client closed that connection, once, and the peer is still listening
+  await within(connections[0]!.closed, 5_000, "the client closing the bad connection");
+  expect(diagnostics.records()).toEqual([expect.objectContaining({ event: "herdr.rpc.failed", code: "bad_frame", operation: "fixture.read", phase: "response", pending: 0 })]);
+  expect(diagnostics.lines.join("\n")).not.toContain("private-reply-text");
+  expect(diagnostics.lines.join("\n")).not.toContain(path);
+
+  // the next call opens a fresh socket on the same peer and recovers
+  broken = false;
+  const recovered = await timersOf(() => herdrRpc("fixture.read", {}, path, 10_000));
+  expect([recovered.value, recovered.open]).toEqual([{ ok: true }, 0]);
+  expect(connections).toHaveLength(2);
+  expect(diagnostics.records()[1]).toEqual(expect.objectContaining({ event: "herdr.rpc.recovered", operation: "fixture.read", pending: 0 }));
+
+  // a subscription on a peer that breaks the protocol, then reopened on one that does not
+  broken = true;
+  const { path: streamPath, connections: streams } = await peer((request, { socket }) => {
+    socket.write(broken ? `${ack(request.id)}{"event":\n` : `${ack(request.id)}${JSON.stringify(event(1))}\n`);
+  });
+  const bad = subscriber(streamPath);
+  await within(bad.closedOnce, 5_000, "the subscription closing");
+  await within(streams[0]!.closed, 5_000, "the peer seeing the subscription close");
+  expect([bad.errors.map((e) => (e as HerdrError).code), bad.closes()]).toEqual([["bad_frame"], 1]);
+  broken = false;
+  const again = subscriber(streamPath, 1);
+  await within(again.allEvents, 5_000, "an event on the reopened subscription");
+  expect([again.errors, again.closes(), again.started()]).toEqual([[], 0, 1]);
+  expect(streams).toHaveLength(2);
 });
