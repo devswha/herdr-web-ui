@@ -18,7 +18,7 @@
  * A row's first message is prompt text: the route returns it only to a connection that may
  * drive (session-history-routes.ts), and it is never logged.
  */
-import { Database } from "bun:sqlite";
+import { constants as sqliteConstants, Database } from "bun:sqlite";
 import { closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readSync, realpathSync, statSync, type BigIntStats, type Dir, type Dirent, type Stats } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
@@ -651,10 +651,17 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
   const parent = real === null ? null : budget.resolve(dirname(path));
   if (real === null || parent === null) return null;
   if (!inside(root, real) || (parent !== root && !inside(root, parent)) || dirname(real) !== parent) return null;
-  if (!budget.stat(real)?.isFile()) return null;
+  const checked = budget.stat(real);
+  if (!checked?.isFile()) return null;
   let db: Database | undefined;
   try {
-    db = new Database(real, { readonly: true });
+    // the database opened must be the one checked: a link put in its place is not followed
+    // (SQLITE_OPEN_NOFOLLOW; SQLite's Unix VFS refuses it, its Windows one does not look), and after
+    // the open the path must still be the checked file (a folder above it swapped for a link, or
+    // Windows), so a swap between the check and the open lists nothing
+    db = new Database(real, sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
+    const opened = budget.stat(real);
+    if (!opened?.isFile() || opened.dev !== checked.dev || opened.ino !== checked.ino) return null;
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     return read(db);
   } catch { return null; }

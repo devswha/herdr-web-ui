@@ -240,6 +240,30 @@ describe("listSessions", () => {
     expect(resolutions).toBeLessThanOrEqual(MAX_STATS);
   });
 
+  it.skipIf(!SYMLINKS)("reads nothing from a SQLite store swapped for a link to another database after it was checked", () => {
+    const home = newHome();
+    install("hermes", home);
+    const elsewhere = newHome();
+    install("hermes", elsewhere);
+    const outside = new Database(join(elsewhere, ".hermes", "state.db"));
+    outside.exec("UPDATE messages SET content = 'outside the store' WHERE role = 'user'");
+    outside.close();
+    const checked = realpathSync(join(home, ".hermes", "state.db"));
+    let swapped = false;
+    const rows = listSessions("hermes", CWD, {
+      home, env: {},
+      // the database is checked, then swapped for a link to another one before it is opened
+      stat: (path) => {
+        const stat = statSync(path);
+        if (path === checked && !swapped) { swapped = true; rmSync(path); symlinkSync(join(elsewhere, ".hermes", "state.db"), path); }
+        return stat;
+      },
+    });
+    expect(swapped).toBe(true);
+    expect(rows.map((row) => row.firstMessage)).not.toContain("outside the store");
+    expect(rows).toEqual([]);
+  });
+
   it(`reads at most ${MAX_ENTRIES} entries of a folder, however many it holds`, () => {
     const home = newHome();
     mkdirSync(piStore(home), { recursive: true });
