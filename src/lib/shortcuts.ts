@@ -232,8 +232,9 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
       if (shortcut === null) return;
       if (keepsKeyForText(event)) return;
       event.preventDefault();
-      // a held chord repeats: a tab or a split is made once per press, not once per key repeat
-      if (event.repeat && (shortcut === "new-tab" || shortcut === "split-right" || shortcut === "split-down")) return;
+      // a held chord repeats: a tab or a split is made, and an attention jump made, once per press, not
+      // once per key repeat (a held jump would run through the agents and read finishes nobody looked at)
+      if (event.repeat && (shortcut === "new-tab" || shortcut === "split-right" || shortcut === "split-down" || shortcut === "next-attention")) return;
       switch (shortcut) {
         case "palette":
           actions.openPalette();

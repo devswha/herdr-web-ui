@@ -212,6 +212,18 @@ async function press(page: Page, keys: string): Promise<string | null> {
   await page.keyboard.press(keys);
   return selection(page);
 }
+/** the chord held down: the first keydown jumps, and each further keydown of the held key is a key repeat (repeat: true) */
+async function hold(page: Page, keys: string, repeats: number): Promise<string | null> {
+  const modifiers = keys.split("+");
+  const key = modifiers.pop()!;
+  for (const modifier of modifiers) await page.keyboard.down(modifier);
+  await page.keyboard.down(key);
+  for (let index = 0; index < repeats; index += 1) await page.keyboard.down(key);
+  const held = await selection(page);
+  await page.keyboard.up(key);
+  for (const modifier of modifiers.reverse()) await page.keyboard.up(modifier);
+  return held;
+}
 async function assertSelectionOnly(page: Page, since: WireCalls, what: string): Promise<WireCalls> {
   const calls = await wireCalls(page);
   const frames = calls.ws.slice(since.ws.length);
@@ -292,9 +304,10 @@ try {
         const before = await wireCalls(page);
         const expected = [target("local", panes.web), target("remote", panes.web), target("remote", panes.flaky), target("local", panes.hermes), target("local", panes.omp), target("local", panes.web)];
         for (const [index, want] of expected.entries()) {
-          const got = await press(page, keys);
-          steps.push({ action: `press ${index + 1}`, selection: got });
-          assert.equal(got, want, `press ${index + 1}: blocked first, then finishes, the list's order, round again`);
+          // the first press is held: its key repeats must not jump on, past finishes nobody read
+          const got = index === 0 ? await hold(page, keys, 3) : await press(page, keys);
+          steps.push({ action: index === 0 ? "press 1, held through 3 key repeats" : `press ${index + 1}`, selection: got });
+          assert.equal(got, want, `press ${index + 1}${index === 0 ? " (held through 3 key repeats: one press, one jump)" : ""}: blocked first, then finishes, the list's order, round again`);
           const [machine, pane] = want.split("/") as [string, string];
           await waitSelected(page, machine, pane);
           // the pane opens over its own PC's socket: an attach there, never input or a take-over
@@ -415,18 +428,44 @@ try {
         const { page } = session;
         await setStatuses(page, quiet(["remote", panes.omp, "blocked", 2]));
         await waitStatus(page, "remote", panes.omp, "blocked");
-        await page.keyboard.press((await chord(page)).replace("A", "K"));
-        const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
-        await palette.waitFor();
-        await palette.getByRole("searchbox").fill(">next agent");
-        const action = palette.getByRole("option", { name: /^Next agent needing attention/ });
-        await action.waitFor();
-        assert.match(await action.innerText(), /Next agent needing attention/);
-        await action.click();
-        await palette.waitFor({ state: "detached" });
+        // an opener outside every pane, counting the focus it is given back: in a split tab the opener is a
+        // pane, and that focus alone selects it again (PaneCanvas onFocusCapture), whatever takes focus next
+        const opener = () => page.evaluate(() => {
+          let probe = document.getElementById("palette-opener-probe");
+          if (!probe) {
+            const created = document.body.appendChild(Object.assign(document.createElement("button"), { id: "palette-opener-probe", textContent: "opener" }));
+            created.addEventListener("focus", () => { created.dataset.focused = String(Number(created.dataset.focused ?? "0") + 1); });
+            probe = created;
+          }
+          probe.focus();
+          probe.dataset.focused = "0";
+        });
+        const openerRefocused = () => page.evaluate(() => Number(document.getElementById("palette-opener-probe")?.dataset.focused ?? "0") > 0);
+        const runFromPalette = async () => {
+          await page.keyboard.press((await chord(page)).replace("A", "K"));
+          const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+          await palette.waitFor();
+          await palette.getByRole("searchbox").fill(">next agent");
+          const action = palette.getByRole("option", { name: /^Next agent needing attention/ });
+          await action.waitFor();
+          assert.match(await action.innerText(), /Next agent needing attention/);
+          await action.click();
+          // the focus goes back (or not) in the commit that removes the palette
+          await palette.waitFor({ state: "detached" });
+        };
+        await opener();
+        await runFromPalette();
         await waitSelected(page, "remote", panes.omp);
+        assert.equal(await openerRefocused(), false, "a jump from the palette does not hand focus back to its opener");
+        // nothing waits any more: the action is a no-op, and the opener gets focus back as after any other action
+        await setStatuses(page, [["remote", panes.omp, "working", 3]]);
+        await waitStatus(page, "remote", panes.omp, "working");
+        await opener();
+        await runFromPalette();
+        assert.equal(await selection(page), target("remote", panes.omp), "nothing to go to: the selection stays");
+        assert.equal(await openerRefocused(), true, "with nothing to go to, the opener gets focus back");
         await close(session, "palette");
-        console.log("PASS the palette's Next agent needing attention runs the jump");
+        console.log("PASS the palette's Next agent needing attention runs the jump, and gives focus back to its opener only when it did not move");
       }
 
       // ---- a watching device: both PCs' sockets acknowledged as observers, and the jump still only moves the selection ----

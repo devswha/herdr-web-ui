@@ -308,8 +308,9 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
       { id: "split-down-open", label: t("Split pane down and open it"), icon: Rows2, run: () => splitPane("down", true) },
     ] satisfies PaletteAction[] : []),
     ...(zoomPane && zoom && tabPanes > 1 ? [{ id: "zoom", label: t(zoom === "off" ? "Unzoom pane" : "Zoom pane"), icon: zoom === "off" ? Minimize2 : Maximize2, run: () => zoomPane(zoom) }] : []),
-    // the Agents list's next blocked agent, then its next finish not looked at, on any connected PC
-    { id: "next-attention", label: t("Next agent needing attention"), icon: SkipForward, shortcut: "next-attention", run: actions.selectNextAttention },
+    // the Agents list's next blocked agent, then its next finish not looked at, on any connected PC; a
+    // jump keeps focus off the opener as runPane does, and with nothing to go to the opener gets it back
+    { id: "next-attention", label: t("Next agent needing attention"), icon: SkipForward, shortcut: "next-attention", run: () => { if (actions.selectNextAttention()) navigated.current = true; } },
     { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view", run: actions.toggleView },
     { id: "sidebar", label: t("Toggle sidebar"), icon: PanelLeft, shortcut: "toggle-sidebar", run: actions.toggleSidebar },
     { id: "theme", label: t("Toggle theme"), icon: SunMoon, run: actions.toggleTheme },

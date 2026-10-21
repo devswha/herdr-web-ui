@@ -1401,8 +1401,10 @@ export function App() {
         // away or a finish read meanwhile is never jumped to
         const roster = agentRoster(machinesRef.current, { byActivity: settings.agentOrder === "activity", seqs: activityRef.current.seqs, pinned: currentSidebarPins() });
         const target = nextAttentionTarget(attentionCandidates([...roster.pinned, ...roster.rest], activityRef.current.status), selectionRef.current);
+        if (target === null) return false;
         // this browser's pick alone, as a sidebar tap: herdr's focus and the other devices stay put
-        if (target !== null) selectTargetRef.current(target.machineId, target.paneId);
+        selectTargetRef.current(target.machineId, target.paneId);
+        return true;
       },
       setView,
       toggleView: () => { setView(view === "chat" ? "terminal" : "chat"); setDrawerOpen(false); },
