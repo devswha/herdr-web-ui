@@ -909,6 +909,28 @@ describe("tab to another workspace", () => {
       expect(snapshot.panes.some((candidate) => candidate.pane_id === named.root_pane.pane_id)).toBe(false);
     } finally { for (const id of open) await workspaceClose(id).catch(() => {}); }
   });
+  it("leaves the name herdr gave a tab by its place behind, though the tab's number differs", async () => {
+    const source = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-place-out" });
+    const target = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-place-in" });
+    const open = [source.workspace.workspace_id, target.workspace.workspace_id];
+    try {
+      await tabCreate({ workspaceId: source.workspace.workspace_id });
+      const third = await tabCreate({ workspaceId: source.workspace.workspace_id });
+      await tabCreate({ workspaceId: target.workspace.workspace_id });
+      // the first tab closes: the third keeps its number, and herdr names it by its new place
+      await herdrRpc("tab.close", { tab_id: source.tab.tab_id });
+      const before = (await sessionSnapshot()).tabs.find((tab) => tab.tab_id === third.tab.tab_id);
+      expect(before?.number).toBe(3);
+      expect(before?.label).toBe("2");
+      const response = await post({ tab_id: third.tab.tab_id, workspace_id: target.workspace.workspace_id });
+      expect(response.status).toBe(200);
+      const moved = await response.json() as TabMovedToWorkspace;
+      const row = (await sessionSnapshot()).tabs.filter((tab) => tab.workspace_id === target.workspace.workspace_id);
+      // third in its new row, and unnamed there: herdr names it by that place, not by the "2" it had
+      expect(row.map((tab) => tab.tab_id).indexOf(moved.tab_id)).toBe(2);
+      expect(row.find((tab) => tab.tab_id === moved.tab_id)?.label).toBe("3");
+    } finally { for (const id of open) await workspaceClose(id).catch(() => {}); }
+  });
 });
 
 describe("agent rename", () => {

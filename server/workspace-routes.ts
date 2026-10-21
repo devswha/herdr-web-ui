@@ -279,8 +279,11 @@ export async function handleWorkspaceRequest(request: Request, url: URL, pathnam
       if (tab.workspace_id === payload.workspace_id) return conflictResponse("same_workspace", "the tab is already in that workspace");
       const panes = snapshot.panes.filter((pane) => pane.tab_id === tab.tab_id);
       if (panes.length !== 1 || !panes[0]) return conflictResponse("multi_pane_tab", "only a tab with one pane can move to another workspace");
-      // herdr names an unnamed tab by its place: that number is not carried over
-      const label = tab.label.trim() === "" || tab.label === String(tab.number) ? null : tab.label;
+      // herdr names an unnamed tab by its place in the row, which it moves up when a tab before it
+      // closes while the tab keeps its number (src/lib/tabName.ts): that name is not carried over
+      const place = snapshot.tabs.filter((candidate) => candidate.workspace_id === tab.workspace_id).indexOf(tab) + 1;
+      const named = tab.label.trim();
+      const label = named === "" || named === String(place) ? null : named;
       const moved = await paneMoveToNewTab(panes[0].pane_id, payload.workspace_id, label);
       broadcastAll({ type: "session-changed" });
       return jsonResponse({ ok: true, pane_id: moved.pane.pane_id, tab_id: moved.pane.tab_id } satisfies TabMovedToWorkspace);
