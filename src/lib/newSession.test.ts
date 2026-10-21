@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { firstMessageOf, newSessionLaunch } from "./newSession.ts";
+import { createRequest, firstMessageOf, firstMessageOutcome, newSessionLaunch, startNewSession } from "./newSession.ts";
 import { inFlightGuard } from "./sessionHistory.ts";
 
 const plain = { claudeLaunchMode: "default", codexLaunchMode: "default" } as const;
@@ -32,8 +32,47 @@ describe("newSessionLaunch", () => {
   });
 });
 
+describe("the create request", () => {
+  const ready = (fields: Parameters<typeof newSessionLaunch>[0]) => {
+    const launch = newSessionLaunch(fields, plain);
+    if ("fault" in launch) throw new Error("fault");
+    return launch;
+  };
+  it("leaves first_message out when there is none, so its body is the one a bridge before it took", () => {
+    expect(createRequest({ tab: null, directory: " /work ", name: "" }, ready({ agent: "codex", model: "", effort: "", prompt: "" }), "c1"))
+      .toEqual({ cwd: "/work", label: null, agent: { kind: "codex" } });
+    expect(createRequest({ tab: { workspaceId: "w1", cwd: null }, directory: "", name: " API " }, ready({ agent: "codex", model: "", effort: "", prompt: "go" }), "c1"))
+      .toEqual({ workspace_id: "w1", cwd: null, label: "API", agent: { kind: "codex", args: ["--", "go"] } });
+  });
+  it("names this page's connection with a first message, and none when the page has no open connection", () => {
+    const launch = ready({ agent: "omp", model: "", effort: "", prompt: "Fix it" });
+    expect(createRequest({ tab: null, directory: "/w", name: "" }, launch, "c1")).toEqual({ cwd: "/w", label: null, agent: { kind: "omp" }, first_message: "Fix it", first_message_connection: "c1" });
+    expect(createRequest({ tab: null, directory: "/w", name: "" }, launch, null)).toEqual({ cwd: "/w", label: null, agent: { kind: "omp" }, first_message: "Fix it" });
+  });
+  it("sends Codex a prompt with a tab or a line break as the first message: one command-line argument is one line", () => {
+    const launch = ready({ agent: "codex", model: "", effort: "", prompt: "first line\nsecond\tcolumn" });
+    expect(launch).toEqual({ agent: { kind: "codex" }, prompt: { text: "first line\nsecond\tcolumn", via: "pending" } });
+  });
+});
+
+describe("what became of the first message", () => {
+  const sent = { cwd: "/w", label: null, agent: { kind: "omp" }, first_message: "Fix it" };
+  const made = { workspace_id: "w1", pane_id: "p1", agent_started: true };
+  it("tells a queued message from one the bridge could not queue and from a bridge that ignored the field", () => {
+    expect(firstMessageOutcome(sent, { ...made, first_message: { id: "m1" } })).toEqual({ kind: "queued" });
+    expect(firstMessageOutcome(sent, { ...made, first_message: { error: { code: "pending_limit", message: "full" } } }))
+      .toEqual({ kind: "not_queued", error: { code: "pending_limit", message: "full" } });
+    expect(firstMessageOutcome(sent, made)).toEqual({ kind: "not_queued", error: null });
+  });
+  it("has nothing to say without a first message, or when the agent did not start", () => {
+    expect(firstMessageOutcome({ cwd: "/w", label: null, agent: { kind: "codex" } }, made)).toEqual({ kind: "none" });
+    expect(firstMessageOutcome(sent, { ...made, agent_started: false, first_message: null })).toEqual({ kind: "none" });
+  });
+});
+
 describe("Start's in-flight guard", () => {
   it("sends one create however often Start is pressed while the first is in flight, then takes the next", async () => {
+    // the dialog's own Start: its guard, its request and startNewSession, with the create stood in for
     const guard = inFlightGuard();
     const sent: unknown[] = [];
     let release = (): void => {};
@@ -42,7 +81,9 @@ describe("Start's in-flight guard", () => {
       return new Promise<{ pane_id: string }>((resolve) => { release = () => resolve({ pane_id: `p${sent.length}` }); });
     };
     const launch = newSessionLaunch({ agent: "omp", model: "", effort: "", prompt: "Fix it" }, plain);
-    const start = () => guard.run(() => create({ workspace_id: "w1", agent: "fault" in launch ? null : launch.agent, first_message: firstMessageOf(launch) }));
+    if ("fault" in launch) throw new Error("fault");
+    const request = createRequest({ tab: { workspaceId: "w1", cwd: null }, directory: "", name: "" }, launch, "c1");
+    const start = () => startNewSession(guard, request, create);
     const first = start();
     expect(first).not.toBeNull();
     expect(start()).toBeNull();
@@ -50,7 +91,7 @@ describe("Start's in-flight guard", () => {
     expect(guard.busy()).toBeTrue();
     release();
     await expect(first).resolves.toEqual({ pane_id: "p1" });
-    expect(sent).toEqual([{ workspace_id: "w1", agent: { kind: "omp" }, first_message: "Fix it" }]);
+    expect(sent).toEqual([{ workspace_id: "w1", cwd: null, label: null, agent: { kind: "omp" }, first_message: "Fix it", first_message_connection: "c1" }]);
     expect(guard.busy()).toBeFalse();
     expect(start()).not.toBeNull();
     expect(sent).toHaveLength(2);

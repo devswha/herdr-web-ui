@@ -9,7 +9,7 @@
  * opencode.json that is a FIFO holds neither the scan nor the send.
  */
 import { afterAll, beforeAll, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
@@ -87,25 +87,38 @@ async function firstMessage(label: string, session: string | null, cwd = root) {
   if (session) await herdrRpc("pane.report_agent_session", { pane_id: pane, source: "herdr:opencode", agent: "opencode", agent_session_id: session, session_start_source: "select" });
   const reported = session ? { agent_session_id: session } : {};
   await herdrRpc("pane.report_agent", { pane_id: pane, source: "herdr:opencode", agent: "opencode", ...reported, state: "working" });
-  const message = await server.queueFirstMessage(pane, "@effect apply it", "opencode");
+  // the page's connection, open before its request: the one that types the first message on its own
   const socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
   const frames: any[] = [];
-  socket.addEventListener("message", (event) => frames.push(JSON.parse(String(event.data))));
-  await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
+  const waiters = new Set<{ match: (frame: any) => boolean; done: (frame: any) => void }>();
+  socket.addEventListener("message", (event) => {
+    const frame = JSON.parse(String(event.data));
+    frames.push(frame);
+    for (const waiter of [...waiters]) if (waiter.match(frame)) { waiters.delete(waiter); waiter.done(frame); }
+  });
+  /** the first frame `match` takes, received already or still to come */
+  const frame = (match: (frame: any) => boolean, what: string, ms = 15_000): Promise<any> => {
+    const seen = frames.find(match);
+    if (seen) return Promise.resolve(seen);
+    return new Promise((resolve, reject) => {
+      const waiter = { match, done: (found: any) => { clearTimeout(timer); resolve(found); } };
+      const timer = setTimeout(() => { waiters.delete(waiter); reject(new Error(`${what}: ${JSON.stringify(typed(label))} ${JSON.stringify(frames.filter((item) => item.type === "pending-messages").slice(-2))}`)); }, ms);
+      waiters.add(waiter);
+    });
+  };
+  const { connection } = await frame((item) => item.type === "snapshot", "no snapshot");
+  const message = await server.queueFirstMessage(pane, "@effect apply it", "opencode", connection);
   socket.send(JSON.stringify({ type: "attach", pane_id: pane, cols: 80, rows: 24 }));
-  for (const deadline = Date.now() + 10_000; !frames.some((frame) => frame.type === "input-ready" && frame.pane_id === pane);) {
-    if (Date.now() > deadline) throw new Error("the pane's input never became ready");
-    await Bun.sleep(25);
-  }
+  await frame((item) => item.type === "input-ready" && item.pane_id === pane, "the pane's input never became ready", 10_000);
+  const sent = frame((item) => item.type === "pending-messages" && item.removed?.some((entry: any) => entry.id === message.id && entry.outcome === "sent"), "the first message was not sent");
   await herdrRpc("pane.report_agent", { pane_id: pane, source: "herdr:opencode", agent: "opencode", ...reported, state: "idle" });
-  for (const deadline = Date.now() + 15_000; !frames.some((frame) => frame.type === "pending-messages" && frame.removed?.some((entry: any) => entry.id === message.id && entry.outcome === "sent"));) {
-    if (Date.now() > deadline) throw new Error(`the first message was not sent: ${JSON.stringify(typed(label))} ${JSON.stringify(frames.filter((frame) => frame.type === "pending-messages").slice(-2))}`);
-    await Bun.sleep(25);
-  }
-  for (const deadline = Date.now() + 5_000; !typed(label).endsWith("\r");) {
-    if (Date.now() > deadline) throw new Error(`no Enter after the message: ${JSON.stringify(typed(label))}`);
-    await Bun.sleep(25);
-  }
+  await sent;
+  // the Enter after the message, as the stand-in records it
+  await new Promise<void>((resolve, reject) => {
+    const watcher = watch(root, () => { if (typed(label).endsWith("\r")) { clearTimeout(timer); watcher.close(); resolve(); } });
+    const timer = setTimeout(() => { watcher.close(); reject(new Error(`no Enter after the message: ${JSON.stringify(typed(label))}`)); }, 5_000);
+    if (typed(label).endsWith("\r")) { clearTimeout(timer); watcher.close(); resolve(); }
+  });
   const shown = await (await fetch(`http://127.0.0.1:${server.port}/api/pane/prompt?pane_id=${encodeURIComponent(pane)}`)).json() as PanePromptResponse;
   socket.close();
   return { typed: typed(label), outcomes: shown.outcomes ?? [] };

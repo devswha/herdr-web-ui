@@ -17,6 +17,7 @@ import type { RepoDiffFile, RepoDiffFileList, RepoDiffFilePatch, RepoDiffReposit
 import { VOICE_DEFAULTS, type VoiceStatus } from "../../shared/voice.ts";
 import { isAgentName } from "../../shared/agent-name.ts";
 import { skillSyntax } from "../../shared/skill-syntax.ts";
+import { firstMessageFault } from "../../shared/launch-rules.ts";
 import { neighborPane } from "../../src/lib/layoutMap.ts";
 import { closeLayoutPane, resizeLayout, setLayoutSplitRatio, splitLayout, swapLayoutPanes } from "../../src/lib/layoutTree.ts";
 import { rollupStatus } from "../../src/lib/status.ts";
@@ -471,25 +472,24 @@ const now = () => new Date().toISOString();
 /**
  * The first messages create requests queued for new panes' agents (`first_message`), by pane, as the
  * bridge keeps them: told to every socket attached to the pane, typed into the chat once when the
- * agent is first ready and a socket is attached, discarded or sent now through pending-action.
+ * agent is first ready through the socket that asked (`first_message_connection`) while it is
+ * attached, held once that socket closes first or when none was named, and discarded or sent now
+ * through pending-action by any attached socket.
  */
 const firstMessages = new Map<string, PendingMessage>();
+/** the connection that asked for each pane's first message */
+const firstRequesters = new Map<string, string>();
 let nextFirst = 1;
+let nextConnection = 1;
+const FIRST_MESSAGE_UNATTENDED = { code: "first_message_unattended", message: "The page that sent this first message is gone; send it now or discard it" };
 
-/** What is wrong with a create request's `first_message`, as the bridge refuses it (server/workspace-routes.ts firstMessageFault). */
-function firstMessageFault(value: unknown, agent: string | null): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "string") return "first_message must be a string";
-  if (value.trim() === "" || value.length > 20_000) return "first_message must contain text and be at most 20000 characters";
-  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(value)) return "first_message must not contain terminal control characters";
-  if (agent === null) return "first_message needs an agent to send it to";
-  return null;
-}
-
-function queueFirstMessage(paneId: string, text: string): PendingMessage {
-  const message: PendingMessage = { id: `demo-first-${nextFirst}`, request_id: -nextFirst, text, state: "queued", created_at: now() };
+function queueFirstMessage(paneId: string, text: string, requester: unknown): PendingMessage {
+  const asked = typeof requester === "string" && [...sockets].some((socket) => socket.connection === requester);
+  const message: PendingMessage = { id: `demo-first-${nextFirst}`, request_id: -nextFirst, text, state: asked ? "queued" : "held",
+    created_at: now(), ...(asked ? {} : { error: { ...FIRST_MESSAGE_UNATTENDED } }) };
   nextFirst += 1;
   firstMessages.set(paneId, message);
+  if (asked) firstRequesters.set(paneId, requester as string); else firstRequesters.delete(paneId);
   publishFirstMessage(paneId);
   return message;
 }
@@ -499,11 +499,17 @@ function publishFirstMessage(paneId: string, removed?: { id: string; outcome: "s
   for (const socket of sockets) if (socket.attachedTo(paneId)) socket.push({ type: "pending-messages", pane_id: paneId, messages: message ? [structuredClone(message)] : [], ...(removed ? { removed } : {}) });
 }
 
-/** The pane's first message typed into its chat, if one waits and a socket is attached to type it; false otherwise. */
-function deliverFirstMessage(paneId: string): boolean {
+/**
+ * The pane's first message typed into its chat: on its own (`by` null) only while it waits and the socket that
+ * asked is attached; on a socket's Send now (`by`) when that socket is attached. False when it was not typed.
+ */
+function deliverFirstMessage(paneId: string, by: DemoSocket | null = null): boolean {
   const message = firstMessages.get(paneId);
-  if (!message || message.state !== "queued" || ![...sockets].some((socket) => socket.attachedTo(paneId))) return false;
+  if (!message) return false;
+  if (by === null ? message.state !== "queued" || ![...sockets].some((socket) => socket.connection === firstRequesters.get(paneId) && socket.attachedTo(paneId))
+    : !by.attachedTo(paneId)) return false;
   firstMessages.delete(paneId);
+  firstRequesters.delete(paneId);
   submitToChat(paneId, message.text);
   publishFirstMessage(paneId, [{ id: message.id, outcome: "sent" }]);
   return true;
@@ -1213,7 +1219,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const made = createDemoWorkspace(cwd, label, agent);
     structureChanged();
     if (typeof body["first_message"] !== "string") return json(made);
-    return json({ ...made, first_message: made.agent_started ? { id: queueFirstMessage(made.pane_id, body["first_message"]).id } : null });
+    return json({ ...made, first_message: made.agent_started ? { id: queueFirstMessage(made.pane_id, body["first_message"], body["first_message_connection"]).id } : null });
   }
   if (path === "/api/tab/create") {
     const body = await bodyOf(init, input);
@@ -1254,7 +1260,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     structureChanged();
     const made: WorkspaceCreated = { workspace_id: id, pane_id: pane.pane_id, agent_started: agent !== null };
     if (typeof body["first_message"] !== "string") return json(made);
-    return json({ ...made, first_message: agent !== null ? { id: queueFirstMessage(pane.pane_id, body["first_message"]).id } : null });
+    return json({ ...made, first_message: agent !== null ? { id: queueFirstMessage(pane.pane_id, body["first_message"], body["first_message_connection"]).id } : null });
   }
   // no key in the demo: the app falls back to the browser's own speech recognition
   if (path === "/api/voice") return json({ configured: false, source: null, ...VOICE_DEFAULTS } satisfies VoiceStatus, 200, { "cache-control": "no-store" });
@@ -1363,6 +1369,8 @@ const SHELL_COMMANDS: Record<string, string> = {
 };
 
 class DemoSocket extends EventTarget {
+  /** this socket's id, told in its snapshot: a create request names it as its first message's typist */
+  readonly connection = `demo-connection-${nextConnection++}`;
   static readonly CONNECTING = 0; static readonly OPEN = 1; static readonly CLOSING = 2; static readonly CLOSED = 3;
   readonly url: string;
   readyState = 0;
@@ -1396,7 +1404,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch", "ping"] });
+      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch", "ping"], connection: this.connection });
     }, 20);
     this.timers.add(opening);
   }
@@ -1591,7 +1599,7 @@ class DemoSocket extends EventTarget {
               firstMessages.delete(message.pane_id);
               publishFirstMessage(message.pane_id, [{ id: first.id, outcome: "discarded" }]);
               result(true);
-            } else result(deliverFirstMessage(message.pane_id), ["idle", "done"].includes(paneOf(message.pane_id)?.agent_status ?? "") ? undefined : "agent_blocked");
+            } else result(deliverFirstMessage(message.pane_id, this), ["idle", "done"].includes(paneOf(message.pane_id)?.agent_status ?? "") ? undefined : "agent_blocked");
             break;
           }
           const pending = this.pending.get(message.pane_id)?.find((item) => item.id === message.pending_id);
@@ -1823,6 +1831,14 @@ class DemoSocket extends EventTarget {
     if (this.readyState >= 2) return;
     this.readyState = 3;
     this.holdPending();
+    // the first messages this socket asked for and that have not gone: held for an explicit send
+    for (const [paneId, requester] of firstRequesters) {
+      const first = firstMessages.get(paneId);
+      if (requester !== this.connection || first?.state !== "queued") continue;
+      first.state = "held"; first.error = { ...FIRST_MESSAGE_UNATTENDED };
+      firstRequesters.delete(paneId);
+      publishFirstMessage(paneId);
+    }
     for (const timer of this.timers) clearTimeout(timer);
     sockets.delete(this);
     this.attached.clear();

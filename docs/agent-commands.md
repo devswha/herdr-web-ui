@@ -164,7 +164,12 @@ other agent starts with its own configuration. Any agent can get a first message
 message as its own argument after `--`, so a message such as `logout` is never read as a
 subcommand. Claude Code and every other agent get it through the bridge's pending record
 (`first_message` on the create request): it is queued for the pane and sent once when the agent
-is ready, like any queued message, and it can be discarded or sent now.
+is ready, like any queued message, and it can be discarded or sent now. Only the page that sent the
+request (`first_message_connection`) types it on its own, while it has the pane attached; if that page
+disconnects first, the message is held until someone sends it now or discards it. A pane holds one
+first message, bound to the agent process that runs when it is queued. First messages live in the
+bridge's memory, so a restart drops the ones not sent yet. The bridge checks launch arguments by the
+dialog's rules in `shared/launch-rules.ts`.
 
 ## Adding a command form or a reader
 

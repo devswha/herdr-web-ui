@@ -1197,11 +1197,19 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   so it starts with the agent. Claude Code's parser runs a subcommand named by the first operand even
   after `--` (`claude -- update` ran the updater on 2.1.304), so it and every other agent start bare
   and the text rides on the create request as `first_message`: the bridge queues it as its own pending
-  message for the pane (`server/core/pending.ts` FIRST_MESSAGE_OWNER), told to every connection that
-  attaches the pane (a reload or another lens included) as a **Next turn** pending message with
-  Discard and Send now, and typed once, through an attached connection, when the agent is first ready,
-  with the queued path's own checks (a draft in Claude's box holds it with `input_draft`; a replaced
-  agent holds it with `pending_target_changed`). The page never types it: no draft, no auto-send.
+  message for the pane (`server/core/pending.ts` FIRST_MESSAGE_OWNER, one per pane), told to every
+  connection that attaches the pane as a **Next turn** pending message with Discard and Send now, and
+  typed once when the agent is first ready only through the page that sent the request
+  (`first_message_connection`, its socket's id from the first snapshot) while it has the pane attached,
+  with the queued path's own checks (a draft in Claude's box holds it with `input_draft`; another
+  agent, or another process of the same kind than the one it was queued under, holds it with
+  `pending_target_changed`). When that page disconnects or reloads first, it is held with a note and
+  waits for someone's Send now or Discard, as any draft does after a disconnect. The page never types
+  it itself. When the PC answers that it could not queue the message (`first_message.error`) or
+  answers without `first_message` (a bridge before it), the text goes into the new tab's message box
+  and the dialog stays open saying so, with **Open**. A Codex message with a tab or a line break is no
+  one-line argument: it goes as `first_message` instead. The bridge checks the model, the effort and
+  Codex's argument by the dialog's own rules (`shared/launch-rules.ts`); switching agents clears the model.
   Under the message, **Skills**: the agent's skills in the folder before any process exists
   (`GET /api/agent/commands?agent=&cwd=`, the pane commands route without a pane: the bridge's
   tables and a disk scan, no agent started; a device that may only watch is refused it as it is a

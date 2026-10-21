@@ -7,8 +7,9 @@
  * positional argument behind `--`, never queued as well); Claude Code, whose parser would run a
  * message named like a subcommand, starts bare and the message rides on the request as
  * `first_message`: the bridge's own pending message, shown in the new pane's chat until the agent is
- * first ready, then typed once, with this page never sending it itself, also when the connection
- * drops and comes back before the agent is ready; a choice the launch does not take disables Start
+ * first ready, then typed once through this page's own connection, with this page never sending it
+ * itself; when that connection drops before the agent is ready, the message is held, never typed on its
+ * own, and goes once on Send now; a choice the launch does not take disables Start
  * and is dropped with the agent; the keyboard reaches every control.
  * Captures at 390 (true mobile emulation) and 1280, dark and light. All files and HTTP traffic
  * stay in this disposable, loopback-only app; no herdr session is opened.
@@ -155,7 +156,7 @@ try {
         await page.screenshot({ path: join(evidence, "phone-dark-pending.png") });
         const held = await recorded(page);
         assert.equal(held.length, 1, `a double tap on Start sends one tab/create, not ${held.length}`);
-        assert.deepEqual(held[0]!.body, { workspace_id: "w1C", cwd: "/home/demo/checkout-api", label: null, agent: { kind: "codex", args: ["-c", "model_reasoning_effort=high", "--", "$review-pr the export branch"] }, first_message: null }, "the prompt is Codex's own argument behind the end-of-options separator, and no first_message rides along");
+        assert.deepEqual(held[0]!.body, { workspace_id: "w1C", cwd: "/home/demo/checkout-api", label: null, agent: { kind: "codex", args: ["-c", "model_reasoning_effort=high", "--", "$review-pr the export branch"] } }, "the prompt is Codex's own argument behind the end-of-options separator, and no first_message rides along");
         await page.evaluate(() => (window as unknown as QaWindow).qaRelease());
         await dialog.waitFor({ state: "detached" });
         await page.locator(".pane-frame.is-current .terminal-stack.is-chat").waitFor();
@@ -198,7 +199,8 @@ try {
         await dialog.getByRole("button", { name: "Start", exact: true }).click();
         await dialog.waitFor({ state: "detached" });
         const sent = await recorded(page);
-        assert.deepEqual(sent.map((request) => request.body), [{ workspace_id: "w1C", cwd: "/home/demo/checkout-api", label: null, agent: { kind: "claude", args: ["--model", "opus", "--effort", "high"] }, first_message: "Plan the config file" }], "the message is the request's first_message, never an argument of Claude Code's");
+        assert.match(String(sent[0]?.body["first_message_connection"]), /^demo-connection-\d+$/, "the request names this page's connection as the one that types the message");
+        assert.deepEqual(sent.map(({ body: { first_message_connection: _, ...body } }) => body), [{ workspace_id: "w1C", cwd: "/home/demo/checkout-api", label: null, agent: { kind: "claude", args: ["--model", "opus", "--effort", "high"] }, first_message: "Plan the config file" }], "the message is the request's first_message, never an argument of Claude Code's");
         // the new pane opens on its chat, where the bridge's pending message shows until the agent rests
         const bubble = page.locator(".pane-frame.is-current .pending-message-bubble", { hasText: "Plan the config file" });
         await bubble.waitFor();
@@ -220,8 +222,8 @@ try {
         console.log("PASS Claude Code starts bare with its model and effort; the first message is the bridge's pending message, shown in the chat and sent once when the agent rests, with no send from the page");
       } finally { await pendingPath.close(); }
 
-      // the connection drops right after Start and comes back before the agent is ready: the pending message is
-      // told to the new connection and still sent exactly once
+      // the connection drops right after Start and comes back before the agent is ready: nothing the user typed goes
+      // on its own after a disconnect, so the message is held for the new connection's Send now, and goes once then
       const reconnect = await desktop(browser, "dark");
       try {
         await reconnect.addInitScript(settings, "dark");
@@ -241,19 +243,28 @@ try {
         await page.locator(".conn-live").waitFor({ state: "detached" });
         await page.locator(".conn-live").waitFor({ state: "attached" });
         const turn = page.locator(".pane-frame.is-current .chat-turn", { hasText: "Reconnect me" });
+        // the agent rests with the message held, not typed: the note says why, and Send now and Discard are offered
+        await page.locator(".pane-frame.is-current .composer-status:is([data-status=\"idle\"], [data-status=\"done\"])").waitFor({ timeout: 8_000 });
+        const held = page.locator(".pane-frame.is-current .pending-message", { hasText: "Reconnect me" });
+        await held.locator(".pending-message-note", { hasText: "the page that started this agent left before it was ready" }).waitFor();
+        assert.equal(await turn.count(), 0, "not typed on its own after the drop");
+        assert.equal(await held.getByRole("button", { name: "Discard", exact: true }).count(), 1, "Discard is offered");
+        await settled(page);
+        await page.screenshot({ path: join(evidence, "desktop-dark-omp-reconnect-held.png") });
+        await held.getByRole("button", { name: "Send now: Reconnect me", exact: true }).click();
         await turn.first().waitFor({ timeout: 8_000 });
         await page.locator(".pane-frame.is-current .composer-status:is([data-status=\"idle\"], [data-status=\"done\"])").waitFor({ timeout: 8_000 });
-        assert.equal(await turn.count(), 1, "sent once across the reconnect");
+        assert.equal(await turn.count(), 1, "sent once, on Send now");
         assert.equal(await page.locator(".pane-frame.is-current .pending-message-bubble").count(), 0, "and no copy stays pending");
-        assert.deepEqual(await submits(page), [], "the page sent nothing on either connection");
-        assert.deepEqual((await recorded(page)).map((request) => request.body), [{ workspace_id: "w1C", cwd: "/home/demo/checkout-api", label: null, agent: { kind: "omp" }, first_message: "Reconnect me" }]);
+        assert.deepEqual(await submits(page), [], "the page sent no submit on either connection: Send now is the bridge's pending action");
+        assert.deepEqual((await recorded(page)).map(({ body: { first_message_connection: _, ...body } }) => body), [{ workspace_id: "w1C", cwd: "/home/demo/checkout-api", label: null, agent: { kind: "omp" }, first_message: "Reconnect me" }]);
         await settled(page);
         await page.screenshot({ path: join(evidence, "desktop-dark-omp-reconnect-sent.png") });
-        log.push("", "POST /api/tab/create bodies, desktop, Oh My Pi with a first message, the socket dropped right after Start:");
+        log.push("", "POST /api/tab/create bodies, desktop, Oh My Pi with a first message, the socket dropped right after Start (held, then Send now):");
         log.push(...(await recorded(page)).map((request, index) => `${index + 1}. ${JSON.stringify(request.body)}`));
         log.push(`submit frames from the page: ${JSON.stringify(await submits(page))}`);
         assert.deepEqual(errors, []);
-        console.log("PASS a connection that drops and returns before the agent is ready still gets the first message sent exactly once, with no send from the page");
+        console.log("PASS a connection that drops before the agent is ready gets the first message held, not typed, and sent exactly once on Send now");
       } finally { await reconnect.close(); }
 
       // validation and the keyboard: a model that is not one word disables Start and is said; another

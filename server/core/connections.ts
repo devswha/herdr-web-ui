@@ -17,6 +17,8 @@ export interface SocketData {
   deviceId?: string;
   readOnly?: boolean;
   relay?: MachineRelay;
+  /** this connection's id, told to its page in the first snapshot: a create request names it as its first message's typist */
+  connectionId: string;
   /** A fresh claim per attach lifetime; deleting it invalidates queued terminal keys. */
   attached: Map<string, { keepSize: boolean }>;
   conversationInterests: Set<string>;
@@ -45,7 +47,7 @@ function stateOf(client: Client): ConnectionState {
 
 /** The data for a connection's upgrade: it starts to interact unless its access is read-only. */
 export function connectionData(fields: { relay?: MachineRelay; deviceId: string | undefined; readOnly: boolean }): SocketData {
-  const data: SocketData = { attached: new Map<string, { keepSize: boolean }>(), conversationInterests: new Set<string>(), output: new Map(), ...fields };
+  const data: SocketData = { connectionId: crypto.randomUUID(), attached: new Map<string, { keepSize: boolean }>(), conversationInterests: new Set<string>(), output: new Map(), ...fields };
   states.set(data, { closing: false, revoked: false, mode: fields.readOnly ? "observe" : "interact", roles: 0, watches: new Map<string, PaneWatch>() });
   return data;
 }

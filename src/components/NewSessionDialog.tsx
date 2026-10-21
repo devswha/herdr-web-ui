@@ -15,7 +15,10 @@ import { useT } from "../lib/i18n.ts";
 import { useSettings } from "../lib/settings.ts";
 import { launchCapabilities, modelSuggestions } from "../lib/agentLaunchMode.ts";
 import { MAX_COMPOSER_CHARS } from "../lib/compose.ts";
-import { firstMessageOf, newSessionLaunch } from "../lib/newSession.ts";
+import { createRequest, firstMessageOutcome, newSessionLaunch, startNewSession } from "../lib/newSession.ts";
+import { useMachineSessions } from "../lib/machineSessionContext.tsx";
+import { composerDrafts } from "../lib/composerDraft.ts";
+import { paneStorageId } from "../../shared/machines.ts";
 import { inFlightGuard } from "../lib/sessionHistory.ts";
 import { userErrorMessage, type UserError } from "../lib/userError.ts";
 import { nativeModalOver, useFocusTrap } from "../lib/useFocusTrap.ts";
@@ -92,6 +95,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const { settings } = useSettings();
   const machineId = useMachineId();
   const { createTab, createWorkspace, fetchAgentKinds, fetchAgentCommands } = useMachineApi();
+  const machineSessions = useMachineSessions();
   const [agents, setAgents] = useState<AgentKind[]>([]);
   const [agentKind, setAgentKind] = useState(rememberedAgent);
   const [cwd, setCwd] = useState(defaultCwd ?? "");
@@ -104,6 +108,8 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<UserError | null>(null);
   const [createdPaneId, setCreatedPaneId] = useState<string | null>(null);
+  /** the made pane runs the agent asked for: Open shows it in the agent's lens */
+  const [createdStarted, setCreatedStarted] = useState(false);
   const [browsing, setBrowsing] = useState(false);
   const [recentFolders, setRecentFolders] = useState(() => recentDirectories.read(machineId));
   // folders kept before worktrees and temporary folders were left out are left out here too
@@ -143,6 +149,7 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
     setError(null);
     setPending(false);
     setCreatedPaneId(null);
+    setCreatedStarted(false);
     setBrowsing(false);
     setRecentFolders(recentDirectories.read(machineId));
     const remembered = rememberedAgent();
@@ -227,9 +234,9 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
   const pickAgent = (kind: string): void => {
     setAgentKind(kind);
     setSkills(null);
-    // a choice the next agent's launch does not take goes back to the agent's own
+    // a choice the next agent's launch does not take goes back to the agent's own; a model names one agent's models
     const next = launchCapabilities(kind);
-    if (!next.model) setModel("");
+    if (!next.model || kind !== agentKind) setModel("");
     if (!next.efforts.includes(effort)) setEffort("");
   };
 
@@ -248,20 +255,18 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
 
   const startWorkspace = async (directory: string): Promise<void> => {
     if (pending || guard.current.busy()) return;
-    if (createdPaneId !== null) { onCreated(createdPaneId, false); return; }
+    if (createdPaneId !== null) { onCreated(createdPaneId, createdStarted); return; }
     // a combination the launch does not take: Start is disabled for it, and an Enter in a field sends nothing
     if (launch === null) return;
     setPending(true);
     setError(null);
-    const started = guard.current.run(async () => {
+    // a tab keeps the workspace's folder, which the dialog shows and does not ask for. The first message of an
+    // agent whose command line does not take it rides on this request: the bridge queues it for the agent's first
+    // ready turn and types it through this page's connection, so this page never types it itself
+    const request = createRequest({ tab, directory, name }, launch, machineSessions?.peek(machineId)?.connection ?? null);
+    const started = startNewSession(guard.current, request, async (body) => {
       rememberAgent(agentKind);
-      // a tab keeps the workspace's folder, which the dialog shows and does not ask for. The first message of an
-      // agent whose command line does not take it rides on this request: the bridge queues it for the agent's first
-      // ready turn, so this page never types it (and a reload or a lens change loses nothing)
-      const firstMessage = firstMessageOf(launch);
-      return tab
-        ? await createTab({ workspace_id: tab.workspaceId, cwd: tab.cwd, label: name.trim() || null, agent: launch.agent, first_message: firstMessage })
-        : await createWorkspace({ cwd: directory.trim() || null, label: name.trim() || null, agent: launch.agent, first_message: firstMessage });
+      return tab ? await createTab({ ...body, workspace_id: tab.workspaceId }) : await createWorkspace(body);
     });
     if (started === null) { setPending(false); return; }
     try {
@@ -276,7 +281,22 @@ export function NewSessionDialog({ open, defaultCwd, tab = null, onClose, onCrea
       if (!tab && (!agentKind || result.agent_started)) {
         setRecentFolders(recentDirectories.remember(machineId, [directory.trim()], true));
       }
-      const messageWaits = typeof result.first_message?.id === "string";
+      const outcome = firstMessageOutcome(request, result);
+      if (outcome.kind === "not_queued") {
+        // the agent runs without its first message: the text waits in the new tab's message box, and the dialog says so
+        composerDrafts.set(`herdr-web-ui:composer-draft:${paneStorageId(machineId, result.pane_id)}`, request.first_message!);
+        setPending(false);
+        setError({
+          message: outcome.error
+            ? t("{agent} started, but its first message was not queued. It is in the new tab's message box: open the tab and send it.", { agent: agentLabel })
+            : t("{agent} started, but this PC's bridge does not take a first message yet. It is in the new tab's message box: open the tab and send it.", { agent: agentLabel }),
+          detail: outcome.error?.message ?? null,
+        });
+        setCreatedPaneId(result.pane_id);
+        setCreatedStarted(true);
+        return;
+      }
+      const messageWaits = outcome.kind === "queued";
       // the dialog closes on this: left pending, its next opening would start a frame with the
       // fields disabled and Escape ignored, until the open effect's reset has rendered
       setPending(false);

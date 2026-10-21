@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+import { describe, expect, it, beforeAll, afterAll, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
 import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +15,7 @@ import { Telemetry } from "./telemetry.ts";
 import { NOTICE_VERSION, telemetryHarnesses, type TelemetryActive, type TelemetryEvent, type TelemetryStatus } from "../shared/telemetry.ts";
 import { DEFAULT_SETTINGS, telemetrySettingsSnapshot } from "../src/lib/settings.ts";
 import { HerdrSocket } from "../src/lib/ws.ts";
-import { herdrRpc, paneRead, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
+import { HerdrError, herdrRpc, paneRead, ping, sessionSnapshot, tabCreate, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 import { descriptorPath, type BridgeDescriptor } from "./bridge.ts";
 import { handleMachineRequest } from "./machine-api.ts";
@@ -23,6 +23,8 @@ import type { MachineManager } from "./machines.ts";
 import { TailnetIdentitySource } from "./tailscale.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import type { RepoDiffFileList, RepoDiffFilePatch, SessionHistoryResponse } from "../shared/protocol.ts";
+import * as composer from "./core/composer.ts";
+import { PendingInputError, PendingInputs } from "./pending-input.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -1148,6 +1150,27 @@ describe("tab creation", () => {
     }
   });
 
+  it("refuses launch arguments the dialog never sends, before anything is made: a tab or line break, a model of two words, an effort the agent does not name", async () => {
+    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-launch-args" });
+    try {
+      const before = (await sessionSnapshot()).tabs.length;
+      for (const [agent, reason] of [
+        [{ kind: "codex", args: ["--", "run\tthis"] }, "a tab in Codex's prompt"],
+        [{ kind: "codex", args: ["--", "first\nsecond"] }, "a line break in Codex's prompt"],
+        [{ kind: "claude", args: ["--model", "two words"] }, "a model of two words"],
+        [{ kind: "claude", args: ["--effort", "ultra"] }, "an effort Claude Code does not name"],
+        [{ kind: "codex", args: ["-c", "model_reasoning_effort=ultracode"] }, "an effort Codex does not name"],
+      ] as const) {
+        const res = await post({ workspace_id: owned.workspace.workspace_id, agent });
+        expect(res.status, reason).toBe(400);
+        expect(((await res.json()) as ApiError).error.code, reason).toBe("invalid_agent");
+      }
+      expect((await sessionSnapshot()).tabs.length).toBe(before);
+    } finally {
+      await workspaceClose(owned.workspace.workspace_id);
+    }
+  });
+
   it("returns the created tab when a shell agent is unavailable, and queues no first message for an agent that did not start", async () => {
     const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-shell" });
     const bin = mkdtempSync(join(tmpdir(), "herdr-web-ui-tab-empty-path-"));
@@ -1166,6 +1189,32 @@ describe("tab creation", () => {
       rmSync(bin, { recursive: true, force: true });
     }
   });
+
+  it("says when the agent started but its first message could not be queued, apart from an agent that did not start", async () => {
+    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-first-not-queued" });
+    const made: string[] = [];
+    // the queue's own refusals, past the route's checks: its text rule, and a full list
+    const text = spyOn(composer, "pendingText").mockImplementation(() => { throw new HerdrError("invalid_submit_text", "refused by the queue"); });
+    try {
+      const res = await post({ workspace_id: owned.workspace.workspace_id, agent: { kind: "muse" }, first_message: "Plan the config file" });
+      expect(res.status).toBe(200);
+      const tab = await res.json() as WorkspaceCreated;
+      expect(tab).toMatchObject({ agent_started: true, first_message: { error: { code: "invalid_submit_text", message: "refused by the queue" } } });
+      expect(tab.error).toBeUndefined();
+    } finally { text.mockRestore(); }
+    const enqueue = spyOn(PendingInputs.prototype, "enqueue").mockImplementation(() => { throw new PendingInputError("pending_limit", "the list is full"); });
+    try {
+      const res = await fetch(`${base()}/api/workspace/create`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: tmpdir(), label: "herdr-web-ui-test-ws-first-not-queued", agent: { kind: "muse" }, first_message: "Plan the config file" }) });
+      expect(res.status).toBe(200);
+      const created = await res.json() as WorkspaceCreated;
+      made.push(created.workspace_id);
+      expect(created).toMatchObject({ agent_started: true, first_message: { error: { code: "pending_limit", message: "the list is full" } } });
+    } finally {
+      enqueue.mockRestore();
+      await workspaceClose(owned.workspace.workspace_id);
+      for (const id of made) await workspaceClose(id);
+    }
+  }, 30_000);
 });
 
 describe("workspace and discovery endpoints", () => {

@@ -6,11 +6,14 @@
  * lease holds it for the sender to review instead of sending it.
  *
  * A create request's first message (POST /api/workspace/create and /api/tab/create `first_message`)
- * is the exception to the connection's ownership: the request itself was the user's send, so the
- * bridge owns it (FIRST_MESSAGE_OWNER), a connection's loss never holds it, and when the pane's
- * agent is first ready it is typed through whichever interact connection has the pane attached,
- * with the same checks as that connection's own queued messages. Every connection attached to the
- * pane sees it among its pending messages and may discard or send it now.
+ * is listed by the bridge (FIRST_MESSAGE_OWNER), so every connection attached to the pane sees it among
+ * its pending messages and may discard or send it now; one pane holds one. It is typed on its own only
+ * through the page connection that sent the request (`first_message_connection`), while that connection
+ * has the pane attached, with the same checks as its own queued messages. Once that connection closes
+ * before it went, or when the request named none, it is held: nothing the user typed goes automatically
+ * after a disconnect, and another device attaching later never types it on its own. It is bound to the
+ * agent process that runs in the pane when it is queued, so a replacement of the same kind gets none.
+ * First messages live in memory: a restart of the bridge loses those not sent yet.
  */
 import { closeMention, type createSubmitText, freeClaudeBox, freeHermesInput, InputDraftError, pendingFault, pendingIdentity, pendingText } from "./composer.ts";
 import { type Client, connectionOf, send } from "./connections.ts";
@@ -42,8 +45,10 @@ const isClient = (owner: PendingOwner): owner is Client => owner !== FIRST_MESSA
 /** a first message's lease is the delivering connection's, taken at each attempt: none is kept on the record */
 type PendingItem = PendingRecord<PendingOwner, PendingLease | null>;
 type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; message?: string };
-/** a first message refused before anything was typed because no connection could type it stays queued for the next attach or turn */
+/** a first message refused before anything was typed because its connection could not type it yet stays queued for its next attach or turn */
 const FIRST_MESSAGE_RETRY_CODES = new Set(["input_not_ready", "pending_lease_lost", "disconnected", "read_only"]);
+/** a first message whose page left before it went, or that named none: held for an explicit Send now or Discard */
+const FIRST_MESSAGE_UNATTENDED = { code: "first_message_unattended", message: "The page that sent this first message is gone; send it now or discard it" };
 /** receipts of first messages kept per pane, so a connection that attaches later drops a stale copy */
 const FIRST_MESSAGE_RECEIPTS = 8;
 
@@ -82,10 +87,14 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     for (const client of clients) {
       if (client.data.attached.has(paneId) && connectionOf(client).mode !== "observe") send(client, { type: "pending-messages", pane_id: paneId, messages, ...(removed ? { removed } : {}) });
     }
-  }, Date.now, options.pendingStartTimeoutMs);
+  }, Date.now, options.pendingStartTimeoutMs, undefined, (owner) => !isClient(owner));
   let nextFirstRequestId = -1;
   /** first messages still bound to the launched kind alone (queueFirstMessage, bindLaunched) */
   const launchBound = new WeakSet<PendingItem>();
+  /** the page connection that sent each first message: the only one that types it on its own */
+  const requesters = new WeakMap<PendingItem, Client>();
+  const requested = new WeakMap<Client, Set<PendingItem>>();
+  const present = (client: Client): boolean => clients.has(client) && !connectionOf(client).closing;
   const pendingDrains = new Set<string>();
   const pendingRequests = new WeakMap<Client, PendingRequestBook<SubmitReply>>();
   // the last input_draft refusal per pane: its named draft (Clear it and send), or none (Send anyway)
@@ -130,7 +139,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     if (!typingGuards.pendingLease(facts)) throw new HerdrError("input_not_ready", "The pending message's pane connection changed");
   }
   /** The pane and the identity of what runs in it now, as a pending message is checked against them. */
-  async function currentIdentity(paneId: string): Promise<{ pane: HerdrPane; identity: PendingIdentity }> {
+  async function currentIdentity(paneId: string): Promise<{ pane: HerdrPane; identity: PendingIdentity; shellPid: number | null }> {
     // The same normalized snapshot the client sees includes a known Codex finish that
     // herdr reports as unknown. Nothing is inferred from a bare unknown state.
     const pane = (await clientSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
@@ -138,7 +147,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     const info = await paneProcessInfo(paneId);
     const pid = info?.foreground_processes?.[0]?.pid ?? null;
     const base = pendingIdentity(pane);
-    return { pane, identity: {
+    return { pane, shellPid: info?.shell_pid ?? null, identity: {
       ...base, processPid: pid, processBirth: pid === null ? null : processStartedAt(pid),
       omoSession: omo.sessionOf(paneId)?.sessionId ?? null,
       // Claude's own PID record says which session it runs, also without herdr's hook
@@ -303,8 +312,10 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       reply = { ok: false, ...pendingFault(error) };
     }
     const code = reply.code ?? "";
-    // a first message no connection could type stays queued: the next attach or turn tries again
-    const retry = automatic && (["pending_wait", "agent_blocked"].includes(code) || (!isClient(item.owner) && FIRST_MESSAGE_RETRY_CODES.has(code)));
+    // a first message its page could not type yet stays queued for that page's next attach or turn; with the page gone it is held
+    const requester = requesters.get(item);
+    const retry = automatic && (["pending_wait", "agent_blocked"].includes(code)
+      || (!isClient(item.owner) && requester !== undefined && present(requester) && FIRST_MESSAGE_RETRY_CODES.has(code)));
     pending.settle(item, reply.ok ? undefined : { code: reply.code!, message: reply.message! }, reply.code === "submit_changed", retry);
     return reply;
   }
@@ -318,8 +329,9 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     void serialize(paneId, async () => {
       const item = pending.next(paneId);
       if (!item) return;
-      // a first message waits for a connection that can type it; a connection's own message has its owner
-      const by = isClient(item.owner) ? item.owner : typists(paneId)[0] ?? null;
+      // a first message waits for its own page to have the pane attached and ready; a connection's own message has its owner
+      const requester = requesters.get(item);
+      const by = isClient(item.owner) ? item.owner : requester !== undefined && typists(paneId).includes(requester) ? requester : null;
       if (by === null) return;
       // a launched agent herdr does not name yet is waited for: its next status event drains again
       if (await bindLaunched(item) === "wait") return;
@@ -332,18 +344,30 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     });
   }
   /**
-   * A create request's first message for the pane's agent, queued as the request's own send: typed
-   * once the agent is ready, by a connection that has the pane attached (drainPending), and listed
-   * to every such connection. Refused as a submit frame's text would be.
+   * A create request's first message for the pane's agent, queued as the request's own send: typed once
+   * the agent is ready through `requester`, the id of the page connection that sent the request, while it
+   * has the pane attached (drainPending), and listed to every connection attached to the pane. Without a
+   * connection of that id it is held from the start. Refused as a submit frame's text would be.
    */
-  async function queueFirstMessage(paneId: string, raw: string, kind: string): Promise<PendingMessage> {
+  async function queueFirstMessage(paneId: string, raw: string, kind: string, requester: string | null = null): Promise<PendingMessage> {
     const text = pendingText(raw);
+    const page = requester === null ? undefined : [...clients].find((client) => client.data.connectionId === requester && present(client));
     const message = await serialize(paneId, async () => {
-      // bound to the terminal and the kind launched there: right after the launch herdr names no agent
-      // in the pane yet, and its process and session are the shell's or none (bindLaunched)
-      const { pane } = await currentIdentity(paneId);
-      const item = pending.enqueue(FIRST_MESSAGE_OWNER, paneId, nextFirstRequestId--, text, null, { agent: kind, terminalId: pane.terminal_id, session: null });
+      // bound to the terminal and the kind launched there, and to the process the launch left in front when
+      // it is not the shell: a replacement of the same kind is not what the message was sent to. Right after
+      // a launch herdr may name no agent yet; that binding is completed when it does (bindLaunched)
+      const { pane, identity, shellPid } = await currentIdentity(paneId);
+      const launchedProcess = identity.processPid !== null && identity.processPid !== undefined && identity.processPid !== shellPid
+        ? { processPid: identity.processPid, processBirth: identity.processBirth } : {};
+      const item = pending.enqueue(FIRST_MESSAGE_OWNER, paneId, nextFirstRequestId--, text, null,
+        { agent: kind, terminalId: pane.terminal_id, session: null, ...launchedProcess });
       launchBound.add(item);
+      // no page to type it, or one that closed meanwhile: held before any drain could see it queued
+      if (page === undefined || !present(page)) pending.holdItem(item, FIRST_MESSAGE_UNATTENDED);
+      else {
+        requesters.set(item, page);
+        requested.set(page, (requested.get(page) ?? new Set()).add(item));
+      }
       return item.message;
     });
     drainPending(paneId);
@@ -361,11 +385,19 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     const { identity } = await currentIdentity(item.paneId);
     if (identity.terminalId !== item.identity.terminalId) return "bound";
     if (identity.agent === null) return "wait";
-    if (identity.agent === item.identity.agent) {
+    // the same kind, and the process the message was queued under when one was known: another one is left to
+    // pendingContext, which holds the message with pending_target_changed
+    if (identity.agent === item.identity.agent && samePendingIdentity(item.identity, identity)) {
       item.identity = identity;
       launchBound.delete(item);
     }
     return "bound";
+  }
+  /** A connection's end: its own messages are held, and so are the first messages its page sent that have not gone yet. */
+  function closeConnection(client: Client): void {
+    pending.close(client);
+    for (const item of requested.get(client) ?? []) pending.holdItem(item, FIRST_MESSAGE_UNATTENDED);
+    requested.delete(client);
   }
   /** A connection that attached the pane: it sees the pane's first messages and their receipts, and may be the one to type them. */
   function attached(client: Client, paneId: string): void {
@@ -545,5 +577,5 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
     },
   };
 
-  return { pending, holdPending, holdPendingPane, drainPending, pendingFrames, queueFirstMessage, attached };
+  return { pending, holdPending, holdPendingPane, drainPending, pendingFrames, queueFirstMessage, attached, closeConnection };
 }
