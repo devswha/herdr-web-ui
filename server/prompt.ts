@@ -3,9 +3,10 @@ import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptR
 import { builtinCommands, cachedPaneCommands } from "./commands.ts";
 import { claudeRestoredOwned, readCommandTranscript, releaseClaudeRestored } from "./conversation.ts";
 import { resolveAgent } from "./pane-context.ts";
+import { processStartedAt } from "./process-start.ts";
 import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, viewportTop, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
-import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
+import { HerdrError, paneProcessInfo, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
 import { OmoAskReader, omoAsksAfter, type OmoAskCall, type OmoAsks } from "./omo-ask.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
@@ -140,6 +141,14 @@ const heldCandidates = new Map<string, { text: string; at: number }>();
 const HELD_WINDOW_MS = 10 * 60_000;
 type PaneCommandSend = CommandSend & {
   store: string | null;
+  /** Session discovery is visibility metadata, not command completion evidence. */
+  visibility?: {
+    readonly terminalId: string;
+    discovering: boolean;
+    identity: string;
+    process?: string;
+    replaced?: true;
+  };
   /** Visibility only: never changes the send identity used to correlate evidence. */
   sessionChange?: { readonly terminalId: string; identity?: string };
 };
@@ -147,6 +156,14 @@ type PaneCommandSend = CommandSend & {
 const chatSent = new Map<string, { text: string; commands: PaneCommandSend[]; reservations: CommandReservations }>();
 
 const outcomeIdentity = (pane: HerdrPane): string => JSON.stringify([pane.terminal_id, pane.agent_session]);
+
+/** The foreground job survives its first turn, but not another agent launched in that terminal. */
+async function outcomeProcess(paneId: string): Promise<string | null> {
+  const info = await paneProcessInfo(paneId).catch(() => null);
+  const pid = info?.foreground_process_group_id ?? info?.foreground_processes?.[0]?.pid;
+  return pid === undefined || pid === null ? null
+    : JSON.stringify([pid, process.platform === "linux" ? processStartedAt(pid) : null]);
+}
 
 /** Capture only existing data before delivery. Discovery and transcript reads belong to the poll. */
 export function prepareCommandSend(pane: HerdrPane, text: string, screen = ""): PaneCommandSend | undefined {
@@ -164,6 +181,7 @@ export function commandSendFrom(pane: HerdrPane, agent: string, commands: SlashC
   const sessionChange = /^\/(?:clear|new|reset|resume)(?:\s|$)/iu.test(text.trim())
     && commands.some((row) => row.source === "builtin" && row.name === invocations[0]?.name);
   return { id: randomBytes(12).toString("hex"), text, at: Date.now(), agent, identity: outcomeIdentity(pane),
+    visibility: { terminalId: pane.terminal_id, discovering: pane.agent_session == null, identity: outcomeIdentity(pane) },
     screen, invocations, form: invocations[0]?.form ?? null, store: null,
     ...(sessionChange ? { sessionChange: { terminalId: pane.terminal_id } } : {}) };
 }
@@ -228,6 +246,22 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
   screen ??= await liveScreen(paneId).catch(() => "");
   const commands = chatSent.get(paneId)?.commands ?? [];
   const now = Date.now();
+  const identity = outcomeIdentity(pane);
+  const process = commands.some((sent) => sent.visibility) ? await outcomeProcess(paneId) : null;
+  for (const sent of commands) {
+    const visibility = sent.visibility;
+    if (!visibility || visibility.replaced) continue;
+    if (visibility.process !== undefined && process !== null && visibility.process !== process) visibility.replaced = true;
+    if (process !== null) visibility.process ??= process;
+    if (visibility.discovering && !visibility.replaced && pane.agent_session
+      && visibility.terminalId === pane.terminal_id) {
+      visibility.identity = identity;
+      visibility.discovering = false;
+      if (sent.sessionChange) sent.sessionChange.identity = identity;
+    }
+  }
+  const sameSession = (sent: PaneCommandSend): boolean => !sent.visibility?.replaced
+    && (sent.visibility?.identity ?? sent.identity) === identity;
   // The transcript can be megabytes; read it only while a send can still change from it.
   const open = commands.some((sent) => sent.outcome?.state !== "result-observed" && sent.form?.interaction !== "terminal"
     && now < sent.at + COMMAND_WINDOW_MS);
@@ -238,7 +272,7 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
   return commands.map((sent, index) => {
     // A send racing this GET must not inherit a screen read before that send.
     if (index > readIndex) return sent.outcome ?? commandOutcome(paneId, sent, { now });
-    const same = sent.identity === outcomeIdentity(pane);
+    const same = sameSession(sent);
     const latest = index === commands.length - 1 && same && sent.closedAt === undefined && now < sent.at + COMMAND_WINDOW_MS;
     const reader = parsed ? registry.readerFor(parsed.responder) : undefined;
     const readers = registry.readersFor(sent.agent);
@@ -273,8 +307,8 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     return observed;
   }).filter((_, index) => {
     const sent = commands[index]!;
-    const identity = outcomeIdentity(pane);
-    if (sent.identity === identity || sent.sessionChange?.identity === identity) return true;
+    if (sent.visibility?.replaced) return false;
+    if (sameSession(sent) || sent.sessionChange?.identity === identity) return true;
     // The last Chat /clear, /new or resume may itself change sessions. Keep its receipt in
     // that next conversation only; a session change is not proof that the command completed.
     const change = sent.sessionChange;

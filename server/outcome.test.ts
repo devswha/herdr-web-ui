@@ -312,7 +312,7 @@ const resultReader: DialogReader = {
 let readerPaneSequence = 0;
 
 /** A herdr stand-in serving one pane whose screen the test sets; keys sent to it are kept. */
-async function withFakeHerdr(pane: { agent: string; status: string; screen: string; terminal_id?: string; agent_session?: HerdrPane["agent_session"] }, run: (paneId: string, keys: unknown[]) => Promise<void>): Promise<void> {
+async function withFakeHerdr(pane: { agent: string; status: string; screen: string; terminal_id?: string; agent_session?: HerdrPane["agent_session"]; pid?: number }, run: (paneId: string, keys: unknown[]) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-outcome-reader-"));
   const socketPath = join(root, "herdr.sock");
   const previous = process.env.HERDR_SOCKET;
@@ -328,6 +328,8 @@ async function withFakeHerdr(pane: { agent: string; status: string; screen: stri
       if (request.method === "pane.send_text") keys.push(request.params?.text);
       const result = request.method === "session.snapshot"
         ? { snapshot: { panes: [{ pane_id: paneId, agent: pane.agent, agent_status: pane.status, terminal_id: pane.terminal_id, agent_session: pane.agent_session }], layouts: [] } }
+        : request.method === "pane.process_info"
+        ? { process_info: { foreground_processes: pane.pid === undefined ? [] : [{ pid: pane.pid, argv: [pane.agent] }] } }
         : { read: { text: pane.screen } };
       socket.end(`${JSON.stringify({ id: request.id, result })}\n`);
     });
@@ -362,6 +364,85 @@ describe("session-scoped command outcomes", () => {
     noteSubmitted(paneId, text, command);
     return command;
   };
+
+  for (const agent of ["claude", "codex"]) {
+    for (const replacement of ["session", "terminal", "process"]) {
+      it(`keeps ${agent}'s first-turn receipt through session discovery, then drops it on a new ${replacement}`, async () => {
+        const pane = { ...target(), agent, agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
+        await withFakeHerdr(pane, async (paneId) => {
+          const text = agent === "codex" ? "$imagegen" : "/context";
+          const catalog: SlashCommand[] = agent === "codex"
+            ? [{ ...row("imagegen"), source: "skill", trigger: "$" }] : [row("context")];
+          const command = commandSendFrom(pane, agent, catalog, text);
+          if (!command) throw new Error("fixture command was not recorded");
+          noteSubmitted(paneId, text, command);
+          expect((await served(paneId)).outcomes).toMatchObject([{ id: command.id, state: "accepted", evidence: [] }]);
+          pane.agent_session = { ...session("first-turn"), agent };
+          expect((await served(paneId)).outcomes).toMatchObject([{ id: command.id, state: "accepted", evidence: [] }]);
+          expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([command.id]);
+          if (replacement === "session") pane.agent_session = { ...session("other"), agent };
+          if (replacement === "terminal") pane.terminal_id = "replacement";
+          if (replacement === "process") pane.pid++;
+          expect((await served(paneId)).outcomes).toBeUndefined();
+        });
+      });
+    }
+  }
+
+  it("keeps all first-turn sends when the session is discovered before the first poll", async () => {
+    const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
+    await withFakeHerdr(pane, async (paneId) => {
+      const first = submit(paneId, pane, "/context");
+      const second = submit(paneId, pane, "/context");
+      pane.agent_session = session("first-turn");
+      expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([first.id, second.id]);
+      pane.agent_session = session("other");
+      expect((await served(paneId)).outcomes).toBeUndefined();
+    });
+  });
+
+  for (const text of ["/clear", "/new", "/resume next"]) {
+    it(`does not carry a first-turn ${text} into yet another session`, async () => {
+      const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
+      await withFakeHerdr(pane, async (paneId) => {
+        const current = submit(paneId, pane, text);
+        expect((await served(paneId)).outcomes).toHaveLength(1);
+        pane.agent_session = session("first-turn");
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([current.id]);
+        pane.agent_session = session("other");
+        expect((await served(paneId)).outcomes).toBeUndefined();
+      });
+    });
+  }
+
+  for (const text of ["/clear", "/new", "/resume next"]) {
+    it(`does not carry a sessionless ${text} into a different agent process`, async () => {
+      const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
+      await withFakeHerdr(pane, async (paneId) => {
+        submit(paneId, pane, text);
+        expect((await served(paneId)).outcomes).toHaveLength(1);
+        pane.pid++;
+        pane.agent_session = session("replacement");
+        expect((await served(paneId)).outcomes).toBeUndefined();
+        expect((await served(paneId)).outcomes).toBeUndefined();
+      });
+    });
+
+    it(`keeps ${text}'s own row after first-turn discovery and its subsequent session change`, async () => {
+      const pane = { ...target(), agent_session: null as HerdrPane["agent_session"], pid: 2147483645 };
+      await withFakeHerdr(pane, async (paneId) => {
+        const earlier = submit(paneId, pane, "/context");
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([earlier.id]);
+        pane.agent_session = session("first-turn");
+        expect((await served(paneId)).outcomes?.map(({ id }) => id)).toEqual([earlier.id]);
+        const current = submit(paneId, pane, text);
+        pane.agent_session = session("changed");
+        expect((await served(paneId)).outcomes).toMatchObject([{ id: current.id, text, evidence: [] }]);
+        pane.pid++;
+        expect((await served(paneId)).outcomes).toBeUndefined();
+      });
+    });
+  }
 
   it("omits earlier session sends after an agent restart", async () => {
     const pane = target();
