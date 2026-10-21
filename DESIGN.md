@@ -1919,7 +1919,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the card, as t3code's composer banner stack orders them (`src/lib/composerNotices.ts`). A
   dismissal lasts while the notice stands and says the same thing; it is forgotten once the
   notice goes or changes its words, so the next one shows again, and another pane's dismissals
-  never carry over. With no input card (view
+  never carry over. A row's ways on sit at its end while the column holds them all beside the
+  sentence; a narrower column (a phone, a narrow split) puts them on a line of their own under it,
+  trailing-aligned, wrapping again when even that line is too short, and the X keeps the row's
+  top trailing corner beside the first line, `--control-h` square (`--touch-target` under a
+  coarse pointer) on space the row keeps clear for it, so nothing is ever cut at the column's
+  edge. That is Primer's Banner anatomy (dismiss in the top right corner, actions under the
+  content on a narrow viewport), with the actions trailing rather than leading so the last of
+  them, the one that sends, stays over Send. With no input card (view
   only, ended, a secret prompt) the pills stay where the terminal lens draws them, and a notice
   keeps a phone's card docked: it never floats over the transcript.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
