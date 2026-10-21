@@ -1,11 +1,11 @@
 /**
  * Earlier sessions of a folder, read from each agent's own store, newest first (#1314).
  *
- * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 16384 units of
- * listing work are done per listing (each directory entry walked, taken or passed over, is one, and
- * each lstat that times a taken entry one more: a session file, a Codex day folder, a Grok session
- * folder up to three), and the entries taken are all ordered by time before any is checked, so the
- * newest are checked first whatever the readdir order; at most
+ * Bounded by the #1147 rules: at most the first 64 KiB of any file is read; at most 65536 directory
+ * entries are walked per listing (taken or passed over) and at most 16384 lstats time the entries
+ * taken (a session file one, a Grok session folder three), and the entries taken are all ordered by
+ * time before any is checked, so the newest of them are checked first whatever the readdir order (a
+ * folder past those bounds is seen as far as its readdir order reaches); at most
  * 400 checks are made per listing, a
  * check being one session file's resolution with its stat (spent whatever the resolution finds),
  * or one resolution or stat of a store, a folder or a database; at most 50 rows are returned, and
@@ -41,12 +41,17 @@ export const HEAD_BYTES = 64 * 1024;
  */
 export const MAX_STATS = 400;
 /**
- * At most this much listing work for one listing, every folder's together: each directory entry
- * walked costs one unit, taken or passed over (Claude's per-session folders, say), and each lstat
- * that times a taken entry one more (a Grok session folder three: its two files, else itself). None
- * of these is a check. Bun's opendirSync still reads a whole folder from the kernel before any of it.
+ * At most this many times are taken for one listing, every folder's together: one lstat for each
+ * session file taken, three for a Grok session folder (its two files, else itself), none for a
+ * Codex day folder. None of these is a check. Bun's opendirSync still reads a whole folder from the
+ * kernel before any of it.
  */
 export const MAX_ENTRIES = 16384;
+/**
+ * At most this many directory entries are walked for one listing, every folder's together, taken or
+ * passed over (Claude's per-session folders, say): passed-over entries cost the walk, not MAX_ENTRIES.
+ */
+export const MAX_WALK = 65536;
 /** At most this many sessions are returned. */
 export const MAX_ROWS = 50;
 const TITLE_CHARS = 200;
@@ -213,6 +218,7 @@ function openChecked(budget: Budget, file: { real: string; dev: bigint; ino: big
 class Budget {
   used = 0;
   entries = 0;
+  walked = 0;
   constructor(
     private readonly statOf: (path: string, bigint?: boolean) => Stats | BigIntStats,
     readonly platform: NodeJS.Platform,
@@ -266,19 +272,19 @@ class Budget {
 
   /**
    * A folder's entries that `keep` takes (decided from the entry alone: its name and type), unordered,
-   * as many as the listing's work has left. Every entry walked costs one unit, taken or passed over
-   * (a Claude session's folder of subagent transcripts, say), and a taken one also reserves `lstats`
-   * units for the times taken of it later; none for an unreadable folder.
+   * as many as the listing has left. Every entry walked counts against MAX_WALK, taken or passed over
+   * (a Claude session's folder of subagent transcripts, say); a taken one reserves `lstats` of
+   * MAX_ENTRIES for the times taken of it later. None for an unreadable folder.
    */
   list(dir: string, keep: (entry: Dirent) => boolean = () => true, lstats = 0): Dirent[] {
     const found: Dirent[] = [];
     let handle: Dir | undefined;
     try {
       handle = this.opendirOf(dir);
-      while (this.entries < MAX_ENTRIES) {
+      while (this.walked < MAX_WALK) {
         const entry = handle.readSync();
         if (entry === null) break;
-        this.entries++;
+        this.walked++;
         if (!keep(entry)) continue;
         if (this.entries + lstats > MAX_ENTRIES) break;
         this.entries += lstats;
