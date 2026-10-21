@@ -21,9 +21,10 @@ jobs:
         env:
           RELEASE_REF: ${{ github.ref }}
         run: test "$RELEASE_REF" = refs/heads/main
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: ./.github/actions/setup-ci
       - name: Validate version, notes and unused tag
         env:
@@ -46,10 +47,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: ./.github/actions/setup-ci
+      # The checkout keeps no Git credential: the repository is public, so the fetch below reads it
+      # anonymously, and gh authenticates with GH_TOKEN alone.
       - name: Publish the validated commit
         env:
           GH_TOKEN: ${{ github.token }}
