@@ -174,6 +174,27 @@ describe("walking Claude Code's rewind list", () => {
     expect(dialog.state()).toEqual({ at: "closed" });
   });
 
+  // R1-NEW-3: Claude Code cuts a long quote at 500 characters, with no mark (recorded, 610 characters)
+  const LONG_610 = "zeta " + "a long message that keeps going with plenty of words to wrap across several lines in the confirm step ".repeat(6) + "THE END";
+  const cut = (unambiguous?: () => Promise<boolean>) => {
+    const dialog = narrowDialog(["first", LONG_610], 31, undefined, { 1: screen("confirm-long-610") });
+    return { dialog, io: unambiguous ? { ...dialog.io, unambiguous } : dialog.io };
+  };
+  it("opens a long message whose quote Claude Code cuts when no other message starts the same", async () => {
+    const { dialog, io } = cut(async () => true);
+    expect(await walkClaudeRewind(io, LONG_610, 0)).toBe("shown");
+    expect(dialog.state()).toEqual({ at: "confirm", row: 1, choice: 0 });
+  });
+
+  it("refuses a long message whose cut quote another message may share, and closes the dialog", async () => {
+    for (const unambiguous of [async () => false, undefined]) {
+      const { dialog, io } = cut(unambiguous);
+      expect(await walkClaudeRewind(io, LONG_610, 0)).toBe("ambiguous");
+      expect(dialog.state()).toEqual({ at: "closed" });
+      expect(dialog.sent).not.toContain("down");
+    }
+  });
+
   it("sends nothing more once the dialog does not show what a key did", async () => {
     const dialog = fruit();
     const io: RewindIo = { ...dialog.io, command: async (text) => { dialog.sent.push(text); } };

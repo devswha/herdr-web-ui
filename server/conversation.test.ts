@@ -15,7 +15,7 @@ import * as herdr from "./herdr/client.ts";
 import { forgetHistoryChains } from "./codex.ts";
 import { DevinHistoryChanged } from "./devin.ts";
 import * as omo from "./omo.ts";
-import { claudeRestoredOwnedAt, claudeRewindOf, configureClaudeRewinds, observeClaudeIdentity, releaseClaudeRestored, ConversationUnavailable, devinSessionForPane, rewindClaudeTranscriptAt, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneProcessRoots, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { claudeCutQuoteUnambiguousAt, claudeRestoredOwnedAt, claudeRewindOf, configureClaudeRewinds, observeClaudeIdentity, releaseClaudeRestored, ConversationUnavailable, devinSessionForPane, rewindClaudeTranscriptAt, forgetPaneTranscriptState, forgetTranscriptState, gjcTranscriptPath, HistoryChanged, isDevinProcess, isOmoProcess, ompSessionStore, paneConversation, paneProcessRoots, paneTranscript, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 
 it("labels only Claude's explicit end_turn text as final-answer evidence", () => {
   const entry = (stop_reason: string | null) => JSON.stringify({ type: "assistant", message: { role: "assistant", stop_reason, content: [{ type: "text", text: "Answer" }] } });
@@ -953,6 +953,19 @@ describe("parseClaudeTranscript", () => {
         expect(claudeRewindOf(paths[0]!)).toBeNull();
         expect(claudeRewindOf(paths[1]!)).not.toBeNull();
         expect(claudeRewindOf(paths.at(-1)!)).not.toBeNull();
+      });
+
+      it("tells whether a quote Claude Code cut stands for one message only", () => {
+        const path = file();
+        const long = `zeta ${"words to wrap across several lines ".repeat(20)}ALPHA`;
+        const quote = long.slice(0, 500);
+        const entries = before.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { type?: string; uuid?: string; parentUuid?: string | null; message?: { content?: unknown } });
+        const prompt = (uuid: string, content: string) => ({ ...entries.find((entry) => entry.message?.content === "apple")!, uuid, parentUuid: entries.at(-1)!.uuid, message: { role: "user", content } });
+        writeFileSync(path, `${before}${JSON.stringify(prompt("long-1", long))}\n${JSON.stringify(prompt("long-2", long))}\n`);
+        // copies with the same words are the walk's to count
+        expect(claudeCutQuoteUnambiguousAt(path, long, quote)).toBe(true);
+        appendFileSync(path, `${JSON.stringify(prompt("other", long.replace("ALPHA", "BRAVO")))}\n`);
+        expect(claudeCutQuoteUnambiguousAt(path, long, quote)).toBe(false);
       });
 
       it("a send from the chat after the restore gives the box back", () => {

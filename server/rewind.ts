@@ -18,7 +18,7 @@ import { badRequest, conflictResponse, errorResponse, isCount, jsonResponse, rea
 import { agentPrompt, paneRead, paneScrollInfo, paneSendKeys } from "./herdr/client.ts";
 import { paneContext } from "./pane-context.ts";
 import { claudeInputBoxContent, claudeInputDraft, forgetChatSendsAfter, parseInteractivePrompt, viewportShowsLive } from "./prompt.ts";
-import { rewindClaudeTranscript } from "./conversation.ts";
+import { claudeCutQuoteUnambiguous, rewindClaudeTranscript } from "./conversation.ts";
 
 /** The requester disconnected: nothing more is typed for it (AGENTS.md: nothing is sent automatically after a disconnect). */
 class RequesterGone extends Error {}
@@ -39,9 +39,17 @@ export interface RewindIo {
   read(): Promise<string>;
   keys(keys: string[]): Promise<void>;
   command(text: string): Promise<void>;
+  /** whether a quote Claude Code cut stands for the message alone among the user's messages; absent: not known */
+  unambiguous?(quote: string): Promise<boolean>;
 }
 
-export type RewindWalk = "shown" | "not_found" | "changed";
+export type RewindWalk = "shown" | "not_found" | "changed" | "ambiguous";
+
+/**
+ * Claude Code 2.1.304 cuts a confirm step's quote at 500 characters, with no mark (recorded, a
+ * 610-character message): a quote this long that the message starts with may be that message cut.
+ */
+const QUOTE_CUT_MIN = 450;
 
 /** The list's row and the message it may stand for: whole, or cut short with `…` by a narrow pane. */
 function rowMatches(label: string, text: string): boolean {
@@ -54,6 +62,12 @@ function rowMatches(label: string, text: string): boolean {
 /** The confirm step quotes the whole message, which tells two messages a cut row reads the same for apart. */
 function quoteMatches(confirm: ClaudeRewindConfirm, text: string): boolean {
   return confirm.message === normalizeText(text);
+}
+
+/** A quote Claude Code cut short that the message may be: as long as its cuts, and the message's start. */
+function quoteCut(confirm: ClaudeRewindConfirm, text: string): boolean {
+  const message = normalizeText(text);
+  return confirm.message.length >= QUOTE_CUT_MIN && confirm.message.length < message.length && message.startsWith(confirm.message);
 }
 
 /** Reads until `accept` takes the screen, within `ms`; null when it never does. */
@@ -179,7 +193,9 @@ async function walkRewindList(io: RewindIo, text: string, later: number, stepMs:
         await io.keys([KEY.enter]);
         const confirm = await waitFor(io, parseClaudeRewindConfirm, stepMs);
         if (confirm === null) return "changed";
-        const same = quoteMatches(confirm, text);
+        // a quote cut short tells this message from another only when no other one starts the same
+        if (quoteCut(confirm, text) && await io.unambiguous?.(confirm.message) !== true) return "ambiguous";
+        const same = quoteMatches(confirm, text) || quoteCut(confirm, text);
         if (same && skip === 0) return "shown";
         if (same) skip -= 1;
         // a newer copy, or another message the cut row reads the same for: back to the list, on the same row
@@ -244,8 +260,10 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
         read: async () => (await paneRead({ paneId, source: "detection", format: "text" })).text,
         keys: async (keys) => { if (gone()) throw new RequesterGone(); await paneSendKeys(paneId, keys); },
         command: async (command) => { if (gone()) throw new RequesterGone(); await agentPrompt(paneId, command); },
+        unambiguous: (quote) => claudeCutQuoteUnambiguous(paneId, text, quote).catch(() => false),
       }, text, later).catch((error: unknown) => { if (error instanceof RequesterGone) return "changed" as const; throw error; });
       if (walked === "not_found") return conflictResponse("rewind_not_found", "Claude Code's rewind list does not hold this message");
+      if (walked === "ambiguous") return conflictResponse("rewind_ambiguous", "Claude Code's rewind dialog shows this message cut short, and another message starts the same; rewind from the terminal");
       if (walked === "changed") return conflictResponse("prompt_changed", "Claude Code's rewind dialog did not show what was expected; finish it in the terminal");
       asked.set(paneId, { text, later });
       if (asked.size > 128) asked.delete(asked.keys().next().value!);

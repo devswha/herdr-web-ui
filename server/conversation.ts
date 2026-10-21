@@ -924,6 +924,41 @@ export function rewindClaudeTranscriptAt(path: string, text: string, later: numb
   return rewindClaudeRecord(path, text, later, owner)?.said ?? null;
 }
 
+/**
+ * Whether a confirm step's quote that Claude Code cut (2.1.304 cuts a long message at 500 characters,
+ * with no mark) stands for `text` alone among the transcript's prompts: every prompt starting with it
+ * has `text`'s words (copies are the walk's to count). False when the window read may leave out
+ * older prompts.
+ */
+export function claudeCutQuoteUnambiguousAt(path: string, text: string, quote: string): boolean {
+  const stream = transcriptStream("claude-transcript", path, statSync(path), defaultCodexHome());
+  applyHistoryBoundary(path, stream, "claude-transcript");
+  const from = Math.max(stream.floor, stream.length - TRANSCRIPT_WINDOW_BYTES);
+  if (from !== stream.floor) return false;
+  const words = (value: string): string => value.replace(/\s+/g, " ").trim();
+  const wanted = words(text);
+  const shown = words(quote);
+  let found = false;
+  for (const line of readStream(stream, from, stream.length).toString("utf8").split("\n")) {
+    if (!line.includes('"user"') || !opensTurn("claude-transcript", line)) continue;
+    let entry: TranscriptEntry;
+    try { entry = JSON.parse(line) as TranscriptEntry; } catch { continue; }
+    const content = entry.message?.content;
+    const said = words(typeof content === "string" ? content : Array.isArray(content)
+      ? content.flatMap((block: { type?: unknown; text?: unknown } | null) => block?.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n") : "");
+    if (!said.startsWith(shown)) continue;
+    if (said !== wanted) return false;
+    found = true;
+  }
+  return found;
+}
+
+/** claudeCutQuoteUnambiguousAt for the pane's transcript; false when the pane's transcript is not Claude Code's. */
+export async function claudeCutQuoteUnambiguous(paneId: string, text: string, quote: string): Promise<boolean> {
+  const resolved = await paneTranscript(paneId);
+  return resolved.source === "claude-transcript" && claudeCutQuoteUnambiguousAt(resolved.path, text, quote);
+}
+
 /** rewindClaudeTranscriptAt with the time Claude wrote the restored message (`at`, null when its record has none). */
 function rewindClaudeRecord(path: string, text: string, later: number | null, owner: { pid: number | null; paneId: string }): { said: string; at: number | null } | null {
   const pid = owner.pid;
