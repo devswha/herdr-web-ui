@@ -12,6 +12,7 @@ import { agentPrompt, HerdrError, paneGet, paneProcessInfo, paneRead, paneScroll
 import { mirrorInput } from "../mirror-input.ts";
 import { paneAgentOf, resolveAgent, typingRoots } from "../pane-context.ts";
 import { paneProcessRoots } from "../conversation.ts";
+import { viewportTop } from "../outcome.ts";
 import { processStartedAt } from "../process-start.ts";
 import { isOmpProcess, ompAgentDir } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
@@ -388,6 +389,12 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
           inTime();
         }
         if (pane) command = prepareCommandSend(pane, text, beforeScreen);
+        // where that screen sits in the history (outcome.ts scrolledAnchor): kept only when the row read before
+        // the screen and the one read after it agree, so nothing scrolled in between; a failed read only drops it
+        if (command && beforeScreen !== undefined) {
+          const top = viewportTop(await paneScrollInfo(paneId).catch(() => null));
+          if (top !== undefined && top === viewportTop(pane?.scroll)) command = { ...command, top };
+        }
         inTime();
         // agent.prompt pastes the whole text, and OpenCode v2 leaves a pasted @skill unattached
         let skills: string[] = [];

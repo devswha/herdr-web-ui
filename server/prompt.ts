@@ -3,7 +3,7 @@ import type { HerdrPane, InteractivePrompt, InteractivePromptOption, PanePromptR
 import { builtinCommands, cachedPaneCommands } from "./commands.ts";
 import { claudeRestoredOwned, readCommandTranscript, releaseClaudeRestored } from "./conversation.ts";
 import { resolveAgent } from "./pane-context.ts";
-import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
+import { commandInvocations, commandOutcome, CommandReservations, dialogSettlingScreen, ownsCommandDialog, viewportTop, WINDOW_MS as COMMAND_WINDOW_MS, type CommandSend } from "./outcome.ts";
 import { codexTranscriptPath, paneCodexHome, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneRead, paneScrollInfo, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { omoTranscriptForPane } from "./omo.ts";
@@ -262,6 +262,8 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
     const nextAt = commands[index + 1]?.at ?? (!same ? now : undefined);
     const observed = commandOutcome(paneId, sent, {
       now, nextAt, screen: latest ? screen : undefined, resultScreen: same ? screen : undefined,
+      // the snapshot came before the screen read
+      top: viewportTop(pane.scroll),
       readers, dialog, settledSince: sent.settled?.since,
       waitingSince: sent.waitingSince,
       transcriptAt: same && sent.transcriptEvidence && sent.transcriptEvidence.at < (sent.transcriptClosedAt ?? Infinity)

@@ -1,0 +1,92 @@
+import { afterEach, expect, it, mock, spyOn } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { PanePromptResponse } from "../../shared/protocol.ts";
+import * as client from "../herdr/client.ts";
+import * as conversation from "../conversation.ts";
+import { createSubmitText } from "./composer.ts";
+import { handlePromptRequest } from "../prompt.ts";
+import { findLastIndex } from "../dialogs/shared.ts";
+
+// Hermes 0.21.5 in a 120x40 herdr 0.9.5 pane (isolated HERMES_HOME, fake key), /status sent six times in a row with
+// agent.prompt. Each send keeps the detection read taken right before it (with the visible ANSI read the composer takes to
+// tell Hermes's dimmed placeholder from a draft) and the one taken after its block printed, each with the viewport's top
+// row in the pane's history (max_offset_from_bottom - offset_from_bottom), the same before and after the read. From the
+// third send on the earlier blocks fill the screen; from the fourth, a send's two reads, and the next send's, differ only
+// in the status bar's clock: only the history moved.
+type Read = { top: number; screen: string; colors?: string };
+const recorded = JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "hermes-results", "status-repeat-120.json"), "utf8")) as
+  { sends: { sent: Read; after: Read }[] };
+
+afterEach(() => mock.restore());
+
+/** The composer's send and the prompt route, over a herdr that shows `shown` and reports its history row. */
+function hermesPane(paneId: string) {
+  let shown: Read = recorded.sends[0]!.sent;
+  const pane = () => ({
+    pane_id: paneId, workspace_id: "w", tab_id: "t", terminal_id: `${paneId}-terminal`, cwd: "/fixture", focused: false, revision: 0,
+    agent: "hermes", agent_status: "idle" as const, scroll: { max_offset_from_bottom: shown.top, offset_from_bottom: 0, viewport_rows: 40 },
+  });
+  spyOn(client, "paneGet").mockImplementation(async () => pane());
+  spyOn(client, "paneScrollInfo").mockImplementation(async () => pane().scroll);
+  spyOn(client, "sessionSnapshot").mockImplementation(async () => ({
+    panes: [pane()], layouts: [], agents: [], workspaces: [], tabs: [], protocol: 22, version: "fixture",
+  }));
+  spyOn(client, "paneRead").mockImplementation(async ({ source = "visible", format = "text" }) => ({
+    ...pane(), text: format === "ansi" ? shown.colors ?? shown.screen : shown.screen, source, format, truncated: false,
+  }));
+  const delivered = spyOn(client, "agentPrompt").mockResolvedValue();
+  spyOn(conversation, "paneProcessRoots").mockResolvedValue({ omo: null, environ: null, pid: null, cwd: null });
+  spyOn(conversation, "paneTranscript").mockRejectedValue(new Error("fixture: no native binding"));
+  spyOn(conversation, "readCommandTranscript").mockResolvedValue(null);
+  const submit = createSubmitText({
+    options: { submitDelayMs: 0 }, lastTyped: new Map(), attachments: new Map(), terminalAttach: async () => true,
+    SUBMIT_DEADLINE_MS: 5000, TYPED_SETTLE_MS: 0, DRAFT_CLEAR_WAIT_MS: 0, DRAFT_CLEAR_POLL_MS: 0, SUBMIT_DELAY_MS: 0,
+  });
+  const url = new URL(`http://localhost/api/pane/prompt?pane_id=${paneId}`);
+  return {
+    delivered,
+    show(read: Read) { shown = read; },
+    send: async () => await submit(paneId, "/status", "/status", Date.now()),
+    outcomes: async () => (await (await handlePromptRequest(new Request(url), url))?.json() as PanePromptResponse).outcomes ?? [],
+  };
+}
+
+it("gives each /status sent to one Hermes pane its own result, from the block under its own echo (F3 D1)", async () => {
+  const pane = hermesPane("hermes-repeat-status");
+  for (const [index, { sent, after }] of recorded.sends.entries()) {
+    pane.show(sent);
+    await pane.send();
+    expect(pane.delivered).toHaveBeenCalledTimes(index + 1);
+    // echoed nothing yet: whatever the earlier sends left on screen is theirs, even when it reads the same
+    const waiting = await pane.outcomes();
+    // a pane shows its five newest outcomes
+    expect(waiting).toHaveLength(Math.min(index + 1, 5));
+    expect(waiting.at(-1)?.state).toBe("accepted");
+    pane.show(after);
+    const shown = await pane.outcomes();
+    expect(shown.at(-1)).toMatchObject({ state: "result-observed", evidence: [{ kind: "recognized-result" }] });
+    const lines = after.screen.split("\n");
+    const echo = findLastIndex(lines, (line) => line === "⚙️  /status");
+    expect(shown.at(-1)?.result_text).toBe(lines.slice(echo + 1, lines.findIndex((line, at) => at > echo && line.startsWith("Agent Running: ")) + 1).join("\n"));
+    // the earlier sends keep the results they had
+    expect(shown.map((outcome) => outcome.state)).toEqual(shown.map(() => "result-observed"));
+  }
+});
+
+it("does not resolve a later /status from the earlier block when nothing new printed", async () => {
+  const pane = hermesPane("hermes-repeat-silent");
+  const [third, fourth] = recorded.sends.slice(2) as [{ sent: Read; after: Read }, { sent: Read; after: Read }];
+  pane.show(third.sent);
+  await pane.send();
+  pane.show(third.after);
+  expect((await pane.outcomes()).at(-1)?.state).toBe("result-observed");
+  // another /status, and the pane printed nothing: still the three blocks at the same history row
+  expect(fourth.sent.top).toBe(third.after.top);
+  pane.show(fourth.sent);
+  await pane.send();
+  const silent = await pane.outcomes();
+  expect(silent).toHaveLength(2);
+  expect(silent.at(-1)?.state).toBe("accepted");
+  expect(silent.at(-1)).not.toHaveProperty("result_text");
+});

@@ -16,6 +16,8 @@ export interface CommandSend {
   readonly agent: string;
   readonly identity: string;
   readonly screen: string;
+  /** `screen`'s first row in the pane's history (viewportTop): the same row read before and after `screen`. */
+  readonly top?: number;
   readonly form: CommandForm | null;
   readonly invocations: readonly CommandInvocation[];
   /** One-based echo positions after this snapshot's tail, reserved at submission per result reader. */
@@ -90,6 +92,8 @@ export interface OutcomeObservation {
   readonly screen?: string;
   /** Older sends can still own result blocks, without receiving the newest send's preview. */
   readonly resultScreen?: string;
+  /** The observed screen's first row in the pane's history (viewportTop), read before that screen. */
+  readonly top?: number;
   readonly transcript?: string | readonly CommandTranscriptRecord[];
   /** Assigned by the pane's FIFO ledger, not by the timestamp window of its newest send. */
   readonly transcriptAt?: number;
@@ -277,6 +281,29 @@ function anchorEnd(snapshot: readonly string[], lines: readonly string[]): numbe
   return end;
 }
 
+/** Where a screen read starts in the pane's history: rows scrolled off above it, counted by herdr. */
+export function viewportTop(scroll: { max_offset_from_bottom: number; offset_from_bottom: number } | null | undefined): number | undefined {
+  return scroll ? scroll.max_offset_from_bottom - scroll.offset_from_bottom : undefined;
+}
+
+/**
+ * The snapshot's last line placed by how far the history moved between the two reads, when every line
+ * of the snapshot still on screen is where that move puts it. Identical blocks repeated down the screen
+ * leave the tail's text more than one equally good place, or a wrong one; the history rows leave one.
+ * A send's row is the same read before and after its screen; a later screen's row is read before it,
+ * so it can only be behind and place the anchor too low: then no echo is owned yet, never an earlier send's.
+ */
+function scrolledAnchor(snapshot: readonly string[], lines: readonly string[], shift: number): number | null {
+  let last = snapshot.length - 1;
+  while (last >= 0 && !snapshot[last]!.trim()) last -= 1;
+  if (!Number.isInteger(shift) || shift < 0 || last < shift || last - shift >= lines.length) return null;
+  for (let index = shift; index <= last; index++) if (snapshot[index] !== lines[index - shift]) return null;
+  return last - shift;
+}
+
+const sendAnchor = (snapshot: readonly string[], lines: readonly string[], snapshotTop: number | undefined, top: number | undefined): number | null =>
+  (snapshotTop !== undefined && top !== undefined ? scrolledAnchor(snapshot, lines, top - snapshotTop) : null) ?? anchorEnd(snapshot, lines);
+
 /**
  * Reserve before trimming the pane's send ledger. If the previous same-command send still lacks
  * echoes, those echoes belong to it first, including when the next snapshot has a later tail.
@@ -295,7 +322,7 @@ export function reserveResultEchoes(sent: CommandSend, previous: readonly Comman
     if (priorOrdinal === null || priorLimit === null) { reservations[reader.id] = null; continue; }
     const before = withoutChrome(screenLines(prior.screen), sent.agent, readers);
     if (before === null) { reservations[reader.id] = null; continue; }
-    const anchor = anchorEnd(before, lines);
+    const anchor = sendAnchor(before, lines, prior.top, sent.top);
     if (anchor === null) {
       reservations[reader.id] = prior.outcome?.state === "result-observed" ? 1 : null;
       continue;
@@ -444,12 +471,12 @@ export function ownsCommandDialog(sent: CommandSend, prompt: ParsedPrompt, scree
 }
 
 /** The block belonging to exactly this reserved echo, never a later command's block. */
-function ownedCommandScreen(sent: CommandSend, screen: string, reader: DialogReader, readers: readonly DialogReader[]): string | null {
+function ownedCommandScreen(sent: CommandSend, screen: string, reader: DialogReader, readers: readonly DialogReader[], top?: number): string | null {
   const fullLines = screenLines(screen);
   const lines = withoutChrome(fullLines, sent.agent, readers);
   const before = withoutChrome(screenLines(sent.screen), sent.agent, readers);
   if (lines === null || before === null) return null;
-  const anchor = anchorEnd(before, lines);
+  const anchor = sendAnchor(before, lines, sent.top, top);
   if (anchor === null) return null;
   const ordinal = sent.resultEchoes?.[reader.id];
   const reserved = sent.resultEchoLimit?.[reader.id];
@@ -467,7 +494,7 @@ function ownedCommandScreen(sent: CommandSend, screen: string, reader: DialogRea
   return fullLines.slice(echo + 1, next === -1 ? undefined : next + 1).join("\n");
 }
 
-function recognizedResult(sent: CommandSend, screen: string, readers: readonly DialogReader[]): { text: string; catalogChanged?: true } | null {
+function recognizedResult(sent: CommandSend, screen: string, readers: readonly DialogReader[], top?: number): { text: string; catalogChanged?: true } | null {
   const context = { agent: sent.agent, omoAsk: null, omoTrusted: false, omoOpen: [], sent: sent.text, working: false };
   for (const reader of readers) {
     if (reader.kind !== "result" || !reader.agents.some((agent) => agent === sent.agent || agent === "*")
@@ -475,7 +502,7 @@ function recognizedResult(sent: CommandSend, screen: string, readers: readonly D
     // Position alone cannot distinguish a terminal echo from Chat. Extra echoes invalidate ownership.
     // Accepted limitation: a same-command terminal result before the Chat echo is indistinguishable.
     // The idle input/status area can prove completion even though it cannot anchor an echo.
-    const below = ownedCommandScreen(sent, screen, reader, readers);
+    const below = ownedCommandScreen(sent, screen, reader, readers, top);
     if (below === null) continue;
     const parsed = reader.parse(below, context);
     const block = parsed?.resultText?.replace(ANSI_RE, "").replace(/\r\n/gu, "\n");
@@ -502,7 +529,7 @@ export function commandOutcome(paneId: string, sent: CommandSend, observation: O
     const validExternal = external && external.at > sent.at && external.at < until ? external : undefined;
     // Reserved screen echoes, like native records, can still belong to an earlier Chat send.
     const result = now < sent.at + WINDOW_MS
-      ? recognizedResult(sent, observation.resultScreen ?? observation.screen ?? "", observation.readers ?? []) : null;
+      ? recognizedResult(sent, observation.resultScreen ?? observation.screen ?? "", observation.readers ?? [], observation.top) : null;
     if (recorded !== null || validExternal || result) {
       state = "result-observed";
       evidence = [{ kind: recorded !== null ? "transcript" : validExternal?.kind ?? "recognized-result",
