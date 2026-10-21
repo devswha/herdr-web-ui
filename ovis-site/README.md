@@ -48,7 +48,7 @@ preview address. Cloudflare serves `404.html` for a missing page and `/privacy` 
   shot without it, for the card's arrival in the hero.
 - The quotes under "Loved by developers" are public posts on X, linked to each post, with the
   author's avatar saved in `assets/x/`.
-- `assets/og.png` is the link preview every page names (1200×630 PNG: the slogan beside the desktop
-  and phone approval shots). Remake it when the hero or the screenshots change.
+- `assets/og.png` is the link preview every page names (1200×630 PNG: the app icon, large, above
+  the name, like an app's store page, so it still reads at a phone's card size). Remake it when the hero or the screenshots change.
 - The Geist font in `assets/fonts/` is under the SIL Open Font License (`assets/fonts/LICENSE`).
 - The icon and logo are the app's (`app/assets/`, `app/web/ovis-logo.png`).
