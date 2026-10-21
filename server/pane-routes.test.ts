@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
+import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,11 +15,12 @@ import { openCodeServiceOptions } from "./opencode-service.ts";
 let root: string;
 let listener: ReturnType<typeof Bun.listen>;
 let socketBefore: string | undefined;
-let panes: Record<string, { agent?: string; process: { pid: number; argv: string[]; cwd: string }[] }>;
+let panes: Record<string, { agent?: string; session?: string; process: { pid: number; argv: string[]; cwd: string }[] }>;
 
 const paneInfo = (id: string) => ({
   pane_id: id, workspace_id: "w", tab_id: "w:t1", terminal_id: id, cwd: root, focused: false, revision: 0,
   ...(panes[id]?.agent ? { agent: panes[id]!.agent } : {}),
+  ...(panes[id]?.session ? { agent_session: { agent: "opencode", source: "herdr:opencode", kind: "id", value: panes[id]!.session } } : {}),
 });
 
 beforeEach(() => {
@@ -185,6 +187,60 @@ it("lists OpenCode's skills for a folder with no pane in the form its installed 
     if (homeBefore === undefined) delete process.env["HOME"];
     else process.env["HOME"] = homeBefore;
   }
+});
+
+/** an OpenCode pane (herdr labels it opencode) in a project with one skill, under a HOME and state dir of the test's own */
+async function openCodePane(run: (f: { state: string; skill(): Promise<{ trigger?: string; provenance?: { verified?: boolean } } | undefined> }) => Promise<void>, session?: string): Promise<void> {
+  const homeBefore = process.env["HOME"];
+  process.env["HOME"] = mkdtempSync(join(tmpdir(), "herdr-web-ui-pane-routes-home-"));
+  mkdirSync(join(root, ".opencode", "skills", "effect"), { recursive: true });
+  writeFileSync(join(root, ".opencode", "skills", "effect", "SKILL.md"), "---\nname: effect\ndescription: Apply Effect.\n---\nBody.\n");
+  const state = mkdtempSync(join(root, "opencode-state-"));
+  panes["w:p1"] = { agent: "opencode", ...(session ? { session } : {}), process: [{ pid: 2147483644, argv: ["opencode"], cwd: root }] };
+  openCodeServiceOptions.stateDir = join(root, "elsewhere");
+  try {
+    await run({
+      state,
+      async skill() {
+        const url = new URL("http://x/api/pane/commands?pane_id=w:p1");
+        const response = await handlePaneRequest(new Request(url), url, "/api/pane/commands", { openCodeStateDir: state, opencodeDb: join(root, "opencode.db") });
+        const { commands } = await response!.json() as { commands: { name: string; trigger?: string; provenance?: { verified?: boolean } }[] };
+        return commands.find((command) => command.name === "effect");
+      },
+    });
+  } finally {
+    delete openCodeServiceOptions.stateDir;
+    rmSync(process.env["HOME"]!, { recursive: true, force: true });
+    if (homeBefore === undefined) delete process.env["HOME"];
+    else process.env["HOME"] = homeBefore;
+  }
+}
+
+it("offers a session-less OpenCode pane's skill in the form its installed version types, unverified", async () => {
+  await openCodePane(async ({ state, skill }) => {
+    // no service file: the v1 form
+    const v1 = await skill();
+    expect(v1?.trigger ?? "/").toBe("/");
+    // OpenCode 2.0.32 names its version in service.json: the skill is typed with @, but the file verifies nothing
+    writeFileSync(join(state, "service.json"), JSON.stringify({ url: "http://127.0.0.1:9", pid: process.pid, password: "fixture", version: "2.0.32" }));
+    const v2 = await skill();
+    expect(v2?.trigger).toBe("@");
+    expect(v2?.provenance?.verified).toBe(false);
+  });
+});
+
+it("keeps the version a pane's own OpenCode session records over the service file's", async () => {
+  const database = join(root, "opencode.db");
+  const db = new Database(database, { create: true });
+  db.exec("CREATE TABLE session_v2 (id text PRIMARY KEY, project_id text NOT NULL, slug text NOT NULL, directory text NOT NULL, title text, version text NOT NULL, revert text, time_created integer NOT NULL, time_updated integer NOT NULL)");
+  db.exec("CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, type text NOT NULL, seq integer NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL, data text NOT NULL)");
+  db.query("INSERT INTO session_v2 (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES ('ses_paneRoutes01', 'global', 's', ?, 't', '1.19.3', 0, 0)").run(root);
+  db.close();
+  await openCodePane(async ({ state, skill }) => {
+    writeFileSync(join(state, "service.json"), JSON.stringify({ url: "http://127.0.0.1:9", pid: process.pid, password: "fixture", version: "2.0.32" }));
+    // the store's 1.19.3 wins: the v1 form, not the service's @
+    expect((await skill())?.trigger ?? "/").toBe("/");
+  }, "ses_paneRoutes01");
 });
 
 it("answers OpenCode's commands for a folder with no pane while its opencode.json is a FIFO no one writes", async () => {
