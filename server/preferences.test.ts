@@ -264,4 +264,19 @@ describe("a damaged preferences file", () => {
     expect(heard).toEqual([1]);
     expect(new PreferenceStore(dir).get()).toEqual({ revision: 1, settings: { theme: "light" } });
   });
+
+  it("preserves a file damaged after a valid start on the first write", () => {
+    quiet();
+    const dir = root();
+    writeFileSync(file(dir), JSON.stringify({ revision: 3, settings: { theme: "dark" } }));
+    const store = new PreferenceStore(dir);
+    expect(store.get()).toEqual({ revision: 3, settings: { theme: "dark" } });
+    const bytes = Buffer.from("{damaged after the start");
+    writeFileSync(file(dir), bytes);
+    store.set({ settings: { theme: "light" } });
+    expect(readFileSync(bad(dir))).toEqual(bytes);
+    expectPrivate(bad(dir));
+    expect(files(dir)).toEqual(["preferences.json", "preferences.json.bad"]);
+    expect(new PreferenceStore(dir).get()).toEqual({ revision: 4, settings: { theme: "light" } });
+  });
 });

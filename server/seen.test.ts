@@ -267,4 +267,49 @@ describe("a damaged read-finish file", () => {
     expect(told).toEqual([finish("a", 1)]);
     expect(new SeenStore(dir).list()).toEqual([finish("a", 1)]);
   });
+
+  it("preserves a file damaged after a valid start on the first write", () => {
+    quiet();
+    const dir = root();
+    writeFileSync(file(dir), JSON.stringify([finish("a", 1)]));
+    const store = new SeenStore(dir);
+    expect(store.list()).toEqual([finish("a", 1)]);
+    const bytes = Buffer.from("{damaged after the start");
+    writeFileSync(file(dir), bytes);
+    store.record(finish("b", 1));
+    expect(readFileSync(bad(dir))).toEqual(bytes);
+    expectPrivate(bad(dir));
+    expect(files(dir)).toEqual(["seen.json", "seen.json.bad"]);
+    expect(new SeenStore(dir).list()).toEqual([finish("b", 1)]);
+  });
+
+  it("holds nothing of a repair whose replacement failed, and checks the file again on retry", () => {
+    quiet();
+    const dir = root();
+    writeFileSync(file(dir), "{damaged");
+    const store = new SeenStore(dir);
+    const told: SeenFinish[] = [];
+    store.subscribe((changed) => told.push(changed));
+    // repaired by hand, then the replacement fails
+    writeFileSync(file(dir), JSON.stringify([finish("r", 3)]));
+    const rename = fs.renameSync;
+    const spy = spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (String(from).endsWith(".tmp")) throw Object.assign(new Error("EIO: i/o error, rename"), { code: "EIO" });
+      rename(from, to);
+    });
+    expect(() => store.record(finish("a", 1))).toThrow("EIO");
+    spy.mockRestore();
+    expect(store.list()).toEqual([]);
+    expect(told).toEqual([]);
+    expect(files(dir).some((name) => name.endsWith(".bad"))).toBe(false);
+    // damaged again before the retry: the retry keeps these bytes
+    const changed = Buffer.from("{damaged before the retry");
+    writeFileSync(file(dir), changed);
+    expect(store.record(finish("a", 1))).toEqual(finish("a", 1));
+    expect(readFileSync(bad(dir))).toEqual(changed);
+    expectPrivate(bad(dir));
+    expect(files(dir)).toEqual(["seen.json", "seen.json.bad"]);
+    expect(told).toEqual([finish("a", 1)]);
+    expect(new SeenStore(dir).list()).toEqual([finish("a", 1)]);
+  });
 });

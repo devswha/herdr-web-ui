@@ -20,19 +20,17 @@ export class PreferenceStore {
   private current: SharedPreferences = { revision: 0, settings: {} };
   private readonly path: string;
   private readonly listeners = new Set<(preferences: SharedPreferences) => void>();
-  /** The file could not be used when this store started: the next write looks at it again first. */
-  private unsettled = false;
+  /** Until this store has replaced the file, a write reads it again first: it may have been damaged or repaired since. */
+  private unsettled = true;
 
   constructor(stateDir: string) {
     this.path = join(stateDir, "preferences.json");
     try {
       const held = this.readDisk();
       if (held) this.current = held;
-      this.unsettled = held === null;
     } catch (error) {
       // a missing file is a server that has shared nothing yet; an unreadable one is not, and is never written over
       console.error(`Cannot read ${this.path} (${(error as NodeJS.ErrnoException).code ?? "error"}); shared preferences start empty and are not saved until it can be read`);
-      this.unsettled = true;
     }
   }
 

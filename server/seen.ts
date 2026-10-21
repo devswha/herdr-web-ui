@@ -13,19 +13,17 @@ export class SeenStore {
   private readonly finishes = new Map<string, SeenFinish>();
   private readonly path: string;
   private readonly listeners = new Set<(finish: SeenFinish) => void>();
-  /** The file could not be used when this store started: the next write looks at it again first. */
-  private unsettled = false;
+  /** Until this store has replaced the file, a write reads it again first: it may have been damaged or repaired since. */
+  private unsettled = true;
 
   constructor(stateDir: string) {
     this.path = join(stateDir, "seen.json");
     try {
       const disk = this.readDisk();
       if (disk) for (const [k, v] of disk.finishes) this.finishes.set(k, v);
-      this.unsettled = disk?.damaged ?? false;
     } catch (error) {
       // a missing file is a server that has recorded nothing yet; an unreadable one is not, and is never written over
       console.error(`Cannot read ${this.path} (${(error as NodeJS.ErrnoException).code ?? "error"}); read finishes start empty and are not saved until it can be read`);
-      this.unsettled = true;
     }
   }
 
@@ -55,15 +53,11 @@ export class SeenStore {
     let base = this.finishes;
     let keepDamaged = false;
     if (this.unsettled) {
-      // the file as it is now, not as it was at start: a repair is kept and the finish merged into it
+      // the file as it is now, not as it was at start: a repair is kept and the finish merged into
+      // it, and nothing of it is held until the write succeeds
       const disk = this.readDisk();
       if (disk) base = disk.finishes;
       keepDamaged = disk?.damaged ?? false;
-      if (!keepDamaged && disk) {
-        this.finishes.clear();
-        for (const [k, v] of disk.finishes) this.finishes.set(k, v);
-        this.unsettled = false;
-      }
     }
     const key = seenFinishKey(finish);
     const held = base.get(key);
