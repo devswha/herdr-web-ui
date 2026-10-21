@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { answerKeys, parseInteractivePrompt } from "../prompt.ts";
+import { answerKeys, claudeRewindOpen, parseInteractivePrompt } from "../prompt.ts";
 import { claudeRewindOnScreen, readers } from "./claude.ts";
 import { executeInteractionPlan } from "./interaction-plan.ts";
 import type { ReaderContext } from "./registry.ts";
@@ -78,6 +78,12 @@ describe("Claude Code's /rewind", () => {
     expect(await answer(rewind("confirm-apple", 40))).toEqual({ result: "answered", sent: [{ keys: ["enter"] }] });
   });
 
+  test("does not hold sends for a rewind panel drawn above Claude's own input box, as a reply quoting it is", () => {
+    const quoted = `${rewind("confirm-apple", 40)}\n${rewind("closed", 40)}`;
+    expect(claudeRewindOnScreen(quoted)).toBe(true);
+    expect(claudeRewindOpen(quoted)).toBe(false);
+  });
+
   // R1-NEW-1: the confirm step with the cursor on each row, recorded; the Summarize rows are add-context fields
   for (const width of [40, 120]) {
     test(`knows every recorded state of the rewind panel as one, the add-context fields included, at ${width} columns`, () => {
@@ -86,6 +92,10 @@ describe("Claude Code's /rewind", () => {
       }
       // Esc on the list closes it: Claude's own input box is back
       expect(claudeRewindOnScreen(rewind("confirm-apple-esc-esc", width))).toBe(false);
+      // the dialog takes the input box's place in every state, so a send waits on each of them
+      for (const state of ["confirm-apple-restore", "confirm-apple-summarize-from", "confirm-apple-summarize-up-to", "confirm-apple-never-mind", "confirm-apple-restore-esc", "confirm-apple-summarize-from-esc", "confirm-long-610"]) {
+        expect(claudeRewindOpen(rewind(state, width)), state).toBe(true);
+      }
       // a Summarize row is a text field, not the four choices: no card answers it
       expect(parseInteractivePrompt("claude", rewind("confirm-apple-summarize-from", width))).toBeNull();
       expect(parseInteractivePrompt("claude", rewind("confirm-apple-never-mind", width))?.options.map((option) => option.label)).toEqual(CHOICES);

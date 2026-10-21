@@ -7,6 +7,7 @@ import type { PaneRewindResponse } from "../shared/protocol.ts";
 import { socketAddress } from "./herdr/client.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
 import { handleRewindRequest, restoredOnScreen, walkClaudeRewind, type RewindIo } from "./rewind.ts";
+import { parseClaudeRewindConfirm } from "./dialogs/claude.ts";
 import { configureClaudeRewinds, observeClaudeIdentity, rewindClaudeTranscriptAt } from "./conversation.ts";
 import { chatOwnedInput, lastChatSubmitted } from "./prompt.ts";
 import { writeFileSync } from "node:fs";
@@ -193,6 +194,14 @@ describe("walking Claude Code's rewind list", () => {
       expect(dialog.state()).toEqual({ at: "closed" });
       expect(dialog.sent).not.toContain("down");
     }
+  });
+
+  it("refuses a message as long as Claude Code's cut that a longer one starts with, rather than opening the longer", async () => {
+    // the 610-character message's recorded quote, cut at 500: a message of exactly those words reads the same
+    const quote = parseClaudeRewindConfirm(screen("confirm-long-610"))!.message;
+    const dialog = narrowDialog([quote, LONG_610], 31, undefined, { 1: screen("confirm-long-610") });
+    expect(await walkClaudeRewind({ ...dialog.io, unambiguous: async () => false }, quote, 0)).toBe("ambiguous");
+    expect(dialog.state()).toEqual({ at: "closed" });
   });
 
   it("sends nothing more once the dialog does not show what a key did", async () => {

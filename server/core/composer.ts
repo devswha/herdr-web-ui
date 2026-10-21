@@ -15,9 +15,9 @@ import { paneProcessRoots } from "../conversation.ts";
 import { processStartedAt } from "../process-start.ts";
 import { isOmpProcess, ompAgentDir } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
-import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, chatOwnedInput, heldCandidate, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
+import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, claudeRewindOpen, codexQuestionsCollapsed, chatOwnedInput, heldCandidate, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
-import { CLAUDE_REWIND_OPEN_MESSAGE, claudeRewindOnScreen } from "../dialogs/claude.ts";
+import { CLAUDE_REWIND_OPEN_MESSAGE } from "../dialogs/claude.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
 import { startOpenCodeWatch, openCodeSkillsToType, skillsNotAttached } from "../opencode-native.ts";
 import { herdrSkillAttachIo, typeWithSkills } from "../opencode-skill-attach.ts";
@@ -177,7 +177,7 @@ export async function freeHermesInput(paneId: string, identity?: PendingIdentity
  */
 export async function claudeBoxReads(paneId: string): Promise<[string, string | null]> {
   const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-  if (claudeRewindOnScreen(before)) throw new HerdrError("rewind_dialog_open", CLAUDE_REWIND_OPEN_MESSAGE);
+  if (claudeRewindOpen(before)) throw new HerdrError("rewind_dialog_open", CLAUDE_REWIND_OPEN_MESSAGE);
   if (!claudeInputDraft(before, null)) return [before, null];
   const scrollBefore = await paneScrollInfo(paneId);
   const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;

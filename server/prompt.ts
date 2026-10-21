@@ -13,6 +13,7 @@ import { claudePlanFile } from "./claude-plan.ts";
 import { listPendingQuestionForms, openCodeService, replyOpenCodeForm } from "./opencode-service.ts";
 import { opencodeSessionId } from "./opencode.ts";
 import { registry } from "./dialogs/registry.ts";
+import { claudeRewindOnScreen } from "./dialogs/claude.ts";
 import { followClaudeRestore } from "./rewind.ts";
 import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, type OpenCodePromptEntry, PI_MODEL_HINT_RE, type ParsedPrompt, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, keySteps, navigationKeys, normalizeText, parsedByPublicPrompt, publicPrompt, wrapped } from "./dialogs/shared.ts";
 import { executeInteractionPlan } from "./dialogs/interaction-plan.ts";
@@ -1006,6 +1007,15 @@ export function claudeInputBoxContent(live: string): string | null {
   const box = claudeInputBox(live);
   if (box === null || box === "clipped") return null;
   return box.plain.map((row) => row.replace(/\u00a0/g, " ").trimEnd()).join("\n").trim();
+}
+
+/**
+ * Whether Claude Code's rewind dialog is open: the screen ends in its panel and Claude's own input box
+ * is not drawn (the dialog takes its place in every recorded state). A reply that draws the panel has
+ * the box under it, and must not hold the pane's sends.
+ */
+export function claudeRewindOpen(screen: string): boolean {
+  return claudeRewindOnScreen(screen) && claudeInputBoxContent(screen) === null;
 }
 
 /** What the user is shown of a box's content: enough to tell a real draft from a box misread. */

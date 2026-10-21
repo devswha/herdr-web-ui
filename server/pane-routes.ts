@@ -17,7 +17,8 @@ import { agentRename, HerdrError, layoutSetSplitRatio, paneClear, paneClose, pan
 import { paneContext, resolveAgent, versionSourceOf } from "./pane-context.ts";
 import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 import { handleRewindRequest } from "./rewind.ts";
-import { CLAUDE_REWIND_OPEN_MESSAGE, claudeRewindOnScreen } from "./dialogs/claude.ts";
+import { CLAUDE_REWIND_OPEN_MESSAGE } from "./dialogs/claude.ts";
+import { claudeRewindOpen } from "./prompt.ts";
 
 /** the native stores createServer was given; unset, each reader finds its own */
 export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string; openCodeStateDir?: string };
@@ -250,7 +251,7 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
         // text over Claude Code's rewind dialog would land in a Summarize row's add-context field
         // (core/composer.ts); keys still go, so Esc can close it
         const { agent } = await paneContext(payload.pane_id).catch(() => ({ agent: null }));
-        if (agent === "claude" && claudeRewindOnScreen((await paneRead({ paneId: payload.pane_id, source: "detection", format: "text" })).text)) {
+        if (agent === "claude" && claudeRewindOpen((await paneRead({ paneId: payload.pane_id, source: "detection", format: "text" })).text)) {
           return conflictResponse("rewind_dialog_open", CLAUDE_REWIND_OPEN_MESSAGE);
         }
         await paneSendText(payload.pane_id, payload.text);

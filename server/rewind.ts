@@ -12,12 +12,12 @@
  */
 import type { ParsedPrompt } from "./dialogs/shared.ts";
 import type { PaneRewindResponse } from "../shared/protocol.ts";
-import { CLAUDE_REWIND_CHOICES, claudeRewindOnScreen, parseClaudeRewindConfirm, parseClaudeRewindList, type ClaudeRewindConfirm, type ClaudeRewindList } from "./dialogs/claude.ts";
+import { CLAUDE_REWIND_CHOICES, parseClaudeRewindConfirm, parseClaudeRewindList, type ClaudeRewindConfirm, type ClaudeRewindList } from "./dialogs/claude.ts";
 import { KEY, normalizeText } from "./dialogs/shared.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, jsonResponse, readJsonObject } from "./http.ts";
 import { agentPrompt, paneRead, paneScrollInfo, paneSendKeys } from "./herdr/client.ts";
 import { paneContext } from "./pane-context.ts";
-import { claudeInputBoxContent, claudeInputDraft, forgetChatSendsAfter, parseInteractivePrompt, viewportShowsLive } from "./prompt.ts";
+import { claudeInputBoxContent, claudeInputDraft, claudeRewindOpen, forgetChatSendsAfter, parseInteractivePrompt, viewportShowsLive } from "./prompt.ts";
 import { claudeCutQuoteUnambiguous, rewindClaudeTranscript } from "./conversation.ts";
 
 /** The requester disconnected: nothing more is typed for it (AGENTS.md: nothing is sent automatically after a disconnect). */
@@ -168,7 +168,7 @@ async function backToList(io: RewindIo, label: string, stepMs: number): Promise<
 async function closeRewind(io: RewindIo, stepMs: number): Promise<void> {
   for (let presses = 0; presses < 3; presses += 1) {
     const screen = await io.read();
-    if (!claudeRewindOnScreen(screen)) return;
+    if (!claudeRewindOpen(screen)) return;
     await io.keys([KEY.escape]);
     if (await waitFor(io, (shown) => shown !== screen ? true : null, stepMs) === null) return;
   }
@@ -205,8 +205,10 @@ async function walkRewindList(io: RewindIo, text: string, later: number, stepMs:
         await io.keys([KEY.enter]);
         const confirm = await waitFor(io, parseClaudeRewindConfirm, stepMs);
         if (confirm === null) return "changed";
-        // a quote cut short tells this message from another only when no other one starts the same
-        if (quoteCut(confirm, text) && await io.unambiguous?.(confirm.message) !== true) return "ambiguous";
+        // a quote cut short tells this message from another only when no other one starts the same; one as
+        // long as Claude Code's cuts may be a longer message cut short even where it is all of this one
+        const cutLength = quoteCut(confirm, text) || (quoteMatches(confirm, text) && confirm.message.length >= QUOTE_CUT_MIN);
+        if (cutLength && await io.unambiguous?.(confirm.message) !== true) return "ambiguous";
         const same = quoteMatches(confirm, text) || quoteCut(confirm, text);
         if (same && skip === 0) return "shown";
         if (same) skip -= 1;
