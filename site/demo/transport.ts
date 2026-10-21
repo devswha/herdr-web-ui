@@ -1507,6 +1507,7 @@ class DemoSocket extends EventTarget {
         if (message.pane_id) {
           this.attached.delete(message.pane_id);
           this.holdPending(message.pane_id, "not_attached", "This pane was detached. Pending messages will not be sent automatically.");
+          this.holdAsked(message.pane_id);
           this.conversationInterests.delete(message.pane_id);
         }
         break;
@@ -1744,6 +1745,17 @@ class DemoSocket extends EventTarget {
     if (history && this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: history.render() });
   }
 
+  /** The first messages this socket asked for, in `paneId` or every pane, that have not gone: held for an explicit send, as the bridge holds them when their page leaves. */
+  private holdAsked(paneId?: string): void {
+    for (const [pane, requester] of firstRequesters) {
+      const first = firstMessages.get(pane);
+      if (requester !== this.connection || (paneId !== undefined && pane !== paneId) || first?.state !== "queued") continue;
+      first.state = "held"; first.error = { ...FIRST_MESSAGE_UNATTENDED };
+      firstRequesters.delete(pane);
+      publishFirstMessage(pane);
+    }
+  }
+
   private attach(paneId: string): void {
     const pane = paneOf(paneId);
     if (!pane) {
@@ -1833,14 +1845,7 @@ class DemoSocket extends EventTarget {
     if (this.readyState >= 2) return;
     this.readyState = 3;
     this.holdPending();
-    // the first messages this socket asked for and that have not gone: held for an explicit send
-    for (const [paneId, requester] of firstRequesters) {
-      const first = firstMessages.get(paneId);
-      if (requester !== this.connection || first?.state !== "queued") continue;
-      first.state = "held"; first.error = { ...FIRST_MESSAGE_UNATTENDED };
-      firstRequesters.delete(paneId);
-      publishFirstMessage(paneId);
-    }
+    this.holdAsked();
     for (const timer of this.timers) clearTimeout(timer);
     sockets.delete(this);
     this.attached.clear();
