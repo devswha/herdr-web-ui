@@ -80,7 +80,7 @@ export async function useTestHerdr(): Promise<string | null> {
   const standIns = process.platform === "win32" ? null : join(dirname(socket), "agent-stand-ins");
   // a server left running from before either directory existed has panes reading those files, or
   // the user's agents on their PATH: it is stopped once, and started again below
-  if ((!existsSync(zdotdir) || (standIns !== null && !existsSync(standIns))) && await answers(socket)) {
+  if ((!existsSync(zdotdir) || (standIns !== null && !existsSync(join(standIns, "muse")))) && await answers(socket)) {
     Bun.spawnSync([herdr, "--session", TEST_SESSION, "server", "stop"]);
     for (const deadline = Date.now() + 15_000; await answers(socket);) {
       if (Date.now() > deadline) throw new Error(`The test herdr session "${TEST_SESSION}" did not stop`);
