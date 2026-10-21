@@ -8,8 +8,8 @@
  * active streams. A device is either allowed to drive (type, answer, manage) or only to watch.
  */
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { DeviceRole, PairedDevice } from "../shared/protocol.ts";
 import type { Access } from "./access.ts";
 import { deviceCookie, isSecureRequest, noContent } from "./auth.ts";
@@ -63,17 +63,6 @@ export function normalizeLabel(value: unknown, fallback: string): string {
 
 export function isDeviceRole(value: unknown): value is DeviceRole {
   return value === "drive" || value === "watch";
-}
-
-/**
- * Owner-only, and written whole, but not flushed: only for last-seen telemetry, which is cheap
- * to lose and written often. Anything that changes who gets in goes through writePrivateState.
- */
-function writeJsonPrivate(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temporary, path);
 }
 
 export class DeviceStore {
@@ -202,7 +191,8 @@ export class DeviceStore {
       if (now - seen >= LAST_SEEN_WRITE_MS) {
         try {
           const next = this.devices.map((d) => d === device ? { ...d, last_seen_at: new Date(now).toISOString() } : d);
-          writeJsonPrivate(this.path, { gate_closed_at: this.gateClosedAt, devices: next });
+          // devices.json is also the authorization registry: a torn write here would lock every device out
+          this.save(next);
           this.devices = next;
         } catch { /* last-seen telemetry must not deny an otherwise valid credential */ }
       }

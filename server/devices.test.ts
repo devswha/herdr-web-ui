@@ -262,7 +262,7 @@ it("does not commit a failed revocation", () => {
   expect(reopened.list(null)).toEqual([]);
 });
 
-it("last-seen telemetry does not fsync", () => {
+it("flushes the last-seen update before it replaces the registry", () => {
   const root = mkdtempSync(join(dir, "last-seen-"));
   const store = new DeviceStore(root);
   const paired = store.pair(store.startPairing().code, "Phone", "drive")!;
@@ -273,7 +273,27 @@ it("last-seen telemetry does not fsync", () => {
     const authorizationSyncs = fsync.mock.calls.length;
     expect(authorizationSyncs).toBeGreaterThanOrEqual(1);
     store.match(paired.token, confirmedAt + 61_000);
-    expect(fsync.mock.calls.length).toBe(authorizationSyncs);
+    expect(fsync.mock.calls.length).toBeGreaterThan(authorizationSyncs);
   } finally { fsync.mockRestore(); }
   expect(new DeviceStore(root).list(null)[0]?.last_seen_at).toBe(new Date(confirmedAt + 61_000).toISOString());
+});
+
+it("keeps the previous registry intact and the credential valid when a last-seen write fails before rename", () => {
+  const root = mkdtempSync(join(dir, "last-seen-failure-"));
+  const store = new DeviceStore(root);
+  const paired = store.pair(store.startPairing().code, "Phone", "drive")!;
+  const confirmedAt = Date.now();
+  store.match(paired.token, confirmedAt);
+  const before = readFileSync(join(root, "devices.json"), "utf8");
+  const rename = spyOn(privateStateFs, "renameSync").mockImplementation(() => { throw new Error("EXDEV: rename refused"); });
+  try {
+    expect(store.match(paired.token, confirmedAt + 61_000)).toEqual(paired.device);
+    expect(rename).toHaveBeenCalledTimes(1);
+  } finally { rename.mockRestore(); }
+  expect(readdirSync(root)).toEqual(["devices.json"]);
+  expect(readFileSync(join(root, "devices.json"), "utf8")).toBe(before);
+  const reopened = new DeviceStore(root);
+  expect(reopened.error).toBeNull();
+  expect(reopened.list(null)[0]?.last_seen_at).toBe(new Date(confirmedAt).toISOString());
+  expect(reopened.match(paired.token, confirmedAt + 62_000)).toEqual(paired.device);
 });
