@@ -425,13 +425,16 @@ export function PaneTerminal({
   useEffect(() => { if (chatView || !presented) setCommandHint(null); }, [chatView, presented]);
   // Only the explicit send's own receipt may switch this view. A pending snapshot/removal never
   // does, and a receipt arriving after navigation cannot pull the reader back to its old pane.
+  // read at the receipt, not at the send: a catalog that arrives in between still counts
+  const commandsRef = useRef(commands);
+  commandsRef.current = commands;
   const showSentCommand = useCallback((pane: string, text: string) => {
-    const command = typedTerminalCommand(commands, text);
+    const command = typedTerminalCommand(commandsRef.current, text);
     if (command === null || paneRef.current !== pane || !activeRef.current || !presentedRef.current
       || !chatViewRef.current || observeRef.current) return;
     setCommandHint({ pane, command: `${command.trigger ?? "/"}${command.name}` });
     onOpenTerminal?.();
-  }, [commands, onOpenTerminal]);
+  }, [onOpenTerminal]);
   const setDraft = useCallback((value: InputDraft | ((previous: InputDraft) => InputDraft)) => {
     const owner = paneRef.current ? paneStorageId(machineId, paneRef.current) : null;
     setDraftState((previous) => ({ owner, value: typeof value === "function" ? value(previous.owner === owner ? previous.value : EMPTY_DRAFT) : value }));
