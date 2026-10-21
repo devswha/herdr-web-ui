@@ -1235,10 +1235,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   route, is said in one hint line. Start sends exactly one create: a ref-held in-flight guard
   (`lib/sessionHistory.ts` inFlightGuard) refuses a second press before the disabled fields have
   rendered.
-- In a mouse-driven window the chat's composer has a **New tab with an agent…** icon button (lucide
-  `MessageSquarePlus`, beside Attach) that opens this dialog as New tab on the pane's workspace, as
-  the tab menu does; a phone's card has no row to spare for it beside the mic and the tasks chip
-  (the model label would lose its pill), so there the tab's own menu keeps **New tab with agent…**.
+- In a mouse-driven window the chat's composer can show a **New tab with an agent…** icon button
+  (lucide `MessageSquarePlus`, beside Attach) that opens this dialog as New tab on the pane's
+  workspace, as the tab menu does. It is off until this device turns it on (Settings → Chat →
+  Composer, **New tab button**, the device setting `composerNewTabButton`): the composer's row stays
+  minimal, as the Codex and Claude apps keep theirs (attach and the mic; a new thread starts from the
+  sidebar), and the tab menu opens the same dialog either way. A phone's card has no row to spare for
+  it beside the mic and the tasks chip (the model label would lose its pill), so there the tab's own
+  menu keeps **New tab with agent…** and Settings does not offer the toggle on a touch screen.
   The existing shortcuts are untouched.
 - The design follows the Codex app's new thread screen (the model and reasoning-effort pickers
   under the prompt box, the prompt sent as the thread starts) and Claude Code's own session flags
@@ -2121,9 +2125,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   replaces the one entry. A reload steps out of the entries it finds; Forward reopens the page.
 - Pages, in order: **Appearance** (theme, dark theme, light theme, density, language, sidebar rows), **Chat**
   (panes open in, show thinking, chat width, chat font size and family; then
-  **Composer**: Enter sends, send queued messages automatically, and on a touch screen the suggestion
-  chip (off by default); then **Quick replies**; then **File viewer**: wrap long
-  lines, Markdown width, Diff layout), **Terminal** (font size, font family, wheel
+  **Composer**: Enter sends, send queued messages automatically, in a mouse-driven window the New tab
+  button (off by default), and on a touch screen the suggestion chip (off by default); then
+  **Quick replies**; then **File viewer**: wrap long lines, Markdown width, Diff layout), **Terminal** (font size, font family, wheel
   speed, input mode, Key bar, Clipboard from a pane, Use alongside herdr's own window, Follow
   herdr's focus), **Alerts**, **Voice input**, **Subscription usage**,
   **Shortcuts** (the platform-resolved global bindings), **Phone & devices** (the phone address,

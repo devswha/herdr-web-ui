@@ -740,6 +740,8 @@ export const JA: Record<string, string> = {
   "Waits for Send now": "「今すぐ送信」で送信します",
   "Send queued messages automatically": "送信待ちメッセージを自動で送信",
   "A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.": "エージェントの作業中に送ったメッセージは、ターンが終わると自動で送信されます。オフにすると、「今すぐ送信」を押すまで待ちます。",
+  "New tab button": "新しいタブボタン",
+  "A button in the message box opens New tab with an agent… on the pane's workspace. The tab menu offers it either way.": "入力欄のボタンで、このペインのワークスペースに「エージェント付きの新しいタブ…」を開きます。タブメニューからはいつでも開けます。",
   "Discard saved copy": "保存したコピーを破棄",
   "Update this PC to send messages in the next turn. Your draft stayed here.": "次のターンにメッセージを送るには、このPCを更新してください。入力したメッセージはここに残っています。",
   "Send now": "今すぐ送信",

@@ -1398,9 +1398,10 @@ export function Composer({
             <Plus aria-hidden="true" />
           </button>
           {dictation.shown && <MicButton dictation={dictation} />}
-          {/* a mouse-driven window only, like the usage glance: a phone's card has no row to spare beside
-              the mic and the tasks chip, and its tab menu carries New tab with agent… already */}
-          {onOpenNewSession && role !== "observe" && !mobile && (
+          {/* only once this device turned it on (Settings → Chat → Composer; the composer's row stays minimal, and
+              the tab menu opens the same dialog), and in a mouse-driven window only, like the usage glance: a phone's
+              card has no row to spare beside the mic and the tasks chip, and its tab menu carries New tab with agent… already */}
+          {onOpenNewSession && settings.composerNewTabButton && role !== "observe" && !mobile && (
             <button
               type="button"
               className="icon-button composer-new-session"

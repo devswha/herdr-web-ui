@@ -738,6 +738,8 @@ export const KO: Record<string, string> = {
   "Waits for Send now": "지금 보내기를 누르면 보냅니다",
   "Send queued messages automatically": "대기 메시지 자동 전송",
   "A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.": "에이전트가 작업 중일 때 보낸 메시지는 턴이 끝나면 저절로 전송됩니다. 끄면 지금 보내기를 누를 때까지 기다립니다.",
+  "New tab button": "새 탭 버튼",
+  "A button in the message box opens New tab with an agent… on the pane's workspace. The tab menu offers it either way.": "입력창의 버튼으로 이 패널의 워크스페이스에 에이전트와 함께 새 탭…을 엽니다. 탭 메뉴에서는 언제든 열 수 있습니다.",
   "Discard saved copy": "저장된 사본 버리기",
   "Update this PC to send messages in the next turn. Your draft stayed here.": "다음 차례에 메시지를 보내려면 이 PC를 업데이트하세요. 작성한 메시지는 여기에 남아 있습니다.",
   "Send now": "지금 보내기",

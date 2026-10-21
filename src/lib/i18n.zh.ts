@@ -742,6 +742,8 @@ export const ZH: Record<string, string> = {
   "Waits for Send now": "按“立即发送”后发送",
   "Send queued messages automatically": "自动发送排队消息",
   "A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.": "智能体工作时发送的消息会在本轮结束后自动发出。关闭后，消息会等到你按下“立即发送”。",
+  "New tab button": "新标签页按钮",
+  "A button in the message box opens New tab with an agent… on the pane's workspace. The tab menu offers it either way.": "输入框中的按钮可在该面板的工作区打开“带代理的新标签页…”。标签页菜单中始终可用。",
   "Discard saved copy": "丢弃已保存的副本",
   "Update this PC to send messages in the next turn. Your draft stayed here.": "请更新这台电脑后再发送下一轮消息。草稿仍保留在这里。",
   "Send now": "立即发送",
