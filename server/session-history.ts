@@ -23,7 +23,7 @@ import { constants as sqliteConstants, Database } from "bun:sqlite";
 import { closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readSync, realpathSync, statSync, type BigIntStats, type Dir, type Dirent, type Stats } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { SessionHistoryAgent, SessionHistoryRow } from "../shared/protocol.ts";
 import { agyUserText } from "./agy.ts";
@@ -695,20 +695,52 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
   if (!inside(root, real) || (parent !== root && !inside(root, parent)) || dirname(real) !== parent) return null;
   const checked = budget.identity(real);
   if (!checked?.isFile) return null;
+  let fd: number | undefined;
   let db: Database | undefined;
   try {
-    // the database opened must be the one checked: a link put in its place is not followed
-    // (SQLITE_OPEN_NOFOLLOW; SQLite's Unix VFS refuses it, its Windows one does not look), and after
-    // the open the path must still be the checked file (a folder above it swapped for a link, or
-    // Windows), so a swap between the check and the open lists nothing
-    db = new Database(real, sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
-    // part of the database's one check: a database checked at the 400th check is still listed
-    const opened = budget.identity(real, true);
-    if (!opened?.isFile || opened.dev !== checked.dev || opened.ino !== checked.ino) return null;
+    // the checked file itself, opened: a link put in its place is refused (O_NOFOLLOW), and the
+    // descriptor must be the checked file (a file swapped in and back between two looks at the path
+    // is not; nor is a folder above it swapped for a link)
+    fd = openSync(real, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+    const opened = budget.fstatOf(fd, true);
+    if (!opened.isFile() || bigintOf(opened.dev) !== checked.dev || bigintOf(opened.ino) !== checked.ino) return null;
+    const database = openDatabase(budget, real, fd, checked);
+    if (database === null) return null;
+    db = database;
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     return read(db);
   } catch { return null; }
-  finally { db?.close(); }
+  finally { db?.close(); if (fd !== undefined) closeSync(fd); }
+}
+
+/**
+ * SQLite on the checked database, read-only, writing nothing into the user's store.
+ *
+ * - A WAL database with no `-wal` beside it has nothing in its log: it opens `immutable=1`, so SQLite
+ *   neither locks it nor makes a `-wal` and `-shm` (a plain read-only open would make both).
+ * - A WAL database whose `-wal` exists (its agent writes now) opens as such, so the sessions still in
+ *   its log are read; its side files are there already.
+ * - A rollback-journal database opens as such, with SQLite's locks against a writer mid-change.
+ *
+ * On Linux and macOS SQLite opens the checked descriptor as /dev/fd/N: macOS opens the descriptor
+ * itself, and Linux the file it names now (the checked file, wherever it went). macOS would look for a
+ * live log beside /dev/fd/N, so a live WAL there opens by its path. Windows has no /dev/fd: there and
+ * for a live WAL on macOS, the path is opened and must still be the checked file after the open (a
+ * file swapped in between the descriptor's check and that open, then back, is not caught: the
+ * residual, while an agent writes on macOS, or on Windows).
+ */
+function openDatabase(budget: Budget, real: string, fd: number, checked: { dev: bigint; ino: bigint }): Database | null {
+  const header = Buffer.alloc(20);
+  const wal = readSync(fd, header, 0, 20, 0) === 20 && header[18] === 2 && header[19] === 2;
+  const logged = wal && budget.modified(`${real}-wal`) !== null;
+  const descriptor = process.platform === "linux" || (process.platform === "darwin" && !logged) ? `/dev/fd/${fd}` : null;
+  const flags = sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_URI;
+  if (descriptor !== null) return new Database(wal && !logged ? `file:${descriptor}?immutable=1` : descriptor, flags);
+  const db = new Database(wal && !logged ? `${pathToFileURL(real).href}?immutable=1` : real, flags | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
+  // part of the database's one check: a database checked at the 400th check is still listed
+  const again = budget.identity(real, true);
+  if (!again?.isFile || again.dev !== checked.dev || again.ino !== checked.ino) { db.close(); return null; }
+  return db;
 }
 
 const tableExists = (db: Database, name: string) => db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== null;

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { fstatSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, type BigIntStats, type Stats, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, type BigIntStats, type Stats, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -310,20 +310,77 @@ describe("listSessions", () => {
     expect(listed(NEAR + 2n)).toEqual([]);
   });
 
-  it("refuses a SQLite store whose identity after the open differs from the checked one only past 2^53", () => {
+  it("refuses a SQLite store whose opened descriptor differs from the checked one only past 2^53", () => {
     const home = newHome();
     install("hermes", home);
     const checked = realpathSync(join(home, ".hermes", "state.db"));
-    const listed = (afterOpen: bigint) => {
-      let seen = 0;
-      return listSessions("hermes", CWD, {
-        home, env: {},
-        // the first stat of the database is its check, the next the one after the open
-        stat: (path, bigint) => path === checked ? withIno(statAs(path, bigint), seen++ === 0 ? NEAR + 1n : afterOpen) : statAs(path, bigint),
-      }).length;
-    };
+    const listed = (opened: bigint) => listSessions("hermes", CWD, {
+      home, env: {},
+      stat: (path, bigint) => path === checked ? withIno(statAs(path, bigint), NEAR + 1n) : statAs(path, bigint),
+      fstat: (fd, bigint) => withIno(bigint ? fstatSync(fd, { bigint: true }) : fstatSync(fd), opened),
+    }).length;
     expect(listed(NEAR + 1n)).toBe(2);
     expect(listed(NEAR + 2n)).toBe(0);
+  });
+
+  it("reads nothing from a SQLite store swapped for another database and swapped back between its two checks", () => {
+    const home = newHome();
+    install("hermes", home);
+    const elsewhere = newHome();
+    install("hermes", elsewhere);
+    const outside = new Database(join(elsewhere, ".hermes", "state.db"));
+    outside.exec("UPDATE messages SET content = 'outside the store' WHERE role = 'user'");
+    outside.close();
+    const checked = realpathSync(join(home, ".hermes", "state.db"));
+    const kept = `${checked}.kept`;
+    let seen = 0;
+    const rows = listSessions("hermes", CWD, {
+      home, env: {},
+      stat: (path, bigint) => {
+        if (path !== checked) return statAs(path, bigint);
+        // at its check the database is swapped for another one (a file, which no link check sees), and
+        // swapped back before the next look, so both looks see the checked file
+        if (seen++ === 0) {
+          const stat = statAs(path, bigint);
+          renameSync(checked, kept); copyFileSync(join(elsewhere, ".hermes", "state.db"), checked);
+          return stat;
+        }
+        if (seen === 2) { rmSync(checked); renameSync(kept, checked); }
+        return statAs(path, bigint);
+      },
+    });
+    expect(rows.map((row) => row.firstMessage)).not.toContain("outside the store");
+    expect(rows).toEqual([]);
+  });
+
+  const sideFiles = (dir: string) => readdirSync(dir).filter((name) => /-(wal|shm)$/.test(name)).sort();
+
+  it("writes no -wal or -shm into a WAL store it reads", () => {
+    const home = newHome();
+    install("hermes", home);
+    const db = join(home, ".hermes", "state.db");
+    const writer = new Database(db);
+    writer.exec("PRAGMA journal_mode = WAL");
+    writer.close();
+    const before = sideFiles(dirname(db));
+    expect(listSessions("hermes", CWD, { home, env: {} }).map((row) => row.id)).toEqual(EXPECTED.hermes);
+    expect(sideFiles(dirname(db))).toEqual(before);
+  });
+
+  it("lists a session still in a WAL store's log while its agent writes", () => {
+    const home = newHome();
+    install("hermes", home);
+    const db = join(home, ".hermes", "state.db");
+    const writer = new Database(db);
+    try {
+      writer.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE)");
+      // written after the last checkpoint: only the -wal holds it (an immutable open would miss it)
+      writer.exec("UPDATE messages SET content = 'only in the log' WHERE session_id = '20261002_090000_fx0002' AND role = 'user'");
+      const before = sideFiles(dirname(db));
+      const rows = listSessions("hermes", CWD, { home, env: {} });
+      expect(rows.map((row) => row.firstMessage)).toContain("only in the log");
+      expect(sideFiles(dirname(db))).toEqual(before);
+    } finally { writer.close(); }
   });
 
   it(`lists a database whose check is the ${MAX_STATS}th: its identity after the open is part of that check`, () => {
