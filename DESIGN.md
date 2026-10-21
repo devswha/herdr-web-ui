@@ -1451,6 +1451,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   first copy drops its own left inset so its glyph stays on the prose edge (an overhang past the
   transcript's edge cannot be tapped). With a mouse the copy and format buttons keep their `--chip-h`
   look and take a `--pointer-target` hit area through an invisible `::before` expander.
+- A user turn of Claude Code, grok or agy carries one more glyph button beside its copy, the same
+  `.chat-copy` look (`.chat-rewind`, lucide Undo2): **Rewind to here** for Claude Code, offered only
+  while the agent waits with no card up and the message box empty, and disabled while a rewind is
+  on its way; **Rewind in terminal** for grok and agy, which sends nothing and opens the pane's
+  terminal with a one-line `.chat-rewind-note` (`role="status"`) under the bubble. A refused rewind
+  says why in the turn's `.chat-copy-error` line. The hover placement follows the message actions
+  of the Claude and Codex apps.
 - A command sent from the chat says what became of it under its bubble (`.chat-outcome`,
   `lib/outcomeChip.ts`): one quiet `--fs-xs` line in `--text-dim` on the message's side, a 14px
   glyph and the state in words, read as a `role="status"` live region. It follows the delivery
