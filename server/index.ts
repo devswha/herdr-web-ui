@@ -139,7 +139,7 @@ export interface ServerInstance {
    * queues a create request's first message for a pane's agent, as POST /api/workspace/create and /api/tab/create do with
    * `first_message` and `first_message_connection` (`requester`, a connection's id from its first snapshot): for tests that start no agent
    */
-  queueFirstMessage: (paneId: string, text: string, kind: string, requester?: string | null) => Promise<PendingMessage>;
+  queueFirstMessage: (paneId: string, text: string, kind: string, requester?: string | null, launchedPid?: number | null) => Promise<PendingMessage>;
   stop: () => void;
 }
 

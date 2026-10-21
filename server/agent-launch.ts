@@ -25,13 +25,17 @@ export function agentFault(agent: AgentPayload | undefined): string | null {
 
 /**
  * Starts a checked `agent` in a pane herdr just made. A failure is answered, not thrown: the
- * workspace, tab or worktree around the pane is there either way.
+ * workspace, tab or worktree around the pane is there either way. `launched` is told the pid of
+ * the process a shell-started agent came up as, when one is seen in front of the pane.
  */
-export async function agentLaunch(paneId: string, agent: AgentPayload): Promise<{ agent_started: true } | { agent_started: false; error: { code: string; message: string } }> {
+export async function agentLaunch(paneId: string, agent: AgentPayload, launched?: (pid: number) => void): Promise<{ agent_started: true } | { agent_started: false; error: { code: string; message: string } }> {
   try {
     const kind = agent.kind as string;
     const args = agent.args as string[] | undefined;
-    if (isShellAgentKind(kind)) await startShellAgent(kind, paneId, args);
+    if (isShellAgentKind(kind)) {
+      const pid = await startShellAgent(kind, paneId, args);
+      if (pid !== null) launched?.(pid);
+    }
     else {
       const given = typeof agent.name === "string" && agent.name.length > 0 ? agent.name : null;
       // herdr refuses a name another agent holds. Two creations at once can pick the same

@@ -35,7 +35,7 @@ const notQueued = (error: unknown): { error: { code: string; message: string } }
 
 /** The answer for a workspace route, or null when the path is not one. */
 export async function handleWorkspaceRequest(request: Request, url: URL, pathname: string, bunServer: Pick<Server<unknown>, "timeout">, broadcastAll: (message: ServerMessage) => void,
-  queueFirstMessage: (paneId: string, text: string, kind: string, requester: string | null) => Promise<PendingMessage>): Promise<Response | null> {
+  queueFirstMessage: (paneId: string, text: string, kind: string, requester: string | null, launchedPid: number | null) => Promise<PendingMessage>): Promise<Response | null> {
   if (pathname === "/api/workspace/directories" && request.method === "POST") {
     let payload: unknown;
     try { payload = await request.json(); } catch { return badRequest("invalid_json", "request body must be JSON"); }
@@ -139,11 +139,13 @@ export async function handleWorkspaceRequest(request: Request, url: URL, pathnam
       if (!payload.agent) {
         return jsonResponse({ workspace_id: workspaceId, pane_id: created.root_pane.pane_id, agent_started: false });
       }
-      const launched = await agentLaunch(created.root_pane.pane_id, payload.agent);
+      // the process the launch brought up, when it says: the first message is bound to it
+      let launchedPid: number | null = null;
+      const launched = await agentLaunch(created.root_pane.pane_id, payload.agent, (pid) => { launchedPid = pid; });
       // the request's first message is the user's send: queued for the agent's first ready turn through the
       // bridge's pending path (server/core/pending.ts), never typed here; an agent that did not start gets none
       const firstMessage = launched.agent_started && typeof payload.first_message === "string"
-        ? await queueFirstMessage(created.root_pane.pane_id, payload.first_message, payload.agent.kind as string, requester).then((message): { id: string } | ReturnType<typeof notQueued> => ({ id: message.id }), (error: unknown) => {
+        ? await queueFirstMessage(created.root_pane.pane_id, payload.first_message, payload.agent.kind as string, requester, launchedPid).then((message): { id: string } | ReturnType<typeof notQueued> => ({ id: message.id }), (error: unknown) => {
           console.warn(`first message for ${created.root_pane.pane_id} not queued: ${error instanceof Error ? error.message : String(error)}`);
           // the agent runs and the message did not go in: told apart from an agent that did not start (null)
           return notQueued(error);

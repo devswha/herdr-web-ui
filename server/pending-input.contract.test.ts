@@ -41,11 +41,14 @@ mock.module("./herdr/client.ts", () => ({
 const launches: string[] = [];
 const realLaunch = agentLaunchModule.agentLaunch;
 let standInLaunch = false;
+/** the process the stood-in launch says it brought up, as a shell-started agent's launch does */
+let standInPid: number | null = null;
 mock.module("./agent-launch.ts", () => ({
   ...agentLaunchModule,
   agentLaunch: async (...args: Parameters<typeof realLaunch>) => {
     if (!standInLaunch) return realLaunch(...args);
     launches.push(String(args[1].kind));
+    if (standInPid !== null) args[2]?.(standInPid);
     return { agent_started: true as const };
   },
 }));
@@ -1437,6 +1440,45 @@ describe("a create request's first message", () => {
     await markerSent;
     await f.waitBytes(`${paste("MARKER")}\r`);
     expect(f.bytes()).toBe(`${paste("MARKER")}\r`);
+  }, 30_000);
+
+  it("queued for a launch that died before any event saw it, is held when an agent of the same kind the user starts comes up, never typed into it", async () => {
+    const created = await herdrRpc<{ workspace: { workspace_id: string } }>("workspace.create", { label: "herdr-web-ui-test-pending-first-launch-died", cwd: root, focus: false });
+    const entry: (typeof active)[number] = { stop: () => {}, sockets: [], workspace: created.workspace.workspace_id }; active.push(entry);
+    const server = createServer({ port: 0, stateDir: join(root, "state-first-launch-died") });
+    entry.stop = server.stop;
+    const page = new Socket(server.port); entry.sockets.push(page);
+    // the launch says which process it brought up, and that process has ended before the pane's first event
+    const died = Bun.spawn(["true"]);
+    await died.exited;
+    standInLaunch = true; standInPid = died.pid;
+    const res = await fetch(`http://localhost:${server.port}/api/tab/create`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspace_id: created.workspace.workspace_id, cwd: root, agent: { kind: "claude" }, first_message: "FIRST-FOR-DIED", first_message_connection: await page.connection() }),
+    }).finally(() => { standInLaunch = false; standInPid = null; });
+    const tab = await res.json() as { pane_id: string; first_message: { id: string } };
+    expect(Object.keys(tab).sort()).toEqual(["agent_started", "first_message", "pane_id", "workspace_id"]); // the launch's process is not in the answer
+    const pane = tab.pane_id;
+    const device = new Socket(server.port); entry.sockets.push(device);
+    await device.attach(pane);
+    await drained(server, pane);
+    // the user starts an agent of the same kind in the shell
+    const log = join(root, "first-launch-died.jsonl");
+    const screenFile = join(root, "first-launch-died.screen");
+    writeFileSync(screenFile, "");
+    const up = written(() => existsSync(log), "the user's agent did not start", 10_000);
+    const before = device.seen.length;
+    await herdrRpc("pane.send_text", { pane_id: pane, text: `'${join(root, "claude")}' '${join(root, "record.cjs")}' '${log}' '\u203a Message' '${screenFile}'\n` });
+    await up;
+    const held = listed(device, pane, tab.first_message.id, "held");
+    await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "working" });
+    await learned(server, device, pane, "claude", before, entry.sockets);
+    expect((await held).messages.find((item: PendingMessage) => item.id === tab.first_message.id).error.code).toBe("pending_target_changed");
+    // its page attaches and the agent rests: nothing is typed into the user's agent
+    await page.attach(pane);
+    await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "idle" });
+    await drained(server, pane);
+    expect(readFileSync(log, "utf8")).toBe("");
   }, 30_000);
 
   it("is discarded by an attached connection, and then never typed", async () => {

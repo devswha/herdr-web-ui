@@ -51,6 +51,8 @@ type SubmitReply = { ok: boolean; pending?: PendingMessage; code?: string; messa
 const FIRST_MESSAGE_RETRY_CODES = new Set(["input_not_ready", "pending_lease_lost", "disconnected", "read_only"]);
 /** a first message whose page left before it went, or that named none: held for an explicit Send now or Discard */
 const FIRST_MESSAGE_UNATTENDED = { code: "first_message_unattended", message: "The page that sent this first message is gone; send it now or discard it" };
+/** a first message whose pane runs something other than the agent launched for it, found at a pane's event */
+const TARGET_CHANGED = { code: "pending_target_changed", message: "The pane's terminal or agent session changed; review the message before sending it again" };
 /** a first message whose launched agent came up and left before it went: held for an explicit Send now or Discard */
 const LAUNCH_GONE = { code: "pending_target_changed", message: "The agent started for this message has ended; review the message before sending it" };
 /** receipts of first messages kept per pane, so a connection that attaches later drops a stale copy */
@@ -392,7 +394,7 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    * has the pane attached (drainPending), and listed to every connection attached to the pane. Without a
    * connection of that id it is held from the start. Refused as a submit frame's text would be.
    */
-  async function queueFirstMessage(paneId: string, raw: string, kind: string, requester: string | null = null): Promise<PendingMessage> {
+  async function queueFirstMessage(paneId: string, raw: string, kind: string, requester: string | null = null, launchedPid: number | null = null): Promise<PendingMessage> {
     const text = pendingText(raw);
     const page = requester === null ? undefined : [...clients].find((client) => client.data.connectionId === requester && present(client));
     const message = await serialize(paneId, async () => {
@@ -400,8 +402,12 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
       // it is not the shell: a replacement of the same kind is not what the message was sent to. Right after
       // a launch herdr may name no agent yet; that binding is completed when it does (bindLaunched)
       const { pane, identity, shellPid } = await currentIdentity(paneId);
-      const launchedProcess = identity.processPid !== null && identity.processPid !== undefined && identity.processPid !== shellPid
-        ? { processPid: identity.processPid, processBirth: identity.processBirth } : {};
+      // The launch's own word wins: a shell-started agent's launch says which process it came up as, which
+      // may have ended already, and then an agent the user starts later is not the one launched
+      const launchedProcess = launchedPid !== null
+        ? { processPid: launchedPid, processBirth: identity.processPid === launchedPid ? identity.processBirth : processStartedAt(launchedPid) }
+        : identity.processPid !== null && identity.processPid !== undefined && identity.processPid !== shellPid
+          ? { processPid: identity.processPid, processBirth: identity.processBirth } : {};
       // and to the sessions herdr, OmO or Claude's own record already name for that agent: a /resume
       // before the message went is another session
       const sessions = identity.agent === kind
@@ -427,11 +433,14 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    * never replaced, so a later session or process of the same kind is another; pendingContext holds the
    * message for it with pending_target_changed.
    */
-  function learn(item: PendingItem, identity: PendingIdentity): void {
+  function learn(item: PendingItem, identity: PendingIdentity, shellPid: number | null): void {
     if (identity.terminalId !== item.identity.terminalId || identity.agent !== item.identity.agent || !samePendingIdentity(item.identity, identity)) return;
     item.identity.session ??= identity.session;
-    item.identity.processPid ??= identity.processPid;
-    item.identity.processBirth ??= identity.processBirth;
+    // the shell itself is never the launched process: with it still in front, the launch is not known yet
+    if (identity.processPid !== shellPid) {
+      item.identity.processPid ??= identity.processPid;
+      item.identity.processBirth ??= identity.processBirth;
+    }
     item.identity.omoSession ??= identity.omoSession;
     item.identity.claudeSession ??= identity.claudeSession;
   }
@@ -439,11 +448,13 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   async function learnLaunched(paneId: string): Promise<void> {
     const items = launchBoundIn(paneId);
     if (items.length === 0) return;
-    const { identity } = await currentIdentity(paneId);
+    const { identity, shellPid } = await currentIdentity(paneId);
     for (const item of items) {
-      // its agent came up and left: held at once, as the pane may never be at rest for a send to find it gone
+      // its agent came up and left, or what herdr names there is not what was launched for it: held at once, as
+      // pendingContext would hold it at a send, which a pane that is not at rest never gets to
       if (launchGone(item, identity)) pending.holdItem(item, LAUNCH_GONE);
-      else learn(item, identity);
+      else if (targetChanged(item, identity)) pending.holdItem(item, TARGET_CHANGED);
+      else learn(item, identity, shellPid);
     }
   }
   /**
@@ -455,15 +466,19 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
    */
   async function bindLaunched(item: PendingItem): Promise<"bound" | "wait"> {
     if (!launchBound.has(item)) return "bound";
-    const { identity } = await currentIdentity(item.paneId);
+    const { identity, shellPid } = await currentIdentity(item.paneId);
     if (identity.terminalId === item.identity.terminalId && identity.agent === null && !launchGone(item, identity)) return "wait";
-    learn(item, identity);
+    learn(item, identity, shellPid);
     return "bound";
   }
   /**
    * Whether the agent launched for a first message came up and left: herdr names no agent in its terminal
    * and the process learned for it is no longer the one in front.
    */
+  /** Whether what runs in a first message's pane is not what was launched for it: another terminal, or an agent herdr names that disagrees. */
+  function targetChanged(item: PendingItem, identity: PendingIdentity): boolean {
+    return identity.terminalId !== item.identity.terminalId || (identity.agent !== null && !samePendingIdentity(item.identity, identity));
+  }
   function launchGone(item: PendingItem, identity: PendingIdentity): boolean {
     const launched = item.identity.processPid;
     if (launched == null || identity.terminalId !== item.identity.terminalId || identity.agent !== null) return false;
