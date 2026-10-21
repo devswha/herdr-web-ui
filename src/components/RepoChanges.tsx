@@ -98,7 +98,7 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
     );
   }, [fetchRepoDiffRefs, paneId, directory]);
 
-  const openPicker = (): void => {
+  const placePicker = useCallback((): void => {
     // fixed to the field, so the dialog's scroll box does not clip the list (as the agent picker's is),
     // and as wide as the form, so a long branch name has the room Compare's column leaves below it
     const field = pickerRef.current!;
@@ -115,6 +115,10 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
     const up = below < 160 && top > below;
     const room = up ? top - 16 : below;
     setPlace({ left: rect.left, width: right - rect.left, maxHeight: Math.min(REFS_MENU_HEIGHT, room), ...(up ? { bottom: window.innerHeight - top + 4 } : { top: bottom + 4 }) });
+  }, []);
+
+  const openPicker = (): void => {
+    placePicker();
     setActive(0);
     setPickerOpen(true);
     loadRefs();
@@ -129,15 +133,23 @@ export function RepoChanges({ paneId, directory, onOpenDiff }: RepoChangesProps)
       // only an ancestor's scroll can move the anchor; the list's own scroll stays
       if (event.type === "resize" || (event.target instanceof Node && pickerRef.current !== null && event.target.contains(pickerRef.current))) setPickerOpen(false);
     };
+    // a list opened while the sheet around it still slides in is placed again once it has settled
+    const onSettle = (event: Event): void => {
+      if (event.target instanceof Node && pickerRef.current !== null && event.target.contains(pickerRef.current)) placePicker();
+    };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("scroll", onMove, true);
+    document.addEventListener("animationend", onSettle, true);
+    document.addEventListener("transitionend", onSettle, true);
     window.addEventListener("resize", onMove);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("scroll", onMove, true);
+      document.removeEventListener("animationend", onSettle, true);
+      document.removeEventListener("transitionend", onSettle, true);
       window.removeEventListener("resize", onMove);
     };
-  }, [pickerOpen]);
+  }, [pickerOpen, placePicker]);
 
   const refsListing = refs.status === "ready" ? refs.listing : null;
   const typed = baseRef.trim();

@@ -206,7 +206,7 @@ function fixtures(): { main: string; detached: string; plain: string; long: stri
 }
 
 const repos = fixtures();
-const panes = new Map([["pane-main", repos.main], ["pane-conflict", repos.detached], ["pane-plain", repos.plain], ["pane-long", repos.long], ["pane-fork", repos.fork], ["pane-unborn", repos.unborn], ["pane-orphan", repos.orphan], ["pane-crowded", repos.crowded], ["pane-observe", repos.fork], ["pane-old", repos.fork]]);
+const panes = new Map([["pane-main", repos.main], ["pane-conflict", repos.detached], ["pane-plain", repos.plain], ["pane-long", repos.long], ["pane-fork", repos.fork], ["pane-unborn", repos.unborn], ["pane-orphan", repos.orphan], ["pane-crowded", repos.crowded], ["pane-observe", repos.fork], ["pane-old", repos.fork], ["pane-offline", repos.fork]]);
 const requests: string[] = [];
 /** a patch request for `pane-held` waits on this until the check lets it through */
 let held = Promise.withResolvers<void>();
@@ -214,6 +214,16 @@ let held = Promise.withResolvers<void>();
 const branchPatches: URLSearchParams[] = [];
 /** a PC whose branch list is held until released: a switch to another PC must not take its late answer */
 let branchHeld: { promise: Promise<void>; release: () => void } | null = null;
+/** one route of pane-fork held for a loading capture: `reached` settles once the request is in */
+let hold: { kind: "files" | "file" | "refs"; reached: () => void; gate: Promise<void> } | null = null;
+function holdNext(kind: "files" | "file" | "refs"): { reached: Promise<void>; release: () => void } {
+  let open = (): void => {};
+  let arrived = (): void => {};
+  const gate = new Promise<void>((resolve) => { open = resolve; });
+  const reached = new Promise<void>((resolve) => { arrived = resolve; });
+  hold = { kind, reached: arrived, gate };
+  return { reached, release: () => { hold = null; open(); } };
+}
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 let server: ReturnType<typeof Bun.serve> | undefined;
 let demoServer: ReturnType<typeof Bun.serve> | undefined;
@@ -230,6 +240,9 @@ async function api(request: Request, url: URL): Promise<Response | null> {
     // a bridge from before the branch scope: no refs route, and a scope it does not know
     if (paneId === "pane-old" && kind === "refs") return Response.json({ error: { code: "not_found", message: "unknown endpoint /api/workspace/diff/refs" } }, { status: 404 });
     if (paneId === "pane-old" && url.searchParams.get("scope") === "branch") return Response.json({ error: { code: "invalid_scope", message: "scope must be workspace, staged or commit" } }, { status: 400 });
+    // a PC that is offline: its bridge answers nothing, as the machine proxy says
+    if (paneId === "pane-offline") return Response.json({ error: { code: "machine_offline", message: "that PC is offline" } }, { status: 503 });
+    if (hold !== null && hold.kind === kind && paneId === "pane-fork") { const current = hold; current.reached(); await current.gate; }
     // the slow PC answers its branches from the crowded repository, once released
     if (diff[1] === "slow-fixture" && kind === "refs") {
       if (branchHeld) await branchHeld.promise;
@@ -424,6 +437,9 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   assert.equal(await compare.isDisabled(), true, `${label}: Compare waits for a base`);
   assert.equal(await page.locator(".repo-changes-list[data-scope]").count(), 0, `${label}: nothing is compared before Compare`);
   await shoot("rest");
+  // Compare stays disabled while the field, focused, is empty
+  await base.focus();
+  await shoot("disabled");
   if (!phone) {
     // the keyboard's focus ring: Tab from the field lands on the picker's toggle (and closes the list the click opened)
     await base.click();
@@ -435,7 +451,12 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   }
 
   // the picker: local and remote branches by their short names, the remote's symbolic HEAD left out
+  const refsHeld = holdNext("refs");
   await choose.click();
+  await refsHeld.reached;
+  await page.locator(".repo-changes-refs[aria-busy='true']").waitFor();
+  await shoot("loading-refs");
+  refsHeld.release();
   const names = await refRows(page);
   assert.deepEqual(names, ["feat/idempotent-payments", LONG_BRANCH, "main", "release/2026.10", "origin/feat/idempotent-payments", "origin/main"], `${label}: the branches offered: ${JSON.stringify(names)}`);
   assert.equal(await page.locator(".repo-changes-refs [role='option'][aria-selected='true'] .menu-item-main").textContent(), "feat/idempotent-payments", `${label}: the first row is active`);
@@ -452,6 +473,9 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   await base.fill("zzz");
   assert.equal(await refNote(page), t("No branch matches; Compare takes the name as typed."), `${label}: no match says so`);
   await shoot("picker-no-match");
+  await base.fill("a-very-long");
+  assert.deepEqual(await refRows(page), [LONG_BRANCH], `${label}: a long branch name is offered`);
+  await shoot("long-refs");
   await base.fill("mai");
   assert.deepEqual(await refRows(page), ["main", "origin/main"], `${label}: the rows filtered by the typed text`);
   await page.keyboard.press("ArrowDown");
@@ -459,7 +483,18 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   await page.locator(".repo-changes-refs").waitFor({ state: "detached" });
   assert.equal(await base.inputValue(), "origin/main", `${label}: Enter takes the active row`);
   assert.equal(await compare.isDisabled(), false, `${label}: Compare is ready with a base`);
-  await compare.click();
+  await shoot("selected");
+  // Compare held down, then the list on its way
+  const listHeld = holdNext("files");
+  const box = (await compare.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await shoot("pressed");
+  await page.mouse.up();
+  await listHeld.reached;
+  await page.locator(".repo-changes-loading").waitFor();
+  await shoot("loading-list");
+  listHeld.release();
   const rows = await changeRows(page, "branch");
   assert.deepEqual(rows, expectedRows, `${label}: the branch's changes, and none of the base's: ${JSON.stringify(rows)}`);
   const identity = await identityLine(page);
@@ -475,7 +510,11 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
 
   // the untracked file's patch is whole, read from the pinned identity
   branchPatches.length = 0;
+  const patchHeld = holdNext("file");
   await openChange(page, "src/untracked.ts");
+  await patchHeld.reached;
+  await shoot("loading-patch");
+  patchHeld.release();
   await waitRows(page);
   assert.deepEqual(await rowTexts(page), { deletions: [], additions: ["export const fresh = 1;", "", "export const minted = 2;"] }, `${label}: the untracked file is all additions`);
   const meta = await page.locator(".repo-diff-meta").first().textContent();
@@ -489,7 +528,7 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   await page.locator(".repo-diff-viewer").waitFor({ state: "detached" });
   await openChange(page, LONG_PATH.slice(LONG_PATH.lastIndexOf("/") + 1));
   await waitRows(page);
-  await shoot("patch-long-path");
+  await shoot("long-paths");
   await page.getByRole("button", { name: words.closeDiff, exact: true }).click();
   await page.locator(".repo-diff-viewer").waitFor({ state: "detached" });
 
@@ -549,7 +588,7 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   await base.fill("main");
   await compare.click();
   await page.locator(".repo-changes-error").filter({ hasText: t("That base shares no history with HEAD.") }).waitFor();
-  await shoot("no-common-ancestor");
+  await shoot("invalid-ancestry");
   await closeFiles(page, words);
   await openFiles(page, "pane-unborn", "local", words);
   await page.getByRole("button", { name: words.branch, exact: true }).click();
@@ -570,6 +609,7 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   assert.equal(crowded.length, 200, `${label}: the list stops at 200`);
   assert.ok(!crowded.includes("many/209"), `${label}: the last branches are not listed`);
   assert.equal(await refNote(page), t("Only the first {count} branches are listed; another can be typed by name.").replace("{count}", "200"), `${label}: a cut list says so`);
+  await shoot("truncated-refs");
   await page.evaluate(() => { const menu = document.querySelector<HTMLElement>(".repo-changes-refs")!; menu.scrollTop = menu.scrollHeight; });
   await shoot("truncated-refs-end");
   await base.fill("many/209");
@@ -592,7 +632,14 @@ async function branchReview(page: Page, label: string, width: 390 | 1440, theme:
   await base.fill("main");
   await compare.click();
   await page.locator(".repo-changes-error").filter({ hasText: t("This PC's bridge cannot compare branches yet.") }).waitFor();
-  await shoot("older-bridge");
+  await shoot("older-pc");
+  await closeFiles(page, words);
+  // a PC that is offline: the picker says so in the app's words
+  await openFiles(page, "pane-offline", "local", words);
+  await page.getByRole("button", { name: words.branch, exact: true }).click();
+  await choose.click();
+  assert.equal(await refNote(page), t("That PC is not reachable right now."), `${label}: an offline PC is explained`);
+  await shoot("offline");
   await closeFiles(page, words);
   // nothing of this fetched or checked anything out: the branch is where it was, the base one commit on
   assert.equal(git(repos.fork, "rev-parse", "HEAD").trim(), headBefore, `${label}: HEAD is where it was`);
@@ -1211,7 +1258,7 @@ try {
     await page.getByRole("button", { name: EN.branch, exact: true }).click();
     await page.getByRole("button", { name: EN.choose, exact: true }).click();
     await page.locator(".repo-changes-refs[aria-busy='true'] .repo-changes-refs-note").filter({ hasText: "Loading" }).waitFor();
-    await branchShot(page, "1440-dark-loading-refs");
+    await branchShot(page, "1440-dark-loading-refs-pc-switch");
     // the same pane on another PC: the picker closes, and its list is read from that PC
     await page.evaluate(([paneId, directory]) => window.repoDiffQA.openFiles("local", paneId, directory), ["pane-fork", repos.fork] as const);
     await page.locator(".repo-changes-refs").waitFor({ state: "detached" });
