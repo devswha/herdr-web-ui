@@ -330,7 +330,8 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
   const moveActions = useMemo<PaletteAction[]>(() => selectedTab === null || tabPanes !== 1 ? [] : (snapshot?.workspaces ?? [])
     .filter((entry) => entry.workspace_id !== selectedWorkspace)
     .map((entry) => ({ id: `move-tab-${entry.workspace_id}`, label: t("Move tab to {workspace}", { workspace: entry.label }), icon: FolderInput,
-      run: () => { void actions.moveTabToWorkspace({ machineId, tabId: selectedTab, workspaceId: entry.workspace_id }).catch((err: unknown) => console.warn("tab move failed", err)); } })),
+      // a refusal is said over the pane (App): the palette has closed by then
+      run: () => { void actions.moveTabToWorkspace({ machineId, tabId: selectedTab, workspaceId: entry.workspace_id, notice: true }).catch(() => undefined); } })),
   [actions, machineId, selectedTab, selectedWorkspace, snapshot?.workspaces, t, tabPanes]);
 
   const allPanes = useMemo(() => machines.flatMap((machine) => machine.state === "connected" ? machine.snapshot?.panes ?? [] : []), [machines]);

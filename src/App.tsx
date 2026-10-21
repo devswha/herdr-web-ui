@@ -77,6 +77,7 @@ import { useFocusReturn } from "./lib/useFocusTrap.ts";
 import { useRepoDiffViewer } from "./lib/useRepoDiffViewer.ts";
 import { useT } from "./lib/i18n.ts";
 import { markSelection, selectionStill, type SelectionMark } from "./lib/selectionMark.ts";
+import { carryPaneState } from "./lib/paneMove.ts";
 import { followsHerdrFocus } from "./lib/followFocus.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
@@ -354,6 +355,10 @@ export function App() {
   useLayoutEffect(() => {
     selectionRef.current = markSelection(selectionRef.current, selectedMachineId, selectedPaneId);
   }, [selectedMachineId, selectedPaneId]);
+  // panes a tab move has on its way to another workspace (paneStorageId): herdr can drop the old ID
+  // from a roster before the move answers with the new one, and until it does neither the selection
+  // nor the split's other half falls back from it
+  const movingPanes = useRef(new Set<string>());
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   // Escape puts the open drawer away and goes no further: in the capture phase, so a terminal that kept the
@@ -899,11 +904,13 @@ export function App() {
     }
     if (snapshot.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
     if (selectedPaneId === null) { setSelectedPaneId(fallback(snapshot)); return; }
+    const moving = (): boolean => movingPanes.current.has(paneStorageId(selectedMachineId, selectedPaneId));
+    if (moving()) return;
     // The combined roster is cached: a newly created pane can be selected before it
     // appears there. Confirm absence against this PC before discarding the selection.
     let cancelled = false;
     void fetchSession(selectedMachineId).then((current) => {
-      if (cancelled || current.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
+      if (cancelled || moving() || current.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
       // a pane a tapped alert selected: the workspace the alert named opens, and says so
       const hint = selectionHint.current;
       selectionHint.current = null;
@@ -939,6 +946,12 @@ export function App() {
   const layoutRefused = useCallback((what: string, err: unknown): void => {
     if (routeMissing(err)) setLayoutNotice(t("This PC's bridge does not offer this yet"));
     else console.warn(what, err);
+  }, [t]);
+  // a tab move the palette asked for and the PC refused: the palette has closed, so herdr's refusal
+  // is said over the pane too (the tab's own menu has a line of its own)
+  const moveRefused = useCallback((err: unknown): void => {
+    const reason = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : String(err);
+    setLayoutNotice(routeMissing(err) ? t("This PC's bridge does not offer this yet") : t("Move failed: {reason}", { reason }));
   }, [t]);
 
   // a tapped notification focuses this window and names the pane (public/sw.js). A pane not known
@@ -1084,6 +1097,8 @@ export function App() {
     if (!otherMachine.snapshot || otherMachine.state !== "connected") return;
     const panes = otherMachine.snapshot.panes;
     if (panes.some((pane) => pane.pane_id === split.other.paneId)) return;
+    const moving = (): boolean => movingPanes.current.has(paneStorageId(split.other.machineId, split.other.paneId));
+    if (moving()) return;
     const tabId = otherTabRef.current?.tab ?? null;
     // a pane this page has not seen in the roster yet (a saved split, a pane made just before the page
     // loaded) may be newer than the cached roster: ask the PC before the split ends, as the selection does
@@ -1091,7 +1106,7 @@ export function App() {
       let cancelled = false;
       const other = split.other;
       void fetchSession(other.machineId).then((current) => {
-        if (!cancelled && !current.panes.some((pane) => pane.pane_id === other.paneId)) endSplit(split.active);
+        if (!cancelled && !moving() && !current.panes.some((pane) => pane.pane_id === other.paneId)) endSplit(split.active);
       }).catch(() => {
         // a failed read is not evidence that the pane closed: ask again on the next roster
         if (!cancelled) otherRecheck.current = true;
@@ -1409,20 +1424,29 @@ export function App() {
         // what the user went to while herdr answered is theirs to keep
         if (selectionStill(asked, selectionRef.current)) selectTargetRef.current(found.machineId, created.pane_id);
       },
-      moveTabToWorkspace: async ({ machineId, tabId, workspaceId }) => {
-        const asked = selectionRef.current;
+      moveTabToWorkspace: async ({ machineId, tabId, workspaceId, notice }) => {
         const roster = machinesRef.current.find((m) => m.id === machineId)?.snapshot;
-        const inTab = (paneId: string | null): boolean => roster?.panes.some((pane) => pane.pane_id === paneId && pane.tab_id === tabId) === true;
-        const held = asked.machineId === machineId && inTab(asked.paneId);
-        // the split's other half may show the tab: it follows the pane as the open one does
-        const shown = splitRef.current?.other;
-        const otherHeld = shown?.machineId === machineId && inTab(shown.paneId) ? shown : null;
-        const moved = await moveTabToWorkspace(tabId, workspaceId, machineId);
-        void load();
-        const open = splitRef.current;
-        if (otherHeld && open && sameTarget(open.other, otherHeld)) setSplit({ ...open, other: { machineId, paneId: moved.pane_id } });
-        // the open pane changed its ID with its workspace: the view goes with it, unless the user went elsewhere meanwhile
-        if (held && selectionStill(asked, selectionRef.current)) selectTargetRef.current(machineId, moved.pane_id);
+        const from = roster?.panes.find((pane) => pane.tab_id === tabId)?.pane_id ?? null;
+        const moving = from === null ? null : paneStorageId(machineId, from);
+        if (moving !== null) movingPanes.current.add(moving);
+        try {
+          const moved = await moveTabToWorkspace(tabId, workspaceId, machineId);
+          if (from === null) return;
+          // what was typed into the pane and not sent goes to its new ID with it (lib/paneMove.ts)
+          carryPaneState(machineId, from, moved.pane_id);
+          // the pane changed its ID with its workspace: wherever the old one is still shown, in either half,
+          // the view goes with it. A pane the user went to meanwhile is theirs to keep
+          const open = splitRef.current;
+          if (open && sameTarget(open.other, { machineId, paneId: from })) setSplit({ ...open, other: { machineId, paneId: moved.pane_id } });
+          const now = selectionRef.current;
+          if (now.machineId === machineId && now.paneId === from) selectTargetRef.current(machineId, moved.pane_id);
+        } catch (err) {
+          if (notice) moveRefused(err);
+          throw err;
+        } finally {
+          if (moving !== null) movingPanes.current.delete(moving);
+          void load();
+        }
       },
       openPalette,
       agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
@@ -1474,7 +1498,7 @@ export function App() {
         void zoomPane(paneId, mode, machineId).then(() => void load()).catch((err) => layoutRefused("pane zoom failed", err));
       } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, moveRefused, lenses],
   );
 
   useShortcuts(actions, locked === false);
@@ -1760,13 +1784,13 @@ export function App() {
                 data-side={splitOn ? slotSide(split, slot) : undefined}
                 // a press or the focus in the other half makes it the active one, before the press acts;
                 // its own bar's buttons (its lens, its close) act on it as it is. A menu the half opened
-                // is portaled out of it: a press there reaches this handler through React but is not in
-                // the half, and activating would close the menu before its item's click lands
+                // is portaled out of it: a press or a focus there reaches these handlers through React but
+                // is not in the half, and activating would close the menu before its item's click lands
                 onPointerDownCapture={active ? undefined : (event) => {
                   if (!event.currentTarget.contains(event.target as Node)) return;
                   if (event.button === 0 && !paneContextPress(event, apple) && !(event.target as Element).closest(".pane-slot-action")) activateSlot(slot);
                 }}
-                onFocusCapture={active ? undefined : (event) => { if (Date.now() - lastKeyAtRef.current < KEY_FOCUS_MS && !(event.target as Element).closest(".pane-slot-action")) activateSlot(slot, true); }}
+                onFocusCapture={active ? undefined : (event) => { if (event.currentTarget.contains(event.target as Node) && Date.now() - lastKeyAtRef.current < KEY_FOCUS_MS && !(event.target as Element).closest(".pane-slot-action")) activateSlot(slot, true); }}
                 // a file or text dropped into the other half is for its pane: an upload's paths and the pasted
                 // text reach only the active half's terminal, so the drop makes the half active first
                 onDropCapture={active ? undefined : (event) => { if (!event.dataTransfer.types.includes(PANE_DRAG_TYPE)) activateSlot(slot); }}

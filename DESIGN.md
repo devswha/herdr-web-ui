@@ -850,8 +850,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   window lists windows. herdr moves tabs only within a workspace, so the tab goes as its pane
   (`pane.move` into a new tab at the end of the chosen workspace), its name and process kept; a
   split tab is not offered it. The view follows the pane there, in whichever half of a split shows
-  it. The palette has the same move as one Move tab to {workspace} row per workspace, found by a
-  query only, as Settings pages are.
+  it, and this browser's unsent draft for it goes along (herdr gives the pane a new ID). The
+  palette has the same move as one Move tab to {workspace} row per workspace, found by a query
+  only, as Settings pages are.
   The `⋯` beside the selected tab holds the same tab actions (the strip's `+` opens a shell tab, so
   New tab with agent… stays here) and also carries the open pane's actions, less Split and Zoom where a phone shows one pane at a time.
   Touch and narrow layouts keep that `⋯` in view; a desktop with a mouse (`hover: hover`,
