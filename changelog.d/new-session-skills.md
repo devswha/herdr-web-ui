@@ -4,8 +4,8 @@
   takes the message as its own argument, behind `--` so a message like `logout` is never a command).
   For Claude Code and every other agent the message is queued on the PC as the pane's first pending
   message and sent once when the agent is ready, through the page that started it; it shows as a
-  pending message that can be discarded or sent now. If that page disconnects or reloads first, the
-  message is held, never sent on its own, until someone sends it now or discards it. A message the PC
+  pending message that can be discarded or sent now. If that page disconnects, reloads or leaves the tab
+  first, the message is held, never sent on its own, until someone sends it now or discards it. A message the PC
   could not queue, or one an older PC ignores, stays in the new tab's message box and the dialog says
   so. Pending first messages are kept in memory: restarting the web UI's server drops them. A Codex
   message with a tab or a line break is sent as the first message rather than on its command line,

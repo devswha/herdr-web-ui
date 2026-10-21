@@ -166,8 +166,10 @@ subcommand. Claude Code and every other agent get it through the bridge's pendin
 (`first_message` on the create request): it is queued for the pane and sent once when the agent
 is ready, like any queued message, and it can be discarded or sent now. Only the page that sent the
 request (`first_message_connection`) types it on its own, while it has the pane attached; if that page
-disconnects first, the message is held until someone sends it now or discards it. A pane holds one
-first message, bound to the agent process that runs when it is queued. First messages live in the
+disconnects or leaves the pane first, the message is held until someone sends it now or discards it,
+and the pane's other messages go at their turn. A pane holds one first message, bound to the agent
+the launch brought up: its process and session, as known when the message is queued and as learned at
+each event of the pane after, so a `/resume` or another process of the same kind gets none. First messages live in the
 bridge's memory, so a restart drops the ones not sent yet. The bridge checks launch arguments by the
 dialog's rules in `shared/launch-rules.ts`.
 
