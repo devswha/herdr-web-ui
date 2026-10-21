@@ -8,7 +8,7 @@ import type { CommandSend } from "./outcome.ts";
 import * as herdr from "./herdr/client.ts";
 import * as omo from "./omo.ts";
 import { omoSessionFolder } from "./omo.ts";
-import { processStartedAt } from "./process-start.ts";
+import * as processStart from "./process-start.ts";
 import { paneProcessRoots } from "./conversation.ts";
 import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, openCodeSkillsToType, releaseOpenCodePane, skillsNotAttached, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
 import { commandOutcome } from "./outcome.ts";
@@ -79,7 +79,10 @@ describe("recording a send never waits on OpenCode's service", () => {
     const agentDir = join(home, ".omo", "agent");
     const holders = join(agentDir, "sessions", omoSessionFolder(root), "session-holders", "sess_omo001");
     mkdirSync(holders, { recursive: true });
-    writeFileSync(join(holders, `${process.pid}.json`), JSON.stringify({ pid: process.pid, processStartedAtMs: processStartedAt(process.pid), cwd: root }));
+    // a fixed start for the omo process: only /proc (Linux) or ps (macOS) can read a real one, never Windows
+    const startedAt = 1_700_000_000_000;
+    writeFileSync(join(holders, `${process.pid}.json`), JSON.stringify({ pid: process.pid, processStartedAtMs: startedAt, cwd: root }));
+    const started = spyOn(processStart, "processStartedAt").mockReturnValue(startedAt);
     const oldHome = process.env["HOME"];
     process.env["HOME"] = home;
     const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { foreground_processes: [{ pid: process.pid, argv: ["omo"], cwd: root }] } } as never);
@@ -96,6 +99,7 @@ describe("recording a send never waits on OpenCode's service", () => {
     } finally {
       if (oldHome === undefined) delete process.env["HOME"];
       else process.env["HOME"] = oldHome;
+      started.mockRestore();
       environ.mockRestore();
       rpc.mockRestore();
       lookup.mockRestore();
