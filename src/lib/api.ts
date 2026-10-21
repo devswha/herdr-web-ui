@@ -15,6 +15,7 @@ import type {
   FileInfo,
   FocusPaneRequest,
   HealthAuth,
+  HerdrUiConfig,
   IntegrationsResponse,
   LanExposure,
   InteractivePrompt,
@@ -96,6 +97,11 @@ export function startUsageLogin(request: UsageLoginRequest): Promise<UsageLoginS
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
   return getJson<RemoteAccess>("/api/access");
+}
+
+/** The web UI host's herdr client preference, also used when selecting in remote panes. */
+export function fetchHerdrUi(): Promise<HerdrUiConfig> {
+  return getJson<HerdrUiConfig>("/api/herdr-ui");
 }
 
 /** The sidebar's plan meters; `refresh` asks the providers again instead of the server's recent answer. */

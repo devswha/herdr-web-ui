@@ -31,8 +31,9 @@ setInterval(() => {}, 1000);
         releasing = true;
         setTimeout(() => { releasing = false; }, 0);
       }, { capture: true });
-      const state = { checking: false, writes: [] as boolean[], pending: 0, positions: { asked: 0, open: 0 } };
+      const state = { checking: false, copies: 0, writes: [] as boolean[], pending: 0, positions: { asked: 0, open: 0 } };
       (window as any).clipboardGesture = state;
+      document.addEventListener("copy", () => { if (state.checking) state.copies++; });
       // A press reads the pane's scroll position, and only a release after it has arrived asks
       // herdr for the text and reserves the async write. Count the reads asked for and still
       // open, so a drag can wait for its own instead of racing it or taking an earlier press's.
@@ -121,6 +122,9 @@ setInterval(() => {}, 1000);
     assert.deepEqual(await page.evaluate(() => (window as any).clipboardGesture.writes), [true],
       "drag copy must begin inside mouseup, before timers or server responses lose the gesture");
     await page.evaluate(() => { (window as any).clipboardGesture.checking = false; });
+    await page.mouse.move(box.x + 450, box.y + box.height / 2, { steps: 3 });
+    assert.ok(await page.locator(".pane-terminal .xterm-selection div").count(), "hover keeps the selection with copy_on_select on");
+    await page.locator(".terminal-quote").waitFor();
 
     // Ctrl+C with a selection copies it and does not interrupt the pane
     await page.mouse.dblclick(box.x + 20, box.y + box.height / 2);
@@ -353,9 +357,60 @@ setInterval(() => {}, 1000);
     assert.equal(await page.evaluate(() => document.querySelector(".pane-terminal .xterm-selection div") !== null), false, "a wheel after a copy clears the highlight");
     await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
 
+    // With herdr's preference off, neither native copy nor either async API may run on release.
+    // Route only the preference: selection text and scrolling still go through the real herdr.
+    await page.route("**/api/herdr-ui", (route) => route.fulfill({ json: { copy_on_select: false } }));
+    await page.reload();
+    await rowWith("S299").waitFor();
+    await page.evaluate(() => navigator.clipboard.writeText("keep this clipboard"));
+    await page.evaluate(() => { (window as any).clipboardGesture.checking = true; });
+    const offScreen = (await page.locator(".pane-terminal .xterm-screen").boundingBox())!;
+    const offHeight = offScreen.height / (await page.locator(".pane-terminal .xterm-rows > div").count());
+    const offTop = await topRow();
+    const start = { x: offScreen.x + 1, y: offScreen.y + offHeight * 5.5 };
+    const end = { x: offScreen.x + 150, y: offScreen.y + offHeight * 8.5 };
+    await drag(start, end);
+    await settled();
+    await page.mouse.move(end.x + 50, end.y - offHeight, { steps: 4 });
+    await page.mouse.move(end.x + 100, end.y, { steps: 4 });
+    assert.ok(await page.locator(".pane-terminal .xterm-selection div").count(), "hover keeps the selection with copy_on_select off");
+    await page.locator(".terminal-quote").waitFor();
+    assert.equal(await clipboard(page), "keep this clipboard", "release and hover must leave the clipboard alone");
+    assert.deepEqual(await page.evaluate(() => ({ copies: (window as any).clipboardGesture.copies, writes: (window as any).clipboardGesture.writes })),
+      { copies: 0, writes: [] }, "copy_on_select off invokes no native or async copy");
+    const beforeExplicit = inputs.length;
+    await page.keyboard.press("Control+c");
+    await settled();
+    assert.deepEqual(lines(await clipboard(page)), [offTop + 5, offTop + 6, offTop + 7, offTop + 8], "Ctrl+C copies the selection after hover");
+    assert.deepEqual(inputs.slice(beforeExplicit), [], "explicit copy with a selection never sends ^C");
+
+    // A scrolled range is still cached when automatic copy is disabled.
+    await page.evaluate(() => navigator.clipboard.writeText("keep this clipboard"));
+    await page.mouse.move(offScreen.x + 200, start.y);
+    await press();
+    await page.mouse.move(end.x, end.y, { steps: 4 });
+    await page.mouse.wheel(0, -offHeight * 20);
+    await page.waitForFunction((top) => Number(document.querySelector(".pane-terminal .xterm-rows > div")?.textContent?.trim().slice(1)) < top, offTop);
+    await page.mouse.move(start.x, start.y, { steps: 4 });
+    const selectionRead = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/pane/selection");
+    await page.mouse.up();
+    await (await selectionRead).finished();
+    await page.mouse.move(end.x, end.y, { steps: 4 });
+    await page.locator(".terminal-quote").waitFor();
+    assert.equal(await clipboard(page), "keep this clipboard", "a scrolled release does not copy either");
+    // Native Copy (Cmd+C / context-menu Copy) must also use the full cached range.
+    assert.equal(await page.evaluate(() => document.execCommand("copy")), true);
+    const explicitText = await clipboard(page);
+    copied = lines(explicitText);
+    assert.ok(consecutive(copied) && copied.length > 1, `explicit Copy retains the full consecutive range: ${explicitText}`);
+    assert.equal(copied.at(-1), offTop + 5, "explicit Copy ends at the original anchor");
+    assert.ok(copied[0]! < offTop, "explicit Copy includes text above the first viewport");
+    if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-copy-on-select-off.png") });
+
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");
     console.log("PASS a selecting drag scrolls herdr by wheel and edge, and copies herdr's text for the whole range");
     console.log("PASS drag copy starts in the gesture, survives denied clipboard permission, and ignores stale or empty selection responses");
+    console.log("PASS copy_on_select off leaves the clipboard alone, preserves selection on hover, and keeps explicit full-range Copy and Ctrl+C");
   } finally {
     await context.close();
     await workspaceClose(created.workspace.workspace_id).catch(() => {});

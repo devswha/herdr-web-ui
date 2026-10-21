@@ -2185,6 +2185,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   its fixed diagnostic is logged and returned by the hub status endpoint, never its saved key.
 
 ### Terminal host, key bar and drawer
+- Desktop terminal selection follows herdr's `[ui] copy_on_select` (default on), read when
+  the terminal mounts. Like the sidebar rows, this uses the web UI host's config for local and
+  remote panes alike. With it off, release only selects; explicit Copy or Ctrl+C still copies
+  the full range, including rows scrolled out of view. Pointer hover preserves the highlight
+  and quote offer in either mode. Like [Zed's terminal](https://zed.dev/docs/terminal#copy-on-select),
+  selecting need not replace the clipboard; herdr's preference owns the choice here, with no
+  separate web setting. No code or pixels are copied from Zed.
 - **Find in terminal** in the header's More menu and Mod+Shift+F opens a find bar above the
   grid. It uses the existing input and icon-button primitives: a query, match ordinal,
   previous/next and close controls, with a dim note that scrolling is shared by all clients.

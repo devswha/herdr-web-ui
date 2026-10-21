@@ -24,7 +24,7 @@ import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplay
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { DETACHED, usePaneBranch } from "../lib/paneBranch.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
-import { ApiError, AttachmentTooLargeError, assertAttachable, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
+import { ApiError, AttachmentTooLargeError, assertAttachable, fetchHerdrUi, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { userErrorMessage } from "../lib/userError.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
 import { composerDrafts } from "../lib/composerDraft.ts";
@@ -840,6 +840,9 @@ export function PaneTerminal({
     let copiedText: string | null = null;
     let selectionGeneration = 0;
     let disposed = false;
+    // Do not replace the clipboard before the preference arrives. Older servers use herdr's default.
+    let copyOnSelect = false;
+    void fetchHerdrUi().then((ui) => { copyOnSelect = ui.copy_on_select; }, () => { copyOnSelect = true; });
     // Run after xterm's own copy listener, including for Cmd+C and context-menu
     // Copy. Its buffer contains only the visible part of a scrolled selection.
     const onCopy = (event: ClipboardEvent): void => {
@@ -877,13 +880,13 @@ export function PaneTerminal({
     // herdr's attach stream turns mouse reporting on, so xterm hands every click to the
     // pty and selects only with Shift (Option on macOS) held. Selection lives in herdr's
     // own TUI client, not in `herdr terminal attach`, so a left drag here selects as if the
-    // modifier were held, and letting go copies, as the herdr TUI does; a press let go in
+    // modifier were held, and letting go follows herdr's copy_on_select; a press let go in
     // place is a click and goes to the program (forwardClick). Touch keeps its drag-to-scroll.
     //
     // xterm keeps no scrollback (herdr owns it), so a drag that outlives one screen is
     // tracked in herdr's history rows: a wheel, or dragging past the top or bottom edge,
     // scrolls the pane through the API, the highlight is repainted over the visible part,
-    // and letting go copies herdr's own text for the range, soft-wrapped lines joined.
+    // and copying uses herdr's own text for the range, soft-wrapped lines joined.
     // Without the API (plain HTTP, observe mode, an older remote bridge, a failed read)
     // only the visible selection is copied, as xterm has it.
     interface Cell { row: number; col: number }
@@ -1015,7 +1018,12 @@ export function PaneTerminal({
     // scrolled drag from its stale screen anchor
     const onMouseMove = (event: MouseEvent): void => {
       const d = drag;
-      if (!d) return;
+      if (!d) {
+        // xterm treats a hover report as user input and clears its selection. Keep the
+        // highlight (and the quote offer) until a press, scroll or actual keyboard input.
+        if (event.buttons === 0 && term.hasSelection() && term.element?.contains(event.target as Node)) event.stopPropagation();
+        return;
+      }
       const { cell, edge } = cellAt(event);
       // a press that left its cell is a drag, even one that comes back: it is no click (cellAt clamps
       // a pointer beside the grid to the edge column, so leaving sideways counts too)
@@ -1072,7 +1080,7 @@ export function PaneTerminal({
       if (!term.hasSelection()) return;
       const visibleText = term.getSelection();
       copiedText = visibleText;
-      copySelection();
+      if (copyOnSelect) copySelection();
       const generation = selectionGeneration;
       const current = (): boolean => !disposed && paneRef.current === d.pane && generation === selectionGeneration;
       // offered to the chat draft at once with what is on screen; herdr's text and rows replace it below
@@ -1107,7 +1115,10 @@ export function PaneTerminal({
       });
       // Reserve the write NOW, supplying the server text when it arrives. Never
       // start a fresh clipboard write from a delayed response or an older drag.
-      if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+      if (!copyOnSelect) {
+        // Still cache the full range for an explicit native Copy or Ctrl+C.
+        void text.catch(() => {});
+      } else if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
         const blob = text.then((value) => new Blob([value], { type: "text/plain" }));
         void blob.catch(() => {});
         // Denied (the case native copy covers), the clipboard keeps only the visible rows of a

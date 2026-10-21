@@ -48,6 +48,35 @@ afterAll(() => {
 
 const base = () => `http://localhost:${server.port}`;
 
+describe("GET /api/herdr-ui", () => {
+  it("requires authentication and returns only the host's selection preference, uncached", async () => {
+    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-config-contract-"));
+    const path = join(root, "config.toml");
+    const app = createServer({ port: 0, hostname: "127.0.0.1", stateDir: root, token: "test-config-token", tailscaleOwner: null, herdrConfigPath: path });
+    const url = `http://127.0.0.1:${app.port}/api/herdr-ui`;
+    const headers = { authorization: "Bearer test-config-token" };
+    try {
+      expect((await fetch(url)).status).toBe(401);
+      // The rest of herdr's config must never be returned to the browser.
+      writeFileSync(path, "secret = 'not-for-the-browser'\n[ui]\ncopy_on_select = false\n");
+      const response = await fetch(url, { headers });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({ copy_on_select: false });
+      writeFileSync(path, "[ui]\ncopy_on_select = true\n");
+      expect(await (await fetch(url, { headers })).json()).toEqual({ copy_on_select: true });
+      unlinkSync(path);
+      expect(await (await fetch(url, { headers })).json()).toEqual({ copy_on_select: true });
+      const post = await fetch(url, { method: "POST", headers: { ...headers, origin: new URL(url).origin } });
+      expect(post.status).toBe(400);
+      expect((await post.json()).error.code).toBe("method_not_allowed");
+    } finally {
+      app.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("Grok conversation API", () => {
   it.skipIf(process.platform !== "linux")("uses exact process/session evidence, validators and revision-bound output refs", async () => {
     const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-grok-contract-"));
