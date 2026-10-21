@@ -443,6 +443,16 @@ setInterval(() => {}, 1000);
         assert.ok(lines(expected)[0]! < firstTop, "the delayed range includes rows above the first viewport");
         assert.ok(lines(expected).length > offScreen.height / offHeight, "the delayed range is larger than the visible viewport");
         assert.equal(await clipboard(page), "keep this clipboard", "a delayed off-mode release leaves the clipboard alone");
+        const visible = await page.locator(".pane-terminal").evaluate((host) => {
+          const highlights = [...host.querySelectorAll(".xterm-selection div")].map((element) => element.getBoundingClientRect());
+          return [...host.querySelectorAll(".xterm-rows > div")].filter((row) => {
+            const rect = row.getBoundingClientRect();
+            const middle = rect.top + rect.height / 2;
+            return highlights.some((highlight) => highlight.top <= middle && middle < highlight.bottom);
+          }).map((row) => row.textContent!).join("\n");
+        });
+        assert.match(visible, /^S\d{3} *(?:\nS\d{3} *)+$/, "the visible highlight contains numbered output rows");
+        assert.ok(consecutive(lines(visible)) && lines(visible).length < lines(expected).length, "the visible selection is a consecutive partial range");
         if (result === "unsupported") await page.evaluate(() => {
           (window as any).savedClipboardItem = window.ClipboardItem;
           (window as any).ClipboardItem = undefined;
@@ -458,8 +468,7 @@ setInterval(() => {}, 1000);
         await settled();
         if (result === "full") assert.equal(await clipboard(page), expected, `${method} before the history response copies the whole selection`);
         else {
-          const partial = lines(await clipboard(page));
-          assert.ok(consecutive(partial) && partial.length < lines(expected).length, "unavailable full copy keeps the visible rows");
+          assert.equal(await clipboard(page), visible, "unavailable full copy keeps the exact visible selected text");
           await page.locator(".terminal-banner", { hasText: "copied the visible part" }).waitFor();
         }
         assert.equal(reserved, beforeWrites + (result === "unsupported" ? 0 : 1), "supported explicit copy reserves the async write before the response");
