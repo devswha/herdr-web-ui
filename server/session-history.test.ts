@@ -294,10 +294,15 @@ describe("listSessions", () => {
     mkdirSync(piStore(home), { recursive: true });
     for (let n = 0; n < MAX_ENTRIES + 500; n++) writeFileSync(join(piStore(home), `s-${n}.jsonl`), "");
     let looked = 0;
-    listSessions("pi", CWD, { home, env: {}, lstat: (path) => { looked++; return lstatSync(path); } });
+    try {
+      listSessions("pi", CWD, { home, env: {}, lstat: (path) => { looked++; return lstatSync(path); } });
+    } finally {
+      // removed here, inside this test's own time: on NTFS making and removing them takes seconds
+      rmSync(home, { recursive: true, force: true });
+    }
     expect(looked).toBeGreaterThan(MAX_STATS);
     expect(looked).toBeLessThanOrEqual(MAX_ENTRIES);
-  });
+  }, 60_000);
 
   it(`lists the newest sessions of a folder that holds more than ${MAX_STATS}, whatever their names`, () => {
     const home = newHome();
