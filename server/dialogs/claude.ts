@@ -504,18 +504,29 @@ const CLAUDE_REWIND_MORE_RE = /^([↑↓]) (\d+) more$/;
 
 const CLAUDE_REWIND_AGE_RE = /^\(.+ ago\)$/;
 
-/** The rewind panel's blocks of lines (blank lines part them, the raw lines kept), from its `Rewind` title down; null when the screen does not end in one. */
-function claudeRewindPanel(screen: string): string[][] | null {
+/** The rewind panel the screen ends in: its blocks of lines from its `Rewind` title down, and all that is drawn under its rule; null when there is none. */
+function claudeRewindPanelAt(screen: string): { blocks: string[][]; below: string } | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/).map((line) => line.trimEnd());
   // the session's rule, or the end of it where a tip takes its start (" tmux detected · scroll… ▔", recorded at 40 columns)
   const rule = findLastIndex(lines, (line) => cleanLine(line).startsWith("▔") || cleanLine(line).endsWith("▔"));
   if (rule < 0) return null;
+  const below = lines.slice(rule + 1);
   const blocks: string[][] = [[]];
-  for (const line of lines.slice(rule + 1)) {
+  for (const line of below) {
     if (line.trim() === "") { if (blocks.at(-1)!.length > 0) blocks.push([]); } else blocks.at(-1)!.push(line);
   }
   if (blocks.at(-1)!.length === 0) blocks.pop();
-  return blocks.length >= 3 && blocks[0]!.length === 1 && cleanLine(blocks[0]![0]!) === "Rewind" ? blocks.slice(1) : null;
+  return blocks.length >= 3 && blocks[0]!.length === 1 && cleanLine(blocks[0]![0]!) === "Rewind" ? { blocks: blocks.slice(1), below: below.join("\n") } : null;
+}
+
+/** The rewind panel's blocks of lines (blank lines part them, the raw lines kept), from its `Rewind` title down; null when the screen does not end in one. */
+function claudeRewindPanel(screen: string): string[][] | null {
+  return claudeRewindPanelAt(screen)?.blocks ?? null;
+}
+
+/** What is drawn under the rule of the rewind panel the screen ends in (the panel, and anything under it); null when it ends in none. */
+export function claudeRewindPanelBelow(screen: string): string | null {
+  return claudeRewindPanelAt(screen)?.below ?? null;
 }
 
 /** A send refused while Claude Code's rewind dialog is on screen (any of its states). */

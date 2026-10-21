@@ -84,6 +84,11 @@ describe("Claude Code's /rewind", () => {
     expect(claudeRewindOpen(quoted)).toBe(false);
   });
 
+  test("holds sends for an open rewind panel under an earlier input box's rules, which are no box of its own", () => {
+    const under = `${rewind("closed", 40)}\n${rewind("confirm-apple-summarize-from", 40)}`;
+    expect(claudeRewindOpen(under)).toBe(true);
+  });
+
   // R1-NEW-1: the confirm step with the cursor on each row, recorded; the Summarize rows are add-context fields
   for (const width of [40, 120]) {
     test(`knows every recorded state of the rewind panel as one, the add-context fields included, at ${width} columns`, () => {
