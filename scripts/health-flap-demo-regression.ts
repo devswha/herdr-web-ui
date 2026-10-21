@@ -272,12 +272,14 @@ async function transientRecovery(browser: Browser, url: string): Promise<Record<
     const unavailable = await headerAfter(page, "offline", "second failure");
     assert.equal(unavailable.stale, null);
     assert.equal(unavailable.offline?.text, "herdr unavailable", "two failed reads say unavailable, never that herdr stopped");
+    assert.doesNotMatch(unavailable.chip ?? "", /herdr \d/, "the connection status names no herdr as current once unavailable");
     sameCapabilities(healthy, unavailable, "second failure");
     steps.push({ state: "repeated-failure-unavailable", ...unavailable });
 
     await release(page, await nextRead(page), "ok");
     const back = await headerAfter(page, "none", "recovery after unavailable");
     sameCapabilities(healthy, back, "recovery after unavailable");
+    assert.match(back.chip ?? "", /herdr 0\.9\.5 · protocol 22/, "an answer names its herdr again");
     steps.push({ state: "recovered-after-unavailable", ...back });
     assert.deepEqual(back.pills, ["Status unknown", "", "Status unknown", "herdr unavailable", ""], "the header never said offline on a lone failure");
     assert.deepEqual(errors, []);
