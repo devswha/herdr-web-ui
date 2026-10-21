@@ -20,6 +20,9 @@ import { paneContext } from "./pane-context.ts";
 import { claudeInputBoxContent, claudeInputDraft, forgetChatSendsAfter, parseInteractivePrompt, viewportShowsLive } from "./prompt.ts";
 import { rewindClaudeTranscript } from "./conversation.ts";
 
+/** The requester disconnected: nothing more is typed for it (AGENTS.md: nothing is sent automatically after a disconnect). */
+class RequesterGone extends Error {}
+
 /** agents with a rewind of their own but no reader of their input box: refused, a draft there could join the command */
 const UNREAD_INPUT = new Set(["grok", "agy"]);
 
@@ -205,7 +208,10 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
   const text = payload.text;
   const later = payload.later ?? 0;
   try {
+    const gone = (): boolean => request.signal.aborted;
     return await serialize(paneId, async () => {
+      // the rewind waited its turn in the pane's input order: a requester gone meanwhile gets nothing typed
+      if (gone()) return conflictResponse("requester_gone", "The rewind was asked by a connection that is gone");
       const { agent, pane } = await paneContext(paneId);
       if (agent !== "claude" && !UNREAD_INPUT.has(agent ?? "")) return badRequest("rewind_unsupported", "this agent has no rewind from Chat");
       if (pane.agent_status !== "idle" && pane.agent_status !== "done") return conflictResponse("agent_busy", "The agent is not waiting for a message; rewind once it is");
@@ -220,11 +226,12 @@ export async function handleRewindRequest(request: Request, serialize: <T>(paneI
         return conflictResponse("dialog_open", "Claude Code is showing a dialog; answer or close it first");
       }
       if (await claudeBoxHoldsDraft(paneId)) return conflictResponse("input_draft", "Claude Code's input box holds a draft; send or clear it first");
-      const walked = await walkClaudeRewind({
+      // a disconnect mid-walk stops the keys after it
+      const walked = gone() ? "changed" : await walkClaudeRewind({
         read: async () => (await paneRead({ paneId, source: "detection", format: "text" })).text,
-        keys: (keys) => paneSendKeys(paneId, keys),
-        command: (command) => agentPrompt(paneId, command),
-      }, text, later);
+        keys: async (keys) => { if (gone()) throw new RequesterGone(); await paneSendKeys(paneId, keys); },
+        command: async (command) => { if (gone()) throw new RequesterGone(); await agentPrompt(paneId, command); },
+      }, text, later).catch((error: unknown) => { if (error instanceof RequesterGone) return "changed" as const; throw error; });
       if (walked === "not_found") return conflictResponse("rewind_not_found", "Claude Code's rewind list does not hold this message");
       if (walked === "changed") return conflictResponse("prompt_changed", "Claude Code's rewind dialog did not show what was expected; finish it in the terminal");
       asked.set(paneId, { text, later });

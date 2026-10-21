@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { PaneRewindResponse } from "../shared/protocol.ts";
 import { socketAddress } from "./herdr/client.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
-import { restoredOnScreen, walkClaudeRewind, type RewindIo } from "./rewind.ts";
+import { handleRewindRequest, restoredOnScreen, walkClaudeRewind, type RewindIo } from "./rewind.ts";
 import { configureClaudeRewinds, observeClaudeIdentity, rewindClaudeTranscriptAt } from "./conversation.ts";
 import { chatOwnedInput, lastChatSubmitted } from "./prompt.ts";
 import { writeFileSync } from "node:fs";
@@ -296,6 +296,29 @@ describe("POST /api/pane/rewind", () => {
       expect(await rewind({ pane_id: paneId, text: "apple" })).toEqual([409, { error: expect.objectContaining({ code: "dialog_open" }) }]);
       expect(prompts).toEqual([]);
       expect(opened.state()).toEqual({ at: "list", row: 2 });
+    });
+  });
+
+  // HIGH 5 (merge pass r1): nothing is sent automatically after a disconnect
+  const asked = (paneId: string, signal: AbortSignal) => new Request("http://localhost/api/pane/rewind", { method: "POST", body: JSON.stringify({ pane_id: paneId, text: "apple" }), headers: { "content-type": "application/json" }, signal });
+  it("types nothing for a requester gone while the rewind waited its turn", async () => {
+    const dialog = fruit();
+    await withHerdr({ agent: "claude", status: "idle" }, dialog, async (paneId, prompts) => {
+      const requester = new AbortController();
+      // the pane's input order runs the task once the requester has disconnected
+      await handleRewindRequest(asked(paneId, requester.signal), async (_paneId, task) => { requester.abort(); return await task(); });
+      expect(prompts).toEqual([]);
+      expect(dialog.sent).toEqual([]);
+    });
+  });
+
+  it("sends no further key once the requester disconnects mid-walk", async () => {
+    const dialog = fruit();
+    const requester = new AbortController();
+    const io: RewindIo = { ...dialog.io, command: async (text) => { await dialog.io.command(text); requester.abort(); } };
+    await withHerdr({ agent: "claude", status: "idle" }, { ...dialog, io }, async (paneId) => {
+      await handleRewindRequest(asked(paneId, requester.signal), async (_paneId, task) => await task());
+      expect(dialog.sent).toEqual(["/rewind"]);
     });
   });
 
