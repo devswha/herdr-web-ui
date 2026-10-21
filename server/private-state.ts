@@ -8,8 +8,8 @@
  * A unique temporary file is created exclusively in the same directory at 0600 (the directory
  * is created 0700), all bytes are written, the file is fsynced and closed, then renamed over the
  * destination. The destination ends up at most 0600: on POSIX a narrower existing mode (0400, say)
- * is kept, a wider one is never copied. A failure up
- * to and including the rename throws and leaves the destination as it was. Afterwards the parent
+ * is kept, a wider one is never copied. A failure up to and including the rename throws and leaves
+ * the destination as it was. Afterwards the parent
  * directory is fsynced on POSIX so the rename itself is recorded; that step is best effort (some
  * filesystems refuse it), so its failure is returned, not thrown: the new document is already in
  * place and readable, only the guarantee that the rename survives power loss is weaker.
