@@ -12,6 +12,11 @@ describe("isClaudeProcess", () => {
   it("knows the native build, whose process is titled Claude", () => {
     expect(isClaudeProcess({ name: "2.1.302", argv0: "Claude", argv: ["Claude"] })).toBe(true);
     expect(isClaudeProcess({ name: "Claude Helper", argv: ["/Applications/Claude.app/Contents/MacOS/Claude Helper"] })).toBe(false);
+    // one field alone is not that shape
+    expect(isClaudeProcess({ name: "2.1.302", argv0: "Claude", argv: ["Other"] })).toBe(false);
+    expect(isClaudeProcess({ name: "2.1.302", argv0: "Other", argv: ["Claude"] })).toBe(false);
+    // the native build as herdr reports it run from its lowercase `claude` launcher: the executable match
+    expect(isClaudeProcess({ name: "2.1.306", argv0: "claude", argv: ["claude"] })).toBe(true);
   });
 });
 
