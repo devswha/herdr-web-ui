@@ -23,7 +23,6 @@ import type { MachineManager } from "./machines.ts";
 import { TailnetIdentitySource } from "./tailscale.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import type { RepoDiffFileList, RepoDiffFilePatch, SessionHistoryResponse } from "../shared/protocol.ts";
-import * as composer from "./core/composer.ts";
 import { PendingInputError, PendingInputs } from "./pending-input.ts";
 
 /**
@@ -1194,7 +1193,7 @@ describe("tab creation", () => {
     const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-tab-first-not-queued" });
     const made: string[] = [];
     // the queue's own refusals, past the route's checks: its text rule, and a full list
-    const text = spyOn(composer, "pendingText").mockImplementation(() => { throw new HerdrError("invalid_submit_text", "refused by the queue"); });
+    const text = spyOn(PendingInputs.prototype, "enqueue").mockImplementation(() => { throw new HerdrError("invalid_submit_text", "refused by the queue"); });
     try {
       const res = await post({ workspace_id: owned.workspace.workspace_id, agent: { kind: "muse" }, first_message: "Plan the config file" });
       expect(res.status).toBe(200);
