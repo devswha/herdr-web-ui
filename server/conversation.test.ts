@@ -1328,6 +1328,41 @@ describe("gjc sessions", () => {
     expect(parseOmpTranscript(text).at(-1)?.parts).toEqual([{ kind: "text", text: "Error: 401 Authentication Failed" }]);
   });
 
+  it("hides agent-attributed IRC deliveries without hiding quoted user text or adding a page boundary", () => {
+    const irc = (customType: string, content: string, details: Record<string, string>) => JSON.stringify({
+      type: "custom_message", customType, display: true, content, details, attribution: "agent", timestamp: "2026-10-01T00:00:01.000Z",
+    });
+    const quoted = "I saw these messages in the transcript:\n[IRC `0-WindowsPaths` → you]\nMy bash is restricted...\n[IRC you → `0-WindowsPaths` (auto)]";
+    const text = [
+      JSON.stringify({ type: "message", timestamp: "2026-10-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: quoted }] } }),
+      irc("irc:incoming", "[IRC `0-WindowsPaths` → you]\n\nMy bash is restricted...", { observationId: "incoming-1", from: "0-WindowsPaths", message: "My bash is restricted..." }),
+      irc("irc:autoreply", "[IRC you → `0-WindowsPaths` (auto)]\n\nI will handle it.", { observationId: "reply-1", to: "0-WindowsPaths", reply: "I will handle it." }),
+      irc("irc:relay", "[IRC `you` → `0-WindowsPaths`]\n\nI will handle it.", { observationId: "relay-1", from: "you", to: "0-WindowsPaths", body: "I will handle it.", kind: "reply" }),
+      JSON.stringify({ type: "message", timestamp: "2026-10-01T00:00:02.000Z", message: { role: "assistant", content: [{ type: "text", text: "I will handle it." }] } }),
+    ].join("\n");
+    const home = mkdtempSync(join(tmpdir(), "herdr-gjc-irc-")); roots.push(home);
+    const path = join(home, "session.jsonl");
+    writeFileSync(path, `${text}\n`);
+    try {
+      expect(transcriptPage("gjc-transcript", path).turns).toEqual([
+        { role: "user", ts: "2026-10-01T00:00:00.000Z", parts: [{ kind: "text", text: quoted }] },
+        { role: "assistant", ts: "2026-10-01T00:00:02.000Z", end_ts: "2026-10-01T00:00:02.000Z", parts: [{ kind: "text", text: "I will handle it." }] },
+      ]);
+    } finally { forgetTranscriptState(); }
+  });
+
+  it("keeps user-attributed IRC records and ordinary notices whose text quotes IRC", () => {
+    const content = "[IRC `0-WindowsPaths` → you]\n\nA quoted example, not an internal delivery.";
+    const text = [
+      { type: "custom_message", customType: "irc:incoming", attribution: "user", display: true, content },
+      { type: "custom_message", customType: "async-result", attribution: "agent", display: true, content },
+    ].map((entry) => JSON.stringify(entry)).join("\n");
+    expect(parseOmpTranscript(text).map((turn) => turn.parts)).toEqual([
+      [{ kind: "notice", text: content, source: "irc:incoming" }],
+      [{ kind: "notice", text: content, source: "async-result" }],
+    ]);
+  });
+
   it("ends a turn at a background result gjc delivers, so the answer before it stays the answer", () => {
     const assistant = (ts: string, text: string) => JSON.stringify({ type: "message", timestamp: ts, message: { role: "assistant", content: [{ type: "text", text }] } });
     const text = [
