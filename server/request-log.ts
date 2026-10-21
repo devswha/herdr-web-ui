@@ -12,7 +12,7 @@ export const requestMethod = (value: string): string => METHODS.has(value) ? val
 /** One synchronous, bounded writer per server; no queue, timer or streaming-body reader. */
 export class RequestLog {
   private fd: number | undefined;
-  private bytes = 0;
+  private warned = false;
   private readonly path: string;
 
   constructor(stateDir: string) {
@@ -20,9 +20,9 @@ export class RequestLog {
     try {
       mkdirSync(stateDir, { recursive: true, mode: 0o700 });
       this.open();
-    } catch {
+    } catch (error) {
       // Completion telemetry is best effort, including unavailable or read-only state.
-      this.close();
+      this.disable(error);
     }
   }
 
@@ -30,11 +30,21 @@ export class RequestLog {
     this.fd = openSync(this.path, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
     const stat = fstatSync(this.fd);
     if (!stat.isFile()) {
-      this.close();
+      this.disable({ code: "NOT_REGULAR_FILE" });
       return;
     }
     fchmodSync(this.fd, 0o600);
-    this.bytes = stat.size;
+  }
+
+  private disable(error: unknown): void {
+    this.close();
+    if (this.warned) return;
+    this.warned = true;
+    const code = typeof error === "object" && error !== null && "code" in error
+      && typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) ? error.code : "UNKNOWN";
+    try {
+      console.warn(`Request log disabled: http-requests.jsonl (${code})`);
+    } catch { /* A diagnostic failure must not change the response or recurse. */ }
   }
 
   close(): void {
@@ -80,7 +90,7 @@ export class RequestLog {
       }) + "\n";
       try {
         if (this.fd !== undefined && Buffer.byteLength(line) <= 1024) {
-          if (this.bytes + Buffer.byteLength(line) > FILE_BYTES) {
+          if (fstatSync(this.fd).size + Buffer.byteLength(line) > FILE_BYTES) {
             this.close();
             renameSync(this.path, `${this.path}.1`);
             this.open();
@@ -89,12 +99,11 @@ export class RequestLog {
             const bytes = Buffer.from(line);
             let written = 0;
             while (written < bytes.length) written += writeSync(this.fd, bytes, written);
-            this.bytes += written;
           }
         }
-      } catch {
+      } catch (error) {
         // Never change the answer or recursively log a writer failure.
-        this.close();
+        this.disable(error);
       }
       return response;
     });

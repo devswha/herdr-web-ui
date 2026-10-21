@@ -1,5 +1,6 @@
 import { afterEach, expect, it, spyOn } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clientRequestId, RequestLog, requestMethod } from "./request-log.ts";
@@ -111,6 +112,84 @@ it("normalizes secret-bearing paths", async () => {
   // Then
   expect(readFileSync(path, "utf8")).not.toContain("private-secret");
   expect(records().map((row) => row.route)).toEqual(["/api/fs/file", "unmatched", "static"]);
+});
+
+it("rotates at the limit after another writer grows the file", async () => {
+  // Given: this writer opened an empty log before another writer filled it.
+  const { writer, path, records } = fixture();
+  appendFileSync(path, "x".repeat(1024 * 1024));
+  // When
+  await writer.handle(new Request("http://localhost/api/session"), async () => new Response(null, { status: 204 }));
+  // Then: external bytes are retained in the previous file, not counted from startup.
+  expect(statSync(`${path}.1`).size).toBe(1024 * 1024);
+  expect(statSync(path).size).toBeLessThanOrEqual(1024 * 1024);
+  expect(records()).toHaveLength(1);
+  expect(records()[0]?.status).toBe(204);
+  expect(existsSync(`${path}.2`)).toBe(false);
+});
+
+it.each(["constructor", "open", "rotation", "write"])("warns once with a redacted reason after %s failure", async (failure) => {
+  // Given: a storage failure at each stage, with private request and exception data.
+  const { root, writer, path } = fixture();
+  writer.close();
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  let writeFailure: ReturnType<typeof spyOn<typeof fs, "writeSync">> | undefined;
+  try {
+    let stateDir = root;
+    if (failure === "constructor") {
+      stateDir = join(root, "private-state");
+      writeFileSync(stateDir, "not a directory");
+    } else if (failure === "open") {
+      rmSync(path);
+      mkdirSync(path);
+    } else if (failure === "rotation") {
+      writeFileSync(path, "x".repeat(1024 * 1024));
+      mkdirSync(`${path}.1`);
+    } else {
+      writeFailure = spyOn(fs, "writeSync").mockImplementation(() => {
+        throw Object.assign(new Error("private exception, route and header"), { code: "ENOSPC" });
+      });
+    }
+    const failing = new RequestLog(stateDir);
+    writers.push(failing);
+    // When: more than one completion reaches a failed writer.
+    for (let i = 0; i < 2; i++) {
+      const response = new Response("unchanged");
+      const result = await failing.handle(new Request("http://localhost/private-route?token=secret", {
+        headers: { "x-request-id": "private-client", authorization: "private-header" },
+      }), async () => {
+        setRequestRoute("/private-route");
+        return response;
+      });
+      // Then: the response survives and the warning contains only the filename and reason code.
+      expect(result).toBe(response);
+      expect(await result?.text()).toBe("unchanged");
+    }
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning.mock.calls[0]).toHaveLength(1);
+    expect(warning.mock.calls[0]?.[0]).toMatch(/^Request log disabled: http-requests\.jsonl \([A-Z][A-Z0-9_]{0,63}\)$/);
+    if (failure === "write") expect(warning.mock.calls[0]?.[0]).toContain("(ENOSPC)");
+  } finally {
+    writeFailure?.mockRestore();
+    warning.mockRestore();
+  }
+});
+
+it("preserves responses when the disable warning itself fails", async () => {
+  // Given: rotation and the diagnostic sink both fail.
+  const { writer, path } = fixture();
+  appendFileSync(path, "x".repeat(1024 * 1024));
+  mkdirSync(`${path}.1`);
+  const warning = spyOn(console, "warn").mockImplementation(() => { throw new Error("diagnostic sink failed"); });
+  try {
+    // When
+    for (let i = 0; i < 2; i++) {
+      const response = new Response("unchanged");
+      // Then: the warning is not retried or allowed to reject a request.
+      expect(await writer.handle(new Request("http://localhost/api/session"), async () => response)).toBe(response);
+    }
+    expect(warning).toHaveBeenCalledTimes(1);
+  } finally { warning.mockRestore(); }
 });
 
 it("write failure preserves response", async () => {
