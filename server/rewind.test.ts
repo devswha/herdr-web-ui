@@ -18,6 +18,21 @@ const screen = (name: string): string => readFileSync(new URL(`./fixtures/claude
 const withChoice = (shown: string, choice: number): string =>
   shown.replace(/^ {3}(?:❯ | {2})([1-4])\. (.*)$/gm, (_, number: string, label: string) => `   ${Number(number) - 1 === choice ? "❯ " : "  "}${number}. ${label}`);
 
+/** The recorded list at 40 columns (select-long), its rows replaced: `labels` as a pane that narrow shows them, the cursor on `cursor`. */
+function listScreen(labels: string[], cursor: number): string {
+  const recorded = screen("select-long");
+  const head = recorded.slice(0, recorded.indexOf("   Restore the code"));
+  const rows = labels.map((label, index) => `   ${index === cursor ? "❯" : " "} ${label}${label === "(current)" ? "" : "\n     ⚠ No code restore"}`).join("\n\n");
+  return `${head}   Restore the code and/or\n   conversation to the point before…\n\n${rows}\n\n   Enter to continue · Esc to cancel\n`;
+}
+
+/** The recorded confirm step at 40 columns (confirm-long), quoting `message` instead. */
+function confirmScreen(message: string): string {
+  const recorded = screen("confirm-long");
+  const from = recorded.indexOf("   │ ");
+  return `${recorded.slice(0, from)}   │ ${message}\n${recorded.slice(recorded.indexOf("   │ (3h ago)"))}`;
+}
+
 type DialogState = { at: "closed" } | { at: "list"; row: number } | { at: "confirm"; row: number; choice: number } | { at: "restored" | "summarized"; row: number };
 
 /**
@@ -63,6 +78,12 @@ function recordedDialog(rows: string[], confirms: Record<number, string>, interf
   return dialogModel(rows.length, (row) => screen(rows[row]!), (row) => confirms[row] === undefined ? undefined : screen(confirms[row]!), interfere);
 }
 
+/** A dialog over `messages` (oldest first), each row cut to `width` characters as a narrow pane cuts it, from the recorded layouts. */
+function narrowDialog(messages: string[], width: number, interfere?: (key: string, press: (key: string) => void) => void) {
+  const labels = [...messages.map((message) => message.length > width ? `${message.slice(0, width - 1)}…` : message), "(current)"];
+  return dialogModel(labels.length, (row) => listScreen(labels, row), (row) => row < messages.length ? confirmScreen(messages[row]!) : undefined, interfere);
+}
+
 const fruit = () => recordedDialog(["after-never-mind", "select-banana", "select-current"], { 0: "confirm-apple" });
 const LONG = "please describe the history of the cherry orchard near the river in some detail";
 const long = () => recordedDialog(["select-long-apple", "select-long", "select-long-banana", "select-long-current"], { 1: "confirm-long" });
@@ -92,6 +113,24 @@ describe("walking Claude Code's rewind list", () => {
     const dialog = fruit();
     expect(await walkClaudeRewind(dialog.io, "apple", 1)).toBe("not_found");
     expect(dialog.sent).toEqual(["/rewind", "up", "up", "esc"]);
+  });
+
+  // HIGH 4 (merge pass r1): backing out of another message's confirm step
+  it("backs out of a confirm step one key at a time, each once the screen shows the last", async () => {
+    const dialog = long();
+    const batches: string[][] = [];
+    const io: RewindIo = { ...dialog.io, keys: async (keys) => { batches.push(keys); await dialog.io.keys(keys); } };
+    expect(await walkClaudeRewind(io, "please describe the history of something else", 0)).toBe("not_found");
+    expect(batches.every((keys) => keys.length === 1)).toBe(true);
+  });
+
+  it("sends no Enter on a confirm step once a key it did not send moved the cursor", async () => {
+    let moved = false;
+    const dialog = narrowDialog([LONG], 31, (key, apply) => { if (key === "down" && !moved) { moved = true; apply("up"); } });
+    expect(await walkClaudeRewind(dialog.io, "please describe the history of something else", 0, 60)).toBe("changed");
+    // nothing chosen: still the confirm step, and the only Enter is the one that opened it
+    expect(dialog.state()).toMatchObject({ at: "confirm", row: 0 });
+    expect(dialog.sent.filter((key) => key === "enter")).toEqual(["enter"]);
   });
 
   it("sends nothing more once the dialog does not show what a key did", async () => {

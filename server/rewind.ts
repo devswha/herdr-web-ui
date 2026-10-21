@@ -13,7 +13,7 @@
 import type { ParsedPrompt } from "./dialogs/shared.ts";
 import type { PaneRewindResponse } from "../shared/protocol.ts";
 import { CLAUDE_REWIND_CHOICES, parseClaudeRewindConfirm, parseClaudeRewindList, type ClaudeRewindConfirm, type ClaudeRewindList } from "./dialogs/claude.ts";
-import { KEY, navigationKeys, normalizeText } from "./dialogs/shared.ts";
+import { KEY, normalizeText } from "./dialogs/shared.ts";
 import { badRequest, conflictResponse, errorResponse, isCount, jsonResponse, readJsonObject } from "./http.ts";
 import { agentPrompt, paneRead, paneScrollInfo, paneSendKeys } from "./herdr/client.ts";
 import { paneContext } from "./pane-context.ts";
@@ -113,6 +113,32 @@ export async function followClaudeRestore(paneId: string, parsed: ParsedPrompt, 
 }
 
 const cursorOf = (list: ClaudeRewindList): string => list.rows[list.cursor]!.label;
+
+/**
+ * From a confirm step back to the list, the cursor on `label` again: ↓ one key at a time, each sent
+ * once the screen shows the last one landed on the same message's step, and Enter only once "Never
+ * mind" is shown selected. null: a key moved something else (or nothing within `stepMs`); no further
+ * key is sent.
+ */
+async function backToList(io: RewindIo, confirm: ClaudeRewindConfirm, label: string, stepMs: number): Promise<ClaudeRewindList | null> {
+  const never = CLAUDE_REWIND_CHOICES.length - 1;
+  for (let shown = confirm; shown.selected !== never;) {
+    if (shown.selected > never) return null;
+    const next = shown.selected + 1;
+    await io.keys([KEY.down]);
+    const moved = await waitFor(io, (screen) => {
+      const step = parseClaudeRewindConfirm(screen);
+      return step !== null && step.message === confirm.message && step.selected === next ? step : null;
+    }, stepMs);
+    if (moved === null) return null;
+    shown = moved;
+  }
+  await io.keys([KEY.enter]);
+  return await waitFor(io, (screen) => {
+    const shown = parseClaudeRewindList(screen);
+    return shown !== null && cursorOf(shown) === label ? shown : null;
+  }, stepMs);
+}
 /** where the list stands: the row under the cursor and how much lies above it */
 const placeOf = (list: ClaudeRewindList): string => `${list.above}\0${list.cursor}\0${list.rows.map((row) => row.label).join("\n")}`;
 
@@ -137,11 +163,7 @@ export async function walkClaudeRewind(io: RewindIo, text: string, later: number
         if (confirm === null) return "changed";
         if (quoteMatches(confirm, text)) return "shown";
         // another message the cut row reads the same for: back to the list, on the same row
-        await io.keys([...navigationKeys(CLAUDE_REWIND_CHOICES.length - 1 - confirm.selected), KEY.enter]);
-        const back = await waitFor(io, (screen) => {
-          const shown = parseClaudeRewindList(screen);
-          return shown !== null && cursorOf(shown) === label ? shown : null;
-        }, stepMs);
+        const back = await backToList(io, confirm, label, stepMs);
         if (back === null) return "changed";
         list = back;
       }
