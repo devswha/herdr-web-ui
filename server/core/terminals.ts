@@ -126,7 +126,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     else attachment.process.resume();
   }
 
-  function sendOutput(client: Client, paneId: string, data: string): void {
+  function sendOutput(client: Client, paneId: string, data: string, replay = false): void {
     const window = client.data.output.get(paneId);
     const bytes = Buffer.byteLength(data);
     if ((window && window.pending + bytes > OUTPUT_HARD_BYTES) || client.getBufferedAmount() >= OUTPUT_HARD_BYTES) {
@@ -136,6 +136,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     send(client, {
       type: "pty-data", pane_id: paneId, data,
       ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes, wireBytes(data)) } } : {}),
+      ...(replay ? { replay: true as const } : {}),
     });
   }
 
@@ -351,7 +352,8 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
       if (!alreadyAttached && attachment.recovering) send(client, { type: "output-recovering", pane_id: message.pane_id });
       if (!alreadyAttached && replay) {
         client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
-        sendOutput(client, message.pane_id, replay);
+        // marked as the screen from before: the client draws it but takes no new clipboard write from it
+        sendOutput(client, message.pane_id, replay, true);
         // a tail that lost the stream's start may miss what was drawn once: herdr draws it again
         if (attachment.kind !== "mirror" && attachment.ready && !attachment.held && attachment.replay.truncated) requestRepaint(message.pane_id);
       }

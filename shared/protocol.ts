@@ -1397,7 +1397,12 @@ export type ServerMessage =
   /** `connection`: this socket's id on the PC, for a create request's `first_message_connection`; older bridges send none */
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[]; connection?: string }
   /** raw PTY bytes: append to the terminal, never repaint over it. A mirrored pane (HerdrIdentity.terminal_mirror) sends whole screens the same way. */
-  | { type: "pty-data"; pane_id: string; data: string; flow?: { stream_id: string; offset: number } }
+  /**
+   * `replay`: these bytes are the screen from before this client attached (the first frame of a new
+   * attach), drawn but never asked again for side effects such as a clipboard write. Live output and
+   * older bridges omit it.
+   */
+  | { type: "pty-data"; pane_id: string; data: string; flow?: { stream_id: string; offset: number }; replay?: true }
   | { type: "pty-exit"; pane_id: string; code: number | null }
   /** a pane that waited for another web bridge to let go of its terminal (error `attach_held`) is attached again */
   | { type: "attach-resumed"; pane_id: string }

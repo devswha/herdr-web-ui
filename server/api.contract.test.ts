@@ -2221,6 +2221,78 @@ describe("WebSocket roles and status push", () => {
     }
   }, 40_000);
 
+  it("marks only a new attach's replay as replay, with its bytes and ACK offsets unchanged", async () => {
+    const paneId = qaPaneId!;
+    const url = `ws://localhost:${server.port}/ws`;
+    const operator = await RecordingSocket.connect(url);
+    const joiner = await RecordingSocket.connect(url);
+    const observer = await RecordingSocket.connect(url);
+    let rejoined: RecordingSocket | null = null;
+    // the shell prints the product, which the typed command line does not contain
+    const tag = `replay-origin-${process.pid}`;
+    const printed = (product: number) => (m: RecordedFrame) => m.type === "pty-data" && m.pane_id === paneId && String(m.data).includes(`${tag}-${product}`);
+    const frames = (socket: RecordingSocket) => socket.seen.filter((m) => m.type === "pty-data" && m.pane_id === paneId);
+    /** Each frame's offset is the bytes sent before it plus its own: the replay flag moves none of them. */
+    const offsetsFollowBytes = (socket: RecordingSocket) => {
+      let sent = 0;
+      for (const frame of frames(socket)) {
+        sent += Buffer.byteLength(String(frame.data));
+        expect((frame.flow as { offset: number }).offset).toBe(sent);
+      }
+    };
+    try {
+      operator.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" });
+      await operator.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "operator input-ready", 15_000);
+      operator.send({ type: "input", pane_id: paneId, text: `echo ${tag}-$((6*7))\r` });
+      const live = await operator.waitFor(printed(42), "operator live output", 15_000);
+      expect(live.replay).toBeUndefined();
+
+      // a second view joins: the screen from before comes first, marked, byte for byte the tail
+      joiner.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" });
+      const replay = await joiner.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "joiner replay", 15_000);
+      expect(replay.replay).toBe(true);
+      expect(String(replay.data)).toContain(`${tag}-42`);
+      const flow = replay.flow as { stream_id: string; offset: number };
+      expect(flow.offset).toBe(Buffer.byteLength(String(replay.data)));
+      joiner.send({ type: "pty-ack", pane_id: paneId, stream_id: flow.stream_id, offset: flow.offset });
+      await joiner.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "joiner input-ready", 5000);
+
+      // the same attach again is idempotent: no second replay, marked or not
+      joiner.seen.length = 0;
+      joiner.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" });
+      await joiner.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "idempotent attach input-ready", 5000);
+      operator.send({ type: "input", pane_id: paneId, text: `echo ${tag}-$((7*8))\r` });
+      await joiner.waitFor(printed(56), "joiner live output", 15_000);
+      expect(frames(joiner).length).toBeGreaterThan(0);
+      expect(frames(joiner).every((frame) => frame.replay === undefined)).toBe(true);
+      expect(joiner.seen.some((m) => m.type === "error" && m.code === "invalid_ack")).toBe(false);
+      expect(frames(operator).filter(printed(56)).every((frame) => frame.replay === undefined)).toBe(true);
+
+      // an observer's attach is a new view too, and a reconnect attaches afresh
+      observer.send({ type: "role", mode: "observe" });
+      await observer.waitFor((m) => m.type === "role-ack", "role-ack", 5000);
+      observer.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" });
+      const watched = await observer.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "observer replay", 15_000);
+      expect(watched.replay).toBe(true);
+      expect(String(watched.data)).toContain(`${tag}-56`);
+      joiner.close();
+      rejoined = await RecordingSocket.connect(url);
+      rejoined.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" });
+      const again = await rejoined.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "reconnect replay", 15_000);
+      expect(again.replay).toBe(true);
+      operator.send({ type: "input", pane_id: paneId, text: `echo ${tag}-$((8*9))\r` });
+      await rejoined.waitFor(printed(72), "reconnect live output", 15_000);
+      await observer.waitFor(printed(72), "observer live output", 15_000);
+      for (const socket of [observer, rejoined]) {
+        expect(frames(socket).filter((frame) => frame.replay === true)).toHaveLength(1);
+        expect(frames(socket)[0]!.replay).toBe(true);
+        offsetsFollowBytes(socket);
+      }
+    } finally {
+      for (const socket of [operator, joiner, observer, rejoined]) socket?.close();
+    }
+  }, 60_000);
+
   it("leaves the shared pty's size alone for an attach whose grid the chat lens covers", async () => {
     const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-keep-size" });
     const paneId = created.root_pane.pane_id;

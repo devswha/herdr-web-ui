@@ -1738,9 +1738,10 @@ class DemoSocket extends EventTarget {
     if (histories.get(paneId)?.resize(cols!, rows!)) redrawHistory(paneId);
   }
 
-  renderHistory(paneId: string): void {
+  /** `replay`: the screen a new attach is handed, as the bridge marks its replay */
+  renderHistory(paneId: string, replay = false): void {
     const history = histories.get(paneId);
-    if (history && this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: history.render() });
+    if (history && this.attached.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: history.render(), ...(replay ? { replay: true as const } : {}) });
   }
 
   /** The first messages this socket asked for, in `paneId` or every pane, that have not gone: held for an explicit send, as the bridge holds them when their page leaves. */
@@ -1775,7 +1776,7 @@ class DemoSocket extends EventTarget {
       if (["idle", "done"].includes(paneOf(paneId)?.agent_status ?? "")) deliverFirstMessage(paneId);
     }, 0);
     const key = keyOfPane.get(paneId);
-    if (histories.has(paneId)) { this.renderHistory(paneId); return; }
+    if (histories.has(paneId)) { this.renderHistory(paneId, true); return; }
     if (key === "shell") {
       let at = 0;
       let previous = 0;
@@ -1788,10 +1789,10 @@ class DemoSocket extends EventTarget {
     }
     if (pane && !pane.agent && !chats.has(paneId)) {
       // a shell the demo user started: an empty prompt
-      this.later(() => { if (this.attached.has(paneId) && !histories.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" + PROMPT_TEXT }); }, 60);
+      this.later(() => { if (this.attached.has(paneId) && !histories.has(paneId)) this.push({ type: "pty-data", pane_id: paneId, data: "\x1b[2J\x1b[H" + PROMPT_TEXT, replay: true }); }, 60);
       return;
     }
-    this.later(() => this.push({ type: "pty-data", pane_id: paneId, data: NOTICE }), 60);
+    this.later(() => this.push({ type: "pty-data", pane_id: paneId, data: NOTICE, replay: true }), 60);
   }
 
   /** the pretend shell: echo, backspace, and a few commands it knows */

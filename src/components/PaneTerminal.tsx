@@ -69,6 +69,9 @@ import { finalStep, HERDR_MOUSE_SCROLL_LINES, wheelSteps } from "../lib/wheelSte
 import { attachTerminalWheel, canPanTerminalGrid } from "../lib/terminalWheel.ts";
 import { visibleTerminalInputBounds } from "../lib/terminalViewport.ts";
 
+/** Build-time constant: on only in the browser lane's demo build (lib/crashProbe.ts). */
+declare const __HERDR_TEST_HOOKS__: boolean;
+
 /** How long a resize must rest before the grid refits and the pty follows it. */
 const RESIZE_SETTLE_MS = 120;
 /** How long a tab is out of use before it lets go of its pane: a glance at another window keeps it. */
@@ -275,6 +278,8 @@ export function PaneTerminal({
   const fitRef = useRef<FitAddon | null>(null);
   /** OSC 8 links this app cannot open are not drawn (#739); its state ends with `term.reset()` */
   const hyperlinksRef = useRef(hyperlinkFilter());
+  /** Forgets a replayed OSC once xterm's parser no longer holds it open (pane switch, reconnect). */
+  const resetOutputOriginRef = useRef<() => void>(() => {});
   const socketRef = useRef<HerdrSocket | null>(null);
   const paneRef = useRef<string | null>(paneId);
   const onConnectionChangeRef = useRef(onConnectionChange);
@@ -1148,6 +1153,62 @@ export function PaneTerminal({
     window.addEventListener("blur", onBlur);
     window.addEventListener("mouseup", onMouseUp);
 
+    // Output reaches xterm one frame at a time, so the frame being parsed is known: a frame the
+    // bridge marked `replay` (the screen from before this attach) is presentation history, and a
+    // copy request in it was answered when it was new. The flag holds from the frame's write
+    // until its callback; xterm's own parser state says whether a replayed OSC is still open.
+    const outputFrames: { data: string; replay: boolean; done?: () => void }[] = [];
+    let writingOutput = false;
+    let parsingReplay = false;
+    // a replayed frame ended inside an OSC that may still dispatch as OSC 52 in a later live write
+    let replayOscOpen = false;
+    const writeNextOutput = (): void => {
+      const frame = outputFrames.shift();
+      if (!frame || disposed) {
+        writingOutput = false;
+        return;
+      }
+      writingOutput = true;
+      parsingReplay = frame.replay;
+      term.write(frame.data, () => {
+        parsingReplay = false;
+        if (!disposed) {
+          const osc = term.oscStringState();
+          if (frame.replay) replayOscOpen = osc.open && (!osc.idComplete || osc.id === 52);
+          // the replayed OSC ended without dispatching as OSC 52 (aborted, or another identifier)
+          else if (replayOscOpen && !osc.open) replayOscOpen = false;
+        }
+        try {
+          frame.done?.();
+        } finally {
+          writeNextOutput();
+        }
+      });
+    };
+    const writeOutput = (data: string, replay = false, done?: () => void): void => {
+      outputFrames.push({ data, replay, done });
+      if (!writingOutput) writeNextOutput();
+    };
+    // a pane switch resets the parser, and a reconnect replays afresh: only an OSC still open in
+    // xterm keeps a replayed copy request pending
+    resetOutputOriginRef.current = () => { replayOscOpen = replayOscOpen && term.oscStringState().open; };
+    if (__HERDR_TEST_HOOKS__) {
+      // browser scripts read the parse state and count xterm writes in flight (never in a release build)
+      let inFlight = 0;
+      let peakInFlight = 0;
+      let writes = 0;
+      let written = "";
+      const write = term.write.bind(term);
+      term.write = (data, callback) => {
+        inFlight++;
+        writes++;
+        if (typeof data === "string") written = (written + data).slice(-4096);
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        write(data, () => { inFlight--; callback?.(); });
+      };
+      Object.assign(host, { outputProbe: () => ({ ...term.oscStringState(), parsingReplay, replayOscOpen, queued: outputFrames.length, inFlight, peakInFlight, writes, written }) });
+    }
+
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty
     // cannot reach the browser clipboard by itself, so xterm hands us the sequence and
     // navigator.clipboard completes the hop (text only; queries are ignored).
@@ -1155,7 +1216,10 @@ export function PaneTerminal({
     // copy this way, but any process in the pane, an agent's tool calls included, can plant text the
     // user then pastes somewhere else.
     const osc52 = term.parser.registerOscHandler(52, (payload) => {
-      if (osc52AllowedRef.current) {
+      const replayed = parsingReplay || replayOscOpen;
+      // OSCs do not nest: the replayed one the flag waited for ends here
+      replayOscOpen = false;
+      if (!replayed && osc52AllowedRef.current) {
         const text = parseOsc52(payload);
         if (text !== null) {
           void navigator.clipboard?.writeText(text).then(
@@ -1245,7 +1309,7 @@ export function PaneTerminal({
         const generation = outputGeneration;
         const lifetime = outputLifetime;
         const target = outputTargetRef.current;
-        term.write(message.data, () => {
+        writeOutput(message.data, message.replay === true, () => {
           acknowledge?.();
           if (disposed) return;
           if (paneRef.current !== owner || generation !== outputGeneration) {
@@ -1279,7 +1343,7 @@ export function PaneTerminal({
       } else if (message.type === "watch-data") {
         // a read-only view drawn for this grid: written as it comes, never acknowledged
         if (message.pane_id !== paneRef.current || !releasedRef.current || !watchingRef.current) return;
-        term.write(message.data);
+        writeOutput(message.data);
       } else if (message.type === "watch-end") {
         // the view ended: the last screen stays, and the banner says the tab is paused
         if (message.pane_id === paneRef.current) setWatching(false);
@@ -1386,7 +1450,7 @@ export function PaneTerminal({
           }
           return;
         }
-        term.writeln(`\r\n\u001b[31m[Ovis] ${message.code}: ${message.message}\u001b[0m`);
+        writeOutput(`\r\n\u001b[31m[Ovis] ${message.code}: ${message.message}\u001b[0m\r\n`);
       }
       setConnected(socket.connected);
       setConversationPushes(socket.conversationPushes());
@@ -1397,6 +1461,7 @@ export function PaneTerminal({
       pendingEpochRef.current = session.epoch;
       outputGeneration++;
       outputRecovering = false;
+      resetOutputOriginRef.current();
       setOutputReady(false);
       setInputReady(false);
       setConnected(false);
@@ -1910,7 +1975,7 @@ export function PaneTerminal({
     const watch = (pane: string): void => {
       const generation = ++outputGeneration;
       // Reset in stream order: the attach's queued writes must not draw over the view.
-      term.write("\x1bc", () => {
+      writeOutput("\x1bc", false, () => {
         if (disposed || paneRef.current !== pane || generation !== outputGeneration) return;
         modifyOtherKeysRef.current = 0;
       });
@@ -1964,7 +2029,7 @@ export function PaneTerminal({
       outputRecovering = false;
       // Reset in stream order: synchronous reset would let old queued writes draw afterward.
       if (!cachedReleaseRef.current) {
-        term.write("\x1bc", () => {
+        writeOutput("\x1bc", false, () => {
           if (disposed || paneRef.current !== current || generation !== outputGeneration) return;
           modifyOtherKeysRef.current = 0;
         });
@@ -2129,6 +2194,11 @@ export function PaneTerminal({
       host.removeEventListener("dragover", onDragOver);
       host.removeEventListener("drop", onDrop);
       offDisconnect();
+      // frames still waiting are a retired terminal's: nothing writes or acknowledges them
+      outputFrames.length = 0;
+      parsingReplay = false;
+      replayOscOpen = false;
+      resetOutputOriginRef.current = () => {};
       osc52.dispose();
       osc8.dispose();
       modifyOtherKeysSet.dispose();
@@ -2316,6 +2386,7 @@ export function PaneTerminal({
     setDraft(saved);
     draftPaneRef.current = paneId;
     term.reset();
+    resetOutputOriginRef.current();
     hyperlinksRef.current.reset();
     modifyOtherKeysRef.current = 0;
     if (!paneId) return;
