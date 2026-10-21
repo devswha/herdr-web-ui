@@ -110,6 +110,11 @@ const AGENT_LABELS: Record<string, string> = {
   copilot: "GitHub Copilot",
   kimi: "Kimi",
   amp: "Amp",
+  hermes: "Hermes",
+  grok: "Grok",
+  agy: "Antigravity",
+  devin: "Devin",
+  cmd: "Command Code",
 };
 
 /** The temp folder of the Claude Code session in a pane, or null when the pane runs none or it has none. */
