@@ -1,9 +1,12 @@
 import { afterEach, expect, it, mock, spyOn } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as client from "../herdr/client.ts";
 import * as conversation from "../conversation.ts";
+import * as omo from "../omo.ts";
 import * as commands from "../commands.ts";
 import * as prompt from "../prompt.ts";
-import * as paneContext from "../pane-context.ts";
 import { createSubmitText } from "./composer.ts";
 import { handlePromptRequest, prepareCommandSend } from "../prompt.ts";
 import { commandOutcome } from "../outcome.ts";
@@ -71,11 +74,17 @@ it("keeps repeated omp model outcomes under the original command rather than its
 
 it("does not rewrite /model when the resolved pane agent is OmO", async () => {
   const target = { ...pane, pane_id: "omo-labelled-omp", agent: "omp" };
+  const dir = mkdtempSync(join(tmpdir(), "omo-command-roots-"));
+  const agentDir = join(dir, ".omo", "agent");
+  mkdirSync(agentDir, { recursive: true });
   spyOn(client, "paneGet").mockResolvedValue(target);
-  spyOn(paneContext, "resolveAgent").mockReturnValue({ agent: "omo", version: null });
+  spyOn(client, "herdrRpc").mockResolvedValue({ process_info: { foreground_processes: [{ pid: process.pid, argv: ["omo"], cwd: dir }] } } as never);
+  spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir, heldIds: ["session-1"], custom: true });
   const deliver = spyOn(client, "agentPrompt").mockResolvedValue();
-  await submitter()(target.pane_id, "/model", "/model", Date.now());
-  expect(deliver).toHaveBeenCalledWith(target.pane_id, "/model");
+  try {
+    await submitter()(target.pane_id, "/model", "/model", Date.now());
+    expect(deliver).toHaveBeenCalledWith(target.pane_id, "/model");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 for (const dependency of ["process-info", "transcript", "catalog", "snapshot"] as const) {

@@ -5,7 +5,8 @@
  * pane's exact session, which settle a Chat send's outcome as native evidence.
  */
 import type { HerdrPane, SlashCommand } from "../shared/protocol.ts";
-import { resolveAgent } from "./pane-context.ts";
+import { resolveAgent, typingRoots } from "./pane-context.ts";
+import { paneProcessRoots } from "./conversation.ts";
 import { CATALOG_SOURCE_BUDGET_MS, registerCatalogSource } from "./catalog-sources.ts";
 import { builtinCommands, cachedPaneCommands, paneCommands } from "./commands.ts";
 import { opencodeSessionId } from "./opencode.ts";
@@ -198,7 +199,10 @@ export function openCodeNativeState(): { stream: boolean; panes: string[] } {
 
 /** The verified service a pane's exact session lives in, or null (scan rows and screen paths stay). */
 export async function openCodePaneService(pane: Pick<HerdrPane, "agent" | "agent_session"> & { pane_id?: string }, signal?: AbortSignal, stateDir?: string): Promise<{ service: OpenCodeService; sessionID: string } | null> {
-  if (resolveAgent(pane).agent !== "opencode") return null;
+  const label = resolveAgent(pane).agent;
+  const roots = pane.pane_id ? typingRoots(await paneProcessRoots(pane.pane_id, label)) : null;
+  const agent = resolveAgent(pane, roots).agent;
+  if (agent !== "opencode") return null;
   const sessionID = opencodeSessionId(pane);
   if (!sessionID) return null;
   const paneId = pane.pane_id;
@@ -312,7 +316,10 @@ async function boundCatalog(pane: HerdrPane, cwd: string | null, budgetMs: numbe
  * plain text and its record is terminal-required with the note why.
  */
 export async function openCodeSkillsToType(pane: HerdrPane, sent: Sent, text: string, screen = "", stateDir?: string): Promise<{ sent: Sent; skills: string[] }> {
-  if (resolveAgent(pane).agent !== "opencode" || process.platform === "win32" || !/(?:^|\s)@\S/u.test(text)) return { sent, skills: [] };
+  const label = resolveAgent(pane).agent;
+  if (process.platform === "win32" || !/(?:^|\s)@\S/u.test(text)) return { sent, skills: [] };
+  const roots = typingRoots(await paneProcessRoots(pane.pane_id, label));
+  if (resolveAgent(pane, roots).agent !== "opencode") return { sent, skills: [] };
   const tokensOf = (record: Sent): string[] => record?.agent === "opencode" ? skillTokens(text, record.invocations.map((invocation) => invocation.name)) : [];
   const cold = cachedPaneCommands(pane) === undefined;
   if (!cold && tokensOf(sent).length === 0) return { sent, skills: [] };

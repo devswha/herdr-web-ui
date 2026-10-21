@@ -5,10 +5,11 @@ import { join } from "node:path";
 
 import type { HerdrPane } from "../shared/protocol.ts";
 import type { CommandSend } from "./outcome.ts";
+import * as herdr from "./herdr/client.ts";
+import * as omo from "./omo.ts";
 import { closeOpenCodeNative, openCodeNativeState, openCodePaneService, openCodeSkillsToType, releaseOpenCodePane, skillsNotAttached, startOpenCodeWatch, trackVerifiedOpenCodePanes } from "./opencode-native.ts";
 import { commandOutcome } from "./outcome.ts";
 import * as service from "./opencode-service.ts";
-import * as paneContext from "./pane-context.ts";
 import { forgetOpenCodeService, openCodeServiceOptions } from "./opencode-service.ts";
 
 const root = mkdtempSync(join(tmpdir(), "opencode-native-test-"));
@@ -70,19 +71,23 @@ describe("recording a send never waits on OpenCode's service", () => {
   });
 
   it("does not treat an OmO pane herdr labels pi as OpenCode", async () => {
-    const omoPane = { ...pane, agent: "pi", agent_session: { agent: "omo", source: "herdr:omo", kind: "id", value: "ses_omo001" } } as unknown as HerdrPane;
-    const resolved = spyOn(paneContext, "resolveAgent").mockReturnValue({ agent: "omo", version: null });
+    const omoPane = { ...pane, agent: "pi", agent_session: { agent: "pi", source: "herdr:pi", kind: "id", value: "ses_omo001" } } as unknown as HerdrPane;
+    const agentDir = join(root, "omo-agent", ".omo", "agent");
+    mkdirSync(agentDir, { recursive: true });
     const lookup = spyOn(service, "openCodeService").mockResolvedValue(null);
+    const rpc = spyOn(herdr, "herdrRpc").mockResolvedValue({ process_info: { foreground_processes: [{ pid: process.pid, argv: ["omo"], cwd: root }] } } as never);
+    const identity = spyOn(omo, "omoProcessIdentity").mockReturnValue({ agentDir, heldIds: ["session-1"], custom: true });
     try {
       expect(await openCodePaneService(omoPane)).toBeNull();
+      expect(lookup).not.toHaveBeenCalled();
       expect(startOpenCodeWatch(omoPane, sent)).toBeNull();
       const send = { ...sent, store: null };
       expect(await openCodeSkillsToType(omoPane, send, "@skill")).toEqual({ sent: send, skills: [] });
-      expect(lookup).not.toHaveBeenCalled();
-      expect(resolved).toHaveBeenCalled();
+      expect(rpc).toHaveBeenCalledTimes(2);
     } finally {
+      identity.mockRestore();
+      rpc.mockRestore();
       lookup.mockRestore();
-      resolved.mockRestore();
     }
   });
 });

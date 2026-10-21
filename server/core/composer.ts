@@ -381,7 +381,10 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // omp's `/model` opens its Models hub, which assigns roles and saves the default one for
         // later sessions, while omp itself calls the command "Switch model for this session":
         // the chat's `/model` opens omp's session-only picker, the one its card answers
-        const agent = pane ? resolveAgent(pane).agent : null;
+        let agent = pane ? resolveAgent(pane).agent : null;
+        if (pane && agent === "omp" && pane.agent_session?.source !== "herdr:omp") {
+          agent = resolveAgent(pane, typingRoots(await paneProcessRoots(pane.pane_id, agent))).agent;
+        }
         const sent = agent === "omp" && text.trim() === "/model" ? "/switch" : text;
         if (pane && agent === "omp") {
           pane = await untilOmpReported(paneId, pane, inTime, options.ompReportPollMs ?? OMP_REPORT_POLL_MS, options.ompStartupMs ?? OMP_STARTUP_MS);
