@@ -115,6 +115,14 @@ describe("a session resumed a moment ago (the reopen window)", () => {
     expect(recentResumeEnded(record, [pane({ pane_id: "p-new", agent_session: { agent: "codex", kind: "id", source: "herdr:codex", value: "another" } })], 2_000)).toBe(true);
     expect(recentResumeEnded(record, [pane({ pane_id: "p1" })], 2_000)).toBe(true);
   });
+  it("ends once the pane no longer runs the resumed agent: back at its shell, or another agent in it", () => {
+    const later = 1_000 + 10 * RECENT_RESUME_MS;
+    for (const seen of [true, false]) {
+      expect(recentResumeEnded({ ...record, seen }, [pane({ pane_id: "p-new", agent: null, agent_session: null })], 2_000)).toBe(true);
+      expect(recentResumeEnded({ ...record, seen }, [pane({ pane_id: "p-new", agent: "claude", agent_session: null })], later)).toBe(true);
+    }
+    expect(standingResume([record], [pane({ pane_id: "p-new", agent: null, agent_session: null })], "local", "w1", "codex", id, 2_000)).toBeUndefined();
+  });
   it("keeps Open, never Resume, for a pane still listed without a session however long ago: at +121 s and beyond", () => {
     const later = 1_000 + 121_000;
     expect(recentResumeEnded(record, [fresh], later)).toBe(false);
