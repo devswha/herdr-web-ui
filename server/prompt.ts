@@ -173,10 +173,10 @@ function outcomeProcess(info: ProcessInfo | undefined, agent: string, bound?: nu
 const BINDING_WAIT_MS = 1000;
 
 /**
- * Records which agent process a send went to when the session its row will belong to is not known yet: the pane has
- * none (the agent's first turn), or the send itself changes it (/clear, /new, a resume). Its row then follows that
- * process (commandOutcomes), also when no browser polls until after a replacement; any other send's row follows
- * its session alone. Recording never holds delivery: nothing here is awaited.
+ * Records which agent process a send went to, so its row follows that process (commandOutcomes), also when no browser
+ * polls until after a replacement. Every send is bound, not only one made before the session is known: herdr can keep
+ * reporting a restarted Claude Code's old session id until its first turn, so the session alone would keep the old
+ * process's rows. Recording never holds delivery: nothing here is awaited.
  * `seen`: herdr's foreground answer read before this send, which is the process it went to. Without one, the read
  * starts alongside delivery and can answer after a replacement: a process that started at or after the send never
  * received it, so the send is left unidentified rather than bound to it. Outside Linux and macOS no start time is
@@ -184,7 +184,7 @@ const BINDING_WAIT_MS = 1000;
  */
 export function bindCommandProcess(paneId: string, command: PaneCommandSend | undefined, seen?: ProcessInfo): void {
   const visibility = command?.visibility;
-  if (!command || !visibility || !(visibility.discovering || command.sessionChange) || visibility.process !== undefined || visibility.binding) return;
+  if (!command || !visibility || visibility.process !== undefined || visibility.binding) return;
   const sentAt = Date.now();
   visibility.binding = (async () => {
     if (seen) {

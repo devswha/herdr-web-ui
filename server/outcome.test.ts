@@ -446,6 +446,17 @@ describe("session-scoped command outcomes", () => {
     });
   }
 
+  it("omits a known session's sends once a restarted agent still reports that session id", async () => {
+    // herdr keeps a restarted Claude Code's old session id until the new process's first turn
+    const pane = { ...target(), pid: 2147483645 };
+    await withFakeHerdr(pane, async (paneId) => {
+      await submit(paneId, pane, "/context");
+      expect((await served(paneId)).outcomes).toHaveLength(1);
+      pane.pid++;
+      expect((await served(paneId)).outcomes).toBeUndefined();
+    });
+  });
+
   it("omits earlier session sends after an agent restart", async () => {
     const pane = target();
     await withFakeHerdr(pane, async (paneId) => {
