@@ -135,6 +135,22 @@ describe("Claude Code's /rewind", () => {
     expect(await answer("confirm-apple-never-mind", 0)).toEqual({ result: "answered", sent: [{ keys: ["esc"] }] });
   });
 
+  // Codex on db8d72b5 (1): repeated messages read the same; the age under the quote tells the copies apart
+  test("sends no Enter on another copy's confirm step of the same words, opened after the card was made", async () => {
+    const reader = readers.find((candidate) => candidate.id === "claude-rewind")!;
+    const context: ReaderContext = { agent: "claude", omoAsk: null, omoTrusted: true, omoOpen: [], sent: null, working: false };
+    const card = rewind("confirm-apple-restore", 40);
+    const answer = async (shown: string) => {
+      const sent: AnswerStep[] = [];
+      const plan = reader.interaction!(reader.parse(card, context)!);
+      const result = await executeInteractionPlan(plan, 0, { rereadMoves: true, read: async () => shown, send: async (step) => { sent.push(step); }, active: () => true, cancelled: () => false });
+      return { result, sent };
+    };
+    // a newer apple's confirm step: the same quote, a younger age
+    expect(await answer(card.replace("(3h ago)", "(2h ago)"))).toEqual({ result: "prompt_changed", sent: [] });
+    expect(await answer(card)).toEqual({ result: "answered", sent: [{ keys: ["enter"] }] });
+  });
+
   test("a list cut by a later line gets no card", () => {
     expect(parseInteractivePrompt("claude", `${rewind("select-banana", 120)}\n❯ hello`)).toBeNull();
   });

@@ -578,7 +578,7 @@ export function parseClaudeRewindList(screen: string): ClaudeRewindList | null {
 }
 
 /** What the rewind confirm step shows: the message it quotes (its wrapped lines joined), its notes, and its choices. */
-export interface ClaudeRewindConfirm { question: string; message: string; notes: string[]; selected: number }
+export interface ClaudeRewindConfirm { question: string; message: string; notes: string[]; selected: number; age: string }
 
 export function parseClaudeRewindConfirm(screen: string): ClaudeRewindConfirm | null {
   const blocks = claudeRewindPanel(screen);
@@ -592,7 +592,7 @@ export function parseClaudeRewindConfirm(screen: string): ClaudeRewindConfirm | 
   const numbered = parseNumberedRows(rows, 0, rows.length);
   if (numbered.length !== rows.length || !sequentialRows(numbered) || numbered.filter((row) => row.selected).length !== 1) return null;
   if (numbered.map((row) => row.label).join("\n") !== CLAUDE_REWIND_CHOICES.join("\n")) return null;
-  return { question, message: normalizeText(quote.slice(0, -1).join(" ")), notes: notes.map(cleanLine), selected: numbered.findIndex((row) => row.selected) };
+  return { question, message: normalizeText(quote.slice(0, -1).join(" ")), notes: notes.map(cleanLine), selected: numbered.findIndex((row) => row.selected), age: quote.at(-1)! };
 }
 
 function parseClaudeRewind(screen: string): ParsedPrompt | null {
@@ -610,6 +610,8 @@ function parseClaudeRewind(screen: string): ParsedPrompt | null {
       responder: "claude-rewind", menuLabels: [...CLAUDE_REWIND_CHOICES], selectedIndex: confirm.selected,
       checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
       optionSteps: [...(restore ? [keySteps([KEY.enter])] : []), keySteps([KEY.escape])],
+      // repeated messages quote the same words: the age under the quote tells the copies apart
+      occurrence: confirm.age,
     });
   }
   const list = parseClaudeRewindList(screen);
@@ -636,7 +638,9 @@ function parseClaudeRewind(screen: string): ParsedPrompt | null {
  */
 function rewindConfirmPlan(parsed: ParsedPrompt): InteractionPlan {
   const steps = parsed.optionSteps ?? [];
-  const row = (shown: ParsedPrompt): string => `${shown.body?.split("\n")[0] ?? ""}\0${shown.menuLabels[shown.selectedIndex] ?? ""}`;
+  // the same message's step, the same copy of it (its age: another copy of the same words may have been
+  // opened since the card was made), with the cursor on the same row
+  const row = (shown: ParsedPrompt): string => `${shown.body?.split("\n")[0] ?? ""}\0${shown.occurrence ?? ""}\0${shown.menuLabels[shown.selectedIndex] ?? ""}`;
   let chosen = -1;
   const plan: InteractionPlan = {
     identity: parsed.id,
