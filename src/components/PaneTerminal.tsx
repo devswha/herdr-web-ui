@@ -2493,7 +2493,7 @@ export function PaneTerminal({
     const result = submitComposerMessage(text, delivery);
     return result === null ? false : result.then((answer) => {
       if (!answer.ok) return submitNote(answer.code, answer.message, agent);
-      if (pane !== null && answer.pending === undefined) showSentCommand(pane, text);
+      if (pane !== null && answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, text);
       return true;
     });
   }, [submitComposerMessage, agent, showSentCommand]);
@@ -2756,7 +2756,7 @@ export function PaneTerminal({
       const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined, sendAnyway);
       return result === null ? false : result.then((answer) => {
         if (!answer.ok) return submitRefusal(answer.code, answer.message, answer.draft, answer.box, agent);
-        if (pane !== null && delivery === "immediate" && answer.pending === undefined) showSentCommand(pane, text);
+        if (pane !== null && delivery === "immediate" && answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, text);
         return true;
       });
     },
@@ -2822,7 +2822,7 @@ export function PaneTerminal({
           const answer = await result;
           if (answer.ok) {
             pendingMessages.removeCopy(owner, id);
-            if (answer.pending === undefined) showSentCommand(pane, message.text);
+            if (answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, message.text);
           }
           else pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, !submitNotTyped(answer.code), message.resendGeneration ?? 0);
         }
