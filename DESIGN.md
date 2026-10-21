@@ -2194,6 +2194,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   and t3code's inline authentication metadata/compact hub row; their pixels are not copied.
   An unreadable hub configuration leaves the hub unconfigured without blocking server startup;
   its fixed diagnostic is logged and returned by the hub status endpoint, never its saved key.
+- A shared setting or pin the server refused to save is one alert at the top of whichever page is
+  open, never a mark on each row: the sentence in `--status-blocked` with the server's own words
+  behind Details, then a dim "Saved on this device; not confirmed on the server." and one `.btn`
+  Retry, which wraps below the words on a phone and is disabled while its save is on the way. The
+  change is sent again every few seconds; after three failures in a row sending pauses until Retry
+  or the event stream reopens, and edits made meanwhile go out with the next send. The alert clears
+  only when nothing unsent is left. This follows the app's actionable-error rule (one sentence and
+  the control that does it, causes folded) as drawn in the Codex theme; it differs from AoE's
+  per-field retry store because Ovis shares one ordered change set, so Retry resends the current
+  change, never an old request body.
 
 ### Terminal host, key bar and drawer
 - **Find in terminal** in the header's More menu and Mod+Shift+F opens a find bar above the

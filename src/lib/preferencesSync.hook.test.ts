@@ -7,6 +7,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { PreferenceStore } from "../../server/preferences.ts";
 import { type PreferencesChange, type SharedPreferences } from "../../shared/preferences.ts";
 import { DEFAULT_SETTINGS, SettingsProvider, sanitizeSettings, useSettings, type Settings } from "./settings.ts";
+import { setSidebarPins } from "./sidebarPins.ts";
 import { usePreferencesSync } from "./preferencesSync.ts";
 import type { UserError } from "./userError.ts";
 
@@ -28,7 +29,11 @@ describe("preferences sync real send path", () => {
   let answers: number;
   /** the next PUT's answer when the server refuses it, in its error envelope; stored nothing */
   let refuse: Response | null;
+  /** every PUT's answer while set: a write error that persists, or a request that never reaches the PC */
+  let refusing: (() => Response) | null;
   let refusals: number;
+  /** every PUT body in the order it was sent, refused or not */
+  let bodies: PreferencesChange[];
   let answerListeners: Set<() => void>;
   const dropNewKeys = (doc: SharedPreferences): SharedPreferences => ({
     ...doc, settings: Object.fromEntries(Object.entries(doc.settings).filter(([key]) => key !== "darkTheme" && key !== "lightTheme")),
@@ -39,6 +44,10 @@ describe("preferences sync real send path", () => {
     update: (patch: Partial<Settings>) => void;
     receive: (doc: SharedPreferences) => void;
     saveError: UserError | null;
+    paused: boolean;
+    retrying: boolean;
+    retry: () => void;
+    resubscribed: () => void;
   }
 
   beforeEach(() => {
@@ -65,7 +74,9 @@ describe("preferences sync real send path", () => {
     revisions = [];
     answers = 0;
     refuse = null;
+    refusing = null;
     refusals = 0;
+    bodies = [];
     answerListeners = new Set();
     store.subscribe((doc) => {
       revisions.push(doc.revision);
@@ -73,12 +84,13 @@ describe("preferences sync real send path", () => {
     });
     const fetchPreferences = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       if (init?.method !== "PUT") return Response.json(oldServer ? dropNewKeys(store.get()) : store.get());
-      if (refuse !== null) {
+      bodies.push(JSON.parse(String(init.body)));
+      if (refuse !== null || refusing !== null) {
         const answer = refuse;
         refuse = null;
         refusals++;
         for (const listener of [...answerListeners]) listener();
-        return answer;
+        return answer ?? refusing!();
       }
       const body: PreferencesChange = JSON.parse(String(init.body));
       const settings = oldServer ? dropNewKeys({ revision: 0, settings: body.settings }).settings : body.settings;
@@ -108,7 +120,8 @@ describe("preferences sync real send path", () => {
   async function open(raw: object = DEFAULT_SETTINGS): Promise<Client> {
     records.clear();
     records.set("herdr-web-ui:settings", JSON.stringify(raw));
-    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: () => { throw new Error("not mounted"); }, receive: () => { throw new Error("not mounted"); }, saveError: null };
+    const unmounted = () => { throw new Error("not mounted"); };
+    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: unmounted, receive: unmounted, saveError: null, paused: false, retrying: false, retry: unmounted, resubscribed: unmounted };
     function Probe() {
       const context = useSettings();
       client.settings = context.settings;
@@ -117,6 +130,10 @@ describe("preferences sync real send path", () => {
       const sync = usePreferencesSync(true);
       client.receive = sync.receive;
       client.saveError = sync.saveError;
+      client.paused = sync.paused;
+      client.retrying = sync.retrying;
+      client.retry = sync.retry;
+      client.resubscribed = sync.resubscribed;
       return null;
     }
     await act(async () => {
@@ -289,5 +306,165 @@ describe("preferences sync real send path", () => {
     await act(async () => { client.update({ darkTheme: "gruvbox" }); });
     await windows();
     expect(client.saveError).toBeNull();
+  });
+
+  const unwritable = () => Response.json({ error: { code: "preferences_unwritable", message: "EACCES: permission denied" } }, { status: 500 });
+  /** the first failed save, then the automatic ones after each RETRY_MS wait, until `count` have failed */
+  async function failSaves(count: number): Promise<void> {
+    await send();
+    for (let index = 1; index < count; index++) {
+      await act(async () => { jest.advanceTimersByTime(5_000); });
+      await send();
+    }
+  }
+  /** several RETRY_MS waits, each followed by a send window, with what each wakes settled between */
+  async function longWait(): Promise<void> {
+    for (let index = 0; index < 4; index++) {
+      await act(async () => { jest.advanceTimersByTime(5_000); });
+      await windows();
+    }
+  }
+
+  it("pauses after three consecutive failed saves", async () => {
+    const client = await open();
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await failSaves(2);
+    expect(refusals).toBe(2);
+    expect(client.paused).toBe(false);
+    await act(async () => { jest.advanceTimersByTime(5_000); });
+    await send();
+    expect(refusals).toBe(3);
+    expect(client.paused).toBe(true);
+    await longWait();
+    expect(refusals).toBe(3);
+    expect(answers).toBe(0);
+    expect(client.saveError?.message).toBe("The server cannot save settings: check that its state folder is writable.");
+    expect(client.settings.darkTheme).toBe("tokyo-night");
+
+    // Retry starts one more round, which lands, and the count starts over
+    refusing = null;
+    await act(async () => { client.retry(); });
+    expect(client.retrying).toBe(true);
+    await send();
+    expect(answers).toBe(1);
+    expect([client.saveError, client.paused, client.retrying]).toEqual([null, false, false]);
+    expect(store.get().settings.darkTheme).toBe("tokyo-night");
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "gruvbox" }); });
+    await failSaves(2);
+    expect(client.paused).toBe(false);
+  });
+
+  it("an unreachable PC pauses the same way", async () => {
+    const client = await open();
+    refusing = () => { throw new TypeError("Failed to fetch"); };
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await failSaves(3);
+    await longWait();
+    expect([refusals, client.paused, client.saveError !== null]).toEqual([3, true, true]);
+  });
+
+  it("edits while paused do not restart retries", async () => {
+    const client = await open();
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await failSaves(3);
+    expect(client.paused).toBe(true);
+    await act(async () => { client.update({ lightTheme: "catppuccin" }); });
+    await act(async () => { setSidebarPins(["local:w1:p1"]); });
+    await longWait();
+    expect(refusals).toBe(3);
+    expect(client.paused).toBe(true);
+
+    refusing = null;
+    await act(async () => { client.retry(); });
+    await send();
+    expect(bodies.length).toBe(4);
+    expect(bodies[3]).toEqual({ settings: { darkTheme: "tokyo-night", lightTheme: "catppuccin", palette: "tokyo-night" }, pins: ["local:w1:p1"] });
+    expect(store.get()).toMatchObject({ settings: { darkTheme: "tokyo-night", lightTheme: "catppuccin" }, pins: ["local:w1:p1"] });
+    expect(client.saveError).toBeNull();
+  });
+
+  it("retry sends latest pending intent without losing in-flight edits", async () => {
+    const client = await open();
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await failSaves(3);
+    await act(async () => { client.update({ darkTheme: "gruvbox" }); });
+    refusing = null;
+    const gate = Promise.withResolvers<void>();
+    releaseAnswer = () => gate.promise;
+    // a second press while the first is on its way starts no second chain
+    await act(async () => { client.retry(); });
+    await windows();
+    expect(client.retrying).toBe(true);
+    await act(async () => { client.retry(); });
+    await act(async () => { client.update({ lightTheme: "catppuccin" }); });
+    await windows(3);
+    expect(bodies.length).toBe(4);
+    expect(bodies[3]?.settings).toMatchObject({ darkTheme: "gruvbox" });
+    expect(bodies[3]?.settings).not.toHaveProperty("lightTheme");
+
+    const answered = nextAnswer();
+    await act(async () => { gate.resolve(); await answered; });
+    releaseAnswer = undefined;
+    // the answer confirms what was sent, not the edit made meanwhile: the status stays until that lands
+    expect(client.settings.lightTheme).toBe("catppuccin");
+    expect(client.saveError).not.toBeNull();
+    await send();
+    expect(bodies.length).toBe(5);
+    expect(bodies[4]?.settings).toMatchObject({ lightTheme: "catppuccin" });
+    expect(client.saveError).toBeNull();
+    expect(store.get().settings).toMatchObject({ darkTheme: "gruvbox", lightTheme: "catppuccin" });
+    expect(bodies.slice(3).some((body) => body.settings.darkTheme === "tokyo-night")).toBe(false);
+  });
+
+  it("unchanged opening document can resume after reconnect", async () => {
+    const client = await open();
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await failSaves(3);
+    expect(client.paused).toBe(true);
+    // an ordinary document from the event stream, at the revision already held, resumes nothing
+    await act(async () => { client.receive(store.get()); });
+    await longWait();
+    expect(refusals).toBe(3);
+
+    // the stream reopened: the server sends the same document as it opens, and one new round begins
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
+    expect(client.paused).toBe(false);
+    await failSaves(3);
+    expect(refusals).toBe(6);
+    expect(client.paused).toBe(true);
+    await longWait();
+    expect(refusals).toBe(6);
+
+    refusing = null;
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
+    await send();
+    expect(answers).toBe(1);
+    expect(client.saveError).toBeNull();
+    expect(store.get().settings.darkTheme).toBe("tokyo-night");
+  });
+
+  it("Retry never bypasses a watching device or an older server", async () => {
+    const watching = await open();
+    refuse = Response.json({ error: { code: "forbidden" } }, { status: 403 });
+    await act(async () => { watching.update({ darkTheme: "tokyo-night" }); });
+    await send();
+    await act(async () => { watching.retry(); watching.resubscribed(); });
+    await longWait();
+    expect([bodies.length, watching.saveError, watching.retrying]).toEqual([1, null, false]);
+
+    await act(async () => { for (const renderer of renderers.splice(0)) renderer.unmount(); });
+    clients.length = 0;
+    const older = await open();
+    refuse = Response.json({ error: { code: "not_found" } }, { status: 404 });
+    await act(async () => { older.update({ darkTheme: "gruvbox" }); });
+    await send();
+    await act(async () => { older.retry(); older.resubscribed(); });
+    await longWait();
+    expect([bodies.length, older.saveError, older.retrying]).toEqual([2, null, false]);
   });
 });

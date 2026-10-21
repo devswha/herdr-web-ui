@@ -143,6 +143,29 @@
   overflow-wrap: anywhere;
 }
 
+.settings-save-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* where the change is (only on this device) and the Retry that sends it, under the sentence; the
+   button wraps below the words on a narrow screen rather than squeezing them */
+.settings-save-local {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.settings-save-local > p {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
 .settings-keys {
   display: inline-flex;
   gap: var(--space-1);

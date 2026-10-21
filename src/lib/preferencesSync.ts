@@ -6,6 +6,8 @@
  * settings rest; another browser's arrives as a `preferences` event, and the server sends its whole
  * document each time the event stream opens, so a reconnected page catches up. Last write wins,
  * setting by setting: a change made here and not yet sent stays, and goes out over what arrived.
+ * After three failed saves in a row, sending pauses until the user asks for Retry or the event stream
+ * reopens; the change stays on this device meanwhile, and edits made then go out with it.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { mirrorPalette, SHARED_SETTING_KEYS, type PreferencesChange, type SharedPreferences, type SharedSettingKey } from "../../shared/preferences.ts";
@@ -18,6 +20,8 @@ import { userErrorMessage, type UserError } from "./userError.ts";
 const SEND_AFTER_MS = 600;
 /** a request that failed on the way (the network, a restart) is tried again after this */
 const RETRY_MS = 5_000;
+/** failed saves in a row after which sending waits for Retry or a reopened event stream */
+const PAUSE_AFTER = 3;
 
 type Shared = Partial<Record<SharedSettingKey, unknown>>;
 /** What this browser last knew the server to hold; `pins` is null while the server has held none. */
@@ -99,10 +103,18 @@ export interface PreferencesSync {
   receive(preferences: SharedPreferences): void;
   /**
    * the last change the server refused to save, as a sentence for Settings (lib/userError.ts); null
-   * once a save lands. The change is sent again meanwhile. A watching device and a server without
-   * the route are not refusals.
+   * once a save lands and nothing changed here since is still unsent. The change is sent again
+   * meanwhile, until `paused`. A watching device and a server without the route are not refusals.
    */
   saveError: UserError | null;
+  /** three saves failed in a row: nothing is sent until `retry` or `resubscribed` */
+  paused: boolean;
+  /** a Retry is waiting for its save's answer */
+  retrying: boolean;
+  /** the user's Retry: send what is unsent now, as it stands, and start counting failures again */
+  retry(): void;
+  /** the event stream opened again (App's EventSource): a paused change gets a new round */
+  resubscribed(): void;
 }
 
 export function usePreferencesSync(enabled: boolean): PreferencesSync {
@@ -128,6 +140,13 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   const [attempt, setAttempt] = useState(0);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saveError, setSaveError] = useState<UserError | null>(null);
+  // failed save answers in a row, not renders or edits; a confirmed save starts it over
+  const failures = useRef(0);
+  const [paused, setPaused] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  // the wait before a failed save goes again; a ref, so an answer that arrives after its effect was
+  // cleaned up still sets a timer the next cleanup, a pause or unmounting cancels
+  const retryTimer = useRef<number | undefined>(undefined);
   // the baseline is a ref: a document that changes nothing here still moves what is pending
   const [, setTaken] = useState(0);
 
@@ -170,11 +189,35 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
     return () => { cancelled = true; window.clearTimeout(retry); };
   }, [enabled, loaded, loadAttempt, receive]);
 
+  /** sending stopped for good (a watching device, a server without the route): nothing is unconfirmed */
+  const standDown = useCallback(() => {
+    failures.current = 0;
+    setSaveError(null);
+    setPaused(false);
+    setRetrying(false);
+  }, []);
+
+  /** a new round of sends, for the user's Retry or a reopened event stream; one chain still, never a second */
+  const resume = useCallback(() => {
+    if (off.current || readOnly.current) return;
+    failures.current = 0;
+    setPaused(false);
+    setAttempt((count) => count + 1);
+  }, []);
+  const retry = useCallback(() => {
+    if (off.current || readOnly.current) return;
+    setRetrying(true);
+    resume();
+  }, [resume]);
+
   const change = loaded ? preferencesChange(base.current, { settings, pins }) : null;
   const pending = change === null ? null : JSON.stringify(change);
+  // what was unsent now matches the server (another browser saved the same): nothing is left to confirm
   useEffect(() => {
-    if (!enabled || !loaded || off.current || readOnly.current || pending === null || inFlight.current !== null) return;
-    let retry: number | undefined;
+    if (loaded && pending === null && inFlight.current === null) standDown();
+  }, [loaded, pending, standDown]);
+  useEffect(() => {
+    if (!enabled || !loaded || off.current || readOnly.current || paused || pending === null || inFlight.current !== null) return;
     const timer = window.setTimeout(() => {
       const body = JSON.parse(pending) as PreferencesChange;
       inFlight.current = body;
@@ -188,27 +231,32 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
         // before comes with it, one that landed after was held and is read now
         absorb(saved);
         settled();
-        setSaveError(null);
-        // what changed while this was on its way goes out now
+        failures.current = 0;
+        setRetrying(false);
+        // the status stays while a change made during the send is unconfirmed; it goes out now
+        if (preferencesChange(base.current, latest.current) === null) setSaveError(null);
         setAttempt((count) => count + 1);
       }).catch((error: unknown) => {
         settled();
         if (error instanceof ApiError && error.status === 403) {
           readOnly.current = true;
-          setSaveError(null);
+          standDown();
         } else if (error instanceof ApiError && error.status === 404) {
           off.current = true;
-          setSaveError(null);
+          standDown();
         } else {
           // the same refusal every RETRY_MS is one state, not a render each time
           const next = userErrorMessage(error);
           setSaveError((before) => before !== null && before.message === next.message && before.detail === next.detail ? before : next);
-          retry = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
+          setRetrying(false);
+          failures.current += 1;
+          if (failures.current >= PAUSE_AFTER) setPaused(true);
+          else retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
         }
       });
     }, SEND_AFTER_MS);
-    return () => { window.clearTimeout(timer); window.clearTimeout(retry); };
-  }, [enabled, loaded, pending, attempt, absorb, settled]);
+    return () => { window.clearTimeout(timer); window.clearTimeout(retryTimer.current); };
+  }, [enabled, loaded, paused, pending, attempt, absorb, settled, standDown]);
 
-  return { receive, saveError };
+  return { receive, saveError, paused, retrying, retry, resubscribed: resume };
 }

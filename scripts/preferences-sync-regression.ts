@@ -3,17 +3,19 @@
  * observe completion; the browser clock advances send windows without fixed sleeps.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type BrowserContext, type Page } from "playwright-core";
+import { chromium, type BrowserContext, type Page, type Response } from "playwright-core";
 import { chromePath } from "./chrome-path.ts";
 
 await import("./test-herdr.ts");
 const { createServer } = await import("../server/index.ts");
 const { UsageService } = await import("../server/usage.ts");
+const { workspaceClose, workspaceCreate } = await import("../server/herdr/client.ts");
 const root = mkdtempSync(join(tmpdir(), "herdr-preferences-sync-"));
-const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), usage: new UsageService(undefined, []) });
+const serve = (port: number) => createServer({ port, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), usage: new UsageService(undefined, []) });
+let server = serve(0);
 const origin = `http://127.0.0.1:${server.port}`;
 
 interface Opened { context: BrowserContext; page: Page; puts: { settings: Record<string, unknown>; pins?: string[] }[] }
@@ -76,6 +78,23 @@ const write = async (settings: Record<string, unknown>, pins?: string[]) => {
 };
 async function windows(opened: readonly Opened[], count = 3): Promise<void> {
   for (let index = 0; index < count; index++) for (const { page } of opened) await page.clock.runFor(600);
+}
+const isPut = (response: Response) => response.url().endsWith("/api/preferences") && response.request().method() === "PUT";
+/** The next PUT's answer: the virtual clock steps a second at a time until one is sent (a send window, or a RETRY_MS wait). */
+async function nextPut(opened: Opened): Promise<Response> {
+  const answered = opened.page.waitForResponse(isPut);
+  let got = false;
+  void answered.then(() => { got = true; }, () => {});
+  for (let second = 0; second < 12 && !got; second++) await opened.page.clock.runFor(1_000);
+  return await answered;
+}
+/** The event stream reopens for real: the server restarts on its port, and each page's EventSource reconnects. */
+async function restartServer(pages: readonly Page[]): Promise<void> {
+  const reopened = pages.map((page) => page.waitForResponse((response) => response.url().endsWith("/api/machines/events")));
+  const port = server.port;
+  server.stop();
+  server = serve(port);
+  await Promise.all(reopened);
 }
 async function chooseMode(opened: Opened, mode: "Light" | "Dark"): Promise<void> {
   const answered = opened.page.waitForResponse((response) => response.url().endsWith("/api/preferences") && response.request().method() === "PUT");
@@ -190,6 +209,126 @@ try {
     assert.deepEqual([...c.puts, ...d.puts], []);
     for (const opened of [a, b, c, d]) await opened.context.close();
     console.log("PASS shared settings and pins, device settings, gated concurrent writes, new theme sides, event-stream recovery and no correcting PUTs");
+
+    // A save that keeps failing pauses after three, keeps what is edited meanwhile, and goes out
+    // on Retry or when the event stream reopens; another client converges on the latest values.
+    const pinnedWorkspace = (await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-preferences-pin" })).workspace.workspace_id;
+    try {
+      const refusal = { error: { code: "preferences_unwritable", message: "EACCES: permission denied, open '/state/preferences.json.tmp'" } };
+      let failing = false;
+      let hold: PromiseWithResolvers<void> | null = null;
+      const onWay = Promise.withResolvers<void>();
+      let sending = 0;
+      let mostAtOnce = 0;
+      const e = await browserAt(browser, {}, [], async (context) => {
+        await context.route("**/api/preferences", async (route) => {
+          if (route.request().method() !== "PUT") { await route.continue(); return; }
+          if (failing) { await route.fulfill({ status: 500, json: refusal }); return; }
+          if (hold !== null) { onWay.resolve(); await hold.promise; }
+          await route.continue();
+        });
+      });
+      e.page.on("request", (request) => { if (request.method() === "PUT" && request.url().endsWith("/api/preferences")) mostAtOnce = Math.max(mostAtOnce, ++sending); });
+      for (const settled of ["requestfinished", "requestfailed"] as const) e.page.on(settled, (request) => { if (request.method() === "PUT" && request.url().endsWith("/api/preferences")) sending--; });
+      const f = await browserAt(browser);
+      await e.page.goto(`${origin}/?settings=appearance`);
+      const alert = e.page.locator(".settings-save-error");
+      const retry = alert.getByRole("button", { name: "Retry", exact: true });
+      const mode = (name: "Light" | "Dark" | "System") => e.page.getByRole("group", { name: "Theme", exact: true }).getByRole("button", { name, exact: true }).click();
+      await e.page.locator(".settings-dialog").waitFor();
+      await e.page.clock.pauseAt(await e.page.evaluate(() => Date.now() + 1_000));
+      const start = (await held()).revision;
+      const statuses = async (count: number) => { const seen: number[] = []; for (let index = 0; index < count; index++) seen.push((await nextPut(e)).status()); return seen; };
+      const quiet = async () => { for (let index = 0; index < 6; index++) await e.page.clock.runFor(5_600); };
+
+      // persistent-save-refusal: three settled failures, then no more PUTs however long the clock runs
+      failing = true;
+      await mode("Light");
+      const firstRound = await statuses(3);
+      assert.deepEqual(firstRound, [500, 500, 500]);
+      await e.page.locator(".settings-save-error[data-paused]").waitFor();
+      assert.match(await alert.innerText(), /Saved on this device; not confirmed on the server\./);
+      assert.equal(await alert.count(), 1);
+      await quiet();
+      assert.equal(e.puts.length, 3, "a paused save sends nothing more");
+      // an ordinary document from the event stream does not unpause it
+      await Promise.all([settingsHold(e.page, { showThinking: false }), write({ showThinking: false })]);
+      await quiet();
+      assert.equal(e.puts.length, 3, "an ordinary preferences event resumes nothing");
+
+      // edits while paused: the theme and a pin change here, and still nothing is sent
+      await mode("System");
+      await e.page.keyboard.press("Escape");
+      await e.page.locator(".settings-dialog").waitFor({ state: "detached" });
+      await e.page.locator(`.workspace-group[data-workspace="${pinnedWorkspace}"] .workspace-select`).click({ button: "right" });
+      await e.page.getByRole("menu").getByRole("menuitem", { name: "Pin workspace", exact: true }).click();
+      const pins: string[] = await e.page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:sidebar-agent-pins") ?? "[]"));
+      assert.ok(pins.includes(`local:workspace:${pinnedWorkspace}`));
+      await e.page.locator(".sidebar-footer").getByRole("button", { name: "Settings", exact: true }).click();
+      await e.page.getByRole("tab", { name: "Appearance" }).click();
+      await quiet();
+      assert.equal(e.puts.length, 3, "edits while paused do not restart the failed loop");
+
+      // retry-confirms-latest: Retry sends the latest intent; an edit made while it is on its way goes next
+      failing = false;
+      hold = Promise.withResolvers<void>();
+      await retry.click();
+      assert.equal(await retry.isDisabled(), true, "Retry is disabled while its save is on the way");
+      await retry.dispatchEvent("click");
+      await e.page.clock.runFor(600);
+      await onWay.promise;
+      const retried = e.puts[3];
+      assert.equal(retried?.settings["theme"], "system");
+      assert.deepEqual(retried?.pins, pins);
+      await mode("Light");
+      await e.page.clock.runFor(1_800);
+      assert.equal(e.puts.length, 4, "a second Retry and a new edit start no parallel send");
+      const firstAnswer = e.page.waitForResponse(isPut);
+      hold.resolve();
+      hold = null;
+      assert.equal((await firstAnswer).status(), 200);
+      assert.equal(await alert.count(), 1, "the status stays while the newer edit is unconfirmed");
+      assert.equal((await nextPut(e)).status(), 200);
+      assert.equal(e.puts[4]?.settings["theme"], "light", "the edit made during the Retry goes next");
+      await alert.waitFor({ state: "detached" });
+      await Promise.all([settingsHold(f.page, { theme: "light", showThinking: false }), storageHolds(f.page, "herdr-web-ui:sidebar-agent-pins", pins)]);
+      const confirmed = await held();
+      assert.equal(confirmed.settings["theme"], "light");
+      assert.deepEqual(confirmed.pins, pins);
+      assert.equal(mostAtOnce, 1, "never two PUTs at once");
+      const happy = { scenario: "retry-confirms-latest", failedBeforePause: firstRound, putsWhilePaused: 0, retriedBody: retried, followUpBody: e.puts[4], server: confirmed, secondClient: { theme: "light", pins }, mostPutsAtOnce: mostAtOnce, alertAfter: "cleared" };
+      if (qaDir) writeFileSync(join(qaDir, "retry-confirms-latest.json"), JSON.stringify(happy, null, 2));
+      console.log(`PASS retry-confirms-latest ${JSON.stringify(happy)}`);
+
+      // persistent-save-refusal: a real reopen of the event stream, whose opening document carries an
+      // unchanged revision, gives a paused save one new round; when the server can write again, it lands
+      failing = true;
+      await mode("Dark");
+      const secondRound = await statuses(3);
+      await e.page.locator(".settings-save-error[data-paused]").waitFor();
+      await quiet();
+      assert.equal(e.puts.length, 8);
+      const revisionBefore = (await held()).revision;
+      await restartServer([e.page, f.page]);
+      assert.equal((await held()).revision, revisionBefore, "the reopened stream's document has the same revision");
+      const reopenedRound = await statuses(3);
+      await e.page.locator(".settings-save-error[data-paused]").waitFor();
+      await quiet();
+      assert.equal(e.puts.length, 11, "a reopen allows one new round of three");
+      failing = false;
+      await restartServer([e.page, f.page]);
+      assert.equal((await nextPut(e)).status(), 200);
+      await alert.waitFor({ state: "detached" });
+      await settingsHold(f.page, { theme: "dark" });
+      assert.equal((await held()).settings["theme"], "dark");
+      assert.equal(mostAtOnce, 1);
+      const failure = { scenario: "persistent-save-refusal", firstRound, putsAfterPause: 0, ordinaryEventResumed: false, secondRound, reopenedRound, unchangedRevisionOnReopen: revisionBefore, afterRecovery: { theme: "dark", puts: e.puts.length }, mostPutsAtOnce: mostAtOnce, revisionsWritten: (await held()).revision - start };
+      if (qaDir) writeFileSync(join(qaDir, "persistent-save-refusal.json"), JSON.stringify(failure, null, 2));
+      console.log(`PASS persistent-save-refusal ${JSON.stringify(failure)}`);
+      for (const opened of [e, f]) await opened.context.close();
+    } finally {
+      await workspaceClose(pinnedWorkspace).catch((error) => { if (error?.code !== "workspace_not_found") throw error; });
+    }
   } finally { await browser.close(); }
 } finally {
   server.stop();
