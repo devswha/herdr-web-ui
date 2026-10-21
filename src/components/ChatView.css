@@ -280,12 +280,14 @@
    --touch-target size is set below, where the buttons touch and an expander would overlap them) */
 @media (pointer: fine) {
   .chat-copy,
-  .chat-meta-btn {
+  .chat-meta-btn,
+  .chat-tool-copy {
     position: relative;
   }
 
   .chat-copy::before,
-  .chat-meta-btn::before {
+  .chat-meta-btn::before,
+  .chat-tool-copy::before {
     content: "";
     position: absolute;
     inset: calc((var(--chip-h) - var(--pointer-target)) / 2);
@@ -932,12 +934,56 @@
 .chat-diff-del { color: var(--status-blocked); }
 .chat-diff-head { color: var(--text-dim); font-weight: var(--fw-semibold); }
 
+.chat-tool-input,
 .chat-tool-output {
   width: 100%;
 }
 
-.chat-tool-output h4 {
-  margin: 0 0 var(--space-1);
+/* a call's Input or Output label, with the copy of its raw text at the far end */
+.chat-tool-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.chat-tool-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--chip-h);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.chat-tool-copy svg {
+  width: var(--fs-sm);
+  height: var(--fs-sm);
+}
+
+/* a mouse's hover only: a tap would leave the plate on after the finger lifts */
+@media (hover: hover) {
+  .chat-tool-copy:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-strong);
+  }
+}
+
+/* nothing to copy (an empty input): kept in place, quieter, as .icon-button:disabled */
+.chat-tool-copy:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.chat-tool-head h4 {
+  margin: 0;
   color: var(--text-dim);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
@@ -1103,6 +1149,13 @@
 
   .chat-copy,
   .markdown-code-copy { width: var(--touch-target); }
+
+  /* a tool call's copy is a finger's size: its row grows to it rather than overlap the text below */
+  .chat-tool-copy {
+    min-width: var(--touch-target);
+    height: var(--touch-target);
+    padding-inline: var(--space-2);
+  }
 
   /* no hover on touch: the meta rows are always there, quietly */
   .chat-turn-meta { opacity: 1; pointer-events: auto; }

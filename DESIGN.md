@@ -1645,6 +1645,20 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane. Under
   a verb the tool's own id (`exec`, `Bash`, `apply_patch`) is the first line of that detail
   (`.work-row-tool`, mono, dim) and the row's title.
+- Detail copy: the opened detail labels its Input and Output (Error) in the caps `h4` the Output
+  label already had, each with a quiet copy at the far end of that line (`.chat-tool-copy`: glyph
+  + words, `--fs-xs`, `--text-dim`, `--chip-h` high with a `--pointer-target` expander, a
+  `--touch-target` button on touch). It copies the call's raw text, never the drawn view: the
+  input as the agent sent it (not the diff, checklist or question card made from it), and the
+  output as far as the page has it, a todo call's raw answer included. Its words say how much that
+  is: Copy output for a complete output, Copy partial output while a cut output's rest is only on
+  the server (a failed load leaves it so), Copy whole output once the rest has loaded. Opening a
+  row neither loads nor copies anything. An omitted input keeps its explanation and gets no copy;
+  an empty one keeps a disabled copy. A refused copy says so under the detail, with the message
+  copy's own line, and never shows Copied. This follows the copy Agent of Empires puts inside its
+  opened tool cards, without its wrap toggle (the output here already wraps in a bounded box) or
+  its silent failure; the Codex and Claude apps' quiet row chrome is kept: no toolbar, and nothing
+  on a folded row.
 - Mid-work narration sits between rows. While the turn runs it is the agent's voice: answer prose
   (`--text`, `--fs-chat` on `--lh-prose`) on the prose edge. Once the turn settles it is a quiet
   row again: `--text-dim`, `--fs-sm`.
