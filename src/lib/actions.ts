@@ -38,9 +38,10 @@ export interface AppActions {
   /**
    * The earlier sessions of a workspace's folder (components/SessionHistory.tsx): the named
    * workspace's, listed for `agent` first (a pane's, or the row's), else the selected pane's
-   * workspace and agent. Nothing opens without a workspace.
+   * workspace and agent. A `pane` request lists that agent or opens nothing (lib/sessionHistory.ts
+   * sessionHistoryListAgent). Nothing opens without a workspace.
    */
-  openSessionHistory: (target?: { machineId: string; workspaceId: string; agent?: string | null }) => void;
+  openSessionHistory: (target?: { machineId: string; workspaceId: string; agent?: string | null; scope?: "pane" | "workspace" }) => void;
   /** the palette, blank or opened on `query` (a `>` prefix keeps the actions alone) */
   openPalette: (query?: string) => void;
   /** A pane this page started an agent in opens in an agent's lens, whatever its first snapshot says. */

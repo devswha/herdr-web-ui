@@ -15,7 +15,7 @@ import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog, type NewTabTarget } from "./components/NewSessionDialog.tsx";
 import { SessionHistory } from "./components/SessionHistory.tsx";
-import { sessionHistoryAgent } from "./lib/sessionHistory.ts";
+import { sessionHistoryAgent, sessionHistoryListAgent } from "./lib/sessionHistory.ts";
 import { useRecentResumes } from "./lib/useRecentResumes.ts";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { usePreferencesSync } from "./lib/preferencesSync.ts";
@@ -1417,9 +1417,9 @@ export function App() {
       openSessionHistory: (target) => {
         const found = newTabTarget(target);
         if (!found) return;
-        // the agent named (a pane's, a row's), else the pane in front's, else any agent of the workspace
-        const agent = sessionHistoryAgent(target?.agent) ?? sessionHistoryAgent(found.agent)
-          ?? found.panes.map((pane) => sessionHistoryAgent(pane.agent)).find((kind) => kind !== null) ?? "claude";
+        // a pane's own agent, or nothing; for a workspace, the agent named, else the pane in front's, else any of it
+        const agent = sessionHistoryListAgent(target, found.agent, found.panes.map((pane) => pane.agent));
+        if (agent === null) return;
         setDrawerOpen(false);
         setSessionHistory({ machineId: found.machineId, workspaceId: found.workspace.workspace_id, agent });
       },
@@ -1826,7 +1826,8 @@ export function App() {
                         view={item ? lensOf(item) : slotView}
                         // the composer's way to the terminal: the selected pane's lens, or the pane's own remembered one
                         onOpenTerminal={item ? () => { if (active && item.pane_id === selectedPaneId) setView("terminal"); else pickView(machineId, item.pane_id, "terminal"); } : undefined}
-                        onOpenHistory={item ? () => actions.openSessionHistory({ machineId, workspaceId: item.workspace_id, agent: item.agent }) : undefined}
+                        // /resume lists the pane's own agent's sessions, and only for an agent whose store is read
+                        onOpenHistory={item && sessionHistoryAgent(item.agent) !== null ? () => actions.openSessionHistory({ machineId, workspaceId: item.workspace_id, agent: item.agent, scope: "pane" }) : undefined}
                         // the other half never takes the keyboard: a press in it makes it active first
                         active={active && itemActive}
                         // the paging shortcuts reach the selected pane of the active half only

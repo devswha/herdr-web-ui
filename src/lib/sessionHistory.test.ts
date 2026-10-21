@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { HerdrPane, SessionHistoryRow } from "../../shared/protocol.ts";
 import { formatChatTimestamp } from "./chatTimestamp.ts";
 import type { Translate } from "./i18n.ts";
-import { inFlightGuard, paneShowingSession, RECENT_RESUME_MS, recentlyResumedPane, recentResumeEnded, resumeTabRequest, sessionHistoryAgent, sessionRowTime, standingResume, type RecentResume } from "./sessionHistory.ts";
+import { inFlightGuard, paneShowingSession, RECENT_RESUME_MS, recentlyResumedPane, recentResumeEnded, resumeTabRequest, sessionHistoryAgent, sessionHistoryListAgent, sessionRowTime, standingResume, type RecentResume } from "./sessionHistory.ts";
 
 const pane = (overrides: Partial<HerdrPane>): HerdrPane => ({
   pane_id: "p1", tab_id: "t1", terminal_id: "term1", workspace_id: "w1", agent: "codex", agent_status: "idle", focused: false, revision: 1, ...overrides,
@@ -10,6 +10,21 @@ const pane = (overrides: Partial<HerdrPane>): HerdrPane => ({
 const row = (overrides: Partial<SessionHistoryRow> = {}): SessionHistoryRow => ({
   id: "00000000-0000-4000-8000-000000000002", title: "Retry budget", firstMessage: "Cap the retries", startedAt: null, updatedAt: "2026-09-25T09:09:00.000Z",
   resume: { argv: ["codex", "resume", "00000000-0000-4000-8000-000000000002"] }, ...overrides,
+});
+
+describe("sessionHistoryListAgent", () => {
+  it("lists a pane's own agent, and nothing for a pane whose agent keeps no store the route reads", () => {
+    expect(sessionHistoryListAgent({ agent: "codex", scope: "pane" }, "claude", ["claude"])).toBe("codex");
+    // /resume in a Copilot chat never lists Claude's sessions, whose Resume would start another agent
+    expect(sessionHistoryListAgent({ agent: "copilot", scope: "pane" }, "claude", ["claude", "codex"])).toBeNull();
+    expect(sessionHistoryListAgent({ agent: null, scope: "pane" }, "claude", ["claude"])).toBeNull();
+  });
+  it("lists a workspace's named agent, else the front pane's, else any of the workspace's, else Claude's", () => {
+    expect(sessionHistoryListAgent({ agent: "omp" }, "claude", ["codex"])).toBe("omp");
+    expect(sessionHistoryListAgent({ agent: "copilot" }, "codex", ["claude"])).toBe("codex");
+    expect(sessionHistoryListAgent({ agent: null }, null, ["copilot", null, "pi"])).toBe("pi");
+    expect(sessionHistoryListAgent(undefined, undefined, [])).toBe("claude");
+  });
 });
 
 describe("sessionRowTime", () => {

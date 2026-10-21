@@ -6,7 +6,6 @@ import "./Sidebar.css";
 import type { AgentStatus, PaneInfo, PlanSummary, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { MAX_LABEL_CHARS } from "../../shared/labels.ts";
-import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
 import { indicatorGlyph, knownStatus, rollupStatus, STATUS_WORD } from "../lib/status.ts";
@@ -26,6 +25,7 @@ import { useSettings } from "../lib/settings.ts";
 import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { useAnnouncedText } from "../lib/useAnnouncedText.ts";
 import { useWorktreeBranches } from "../lib/useWorktreeBranches.ts";
+import { useSessionHistoryOffered } from "../lib/useSessionHistoryOffered.ts";
 import { watchTouchReorder } from "../lib/touchReorder.ts";
 import { placeBlock, workspaceMoves, worktreeGroups as groupWorktrees } from "../lib/workspaceOrder.ts";
 import { worktreeLabel } from "../lib/worktreeName.ts";
@@ -188,17 +188,9 @@ export function Sidebar({ snapshot, online, selectedPaneId, actions }: SidebarPr
   const twoLine = settings.sidebarRows === "two";
   const machineId = useMachineId();
   const activity = useSidebarActivity();
-  const { closeWorkspace, listWorktrees, moveWorkspace, removeWorktree, renameWorkspace, sessionHistoryOffered } = useMachineApi();
-  // the row menu's Earlier sessions needs the PC's bridge to list them: this PC's bridge does;
-  // another PC's is asked once without listing anything (a bridge from before the route answers
-  // 404, and the item stays away), and again whenever the PC comes back
-  const [historyOffered, setHistoryOffered] = useState(machineId === LOCAL_MACHINE);
-  useEffect(() => {
-    if (machineId === LOCAL_MACHINE || !online) return;
-    let live = true;
-    sessionHistoryOffered().then((offered) => { if (live) setHistoryOffered(offered); }, () => { /* not reached: asked again when it is back */ });
-    return () => { live = false; };
-  }, [machineId, online, sessionHistoryOffered]);
+  const { closeWorkspace, listWorktrees, moveWorkspace, removeWorktree, renameWorkspace } = useMachineApi();
+  // the row menu's Earlier sessions needs the PC's bridge to list them (lib/useSessionHistoryOffered.ts)
+  const historyOffered = useSessionHistoryOffered(online);
   // the roster's wait is a live region in the list from its first render, clipped while empty (never
   // display: none); its words land a frame after it (lib/useAnnouncedText.ts)
   const loadingWords = useAnnouncedText(snapshot ? null : t("Loading workspaces…"));

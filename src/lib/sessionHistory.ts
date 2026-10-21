@@ -15,6 +15,18 @@ import type { Translate } from "./i18n.ts";
 /** The agents whose own stores the route reads, as server/session-history.ts lists them. */
 export const SESSION_HISTORY_AGENTS: readonly SessionHistoryAgent[] = ["claude", "codex", "pi", "omp", "gjc", "cmd", "omo", "opencode", "hermes", "grok", "agy", "devin"];
 
+/**
+ * The agent whose sessions a request lists. A pane's request (its chat's /resume) lists that pane's
+ * own agent or nothing: a Copilot chat never gets Claude's sessions, whose Resume would start another
+ * agent. A workspace's (its row's menu, which has an Agent field) lists the agent named, else the pane
+ * in front's, else any of the workspace's, else Claude's.
+ */
+export function sessionHistoryListAgent(request: { agent?: string | null; scope?: "pane" | "workspace" } | undefined, front: string | null | undefined, workspaceAgents: readonly (string | null | undefined)[]): SessionHistoryAgent | null {
+  const named = sessionHistoryAgent(request?.agent);
+  if (request?.scope === "pane") return named;
+  return named ?? sessionHistoryAgent(front) ?? workspaceAgents.map((agent) => sessionHistoryAgent(agent)).find((kind) => kind !== null) ?? "claude";
+}
+
 /** A pane's agent as the route names it; null for a shell or a program the route does not list. */
 export function sessionHistoryAgent(agent: string | null | undefined): SessionHistoryAgent | null {
   return agent && (SESSION_HISTORY_AGENTS as readonly string[]).includes(agent) ? (agent as SessionHistoryAgent) : null;
