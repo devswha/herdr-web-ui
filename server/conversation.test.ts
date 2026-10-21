@@ -931,6 +931,30 @@ describe("parseClaudeTranscript", () => {
         expect(rewindClaudeTranscriptAt(path, "banana", null, { pid: 4242, paneId: "p1" })).toBe("banana");
       });
 
+      it("forgets kept rewinds whose transcript is gone when the state is read back", () => {
+        const path = file();
+        writeFileSync(path, before);
+        const state = join(mkdtempSync(join(tmpdir(), "herdr-rewind-state-")), "claude-rewinds.json");
+        roots.push(join(state, ".."));
+        configureClaudeRewinds(state);
+        rewound(path, "apple");
+        const gone = join(path, "..", "gone.jsonl");
+        const saved = JSON.parse(readFileSync(state, "utf8")) as Record<string, unknown>;
+        writeFileSync(state, JSON.stringify({ ...saved, [gone]: saved[path] }));
+        configureClaudeRewinds(state);
+        expect(claudeRewindOf(gone)).toBeNull();
+        expect(claudeRewindOf(path)).not.toBeNull();
+        expect(Object.keys(JSON.parse(readFileSync(state, "utf8")) as object)).toEqual([path]);
+      });
+
+      it("keeps at most 256 rewinds, letting the oldest go", () => {
+        const paths = Array.from({ length: 257 }, () => { const path = file(); writeFileSync(path, before); return path; });
+        for (const path of paths) expect(rewound(path, "apple")).toBe("apple");
+        expect(claudeRewindOf(paths[0]!)).toBeNull();
+        expect(claudeRewindOf(paths[1]!)).not.toBeNull();
+        expect(claudeRewindOf(paths.at(-1)!)).not.toBeNull();
+      });
+
       it("a send from the chat after the restore gives the box back", () => {
         const path = file();
         writeFileSync(path, before);

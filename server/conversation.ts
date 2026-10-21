@@ -34,7 +34,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
@@ -689,6 +689,8 @@ function claudeForks(branch: ClaudeBranch): [number, number][] {
  */
 export interface ClaudeRewind { uuid: string; start: number; end: number; length: number; pid: number; paneId: string; restored: string | null }
 const claudeRewinds = new Map<string, ClaudeRewind>();
+/** rewinds kept at most, the oldest let go first: one per transcript a Claude pane has restored */
+const MAX_CLAUDE_REWINDS = 256;
 let claudeRewindFile: string | null = null;
 /** each transcript's one Claude process as last resolved (paneTranscript), null when not exactly one; nothing until resolved */
 const claudeIdentities = new Map<string, number | null>();
@@ -708,7 +710,20 @@ export function configureClaudeRewinds(file: string | null): void {
   let saved: unknown;
   try { saved = JSON.parse(readFileSync(file, "utf8")); } catch { return; }
   if (saved === null || typeof saved !== "object") return;
-  for (const [path, rewind] of Object.entries(saved)) if (isRewind(rewind)) claudeRewinds.set(path, rewind);
+  let pruned = false;
+  for (const [path, rewind] of Object.entries(saved)) {
+    // a transcript gone since (a session deleted, a project moved) has nothing left to hide: read once, at start
+    if (isRewind(rewind) && existsSync(path)) claudeRewinds.set(path, rewind);
+    else pruned = true;
+  }
+  if (boundClaudeRewinds() || pruned) saveClaudeRewinds();
+}
+
+/** Lets the oldest kept rewinds go past MAX_CLAUDE_REWINDS; whether any went. */
+function boundClaudeRewinds(): boolean {
+  let dropped = false;
+  while (claudeRewinds.size > MAX_CLAUDE_REWINDS) { claudeRewinds.delete(claudeRewinds.keys().next().value!); dropped = true; }
+  return dropped;
 }
 
 function saveClaudeRewinds(): void {
@@ -924,7 +939,10 @@ function rewindClaudeRecord(path: string, text: string, later: number | null, ow
   // known; only a message with one copy in the transcript is kept (an older copy may lie before the window)
   let only: { entry: TranscriptEntry & { uuid: string }; startAt: number; lineEnd: number; said: string } | null = null;
   const keep = (entry: TranscriptEntry & { uuid: string }, startAt: number, lineEnd: number, said: string): { said: string; at: number | null } => {
+    // the newest is kept last, so the bound lets the oldest go
+    claudeRewinds.delete(resolved.path);
     claudeRewinds.set(resolved.path, { uuid: entry.uuid, start: from + startAt, end: from + lineEnd, length: stream.length, pid, paneId: owner.paneId, restored: said });
+    boundClaudeRewinds();
     saveClaudeRewinds();
     const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
     return { said, at: Number.isNaN(at) ? null : at };
