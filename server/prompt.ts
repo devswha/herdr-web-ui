@@ -150,13 +150,15 @@ type PaneCommandSend = CommandSend & {
     process?: { readonly pid: number; readonly started: number | null } | null;
     /**
      * No foreground process matched the agent when binding (native Windows lists only the shell; an executable
-     * named otherwise than its kind): nothing can show a replacement, so the reported session is adopted.
+     * named otherwise than its kind), or the read failed: nothing can show a replacement, so the session the same
+     * agent reports in this terminal is adopted.
      */
     unmatched?: true;
     /**
      * The identity herdr still reported from an earlier process when this send went to a later one (a restarted
      * Claude Code keeps its old session id until its first turn): the send waits for its own session, as one sent
-     * before any session does, and is never adopted into this one.
+     * before any session does, and is never adopted into this one; only within STALE_SESSION_LAG_MS, and not past a
+     * later Chat session change.
      */
     stale?: string;
     /** Set while the binding's read is out: a poll waits for it, within BINDING_WAIT_MS. */
@@ -182,6 +184,15 @@ function outcomeProcess(info: ProcessInfo | undefined, agent: string, bound?: nu
 
 /** How long a poll waits for a send's process binding before it judges that send without one, this time. */
 const BINDING_WAIT_MS = 250;
+
+/**
+ * How long after a send herdr may still report the session of the process before a restart: a restarted Claude Code
+ * keeps the old id until its first turn, seen live for 20 s (F2 r3) and for at least 45 s (todo 42's probe). A send
+ * waiting for its own session (`stale`) adopts the next one only this long; after that it stays with the session it
+ * was made in, like any other send, so a resumed session (claude -c, codex resume) that truly kept its id does not
+ * carry its rows into a later one for long.
+ */
+const STALE_SESSION_LAG_MS = 60_000;
 
 /** The same process: one pid, and the same start time wherever both are known. */
 const sameProcess = (a: { pid: number; started: number | null }, b: { pid: number; started: number | null }): boolean =>
@@ -347,12 +358,18 @@ async function commandOutcomes(paneId: string, pane: HerdrPane, prompt: Interact
       visibility.discovering = true;
       visibility.stale = visibility.identity;
     }
+    // past herdr's lag, or once Chat itself changed the session after it, the session this send was made in was its own
+    if (visibility.stale !== undefined && visibility.discovering
+      && (now >= sent.at + STALE_SESSION_LAG_MS || commands.slice(index + 1).some((later) => later.sessionChange))) {
+      visibility.discovering = false;
+    }
     const current = processes && watched.includes(sent) ? checkBoundProcess(visibility, sent.agent, processes) : null;
     // A send's own session is adopted while its bound process runs. With no process bound (native Windows
     // lists only the shell; an executable named otherwise than its kind), nothing can show a replacement,
-    // so the session that appears in the same terminal is taken as its own.
+    // so the session that appears in the same terminal is taken as its own, when it is the same agent's.
     if (visibility.discovering && !visibility.replaced && pane.agent_session && identity !== visibility.stale
-      && visibility.terminalId === pane.terminal_id && (current || visibility.unmatched)) {
+      && visibility.terminalId === pane.terminal_id
+      && (current || visibility.unmatched && pane.agent_session.agent === sent.agent)) {
       visibility.identity = identity;
       visibility.discovering = false;
       if (sent.sessionChange) sent.sessionChange.identity = identity;
