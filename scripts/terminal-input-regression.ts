@@ -676,7 +676,7 @@ if (import.meta.main) {
   try {
     const panes: string[] = [];
     for (let i = 0; i < 2; i++) {
-      const made = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-input" });
+      const made = await workspaceCreate({ cwd: root, label: "ovis-test-input" });
       owned.push(made.workspace.workspace_id); panes.push(made.root_pane.pane_id);
     }
     await checkTerminalInput(browser, `http://127.0.0.1:${server.port}`, panes[0]!, panes[1]!);

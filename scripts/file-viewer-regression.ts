@@ -30,7 +30,7 @@ const openFiles = async (page: import("playwright-core").Page) => {
   else await runMoreItem(page, "Browse files");
 };
 
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-file-back-"));
+const root = mkdtempSync(join(tmpdir(), "ovis-file-back-"));
 const codexHome = join(root, "codex-home");
 const thread = "01a0c7a1-56d9-7e20-9f08-f7a2d973bc11";
 mkdirSync(join(codexHome, "sessions"), { recursive: true });
@@ -124,7 +124,7 @@ try {
   const init = Bun.spawn(["git", "init", "-q", "-b", "main", root], { stdout: "pipe", stderr: "pipe" });
   assert.equal(await init.exited, 0, await new Response(init.stderr).text());
   writeFileSync(join(root, ".gitignore"), "*\n!notes.txt\n!preview.webm\n");
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-file-back" });
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-file-back" });
   workspace = created.workspace.workspace_id;
   const pane = created.root_pane.pane_id;
   await herdrRpc("pane.send_text", { pane_id: pane, text: `${standIn} resume ${thread}\n` });
@@ -649,7 +649,7 @@ try {
 
   // The file beside the pane is the pane's: selecting another pane closes it, and the move takes
   // the file's entry over, so Back returns to the first pane without the file (DESIGN.md)
-  const other = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-file-back-other" });
+  const other = await workspaceCreate({ cwd: root, label: "ovis-test-file-back-other" });
   otherWorkspace = other.workspace.workspace_id;
   const otherPane = other.root_pane.pane_id;
   const selectedPane = () => page.evaluate(() => new URLSearchParams(location.search).get("pane"));

@@ -28,7 +28,7 @@ async function until(check: () => boolean | Promise<boolean>, label: string) {
 try {
   const browser = launched = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   for (const mode of ["legacy", "kitty"] as const) {
-    const made = await workspaceCreate({ cwd: root, label: `herdr-web-ui-test-sticky-${mode}`, focus: false });
+    const made = await workspaceCreate({ cwd: root, label: `ovis-test-sticky-${mode}`, focus: false });
     owned.push(made.workspace.workspace_id);
     const pane = made.root_pane.pane_id;
     const log = join(root, `${mode}.hex`);

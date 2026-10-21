@@ -117,7 +117,7 @@ try {
   assert.ok(snapshot.workspaces.some((w) => w.label === "existing-default"), "inherited default is the existing server");
   assert.equal(remote("test ! -e /home/fixture/.config/herdr/sessions/default/herdr.sock && echo correct"), "correct");
   console.log("PASS discovery, fingerprint/password approval, bundle install, existing Herdr reuse and default session identity");
-  const created = await api<WorkspaceCreated>(path + "/workspace/create", "POST", { cwd: "/home/fixture", label: "herdr-web-ui-test-ssh-profile" });
+  const created = await api<WorkspaceCreated>(path + "/workspace/create", "POST", { cwd: "/home/fixture", label: "ovis-test-ssh-profile" });
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws?machine_id=${machine.id}`); sockets.push(ws);
   const frames: ServerMessage[] = [];
   ws.onmessage = (event) => { const m = JSON.parse(String(event.data)) as ServerMessage; frames.push(m); if (m.type === "pty-data" && m.flow) ws.send(JSON.stringify({ type: "pty-ack", pane_id: m.pane_id, stream_id: m.flow.stream_id, offset: m.flow.offset })); };

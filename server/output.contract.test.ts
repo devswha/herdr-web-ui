@@ -29,7 +29,7 @@ async function until(check: () => boolean, label: string, timeout = 10_000): Pro
 
 async function pane(): Promise<string> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-    "workspace.create", { label: "herdr-web-ui-test-output", cwd: root, focus: false },
+    "workspace.create", { label: "ovis-test-output", cwd: root, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   return created.root_pane.pane_id;

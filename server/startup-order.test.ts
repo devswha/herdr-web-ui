@@ -13,7 +13,7 @@ it("starts the tailnet identity read only after the Node probe has returned", as
   // times itself from its start, so started first it could be cut short by that wait, and a read cut short
   // leaves the owner unknown for five minutes: with no token and nothing paired, another tailnet user
   // would get in as `open` (#1393).
-  const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-startup-"));
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-startup-"));
   const namedOwner = process.env["HERDR_WEB_TAILSCALE_OWNER"];
   // a named owner is taken as it is, and nothing is read
   delete process.env["HERDR_WEB_TAILSCALE_OWNER"];

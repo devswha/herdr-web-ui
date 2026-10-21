@@ -12,8 +12,8 @@ import { createPushService } from "./push.ts";
 describe("slow structural roster refreshes", () => {
   for (const remote of [false, true]) {
     it(`publishes each slow ${remote ? "remote" : "local"} roster while structural changes continue`, async () => {
-      const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-test-slow-roster-"));
-      const workspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-slow-roster" });
+      const root = mkdtempSync(join(tmpdir(), "ovis-test-slow-roster-"));
+      const workspace = await workspaceCreate({ cwd: root, label: "ovis-test-slow-roster" });
       let manager: MachineManager | undefined;
       let bridge: ReturnType<typeof Bun.serve> | undefined;
       let pending: { snapshot: SessionSnapshot; resolve: (snapshot: SessionSnapshot) => void } | undefined;

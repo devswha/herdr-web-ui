@@ -23,7 +23,7 @@ async function until(check: () => Promise<boolean>, message: string): Promise<vo
   }
 }
 try {
-  const made = await workspaceCreate({ cwd: state, label: "herdr-web-ui-test-viewport" });
+  const made = await workspaceCreate({ cwd: state, label: "ovis-test-viewport" });
   workspace = made.workspace.workspace_id;
   const paneId = made.root_pane.pane_id;
   const ready = herdrRpc("pane.wait_for_output", { pane_id: paneId, source: "visible", match: { type: "substring", value: "viewport_ready" }, timeout_ms: 10000 }, undefined, 12000);

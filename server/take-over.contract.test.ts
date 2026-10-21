@@ -39,7 +39,7 @@ async function fixture(steps: Step[], attachHoldMs?: number) {
   process.env.HERDR_WEB_HERDR_BIN = executable;
   process.env.HERDR_ATTACH_TEST_DIR = root;
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-    "workspace.create", { label: "herdr-web-ui-test-takeover-race", cwd: root, focus: false },
+    "workspace.create", { label: "ovis-test-takeover-race", cwd: root, focus: false },
   );
   const paneId = created.root_pane.pane_id;
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), attachHeldRetryMs: 80, attachRelookupForMs: 400, attachHoldMs });

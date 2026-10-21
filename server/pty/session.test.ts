@@ -40,7 +40,7 @@ async function reportThroughSession(env: Record<string, string>) {
  */
 describe("PtySession", () => {
   it("forwards extra env to the command running on the pty", async () => {
-    const sentinel = "/tmp/herdr-web-ui-session-test.sock";
+    const sentinel = "/tmp/ovis-session-test.sock";
     let output = "";
     const printed = new Promise<string>((resolve) => {
       new PtySession({
@@ -73,7 +73,7 @@ describe("PtySession", () => {
   it("host omits bridge token from attach environment", async () => {
     // Launched outside PtySession: the host defends the attach child on its own.
     const token = fixtureToken();
-    const socket = "/tmp/herdr-web-ui-host-test.sock";
+    const socket = "/tmp/ovis-host-test.sock";
     const host = Bun.spawn(
       ["node", join(import.meta.dir, "pty-host.mjs"), "80", "5", "node", ...REPORT_ENV],
       { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: { ...process.env, HERDR_WEB_TOKEN: token, HERDR_SOCKET_PATH: socket } },
@@ -88,7 +88,7 @@ describe("PtySession", () => {
   }, 10000);
 
   it("preserves socket and terminal configuration", async () => {
-    const socket = "/tmp/herdr-web-ui-session-config.sock";
+    const socket = "/tmp/ovis-session-config.sock";
     const run = await reportThroughSession({ HERDR_SOCKET_PATH: socket });
     expect(run.code).toBe(0);
     expect(run.sidecarEnv["HERDR_SOCKET_PATH"]).toBe(socket);

@@ -65,9 +65,9 @@ export async function runUiContextChecks(): Promise<void> {
     const cwdB = join(root, "b");
     mkdirSync(cwdA);
     mkdirSync(cwdB);
-    const createdA = await workspaceCreate({ cwd: cwdA, label: "herdr-web-ui-contexts-a" });
+    const createdA = await workspaceCreate({ cwd: cwdA, label: "ovis-contexts-a" });
     workspaces.push(createdA.workspace.workspace_id);
-    const createdB = await workspaceCreate({ cwd: cwdB, label: "herdr-web-ui-contexts-b" });
+    const createdB = await workspaceCreate({ cwd: cwdB, label: "ovis-contexts-b" });
     workspaces.push(createdB.workspace.workspace_id);
     const paneA = createdA.root_pane.pane_id;
     const paneB = createdB.root_pane.pane_id;

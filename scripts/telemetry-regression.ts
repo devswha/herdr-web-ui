@@ -46,7 +46,7 @@ function fixtureSettings() {
 
 /** A real app page and local API; the injected transport cannot reach the production receiver. */
 export async function checkTelemetrySettings(browser: Browser): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-telemetry-regression-"));
+  const root = mkdtempSync(join(tmpdir(), "ovis-telemetry-regression-"));
   const serverState = join(root, "server-state");
   const telemetryState = join(root, "telemetry-state");
   const sent: TelemetryEvent[] = [];

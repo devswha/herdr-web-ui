@@ -40,7 +40,7 @@ try {
   writeFileSync(program, `process.stdout.write(${JSON.stringify(`\x1b[2J\x1b[H${screen}\r\nROWS_READY\r\n`)});
 setInterval(() => {}, 1 << 30);
 `);
-  const made = await workspaceCreate({ cwd: state, label: "herdr-web-ui-test-cjk-punctuation" });
+  const made = await workspaceCreate({ cwd: state, label: "ovis-test-cjk-punctuation" });
   workspaces.push(made.workspace.workspace_id);
   const pane = made.root_pane.pane_id;
   const ready = herdrRpc("pane.wait_for_output", {

@@ -9,7 +9,7 @@ import { chromePath } from "./chrome-path.ts";
 
 // This script stops its herdr, so it must not share even the browser lane's test session.
 const root = mkdtempSync(join(tmpdir(), "herdr-restart-"));
-const session = "herdr-web-ui-test-restart";
+const session = "ovis-test-restart";
 const config = join(root, "config");
 const state = join(root, "state");
 mkdirSync(config);

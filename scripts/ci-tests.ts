@@ -78,7 +78,7 @@ if (suite === "unit") {
 
 const requested = Number(process.env["HERDR_TEST_SHARDS"]);
 const shards = Math.min(selected.length, requested >= 1 ? Math.floor(requested) : Math.min(4, availableParallelism()));
-const baseSession = process.env["HERDR_TEST_SESSION"] || "herdr-web-ui-test";
+const baseSession = process.env["HERDR_TEST_SESSION"] || "ovis-test";
 // Always `<session>-<n>`, also for one worker: the plain session belongs to the browser scripts,
 // which run beside this suite in CI (scripts/ci-lanes.ts) and must never share a herdr with it.
 const sessions = Array.from({ length: shards }, (_, index) => `${baseSession}-${index + 1}`);

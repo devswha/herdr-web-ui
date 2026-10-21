@@ -51,7 +51,7 @@ it("herdr loads the Phone setup entrypoint and keeps its QR and code visible in 
       try { await herdrRpc("session.snapshot", {}, socket); break; }
       catch { if (Date.now() >= deadline) throw new Error("Phone QA server did not start"); await Bun.sleep(50); }
     }
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-phone-setup" }, socket);
+    const created = await workspaceCreate({ cwd: root, label: "ovis-test-phone-setup" }, socket);
     workspace = created.workspace.workspace_id;
     await cli("--session", session, "plugin", "pane", "open", "--plugin", manifest.id, "--entrypoint", phone.id, "--placement", phone.placement, "--target-pane", created.root_pane.pane_id, "--no-focus");
     const paneId = (await sessionSnapshot(socket)).panes.find((pane) => pane.workspace_id === workspace && pane.pane_id !== created.root_pane.pane_id)?.pane_id;

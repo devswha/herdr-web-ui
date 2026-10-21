@@ -33,7 +33,7 @@ let stateDir: string;
 let fake: FakePushService;
 
 beforeEach(async () => {
-  stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-push-"));
+  stateDir = mkdtempSync(join(tmpdir(), "ovis-push-"));
   fake = await startFakePushService();
 });
 

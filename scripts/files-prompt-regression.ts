@@ -164,7 +164,7 @@ try {
   mkdirSync(join(cwdB, "other"), { recursive: true });
   const panes: string[] = [];
   for (const [suffix, cwd] of [["a", cwdA], ["b", cwdB]] as const) {
-    const result = await workspaceCreate({ cwd, label: `herdr-web-ui-files-prompt-${suffix}` });
+    const result = await workspaceCreate({ cwd, label: `ovis-files-prompt-${suffix}` });
     workspaces.push(result.workspace.workspace_id);
     panes.push(result.root_pane.pane_id);
   }

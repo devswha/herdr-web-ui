@@ -13,10 +13,10 @@ import { UsageService } from "../server/usage.ts";
  * shows the same wait and the same button, its terminal not ended.
  */
 export async function checkTakeOver(browser: Browser, origin: string): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-take-over-"));
+  const root = mkdtempSync(join(tmpdir(), "ovis-take-over-"));
   const cwd = join(root, "pane");
   mkdirSync(cwd);
-  const created = await workspaceCreate({ cwd, label: "herdr-web-ui-test-take-over" });
+  const created = await workspaceCreate({ cwd, label: "ovis-test-take-over" });
   const paneId = created.root_pane.pane_id;
   const other = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), usage: new UsageService(undefined, []) });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });

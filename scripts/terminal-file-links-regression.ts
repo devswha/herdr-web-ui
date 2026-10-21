@@ -10,7 +10,7 @@ import { chromePath } from "./chrome-path.ts";
 
 const cwd = process.cwd();
 const shortUri = "file:///etc/hosts";
-const workspace = await workspaceCreate({ cwd, label: "herdr-web-ui-test-file-links" });
+const workspace = await workspaceCreate({ cwd, label: "ovis-test-file-links" });
 const pane = workspace.root_pane.pane_id;
 // its own state dir: the default is the user's real devices and push registry
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-file-links-"));

@@ -331,7 +331,7 @@ describe("Codex queued questions (request_user_input_async)", () => {
   });
 
   it("scans a rollout once however many ask at the same time", async () => {
-    dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-codex-questions-"));
+    dir = mkdtempSync(join(tmpdir(), "ovis-codex-questions-"));
     const path = join(dir, "rollout.jsonl");
     writeFileSync(path, `${jsonl(message("user", "go"), ask("call_x", [{ title: "First?", options: ["a"] }]))}\n`);
     await unansweredCodexQuestions(path);
@@ -344,7 +344,7 @@ describe("Codex queued questions (request_user_input_async)", () => {
   });
 
   it("lists the questions still unanswered, reading only what the rollout appends", async () => {
-    dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-codex-questions-"));
+    dir = mkdtempSync(join(tmpdir(), "ovis-codex-questions-"));
     const path = join(dir, "rollout.jsonl");
     writeFileSync(path, `${jsonl(message("user", "go"), asked)}\n`);
     expect(await unansweredCodexQuestions(path)).toEqual([

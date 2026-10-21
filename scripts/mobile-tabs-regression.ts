@@ -53,17 +53,17 @@ async function activeTabInView(page: Page, label: string): Promise<void> {
 
 /** A phone's header and tab strip over a workspace with more tabs than fit the screen. */
 export async function checkMobileTabs(browser: Browser, origin: string): Promise<void> {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-mobile-tabs-")));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "ovis-mobile-tabs-")));
   let workspaceId: string | null = null;
   let otherWorkspaceId: string | null = null;
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
   try {
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-mobile-tabs" });
+    const created = await workspaceCreate({ cwd: root, label: "ovis-test-mobile-tabs" });
     workspaceId = created.workspace.workspace_id;
     const first = created.root_pane.pane_id;
     // herdr keeps the first pane in front: the split one is seen only where the browser opens it
     const second = (await paneSplit(first, "right", false)).pane_id;
-    const other = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-mobile-tabs-other" });
+    const other = await workspaceCreate({ cwd: root, label: "ovis-test-mobile-tabs-other" });
     otherWorkspaceId = other.workspace.workspace_id;
     const panes: string[] = [];
     for (const label of TAB_LABELS) panes.push((await tabCreate({ workspaceId, cwd: root, label })).root_pane.pane_id);
@@ -235,7 +235,7 @@ if (import.meta.main) {
   const { chromium } = await import("playwright-core");
   const { createServer } = await import("../server/index.ts");
   const { UsageService } = await import("../server/usage.ts");
-  const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-mobile-tabs-state-"));
+  const state = mkdtempSync(join(tmpdir(), "ovis-mobile-tabs-state-"));
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, usage: new UsageService(undefined, []) });
   const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
   try {

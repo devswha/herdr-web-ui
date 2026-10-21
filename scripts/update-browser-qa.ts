@@ -55,7 +55,7 @@ try {
     try { return await (await fetch(`${origin}/api/updates`)).json() as UpdateStatus; } catch { return null; }
   };
   await until(async () => (await status())?.managed === true, "Managed server never became ready");
-  const workspace = await workspaceCreate({ cwd: temp, label: "herdr-web-ui-test-update-browser" });
+  const workspace = await workspaceCreate({ cwd: temp, label: "ovis-test-update-browser" });
   workspaceId = workspace.workspace.workspace_id;
   const paneId = workspace.root_pane.pane_id;
   browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });

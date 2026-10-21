@@ -12,7 +12,7 @@ import { herdrRpc, paneRead, paneSplit, tabCreate, workspaceClose, workspaceCrea
  * event that the same path would have shown after it.
  */
 export async function checkSplitView(browser: Browser, origin: string): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-split-"));
+  const root = mkdtempSync(join(tmpdir(), "ovis-split-"));
   const workspaces: string[] = [];
   const contexts: BrowserContext[] = [];
   const panesFor = async (...suffixes: string[]): Promise<string[]> => {
@@ -20,7 +20,7 @@ export async function checkSplitView(browser: Browser, origin: string): Promise<
     for (const suffix of suffixes) {
       const cwd = join(root, suffix);
       mkdirSync(cwd);
-      const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-split-${suffix}` });
+      const created = await workspaceCreate({ cwd, label: `ovis-test-split-${suffix}` });
       workspaces.push(created.workspace.workspace_id);
       ids.push(created.root_pane.pane_id);
       await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "claude", state: "idle" });

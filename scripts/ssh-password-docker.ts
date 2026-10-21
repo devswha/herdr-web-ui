@@ -81,7 +81,7 @@ try {
   assert.equal(job.phase, "connected", job.error ?? ""); assert.ok(askedPassword);
   assert.ok(!readFileSync(join(root, "machines.json"), "utf8").includes(password));
   const prefix = `/api/machines/${job.machine_id}`;
-  const created = await api<WorkspaceCreated>(prefix + "/workspace/create", "POST", { cwd: "/home/testpc", label: "herdr-web-ui-test-password" });
+  const created = await api<WorkspaceCreated>(prefix + "/workspace/create", "POST", { cwd: "/home/testpc", label: "ovis-test-password" });
   await api(prefix + "/pane/input", "POST", { pane_id: created.pane_id, text: "printf 'PASSWORD_PC_OK\\n'" });
   await api(prefix + "/pane/keys", "POST", { pane_id: created.pane_id, keys: ["Enter"] });
   let text = "";

@@ -36,7 +36,7 @@ with open("keys.bin", "wb", buffering=0) as log:
 sys.stdout.write("\\x1b[?1049l")
 sys.stdout.flush()
 `);
-  const made = await workspaceCreate({ cwd: state, label: "herdr-web-ui-test-application-paging" });
+  const made = await workspaceCreate({ cwd: state, label: "ovis-test-application-paging" });
   workspace = made.workspace.workspace_id;
   const paneId = made.root_pane.pane_id;
   const ready = herdrRpc("pane.wait_for_output", { pane_id: paneId, source: "visible", match: { type: "substring", value: "paging_fixture_ready" }, timeout_ms: 10000 }, undefined, 12000);

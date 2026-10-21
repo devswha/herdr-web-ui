@@ -68,7 +68,7 @@ function transcriptAnswer(): Response {
 }
 
 beforeEach(() => {
-  stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-voice-"));
+  stateDir = mkdtempSync(join(tmpdir(), "ovis-voice-"));
   requests = [];
   handler = () => new Response("unexpected", { status: 500 });
 });

@@ -8,7 +8,7 @@ import { openSettingsPage } from "./settings-page.ts";
 
 /** Settings > Chat > Panes open in: one choice puts every agent pane on that lens, the ones that remembered another included. */
 export async function checkDefaultView(browser: Browser, origin: string): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-view-"));
+  const root = mkdtempSync(join(tmpdir(), "ovis-view-"));
   const workspaces: string[] = [];
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   try {
@@ -16,7 +16,7 @@ export async function checkDefaultView(browser: Browser, origin: string): Promis
     for (const name of ["one", "two"]) {
       const cwd = join(root, name);
       mkdirSync(cwd);
-      const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-view-${name}` });
+      const created = await workspaceCreate({ cwd, label: `ovis-test-view-${name}` });
       workspaces.push(created.workspace.workspace_id);
       panes.push(created.root_pane.pane_id);
       await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent: "claude", state: "idle" });

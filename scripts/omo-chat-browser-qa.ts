@@ -15,7 +15,7 @@ import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "../s
 import { omoPanes, omoSessionFolder } from "../server/omo.ts";
 import { startShellAgent } from "../server/shell-agent.ts";
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-omo-browser-")));
+const root = realpathSync(mkdtempSync(join(tmpdir(), "ovis-omo-browser-")));
 const launchers = join(root, "launchers");
 mkdirSync(launchers, { recursive: true });
 
@@ -109,7 +109,7 @@ try {
   const neutral = join(launchers, "neutral-witness.mjs");
   writeFileSync(neutral, "setInterval(() => {}, 1000);\n");
   const made = async (): Promise<string> => {
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-omo-browser" });
+    const created = await workspaceCreate({ cwd: root, label: "ovis-test-omo-browser" });
     workspaceIds.push(created.workspace.workspace_id);
     return created.root_pane.pane_id;
   };

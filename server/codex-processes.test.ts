@@ -21,7 +21,7 @@ let socketBefore: string | undefined;
 const children: ReturnType<typeof Bun.spawn>[] = [];
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "herdr-web-ui-codex-processes-"));
+  root = mkdtempSync(join(tmpdir(), "ovis-codex-processes-"));
   home = join(root, "codex");
   mkdirSync(join(home, "sessions"), { recursive: true });
   path = join(home, "sessions", `rollout-${thread}.jsonl`);

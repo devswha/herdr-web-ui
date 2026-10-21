@@ -62,7 +62,7 @@ process.stdin.on("data", data => {
 });
 process.stdout.write(Array.from({ length: 400 }, (_, n) => "history " + n + "\\r\\n").join("") + "\\x1b[?1000h\\x1b[?1002h\\x1b[?1006hFIXTURE_READY\\r\\n");
 `);
-    const made = await workspaceCreate({ cwd, label: "herdr-web-ui-test-question-wheel" });
+    const made = await workspaceCreate({ cwd, label: "ovis-test-question-wheel" });
     workspaces.push(made.workspace.workspace_id);
     const pane = made.root_pane.pane_id;
     const ready = waitOutput(pane, "FIXTURE_READY");

@@ -11,7 +11,7 @@ import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/clien
 import { chromePath } from "./chrome-path.ts";
 
 const repo = resolve(import.meta.dir, "..");
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-pwa-"));
+const root = mkdtempSync(join(tmpdir(), "ovis-pwa-"));
 const app = join(root, "app");
 const baseline = join(root, "baseline");
 const current = join(repo, "dist");
@@ -122,7 +122,7 @@ try {
   const standIn = join(root, "codex");
   writeFileSync(standIn, `#!/bin/sh\nprintf ready > "${join(root, "ready")}"\nwhile IFS= read -r line; do :; done\n`);
   chmodSync(standIn, 0o755);
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-pwa" });
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-pwa" });
   workspace = created.workspace.workspace_id;
   const pane = created.root_pane.pane_id;
   const processReady = new Promise<void>((resolveReady, reject) => {

@@ -23,7 +23,7 @@ const paneInfo = (id: string) => ({
 });
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "herdr-web-ui-omo-send-"));
+  root = mkdtempSync(join(tmpdir(), "ovis-omo-send-"));
   panes = {};
   calls = [];
   screens = {};

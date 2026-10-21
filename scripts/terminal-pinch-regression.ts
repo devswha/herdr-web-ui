@@ -278,7 +278,7 @@ if (import.meta.main) {
   let browser: Browser | undefined;
   let workspace: string | undefined;
   try {
-    const made = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-terminal-pinch", focus: false });
+    const made = await workspaceCreate({ cwd: root, label: "ovis-test-terminal-pinch", focus: false });
     workspace = made.workspace.workspace_id;
     browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
     await checkTerminalPinch(browser, `http://127.0.0.1:${server.port}`, made.root_pane.pane_id);

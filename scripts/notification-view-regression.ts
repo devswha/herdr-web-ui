@@ -7,7 +7,7 @@ import { herdrRpc, paneClose, paneFocus, paneSplit, workspaceClose, workspaceCre
 
 /** A tapped pane alert shows an agent pane's chat once: the lens the pane remembered stays its own, and a shell keeps its terminal. */
 export async function checkNotificationView(browser: Browser, origin: string): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-alert-view-"));
+  const root = mkdtempSync(join(tmpdir(), "ovis-alert-view-"));
   const workspaces: string[] = [];
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   try {
@@ -15,7 +15,7 @@ export async function checkNotificationView(browser: Browser, origin: string): P
     for (const name of ["agent", "shell"]) {
       const cwd = join(root, name);
       mkdirSync(cwd);
-      const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-alert-view-${name}` });
+      const created = await workspaceCreate({ cwd, label: `ovis-test-alert-view-${name}` });
       workspaces.push(created.workspace.workspace_id);
       panes.push(created.root_pane.pane_id);
     }

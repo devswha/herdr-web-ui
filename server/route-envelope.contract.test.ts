@@ -29,7 +29,7 @@ const OWN_GET: Partial<Record<(typeof JSON_ROUTES)[number], [number, string | nu
   "/api/pane/scroll": [400, "missing_pane_id"],
 };
 
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-route-envelope-"));
+const root = mkdtempSync(join(tmpdir(), "ovis-route-envelope-"));
 let owner: ReturnType<typeof createServer>;
 let watched: ReturnType<typeof createServer>;
 let ownBase = "";

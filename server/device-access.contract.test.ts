@@ -60,7 +60,7 @@ it("revocation closes an active device's terminal and roster stream without disc
     const cookieA = await pair("A");
     const cookieB = await pair("B");
     const { devices } = await (await fetch(`${base}/api/devices`, { headers: admin })).json() as { devices: { id: string; label: string }[] };
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-device-revocation" });
+    const created = await workspaceCreate({ cwd: root, label: "ovis-test-device-revocation" });
     workspaceId = created.workspace.workspace_id;
     const paneId = created.root_pane.pane_id;
     const a = await connect(`${base.replace("http:", "ws:")}/ws`, cookieA); sockets.push(a.socket);
@@ -266,7 +266,7 @@ it("a route spelled with a trailing, doubled or encoded slash is no route, for a
     }
     // and answered for a driving one (no such workspace here; no such PC connected)
     const driving = { cookie: `herdr_web_device=${drive.token}` };
-    const absent = await fetch(`${base}/api/sessions/history?workspace_id=herdr-web-ui-test-absent&agent=pi`, { headers: driving });
+    const absent = await fetch(`${base}/api/sessions/history?workspace_id=ovis-test-absent&agent=pi`, { headers: driving });
     expect([absent.status, ((await absent.json()) as { error: { code: string } }).error.code]).toEqual([404, "workspace_not_found"]);
     expect((await fetch(`${base}/api/machines/pc1/sessions/history${query}`, { headers: driving })).status).toBe(503);
   } finally {

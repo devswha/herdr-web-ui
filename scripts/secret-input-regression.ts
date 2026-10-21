@@ -11,7 +11,7 @@ import { chromePath } from "./chrome-path.ts";
 /** Only owned no-echo fixtures; assert delivery without storing the entered value. */
 export async function checkSecretInput(browser: Browser, origin: string): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-secret-ui-"));
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-secret-ui" });
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-secret-ui" });
   const pane = created.root_pane.pane_id;
   const result = join(root, "accepted");
   const script = join(root, "ask.cjs");

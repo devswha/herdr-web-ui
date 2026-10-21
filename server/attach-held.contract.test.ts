@@ -67,7 +67,7 @@ function connect(port: number, paneId: string) {
 
 async function pane(): Promise<string> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-    "workspace.create", { label: "herdr-web-ui-test-held", cwd: rootA, focus: false },
+    "workspace.create", { label: "ovis-test-held", cwd: rootA, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   return created.root_pane.pane_id;

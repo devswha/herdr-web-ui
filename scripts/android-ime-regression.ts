@@ -57,7 +57,7 @@ try {
   assert.match((await device.shell("wm size")).toString(), /Physical size: 1080x2400/);
   assert.match((await device.shell("wm density")).toString(), /Physical density: 420/);
   await device.shell("settings put secure show_ime_with_hard_keyboard 1");
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-native-ime" });
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-native-ime" });
   workspace = created.workspace.workspace_id;
   const pane = created.root_pane.pane_id;
   await paneSendText(pane, `exec ${quote(Bun.which("node")!)} ${quote(script)}\r`);

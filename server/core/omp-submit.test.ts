@@ -20,7 +20,7 @@ let onPaneGet: (() => void) | undefined;
 let fresh: ReturnType<typeof Bun.spawn> | undefined;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "herdr-web-ui-omp-submit-"));
+  root = mkdtempSync(join(tmpdir(), "ovis-omp-submit-"));
   agent = "omp";
   reported = false;
   ompPid = 1;

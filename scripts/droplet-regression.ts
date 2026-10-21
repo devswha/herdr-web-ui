@@ -11,7 +11,7 @@ import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/clien
  * that pane; a flick up or its close button puts one away; one left alone goes by itself.
  */
 export async function checkDroplet(browser: Browser, origin: string): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-droplet-"));
+  const root = mkdtempSync(join(tmpdir(), "ovis-droplet-"));
   const workspaces: string[] = [];
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
   try {
@@ -19,7 +19,7 @@ export async function checkDroplet(browser: Browser, origin: string): Promise<vo
     for (const suffix of ["open", "other"]) {
       const cwd = join(root, suffix);
       mkdirSync(cwd);
-      const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-droplet-${suffix}` });
+      const created = await workspaceCreate({ cwd, label: `ovis-test-droplet-${suffix}` });
       workspaces.push(created.workspace.workspace_id);
       panes.push(created.root_pane.pane_id);
     }

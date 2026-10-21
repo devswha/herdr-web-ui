@@ -28,7 +28,7 @@ async function until(check: () => boolean, label: string, ms = 15000) {
 try {
   for (const suffix of ["a", "b"]) {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-      "workspace.create", { label: `herdr-web-ui-test-output-browser-${suffix}`, cwd: root, focus: false },
+      "workspace.create", { label: `ovis-test-output-browser-${suffix}`, cwd: root, focus: false },
     );
     workspaces.push(created.workspace.workspace_id);
     panes.push(created.root_pane.pane_id);

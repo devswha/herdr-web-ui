@@ -43,7 +43,7 @@ interface Session {
 async function open(browser: Browser, server: ReturnType<typeof createServer>, name: string, modes: string): Promise<Session> {
   const cwd = join(root, name);
   mkdirSync(cwd);
-  const made = await workspaceCreate({ cwd, label: `herdr-web-ui-test-arrows-clicks-${name}` });
+  const made = await workspaceCreate({ cwd, label: `ovis-test-arrows-clicks-${name}` });
   owned.push(made.workspace.workspace_id);
   const pane = made.root_pane.pane_id;
   const log = join(root, `${name}.hex`);

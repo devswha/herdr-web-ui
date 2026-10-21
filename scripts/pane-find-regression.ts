@@ -12,7 +12,7 @@ import { chromePath } from "./chrome-path.ts";
 /** GUI searches stay in herdr's history, never in browser scrollback or terminal input. */
 export async function checkPaneFind(browser: Browser, origin: string): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-find-browser-"));
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-find-browser" });
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-find-browser" });
   const pane = created.root_pane.pane_id;
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
   try {

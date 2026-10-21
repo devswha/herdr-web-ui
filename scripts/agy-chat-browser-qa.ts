@@ -32,7 +32,7 @@ let workspace: string | undefined;
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-agy-activity", focus: false });
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-agy-activity", focus: false });
   workspace = created.workspace.workspace_id;
   const pane = created.root_pane.pane_id;
   await herdrRpc("pane.send_text", { pane_id: pane, text: `${executable} 600 3<${lock}\n` });

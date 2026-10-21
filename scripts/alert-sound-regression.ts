@@ -15,7 +15,7 @@ import { chromePath } from "./chrome-path.ts";
  * like a real one, so what would have sounded is the notes it was asked for.
  */
 export async function checkAlertSound(browser: Browser, origin: string): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-alert-sound-"));
+  const root = mkdtempSync(join(tmpdir(), "ovis-alert-sound-"));
   const workspaces: string[] = [];
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   try {
@@ -23,7 +23,7 @@ export async function checkAlertSound(browser: Browser, origin: string): Promise
     for (const suffix of ["open", "other", "third"]) {
       const cwd = join(root, suffix);
       mkdirSync(cwd);
-      const created = await workspaceCreate({ cwd, label: `herdr-web-ui-test-sound-${suffix}` });
+      const created = await workspaceCreate({ cwd, label: `ovis-test-sound-${suffix}` });
       workspaces.push(created.workspace.workspace_id);
       panes.push(created.root_pane.pane_id);
     }
@@ -279,7 +279,7 @@ if (import.meta.main) {
   const { chromium } = await import("playwright-core");
   const { createServer } = await import("../server/index.ts");
   const { UsageService } = await import("../server/usage.ts");
-  const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-sound-server-"));
+  const stateDir = mkdtempSync(join(tmpdir(), "ovis-sound-server-"));
   const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir, usage: new UsageService(undefined, []) });
   const browser = await chromium.launch({
     executablePath: chromePath(),

@@ -14,7 +14,7 @@ import { closeOpenCodeNative, openCodeNativeState } from "./opencode-native.ts";
 import { forgetOpenCodeService, openCodeServiceOptions } from "./opencode-service.ts";
 
 // Real herdr metadata + HTTP + an OpenCode store of the test's own, handed to the server (opencodeDb).
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-opencode-contract-"));
+const root = mkdtempSync(join(tmpdir(), "ovis-opencode-contract-"));
 const database = join(root, "opencode.db");
 const fakeOpencode = join(root, "bin", "opencode");
 const SESSION = "ses_contractTest01";
@@ -50,7 +50,7 @@ const reportSession = (session: string, targetPaneId = paneId) =>
   herdrRpc("pane.report_agent_session", { pane_id: targetPaneId, source: "herdr:opencode", agent: "opencode", agent_session_id: session, session_start_source: "select" });
 
 const startOpencode = async (session: string): Promise<string> => {
-  const created = await workspaceCreate({ cwd: root, label: `herdr-web-ui-test-opencode-${session}` });
+  const created = await workspaceCreate({ cwd: root, label: `ovis-test-opencode-${session}` });
   workspaces.push(created.workspace.workspace_id);
   const targetPaneId = created.root_pane.pane_id;
   await herdrRpc("pane.send_text", { pane_id: targetPaneId, text: `${fakeOpencode}\n` });
@@ -335,7 +335,7 @@ process.stdin.on("data", (chunk) => {
     writeFileSync(join(nativeRoot, "fake.url"), fake.url.origin);
     writeFileSync(join(nativeRoot, "service.json"), JSON.stringify({ url: fake.url.origin, pid: process.pid, password: "native-secret", version: "2.0.32" }));
     openCodeServiceOptions.stateDir = nativeRoot;
-    const created = await workspaceCreate({ cwd: nativeRoot, label: "herdr-web-ui-test-opencode-native" });
+    const created = await workspaceCreate({ cwd: nativeRoot, label: "ovis-test-opencode-native" });
     workspaces.push(created.workspace.workspace_id);
     nativePane = created.root_pane.pane_id;
     await herdrRpc("pane.send_text", { pane_id: nativePane, text: `exec ${standIn}\n` });
@@ -610,7 +610,7 @@ process.stdin.on("data", (chunk) => {
   });
 
   it("attaches @effect and records the send on a fresh server that never served a catalog", async () => {
-    const created = await workspaceCreate({ cwd: nativeRoot, label: "herdr-web-ui-test-opencode-native-fresh" });
+    const created = await workspaceCreate({ cwd: nativeRoot, label: "ovis-test-opencode-native-fresh" });
     workspaces.push(created.workspace.workspace_id);
     const freshPane = created.root_pane.pane_id;
     await herdrRpc("pane.send_text", { pane_id: freshPane, text: `exec ${standIn}\n` });
@@ -683,7 +683,7 @@ process.stdin.on("data", (chunk) => {
     // the default location (what a server without its own state would read) names a service that counts every request
     let defaultAsked = 0;
     const decoy = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => { defaultAsked++; return Response.json({ version: "2.0.32", pid: process.pid }); } });
-    const xdg = mkdtempSync(join(tmpdir(), "herdr-web-ui-opencode-default-state-"));
+    const xdg = mkdtempSync(join(tmpdir(), "ovis-opencode-default-state-"));
     mkdirSync(join(xdg, "opencode"));
     writeFileSync(join(xdg, "opencode", "service.json"), JSON.stringify({ url: decoy.url.origin, pid: process.pid, password: "decoy", version: "2.0.32" }));
     const previousXdg = process.env["XDG_STATE_HOME"];
@@ -869,7 +869,7 @@ process.stdin.on("data", (chunk) => {
       return Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not happen (native ${JSON.stringify(openCodeNativeState())})`)), 15_000); })]).finally(() => clearTimeout(timer));
     };
     const startPane = async (session: string): Promise<{ paneId: string; workspaceId: string }> => {
-      const created = await workspaceCreate({ cwd: lifecycleRoot, label: `herdr-web-ui-test-opencode-${session}` });
+      const created = await workspaceCreate({ cwd: lifecycleRoot, label: `ovis-test-opencode-${session}` });
       const paneId = created.root_pane.pane_id;
       await herdrRpc("pane.send_text", { pane_id: paneId, text: `${sleeper}\n` });
       for (const deadline = Date.now() + 10_000; (await sessionSnapshot()).panes.find((pane) => pane.pane_id === paneId)?.agent !== "opencode";) {

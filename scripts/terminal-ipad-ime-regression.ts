@@ -250,7 +250,7 @@ if (import.meta.main) {
     browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true });
     const panes: string[] = [];
     for (let i = 0; i < 2; i++) {
-      const made = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-ipad-replay" });
+      const made = await workspaceCreate({ cwd: root, label: "ovis-test-ipad-replay" });
       owned.push(made.workspace.workspace_id); panes.push(made.root_pane.pane_id);
     }
     await checkIpadIme(browser, `http://127.0.0.1:${server.port}`, panes[0]!, panes[1]!);

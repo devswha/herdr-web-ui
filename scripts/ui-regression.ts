@@ -33,7 +33,7 @@ import { browserEvidencePage, browserEvidenceTracing, startBrowserEvidence } fro
 import type { BrowserEvidenceSession } from "./browser-evidence.ts";
 import { chromePath } from "./chrome-path.ts";
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
+const root = realpathSync(mkdtempSync(join(tmpdir(), "ovis-browser-")));
 const workspaces: string[] = [];
 const worktreeWorkspaces: string[] = [];
 // the repository the worktree step makes, for the cleanup to find what the step made
@@ -78,7 +78,7 @@ try {
   for (const suffix of ["a", "b"]) {
     const cwd = join(root, suffix);
     mkdirSync(cwd);
-    const result = await workspaceCreate({ cwd, label: `herdr-web-ui-test-browser-${suffix}` });
+    const result = await workspaceCreate({ cwd, label: `ovis-test-browser-${suffix}` });
     workspaces.push(result.workspace.workspace_id);
     panes.push(result.root_pane.pane_id);
   }
@@ -179,7 +179,7 @@ try {
   await composer.waitFor();
   await page.locator(".composer .voice-mic").waitFor();
   console.log("PASS a desktop's chat offers the mic before Settings is asked");
-  assert.equal(await workspaceHeader(workspaces[0]!).locator(".workspace-name").textContent(), "herdr-web-ui-test-browser-a",
+  assert.equal(await workspaceHeader(workspaces[0]!).locator(".workspace-name").textContent(), "ovis-test-browser-a",
     "Spaces names the workspace rather than its current pane");
   assert.equal(await workspaceGroup(workspaces[0]!).locator(".pane-select").count(), 1, "a workspace has one representative selector");
   assert.equal(await page.locator(".workspace-contents, .sidebar-tab-heading, .sidebar-pane-item").count(), 0,
@@ -198,7 +198,7 @@ try {
     await until(async () => await paletteSearch.evaluate((input) => document.activeElement === input), "palette search takes focus");
   };
   await openPalette();
-  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await paletteSearch.fill("ovis-test-browser-b");
   await until(async () => await palette.locator(".palette-pane").count() === 1, "the other pane is the palette's only result");
   await page.keyboard.press("Tab");
   assert.equal(await palette.getByRole("button", { name: "Close command palette", exact: true }).evaluate((button) => document.activeElement === button), true,
@@ -241,7 +241,7 @@ try {
   await until(async () => await selectedPane() === paneA, "return to the first pane after palette selection");
 
   await openPalette();
-  await paletteSearch.fill("herdr-web-ui-test-browser-b");
+  await paletteSearch.fill("ovis-test-browser-b");
   await until(async () => await palette.locator(".palette-pane").count() === 1, "IME check has a matching result to avoid activating");
   const paletteComposition = await paletteSearch.evaluate((input) => [
     { key: "Enter", isComposing: true },
@@ -254,7 +254,7 @@ try {
   assert.deepEqual(paletteComposition, [true, true, true, true, true, true], "IME candidate, commit and cancel keys keep their default action");
   assert.equal(await palette.isVisible(), true, "IME Enter and Escape leave the palette open");
   assert.equal(await selectedPane(), paneA, "IME Enter never activates its matching pane");
-  assert.equal(await paletteSearch.inputValue(), "herdr-web-ui-test-browser-b", "IME cancellation leaves the query alone");
+  assert.equal(await paletteSearch.inputValue(), "ovis-test-browser-b", "IME cancellation leaves the query alone");
   await paletteSearch.press("Escape");
   await palette.waitFor({ state: "hidden" });
 
@@ -899,7 +899,7 @@ try {
   // The pending protocol has a real foreground agent and an owned byte recorder: merely
   // reporting an idle shell as working would not prove that server-side queueing happened.
   const pendingCwd = join(root, "pending"); mkdirSync(pendingCwd);
-  const pendingWorkspace = await workspaceCreate({ cwd: pendingCwd, label: "herdr-web-ui-test-browser-pending" });
+  const pendingWorkspace = await workspaceCreate({ cwd: pendingCwd, label: "ovis-test-browser-pending" });
   workspaces.push(pendingWorkspace.workspace.workspace_id);
   const pendingPane = pendingWorkspace.root_pane.pane_id;
   const pendingProgram = join(root, "claude"); copyFileSync(process.execPath, pendingProgram); chmodSync(pendingProgram, 0o755);
@@ -1480,7 +1480,7 @@ try {
   await until(async () => (await dialog.getByLabel(/^Directory/).inputValue()).endsWith("/a"), "Directory follows Browse into a");
   // New folder inside a: the workspace starts in the folder it made
   await checkNewFolder(page, dialog, () => createRequests, "made-here");
-  await dialog.getByLabel(/^Name/).fill("herdr-web-ui-test-browser-created");
+  await dialog.getByLabel(/^Name/).fill("ovis-test-browser-created");
   await dialog.getByRole("button", { name: "Start", exact: true }).click();
   await until(() => createRequests === 1, "creation started");
   assert.equal(createCwd, join(root, "a", "made-here"), "Start uses the folder Browse is showing");
@@ -1498,14 +1498,14 @@ try {
 
   // Existing git worktrees are discovered through the list API. A new worktree from the row's
   // ⋯ menu appears under the same workspace, using its exact branch rather than its editable label.
-  repo = join(root, `herdr-web-ui-test-repo-${process.pid.toString(36)}`);
+  repo = join(root, `ovis-test-repo-${process.pid.toString(36)}`);
   mkdirSync(repo);
-  const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "user.name=herdr-web-ui test", "-c", "user.email=test@example.invalid", ...args], { cwd: repo ?? undefined, stdout: "pipe", stderr: "pipe" });
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "user.name=ovis test", "-c", "user.email=test@example.invalid", ...args], { cwd: repo ?? undefined, stdout: "pipe", stderr: "pipe" });
   assert.equal(git("init", "-q", "-b", "main").exitCode, 0, "git init");
   writeFileSync(join(repo, "README.md"), "worktree fixture\n");
   assert.equal(git("add", "README.md").exitCode, 0);
   assert.equal(git("commit", "-q", "-m", "fixture").exitCode, 0, "git commit");
-  const repoWorkspace = await workspaceCreate({ cwd: repo, label: "herdr-web-ui-test-repo" });
+  const repoWorkspace = await workspaceCreate({ cwd: repo, label: "ovis-test-repo" });
   workspaces.push(repoWorkspace.workspace.workspace_id);
   const repoRow = workspaceHeader(repoWorkspace.workspace.workspace_id);
   await repoRow.waitFor();
@@ -1525,7 +1525,7 @@ try {
   const initialRow = page.locator(`.worktree-children .workspace-group[data-workspace="${initialWorktree.workspace_id}"]`);
   await until(async () => await initialRow.locator(".workspace-name").textContent() === "Existing checkout", "a named worktree's row is titled by its workspace name");
   assert.equal(await initialRow.locator(".worktree-workspace-label").textContent(), "browser/initial", "the list API discovers an existing worktree's exact branch, said after the name");
-  assert.equal(await repoRow.locator(".workspace-name").textContent(), "herdr-web-ui-test-repo", "the parent keeps its workspace name");
+  assert.equal(await repoRow.locator(".workspace-name").textContent(), "ovis-test-repo", "the parent keeps its workspace name");
   // A list read from before creation must not erase the branch supplied by the create response.
   let releaseWorktreeList!: () => void;
   const heldWorktreeList = new Promise<void>((resolve) => { releaseWorktreeList = resolve; });
@@ -1730,7 +1730,7 @@ try {
     await page.getByRole("menuitem", { name: "New tab with agent…", exact: true }).click();
   };
   await openAgentTab();
-  const tabDialog = page.getByRole("dialog", { name: /^New tab · herdr-web-ui-test-browser-created/ });
+  const tabDialog = page.getByRole("dialog", { name: /^New tab · ovis-test-browser-created/ });
   await tabDialog.waitFor();
   assert.equal(await tabDialog.locator(".new-session-folder").textContent(), join(root, "a", "made-here"), "the folder is the workspace's, shown");
   assert.equal(await tabDialog.getByRole("button", { name: "Browse", exact: true }).count(), 0, "the folder is not asked for");
@@ -1752,7 +1752,7 @@ try {
   await tabDialog.waitFor({ state: "hidden" });
   await until(async () => (await page.locator(`.pane-select[title^="${createdTab.pane_id} —"]`).getAttribute("aria-current")) === "true", "the new tab's pane is selected, and the row shows it");
   assert.equal(await page.locator(`.pane-select[title^="${created.pane_id} —"]`).count(), 0, "the workspace stays one row");
-  assert.equal(await workspaceGroup(created.workspace_id).locator(".workspace-name").textContent(), "herdr-web-ui-test-browser-created",
+  assert.equal(await workspaceGroup(created.workspace_id).locator(".workspace-name").textContent(), "ovis-test-browser-created",
     "opening another tab preserves the workspace name in Spaces");
   assert.equal(await workspaceGroup(created.workspace_id).locator(".workspace-select").count(), 1,
     "all tabs share the workspace's representative row");
@@ -1874,7 +1874,7 @@ try {
   await page.keyboard.press("Enter");
   await until(async () => (await tabsInHerdr()).join() === "first,second", "herdr has the tab's new name, trimmed");
   assert.deepEqual(await strip.getByRole("tab").allTextContents(), ["first", "second"]);
-  assert.equal(await workspaceGroup(created.workspace_id).locator(".workspace-name").textContent(), "herdr-web-ui-test-browser-created",
+  assert.equal(await workspaceGroup(created.workspace_id).locator(".workspace-name").textContent(), "ovis-test-browser-created",
     "renaming a tab leaves the workspace name unchanged");
   await until(async () => await strip.getByRole("tab", { name: "first", exact: true }).evaluate((tab) => tab === document.activeElement), "the renamed tab has the focus back");
   // F2 opens the field on the focused tab; Escape leaves the name alone, and so does an empty one
@@ -2432,7 +2432,7 @@ try {
   const securedOrigin = `http://127.0.0.1:${secured.port}`;
   const securedContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   // Use a new pane so this bridge never competes with the first server's attachments.
-  const securedWorkspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-browser-signout" });
+  const securedWorkspace = await workspaceCreate({ cwd: root, label: "ovis-test-browser-signout" });
   workspaces.push(securedWorkspace.workspace.workspace_id);
   const securedPage = await securedContext.newPage();
   const securedEvidence = await watchBrowserEvidence(securedContext, securedPage, "token-gate-signout");

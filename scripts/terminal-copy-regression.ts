@@ -9,7 +9,7 @@ import { herdrRpc, paneSendText, workspaceCreate, workspaceClose } from "../serv
 /** A plain left drag in the desktop terminal selects and copies instead of reaching herdr. */
 export async function checkTerminalCopy(browser: Browser, origin: string): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-copy-ui-"));
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-copy-ui" });
+  const created = await workspaceCreate({ cwd: root, label: "ovis-test-copy-ui" });
   const pane = created.root_pane.pane_id;
   const script = join(root, "show.cjs");
   writeFileSync(script, `

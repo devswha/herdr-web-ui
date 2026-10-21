@@ -122,9 +122,9 @@ try {
   const second = await setup({ ...target, identity_file: join(state, "ssh", machineId), session: "ssh-second", name: "QA second PC" });
   assert.equal(second.phase, "connected", second.error ?? "");
   const secondPath = `/api/machines/${second.machine_id}`;
-  const secondCreated = await api<WorkspaceCreated>(secondPath + "/workspace/create", "POST", { cwd: remoteHome, label: "herdr-web-ui-test-ssh-second" });
+  const secondCreated = await api<WorkspaceCreated>(secondPath + "/workspace/create", "POST", { cwd: remoteHome, label: "ovis-test-ssh-second" });
   const path = `/api/machines/${machineId}`;
-  const created = await api<WorkspaceCreated>(path + "/workspace/create", "POST", { cwd: remoteHome, label: "herdr-web-ui-test-ssh" });
+  const created = await api<WorkspaceCreated>(path + "/workspace/create", "POST", { cwd: remoteHome, label: "ovis-test-ssh" });
   const paneId = created.pane_id;
   assert.equal(secondCreated.pane_id, paneId, "independent daemons intentionally produce equal pane IDs");
   const { ws, frames } = await connectWs(machineId);
