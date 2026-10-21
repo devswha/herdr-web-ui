@@ -373,11 +373,12 @@ describe("push delivery", () => {
 });
 
 describe("alert timing and each device's choice", () => {
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const SHORT = 40;
+  const LONG = 80;
   /** real timers, short enough for a test; the clock that measures turns is ours to move */
   function timed(alerts?: AlertPrefs) {
     let clock = 0;
-    const push = createPushService({ loopbackHttp: true, stateDir, timing: { short: 40, long: 80, longTurn: 1_000 }, now: () => clock });
+    const push = createPushService({ loopbackHttp: true, stateDir, timing: { short: SHORT, long: LONG, longTurn: 1_000 }, now: () => clock });
     push.subscribe(fake.subscription, alerts);
     push.seed([pane("w1:p1", "idle", "claude")]);
     return { push, advance: (ms: number) => { clock += ms; } };
@@ -405,38 +406,78 @@ describe("alert timing and each device's choice", () => {
     expect(fake.received.map((message) => message.payload.body)).toEqual(["work finished"]);
   });
 
+  /**
+   * Holds the alert timers (the delays `timed()` sets) until the test fires them, so whether a
+   * status change lands before or after an alert never depends on how loaded the machine is.
+   * Every other timer runs for real.
+   */
+  function holdAlertTimers() {
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    const held = new Map<object, () => void>();
+    const set = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+      if (ms !== SHORT && ms !== LONG) return realSet(callback, ms, ...args);
+      const handle = {};
+      held.set(handle, () => callback(...args));
+      return handle;
+    }) as never);
+    const clear = spyOn(globalThis, "clearTimeout").mockImplementation(((handle: unknown) => {
+      if (!held.delete(handle as object)) realClear(handle as Parameters<typeof clearTimeout>[0]);
+    }) as never);
+    return {
+      pending: () => held.size,
+      fire() {
+        const due = [...held.values()];
+        held.clear();
+        for (const run of due) run();
+      },
+      restore() { set.mockRestore(); clear.mockRestore(); },
+    };
+  }
+
   it("calls off a question answered before it goes out, and sends one left waiting", async () => {
-    const { push } = timed();
-    await push.onStatus("w1:p1", "working");
-    await push.onStatus("w1:p1", "blocked");
-    await sleep(10);
-    await push.onStatus("w1:p1", "working");
-    await push.settled();
-    expect(fake.received).toHaveLength(0);
-    await push.onStatus("w1:p1", "blocked");
-    await push.settled();
-    expect(fake.received.map((r) => r.payload.body)).toEqual(["waiting for your input"]);
+    const timers = holdAlertTimers();
+    try {
+      const { push } = timed();
+      await push.onStatus("w1:p1", "working");
+      await push.onStatus("w1:p1", "blocked");
+      expect(timers.pending()).toBe(1);
+      await push.onStatus("w1:p1", "working");
+      expect(timers.pending()).toBe(0);
+      await push.settled();
+      expect(fake.received).toHaveLength(0);
+      await push.onStatus("w1:p1", "blocked");
+      timers.fire();
+      await push.settled();
+      expect(fake.received.map((r) => r.payload.body)).toEqual(["waiting for your input"]);
+    } finally { timers.restore(); }
   });
 
   it("tells a finish only after a turn that worked a while, and not one followed by the next prompt", async () => {
-    const { push, advance } = timed();
-    await push.onStatus("w1:p1", "working");
-    advance(500);
-    await push.onStatus("w1:p1", "done");
-    await push.settled();
-    expect(fake.received).toHaveLength(0);
-    await push.onStatus("w1:p1", "working");
-    advance(2_000);
-    await push.onStatus("w1:p1", "done");
-    await sleep(10);
-    // the next prompt went in before the alert: the user is there
-    await push.onStatus("w1:p1", "working");
-    await push.settled();
-    expect(fake.received).toHaveLength(0);
-    advance(2_000);
-    await push.onStatus("w1:p1", "done");
-    await push.settled();
-    expect(fake.received.map((r) => r.payload.body)).toEqual(["work finished"]);
+    const timers = holdAlertTimers();
+    try {
+      const { push, advance } = timed();
+      await push.onStatus("w1:p1", "working");
+      advance(500);
+      await push.onStatus("w1:p1", "done");
+      expect(timers.pending()).toBe(0);
+      await push.settled();
+      expect(fake.received).toHaveLength(0);
+      await push.onStatus("w1:p1", "working");
+      advance(2_000);
+      await push.onStatus("w1:p1", "done");
+      expect(timers.pending()).toBe(1);
+      // the next prompt went in before the alert: the user is there
+      await push.onStatus("w1:p1", "working");
+      expect(timers.pending()).toBe(0);
+      await push.settled();
+      expect(fake.received).toHaveLength(0);
+      advance(2_000);
+      await push.onStatus("w1:p1", "done");
+      timers.fire();
+      await push.settled();
+      expect(fake.received.map((r) => r.payload.body)).toEqual(["work finished"]);
+    } finally { timers.restore(); }
   });
 
   it("follows what the device chose: no questions, every finish, or no finish at all", async () => {
@@ -501,13 +542,10 @@ it("settles only after a delivery already under way, when a later group is calle
     await push.onStatus("w1:p1", "done");
     await titleAsked;
     await push.onStatus("w1:p1", "working");
-    let settled = false;
-    const settling = push.settled().then(() => { settled = true; });
-    await Bun.sleep(50);
-    expect(settled).toBe(false);
+    // what had arrived when settled() resolved: the delivery held at its title lookup must be in it
+    const settling = push.settled().then(() => fake.received.length);
     release();
-    await settling;
-    expect(fake.received).toHaveLength(1);
+    expect(await settling).toBe(1);
     expect(slower.received).toHaveLength(0);
   } finally { slower.stop(); }
 });
