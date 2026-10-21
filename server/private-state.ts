@@ -7,7 +7,8 @@
  *
  * A unique temporary file is created exclusively in the same directory at 0600 (the directory
  * is created 0700), all bytes are written, the file is fsynced and closed, then renamed over the
- * destination. The destination always ends up 0600: its old mode is never copied. A failure up
+ * destination. The destination ends up at most 0600: on POSIX a narrower existing mode (0400, say)
+ * is kept, a wider one is never copied. A failure up
  * to and including the rename throws and leaves the destination as it was. Afterwards the parent
  * directory is fsynced on POSIX so the rename itself is recorded; that step is best effort (some
  * filesystems refuse it), so its failure is returned, not thrown: the new document is already in
@@ -17,7 +18,7 @@
  * here: they are cheap to lose and would pay an fsync each time.
  */
 import { randomBytes } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 
 /** The filesystem calls the writer makes, in one place so tests can replace them with scoped spies. */
@@ -34,8 +35,13 @@ export function writePrivateState(path: string, value: unknown, platform: NodeJS
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
   const temporary = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  // Never wider than 0600, and never wider than the file it replaces. The descriptor stays
+  // writable whatever the mode: O_CREAT applies it only to later opens. Windows modes carry no
+  // owner privacy, and a read-only temporary file there could not be cleaned up.
+  const existing = platform === "win32" ? undefined : statSync(path, { throwIfNoEntry: false });
+  const mode = existing === undefined ? 0o600 : existing.mode & 0o600;
   // "wx": O_CREAT | O_EXCL, so this call never writes into a file it did not create
-  let fd: number | null = fs.openSync(temporary, "wx", 0o600);
+  let fd: number | null = fs.openSync(temporary, "wx", mode);
   try {
     for (let written = 0; written < bytes.length;) {
       const count = fs.writeSync(fd, bytes, written, bytes.length - written);

@@ -107,6 +107,18 @@ describe("writePrivateState", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
+  it("keeps a narrower mode of the old file", () => {
+    const root = mkdtempSync(join(dir, "narrow-"));
+    for (const [before, after] of [[0o400, 0o400], [0o440, 0o400], [0o640, 0o600]] as const) {
+      const path = join(root, `devices-${before.toString(8)}.json`);
+      writeFileSync(path, "{}\n", { mode: 0o600 });
+      chmodSync(path, before);
+      writePrivateState(path, value, "linux");
+      expect(statSync(path).mode & 0o777).toBe(after);
+      expect(readFileSync(path, "utf8")).toBe(document);
+    }
+  });
+
   it("leaves the destination unchanged on file sync failure", () => {
     const root = mkdtempSync(join(dir, "fsync-"));
     const path = join(root, "devices.json");
