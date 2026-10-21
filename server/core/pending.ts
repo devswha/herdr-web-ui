@@ -96,12 +96,14 @@ export function createPendingDelivery({ options, clients, attachments, sight, se
   /** first messages still learning the agent launched for them (queueFirstMessage, learnLaunched) */
   const launchBound = new WeakSet<PendingItem>();
   /**
-   * The pane's launch-bound first messages that still wait to go. A held one learns no more at events: it
-   * goes only on an explicit Send now, which reads the pane then (bindLaunched).
+   * The pane's launch-bound first messages that learn at its events: a queued one, and a held one until
+   * the process launched for it is known. Then a held one reads the pane no more until its Send now
+   * (bindLaunched), which still tells a launch that came up and left from one not up yet.
    */
   const launchBoundIn = (paneId: string): PendingItem[] => pending.list(FIRST_MESSAGE_OWNER, paneId)
     .map((message) => pending.get(FIRST_MESSAGE_OWNER, paneId, message.id))
-    .filter((item): item is PendingItem => item !== undefined && launchBound.has(item) && item.message.state === "queued");
+    .filter((item): item is PendingItem => item !== undefined && launchBound.has(item)
+      && (item.message.state === "queued" || (item.message.state === "held" && item.identity.processPid == null)));
   /** the page connection that sent each first message: the only one that types it on its own */
   const requesters = new WeakMap<PendingItem, Client>();
   const requested = new WeakMap<Client, Set<PendingItem>>();

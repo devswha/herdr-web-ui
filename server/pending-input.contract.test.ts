@@ -1359,6 +1359,46 @@ describe("a create request's first message", () => {
     expect(readFileSync(log, "utf8")).toBe("");
   }, 30_000);
 
+  it("held from the start, still learns its launched agent: once that agent came up and quit, Send now answers pending_target_changed, not that it is not up yet", async () => {
+    const created = await herdrRpc<{ workspace: { workspace_id: string } }>("workspace.create", { label: "herdr-web-ui-test-pending-first-held-quit", cwd: root, focus: false });
+    const entry: (typeof active)[number] = { stop: () => {}, sockets: [], workspace: created.workspace.workspace_id }; active.push(entry);
+    const server = createServer({ port: 0, stateDir: join(root, "state-first-held-quit") });
+    entry.stop = server.stop;
+    // the request names no page connection: held from the start
+    standInLaunch = true;
+    const res = await fetch(`http://localhost:${server.port}/api/tab/create`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspace_id: created.workspace.workspace_id, cwd: root, agent: { kind: "claude" }, first_message: "FIRST-HELD-QUIT" }),
+    }).finally(() => { standInLaunch = false; });
+    const tab = await res.json() as { pane_id: string; first_message: { id: string } };
+    const pane = tab.pane_id;
+    const device = new Socket(server.port); entry.sockets.push(device);
+    await device.attach(pane);
+    expect((await listed(device, pane, tab.first_message.id, "held")).messages[0].error.code).toBe("first_message_unattended");
+    await drained(server, pane);
+    const log = join(root, "first-held-quit.jsonl");
+    const screenFile = join(root, "first-held-quit.screen");
+    writeFileSync(screenFile, "");
+    const ended = join(root, "first-held-quit.ended");
+    const up = written(() => existsSync(log), "the launched agent did not start", 10_000);
+    const before = device.seen.length;
+    await herdrRpc("pane.send_text", { pane_id: pane, text: `'${join(root, "claude")}' '${join(root, "record.cjs")}' '${log}' '\u203a Message' '${screenFile}'; : > '${ended}'\n` });
+    await up;
+    await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "working" });
+    await learned(server, device, pane, "claude", before, entry.sockets);
+    const launched = (await herdrClient.paneProcessInfo(pane))?.foreground_processes?.find((process) => process.name === "claude");
+    if (!launched) throw new Error("the launched agent has no foreground process");
+    const quit = written(() => existsSync(ended), "the launched agent did not end", 10_000);
+    globalThis.process.kill(launched.pid, "SIGKILL");
+    await quit;
+    await herdrRpc("pane.release_agent", { pane_id: pane, source: "manual", agent: "claude" });
+    device.send({ type: "pending-action", id: 31, pane_id: pane, pending_id: tab.first_message.id, action: "steer" });
+    expect(await device.action(31)).toMatchObject({ ok: false, code: "pending_target_changed" });
+    device.send({ type: "pending-action", id: 32, pane_id: pane, pending_id: tab.first_message.id, action: "discard" });
+    expect(await device.action(32)).toMatchObject({ ok: true });
+    expect(readFileSync(log, "utf8")).toBe("");
+  }, 30_000);
+
   it("is discarded by an attached connection, and then never typed", async () => {
     const f = await setup("first-discard");
     const message = await f.server.queueFirstMessage(f.pane, "FIRST-DISCARD", "claude", await f.socket.connection());
