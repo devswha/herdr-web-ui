@@ -7,6 +7,7 @@ import {
   agentGet, HerdrError, herdrRpc, LARGE_REPLY_BYTES, LINE_BYTES, makeLineReader, paneProcessInfo, paneRead, sessionSnapshot,
   subscribeEvents, type EventFrame,
 } from "./client.ts";
+import type { AgentInfo, PaneInfo, PaneLayoutRect, PaneLayoutSnapshot, SessionSnapshot, TabInfo, WorkspaceInfo } from "../../shared/herdr-api.generated.ts";
 
 // The typed herdr seam (server/herdr/methods.ts). `bun run typecheck` checks the lines marked
 // with ts-expect-error below: each must stay a compile error. They hold for a call without an explicit
@@ -156,6 +157,57 @@ function subscriber(path: string, expectEvents = 0) {
   };
 }
 
+/**
+ * A schema-complete session.snapshot (SessionSnapshot in shared/herdr-api.generated.ts) for a large
+ * session: every required and optional field of each workspace, tab, layout, pane and agent is
+ * filled, with multibyte and JSON-escaped text, so its size is a full snapshot's, not a sketch's.
+ */
+function fullSnapshot(workspaceCount: number, tabsPer: number, panesPer: number): SessionSnapshot {
+  const rect = (n: number): PaneLayoutRect => ({ x: n * 12, y: n * 4, width: 120, height: 40 });
+  const workspaces: WorkspaceInfo[] = [];
+  const tabs: TabInfo[] = [];
+  const layouts: PaneLayoutSnapshot[] = [];
+  const panes: PaneInfo[] = [];
+  const agents: AgentInfo[] = [];
+  for (let w = 0; w < workspaceCount; w++) {
+    const workspace_id = `ws-${w}`;
+    workspaces.push({
+      workspace_id, number: w + 1, label: `작업 공간 ${w} "main"`, focused: w === 0, active_tab_id: `${workspace_id}-tab-0`,
+      agent_status: "working", pane_count: tabsPer * panesPer, tab_count: tabsPer, tokens: { model: "gpt-5", context: 0.42 },
+      worktree: {
+        checkout_path: `/home/user/.herdr/worktrees/project/feature-${w}`, is_linked_worktree: true,
+        repo_key: "github.com/user/project", repo_name: "project", repo_root: "/home/user/projects/project",
+      },
+    });
+    for (let t = 0; t < tabsPer; t++) {
+      const tab_id = `${workspace_id}-tab-${t}`;
+      tabs.push({ tab_id, workspace_id, number: t + 1, label: `탭 ${t}`, focused: t === 0, agent_status: "idle", pane_count: panesPer });
+      const ids = Array.from({ length: panesPer }, (_, p) => `${tab_id}-pane-${p}`);
+      layouts.push({
+        workspace_id, tab_id, focused_pane_id: ids[0]!, zoomed: false, area: rect(0),
+        panes: ids.map((pane_id, p) => ({ pane_id, focused: p === 0, rect: rect(p) })),
+        splits: ids.slice(1).map((_, s) => ({ id: `${tab_id}-split-${s}`, direction: s % 2 ? "down" : "right", ratio: 0.5, rect: rect(s) })),
+      });
+      ids.forEach((pane_id, p) => {
+        const common = {
+          pane_id, workspace_id, tab_id, terminal_id: `term-${pane_id}`, focused: w + t + p === 0, revision: 1000 + p,
+          agent: "codex", display_agent: "Codex", agent_status: "working",
+          cwd: `/home/user/projects/한글-${p}`, foreground_cwd: `/home/user/projects/한글-${p}/src`,
+          title: `codex — 작업 ${p}`, terminal_title: "codex — 작업 \"✓\"", terminal_title_stripped: "codex — 작업 \"✓\"",
+          agent_session: { agent: "codex", kind: "path", source: "herdr:codex", value: `/home/user/.codex/sessions/2026/10/21/rollout-${pane_id}.jsonl` },
+          state_labels: { phase: "editing" }, tokens: { input: 120_000, output: 8_000 },
+        };
+        panes.push({ ...common, label: `label ${p}`, restore_error: null, scroll: { offset_from_bottom: 0, max_offset_from_bottom: 1000, viewport_rows: 40 } });
+        agents.push({ ...common, name: `codex-${p}`, completion_seq: 7, interactive_ready: true, launch_pending: false, screen_detection_skipped: false, state_change_seq: 12 });
+      });
+    }
+  }
+  return {
+    version: "0.9.5", protocol: 1, focused_workspace_id: "ws-0", focused_tab_id: "ws-0-tab-0", focused_pane_id: "ws-0-tab-0-pane-0",
+    workspaces, tabs, layouts, panes, agents,
+  };
+}
+
 const ack = (id: string) => `${JSON.stringify({ id, result: { type: "subscription_started" } })}\n`;
 const event = (n: number, pad = "") => ({ event: "pane.agent_status_changed", data: { pane_id: `pane-${n}`, agent_status: "working", pad }, future_field: n });
 
@@ -285,14 +337,6 @@ it("bounds bytes before a newline or UTF-8 decoding", async () => {
 it("accepts largest supported pane and snapshot replies", async () => {
   // escaped and multibyte text with ANSI colour, padded so each reply line is exactly the ceiling
   const screen = "\u001b[1;38;5;208m한글 ✓ 😀\u001b[0m \"quoted\" back\\slash\ttab\r\n";
-  const pane = (n: number, title = "") => ({
-    pane_id: `pane-${n}`, workspace_id: "ws-1", tab_id: "tab-1", terminal_id: `term-${n}`, focused: n === 0, revision: n,
-    agent: "codex", display_agent: "Codex", agent_status: "working", cwd: `/home/user/projects/한글-${n}`, foreground_cwd: `/home/user/projects/한글-${n}`,
-    label: `label ${n}`, title, terminal_title: "codex — 작업", terminal_title_stripped: "codex — 작업",
-    agent_session: { agent: "codex", kind: "path", source: "herdr:codex", value: `/home/user/.codex/sessions/${n}.jsonl` },
-    scroll: { offset_from_bottom: 0, max_offset_from_bottom: 1000 }, state_labels: {}, tokens: {}, added_later: true,
-  });
-  const panes = Array.from({ length: 2000 }, (_, n) => pane(n));
   let reply: (request: Request) => string = () => "";
   const { path, connections, requests } = await peer((request, { socket }) => socket.end(`${reply(request)}\n`));
 
@@ -304,13 +348,22 @@ it("accepts largest supported pane and snapshot replies", async () => {
   expect(read.text.length).toBeGreaterThan(LINE_BYTES);
   expect((read as unknown as { added_later: number }).added_later).toBe(1);
 
-  reply = ({ id }) => exactLine(LARGE_REPLY_BYTES, (pad) => ({
-    id, result: { type: "session_snapshot", snapshot: { workspaces: [{ workspace_id: "ws-1", label: "작업 공간" }], tabs: [{ tab_id: "tab-1", workspace_id: "ws-1" }], panes: [...panes, pane(2000, pad)] } },
-  }));
+  // The snapshot sizing evidence in client.ts: a schema-complete snapshot of 25 workspaces of 8 tabs
+  // of 10 panes (2,000 panes, with every pane's agent and every tab's layout) is 3,598,115 bytes of
+  // JSON, its whole reply line under 3,598,200, about 1,800 bytes a pane; twice that is under 8 MiB.
+  const full = fullSnapshot(25, 8, 10);
+  expect([full.workspaces.length, full.tabs.length, full.layouts.length, full.panes.length, full.agents.length]).toEqual([25, 200, 200, 2000, 2000]);
+  expect(Buffer.byteLength(JSON.stringify(full))).toBe(3_598_115);
+  let unpadded = 0;
+  reply = ({ id }) => {
+    unpadded = Buffer.byteLength(JSON.stringify({ id, result: { type: "session_snapshot", snapshot: full } }));
+    // the same snapshot, padded through one extension field to exactly the ceiling
+    return exactLine(LARGE_REPLY_BYTES, (pad) => ({ id, result: { type: "session_snapshot", snapshot: { ...full, added_later: pad } } }));
+  };
   const snapshot = await sessionSnapshot(path, 30_000);
-  expect(snapshot.panes).toHaveLength(2001);
-  expect(snapshot.panes[1]).toEqual(panes[1] as never);
-  expect(Buffer.byteLength(JSON.stringify(panes[1]))).toBeLessThan(1024);
+  expect(unpadded).toBeLessThan(3_598_200);
+  expect(2 * unpadded).toBeLessThan(8 * 1024 * 1024);
+  expect(snapshot).toEqual({ ...full, added_later: expect.any(String) } as never);
 
   // the large ceiling is for those two methods only: the same 64 MiB answer to any other fails
   const ordinary = await rejection(herdrRpc("pane.get", { pane_id: "pane-1" }, path, 30_000));
@@ -353,6 +406,19 @@ it("validates subscription acknowledgement separately from events", async () => 
   expect([good.started(), good.errors, good.events]).toEqual([1, [], [event(1), event(2)] as never]);
   good.subscription.close();
   await within(connections[0]!.closed, 5_000, "closing the good subscription");
+
+  // a schema-valid event that also carries `error: null` is still an event, delivered unchanged
+  const withError = {
+    event: "pane_agent_status_changed",
+    data: { type: "pane_agent_status_changed", workspace_id: "w1", pane_id: "p1", agent_status: "working" },
+    error: null,
+  };
+  script = (id, socket) => socket.write(`${ack(id)}${JSON.stringify(withError)}\n`);
+  const extended = subscriber(path, 1);
+  await within(Promise.race([extended.allEvents, extended.errored]), 5_000, "the event with error: null");
+  expect([extended.started(), extended.errors, extended.closes(), extended.events]).toEqual([1, [], 0, [withError] as never]);
+  extended.subscription.close();
+  await within(connections[1]!.closed, 5_000, "closing the extended-event subscription");
 
   // each bad acknowledgement: reported once, closed once, never started
   const badAcks: [string, Script][] = [

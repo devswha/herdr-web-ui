@@ -64,7 +64,9 @@ function nextId(): string {
  * supported ceilings, not herdr's. Sizing evidence: the largest ANSI pane fixture
  * (server/fixtures/opencode-autocomplete-2.0.32-ansi-third-selected.ansi, 40 rows) is 10,466 bytes,
  * 12,742 once JSON-escaped (about 319 bytes a row); the bridge's largest fixed read is 400 recent rows
- * (server/codex.ts), about 128 KB at that rate; a snapshot carries well under 1 KB of metadata a pane.
+ * (server/codex.ts), about 128 KB at that rate. A schema-complete snapshot of 25 workspaces, 200 tabs
+ * and 2,000 panes, with every pane's agent and every tab's layout, is 3,598,115 bytes of JSON and a
+ * reply line under 3,598,200 bytes (about 1,800 bytes a pane; server/herdr/seam.test.ts builds it).
  * Twice each of those stays far below the floors, so the floors stand: 64 MiB for pane.read and
  * session.snapshot (server/herdr/seam.test.ts answers both at exactly that size), 16 MiB for every
  * other reply and for each line of an event stream. A subscription has no lifetime total: only
@@ -824,8 +826,11 @@ export function subscribeEvents(
       invalid("unparseable frame", bytes);
       return;
     }
-    // herdr's answer to the subscribe request itself: an error, or the acknowledgement
-    if (!started || (isRecord(frame) && Object.hasOwn(frame, "error"))) {
+    // herdr's answer to the subscribe request itself: an error, or the acknowledgement. Once
+    // started, a frame with a string `event` is an event whatever else it carries (an extra
+    // `error: null` included); only a frame without one can be an error reply.
+    const isEvent = started && isRecord(frame) && typeof frame["event"] === "string";
+    if (!started || (!isEvent && isRecord(frame) && Object.hasOwn(frame, "error"))) {
       const reply = readReply(frame, id);
       if (typeof reply === "string") invalid(reply, bytes);
       else if ("error" in reply) handlers.onError?.(new HerdrError(reply.error.code, reply.error.message));
