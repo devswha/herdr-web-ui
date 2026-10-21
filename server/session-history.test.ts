@@ -437,7 +437,7 @@ describe("listSessions", () => {
     expect(reads).toBe(2);
   });
 
-  it("reads a WAL store immutable once more, writing nothing into it, when the first read failed with no writer", () => {
+  it("lists nothing, and writes nothing into it, from a WAL store whose first read failed with no writer", () => {
     const home = newHome();
     install("hermes", home);
     const db = join(home, ".hermes", "state.db");
@@ -448,12 +448,34 @@ describe("listSessions", () => {
     let reads = 0;
     const rows = listSessions("hermes", CWD, {
       home, env: {},
-      // the first read fails (its connection is gone) while nobody writes
+      // the first read fails (its connection is gone) while nobody writes: nothing changed, so it is not read again
       opened: (_path, immutable, opened) => { if (reads++ === 0 && immutable) opened.close(); },
     });
     expect(sideFiles(dirname(db))).toEqual(before);
-    expect(rows.map((row) => row.id)).toEqual(EXPECTED.hermes);
-    expect(reads).toBe(2);
+    expect(rows).toEqual([]);
+    expect(reads).toBe(1);
+  });
+
+  it("reads a restored WAL store whose -wal has no -shm immutable, writing nothing into it", () => {
+    const home = newHome();
+    install("hermes", home);
+    const db = join(home, ".hermes", "state.db");
+    const writer = new Database(db);
+    writer.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE)");
+    writer.exec("UPDATE messages SET content = 'only in the log' WHERE session_id = '20261002_090000_fx0002' AND role = 'user'");
+    // a store restored from a copy: its main file and a valid -wal, no -shm
+    const restored = newHome();
+    mkdirSync(join(restored, ".hermes"));
+    copyFileSync(db, join(restored, ".hermes", "state.db"));
+    copyFileSync(`${db}-wal`, join(restored, ".hermes", "state.db-wal"));
+    writer.close();
+    const store = join(restored, ".hermes");
+    const before = sideFiles(store);
+    expect(before).toEqual(["state.db-wal"]);
+    const rows = listSessions("hermes", CWD, { home: restored, env: {} });
+    expect(sideFiles(store)).toEqual(before);
+    // immutable reads the main file alone: what only the log holds is not seen
+    expect(rows.map((row) => row.firstMessage)).toEqual(["Fixture hermes prompt 2", "Fixture hermes prompt 1"]);
   });
 
   it("lists a session still in a WAL store's log while its agent writes", () => {
