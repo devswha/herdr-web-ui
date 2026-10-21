@@ -1402,7 +1402,11 @@ try {
     page.setDefaultTimeout(20_000);
     const missing: string[] = [];
     page.on("response", (response) => { if (response.status() === 404) missing.push(response.url()); });
+    // the demo ends its opening agent turn on a 4.5 s timer (site/demo/transport.ts); run the clock past it
+    // first, so the sheet's backdrop is the finished turn in every capture rather than whichever the timer reached
+    await page.clock.install();
     await page.goto(`http://127.0.0.1:${demoServer.port}/herdr-web-ui/demo/app/`);
+    await page.clock.runFor(4_500);
     // a computer's header opens Files from its own button (the More menu keeps it on a phone)
     await page.locator(".header-files-button").click();
     await page.getByRole("dialog", { name: "Files", exact: true }).waitFor();
