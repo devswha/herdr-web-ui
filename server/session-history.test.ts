@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { fstatSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, type BigIntStats, type Stats, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -287,6 +287,43 @@ describe("listSessions", () => {
     });
     expect(rows.map((row) => row.firstMessage)).not.toContain("outside the store");
     expect(rows).toEqual([]);
+  });
+
+  // NTFS file IDs often pass 2^53: two that differ only in their low bits round to one number
+  const NEAR = 2n ** 60n;
+  const withIno = <T extends Stats | BigIntStats>(stat: T, ino: bigint): T =>
+    Object.assign(Object.create(Object.getPrototypeOf(stat) as object) as T, stat, { ino: typeof stat.ino === "bigint" ? ino : Number(ino) });
+  const statAs = (path: string, bigint?: boolean): Stats | BigIntStats => bigint ? statSync(path, { bigint: true }) : statSync(path);
+
+  it("refuses a session file whose opened identity differs from the checked one only past 2^53", () => {
+    const home = newHome();
+    mkdirSync(piStore(home), { recursive: true });
+    const session = join(piStore(home), "session.jsonl");
+    writeFileSync(session, piHeader(ID(1)) + piPrompt("inside the store"));
+    const checked = realpathSync(session);
+    const listed = (opened: bigint) => listSessions("pi", CWD, {
+      home, env: {},
+      stat: (path, bigint) => path === checked ? withIno(statAs(path, bigint), NEAR + 1n) : statAs(path, bigint),
+      fstat: (fd, bigint) => withIno(bigint ? fstatSync(fd, { bigint: true }) : fstatSync(fd), opened),
+    }).map((row) => row.id);
+    expect(listed(NEAR + 1n)).toEqual([ID(1)]);
+    expect(listed(NEAR + 2n)).toEqual([]);
+  });
+
+  it("refuses a SQLite store whose identity after the open differs from the checked one only past 2^53", () => {
+    const home = newHome();
+    install("hermes", home);
+    const checked = realpathSync(join(home, ".hermes", "state.db"));
+    const listed = (afterOpen: bigint) => {
+      let seen = 0;
+      return listSessions("hermes", CWD, {
+        home, env: {},
+        // the first stat of the database is its check, the next the one after the open
+        stat: (path, bigint) => path === checked ? withIno(statAs(path, bigint), seen++ === 0 ? NEAR + 1n : afterOpen) : statAs(path, bigint),
+      }).length;
+    };
+    expect(listed(NEAR + 1n)).toBe(2);
+    expect(listed(NEAR + 2n)).toBe(0);
   });
 
   it(`reads at most ${MAX_ENTRIES} entries of a folder, however many it holds`, () => {

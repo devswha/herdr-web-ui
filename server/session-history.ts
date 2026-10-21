@@ -77,6 +77,8 @@ export interface SessionHistoryOptions {
   resolve?: (path: string) => string;
   /** A listed entry's own time, its link not followed (tests count the calls); defaults to lstatSync. */
   lstat?: (path: string) => Stats;
+  /** Stats an opened file's descriptor (tests change the identity it reports); defaults to fstatSync. */
+  fstat?: (fd: number, bigint?: boolean) => Stats | BigIntStats;
   /** The OS whose folder rules apply; defaults to this one's (tests take Windows's on any OS). */
   platform?: NodeJS.Platform;
   /** Resolves a Windows cwd to its canonical long form (tests map an 8.3 alias); defaults to realpathSync.native. */
@@ -174,6 +176,9 @@ const inside = (root: string, path: string): boolean => {
   return child !== "" && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 };
 
+/** A file identity field as bigint (a stat taken without bigint gives a number). */
+const bigintOf = (value: number | bigint): bigint => typeof value === "bigint" ? value : BigInt(value);
+
 /** At most `max` bytes from the start of an open file. */
 function defaultReadHead(fd: number, max: number): Buffer {
   const buffer = Buffer.alloc(max);
@@ -187,11 +192,11 @@ function defaultReadHead(fd: number, max: number): Buffer {
  * (a folder above it swapped for a link reaches another file by the same path). A reader gets only
  * this descriptor, so none can read another file.
  */
-function openChecked(file: { real: string; dev: number; ino: number }): number {
+function openChecked(budget: Budget, file: { real: string; dev: bigint; ino: bigint }): number {
   const fd = openSync(file.real, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
   try {
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.dev !== file.dev || opened.ino !== file.ino) throw new Error("not the file that was checked");
+    const opened = budget.fstatOf(fd, true);
+    if (!opened.isFile() || bigintOf(opened.dev) !== file.dev || bigintOf(opened.ino) !== file.ino) throw new Error("not the file that was checked");
     return fd;
   } catch (error) { closeSync(fd); throw error; }
 }
@@ -208,6 +213,7 @@ class Budget {
     readonly platform: NodeJS.Platform,
     private readonly resolveOf: (path: string) => string = realpathSync,
     private readonly lstatOf: (path: string) => Stats = lstatSync,
+    readonly fstatOf: (fd: number, bigint?: boolean) => Stats | BigIntStats = (fd, bigint) => bigint ? fstatSync(fd, { bigint: true }) : fstatSync(fd),
   ) {}
 
   get exhausted(): boolean { return this.used >= MAX_STATS; }
@@ -216,6 +222,13 @@ class Budget {
     if (this.exhausted) return null;
     this.used++;
     try { return this.statOf(path) as Stats; } catch { return null; }
+  }
+
+  /** A file's stat with its identity in bigint, as one counted check; null once spent, or when it is gone. */
+  identity(path: string): { isFile: boolean; dev: bigint; ino: bigint } | null {
+    if (this.exhausted) return null;
+    this.used++;
+    try { const stat = this.statOf(path, true); return { isFile: stat.isFile(), dev: bigintOf(stat.dev), ino: bigintOf(stat.ino) }; } catch { return null; }
   }
 
   /** The path resolved (realpath), as one counted check; null once spent, or when it does not resolve. */
@@ -229,13 +242,14 @@ class Budget {
    * A session file, as one check: its resolution, and its stat once it resolves inside `root`. The
    * check is spent whatever the resolution finds (a dangling or outside link costs it too).
    */
-  file(path: string, root: string): { real: string; stat: Stats } | null {
+  file(path: string, root: string): { real: string; stat: Stats | BigIntStats } | null {
     if (this.exhausted) return null;
     this.used++;
     let real: string;
     try { real = this.resolveOf(path); } catch { return null; }
     if (!inside(root, real)) return null;
-    try { return { real, stat: this.statOf(real) as Stats }; } catch { return null; }
+    // bigint: an NTFS file ID can pass 2^53, and two that differ only in their low bits round to one number
+    try { return { real, stat: this.statOf(real, true) }; } catch { return null; }
   }
 
   /**
@@ -301,14 +315,14 @@ class Scan {
     const checked = this.budget.file(path, this.root);
     if (checked === null || !checked.stat.isFile()) return null;
     const { real, stat } = checked;
-    return { real, mtimeMs: stat.mtimeMs, size: stat.size, dev: stat.dev, ino: stat.ino };
+    return { real, mtimeMs: Number(stat.mtimeMs), size: Number(stat.size), dev: bigintOf(stat.dev), ino: bigintOf(stat.ino) };
   }
 
   /** At most HEAD_BYTES of a resolved file, split in lines; `cut` when the file goes on past them. */
   head(file: Found): { lines: string[]; cut: boolean } {
     let head: Buffer;
     try {
-      const fd = openChecked(file);
+      const fd = openChecked(this.budget, file);
       try { head = this.reader(fd, HEAD_BYTES); } finally { closeSync(fd); }
     } catch { return { lines: [], cut: false }; }
     return { lines: head.toString("utf8").split("\n"), cut: head.length >= HEAD_BYTES && file.size > head.length };
@@ -347,7 +361,7 @@ function newestEntries(budget: Budget, dirs: readonly string[], keep: (entry: Di
   })).sort((a, b) => b.time - a.time).map((entry) => entry.path);
 }
 
-type Found = { real: string; mtimeMs: number; size: number; dev: number; ino: number };
+type Found = { real: string; mtimeMs: number; size: number; dev: bigint; ino: bigint };
 
 /**
  * The `.jsonl` files directly in these directories (subagent folders beside them are not read), newest
@@ -672,8 +686,8 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
   const parent = real === null ? null : budget.resolve(dirname(path));
   if (real === null || parent === null) return null;
   if (!inside(root, real) || (parent !== root && !inside(root, parent)) || dirname(real) !== parent) return null;
-  const checked = budget.stat(real);
-  if (!checked?.isFile()) return null;
+  const checked = budget.identity(real);
+  if (!checked?.isFile) return null;
   let db: Database | undefined;
   try {
     // the database opened must be the one checked: a link put in its place is not followed
@@ -681,8 +695,8 @@ function withDatabase<T>(budget: Budget, storeDir: string, path: string, read: (
     // the open the path must still be the checked file (a folder above it swapped for a link, or
     // Windows), so a swap between the check and the open lists nothing
     db = new Database(real, sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_NOFOLLOW);
-    const opened = budget.stat(real);
-    if (!opened?.isFile() || opened.dev !== checked.dev || opened.ino !== checked.ino) return null;
+    const opened = budget.identity(real);
+    if (!opened?.isFile || opened.dev !== checked.dev || opened.ino !== checked.ino) return null;
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     return read(db);
   } catch { return null; }
@@ -838,7 +852,7 @@ export function listSessions(agent: SessionHistoryAgent, cwd: string, options: S
   const env = options.env ?? process.env;
   const home = options.home ?? homedir();
   const read = options.readHead;
-  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat);
+  const budget = new Budget(options.stat ?? ((path, bigint) => bigint ? statSync(path, { bigint: true }) : statSync(path)), options.platform ?? process.platform, options.resolve, options.lstat, options.fstat);
   // the pane's cwd may be another spelling of the folder the agent recorded: a Windows 8.3 alias (a
   // child keeps the short cwd) or a link (macOS /var -> /private/var). Resolve it once, as one counted
   // stat, and key and match every store by both spellings
