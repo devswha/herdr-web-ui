@@ -17,8 +17,7 @@ import { agentRename, HerdrError, layoutSetSplitRatio, paneClear, paneClose, pan
 import { paneContext, resolveAgent, versionSourceOf } from "./pane-context.ts";
 import { PasteImageError, readImageBody, savePaneImage } from "./paste.ts";
 import { handleRewindRequest } from "./rewind.ts";
-import { claudeRewindOnScreen } from "./dialogs/claude.ts";
-import { CLAUDE_REWIND_OPEN_MESSAGE } from "./core/composer.ts";
+import { CLAUDE_REWIND_OPEN_MESSAGE, claudeRewindOnScreen } from "./dialogs/claude.ts";
 
 /** the native stores createServer was given; unset, each reader finds its own */
 export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string; openCodeStateDir?: string };

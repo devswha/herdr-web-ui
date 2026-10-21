@@ -17,7 +17,7 @@ import { isOmpProcess, ompAgentDir } from "../omp.ts";
 import { processEnviron } from "../omo.ts";
 import { CLAUDE_CLEAR_INPUT_KEYS, claudeClearableDraft, claudeInputBoxContent, claudeInputDraft, claudeInputEmpty, claudeRestoredDraft, codexQuestionsCollapsed, chatOwnedInput, heldCandidate, hermesInputDraft, noteSubmitted, parseInteractivePrompt, prepareCommandSend, viewportShowsLive } from "../prompt.ts";
 import { registry } from "../dialogs/registry.ts";
-import { claudeRewindOnScreen } from "../dialogs/claude.ts";
+import { CLAUDE_REWIND_OPEN_MESSAGE, claudeRewindOnScreen } from "../dialogs/claude.ts";
 import { type PendingIdentity, PendingInputError } from "../pending-input.ts";
 import { startOpenCodeWatch, openCodeSkillsToType, skillsNotAttached } from "../opencode-native.ts";
 import { herdrSkillAttachIo, typeWithSkills } from "../opencode-skill-attach.ts";
@@ -169,11 +169,15 @@ export async function freeHermesInput(paneId: string, identity?: PendingIdentity
   return live;
 }
 
-/** A send refused while Claude Code's rewind dialog is on screen (any of its states). */
-export const CLAUDE_REWIND_OPEN_MESSAGE = "Claude Code's rewind dialog is open; finish or close it in the terminal (Esc), then send";
-
+/**
+ * Claude Code's input box as every chat send reads it first, before anything is typed. herdr reports
+ * Claude Code idle with its rewind dialog up, which shows no input box: on a Summarize row the message
+ * and its Enter would go to the add-context field and summarize the conversation. While any state of
+ * that dialog is on screen the send is refused, the Esc that clears a restored copy included.
+ */
 export async function claudeBoxReads(paneId: string): Promise<[string, string | null]> {
   const before = (await paneRead({ paneId, source: "detection", format: "text" })).text;
+  if (claudeRewindOnScreen(before)) throw new HerdrError("rewind_dialog_open", CLAUDE_REWIND_OPEN_MESSAGE);
   if (!claudeInputDraft(before, null)) return [before, null];
   const scrollBefore = await paneScrollInfo(paneId);
   const colors = (await paneRead({ paneId, source: "visible", format: "ansi" })).text;
@@ -301,14 +305,6 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         const claude = await paneIs(pane, "claude");
         // the process lookup waited on herdr: the device may have lost its access meanwhile
         inTime();
-        if (claude) {
-          // herdr reports Claude Code idle with its rewind dialog up, which shows no input box: on a
-          // Summarize row the message and its Enter would go to the add-context field and summarize
-          // the conversation. Nothing is typed, the Esc that clears a restored copy included.
-          const shown = (await paneRead({ paneId, source: "detection", format: "text" })).text;
-          inTime();
-          if (claudeRewindOnScreen(shown)) throw new HerdrError("rewind_dialog_open", CLAUDE_REWIND_OPEN_MESSAGE);
-        }
         if (claude && !sendAnyway) {
           if (clearDraft === undefined) {
             try {

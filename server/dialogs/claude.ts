@@ -522,6 +522,9 @@ function claudeRewindPanel(screen: string): string[][] | null {
  * Whether the screen ends in Claude Code's rewind panel, read or not: its list, a confirm step, or a
  * confirm step's add-context field (the Summarize rows, which take typed text and Enter).
  */
+/** A send refused while Claude Code's rewind dialog is on screen (any of its states). */
+export const CLAUDE_REWIND_OPEN_MESSAGE = "Claude Code's rewind dialog is open; finish or close it in the terminal (Esc), then send";
+
 export function claudeRewindOnScreen(screen: string): boolean {
   return claudeRewindPanel(screen) !== null;
 }
