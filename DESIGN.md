@@ -1765,10 +1765,10 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the step; a finger gets a `--touch-target` hit area through an invisible expander while the chip
   stays the `--chip-h` pill it is beside a mouse. The chip shows only in the chat lens, and not for
   an offline PC's cached plan. The sidebar's agent row repeats the count beside the background
-  count, in its quiet mono figures and with no box (`.plan-count`). The step in the chip follows
-  the Claude and Codex apps, whose plan rows name the step being worked on beside its progress;
-  herdr keeps it inside its one shared chip rather than agent-of-empires' separate always-visible
-  strip or a progress bar, so the status line stays one row on a phone.
+  count, in its quiet mono figures and with no box (`.plan-count`). The step in the chip is the
+  maintainer-approved adaptation of agent-of-empires' plan strip (#1040): only its step
+  visibility is taken, and herdr keeps its existing shared chip rather than importing that
+  separate always-visible strip or a progress bar, so the status line stays one row on a phone.
 - The chip opens one list above the card: a **Plan** heading with `N of M done`, the steps in wave
   order (a status glyph, the name, what a running step does now, then a dim state · time · teammate
   line; a waiting step's name is dim), then a **Background tasks** heading over the tasks list when

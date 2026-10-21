@@ -354,6 +354,22 @@ try {
         assert.equal(row.chip?.idle, false);
         await shot(page, width, theme, "en", "running");
         results.push({ what, state: "running", chip: row.chip, current: row.current, plan: row.plan });
+        // only the step's words change, the counts stay: a short step, then the long one beside it (the chip
+        // grows to its cap), and the status row refits, so the model beside the chip is never left cut
+        // (the counts move once with the short step, so the row is fitted with the model whole first)
+        await hook.status({ done: 1, total: 3, current: "Test" }, 0);
+        await page.waitForFunction(() => document.querySelector(".bg-tasks-current")?.textContent === "Test" && document.querySelector(".bg-tasks-plan")?.textContent === "1/3");
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.locator(".composer-model").evaluate((element) => element.clientWidth >= element.scrollWidth), true, `${what}: with a short step the model label is whole`);
+        await hook.status({ done: 1, total: 3, current: LONG }, 0);
+        await page.waitForFunction((long) => document.querySelector(".bg-tasks-current")?.textContent === long, LONG);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        row = await measure(page);
+        oneRow(row, `${what} step text only`);
+        assert.equal(row.plan?.text, "1/3");
+        const model = await page.locator(".composer-model").evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, drawn: element.getBoundingClientRect().width > 1, fit: element.closest(".composer-status")?.getAttribute("data-model") ?? "full" }));
+        assert.ok(!model.drawn || model.clientWidth >= model.scrollWidth, `${what}: a step text change alone refits the model label: ${JSON.stringify(model)}`);
+        results.push({ what, state: "step-text-only", chip: row.chip, current: row.current, plan: row.plan, model });
         // every step done: quiet, no step
         await hook.status({ done: 3, total: 3, current: null }, 0);
         await page.locator(".bg-tasks-toggle.is-idle").waitFor();
