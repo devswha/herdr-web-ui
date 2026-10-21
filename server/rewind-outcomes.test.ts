@@ -33,7 +33,7 @@ it("forgets the outcomes of the chat's sends after a restore's point, and keeps 
   expect(await shown()).toEqual(["before", "after"]);
   // the message restored was written to the transcript between the two sends: the later one was rewound away with it
   spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue({ said: "apple", at: start + 10_000 });
-  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: "apple\n\nThe conversation will be forked." } as unknown as ParsedPrompt, 2_000);
+  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], options: [{ label: "Restore conversation" }], body: "apple\n\nThe conversation will be forked." } as unknown as ParsedPrompt, 2_000);
   expect(await shown()).toEqual(["before"]);
 });
 
@@ -42,7 +42,7 @@ it("records a restore from a dialog the chat did not open only as the message's 
   const restored = readFileSync(new URL("./fixtures/claude-rewind-2.1.304-restored-40.txt", import.meta.url), "utf8");
   spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: restored, source: "detection", format: "text", truncated: false });
   const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
-  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: "apple\n\nThe conversation will be forked." } as unknown as ParsedPrompt, 2_000);
+  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], options: [{ label: "Restore conversation" }], body: "apple\n\nThe conversation will be forked." } as unknown as ParsedPrompt, 2_000);
   expect(recorded.mock.calls).toEqual([[pane.pane_id, "apple", null]]);
 });
 
@@ -59,6 +59,17 @@ it("follows a restore of a long message the walk opened by the whole message, no
   const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
   const card = parseInteractivePrompt("claude", quoted)!;
   rememberRewind(pane.pane_id, long, 0);
-  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: card.body } as unknown as ParsedPrompt, 2_000);
+  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], options: card.options, body: card.body } as unknown as ParsedPrompt, 2_000);
   expect(recorded.mock.calls).toEqual([[pane.pane_id, long, 0]]);
+});
+
+it("follows a card answer as a restore only when the card's first choice is Restore conversation", async () => {
+  const pane = { pane_id: "rewind-cancel", terminal_id: "terminal", workspace_id: "w", tab_id: "t", cwd: "/fixture", focused: false, revision: 0, agent: "claude", agent_status: "idle" };
+  const restored = readFileSync(new URL("./fixtures/claude-rewind-2.1.304-restored-40.txt", import.meta.url), "utf8");
+  spyOn(client, "paneRead").mockResolvedValue({ ...pane, text: restored, source: "detection", format: "text", truncated: false });
+  const recorded = spyOn(conversation, "rewindClaudeTranscript").mockResolvedValue(null);
+  // the cursor was on Never mind: the card's one choice is Never mind, and option 0 is no restore
+  const card = parseInteractivePrompt("claude", readFileSync(new URL("./fixtures/claude-rewind-2.1.304-confirm-apple-never-mind-40.txt", import.meta.url), "utf8"))!;
+  await followClaudeRestore(pane.pane_id, { menuLabels: [...CLAUDE_REWIND_CHOICES], body: card.body, options: card.options } as unknown as ParsedPrompt, 2_000);
+  expect(recorded).not.toHaveBeenCalled();
 });

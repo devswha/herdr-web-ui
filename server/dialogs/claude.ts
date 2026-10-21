@@ -1,5 +1,5 @@
 import type { DialogReader } from "./registry.ts";
-import { pickerPlan } from "./interaction-plan.ts";
+import { type InteractionPlan, pickerPlan } from "./interaction-plan.ts";
 import { type InteractivePromptAnswer } from "../../shared/protocol.ts";
 import { ANSI_RE, KEY, NUMBERED_OPTION_RE, type ParsedPrompt, SELECTED_RE, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, joinWrapped, keySteps, listNames, listRows, menuRows, navigationKeys, nearestQuestion, normalizeText, parseNumberedRows, screenWidth, sequentialRows, sliderKeys, wrapped } from "./shared.ts";
 
@@ -499,6 +499,7 @@ const CLAUDE_REWIND_LIST_RE = /^Restore the code and\/or conversation to the poi
 const CLAUDE_REWIND_CONFIRM_RE = /^Confirm you want to restore the conversation to the point before you sent this message:$/;
 
 export const CLAUDE_REWIND_CHOICES = ["Restore conversation", "Summarize from here", "Summarize up to here", "Never mind"] as const;
+export const CLAUDE_REWIND_NEVER_MIND = CLAUDE_REWIND_CHOICES[3];
 
 const CLAUDE_REWIND_MORE_RE = /^([↑↓]) (\d+) more$/;
 
@@ -597,13 +598,18 @@ export function parseClaudeRewindConfirm(screen: string): ClaudeRewindConfirm | 
 function parseClaudeRewind(screen: string): ParsedPrompt | null {
   const confirm = parseClaudeRewindConfirm(screen);
   if (confirm !== null) {
+    // only what one key commits from where the cursor is: a Summarize row is an add-context field (recorded),
+    // so no choice moves over the rows. Restore conversation where the cursor is on it (Enter), and Never mind
+    // as Esc, which goes back to the list from any row (recorded); the terminal holds the Summarize choices
+    const restore = confirm.selected === 0;
     return finishPrompt("claude", {
       kind: "menu", title: "Rewind", question: confirm.question, body: [confirm.message, "", ...confirm.notes].join("\n"),
-      options: CLAUDE_REWIND_CHOICES.map((label) => ({ label, description: null })), multi_select: false, custom_option_index: null,
+      options: [...(restore ? [CLAUDE_REWIND_CHOICES[0]] : []), CLAUDE_REWIND_NEVER_MIND].map((label) => ({ label, description: null })), multi_select: false, custom_option_index: null,
     }, {
+      // the terminal's rows, for the row identity the answer checks before its key
       responder: "claude-rewind", menuLabels: [...CLAUDE_REWIND_CHOICES], selectedIndex: confirm.selected,
       checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
-      optionSteps: CLAUDE_REWIND_CHOICES.map((_, index) => keySteps([...navigationKeys(index - confirm.selected), KEY.enter])),
+      optionSteps: [...(restore ? [keySteps([KEY.enter])] : []), keySteps([KEY.escape])],
     });
   }
   const list = parseClaudeRewindList(screen);
@@ -621,6 +627,29 @@ function parseClaudeRewind(screen: string): ParsedPrompt | null {
     checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
     optionSteps: messages.map((_, index) => keySteps([...navigationKeys(index - list.cursor), KEY.enter])),
   });
+}
+
+/**
+ * The confirm step's answer: each choice is one key with no move (parseClaudeRewind), so the commit is
+ * the chosen choice's own key, sent once the screen still shows the same message's step with the cursor
+ * on the same row.
+ */
+function rewindConfirmPlan(parsed: ParsedPrompt): InteractionPlan {
+  const steps = parsed.optionSteps ?? [];
+  const row = (shown: ParsedPrompt): string => `${shown.body?.split("\n")[0] ?? ""}\0${shown.menuLabels[shown.selectedIndex] ?? ""}`;
+  let chosen = -1;
+  const plan: InteractionPlan = {
+    identity: parsed.id,
+    cursor: parsed.selectedIndex,
+    moves: (answer) => { chosen = answer; return []; },
+    matches: (screen) => {
+      const shown = parseClaudeRewind(screen);
+      return shown !== null && CLAUDE_REWIND_CONFIRM_RE.test(shown.question) && row(shown) === row(parsed);
+    },
+    get commit() { return steps[chosen]?.at(-1) ?? { pick: true }; },
+    get terminalFallback() { return plan.commit.pick === true; },
+  };
+  return plan;
 }
 
 /** Characters no one sees: format controls (zero-width spaces and joiners, bidi marks, tags), combining marks, Hangul fillers. */
@@ -941,8 +970,8 @@ export const readers: readonly DialogReader[] = [
     reread: "before-commit", list: "letter-window",
     // every confirm step reads "Restore conversation": the message it quotes is part of the row, so an
     // answer made for one message gets no Enter on another's
-    interaction: (parsed) => pickerPlan(parsed, parseClaudeRewind, parsed.optionSteps ?? [], (shown, cursor) =>
-      shown.menuLabels[cursor] === undefined ? undefined : CLAUDE_REWIND_CONFIRM_RE.test(shown.question) ? `${shown.body?.split("\n")[0] ?? ""}\0${shown.menuLabels[cursor]}` : shown.menuLabels[cursor]),
+    interaction: (parsed) => CLAUDE_REWIND_CONFIRM_RE.test(parsed.question) ? rewindConfirmPlan(parsed)
+      : pickerPlan(parsed, parseClaudeRewind, parsed.optionSteps ?? [], (shown, cursor) => shown.menuLabels[cursor]),
     parse: (screen) => {
       const parsed = parseClaudeRewind(screen);
       return parsed?.responder === "claude-rewind" ? parsed : null;

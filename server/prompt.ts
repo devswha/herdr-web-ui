@@ -14,13 +14,13 @@ import { listPendingQuestionForms, openCodeService, replyOpenCodeForm } from "./
 import { opencodeSessionId } from "./opencode.ts";
 import { registry } from "./dialogs/registry.ts";
 import { claudeRewindPanelBelow } from "./dialogs/claude.ts";
-import { followClaudeRestore } from "./rewind.ts";
+import { followClaudeNeverMind, followClaudeRestore } from "./rewind.ts";
 import { ANSI_RE, type AnswerStep, KEY, type OmoAsk, type OpenCodePromptEntry, PI_MODEL_HINT_RE, type ParsedPrompt, SOLID_RULE_RE, cleanLine, findLastIndex, finishPrompt, isDivider, keySteps, navigationKeys, normalizeText, parsedByPublicPrompt, publicPrompt, wrapped } from "./dialogs/shared.ts";
 import { executeInteractionPlan } from "./dialogs/interaction-plan.ts";
 import { openCodeV1QuestionActive } from "./dialogs/opencode.ts";
 import { CODEX_ASK_HINT_RE, CODEX_ASYNC_ASK_HINT_RE, CODEX_CONTINUE_HINT_RE, CODEX_QUEUE_HEADER_RE, codexModelListWaits } from "./dialogs/codex.ts";
 import { OMO_FOOTER_LINES, OMO_HINT_LINES, OMO_NOT_FOOTER_RE, OMO_OPTIONS_HINT_RE, OMO_PENDING_HINT_RE, OMO_REVIEW_HINT_RE, OMO_TYPING_HINT_RE, omoModelListWaits, sameText } from "./dialogs/omo.ts";
-import { CLAUDE_ASK_HINT_RE, CLAUDE_CONFIRM_HINT_RE, CLAUDE_EFFORT_GUARD_RE, CLAUDE_EFFORT_HINT_RE, INVISIBLE_CHAR_RE, claudeModelListWaits, withoutClaudeTasks } from "./dialogs/claude.ts";
+import { CLAUDE_ASK_HINT_RE, CLAUDE_CONFIRM_HINT_RE, CLAUDE_EFFORT_GUARD_RE, CLAUDE_EFFORT_HINT_RE, CLAUDE_REWIND_NEVER_MIND, INVISIBLE_CHAR_RE, claudeModelListWaits, withoutClaudeTasks } from "./dialogs/claude.ts";
 import { OMP_CLIPPED_SINGLE_HINT_RE, OMP_MULTI_HINT_RE, OMP_REVIEW_HINT_RE, OMP_SINGLE_CLIPPED_HINT_RE, OMP_SINGLE_HINT_RE } from "./dialogs/omp.ts";
 import { HERMES_HINT_RE } from "./dialogs/hermes.ts";
 import { PI_INPUT_HINT_RE, PI_MENU_HINT_RE, parsePiDialog } from "./dialogs/pi.ts";
@@ -1907,6 +1907,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       else if (responder === "claude-model" || responder === "claude-effort" || responder === "codex-model") form.answered = lastSeen ?? contentId(target);
       // Restore conversation on Claude Code's rewind card: once its screen shows it done, the chat follows at once
       if (responder === "claude-rewind" && body.option_index === 0) await followClaudeRestore(body.pane_id, parsedByPublicPrompt.get(target)!);
+      // Never mind went back to the list: it is closed too, so nothing is left open
+      if (responder === "claude-rewind" && target.options[body.option_index!]?.label === CLAUDE_REWIND_NEVER_MIND) await followClaudeNeverMind(body.pane_id);
       return jsonResponse({ ok: true });
     });
     // the wait for the form's next step only reads the pane: after the pane's turn, so a message

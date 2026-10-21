@@ -14,15 +14,16 @@ const rewind = (state: string, width: number): string =>
   readFileSync(new URL(`../fixtures/claude-rewind-2.1.304-${state}-${width}.txt`, import.meta.url), "utf8");
 
 describe("Claude Code's /rewind", () => {
-  const CHOICES = ["Restore conversation", "Summarize from here", "Summarize up to here", "Never mind"];
+  const OFFERED = ["Restore conversation", "Never mind"];
 
   for (const width of [40, 120]) {
     test(`reads the confirm step's choices at ${width} columns`, () => {
       const prompt = parseInteractivePrompt("claude", rewind("confirm-apple", width));
-      expect(prompt?.options.map((option) => option.label)).toEqual(CHOICES);
+      // what one key commits from the first row: Restore (Enter) and Never mind (Esc)
+      expect(prompt?.options.map((option) => option.label)).toEqual(OFFERED);
       expect(prompt?.body?.split("\n")[0]).toBe("apple");
       expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
-      expect(answerKeys(prompt!, { option_index: 3 })).toEqual([{ keys: ["down"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }]);
+      expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["esc"] }]);
     });
 
     test(`reads the message list with the cursor on (current) at ${width} columns`, () => {
@@ -42,14 +43,14 @@ describe("Claude Code's /rewind", () => {
 
   test("reads the confirm step under a rule a tip takes the start of", () => {
     const prompt = parseInteractivePrompt("claude", rewind("confirm-apple-tip", 40));
-    expect(prompt?.options.map((option) => option.label)).toEqual(CHOICES);
+    expect(prompt?.options.map((option) => option.label)).toEqual(OFFERED);
     expect(prompt?.body?.split("\n")[0]).toBe("apple");
   });
 
   test("joins a long message the narrow confirm step wraps", () => {
     const prompt = parseInteractivePrompt("claude", rewind("confirm-long", 40));
     expect(prompt?.body?.split("\n")[0]).toBe("please describe the history of the cherry orchard near the river in some detail");
-    expect(prompt?.options.map((option) => option.label)).toEqual(CHOICES);
+    expect(prompt?.options.map((option) => option.label)).toEqual(OFFERED);
   });
 
   test("the age under the message stays out of the card's identity", () => {
@@ -103,9 +104,36 @@ describe("Claude Code's /rewind", () => {
       }
       // a Summarize row is a text field, not the four choices: no card answers it
       expect(parseInteractivePrompt("claude", rewind("confirm-apple-summarize-from", width))).toBeNull();
-      expect(parseInteractivePrompt("claude", rewind("confirm-apple-never-mind", width))?.options.map((option) => option.label)).toEqual(CHOICES);
+      expect(parseInteractivePrompt("claude", rewind("confirm-apple-never-mind", width))?.options.map((option) => option.label)).toEqual(["Never mind"]);
     });
   }
+
+  // CodeRabbit 4333021179: a Summarize row is an add-context field, so the card offers only what it can commit
+  test("offers on a confirm step only what one key commits: Restore where the cursor is, and Never mind by Esc", () => {
+    const labels = (state: string, width: number) => parseInteractivePrompt("claude", rewind(state, width))?.options.map((option) => option.label);
+    for (const width of [40, 120]) {
+      expect(labels("confirm-apple-restore", width)).toEqual(["Restore conversation", "Never mind"]);
+      // the cursor moved to Never mind in the terminal: Restore would have to cross the Summarize rows
+      expect(labels("confirm-apple-never-mind", width)).toEqual(["Never mind"]);
+    }
+  });
+
+  test("answers each confirm card choice with one key through the answer plan, never over a Summarize row", async () => {
+    const reader = readers.find((candidate) => candidate.id === "claude-rewind")!;
+    const context: ReaderContext = { agent: "claude", omoAsk: null, omoTrusted: true, omoOpen: [], sent: null, working: false };
+    // the recorded screens: Down from Restore lands on the add-context field of Summarize from here
+    const answer = async (state: string, option: number) => {
+      let shown = rewind(state, 40);
+      const sent: AnswerStep[] = [];
+      const plan = reader.interaction!(reader.parse(shown, context)!);
+      const result = await executeInteractionPlan(plan, option, { rereadMoves: true, read: async () => shown, active: () => true, cancelled: () => false,
+        send: async (step) => { sent.push(step); if (step.keys?.[0] === "down") shown = rewind("confirm-apple-summarize-from", 40); } });
+      return { result, sent };
+    };
+    expect(await answer("confirm-apple-restore", 0)).toEqual({ result: "answered", sent: [{ keys: ["enter"] }] });
+    expect(await answer("confirm-apple-restore", 1)).toEqual({ result: "answered", sent: [{ keys: ["esc"] }] });
+    expect(await answer("confirm-apple-never-mind", 0)).toEqual({ result: "answered", sent: [{ keys: ["esc"] }] });
+  });
 
   test("a list cut by a later line gets no card", () => {
     expect(parseInteractivePrompt("claude", `${rewind("select-banana", 120)}\n❯ hello`)).toBeNull();

@@ -120,7 +120,9 @@ export function restoredOnScreen(screen: string, message: string): boolean {
  * composer offers it and the next send empties the box first. Nothing is kept when the screen does not show the restore within STEP_MS.
  */
 export async function followClaudeRestore(paneId: string, parsed: ParsedPrompt, stepMs = STEP_MS): Promise<void> {
-  if (parsed.menuLabels.join("\n") !== CLAUDE_REWIND_CHOICES.join("\n") || !parsed.body) return;
+  // a confirm step's card whose first choice is Restore conversation (the cursor was on it); a card
+  // that offers Never mind alone answered no restore with its first choice
+  if (parsed.menuLabels.join("\n") !== CLAUDE_REWIND_CHOICES.join("\n") || parsed.options[0]?.label !== CLAUDE_REWIND_CHOICES[0] || !parsed.body) return;
   const quoted = parsed.body.split("\n")[0]!;
   const walked = asked.get(paneId);
   asked.delete(paneId);
@@ -144,6 +146,17 @@ export async function followClaudeRestore(paneId: string, parsed: ParsedPrompt, 
 }
 
 const cursorOf = (list: ClaudeRewindList): string => list.rows[list.cursor]!.label;
+
+/**
+ * Never mind on the rewind card: its Esc took Claude Code back to the list (recorded), which the chat
+ * offers no way out of. Once the list shows, one more Esc closes it (recorded); nothing is sent when the
+ * list does not show within `stepMs`, so Claude's own input box never gets an Esc from here.
+ */
+export async function followClaudeNeverMind(paneId: string, stepMs = STEP_MS): Promise<void> {
+  const read = async () => (await paneRead({ paneId, source: "detection", format: "text" })).text;
+  if (await waitFor({ read }, parseClaudeRewindList, stepMs) === null) return;
+  await paneSendKeys(paneId, [KEY.escape]);
+}
 
 /**
  * From a confirm step back to the list, the cursor on `label` again: one Esc, which 2.1.304 takes on
