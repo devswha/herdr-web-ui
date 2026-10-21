@@ -1,4 +1,4 @@
-import { afterEach, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, expect, it, mock, setSystemTime, spyOn } from "bun:test";
 import { readFileSync } from "node:fs";
 import * as client from "./herdr/client.ts";
 import * as conversation from "./conversation.ts";
@@ -9,7 +9,9 @@ import { CLAUDE_REWIND_CHOICES } from "./dialogs/claude.ts";
 import type { ParsedPrompt } from "./dialogs/shared.ts";
 import type { PanePromptResponse } from "../shared/protocol.ts";
 
-afterEach(() => mock.restore());
+// the sends' times and the restored message's are set against a clock that stands still
+beforeEach(() => setSystemTime(new Date("2026-10-20T10:00:00.000Z")));
+afterEach(() => { mock.restore(); setSystemTime(); });
 
 it("forgets the outcomes of the chat's sends after a restore's point, and keeps the ones before it", async () => {
   const start = Date.now() - 60_000;
