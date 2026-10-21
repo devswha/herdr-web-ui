@@ -27,6 +27,22 @@ describe("PtySession", () => {
     expect(await printed).toContain("[" + sentinel + "]");
   }, 10000);
 
+  it("runs a command on a host started ahead of it with the same env and size", async () => {
+    if (process.platform === "win32") return;
+    const run = () => new Promise<string>((resolve) => {
+      let output = "";
+      new PtySession({
+        command: "sh", args: ["-c", 'printf "[%s %s]" "$HERDR_SOCKET_PATH" "$(stty size)"'],
+        cols: 33, rows: 7, env: { HERDR_SOCKET_PATH: "/tmp/warm.sock" },
+        onData: (data) => { output += data; },
+        onExit: () => resolve(output),
+      });
+    });
+    // the first leaves a waiting host behind, which the second takes (loaded or not: it reads its frame when it is)
+    expect(await run()).toContain("[/tmp/warm.sock 7 33]");
+    expect(await run()).toContain("[/tmp/warm.sock 7 33]");
+  }, 10000);
+
   it("signals SIGWINCH to the command without changing its size", async () => {
     if (process.platform === "win32") return;
     let output = "";

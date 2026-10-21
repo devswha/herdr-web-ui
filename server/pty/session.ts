@@ -25,6 +25,36 @@ export function writeLine(sink: import("bun").FileSink, line: string): boolean {
   }
 }
 
+type HostProcess = ReturnType<typeof Bun.spawn>;
+
+/**
+ * One host started ahead of need (pty-host.mjs --wait): Node and node-pty load before an attach
+ * waits on them, which a tab switch otherwise does (~75 ms). It is taken only on the PATH it was
+ * started on, so a host is still looked up where a fresh one would be.
+ */
+let spare: { proc: HostProcess; path: string | undefined } | null = null;
+
+function takeSpare(): HostProcess | null {
+  const ready = spare;
+  spare = null;
+  if (!ready) return null;
+  if (ready.proc.exitCode === null && !ready.proc.killed && ready.path === process.env["PATH"]) return ready.proc;
+  ready.proc.kill();
+  return null;
+}
+
+function refillSpare(): void {
+  if (spare) return;
+  try {
+    const proc = Bun.spawn(["node", HOST_SCRIPT, "--wait"], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: process.env });
+    // a waiting host keeps nothing alive: it ends when this process does (its stdin closes)
+    proc.unref();
+    spare = { proc, path: process.env["PATH"] };
+  } catch {
+    /* no Node here: the next session's own spawn says so */
+  }
+}
+
 /**
  * A command running on a real PTY, hosted by a Node sidecar (see pty-host.mjs for
  * why output flow control currently needs node-pty, and why it is the prebuilt
@@ -32,15 +62,24 @@ export function writeLine(sink: import("bun").FileSink, line: string): boolean {
  */
 export class PtySession {
   readonly exited: Promise<void>;
-  private readonly proc: ReturnType<typeof Bun.spawn>;
+  private readonly proc: HostProcess;
   private closed = false;
   private paused = false;
 
   constructor(private readonly options: PtySessionOptions) {
-    this.proc = Bun.spawn(
-      ["node", HOST_SCRIPT, String(options.cols), String(options.rows), options.command, ...options.args],
-      { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: { ...process.env, ...options.env } },
-    );
+    const env = { ...process.env, ...options.env };
+    const warm = takeSpare();
+    if (warm) {
+      warm.ref();
+      this.proc = warm;
+      this.send({ t: "s", c: options.cols, r: options.rows, cmd: options.command, args: options.args, env });
+    } else {
+      this.proc = Bun.spawn(
+        ["node", HOST_SCRIPT, String(options.cols), String(options.rows), options.command, ...options.args],
+        { stdin: "pipe", stdout: "pipe", stderr: "inherit", env },
+      );
+    }
+    refillSpare();
 
     // Process exit can precede the final stdout read. Deliver every byte before
     // onExit lets the server remove the attachment.

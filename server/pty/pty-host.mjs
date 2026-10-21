@@ -11,6 +11,9 @@
  *
  * Protocol
  *   argv:   <cols> <rows> <command> [args...]
+ *           or --wait: started ahead of need (Node and node-pty load before anyone waits on
+ *           them); the command comes in the first frame
+ *             {"t":"s","c":<cols>,"r":<rows>,"cmd":"<command>","args":[...],"env":{...}}
  *   stdin:  newline-delimited JSON control frames
  *             {"t":"i","d":"<text>"}          write text into the pty
  *             {"t":"r","c":<cols>,"r":<rows>} resize the pty
@@ -23,48 +26,55 @@
 
 import * as pty from "@lydell/node-pty";
 
+const waiting = process.argv[2] === "--wait";
 const [colsRaw, rowsRaw, command, ...args] = process.argv.slice(2);
-if (!command) {
-  process.stderr.write("pty-host: usage: pty-host.mjs <cols> <rows> <command> [args...]\n");
+if (!waiting && !command) {
+  process.stderr.write("pty-host: usage: pty-host.mjs <cols> <rows> <command> [args...] | --wait\n");
   process.exit(2);
 }
 
-const cols = Number.parseInt(colsRaw ?? "", 10);
-const rows = Number.parseInt(rowsRaw ?? "", 10);
-
-const term = pty.spawn(command, args, {
-  name: "xterm-256color",
-  cols: Number.isFinite(cols) && cols > 0 ? cols : 80,
-  rows: Number.isFinite(rows) && rows > 0 ? rows : 24,
-  cwd: process.env.HOME ?? "/",
-  env: { ...process.env, TERM: "xterm-256color" },
-});
-
+/** @type {import("@lydell/node-pty").IPty | null} */
+let term = null;
 let parentPaused = false;
 let stdoutBlocked = false;
+let exited = false;
 function updateReading() {
+  if (!term) return;
   if (parentPaused || stdoutBlocked) term.pause();
   else term.resume();
 }
-term.onData((chunk) => {
-  if (!process.stdout.write(chunk)) {
-    stdoutBlocked = true;
-    updateReading();
-  }
-});
+
+function start(colsValue, rowsValue, file, argv, env) {
+  const cols = Number.parseInt(String(colsValue ?? ""), 10);
+  const rows = Number.parseInt(String(rowsValue ?? ""), 10);
+  term = pty.spawn(file, argv, {
+    name: "xterm-256color",
+    cols: Number.isFinite(cols) && cols > 0 ? cols : 80,
+    rows: Number.isFinite(rows) && rows > 0 ? rows : 24,
+    cwd: env.HOME ?? "/",
+    env: { ...env, TERM: "xterm-256color" },
+  });
+  term.onData((chunk) => {
+    if (!process.stdout.write(chunk)) {
+      stdoutBlocked = true;
+      updateReading();
+    }
+  });
+  term.onExit(({ exitCode }) => {
+    exited = true;
+    // Let the native exit callback unwind and stdout drain before Node exits.
+    process.exitCode = exitCode ?? 0;
+    process.stdin.destroy();
+    process.stdout.end();
+  });
+  updateReading();
+}
 process.stdout.on("drain", () => {
   stdoutBlocked = false;
   updateReading();
 });
 
-let exited = false;
-term.onExit(({ exitCode }) => {
-  exited = true;
-  // Let the native exit callback unwind and stdout drain before Node exits.
-  process.exitCode = exitCode ?? 0;
-  process.stdin.destroy();
-  process.stdout.end();
-});
+if (!waiting) start(colsRaw, rowsRaw, command, args, process.env);
 
 let pending = "";
 process.stdin.setEncoding("utf8");
@@ -88,6 +98,18 @@ function handle(line) {
     return;
   }
   try {
+    if (!term) {
+      // a waiting host takes its command first; nothing else means anything before it
+      if (frame.t !== "s" || typeof frame.cmd !== "string" || !Array.isArray(frame.args)) return;
+      try {
+        start(frame.c, frame.r, frame.cmd, frame.args.map(String), frame.env && typeof frame.env === "object" ? frame.env : process.env);
+      } catch (error) {
+        // as a host started with its command would: a command that cannot start ends it
+        process.stderr.write(`pty-host: ${error?.message ?? error}\n`);
+        process.exit(1);
+      }
+      return;
+    }
     if (frame.t === "i" && typeof frame.d === "string") term.write(frame.d);
     else if (frame.t === "r") term.resize(clamp(frame.c), clamp(frame.r));
     // a resize to the same size changes nothing the kernel signals: the child is told directly
@@ -109,6 +131,8 @@ function clamp(value) {
 
 let stopping = false;
 const stop = () => {
+  // a host that never got its command has nothing to end
+  if (!term) process.exit(0);
   if (!exited && !stopping) {
     stopping = true;
     try {

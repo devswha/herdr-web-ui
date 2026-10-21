@@ -1,9 +1,16 @@
 import type { LayoutCell } from "./layoutMap.ts";
 
-/** Newest first, including the current tab and at most three previous tabs. */
+/**
+ * How many tabs stay mounted on a PC canvas, the current one included: a return to any of them
+ * draws its kept screen at once instead of a new terminal and attach. Agent of Empires keeps 5
+ * recent terminals by default; tabs here hold no pty while hidden, so more of them cost only memory.
+ */
+export const PANE_TAB_CACHE = 8;
+
+/** Newest first, including the current tab and at most PANE_TAB_CACHE - 1 previous tabs. */
 export function visitPaneTab(previous: readonly string[], current: string | null, liveTabs: ReadonlySet<string>): readonly string[] {
   const surviving = previous.filter((id) => liveTabs.has(id) && id !== current);
-  return current !== null && liveTabs.has(current) ? [current, ...surviving].slice(0, 4) : surviving.slice(0, 4);
+  return current !== null && liveTabs.has(current) ? [current, ...surviving].slice(0, PANE_TAB_CACHE) : surviving.slice(0, PANE_TAB_CACHE);
 }
 
 /** Only previously mounted panes survive: new hidden splits must not acquire an attach. */
