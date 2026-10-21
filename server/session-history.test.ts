@@ -333,6 +333,21 @@ describe("listSessions", () => {
     expect(listSessions("grok", CWD, { home, env: {} })[0]?.id).toBe("active");
   });
 
+  it("lists a hashed Grok group's session folders once", () => {
+    const home = newHome();
+    for (let n = 0; n < 100; n++) {
+      const dir = join(home, ".grok", "sessions", "long-slug-abc123", `s-${n}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "summary.json"), JSON.stringify({ info: { id: `s-${n}`, cwd: CWD }, updated_at: "2026-10-01T10:00:00Z" }));
+      writeFileSync(join(dir, "updates.jsonl"), "");
+    }
+    let looked = 0;
+    const rows = listSessions("grok", CWD, { home, env: {}, lstat: (path) => { looked++; return lstatSync(path); } });
+    expect(rows).toHaveLength(MAX_ROWS);
+    // two files' times for each of the 100 folders, taken once
+    expect(looked).toBe(200);
+  });
+
   it("finds Grok sessions in a native hashed cwd group", () => {
     const home = newHome();
     const dir = join(home, ".grok", "sessions", "long-slug-abc123", ID(7));

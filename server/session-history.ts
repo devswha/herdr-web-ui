@@ -582,8 +582,8 @@ function grokSessions(cwds: readonly string[], home: string, env: Record<string,
     return newestEntries(budget, [join(scan.root, group)], (entry) => entry.isDirectory(), written);
   };
   const rows: Row[] = [];
-  const readGroup = (group: string) => {
-    for (const dir of sessionDirs(group)) {
+  const readGroup = (group: string, dirs: readonly string[] = sessionDirs(group)) => {
+    for (const dir of dirs) {
       if (scan.exhausted) break;
       const found = grokRow(scan, dir, cwds);
       if (found) rows.push(found);
@@ -598,7 +598,9 @@ function grokSessions(cwds: readonly string[], home: string, env: Record<string,
   for (const group of grokSessionGroups(grokHome)?.groups ?? []) {
     if (scan.exhausted) break;
     if (encoded.has(group) || cwds.every((spelling) => otherFolder(group, spelling, budget.platform))) continue;
-    if (grokGroupCwd(scan, sessionDirs(group), cwds)) readGroup(group);
+    // listed once: the same folders say whose group it is and are then read
+    const dirs = sessionDirs(group);
+    if (grokGroupCwd(scan, dirs, cwds)) readGroup(group, dirs);
   }
   // on a case-insensitive file system the cwd's group and its other-case spelling are one folder, read twice
   const ids = new Set<string>();
