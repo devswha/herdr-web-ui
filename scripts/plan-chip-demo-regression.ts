@@ -112,10 +112,33 @@ const hook = `<script>(() => {
     if (body.snapshot) patchSnapshot(body.snapshot);
     return new Response(JSON.stringify(body), { status: response.status, headers: response.headers });
   };
-  // the demo ends the Claude pane's turn a few seconds in: every capture here sees the same turn
-  const later = window.setTimeout.bind(window);
-  window.setTimeout = (callback, ms, ...args) => ms === 4500 || ms === 2400 ? 0 : later(callback, ms, ...args);
 })();</script>`;
+
+/** The demo ends the Claude pane's turn 4500 ms in (and answers a sent message 2400 ms in). Run as a context init script, before
+ *  any of the page's own scripts, this holds those timers for good: the transport's completion is registered here and never runs,
+ *  so every assertion and capture sees the same working turn. window.planChipHeld lists what was held. */
+const holdTurn = () => {
+  const held: number[] = [];
+  const later = window.setTimeout.bind(window);
+  window.setTimeout = ((callback: TimerHandler, ms?: number, ...args: unknown[]) => {
+    if (ms === 4500 || ms === 2400) { held.push(ms); return 0; }
+    return later(callback, ms, ...args);
+  }) as typeof window.setTimeout;
+  Object.defineProperty(window, "planChipHeld", { value: held });
+};
+/** The turn the captures show is the one the demo opened with: its completion held, never run, its final answer not drawn, the round control still Stop. */
+const turnHeld = async (page: Page, what: string): Promise<void> => {
+  const turn = await page.evaluate(() => ({
+    held: [...(window as unknown as { planChipHeld: number[] }).planChipHeld],
+    finished: document.body.innerText.includes("exposed with the other counters"),
+    composer: document.querySelector(".composer-surface") !== null,
+    stop: document.querySelector(".composer-controls-right .composer-stop") !== null,
+    send: document.querySelector(".composer-controls-right .composer-send") !== null,
+  }));
+  assert.deepEqual(turn.held, [4500], `${what}: the demo's turn completion was held before it could be scheduled: ${JSON.stringify(turn)}`);
+  assert.equal(turn.finished, false, `${what}: the demo's turn has not finished: ${JSON.stringify(turn)}`);
+  if (turn.composer) assert.ok(turn.stop && !turn.send, `${what}: the turn is still working (Stop, not Send): ${JSON.stringify(turn)}`);
+};
 
 type Hook = { status(plan: PlanSummary | null, background: number): void; offline(down: boolean): void; answer(value: PlanStep[] | null | "error" | "hang" | undefined): void; role(mode: "interact" | "observe"): void };
 const hookOf = (page: Page) => ({
@@ -195,8 +218,9 @@ function oneRow(row: Row, what: string): void {
 const chipOf = (page: Page) => page.locator(".bg-tasks-toggle");
 const menuOf = (page: Page) => page.locator(".bg-tasks-menu");
 const shot = async (page: Page, width: number, theme: string, language: string, state: string | null, file?: string): Promise<void> => {
-  if (!evidence) return;
   const name = file ?? `plan-chip-${width}-${theme}${language === "ko" ? "-ko" : ""}${state ? `-${state}` : ""}.png`;
+  await turnHeld(page, name);
+  if (!evidence) return;
   await page.screenshot({ path: join(evidence, name) });
   const size = page.viewportSize()!;
   captures.push({ file: name, width: size.width, height: size.height, theme, language, state: state ?? "rest" });
@@ -228,6 +252,7 @@ async function scenario(browser: Browser, width: number, theme: "dark" | "light"
     ? { viewport: { width, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, locale: language === "ko" ? "ko-KR" : "en-US", colorScheme: theme }
     : { viewport: { width, height: 900 }, locale: language === "ko" ? "ko-KR" : "en-US", colorScheme: theme });
   try {
+    await context.addInitScript(holdTurn);
     await context.addInitScript(([language, theme, pane]) => {
       localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language, theme }));
       localStorage.setItem(`herdr-web-ui:view:${pane}`, "chat");
@@ -241,7 +266,9 @@ async function scenario(browser: Browser, width: number, theme: "dark" | "light"
     await page.locator(".terminal-stack.is-chat").waitFor();
     await chipOf(page).waitFor();
     await appFaces(page);
+    await turnHeld(page, "loaded");
     await run(page, touch);
+    await turnHeld(page, "finished");
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
