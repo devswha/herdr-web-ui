@@ -417,7 +417,8 @@ export function createSubmitText({ options, lastTyped, attachments, terminalAtta
         // where that screen sits in the history (outcome.ts scrolledAnchor): the row read before the screen, kept
         // once a read after it agrees, so nothing scrolled in between. That read only records the send, so it runs
         // alongside delivery and is never awaited; one that answers after the echo scrolled disagrees, and one that
-        // fails or answers after the send was noted too late for its echo reservation leaves the text anchor
+        // fails leaves the text anchor. One that agrees after the send was noted still sets the noted send's row;
+        // that send's echo reservation was already made with the text anchor, so the row serves only later sends
         const snapshotTop = viewportTop(pane?.scroll);
         if (command && beforeScreen !== undefined && snapshotTop !== undefined) {
           void paneScrollInfo(paneId).then((scroll) => {
