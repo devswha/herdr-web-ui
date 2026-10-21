@@ -104,7 +104,7 @@ running terminals: see [development](docs/development.md#checks).
   and a reason, including repairs the proposal tool already applied. Every
   entry has to pass the AA contrast test on the committed hex. Then run `bun run generate:themes`;
   never edit `src/lib/themes.generated.ts` or the other generated copies.
-- **The browser demo:** the [demo](https://herdrweb.dev/demo/) redeploys on every
+- **The browser demo:** the [demo](https://ovis.sh/demo/) redeploys on every
   merge to `main`. A feature meant to show there needs an answer in `site/demo/transport.ts`; anything
   else gets its 404.
 - **Changelog:** a change users notice gets a small file in [changelog.d/](changelog.d/README.md)

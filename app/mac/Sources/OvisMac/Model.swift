@@ -49,7 +49,7 @@ final class Model: ObservableObject {
             script = FileManager.default.temporaryDirectory.appendingPathComponent("ovis-install-\(UUID().uuidString).sh")
             try data.write(to: script)
         } catch {
-            fail(L("Could not download the installer from herdrweb.dev. Check the internet connection.", "herdrweb.dev에서 설치 프로그램을 받지 못했습니다. 인터넷 연결을 확인해 주세요."), detail: error.localizedDescription)
+            fail(L("Could not download the installer from ovis.sh. Check the internet connection.", "ovis.sh에서 설치 프로그램을 받지 못했습니다. 인터넷 연결을 확인해 주세요."), detail: error.localizedDescription)
             return
         }
         defer { try? FileManager.default.removeItem(at: script) }

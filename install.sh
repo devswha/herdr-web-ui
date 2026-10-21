@@ -1,7 +1,7 @@
 #!/bin/sh
 # Ovis in one line, from a PC that may have none of it yet:
 #
-#   curl -fsSL https://herdrweb.dev/install.sh | sh
+#   curl -fsSL https://ovis.sh/install.sh | sh
 #
 # 1. Installs what is missing, for this user only and without sudo: herdr (its own installer, into
 #    ~/.local/bin), Bun (its own installer, into ~/.bun) and Node 22 (the official build, checked
