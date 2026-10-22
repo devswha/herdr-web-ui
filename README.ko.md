@@ -194,7 +194,7 @@ Grok 채팅은 Linux에서 프로세스가 보유한 세션이 하나뿐이고 h
 
 ```bash
 git clone https://github.com/devswha/ovis.git
-cd herdr-web-ui
+cd ovis
 bun install
 
 bun run server      # API + WebSocket, :7317

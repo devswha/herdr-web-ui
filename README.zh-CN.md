@@ -186,7 +186,7 @@ Grok 聊天仅支持 Linux，并要求进程只持有一个会话，且与 herdr
 
 ```bash
 git clone https://github.com/devswha/ovis.git
-cd herdr-web-ui
+cd ovis
 bun install
 
 bun run server      # API + WebSocket on :7317

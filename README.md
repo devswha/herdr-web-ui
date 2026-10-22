@@ -182,7 +182,7 @@ Helping someone install the app? Follow [INSTALL.md](INSTALL.md). For repository
 
 ```bash
 git clone https://github.com/devswha/ovis.git
-cd herdr-web-ui
+cd ovis
 bun install
 
 bun run server      # API + WebSocket on :7317

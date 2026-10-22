@@ -124,7 +124,7 @@ herdr plugin action invoke devswha.ovis.start
 
 ```bash
 git clone https://github.com/devswha/ovis.git
-cd herdr-web-ui
+cd ovis
 bun install
 bun run start
 ```

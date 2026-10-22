@@ -192,7 +192,7 @@ Grok のチャットは Linux のみで、プロセスが保持するセッシ�
 
 ```bash
 git clone https://github.com/devswha/ovis.git
-cd herdr-web-ui
+cd ovis
 bun install
 
 bun run server      # API + WebSocket on :7317

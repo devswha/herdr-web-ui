@@ -83,7 +83,7 @@ herdr plugin install devswha/ovis
 
 ```bash
 git clone https://github.com/devswha/ovis.git
-cd herdr-web-ui
+cd ovis
 bun install
 bun run start
 ```
@@ -116,7 +116,7 @@ tab, and you type in whichever half is active; the other half shows that tab at 
 
 ### In a terminal
 
-**The phone address, again:** run the one-line installer again. On a PC where the app is installed it installs nothing and prints the address and its QR code, serving the app to your tailnet first if nothing does yet. It finds the version that actually runs: herdr's plugin directory keeps the version first installed, and **Settings → Updates** runs newer ones from `~/.config/herdr-web-ui/updates`. From a checkout, `bun scripts/plugin.ts phone` does the same.
+**The phone address, again:** run the one-line installer again. On a PC where the app is installed it installs nothing and prints the address and its QR code, serving the app to your tailnet first if nothing does yet. It finds the version that actually runs: herdr's plugin directory keeps the version first installed, and **Settings → Updates** runs newer ones from `~/.config/ovis/updates`. From a checkout, `bun scripts/plugin.ts phone` does the same.
 
 **A pairing code, on a PC with no browser of its own:**
 
