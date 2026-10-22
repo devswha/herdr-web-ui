@@ -231,8 +231,8 @@ The old `HERDR_WEB_*` names still work. The [user guide](docs/guide.md#configura
 ## Uninstall
 
 ```bash
-herdr plugin action invoke devswha.ovis.stop
-# an install updated in place from before the rename is still registered under its old id
+# an install from before the rename runs, or is registered, under its old id until the installer moves it
+herdr plugin action invoke devswha.ovis.stop || herdr plugin action invoke devswha.herdr-web-ui.stop
 herdr plugin uninstall devswha.ovis || herdr plugin uninstall devswha.herdr-web-ui
 ```
 

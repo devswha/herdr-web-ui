@@ -282,8 +282,11 @@ main() {
   if herdr plugin list 2>/dev/null | grep -q "$LEGACY_PLUGIN "; then
     legacy_root=$(plugin_root "$LEGACY_PLUGIN")
     say "moving the installed plugin to its Ovis id; its settings and token come along"
-    # stopped first: under both ids, each would start a server on herdr's next start
-    [ -z "$legacy_root" ] || bun "$legacy_root/scripts/plugin.ts" stop </dev/null >/dev/null 2>&1 || say "could not stop the server of the old id; restart herdr once this is done"
+    # stopped first: removed with its server up, the old checkout would keep serving, and the new
+    # id's start would find the port answering and leave it
+    if [ -n "$legacy_root" ] && ! bun "$legacy_root/scripts/plugin.ts" stop </dev/null >/dev/null 2>&1; then
+      fail "could not stop the server of the old id, so nothing was moved. Stop it (herdr plugin action invoke $LEGACY_PLUGIN.stop, or restart herdr), then run this again."
+    fi
   fi
 
   if herdr plugin list 2>/dev/null | grep -q "$PLUGIN "; then

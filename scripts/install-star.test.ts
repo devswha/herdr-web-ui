@@ -79,10 +79,12 @@ class Pc {
   /** herdr is running, so the app starts and says where it is */
   running(): this { writeFileSync(join(this.scratch, "running"), ""); return this; }
   /** the plugin installed under its id from before the rename, with a token in its config */
-  legacy(): this {
+  legacy(options: { stopFails?: boolean } = {}): this {
     writeFileSync(join(this.scratch, "legacy"), "");
     mkdirSync(join(this.scratch, "legacy-plugin", "scripts"), { recursive: true });
-    writeFileSync(join(this.scratch, "legacy-plugin", "scripts", "plugin.ts"), `if (process.argv[2] === "stop") await Bun.write(process.env.SCRATCH + "/legacy-stopped", "");\n`);
+    writeFileSync(join(this.scratch, "legacy-plugin", "scripts", "plugin.ts"), options.stopFails
+      ? `if (process.argv[2] === "stop") process.exit(1);\n`
+      : `if (process.argv[2] === "stop") await Bun.write(process.env.SCRATCH + "/legacy-stopped", "");\n`);
     const config = join(this.scratch, "herdr-config", "devswha.herdr-web-ui");
     mkdirSync(config, { recursive: true });
     writeFileSync(join(config, "env"), "OVIS_TOKEN=kept-secret\n", { mode: 0o600 });
@@ -198,6 +200,17 @@ describe.skipIf(platform() === "win32")("install.sh over an install under the ol
     expect(readFileSync(moved, "utf8")).toBe("OVIS_TOKEN=kept-secret\n");
     expect(statSync(moved).mode & 0o777).toBe(0o600);
     expect(readFileSync(join(pc.scratch, "herdr.calls"), "utf8")).toBe("plugin uninstall devswha.herdr-web-ui\n");
+  });
+
+  it.concurrent("moves nothing while the old id's server will not stop", async () => {
+    // removed with its server still up, the old checkout would keep serving: the new start finds the port answering
+    const pc = new Pc().legacy({ stopFails: true });
+    const { out, exitCode } = await pc.unattended();
+    expect(exitCode, out).not.toBe(0);
+    expect(out).toContain("could not stop the server of the old id");
+    expect(out).not.toContain("Installed devswha.ovis");
+    expect(existsSync(join(pc.scratch, "herdr.calls"))).toBe(false);
+    expect(existsSync(join(pc.scratch, "herdr-config", "devswha.ovis", "env"))).toBe(false);
   });
 });
 

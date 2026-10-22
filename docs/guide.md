@@ -140,8 +140,8 @@ Its PID and log live under `HERDR_PLUGIN_STATE_DIR`. For persistent settings (se
 ### Uninstall
 
 ```bash
-herdr plugin action invoke devswha.ovis.stop
-# an install updated in place from before the rename is still registered under its old id
+# an install from before the rename runs, or is registered, under its old id until the installer moves it
+herdr plugin action invoke devswha.ovis.stop || herdr plugin action invoke devswha.herdr-web-ui.stop
 herdr plugin uninstall devswha.ovis || herdr plugin uninstall devswha.herdr-web-ui
 tailscale serve --https=<port> off    # the port the installer printed, if it served the app
 ```

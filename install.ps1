@@ -72,7 +72,9 @@ if ($legacy) {
     Write-Host "Ovis: moving the installed plugin to its Ovis id; its settings and token come along"
     # stopped first: under both ids, each would start a server on herdr's next start
     & bun (Join-Path $legacy.plugin_root 'scripts\plugin.ts') stop | Out-Null
-    if ($LASTEXITCODE -ne 0) { Write-Host 'Ovis: could not stop the server of the old id; restart herdr once this is done' }
+    # removed with its server up, the old checkout would keep serving, and the new id's start would
+    # find the port answering and leave it
+    if ($LASTEXITCODE -ne 0) { throw "Could not stop the server of the old id, so nothing was moved. Stop it (herdr plugin action invoke $legacyId.stop, or restart herdr), then run this again." }
 }
 function Test-WindowsPlugin($Plugin) {
     $Plugin.plugin_root -and (Test-Path -LiteralPath (Join-Path $Plugin.plugin_root 'scripts\plugin.ps1'))
