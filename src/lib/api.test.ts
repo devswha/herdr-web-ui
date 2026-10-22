@@ -93,9 +93,12 @@ it("treats a missing telemetry route as unavailable for reads and an API error f
   expect(error).toMatchObject({ status: 404, code: "not_found" });
 });
 
-/** A browser before Safari 17.4 (the build targets safari14): neither AbortSignal.any nor AbortSignal.timeout. */
-function withoutAbortSignalStatics(): void {
-  Object.defineProperties(AbortSignal, { any: { value: undefined, configurable: true }, timeout: { value: undefined, configurable: true } });
+/**
+ * An older browser the build still targets (safari14): Safari 16.0 to 17.3 has AbortSignal.timeout
+ * but not AbortSignal.any, and Safari 14 and 15 have neither.
+ */
+function withoutAbortSignalStatics(...names: ("any" | "timeout")[]): void {
+  for (const name of names) Object.defineProperty(AbortSignal, name, { value: undefined, configurable: true });
 }
 
 /** a fetch that answers only when told, and fails as a browser does once its signal ends */
@@ -112,7 +115,7 @@ function heldFetch() {
 }
 
 it("proves a PC's source boot on a browser without AbortSignal.any, and lets go of the caller's signal after", async () => {
-  withoutAbortSignalStatics();
+  withoutAbortSignalStatics("any");
   const requests = heldFetch();
   const caller = new AbortController();
 
@@ -126,8 +129,8 @@ it("proves a PC's source boot on a browser without AbortSignal.any, and lets go 
   expect(requests[0]!.signal.aborted).toBe(false);
 });
 
-it("ends a source boot check when the caller aborts it or after 20 s, without AbortSignal.any", async () => {
-  withoutAbortSignalStatics();
+it("ends a source boot check when the caller aborts it or after 20 s, without AbortSignal.any or AbortSignal.timeout", async () => {
+  withoutAbortSignalStatics("any", "timeout");
   jest.useFakeTimers();
   const requests = heldFetch();
 
