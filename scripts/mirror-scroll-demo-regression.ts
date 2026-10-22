@@ -105,7 +105,13 @@ try {
           const waitForStep = async (step: string, action: () => Promise<unknown>): Promise<void> => {
             try { await action(); }
             catch (cause) {
-              const observed = await page.evaluate(() => {
+              const diagnosticsMs = 1000;
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              // This deadline runs outside the renderer: the timed-out page may not answer.
+              const deadline = new Promise<string>((resolve) => {
+                timer = setTimeout(() => resolve(`unavailable (page did not answer within ${diagnosticsMs} ms)`), diagnosticsMs);
+              });
+              const snapshot = page.evaluate(() => {
                 const fixture = window.mirrorFixture;
                 return {
                   connected: !!document.querySelector(".conn-live"),
@@ -123,9 +129,11 @@ try {
                     localPanChanged: host.textContent?.includes("LOCAL-PAN-CHANGED"),
                   })),
                 };
-              }).catch(error => ({ diagnosticsError: error instanceof Error ? error.message : String(error) }));
+              }).then(value => JSON.stringify(value))
+                .catch(error => JSON.stringify({ diagnosticsError: error instanceof Error ? error.message : String(error) }));
+              const observed = await Promise.race([snapshot, deadline]).finally(() => clearTimeout(timer));
               const error = new Error(
-                `${kind}: ${step}: ${cause instanceof Error ? cause.message : String(cause)}; observed=${JSON.stringify(observed)}`,
+                `${kind}: ${step}: ${cause instanceof Error ? cause.message : String(cause)}; observed=${observed}`,
                 { cause },
               );
               // The browser lane recognizes TimeoutError when extracting its failure summary.
