@@ -4,6 +4,7 @@ import { connectionData, createCore, type SocketData } from "./core/index.ts";
 import { ClientConnectionLog } from "./client-connection-log.ts";
 import { RequestLog } from "./request-log.ts";
 import { handlePaneRequest } from "./pane-routes.ts";
+import { handleIntegrationsRequest } from "./integrations-routes.ts";
 import { paneContext, resolveAgent } from "./pane-context.ts";
 import { randomBytes, randomUUID } from "node:crypto";
 import { OrderSequence } from "./order-sequence.ts";
@@ -11,7 +12,7 @@ import { readHerdrProfiles, type HerdrMachineProfile } from "./herdr-profiles.ts
 import { accessSync, constants, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import type { AgentKind, HealthAuth, HerdrPane, IntegrationsResponse, PanePlan, PendingMessage, PluginActionsResponse, ProjectFavicon } from "../shared/protocol.ts";
+import type { AgentKind, HealthAuth, HerdrPane, PanePlan, PendingMessage, PluginActionsResponse, ProjectFavicon } from "../shared/protocol.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { authClient, deviceCookieValue, bearerMatches, handleAuthRequest, isAuthenticated, isSecureRequest, parseCookies, presentedToken, presentedTokenHeld, recordPresentedTokenFailure, requiresAuth, unauthorizedJson } from "./auth.ts";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackBind, isServeOwnerRequest, lanExposed } from "./access.ts";
@@ -34,7 +35,6 @@ import {
   agentManifests,
   HerdrError,
   herdrSocketPath,
-  integrationList,
   paneGet,
   ping,
   pluginActionInvoke,
@@ -540,16 +540,8 @@ export function createServer(
         }
       }
 
-      // read only: installing one changes an agent's own hooks, which stays the user's call in a terminal
-      if (pathname === "/api/integrations") {
-        setRequestRoute(pathname);
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        try {
-          return jsonResponse({ integrations: await integrationList() } satisfies IntegrationsResponse);
-        } catch (error) {
-          return errorResponse(error);
-        }
-      }
+      const integrationsResponse = await handleIntegrationsRequest(request, pathname);
+      if (integrationsResponse) return integrationsResponse;
 
       if (pathname === "/api/fs/stat" || pathname === "/api/fs/file" || pathname === "/api/fs/favicon") {
         setRequestRoute(pathname);
