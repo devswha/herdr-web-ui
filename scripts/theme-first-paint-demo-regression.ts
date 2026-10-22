@@ -389,7 +389,21 @@ function controlled(page: Page): Promise<"already controlled" | "controllerchang
   }), 30_000);
 }
 
-/** The root build loaded again from its installed service worker: the boot script comes from the worker's cache, and it is this build's. */
+/** The cache public/sw.js keeps this build's shell in: CACHE_NAME, then the BUILD the build stamped. */
+function workerCache(worker: string): string | null {
+  const name = /^const CACHE_NAME = "([^"]+)";$/m.exec(worker)?.[1];
+  const build = /^const BUILD = "([^"]*)";$/m.exec(worker)?.[1];
+  if (!name || build === undefined) return null;
+  return build ? `${name}-${build}` : name;
+}
+
+/**
+ * The root build loaded again from its installed service worker. Its answers are this build's boot
+ * script, and the worker's own cache holds this shell and the script's exact bytes. Then a load with
+ * the HTTP cache emptied and the network cut, proven cut for the worker too, still gets the script
+ * from the worker and sets the theme. fromServiceWorker() alone cannot prove the worker's cache: it
+ * is also true when a cache-first answer missed and the worker passed the request on.
+ */
 async function warmServiceWorker(url: string): Promise<Record<string, unknown>> {
   const item = CASES[0]!;
   const row = appRow(item);
@@ -419,21 +433,75 @@ async function warmServiceWorker(url: string): Promise<Record<string, unknown>> 
     const file = /<script src="\/(assets\/theme-bootstrap-[0-9a-f]{10}\.js)"><\/script>/.exec(html)?.[1];
     const onDisk = file ? createHash("sha256").update(readFileSync(join(rootDir, file))).digest("hex") : null;
     const worker = readFileSync(join(rootDir, "sw.js"), "utf8");
+    const cacheName = workerCache(worker);
+    // what the worker's cache holds: keepShell runs after the page has its answer (waitUntil), so
+    // read until the shell is in, bounded; with "/" kept, every file the shell starts with is too
+    const inCache = (): Promise<{ shell: boolean; sha256: string | null }> => page.evaluate(async ({ name, path }) => {
+      if (!name || !path || !(await caches.has(name))) return { shell: false, sha256: null };
+      const cache = await caches.open(name);
+      const shell = (await cache.match("/")) !== undefined;
+      const copy = await cache.match(path);
+      if (!copy) return { shell, sha256: null };
+      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await copy.arrayBuffer()));
+      return { shell, sha256: [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("") };
+    }, { name: cacheName, path: file ? `/${file}` : null });
+    let cached = await inCache();
+    const cacheDeadline = Date.now() + 30_000;
+    while (!(cached.shell && cached.sha256) && Date.now() < cacheDeadline) {
+      await Bun.sleep(25);
+      cached = await inCache();
+    }
+    // the browser's HTTP cache emptied (the server marks /assets/ immutable, and a worker's fetch()
+    // that missed its own cache would be answered from there even offline), then the network cut,
+    // for the worker too: a file no cache holds, asked for through it, cannot be fetched
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Network.clearBrowserCache");
+    await cdp.detach();
+    await context.setOffline(true);
+    const probe = await page.evaluate(async (path) => {
+      try {
+        const response = await fetch(path, { cache: "no-store" });
+        return `answered ${response.status}`;
+      } catch (error) {
+        return error instanceof TypeError ? "failed" : String(error);
+      }
+    }, `/assets/offline-probe-${Date.now()}.js`);
+    // a script the worker could not answer fails rather than answers: either one ends the wait
+    const bootUrl = (address: string): boolean => /\/assets\/theme-bootstrap-/.test(address);
+    const cutAnswer = page.waitForResponse((response) => bootUrl(response.url())).then(answered);
+    const cutFailure = page.waitForEvent("requestfailed", (request) => bootUrl(request.url()))
+      .then((request) => ({ url: request.url(), fromServiceWorker: false, status: 0, sha256: `failed: ${request.failure()?.errorText ?? "unknown"}` }));
+    // the one that loses is still pending when the context closes, which rejects it
+    cutAnswer.catch(() => undefined);
+    cutFailure.catch(() => undefined);
+    await page.reload({ waitUntil: "commit" });
+    const offline = await Promise.race([cutAnswer, cutFailure]);
+    // the theme set before the parser ended, which only the classic boot script can do (modules wait for it)
+    const offlineOrder = await bootOrder(page);
+    const offlineSeen = await page.evaluate(() => (window as unknown as { __boot: { values: string[]; violations: string[] } }).__boot);
+    await context.setOffline(false);
     const result = {
       case: "warm service worker", expected: { id: row.id, mode: row.mode },
       bootFile: file, listedForWorker: file ? worker.includes(`"/${file}"`) : false,
       control: { firstLoad: firstControl, reloaded: reloadedControl },
       responses: [first, second],
-      onDisk, values: [...new Set(seen.values)], violations: seen.violations,
+      cache: { name: cacheName, ...cached }, offline: { probe, response: offline, order: offlineOrder },
+      onDisk, values: [...new Set([...seen.values, ...offlineSeen.values])], violations: [...seen.violations, ...offlineSeen.violations],
     };
     const failures: string[] = [];
     if (!result.listedForWorker) failures.push("the worker does not list the boot script");
     if (reloadedControl !== "already controlled") failures.push(`the reloaded page was not controlled when asked: ${reloadedControl}`);
-    for (const response of result.responses) {
+    for (const response of [...result.responses, offline]) {
       if (!response.url.endsWith(`/${file}`)) failures.push(`the page asked for ${response.url}, not this build's ${file}`);
       if (response.sha256 !== onDisk) failures.push(`the boot script served ${response.sha256}, the build holds ${onDisk}`);
     }
     if (!result.responses.some((response) => response.fromServiceWorker)) failures.push("the worker never answered the boot script");
+    if (!cacheName) failures.push("the built worker names no cache");
+    if (!cached.shell) failures.push(`the worker's cache ${cacheName} never kept the shell`);
+    if (cached.sha256 !== onDisk) failures.push(`the worker's cache holds ${cached.sha256 ?? "no copy"} for the boot script, the build holds ${onDisk}`);
+    if (probe !== "failed") failures.push(`the network was not cut for the worker: an uncached file was ${probe}`);
+    if (!offline.fromServiceWorker || offline.status !== 200) failures.push(`offline, the boot script came ${offline.fromServiceWorker ? "from the worker" : "not from the worker"} with ${offline.status}`);
+    if (!offlineOrder.booted) failures.push(`offline, nothing set the theme before the page was parsed: ${JSON.stringify(offlineOrder)}`);
     if (result.values.some((value) => value !== `data-theme=${row.mode}` && value !== `data-palette=${row.id}`)) failures.push(`root values ${result.values.join(", ")}`);
     if (result.violations.length) failures.push(`CSP violations ${result.violations.join("; ")}`);
     return { ...result, failures };
