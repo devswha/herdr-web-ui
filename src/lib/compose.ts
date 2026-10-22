@@ -9,7 +9,7 @@
  * Pure logic, DOM-free, so the policy is unit-testable (see compose.test.ts).
  */
 
-import type { AgentStatus, ClientRole, CommandForm, SlashCommand } from "../../shared/protocol.ts";
+import type { AgentStatus, CommandForm, SlashCommand } from "../../shared/protocol.ts";
 import { skillSyntax } from "../../shared/skill-syntax.ts";
 import { knownStatus, STATUS_WORD } from "./status.ts";
 import { t } from "./i18n.ts";
@@ -58,8 +58,10 @@ export function pendingActionUncertain(code: string, state: string): boolean {
 /**
  * A send refused over Claude's terminal input box: the note, and either the one-row draft a send may
  * clear first (`draft`), or, where the server named none but showed the box, a send anyway (`anyway`).
+ * `plain`: the note stands without its Send anyway (a screen a terminal peek left open), so a quick
+ * reply, which offers none, shows it as it is.
  */
-export type DraftRefusal = { note: string; draft: string } | { note: string; anyway: true };
+export type DraftRefusal = { note: string; draft: string } | { note: string; anyway: true; plain?: boolean };
 
 /**
  * submitNote, or a DraftRefusal when the server named a draft it can clear (SubmitResult's `draft`)
@@ -88,6 +90,7 @@ export function submitNote(code: string, message: string, agent?: string | null)
   if (code === "pending_input_unsupported") return t("Update this PC to send messages in the next turn. Your draft stayed here.");
   if (code === "submit_timeout") return t("Not sent: it waited too long behind an earlier message, and nothing was typed. Send it again.");
   if (code === "not_transmitted") return t("Not sent: the connection dropped before this message left. Send it again.");
+  if (code === "first_message_unattended") return t("Not sent: the page that started this agent left before it was ready. Send it now or discard it.");
   if (code === "disconnected" || code === "timeout") return t("Not confirmed: the pane did not confirm this message. Check the terminal before sending it again.");
   return t("Not sent: {message}", { message });
 }
@@ -143,7 +146,7 @@ export function commandListed(command: SlashCommand): boolean {
  * A command the agent runs in the terminal, which the chat can start but cannot finish: the
  * catalog says so (`visibility: "terminal"`, or a bare form whose interaction is the terminal,
  * as pi's and omp's `/tree` browser or Claude's `/config` screen). The chat lists these apart and
- * never sends one on its own: picking or typing one offers the terminal instead (Composer.tsx).
+ * sends them normally, then opens this browser's terminal after confirmed direct delivery.
  * A row the agent's own menu hides is not one of them: it is never listed at all.
  */
 export function terminalCommand(command: SlashCommand): boolean {
@@ -183,16 +186,6 @@ export function typedTerminalCommand(commands: readonly SlashCommand[], text: st
   if (command === undefined) return null;
   if (command.visibility === "terminal") return command;
   return typedForm(command, argument.trim())?.interaction === "terminal" ? command : null;
-}
-
-/**
- * What a terminal command offers instead of a send: Open Terminal switches the lens and sends
- * nothing, Run in Terminal sends it through the usual path and then switches. A connection that
- * only observes the pane may look, never send, so it gets the first alone (PaneTerminal mounts no
- * composer for it at all; the rule is kept where the actions are drawn).
- */
-export function terminalCommandActions(role: ClientRole): ("open" | "run")[] {
-  return role === "observe" ? ["open"] : ["open", "run"];
 }
 
 /** The pane's `@` skills (OpenCode v2 attachments), listed in the `@` menu beside the files; none for other panes. */

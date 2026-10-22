@@ -1,9 +1,13 @@
 import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
-import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, PaneRewindRequest, PluginActionRequest, RemoveWorktreeRequest, SessionHistoryAgent, SplitPaneDirection } from "../../shared/protocol.ts";
+import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, PluginActionRequest, RemoveWorktreeRequest, SessionHistoryAgent, SplitPaneDirection } from "../../shared/protocol.ts";
 import type { ZoomMode } from "./layoutMap.ts";
+import { ReorderCoordinator } from "./workspaceOrder.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
+/** App's workspace order for every PC (lib/workspaceOrder.ts); a Sidebar outside App gets its own */
+export const ReorderContext = createContext(new ReorderCoordinator());
+export const useReorderCoordinator = () => useContext(ReorderContext);
 /** Bound functions retain their owner across an async upload or a fast PC switch. */
 export function useMachineApi() {
   const id = useMachineId();
@@ -14,9 +18,9 @@ export function useMachineApi() {
     fetchPanePrompt: (pane: string) => api.fetchPanePrompt(pane, id),
     fetchPanePromptState: (pane: string) => api.fetchPanePromptState(pane, id),
     answerPanePrompt: (answer: Parameters<typeof api.answerPanePrompt>[0]) => api.answerPanePrompt(answer, id),
-    rewindPane: (request: PaneRewindRequest) => api.rewindPane(request, id),
     uploadPaneImage: (pane: string, image: Blob) => api.uploadPaneImage(pane, image, id),
     fetchPaneCommands: (pane: string) => api.fetchPaneCommands(pane, id),
+    fetchAgentCommands: (agent: string, cwd: string | null) => api.fetchAgentCommands(agent, cwd, id),
     fetchPaneFiles: (pane: string, query: string, limit = 20) => api.fetchPaneFiles(pane, query, limit, id),
     findPane: (request: Parameters<typeof api.findPane>[0]) => api.findPane(request, id),
     fetchPaneScroll: (pane: string) => api.fetchPaneScroll(pane, id),
