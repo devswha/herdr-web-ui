@@ -240,7 +240,8 @@ describe("OpenCode v2 native service", () => {
   /** runs once, inside the next session lookup, before the fake answers it */
   let duringLookup: (() => Promise<void>) | undefined;
   /** every chunk the stand-in reads from its terminal, reported by the stand-in itself */
-  let onTyped: ((chunk: string) => void) | undefined;
+  let onTyped: ((chunk: string, start: number) => void) | undefined;
+  const typedWaiters = new Set<() => void>();
   /** while set, session lookups get no answer (the bridge's own request timeout ends them) */
   let withholdLookups = false;
   /** while set, every request but /api/info gets no answer: a service that hangs */
@@ -290,7 +291,7 @@ let typed = "";
 process.stdin.setRawMode(true);
 process.stdin.on("data", (chunk) => {
   appendFileSync(${JSON.stringify(typedLog)}, chunk);
-  fetch(readFileSync(${JSON.stringify(join(nativeRoot, "fake.url"))}, "utf8") + "/test/typed", { method: "POST", body: chunk }).catch(() => {});
+  fetch(readFileSync(${JSON.stringify(join(nativeRoot, "fake.url"))}, "utf8") + "/test/typed", { method: "POST", headers: { "x-typed-start": String(typed.length) }, body: chunk }).catch(() => {});
   const before = typed;
   typed += chunk.toString("latin1");
   if (!before.endsWith("@effect") && typed.endsWith("@effect")) process.stdout.write("\\u001b[2J\\u001b[H" + readFileSync(${JSON.stringify(join(nativeRoot, "screen.txt"))}, "utf8"));
@@ -303,7 +304,11 @@ process.stdin.on("data", (chunk) => {
       fetch(request) {
         const url = new URL(request.url);
         if (url.pathname === "/api/info") return Response.json(info);
-        if (url.pathname === "/test/typed") return request.text().then((chunk) => { onTyped?.(chunk); return new Response(null, { status: 204 }); });
+        if (url.pathname === "/test/typed") return request.text().then((chunk) => {
+          onTyped?.(chunk, Number(request.headers.get("x-typed-start")));
+          for (const wake of typedWaiters) wake();
+          return new Response(null, { status: 204 });
+        });
         lastRequestAt = performance.now();
         if (url.pathname === "/api/event" && eventMode === "slow") return new Promise<Response>((resolve) => withheld.add(() => resolve(new Response(null, { status: 503 }))));
         if (url.pathname === "/api/event" && eventMode !== "ok") return new Response(null, { status: eventMode === "absent" ? 404 : 503 });
@@ -456,13 +461,15 @@ process.stdin.on("data", (chunk) => {
         await Bun.sleep(50);
       }
       await browserCatalog();
+      const completed = typedSince(before);
       ws.send(JSON.stringify({ type: "submit", id: 2, pane_id: nativePane, text: "@effect apply it", payload: "@effect apply it", delivery: "queue" }));
       expect(await frame((message) => message.type === "submit-result" && message.id === 2)).toMatchObject({ ok: true, pending: { state: "queued" } });
       expect(typed().length).toBe(before);
       await herdrRpc("pane.report_agent", { pane_id: nativePane, source: "herdr:opencode", agent: "opencode", agent_session_id: NATIVE_SESSION, state: "idle" });
       const delivered = await frame((message) => message.type === "pending-messages" && Array.isArray(message.removed) && message.removed.length > 0);
       expect(JSON.stringify(delivered.removed)).not.toContain("error");
-      expect(typed().slice(before)).toBe("@effect\t\u001b[200~apply it\u001b[201~\r");
+      // The receipt acknowledges the PTY write, not the stand-in reading its Enter.
+      expect(await completed).toBe("@effect\t\u001b[200~apply it\u001b[201~\r");
     } finally { ws.close(); }
   });
 /** A socket recording every frame; `frame` resolves on the first one (already seen or next) matching. */
@@ -581,13 +588,21 @@ process.stdin.on("data", (chunk) => {
 
   const outcomesAt = async (port: number, pane: string): Promise<CommandOutcome[]> =>
     ((await (await fetch(`http://127.0.0.1:${port}/api/pane/prompt?pane_id=${encodeURIComponent(pane)}`)).json()) as { outcomes?: CommandOutcome[] }).outcomes ?? [];
-  const typedSince = async (before: number): Promise<string> => {
-    for (const deadline = Date.now() + 5_000; !typed().slice(before).endsWith("\r");) {
-      if (Date.now() > deadline) throw new Error(`typed: ${JSON.stringify(typed().slice(before))}`);
-      await Bun.sleep(50);
-    }
-    return typed().slice(before);
-  };
+  const typedSince = (before: number): Promise<string> => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      typedWaiters.delete(check);
+      reject(new Error(`typed: ${JSON.stringify(typed().slice(before))}`));
+    }, 5_000);
+    const check = () => {
+      const text = typed().slice(before);
+      if (!text.endsWith("\r")) return;
+      clearTimeout(timeout);
+      typedWaiters.delete(check);
+      resolve(text);
+    };
+    typedWaiters.add(check);
+    check();
+  });
 
   it("attaches @effect and records the send after the pane's OpenCode session changed, with no catalog request since", async () => {
     const { ws, frame } = await socket();
@@ -808,18 +823,25 @@ process.stdin.on("data", (chunk) => {
           forgetOpenCodeService();
           eventMode = mode;
           const typedFirst = Promise.withResolvers<number>();
-          onTyped = () => typedFirst.resolve(performance.now() - lastRequestAt);
           const text = path === "prompt" ? `/review ${mode}` : `@effect ${path} ${mode}`;
           const request = ++id;
           if (path === "queued") {
             await reportState("working");
             await untilStatus("working");
           }
+          const before = typed().length;
+          // Reports can arrive out of order; identify this send's first byte, regardless of chunking.
+          onTyped = (_chunk, start) => { if (start === before) typedFirst.resolve(performance.now() - lastRequestAt); };
+          const completed = typedSince(before);
           ws.send(JSON.stringify({ type: "submit", id: request, pane_id: nativePane, text, payload: text, ...(path === "queued" ? { delivery: "queue" } : {}) }));
           const answer = await frame((message) => message.type === "submit-result" && message.id === request);
           expect(answer).toMatchObject({ ok: true });
           if (path === "queued") await reportState("idle");
           gaps[`${path}/${mode}`] = Math.round(await typedFirst.promise);
+          // Keep this delivery's observer and service alive until its whole send has reached the TUI.
+          await completed;
+          if (path === "queued") await frame((message) => message.type === "pending-messages"
+            && Array.isArray(message.removed) && message.removed.some((item) => item.id === (answer.pending as { id: string }).id));
           onTyped = undefined;
           for (const release of withheld) release();
           withheld.clear();
