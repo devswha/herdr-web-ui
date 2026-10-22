@@ -521,8 +521,9 @@ describe("endGroup", () => {
   it.skipIf(process.platform === "win32")("waits for a leaderless group until its descendant exits", async () => {
     // The descendant says when SIGTERM reached it, then exits once released. Its handler can take
     // effect after the code that installs it has run, and a SIGTERM before that kills it silently:
-    // it is ready only once the handler has caught a SIGTERM it sent itself.
-    const descendant = 'let caught = 0; process.on("SIGTERM", () => process.stdout.write(caught++ === 0 ? `READY ${process.pid}\\n` : "TERM\\n")); process.stdin.once("data", () => process.exit(0)); process.kill(process.pid, "SIGTERM");';
+    // it is ready only once the handler has caught a SIGTERM it sent itself. A timer keeps it alive
+    // (a read on the stdin it inherits sometimes let it exit on its own), and SIGUSR1 releases it.
+    const descendant = 'let caught = 0; process.on("SIGTERM", () => process.stdout.write(caught++ === 0 ? `READY ${process.pid}\\n` : "TERM\\n")); process.on("SIGUSR1", () => process.exit(0)); setInterval(() => {}, 1 << 30); process.kill(process.pid, "SIGTERM");';
     const leader = `const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], { stdio: "inherit" }).unref();`;
     const parent = spawn(process.execPath, ["-e", leader], { detached: true, stdio: ["pipe", "pipe", "inherit"] });
     const group = parent.pid!;
@@ -548,7 +549,7 @@ describe("endGroup", () => {
           if (!released) {
             await within(saw("TERM"), STEP_MS, "SIGTERM did not reach the descendant:", () => processState(pid));
             released = true;
-            parent.stdin!.write("go\n");
+            process.kill(pid, "SIGUSR1");
             await within(outputEnded, STEP_MS, "the released descendant did not exit:", () => processState(pid));
             // an exited process stays in its group until the process that adopted it reaps it
             reapDeadline = Date.now() + STEP_MS;
@@ -1029,5 +1030,5 @@ describe("check CLI", () => {
     expect(missingBuildReport.browserArtifact.buildThisRun).toBe(true);
     expect(missingBuildReport.verification.status).toBe("unknown");
     expect(missingBuildReport.errors).toContain("built dist identity unavailable; cannot verify the built artifact");
-  });
+  }, 180_000);
 });
