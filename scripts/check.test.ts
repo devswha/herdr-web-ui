@@ -519,8 +519,10 @@ const processState = (pid: number): string => {
 
 describe("endGroup", () => {
   it.skipIf(process.platform === "win32")("waits for a leaderless group until its descendant exits", async () => {
-    // the descendant says when it is ready and when SIGTERM reached it, then exits once released
-    const descendant = 'process.on("SIGTERM", () => process.stdout.write("TERM\\n")); process.stdin.once("data", () => process.exit(0)); process.stdout.write(`READY ${process.pid}\\n`);';
+    // The descendant says when SIGTERM reached it, then exits once released. Its handler can take
+    // effect after the code that installs it has run, and a SIGTERM before that kills it silently:
+    // it is ready only once the handler has caught a SIGTERM it sent itself.
+    const descendant = 'let caught = 0; process.on("SIGTERM", () => process.stdout.write(caught++ === 0 ? `READY ${process.pid}\\n` : "TERM\\n")); process.stdin.once("data", () => process.exit(0)); process.kill(process.pid, "SIGTERM");';
     const leader = `const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], { stdio: "inherit" }).unref();`;
     const parent = spawn(process.execPath, ["-e", leader], { detached: true, stdio: ["pipe", "pipe", "inherit"] });
     const group = parent.pid!;
@@ -622,7 +624,7 @@ describe("teardown", () => {
   it("retains isolation and reports a cleanup exception", () => {
     const isolation = isolate({});
     made.push(isolation.dir);
-    const evidence = join(isolation.env["HERDR_WEB_STATE_DIR"]!, "evidence.txt");
+    const evidence = join(isolation.env["OVIS_STATE_DIR"]!, "evidence.txt");
     writeFileSync(evidence, "left behind");
     const order: string[] = [];
     const failed = teardown([() => { order.push("first"); throw new Error("stop exploded"); }, () => { order.push("second"); }], isolation);
@@ -645,7 +647,7 @@ describe("teardown", () => {
 describe("check CLI teardown", () => {
   const checkScript = fileURLToPath(new URL("./check.ts", import.meta.url));
   // two sessions with a socket each, as a herdr server leaves them, and a file of the command's
-  const sessionsCommand = 'for s in fx-1 fx-2; do mkdir -p "$XDG_CONFIG_HOME/herdr/sessions/$s" && : > "$XDG_CONFIG_HOME/herdr/sessions/$s/herdr.sock"; done; echo kept > "$HERDR_WEB_STATE_DIR/evidence.txt"';
+  const sessionsCommand = 'for s in fx-1 fx-2; do mkdir -p "$XDG_CONFIG_HOME/herdr/sessions/$s" && : > "$XDG_CONFIG_HOME/herdr/sessions/$s/herdr.sock"; done; echo kept > "$OVIS_STATE_DIR/evidence.txt"';
   type Report = { status: string; exitCode: number; errors: string[]; verification: { status: string }; evidence: { retained: string[] }; steps: { name: string; status: string }[] };
   /** A repository to check, and a herdr stand-in that records each stop and fails it when asked: no real herdr is involved. */
   const fixture = (stopFails: boolean) => {
@@ -667,7 +669,7 @@ describe("check CLI teardown", () => {
       // a slot of its own beside the PC's real runs, and a wait for the admission port they share (#1225)
       CHECK_MAX_RUNS: "8",
       CHECK_WAIT_SECONDS: "90",
-      HERDR_WEB_HERDR_BIN: herdr,
+      OVIS_HERDR_BIN: herdr,
       STUB_LOG: join(root, "stops.log"),
       STUB_STOP_FAIL: stopFails ? "1" : "",
     };
@@ -730,9 +732,9 @@ describe("check CLI teardown", () => {
       check.stdout!.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
       const saw = listen(check.stdout!);
       try {
-        await saw("READY");
+        await within(saw("READY"), 150_000, "the command did not start");
         check.kill(signal);
-        expect(await exited).toBe(code);
+        expect(await within(exited, 30_000, "the interrupted run did not finish")).toBe(code);
       } finally {
         check.kill("SIGKILL");
       }
@@ -769,11 +771,12 @@ describe("check CLI teardown", () => {
 
   it.skipIf(process.platform === "win32")("finalizes an interrupted run whose step group cannot be stopped", async () => {
     const { cwd, env, report, isolated } = fixture(false);
-    // check.ts may not signal any process group, as if the step ran as another user
+    // Only this check's groups are denied, as if the step ran as another user.
     const deny = join(cwd, "..", "deny-groups.ts");
-    writeFileSync(deny, 'const kill = process.kill.bind(process);\nprocess.kill = ((pid: number, signal?: string | number) => { if (pid < 0) throw Object.assign(new Error("EPERM (fixture)"), { code: "EPERM" }); return kill(pid, signal); }) as typeof process.kill;\n');
-    // the command reports its group and waits on stdin, which stays open: it cannot end by itself
-    const check = spawn(process.execPath, ["--preload", deny, checkScript, "run", "sh", "-c", `${sessionsCommand}; echo "GRO""UP $$"; read line`], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    writeFileSync(deny, `import { main } from ${JSON.stringify(checkScript)};\nawait main({ kill() { throw Object.assign(new Error("EPERM (fixture)"), { code: "EPERM" }); } });\n`);
+    // A listener survives even when the checker closes stdin; only our explicit cleanup ends it.
+    const command = 'Bun.serve({ port: 0, hostname: "127.0.0.1", fetch() { return new Response(); } }); console.log("GRO" + "UP " + process.pid);';
+    const check = spawn(process.execPath, [deny, "run", process.execPath, "-e", command], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     const exited = new Promise<number | null>((resolve) => check.once("exit", (exitCode) => resolve(exitCode)));
     let stdout = "";
     check.stdout!.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
@@ -782,21 +785,41 @@ describe("check CLI teardown", () => {
     try {
       await within(saw("GROUP "), 150_000, "the command did not start");
       group = Number(/GROUP (\d+)/.exec(stdout)?.[1]);
-      check.kill("SIGTERM");
+      check.kill("SIGINT");
       // the run ends with its code although the step it could not stop never settles
-      expect(await within(exited, 60_000, "the interrupted run did not finish")).toBe(143);
+      expect(await within(exited, 30_000, "the interrupted run did not finish")).toBe(130);
       expect(() => process.kill(-group, 0)).not.toThrow();
       const dir = isolated(stdout);
       made.push(dir);
       const interrupted = report() as Report & { endedAt: string | null };
-      expect(interrupted).toMatchObject({ status: "interrupted", exitCode: 143, verification: { status: "unknown" }, evidence: { retained: [dir] } });
+      expect(interrupted).toMatchObject({ status: "interrupted", exitCode: 130, verification: { status: "unknown" }, evidence: { retained: [dir] } });
       expect(interrupted.endedAt).not.toBeNull();
       expect(interrupted.errors.some((error) => error.startsWith(`teardown: step process group ${group} did not end`) && error.includes("EPERM"))).toBe(true);
-      expect(readFileSync(join(dir, "web-state", "evidence.txt"), "utf8")).toBe("kept\n");
+      expect(existsSync(join(dir, "web-state"))).toBe(true);
     } finally {
       check.kill("SIGKILL");
-      if (group) try { process.kill(-group, "SIGKILL"); } catch { /* already gone */ }
+      await exited;
+      if (group) expect((await endGroup(group, "SIGKILL")).result).toBe("gone");
     }
+  }, 210_000);
+
+  it.skipIf(process.platform === "win32")("fails and retains evidence when a zero-exit step group survives KILL", () => {
+    const { cwd, env, report, isolated } = fixture(false);
+    const survive = join(cwd, "..", "survive-groups.ts");
+    // Simulate an unkillable owned group without leaving a real unkillable process on the PC.
+    // Both grace periods advance through the same clock/wait seam as the unit tests.
+    writeFileSync(survive, `import { main } from ${JSON.stringify(checkScript)};\nlet clock = 0;\nawait main({ kill() {}, now: () => clock, wait: async (ms) => { clock += ms; } });\n`);
+    const result = spawnSync(process.execPath, [survive, "run", "sh", "-c", sessionsCommand], { cwd, env, encoding: "utf8", timeout: 200_000 });
+    const dir = isolated(result.stdout);
+    made.push(dir);
+    expect(result.status).toBe(1);
+    const failed = report();
+    expect(failed).toMatchObject({ status: "failure", exitCode: 1, evidence: { retained: [dir] } });
+    expect(failed.errors.some((error) => /step process group \d+ did not end: still running after SIGKILL/.test(error))).toBe(true);
+    expect(failed.steps.find((step) => step.name === "run")?.status).toBe("success");
+    expect(isAbsolute(dir)).toBe(true);
+    expect(result.stderr).toContain(dir);
+    expect(readFileSync(join(dir, "web-state", "evidence.txt"), "utf8")).toBe("kept\n");
   }, 210_000);
 });
 

@@ -419,7 +419,7 @@ export function describeHolders(holders: readonly SlotHolder[]): string {
     : `port ${holder.port}: pid ${holder.heldBy}${holder.checkout ? ` in ${holder.checkout}` : ""}`).join("; ");
 }
 
-async function main(): Promise<void> {
+export async function main(groupSeams: GroupSeams = {}): Promise<void> {
   let todo: ReturnType<typeof plan>;
   const args = process.argv.slice(2);
   try { todo = plan(args); } catch (error) { console.error((error as Error).message); process.exit(2); }
@@ -614,10 +614,10 @@ async function main(): Promise<void> {
     let left = false;
     // Windows has no process groups to signal
     if (process.platform !== "win32") {
-      try { process.kill(-group, 0); left = true; }
+      try { (groupSeams.kill ?? process.kill)(-group, 0); left = true; }
       catch (error) { left = (error as NodeJS.ErrnoException).code !== "ESRCH"; }
       if (left) {
-        const outcome = await endGroup(group, "SIGTERM");
+        const outcome = await endGroup(group, "SIGTERM", groupSeams);
         if (outcome.result !== "gone") groupFailed(outcome);
         else console.error(`check: ended processes left running in step process group ${group}`);
       }
@@ -704,14 +704,25 @@ async function main(): Promise<void> {
           // The step runs in a process group of its own, and a lane starts processes of its own
           // in it: the whole group gets the signal, and has ended before the herdr and the
           // directory it uses are taken away.
-          const outcomes = await Promise.all([...owned].map((group) => endGroup(group, signal)));
+          const outcomes = await Promise.all([...owned].map((group) => endGroup(group, signal, groupSeams)));
           const stuck = outcomes.filter((outcome) => outcome.result !== "gone");
           for (const outcome of stuck) groupFailed(outcome);
           // A step whose group ended settles at once. One that could not be stopped may never
           // settle: its failure is recorded, and the run ends without it, keeping its state.
           if (stuck.length === 0) {
-            if (activeStepFinished) await activeStepFinished;
-            if (concurrentUnitFinished) await concurrentUnitFinished;
+            // Even a gone group can leave output held outside it. Never wait indefinitely for
+            // step/log completion after interruption; keep evidence if draining cannot finish.
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              await Promise.race([
+                Promise.all([activeStepFinished, concurrentUnitFinished]),
+                new Promise<never>((_, reject) => {
+                  timer = setTimeout(() => reject(new Error("interrupted step output did not finish draining")), OUTPUT_DRAIN_GRACE_MS + END_GRACE_MS + KILL_GRACE_MS);
+                }),
+              ]);
+            } finally {
+              clearTimeout(timer);
+            }
           }
         } catch (error) {
           teardownFailures.push(`could not end the interrupted steps: ${(error as Error).message}`);
