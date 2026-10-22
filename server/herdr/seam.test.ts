@@ -285,7 +285,7 @@ it("rejects a mismatched reply id", async () => {
   // two lines in one chunk: the foreign one first fails the call, the matching one after it is ignored
   reply = (id) => `${JSON.stringify({ id: `${id}-other`, result: { stolen: true } })}\n${JSON.stringify({ id, result: { ok: true } })}\n`;
   expect((await rejection(herdrRpc("fixture.read", {}, path))).message).toContain("reply to another request");
-  // and the matching one first wins, the rest of the chunk unread
+  // and the matching one first wins, the rest of the chunk ignored
   reply = (id) => `${JSON.stringify({ id, result: { ok: true } })}\n${JSON.stringify({ id: "br-x", result: { stolen: true } })}\nnull\n`;
   expect(await herdrRpc<unknown>("fixture.read", {}, path)).toEqual({ ok: true });
 });
@@ -391,6 +391,63 @@ it("bounds bytes before a newline or UTF-8 decoding", async () => {
   expect(Number(error.message.match(/(\d+) bytes\)$/)![1])).toBeGreaterThan(LINE_BYTES);
   await within(connections[1]!.closed, 5_000, "closing the oversized connection");
 }, 60_000);
+
+it("delivers the rest of a read when a callback throws", async () => {
+  const encode = (text: string) => new TextEncoder().encode(text);
+  // the chunk is split and its tail kept before any callback runs: every line is delivered, then
+  // the first throw is rethrown
+  const lines: string[] = [];
+  const oversize: number[] = [];
+  const push = makeLineReader(16, (line) => { lines.push(line); if (line.startsWith("throw")) throw new Error(line); }, (bytes) => oversize.push(bytes));
+  expect(() => push(encode("throw 1\nthrow 2\nkept\n{\"d\""))).toThrow("throw 1");
+  expect(lines).toEqual(["throw 1", "throw 2", "kept"]);
+  push(encode(":1}\n"));
+  expect(lines).toEqual(["throw 1", "throw 2", "kept", '{"d":1}']);
+  // a line before an oversized one is delivered too, and the oversize still reported
+  expect(() => push(encode(`throw 3\n${"x".repeat(17)}`))).toThrow("throw 3");
+  expect([lines.at(-1), oversize]).toEqual(["throw 3", [17]]);
+
+  // through a subscription: a subscriber that throws on the first of three events in one read
+  // still gets the other two, and an event cut by the end of that read arrives whole with the next
+  const { path, connections } = await peer((request, { socket }) => socket.write(ack(request.id)));
+  const events: EventFrame[] = [];
+  const started = Promise.withResolvers<void>();
+  const three = Promise.withResolvers<void>();
+  const four = Promise.withResolvers<void>();
+  let closes = 0;
+  const subscription = subscribeEvents([{ type: "pane.agent_status_changed" }], {
+    onEvent: (frame) => {
+      events.push(frame);
+      if (events.length === 3) three.resolve();
+      if (events.length === 4) four.resolve();
+      if (events.length === 1) throw new Error("subscriber bug");
+    },
+    onStarted: () => started.resolve(),
+    onClose: () => { closes++; },
+  }, path);
+  cleanups.push(() => subscription.close());
+  await within(started.promise, 5_000, "subscription_started");
+  const cut = JSON.stringify(event(4));
+  connections[0]!.socket.write(`${[event(1), event(2), event(3)].map((frame) => `${JSON.stringify(frame)}\n`).join("")}${cut.slice(0, 20)}`);
+  await within(three.promise, 5_000, "the two events after the throw");
+  connections[0]!.socket.write(`${cut.slice(20)}\n`);
+  await within(four.promise, 5_000, "the event cut by the read");
+  expect([events, closes]).toEqual([[event(1), event(2), event(3), event(4)] as never, 0]);
+
+  // a subscriber whose onError throws on a bad frame still sees the close, and the socket ends
+  const { path: badPath, connections: bad } = await peer((request, { socket }) => socket.write(`${ack(request.id)}null\n`));
+  const closed = Promise.withResolvers<void>();
+  let badCloses = 0;
+  const failing = subscribeEvents([{ type: "pane.agent_status_changed" }], {
+    onEvent: () => {},
+    onError: () => { throw new Error("subscriber bug"); },
+    onClose: () => { badCloses++; closed.resolve(); },
+  }, badPath);
+  cleanups.push(() => failing.close());
+  await within(closed.promise, 5_000, "onClose after a throwing onError");
+  await within(bad[0]!.closed, 5_000, "the peer seeing the close");
+  expect(badCloses).toBe(1);
+}, 30_000);
 
 it("accepts largest supported pane and snapshot replies", async () => {
   // escaped and multibyte text with ANSI colour, padded so each reply line is exactly the ceiling

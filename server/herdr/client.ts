@@ -83,7 +83,10 @@ const LARGE_REPLY_METHODS = new Set(["pane.read", "pane.selection.read", "sessio
  * herdr frames arrive split across reads, so a partial tail is kept as bytes and decoded only
  * once its line is complete, which keeps a UTF-8 character split between reads whole. A line
  * that passes `limit` before its newline is reported once through `onOversize`, its bytes are
- * dropped, and the reader ignores everything after it. Exported for server/herdr/seam.test.ts.
+ * dropped, and the reader ignores everything after it. A chunk is split, and its partial tail kept,
+ * before any callback runs, so a callback that throws loses no other line: every line of the chunk
+ * is still delivered, and the first throw is rethrown after the last. Exported for
+ * server/herdr/seam.test.ts.
  */
 export function makeLineReader(
   limit: number,
@@ -95,29 +98,48 @@ export function makeLineReader(
   let held = 0;
   let failed = false;
   return (chunk: Uint8Array) => {
+    const lines: Uint8Array[] = [];
+    let oversize: number | null = null;
     let start = 0;
     while (!failed && start < chunk.length) {
       const end = chunk.indexOf(0x0a, start);
       const piece = chunk.subarray(start, end === -1 ? chunk.length : end);
       if (held + piece.length > limit) {
         failed = true;
+        oversize = held + piece.length;
         parts = [];
-        onOversize(held + piece.length);
-        return;
+        held = 0;
+        break;
       }
       if (end === -1) {
         // the socket may reuse its read buffer: keep a copy
         parts.push(piece.slice());
         held += piece.length;
-        return;
+        break;
       }
-      const bytes = held === 0 ? piece : Buffer.concat([...parts, piece]);
+      lines.push(held === 0 ? piece : Buffer.concat([...parts, piece]));
       parts = [];
       held = 0;
       start = end + 1;
-      const line = decoder.decode(bytes).trim();
-      if (line.length > 0) onLine(line, bytes.length);
     }
+    let thrown: { error: unknown } | null = null;
+    for (const bytes of lines) {
+      const line = decoder.decode(bytes).trim();
+      if (line.length === 0) continue;
+      try {
+        onLine(line, bytes.length);
+      } catch (error) {
+        thrown ??= { error };
+      }
+    }
+    if (oversize !== null) {
+      try {
+        onOversize(oversize);
+      } catch (error) {
+        thrown ??= { error };
+      }
+    }
+    if (thrown) throw thrown.error;
   };
 }
 
@@ -821,13 +843,18 @@ export function subscribeEvents(
   const invalid = (reason: string, bytes: number) => {
     if (closed) return;
     closed = true;
-    handlers.onError?.(new HerdrError("bad_frame", `herdr sent an invalid events.subscribe frame (${reason}, ${bytes} bytes)`));
     try {
-      socket?.end();
-    } catch {
-      /* already gone */
+      handlers.onError?.(new HerdrError("bad_frame", `herdr sent an invalid events.subscribe frame (${reason}, ${bytes} bytes)`));
+    } finally {
+      // a throwing onError must still end the socket and report the close, or a subscriber that
+      // reopens on close never does
+      try {
+        socket?.end();
+      } catch {
+        /* already gone */
+      }
+      handlers.onClose?.();
     }
-    handlers.onClose?.();
   };
 
   const onData = makeLineReader(LINE_BYTES, (line, bytes) => {
