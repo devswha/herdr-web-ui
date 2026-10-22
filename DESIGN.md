@@ -15,8 +15,8 @@ default, light follows the same hierarchy, and comfortable or compact density ch
 changing information architecture. A new browser starts on the Codex theme (dark and light), which
 draws this hierarchy in Codex's neutral surfaces and blue accent; amber, charcoal, Catppuccin and
 herdr's built-in themes are picked in Settings → Appearance → Dark theme and Light theme. Amber
-stays the base every theme block overrides, the look before settings load, and the look a browser
-keeps when it saved a theme while amber was the default. Settings are saved on a user's first
+stays the base every theme block overrides and the look a browser keeps when it saved a theme
+while amber was the default; the saved theme, not amber, is the page's first frame (see Rules). Settings are saved on a user's first
 change, so a browser that never changed one moves to Codex with everyone new.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
@@ -170,7 +170,7 @@ The theme blocks of `src/styles.css` are the theme table and the one place a the
 edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
 `[data-theme="<mode>"][data-palette="<id>"]` is every other entry. `bun run generate:themes`
 (`scripts/generate-themes.ts`) reads them and writes the copies: `src/lib/themes.generated.ts`
-(the supported entries with their roles, xterm colors and panel color), the amber table above
+(the supported entries with their roles, xterm colors, panel color and page surface `bg`), the amber table above
 between its `GENERATED THEMES` markers, the `theme-color` tag in `index.html` and the manifest's
 `theme_color` and `background_color`. Never edit those copies by hand; `--check` fails when one
 is stale. The tables list amber's UI roles and every light row's terminal ANSI colours; read
@@ -449,6 +449,15 @@ blocks of `src/styles.css`.
 - Tints are named tokens; components do not introduce ad hoc translucent state colors.
 - `theme: "system"` follows `prefers-color-scheme`; `src/lib/settings.ts` writes the resolved
   `data-theme`, `color-scheme`, and matching PWA `<meta name="theme-color">`.
+- The saved theme is drawn from the page's first frame. `src/theme-bootstrap.ts`, a same-origin
+  classic script in `<head>` ahead of the stylesheet and the app (`assets/theme-bootstrap-<hash>.js`,
+  placed by `scripts/theme-bootstrap-build.ts`; never inline, the policy is `script-src 'self'`),
+  reads both stored records through `src/lib/themeBoot.ts`, the reading `loadSettings` uses, and
+  writes the row's `data-theme`, `data-palette`, `color-scheme`, `theme-color` and its `--bg` as the
+  root background, which covers a frame painted before the stylesheet. `applyToDocument` removes that
+  background, so the theme blocks own it from then on. This is a boot-correctness fix and follows no
+  other app's behavior: the appearance is the one documented above (Codex by default), now shown from
+  the first frame instead of after amber until the app starts.
 
 ## 3. Typography
 
@@ -894,6 +903,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 
 ### Pill (`.pill`)
 - Mono metadata at `--chip-h`. Offline is the one header pill that stays, and uses danger tokens. A deep link waiting for its PC's roster says **Opening link…** in the same `.header-note` pill (`role="status"`) until it lands or its failure note replaces it. That status stays in the document while there is no note, clipped and empty (`.visually-hidden`, never `display: none`, as `.conn-live`), and the words of a page that opens with a link land a frame after it: a live region that appears together with its content is not announced. The `.header-note` pill carries a sentence, so it is set in the interface face (`--font-ui`), not the mono one. A deep link that could not open what it named, and Copy link, say so in a plain `.header-note` pill for a moment (8 s, 1.6 s for Link copied). The note takes the flexible context's place and ellipsizes when narrow, keeping the lens and More controls in view.
+- This PC's herdr status follows its health reads, and one failed read is no outage: it says **Status unknown** in a
+  plain `.pill-stale` (the neutral pill, no danger tokens), its tooltip naming the last herdr that answered. A second
+  failed read in a row says **herdr unavailable** in the offline pill's danger style; neither claims herdr stopped, since
+  a failed read is not proof of that. An answer ends the failed reads before it; one that lands late keeps those after
+  it. Another PC's **herdr offline** still comes from its bridge.
+  What a PC's herdr can do (terminal attach, the mirror, a pane's default lens) is its last answer and never changes on a
+  failed read, so a Windows PC keeps its chat lens. The pills follow the app's own connection chip and header pills
+  rather than another app's policy; at `<=480px` both go with the other header pills.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**
@@ -2222,7 +2239,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the address and QR code as the Phone group draws them over a Relay row with Stop; otherwise one
   hint for what blocks it (no token, serve-only, no `portal` or an old one, with a link to get it)
   or a wide Relay row whose text field and Start stack on a phone. Starting and stopping are one
-  dim status line; a failure is the server's sentence over Portal's own lines, folded.
+  dim status line, at body size (`--fs-md`, `--fs-lg` under a finger) since it is what Portal is
+  doing now; a failure is the server's sentence over Portal's own lines, folded.
+- A Portal that was serving and ends on its own is started again once by the server, on the same
+  relay, port and identity: the address goes, the same dim status line says **Recovering…**
+  with Stop still offered (disabled on a watch-only device), and a second exit or a restart
+  that may not go ahead is the usual failure. The precedent is operational, not a coding-agent
+  app's: Cloudflare Tunnel's service unit restarts on failure
+  ([`Restart=on-failure`](https://github.com/cloudflare/cloudflared/blob/733bfb93/cmd/cloudflared/linux_service.go)),
+  without limit. This differs on purpose: one restart, in the existing status row with no new
+  control or setting, so a tunnel that keeps failing says so instead of looping.
 - The running versions are always written, since the sidebar carries none. Updates opens with
   **Running vX.Y.Z (commit)**: the server's version and commit, or the client's own build version
   before the server answers and where it names neither. While the server runs another version than
