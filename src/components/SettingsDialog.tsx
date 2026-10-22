@@ -1010,7 +1010,8 @@ function SettingsCrash({ onClose, overPreview }: { onClose: () => void; overPrev
  * A change the server refused to save, on whichever page is open: the plain sentence (lib/userError.ts),
  * the server's own words behind Details, and where the change is now with the Retry that sends it.
  * It stays until a save lands; the change is sent again every few seconds meanwhile, and after three
- * failures only on Retry or a reconnect (lib/preferencesSync.ts).
+ * failures only on Retry or a reconnect (lib/preferencesSync.ts). Only this page holds the change until
+ * then: a reload takes the server's values again.
  */
 function SaveFailure({ error, paused, retrying, onRetry }: { error: UserError; paused: boolean; retrying: boolean; onRetry: () => void }) {
   const t = useT();
@@ -1020,7 +1021,7 @@ function SaveFailure({ error, paused, retrying, onRetry }: { error: UserError; p
       <code>{error.detail}</code>
     </details>}
     <div className="settings-save-local">
-      <p>{retrying ? t("Saved on this device; sending it to the server…") : t("Saved on this device; not confirmed on the server.")}</p>
+      <p>{retrying ? t("Sending the change to the server…") : t("Not saved on the server yet; reloading or closing this page can undo the change.")}</p>
       <button type="button" className="btn" disabled={retrying} aria-busy={retrying} onClick={onRetry}>{t("Retry")}</button>
     </div>
   </div>;

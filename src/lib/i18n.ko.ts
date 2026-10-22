@@ -928,8 +928,8 @@ export const KO: Record<string, string> = {
   "Check your connection, then try again.": "연결을 확인한 뒤 다시 시도하세요.",
   "Try again; if it keeps failing, restart Ovis on the PC.": "다시 시도하고, 계속 실패하면 PC에서 Ovis를 다시 시작하세요.",
   "The server cannot save settings: check that its state folder is writable.": "서버가 설정을 저장할 수 없습니다. 서버의 상태 폴더에 쓸 수 있는지 확인하세요.",
-  "Saved on this device; not confirmed on the server.": "이\u00a0기기에는\u00a0저장했지만 서버에서는\u00a0확인되지\u00a0않았습니다.",
-  "Saved on this device; sending it to the server…": "이\u00a0기기에는\u00a0저장했고 서버로\u00a0보내는\u00a0중…",
+  "Not saved on the server yet; reloading or closing this page can undo the change.": "서버에\u00a0아직 저장되지\u00a0않았습니다. 이\u00a0페이지를 새로\u00a0고치거나\u00a0닫으면 변경이\u00a0취소될\u00a0수\u00a0있습니다.",
+  "Sending the change to the server…": "변경을 서버로\u00a0보내는\u00a0중…",
 
   // ---- sign-in ----
   "Enter all 6 digits of the pairing code.": "페어링 코드 6자리를 모두 입력하세요.",

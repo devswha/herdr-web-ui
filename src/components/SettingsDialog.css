@@ -149,7 +149,7 @@
   gap: var(--space-2);
 }
 
-/* where the change is (only on this device, or on its way) and the Retry that sends it, under the
+/* where the change is (not on the server yet, or on its way) and the Retry that sends it, under the
    sentence; the button wraps below the words on a narrow screen rather than squeezing them. Both
    are read, so they take the reading size: 14 px with a mouse, 15 px under a finger */
 .settings-save-local {

@@ -930,8 +930,8 @@ export const JA: Record<string, string> = {
   "Check your connection, then try again.": "接続を確認してからもう一度お試しください。",
   "Try again; if it keeps failing, restart Ovis on the PC.": "もう一度お試しください。失敗が続く場合は PC で Ovis を再起動してください。",
   "The server cannot save settings: check that its state folder is writable.": "サーバーが設定を保存できません。サーバーの状態フォルダーに書き込めるか確認してください。",
-  "Saved on this device; not confirmed on the server.": "この端末には保存しましたが、サーバーではまだ確認されていません。",
-  "Saved on this device; sending it to the server…": "この端末には保存しました。サーバーに送信しています…",
+  "Not saved on the server yet; reloading or closing this page can undo the change.": "まだサーバーに保存されていません。このページを再読み込みするか閉じると、変更が取り消されることがあります。",
+  "Sending the change to the server…": "変更をサーバーに送信しています…",
 
   // ---- sign-in ----
   "Enter all 6 digits of the pairing code.": "ペアリングコードの 6 桁をすべて入力してください。",

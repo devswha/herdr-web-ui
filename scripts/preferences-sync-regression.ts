@@ -263,7 +263,7 @@ try {
       const firstRound = await statuses(3);
       assert.deepEqual(firstRound, [500, 500, 500]);
       await e.page.locator(".settings-save-error[data-paused]").waitFor();
-      assert.match(await alert.innerText(), /Saved on this device; not confirmed on the server\./);
+      assert.match(await alert.innerText(), /Not saved on the server yet; reloading or closing this page can undo the change\./);
       assert.equal(await alert.count(), 1);
       await quiet();
       assert.equal(e.puts.length, 3, "a paused save sends nothing more");
