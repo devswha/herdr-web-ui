@@ -1810,7 +1810,7 @@ describe("GET /api/pane/read", () => {
   it("reads omitted, zero and small line counts on a live pane with source and format unchanged", async () => {
     const { snapshot } = (await (await fetch(`${base()}/api/session`)).json()) as { snapshot: SessionSnapshot };
     const pane = snapshot.panes[0]!;
-    for (const suffix of ["", "&lines=0", "&lines=1", "&lines=5", "&lines=1e3"]) {
+    for (const suffix of ["", "&lines=0", "&lines=1", "&lines=5", "&lines=0400"]) {
       const res = await fetch(`${base()}/api/pane/read?pane_id=${encodeURIComponent(pane.pane_id)}&source=recent&format=ansi${suffix}`);
       expect(res.status).toBe(200);
       const { read } = (await res.json()) as { read: PaneReadResult };
@@ -1823,7 +1823,7 @@ describe("GET /api/pane/read", () => {
   it("refuses invalid line counts with invalid_lines for known and unknown panes and keeps serving", async () => {
     const { snapshot } = (await (await fetch(`${base()}/api/session`)).json()) as { snapshot: SessionSnapshot };
     for (const pane of [snapshot.panes[0]!.pane_id, "w9999:p9999"]) {
-      for (const lines of ["", "%20%20", "-1", "0.5", "NaN", "Infinity", "4294967296", "9007199254740993"]) {
+      for (const lines of ["", "%20%20", "-1", "0.5", "NaN", "Infinity", "4294967296", "9007199254740993", "0.99999999999999999", "1.0", "1e3", "%2B5"]) {
         const res = await fetch(`${base()}/api/pane/read?pane_id=${encodeURIComponent(pane)}&lines=${lines}`);
         expect(res.status).toBe(400);
         expect(((await res.json()) as ApiError).error.code).toBe("invalid_lines");

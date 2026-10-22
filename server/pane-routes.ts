@@ -22,8 +22,6 @@ import { claudeRewindOpen } from "./prompt.ts";
 import { expandedDirectory } from "./workspace-routes.ts";
 
 /** the native stores createServer was given; unset, each reader finds its own */
-const UINT32_MAX = 4294967295;
-
 export type PaneStores = { codexHome?: string; grokHome?: string; opencodeDb?: string; devinDbPath?: string; hermesHome?: string; openCodeStateDir?: string };
 
 /** the sides herdr's pane.swap and pane.resize take; anything else is refused before the RPC, which would answer invalid_request */
@@ -31,6 +29,8 @@ const isPaneDirection = (value: unknown): value is PaneDirection => value === "l
 /** pane.read's own enums; a read outside them is refused here rather than sent to herdr as a guess (the generated types are open-ended) */
 const READ_SOURCES = new Set<ReadSource>(["detection", "recent", "recent_unwrapped", "visible"]);
 const READ_FORMATS = new Set<ReadFormat>(["ansi", "text"]);
+/** pane.read's `lines` is a uint32 */
+const UINT32_MAX = 4294967295;
 
 /** The answer for a pane route, or null when the path is not one. */
 export async function handlePaneRequest(request: Request, url: URL, pathname: string, options: PaneStores): Promise<Response | null> {
@@ -126,12 +126,13 @@ export async function handlePaneRequest(request: Request, url: URL, pathname: st
     const paneId = url.searchParams.get("pane_id");
     if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
     const linesRaw = url.searchParams.get("lines");
-    const lines = linesRaw === null ? undefined : Number(linesRaw);
-    // herdr's pane.read takes a uint32: anything else is refused here instead of reaching the RPC
-    // (Number("") is 0, so a blank value is refused before it can pass as zero)
-    if (lines !== undefined && (linesRaw!.trim() === "" || !Number.isInteger(lines) || lines < 0 || lines > UINT32_MAX)) {
-      return badRequest("invalid_lines", "lines must be an integer from 0 to 4294967295");
+    // herdr's pane.read takes a uint32: anything else is refused here instead of reaching the RPC.
+    // The raw text is checked, not Number()'s answer: Number() reads "" as 0 and rounds a spelling
+    // such as 0.99999999999999999 to 1, so only plain decimal digits are taken as a count
+    if (linesRaw !== null && (!/^[0-9]+$/.test(linesRaw) || Number(linesRaw) > UINT32_MAX)) {
+      return badRequest("invalid_lines", "lines must be an integer from 0 to 4294967295 in decimal digits");
     }
+    const lines = linesRaw === null ? undefined : Number(linesRaw);
     // herdr knows these enums and has its own answer for a wrong one, but a read this
     // route never meant to make is refused here rather than sent on as a guess
     const source = url.searchParams.get("source") ?? "visible";
