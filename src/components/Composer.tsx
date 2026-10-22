@@ -66,6 +66,7 @@ import { useT } from "../lib/i18n.ts";
 import { offersRetry, userFailure, type UserFailure } from "../lib/userError.ts";
 import { AttachmentTooLargeError } from "../lib/api.ts";
 import { modalOpen } from "../lib/focus.ts";
+import { spaceHoldDown, spaceHoldUp, type SpaceHold } from "../lib/spaceHold.ts";
 
 export interface ComposerProps {
   connected: boolean;
@@ -108,6 +109,9 @@ export interface ComposerProps {
   cwd?: string | null;
   /** the pane's branch, beside the folder in that strip; nothing is drawn for it while absent */
   branch?: string | null;
+  /** writes raw keys to the pane (Settings → Voice → Hold Space for Claude Code voice): a Space held in the empty
+   *  box goes there as the terminal's own key repeats, and Claude Code's push-to-talk starts. None: Space types */
+  onPaneInput?: (text: string) => boolean;
   /** the workspace is a linked worktree of this repository: the strip names the repository in the folder's
    * place (the checkout folder is the branch again, with dashes) and says it is a worktree; null: not one */
   worktreeRepo?: string | null;
@@ -256,6 +260,7 @@ export function Composer({
   onSend,
   onAbort,
   onUploadImage,
+  onPaneInput,
 }: ComposerProps) {
   const t = useT();
   const activeRef = useRef(active);
@@ -338,8 +343,15 @@ export function Composer({
   // the agent's suggestion stands in the empty box as it does in its own input, until anything is typed
   const offered = connected && answerHint === null && suggestion !== null ? suggestion : null;
   const offlineSentence = t(connectedBefore ? "Reconnecting…" : "Connecting…");
+  /** Space pressed in the empty box with onPaneInput: "pending" until a repeat (a hold) or the release (a tap) tells which */
+  const spaceHold = useRef<SpaceHold>("idle");
+  /** a hold put Claude Code's transcript into its own input line: Enter in the empty box submits it there */
+  const [voiceInPane, setVoiceInPane] = useState(false);
+  // a message sent meanwhile went through Claude's input, the transcript with it or refused over it
+  useEffect(() => { if (sending) setVoiceInPane(false); }, [sending]);
   const placeholder = !connected
     ? offlineSentence
+    : voiceInPane ? t("Enter sends the transcript in {agent}'s input", { agent: agentLabel })
     : answerHint ?? offered ?? t("Message {agent}…", { agent: agentLabel });
 
   // A cancelled send the agent put back in its input box fills an empty box again — without
@@ -923,6 +935,14 @@ export function Composer({
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       // an IME keeps its keys; WebKit can send the committing Enter after compositionend, as key code 229
       if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+      // a Space held in the empty box goes to Claude Code as its key repeats (lib/spaceHold.ts)
+      if (onPaneInput && event.key === " " && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && textRef.current === "") {
+        event.preventDefault();
+        const next = spaceHoldDown(spaceHold.current, event.repeat);
+        spaceHold.current = next.state;
+        if (next.send > 0 && onPaneInput(" ".repeat(next.send))) setVoiceInPane(true);
+        return;
+      }
       if (menuOpen && trigger) {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
@@ -967,10 +987,23 @@ export function Composer({
         : (event.metaKey || event.ctrlKey) && !event.shiftKey;
       if (!shouldSend) return;
       event.preventDefault();
+      if (voiceInPane && onPaneInput && textRef.current.trim() === "" && attachmentsRef.current.length === 0) {
+        if (onPaneInput("\r")) setVoiceInPane(false);
+        return;
+      }
       send();
     },
-    [agentStatus, choices, connected, menuDismissed, menuOpen, offered, onAbort, selectCompletion, selectedIndex, send, setTextAndCaret, settings.enterSends, trigger],
+    [agentStatus, choices, connected, menuDismissed, menuOpen, offered, onAbort, onPaneInput, selectCompletion, selectedIndex, send, setTextAndCaret, settings.enterSends, trigger, voiceInPane],
   );
+
+  const onKeyUp = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === " " && spaceHold.current !== "idle") {
+      const { state, tap } = spaceHoldUp(spaceHold.current);
+      spaceHold.current = state;
+      if (tap && textRef.current === "") { setTextAndCaret(" ", 1); return; }
+    }
+    setCaret(event.currentTarget.selectionStart);
+  }, [setTextAndCaret]);
 
   const onPaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -1292,7 +1325,9 @@ export function Composer({
             setCaret(event.currentTarget.selectionStart);
             setMenuDismissed(false);
           }}
-          onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
+          onKeyUp={onKeyUp}
+          // a release that lands elsewhere must not leave the next one here waiting as a tap
+          onBlur={() => { spaceHold.current = "idle"; }}
           onChange={(event) => {
             setText(event.target.value);
             setCaret(event.target.selectionStart);

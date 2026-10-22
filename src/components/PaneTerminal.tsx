@@ -2914,6 +2914,11 @@ export function PaneTerminal({
   // a turn waiting on an approval (blocked) is still the same turn
   useEffect(() => { if (agentStatus !== "working" && agentStatus !== "blocked") hermesStopSentRef.current = false; }, [agentStatus]);
   useEffect(() => { hermesStopSentRef.current = false; hermesCtrlCAtRef.current = null; }, [paneId, agent]);
+  // Settings → Voice: a Space held in the chat's empty box reaches Claude Code as the terminal's does
+  const paneVoiceInput = useCallback((text: string): boolean => {
+    const socket = socketRef.current;
+    return paneId !== null && socket !== null && socket.connected && socket.sendInput(paneId, text);
+  }, [paneId]);
   const abortTurn = useCallback(() => {
     const term = termRef.current;
     const socket = socketRef.current;
@@ -3638,6 +3643,7 @@ export function PaneTerminal({
           onSend={composerSend}
           onAbort={abortTurn}
           onUploadImage={uploadImage}
+          onPaneInput={settings.holdSpaceVoice && agent === "claude" ? paneVoiceInput : undefined}
         />
       )}
       {/* In the terminal lens the input line and the masked input float over the grid's last rows

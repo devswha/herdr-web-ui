@@ -573,6 +573,9 @@ function VoicePage() {
             <DictationLanguageSelect />
           </SettingsRow>
         )}
+        <SettingsRow label={t("Hold Space for Claude Code voice")} description={t("In the chat's empty message box, holding Space starts Claude Code's own voice mode, as in the terminal; a tap types a space. Claude Code listens on the server PC's microphone.")}>
+          <Toggle label={t("Hold Space for Claude Code voice")} checked={settings.holdSpaceVoice} onChange={(holdSpaceVoice) => update({ holdSpaceVoice })} />
+        </SettingsRow>
       </SettingsGroup>
 
       {settings.voiceInput !== "off" && (
