@@ -1070,6 +1070,8 @@ export const KO: Record<string, string> = {
   "Ran in terminal": "터미널에서 실행함",
   "Back to Chat": "채팅으로 돌아가기",
   "Open Terminal": "터미널 열기",
+  "Keep Terminal": "터미널 유지",
+  "Chat may come back when you close it": "닫으면 채팅으로 돌아올 수 있습니다",
   "Terminal commands": "터미널 명령",
   "Skills and files": "스킬과 파일",
   "Background result delivered": "백그라운드 결과 도착",
