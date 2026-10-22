@@ -87,6 +87,12 @@ try {
   const token = randomBytes(32).toString("hex");
   const server = createServer({ port: 0, hostname: "127.0.0.1", token, machines: false, stateDir: descriptor + ".state" });
   const registration = registerBridge(server.port, token);
+  if (!registration.registered) {
+    // the app finds a bridge only through its descriptor: an unregistered one serves nobody, and
+    // the app would start one more on every retry, so this one stops
+    server.stop();
+    throw new Error(`This bridge stopped because it was not registered (descriptor ${descriptor})`);
+  }
   const close = () => { registration.close(); server.stop(); setTimeout(() => process.exit(0), 2000); };
   process.on("SIGTERM", close);
   process.on("SIGINT", close);

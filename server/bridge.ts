@@ -47,13 +47,15 @@ function liveIn(reading: { text: string } | null): boolean {
 }
 
 /**
- * `options.path` places the descriptor elsewhere and `options.sampled` runs between reading the old
- * descriptor and taking the guard; both are test seams.
+ * `registered` says whether this server's descriptor was written: it is not while another live
+ * bridge holds the descriptor, when the descriptor changed while this one started, or when its
+ * guard cannot be taken. `options.path` places the descriptor elsewhere and `options.sampled` runs
+ * between reading the old descriptor and taking the guard; both are test seams.
  */
-export function registerBridge(port: number, token = randomBytes(32).toString("hex"), options: { path?: string; sampled?(): void } = {}): { token: string; close(): void } {
+export function registerBridge(port: number, token = randomBytes(32).toString("hex"), options: { path?: string; sampled?(): void } = {}): { token: string; registered: boolean; close(): void } {
   const path = options.path ?? descriptorPath();
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const unregistered = { token, close() {} };
+  const unregistered = { token, registered: false, close() {} };
   // Registration never overwrites a live bridge. Its credential remains reusable.
   const seen = readDescriptor(path);
   if (liveIn(seen)) return unregistered;
@@ -81,6 +83,7 @@ export function registerBridge(port: number, token = randomBytes(32).toString("h
   }
   return {
     token,
+    registered: true,
     close() {
       try {
         withOwnerGuard(path, () => {

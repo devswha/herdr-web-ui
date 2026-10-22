@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { join as winJoin } from "node:path/win32";
 import { guardPath } from "./owner-guard.ts";
 import { readProcessBirth } from "./process-owner.ts";
@@ -76,14 +76,38 @@ describe("remote entry startup lock", () => {
     writeFileSync(join(lock, "pid"), String(pid));
     writeFileSync(join(lock, "owner.json"), JSON.stringify({ pid, generation: "earlier-start", birth }));
   }
+  /** One run of the entry; one still running after 30 s (a bridge left serving) is killed and reported as such. */
   async function start(preload?: string) {
     const entry = join(import.meta.dir, "remote-entry.ts");
     const proc = Bun.spawn([process.execPath, ...(preload ? ["--preload", preload] : []), entry], {
       cwd: home, stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true,
       env: { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, "config"), HERDR_WEB_HERDR_BIN: join(home, "missing-herdr"), HERDR_REMOTE_SESSION: "", HERDR_SOCKET: "" },
     });
-    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    return { code, output: out + err };
+    let serving = false;
+    const deadline = setTimeout(() => { serving = true; proc.kill("SIGKILL"); }, 30_000);
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]).finally(() => clearTimeout(deadline));
+    return { code, output: out + err, serving };
+  }
+  /** A herdr that answers only ping, at the socket the entry looks for. */
+  function fakeHerdr(): { socket: string; stop(): void } {
+    const socket = join(home, "config", "herdr", "herdr.sock");
+    mkdirSync(dirname(socket), { recursive: true });
+    const listener = Bun.listen<{ buffer: string }>({
+      unix: socket,
+      socket: {
+        open(client) { client.data = { buffer: "" }; },
+        data(client, chunk) {
+          client.data.buffer += chunk.toString();
+          for (let at = client.data.buffer.indexOf("\n"); at >= 0; at = client.data.buffer.indexOf("\n")) {
+            const request = JSON.parse(client.data.buffer.slice(0, at)) as { id: string; method: string };
+            client.data.buffer = client.data.buffer.slice(at + 1);
+            if (request.method === "ping") client.write(`${JSON.stringify({ id: request.id, result: { version: "0.9.3", protocol: 22, capabilities: {} } })}\n`);
+            else if (request.method !== "events.subscribe") client.write(`${JSON.stringify({ id: request.id, error: { code: "unsupported", message: "not in this test" } })}\n`);
+          }
+        },
+      },
+    });
+    return { socket: realpathSync(socket), stop: () => listener.stop(true) };
   }
 
   it("reclaims a startup lock whose PID another process now holds", async () => {
@@ -145,6 +169,25 @@ describe("remote entry startup lock", () => {
     expect(run.output).not.toContain(join(home, "missing-herdr"));
     expect(readFileSync(join(lock, "owner.json"), "utf8")).toBe(owner);
     expect(alive(reused.pid)).toBe(true);
+  }, 60_000);
+
+  it.skipIf(process.platform === "win32")("stops a bridge it could not register", async () => {
+    // regression: a bridge whose registration was refused kept serving, unreachable, and every
+    // retry of the app started one more
+    const herdr = fakeHerdr();
+    try {
+      const registered = join(home, ".config/herdr-web-ui/bridges", createHash("sha256").update(herdr.socket).digest("hex") + ".json");
+      // a guard this start cannot open stands for one left by another account
+      mkdirSync(guardPath(registered));
+      const run = await start();
+      expect(run.serving).toBe(false);
+      expect(run.output).toContain(`This bridge was not registered (descriptor ${registered})`);
+      expect(run.output).toContain(`This bridge stopped because it was not registered (descriptor ${registered})`);
+      expect(run.code).not.toBe(0);
+      expect(existsSync(registered)).toBe(false);
+      // its startup lock went with it
+      expect(existsSync(registered + ".lock")).toBe(false);
+    } finally { herdr.stop(); }
   }, 60_000);
 
   it("starts over a registered bridge whose PID another process now holds, and leaves a live one", async () => {

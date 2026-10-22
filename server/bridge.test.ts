@@ -35,6 +35,7 @@ const read = () => JSON.parse(readFileSync(path, "utf8")) as BridgeDescriptor;
 describe("bridge registration", () => {
   it("registers its PID with a birth and a generation", () => {
     const registration = registerBridge(4242, "new-token", { path });
+    expect(registration.registered).toBe(true);
     const registered = read();
     expect(registered).toMatchObject({ port: 4242, token: "new-token", pid: process.pid, birth: { platform: process.platform } });
     expect(registered.generation).toBeString();
@@ -60,6 +61,7 @@ describe("bridge registration", () => {
     for (const text of [descriptor({ pid: bridge.pid, generation: "live", birth: reading.birth }), descriptor({ pid: bridge.pid })]) {
       writeFileSync(path, text);
       const registration = registerBridge(4242, "new-token", { path });
+      expect(registration.registered).toBe(false);
       expect(readFileSync(path, "utf8")).toBe(text);
       registration.close();
       expect(readFileSync(path, "utf8")).toBe(text);
@@ -90,6 +92,7 @@ describe("bridge registration", () => {
     for (const replacement of [descriptor({ pid: bridge.pid, generation: "won", birth: reading.birth }), descriptor({ pid: reused.pid, generation: "other", birth: earlierBirth })]) {
       writeFileSync(path, descriptor({ pid: reused.pid, generation: "crashed", birth: earlierBirth }));
       const registration = registerBridge(4242, "new-token", { path, sampled() { writeFileSync(path, replacement); } });
+      expect(registration.registered).toBe(false);
       expect(readFileSync(path, "utf8")).toBe(replacement);
       registration.close();
       expect(readFileSync(path, "utf8")).toBe(replacement);
@@ -141,6 +144,7 @@ describe("bridge registration", () => {
     let message = "";
     try {
       const registration = registerBridge(4242, "new-token", { path });
+      expect(registration.registered).toBe(false);
       registration.close();
       message = String(logged.mock.calls[0]?.[0]);
     } finally {
