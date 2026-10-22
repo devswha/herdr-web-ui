@@ -8,6 +8,8 @@ import { WORKSPACE_JA } from "./i18n/workspace.ja.ts";
 import { FILES_JA } from "./i18n/files.ja.ts";
 import { DEVICES_JA } from "./i18n/devices.ja.ts";
 import { USAGE_JA } from "./i18n/usage.ja.ts";
+import { UPDATES_JA } from "./i18n/updates.ja.ts";
+import { PALETTE_JA } from "./i18n/palette.ja.ts";
 
 /**
  * Japanese for every `t("…")` in src/ that no part in lib/i18n/ holds: keys more than one feature
@@ -91,7 +93,6 @@ const BASE: Record<string, string> = {
   "Command palette (⌘⇧K)": "コマンドパレット (⌘⇧K)",
   "Could not sign out. Try again.": "サインアウトできませんでした。もう一度お試しください。",
   "Retry": "再試行",
-  "Enable notifications": "通知を有効にする",
   "Notify me when a pane needs input or finishes": "ペインが入力を待っているときや完了したときに通知します",
   "On, pushed to this device": "オン、この端末にプッシュ",
   "Alerts on, pushed to this device, even with the app closed. Tap to turn them off": "通知オン。このデバイスにプッシュされます。アプリを閉じていても届きます。タップするとオフになります",
@@ -125,25 +126,8 @@ const BASE: Record<string, string> = {
   "{done} of {total}": "{done} / {total}",
 
   // ---- command palette ----
-  "Switch to terminal": "ターミナルに切り替え",
-  "Switch to chat": "チャットに切り替え",
-  "Toggle theme": "テーマを切り替え",
   "Refresh": "更新",
-  "Search panes and actions…": "ペインと操作を検索…",
   "Search panes and actions": "ペインと操作を検索",
-  "Close command palette": "コマンドパレットを閉じる",
-  "Filter panes by status": "状態でペインを絞り込む",
-  "All": "すべて",
-  "Recent": "最近",
-  "Workspace": "ワークスペース",
-  "Selected": "選択中",
-  "Unknown workspace": "不明なワークスペース",
-  "Actions": "操作",
-  "Plugin actions": "プラグインの操作",
-  "Running…": "実行中…",
-  "{action} failed: {detail}": "{action} に失敗しました: {detail}",
-  "{action} failed (exit code {code})": "{action} に失敗しました (終了コード {code})",
-  "No matching panes or actions": "一致するペインや操作はありません",
 
   // ---- new workspace ----
   "Browse": "参照",
@@ -167,55 +151,8 @@ const BASE: Record<string, string> = {
   "Continue": "続行",
 
   // ---- updates ----
-  "Updates": "更新",
-  "Running {version}": "{version} を実行中",
-  "Installing dependencies and building…": "依存関係をインストールしてビルドしています…",
-  "Restarting the bridge…": "ブリッジを再起動しています…",
-  "Checking for updates…": "更新を確認しています…",
-  "Version {version} is available.": "バージョン {version} が利用可能です。",
-  "What's new": "更新内容",
-  "Earlier releases not shown here: {count}.": "ここに表示されていない以前のリリース: {count} 件。",
-  "Full changelog": "すべての変更履歴",
-  "What the last update brought": "前回のアップデートの内容",
-  "New features": "新機能",
-  "Improvements": "改善",
-  "Bug fixes": "バグ修正",
-  "Show every change": "すべての変更を表示",
-  "Ovis was updated to v{version}.": "Ovis を v{version} に更新しました。",
-  "These notes could not be shown.": "このノートを表示できませんでした。",
-  "Up to date.": "最新の状態です。",
-  "Waiting for an update check…": "更新の確認を待っています…",
-  "Checks for new releases every 5 minutes.": "5 分ごとに新しいリリースを確認します。",
-  "Automatic installation is enabled.": "自動インストールが有効です。",
-  "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.": "準備ができたらインストールしてください。ブリッジは一時的に再接続しますが、herdr のセッションは実行されたままです。",
-  "Remote PCs' bridges are updated afterwards when the new version needs it.": "新しいバージョンで必要な場合は、続けてリモート PC のブリッジも更新されます。",
-  "Check for updates": "更新を確認",
-  "Update and restart": "更新して再起動",
-  "Running herdr {version}": "herdr {version} を実行中",
-  "herdr {installed} is installed, but the running server is {running}. Updating moves your panes onto the installed version.": "herdr {installed} がインストールされていますが、実行中のサーバーは {running} です。更新するとペインがインストール済みのバージョンに移ります。",
-  "Installs the newest herdr on the PC this app runs on and moves its running panes onto it. Panes and agents keep running, and open terminals reconnect.": "このアプリが動いている PC に最新の herdr をインストールし、実行中のペインを新しいバージョンに移します。ペインとエージェントは動き続け、開いているターミナルは再接続します。",
-  "Update herdr": "herdr を更新",
-  "Updating herdr…": "herdr を更新しています…",
-  "The server was updated. Save any unsent drafts, then": "サーバーが更新されました。未送信の下書きを保存してから",
-  "This tab still runs {version} until it is reloaded.": "このタブは再読み込みするまで {version} のままです。",
   "Reload app": "アプリを再読み込み",
-  "App updated. Save unsent drafts before reloading.": "アプリが更新されました。再読み込みする前に未送信の下書きを保存してください。",
-  "Part of the app could not load. Save unsent drafts, then reload.": "アプリの一部を読み込めませんでした。未送信の下書きを保存してから再読み込みしてください。",
-  "Ovis was updated on this PC. Restart it there to load the update.": "このPCの Ovis が更新されました。更新を読み込むには、PCで再起動してください。",
-  "A newer release was published after you chose this update, so nothing was installed. Check again to review it.": "この更新を選んだ後に新しいリリースが公開されたため、何もインストールしていません。もう一度確認して内容を見てください。",
-  "Restart Ovis on this PC to update from here: the server running now cannot install exactly the release shown.": "ここから更新するには、このPCで Ovis を再起動してください。現在動いているサーバーは、表示されたリリースを正確にインストールできません。",
-  "How to restart": "再起動の方法",
-  "Ovis v{version} is available.": "Ovis v{version} が利用可能です。",
-  "An Ovis update is available.": "Ovis の更新が利用可能です。",
-  "Update": "更新",
   "Details": "詳細",
-  "Starting the update…": "更新を開始しています…",
-  "The update could not be installed.": "更新をインストールできませんでした。",
-  "Downloading the update": "更新をダウンロード中",
-  "Installing dependencies": "依存関係をインストール中",
-  "Checking the new version": "新しいバージョンを確認中",
-  "Building the app": "アプリをビルド中",
-  "Restarting the app": "アプリを再起動中",
 
   // ---- key bar ----
 
@@ -234,7 +171,6 @@ const BASE: Record<string, string> = {
   "Copied": "コピーしました",
   "Worked for {duration}": "{duration} 作業しました",
   "Copy message": "メッセージをコピー",
-  "Last checked {when}": "最終確認: {when}",
   "terminal ended": "ターミナルが終了しました",
   "{m}m": "{m}分",
   "{h}h {m}m": "{h}時間 {m}分",
@@ -310,8 +246,6 @@ const BASE: Record<string, string> = {
   "This PC's bridge does not offer this yet": "このPCのブリッジはまだこの機能に対応していません。",
   "Split pane right": "ペインを右に分割",
   "Split pane down": "ペインを下に分割",
-  "Split pane right and open it": "ペインを右に分割して開く",
-  "Split pane down and open it": "ペインを下に分割して開く",
   "Plan: {done} of {total} done": "計画: {total} 件中 {done} 件完了",
   "Plan": "計画",
   "Something went wrong": "問題が発生しました",
@@ -323,10 +257,6 @@ const BASE: Record<string, string> = {
   "Unified": "1列",
   "Split": "並べて表示",
   // t3code ports (a)
-  "Browse folders": "フォルダを参照",
-  "Folders": "フォルダ",
-  "Open in Files": "ファイルで開く",
-  "Pinned folders": "固定したフォルダ",
   // t3code ports (d)
   "Change PC": "PCを切り替え",
 };
@@ -344,6 +274,8 @@ export const JA_PARTS: Record<string, Record<string, string>> = {
   files: FILES_JA,
   devices: DEVICES_JA,
   usage: USAGE_JA,
+  updates: UPDATES_JA,
+  palette: PALETTE_JA,
 };
 
 export const JA: Record<string, string> = Object.assign({}, ...Object.values(JA_PARTS));

@@ -8,6 +8,8 @@ import { WORKSPACE_KO } from "./i18n/workspace.ko.ts";
 import { FILES_KO } from "./i18n/files.ko.ts";
 import { DEVICES_KO } from "./i18n/devices.ko.ts";
 import { USAGE_KO } from "./i18n/usage.ko.ts";
+import { UPDATES_KO } from "./i18n/updates.ko.ts";
+import { PALETTE_KO } from "./i18n/palette.ko.ts";
 
 /**
  * Korean for every `t("…")` in src/ that no part in lib/i18n/ holds: keys more than one feature
@@ -89,7 +91,6 @@ const BASE: Record<string, string> = {
   "Command palette (⌘⇧K)": "명령 팔레트 (⌘⇧K)",
   "Could not sign out. Try again.": "로그아웃하지 못했습니다. 다시 시도해 주세요.",
   "Retry": "다시 시도",
-  "Enable notifications": "알림 켜기",
   "Notify me when a pane needs input or finishes": "패널이 입력을 기다리거나 끝나면 알려줍니다",
   "On, pushed to this device": "켜짐, 이 기기로 푸시",
   "Alerts on, pushed to this device, even with the app closed. Tap to turn them off": "알림 켜짐, 이 기기로 푸시됩니다. 앱을 닫아도 옵니다. 누르면 꺼집니다",
@@ -123,25 +124,8 @@ const BASE: Record<string, string> = {
   "{done} of {total}": "{total} 중 {done}",
 
   // ---- command palette ----
-  "Switch to terminal": "터미널로 전환",
-  "Switch to chat": "채팅으로 전환",
-  "Toggle theme": "테마 전환",
   "Refresh": "새로 고침",
-  "Search panes and actions…": "패널과 동작 검색…",
   "Search panes and actions": "패널과 동작 검색",
-  "Close command palette": "명령 팔레트 닫기",
-  "Filter panes by status": "상태별 패널 필터",
-  "All": "전체",
-  "Recent": "최근",
-  "Workspace": "워크스페이스",
-  "Selected": "선택됨",
-  "Unknown workspace": "알 수 없는 워크스페이스",
-  "Actions": "동작",
-  "Plugin actions": "플러그인 동작",
-  "Running…": "실행 중…",
-  "{action} failed: {detail}": "{action} 실패: {detail}",
-  "{action} failed (exit code {code})": "{action} 실패 (종료 코드 {code})",
-  "No matching panes or actions": "일치하는 패널이나 동작이 없습니다",
 
   // ---- new workspace ----
   "Browse": "찾아보기",
@@ -165,55 +149,8 @@ const BASE: Record<string, string> = {
   "Continue": "계속",
 
   // ---- updates ----
-  "Updates": "업데이트",
-  "Running {version}": "{version} 실행 중",
-  "Installing dependencies and building…": "의존성 설치와 빌드 중…",
-  "Restarting the bridge…": "브리지 다시 시작 중…",
-  "Checking for updates…": "업데이트 확인 중…",
-  "Version {version} is available.": "{version} 버전이 나왔습니다.",
-  "What's new": "업데이트 내용",
-  "Earlier releases not shown here: {count}.": "여기에 표시되지 않은 이전 릴리스: {count}개.",
-  "Full changelog": "전체 변경 내역",
-  "What the last update brought": "지난 업데이트 내용",
-  "New features": "새 기능",
-  "Improvements": "개선",
-  "Bug fixes": "버그 수정",
-  "Show every change": "모든 변경 사항 보기",
-  "Ovis was updated to v{version}.": "Ovis가 v{version} 버전으로 업데이트되었습니다.",
-  "These notes could not be shown.": "이 노트를 표시할 수 없습니다.",
-  "Up to date.": "최신 상태입니다.",
-  "Waiting for an update check…": "업데이트 확인을 기다리는 중…",
-  "Checks for new releases every 5 minutes.": "5분마다 새 릴리스를 확인합니다.",
-  "Automatic installation is enabled.": "자동 설치가 켜져 있습니다.",
-  "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.": "준비되면 설치하세요. 브리지가 잠시 다시 연결되고 herdr 세션은 계속 돕니다.",
-  "Remote PCs' bridges are updated afterwards when the new version needs it.": "새 버전이 필요로 하면 원격 PC의 브리지도 이어서 업데이트됩니다.",
-  "Check for updates": "업데이트 확인",
-  "Update and restart": "업데이트하고 다시 시작",
-  "Running herdr {version}": "herdr {version} 실행 중",
-  "herdr {installed} is installed, but the running server is {running}. Updating moves your panes onto the installed version.": "herdr {installed}이 설치되어 있지만 실행 중인 서버는 {running}입니다. 업데이트하면 패널이 설치된 버전으로 옮겨집니다.",
-  "Installs the newest herdr on the PC this app runs on and moves its running panes onto it. Panes and agents keep running, and open terminals reconnect.": "이 앱이 실행되는 PC에 최신 herdr를 설치하고, 실행 중인 패널을 새 버전으로 옮깁니다. 패널과 에이전트는 계속 실행되고, 열려 있는 터미널은 다시 연결됩니다.",
-  "Update herdr": "herdr 업데이트",
-  "Updating herdr…": "herdr 업데이트 중…",
-  "The server was updated. Save any unsent drafts, then": "서버가 업데이트되었습니다. 보내지 않은 초안을 저장한 뒤",
-  "This tab still runs {version} until it is reloaded.": "이 탭은 새로 고칠 때까지 계속 {version} 버전입니다.",
   "Reload app": "앱 새로 고침",
-  "App updated. Save unsent drafts before reloading.": "앱이 업데이트되었습니다. 새로 고치기 전에 보내지 않은 초안을 저장하세요.",
-  "Part of the app could not load. Save unsent drafts, then reload.": "앱 일부를 불러오지 못했습니다. 보내지 않은 초안을 저장한 뒤 새로 고치세요.",
-  "Ovis was updated on this PC. Restart it there to load the update.": "PC의 Ovis가 업데이트되었습니다. 업데이트를 적용하려면 PC에서 다시 시작하세요.",
-  "A newer release was published after you chose this update, so nothing was installed. Check again to review it.": "이 업데이트를 고른 뒤 새 릴리스가 나와서 설치를 취소했습니다. 업데이트를 다시 확인해서 새 릴리스를 살펴보세요.",
-  "Restart Ovis on this PC to update from here: the server running now cannot install exactly the release shown.": "여기서 업데이트하려면 PC에서 Ovis를 다시 시작하세요. 지금 서버에는 표시된 릴리스만 설치하는 기능이 없습니다.",
-  "How to restart": "다시 시작하는 방법",
-  "Ovis v{version} is available.": "Ovis v{version}이 나왔습니다.",
-  "An Ovis update is available.": "Ovis 업데이트가 있습니다.",
-  "Update": "업데이트",
   "Details": "자세히",
-  "Starting the update…": "업데이트를 시작하는 중…",
-  "The update could not be installed.": "업데이트를 설치하지 못했습니다.",
-  "Downloading the update": "업데이트 내려받는 중",
-  "Installing dependencies": "의존성 설치 중",
-  "Checking the new version": "새 버전 검사 중",
-  "Building the app": "앱 빌드 중",
-  "Restarting the app": "앱 다시 시작하는 중",
 
   // ---- key bar ----
 
@@ -232,7 +169,6 @@ const BASE: Record<string, string> = {
   "Copied": "복사됨",
   "Worked for {duration}": "{duration} 작업",
   "Copy message": "메시지 복사",
-  "Last checked {when}": "마지막 확인: {when}",
   "terminal ended": "터미널 종료됨",
   "{m}m": "{m}분",
   "{h}h {m}m": "{h}시간 {m}분",
@@ -308,8 +244,6 @@ const BASE: Record<string, string> = {
   "This PC's bridge does not offer this yet": "이 PC의 브리지는 아직 이 기능을 제공하지 않습니다.",
   "Split pane right": "패널을 오른쪽으로 분할",
   "Split pane down": "패널을 아래로 분할",
-  "Split pane right and open it": "패널을 오른쪽으로 분할하고 열기",
-  "Split pane down and open it": "패널을 아래로 분할하고 열기",
   "Plan: {done} of {total} done": "계획: {total}개 중 {done}개 완료",
   "Plan": "계획",
   "Something went wrong": "문제가 발생했습니다",
@@ -321,10 +255,6 @@ const BASE: Record<string, string> = {
   "Unified": "한 열",
   "Split": "나란히",
   // t3code ports (a)
-  "Browse folders": "폴더 찾아보기",
-  "Folders": "폴더",
-  "Open in Files": "파일에서 열기",
-  "Pinned folders": "고정한 폴더",
   // t3code ports (d)
   "Change PC": "PC 바꾸기",
 };
@@ -342,6 +272,8 @@ export const KO_PARTS: Record<string, Record<string, string>> = {
   files: FILES_KO,
   devices: DEVICES_KO,
   usage: USAGE_KO,
+  updates: UPDATES_KO,
+  palette: PALETTE_KO,
 };
 
 export const KO: Record<string, string> = Object.assign({}, ...Object.values(KO_PARTS));

@@ -8,6 +8,8 @@ import { WORKSPACE_ZH } from "./i18n/workspace.zh.ts";
 import { FILES_ZH } from "./i18n/files.zh.ts";
 import { DEVICES_ZH } from "./i18n/devices.zh.ts";
 import { USAGE_ZH } from "./i18n/usage.zh.ts";
+import { UPDATES_ZH } from "./i18n/updates.zh.ts";
+import { PALETTE_ZH } from "./i18n/palette.zh.ts";
 
 /**
  * Simplified Chinese for every `t("…")` in src/ that no part in lib/i18n/ holds: keys more than
@@ -93,7 +95,6 @@ const BASE: Record<string, string> = {
   "Command palette (⌘⇧K)": "命令面板 (⌘⇧K)",
   "Could not sign out. Try again.": "无法退出登录，请重试。",
   "Retry": "重试",
-  "Enable notifications": "开启通知",
   "Notify me when a pane needs input or finishes": "窗格需要输入或完成时通知我",
   "On, pushed to this device": "已开启，推送到此设备",
   "Alerts on, pushed to this device, even with the app closed. Tap to turn them off": "提醒已开启，推送到此设备。即使关闭应用也会收到。点按可关闭",
@@ -127,25 +128,8 @@ const BASE: Record<string, string> = {
   "{done} of {total}": "{done} / {total}",
 
   // ---- command palette ----
-  "Switch to terminal": "切换到终端",
-  "Switch to chat": "切换到聊天",
-  "Toggle theme": "切换主题",
   "Refresh": "刷新",
-  "Search panes and actions…": "搜索窗格和操作…",
   "Search panes and actions": "搜索窗格和操作",
-  "Close command palette": "关闭命令面板",
-  "Filter panes by status": "按状态筛选窗格",
-  "All": "全部",
-  "Recent": "最近",
-  "Workspace": "工作区",
-  "Selected": "已选择",
-  "Unknown workspace": "未知工作区",
-  "Actions": "操作",
-  "Plugin actions": "插件操作",
-  "Running…": "正在运行…",
-  "{action} failed: {detail}": "{action} 失败：{detail}",
-  "{action} failed (exit code {code})": "{action} 失败（退出码 {code}）",
-  "No matching panes or actions": "没有匹配的窗格或操作",
 
   // ---- new workspace ----
   "Browse": "浏览",
@@ -169,55 +153,8 @@ const BASE: Record<string, string> = {
   "Continue": "继续",
 
   // ---- updates ----
-  "Updates": "更新",
-  "Running {version}": "正在运行 {version}",
-  "Installing dependencies and building…": "正在安装依赖并构建…",
-  "Restarting the bridge…": "正在重启 bridge…",
-  "Checking for updates…": "正在检查更新…",
-  "Version {version} is available.": "有新版本 {version} 可用。",
-  "What's new": "更新内容",
-  "Earlier releases not shown here: {count}.": "此处未显示的更早版本：{count} 个。",
-  "Full changelog": "完整更新日志",
-  "What the last update brought": "上次更新的内容",
-  "New features": "新功能",
-  "Improvements": "改进",
-  "Bug fixes": "问题修复",
-  "Show every change": "查看全部更改",
-  "Ovis was updated to v{version}.": "Ovis 已更新到 v{version}。",
-  "These notes could not be shown.": "无法显示这些说明。",
-  "Up to date.": "已是最新版本。",
-  "Waiting for an update check…": "正在等待检查更新…",
-  "Checks for new releases every 5 minutes.": "每 5 分钟检查一次新版本。",
-  "Automatic installation is enabled.": "已启用自动安装。",
-  "Install when you are ready; the bridge briefly reconnects and herdr sessions keep running.": "准备好后即可安装。bridge 会短暂重连，herdr 会话会继续运行。",
-  "Remote PCs' bridges are updated afterwards when the new version needs it.": "如新版本需要，远程 PC 的 bridge 随后也会更新。",
-  "Check for updates": "检查更新",
-  "Update and restart": "更新并重启",
-  "Running herdr {version}": "正在运行 herdr {version}",
-  "herdr {installed} is installed, but the running server is {running}. Updating moves your panes onto the installed version.": "已安装 herdr {installed}，但正在运行的服务器是 {running}。更新后，窗格会迁移到已安装的版本。",
-  "Installs the newest herdr on the PC this app runs on and moves its running panes onto it. Panes and agents keep running, and open terminals reconnect.": "在运行此应用的 PC 上安装最新的 herdr，并把正在运行的窗格迁移到新版本。窗格和 Agent 会继续运行，已打开的终端会重新连接。",
-  "Update herdr": "更新 herdr",
-  "Updating herdr…": "正在更新 herdr…",
-  "The server was updated. Save any unsent drafts, then": "服务器已更新。请先保存未发送的草稿，然后",
-  "This tab still runs {version} until it is reloaded.": "此标签页在重新加载前仍运行 {version}。",
   "Reload app": "重新加载应用",
-  "App updated. Save unsent drafts before reloading.": "应用已更新。重新加载前请保存未发送的草稿。",
-  "Part of the app could not load. Save unsent drafts, then reload.": "应用的一部分未能加载。请先保存未发送的草稿，再重新加载。",
-  "Ovis was updated on this PC. Restart it there to load the update.": "此 PC 上的 Ovis 已更新。请在 PC 上重新启动它以加载更新。",
-  "A newer release was published after you chose this update, so nothing was installed. Check again to review it.": "你选择此更新后发布了更新的版本，因此没有安装任何内容。请再次检查以查看新版本。",
-  "Restart Ovis on this PC to update from here: the server running now cannot install exactly the release shown.": "请在此 PC 上重新启动 Ovis 后再从这里更新：当前运行的服务器无法准确安装所显示的版本。",
-  "How to restart": "如何重新启动",
-  "Ovis v{version} is available.": "Ovis v{version} 已发布。",
-  "An Ovis update is available.": "Ovis 有可用更新。",
-  "Update": "更新",
   "Details": "详情",
-  "Starting the update…": "正在开始更新…",
-  "The update could not be installed.": "无法安装更新。",
-  "Downloading the update": "正在下载更新",
-  "Installing dependencies": "正在安装依赖",
-  "Checking the new version": "正在检查新版本",
-  "Building the app": "正在构建应用",
-  "Restarting the app": "正在重启应用",
 
   // ---- key bar ----
 
@@ -236,7 +173,6 @@ const BASE: Record<string, string> = {
   "Copied": "已复制",
   "Worked for {duration}": "工作了 {duration}",
   "Copy message": "复制消息",
-  "Last checked {when}": "上次检查：{when}",
   "terminal ended": "终端已结束",
   "{m}m": "{m} 分钟",
   "{h}h {m}m": "{h} 小时 {m} 分",
@@ -312,8 +248,6 @@ const BASE: Record<string, string> = {
   "This PC's bridge does not offer this yet": "此电脑的桥接尚未提供此功能。",
   "Split pane right": "向右拆分窗格",
   "Split pane down": "向下拆分窗格",
-  "Split pane right and open it": "向右拆分窗格并打开",
-  "Split pane down and open it": "向下拆分窗格并打开",
   "Plan: {done} of {total} done": "计划：已完成 {done}/{total}",
   "Plan": "计划",
   "Something went wrong": "出了点问题",
@@ -325,10 +259,6 @@ const BASE: Record<string, string> = {
   "Unified": "单栏",
   "Split": "并排",
   // t3code ports (a)
-  "Browse folders": "浏览文件夹",
-  "Folders": "文件夹",
-  "Open in Files": "在文件中打开",
-  "Pinned folders": "已固定的文件夹",
   // t3code ports (d)
   "Change PC": "切换电脑",
 };
@@ -346,6 +276,8 @@ export const ZH_PARTS: Record<string, Record<string, string>> = {
   files: FILES_ZH,
   devices: DEVICES_ZH,
   usage: USAGE_ZH,
+  updates: UPDATES_ZH,
+  palette: PALETTE_ZH,
 };
 
 export const ZH: Record<string, string> = Object.assign({}, ...Object.values(ZH_PARTS));
