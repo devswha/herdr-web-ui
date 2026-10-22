@@ -58,8 +58,11 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  for (const child of children.splice(0)) child.kill();
+afterEach(async () => {
+  await Promise.all(children.splice(0).map(async (child) => {
+    child.kill();
+    await child.exited;
+  }));
   listener.stop(true);
   if (socketBefore === undefined) delete process.env["HERDR_SOCKET"];
   else process.env["HERDR_SOCKET"] = socketBefore;
@@ -72,10 +75,13 @@ afterEach(() => {
  */
 async function heldOmo(): Promise<{ pid: number; argv: string[]; cwd: string }> {
   const agentDir = join(root, "agent");
-  const child = Bun.spawn(["sh", "-c", "echo ready; exec sleep 60"], { cwd: root, env: { OMO_CODING_AGENT_DIR: agentDir, PATH: process.env["PATH"] ?? "" }, stdout: "pipe" });
+  // Keep the process that signals ready: another exec can make /proc/<pid>/environ
+  // briefly empty while the composer looks up the store holding this session.
+  const child = Bun.spawn(["sh", "-c", "echo ready; read -r stop"], { cwd: root, env: { OMO_CODING_AGENT_DIR: agentDir, PATH: process.env["PATH"] ?? "" }, stdin: "pipe", stdout: "pipe" });
   children.push(child);
   const reader = child.stdout.getReader();
-  await reader.read();
+  const ready = await reader.read();
+  expect(new TextDecoder().decode(ready.value)).toBe("ready\n");
   reader.releaseLock();
   const holders = join(agentDir, "sessions", omoSessionFolder(root), "session-holders", "sess-1");
   mkdirSync(holders, { recursive: true });
