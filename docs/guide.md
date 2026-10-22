@@ -88,7 +88,7 @@ bun install
 bun run start
 ```
 
-You need herdr 0.9.0+, Bun 1.4+ and Node 18+, and herdr must be installed and running first: start it with `herdr`. `start` builds the client and runs the server under the update supervisor. It talks to `~/.config/herdr/herdr.sock` unless `HERDR_SOCKET` says otherwise. If herdr isn't running there, the app still opens, but its header shows **herdr offline** and the page says it cannot reach herdr at that socket.
+You need herdr 0.9.0+, Bun 1.4+ and Node 18+, and herdr must be installed and running first: start it with `herdr`. `start` builds the client and runs the server under the update supervisor. It talks to `~/.config/herdr/herdr.sock` unless `HERDR_SOCKET` says otherwise. If herdr isn't running there, the app still opens, but its header shows **Status unknown** after the first failed health check and **herdr unavailable** after the second, and the page says it cannot reach herdr at that socket.
 
 </details>
 
