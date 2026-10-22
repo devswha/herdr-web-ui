@@ -730,6 +730,20 @@ const PLUGINS: PluginActions[] = [
   ] },
 ];
 
+const NO_PORTAL: PortalStatus = { supported: false, version: null, min_version: "v2.6.1", usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null };
+/**
+ * The demo opens no public address, so its Portal section stays hidden. A QA script may stage a
+ * fictional status (a recovering Portal, say) as JSON in sessionStorage["herdr-web-ui:demo-portal"]
+ * before the app loads; starting and stopping stay refused either way.
+ */
+function demoPortal(): PortalStatus {
+  try {
+    const staged = window.sessionStorage.getItem("herdr-web-ui:demo-portal");
+    if (staged !== null) return { ...NO_PORTAL, supported: true, ...(JSON.parse(staged) as Partial<PortalStatus>) };
+  } catch { /* storage blocked or not JSON: the section stays hidden */ }
+  return NO_PORTAL;
+}
+
 async function route(url: URL, method: string, init: RequestInit | undefined, input: RequestInfo | URL): Promise<Response> {
   const path = url.pathname;
   const query = url.searchParams;
@@ -755,8 +769,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/seen") return method === "POST" ? new Response(null, { status: 204 }) : json({ finishes: [] }, 200, { "cache-control": "no-store" });
   if (path === "/api/telemetry") return json({ error: { code: "not_found", message: "This server sends no telemetry" } }, 404, { "cache-control": "no-store" });
   if (path === "/api/herdr/update") return json({ supported: false, phase: "idle", server_version: null, binary_version: null, stale: false, output: null, finished_at: null }, 200, { "cache-control": "no-store" });
-  // the demo opens no public address: the Portal section stays hidden
-  if (path === "/api/portal") return json({ supported: false, version: null, min_version: "v2.6.1", usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null } satisfies PortalStatus, 200, { "cache-control": "no-store" });
+  if (path === "/api/portal") return json(demoPortal(), 200, { "cache-control": "no-store" });
   if (path === "/api/portal/start" || path === "/api/portal/stop") return error("portal_unsupported", "The demo opens no public address.", 409);
   if (path === "/api/access") return json({ port: 7317, tailscale: { state: "running", dns_name: "workstation.example.ts.net", serving_url: "https://workstation.example.ts.net", serve_command: null, serve_url: null } });
   if (path === "/api/usage") return json(usageReport(), 200, { "cache-control": "no-store" });

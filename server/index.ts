@@ -245,6 +245,8 @@ export function createServer(
     return grantPath ? tailnet.freshIdentity(host) : tailnet.identity();
   };
   const serveOnly = options.tailscaleServeOnly ?? process.env["HERDR_WEB_TAILSCALE_SERVE_ONLY"] === "1";
+  /** what lets Portal open an address: this server's own values, never a request's */
+  const portalGuards = () => ({ tokenSet: token !== "", serveOnly });
 
   const openCodeState = new OpenCodePromptState();
   const draftTimer = setInterval(() => openCodeState.prune(), 60_000);
@@ -445,7 +447,7 @@ export function createServer(
       }
       if (pathname === "/api/herdr/update") { setRequestRoute(pathname); return handleHerdrUpdateRequest(request, options.herdrUpdate); }
       if (pathname === "/api/portal" || pathname.startsWith("/api/portal/")) {
-        return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
+        return handlePortalRequest(request, pathname, options.portal, { port: bunServer.port ?? DEFAULT_PORT, ...portalGuards() });
       }
       if (pathname === "/api/connection-diagnostics") { setRequestRoute(pathname); return clientConnectionLog.handle(request, client ?? "unknown"); }
       if (pathname === "/api/telemetry") { setRequestRoute(pathname); return handleTelemetryRequest(request, options.telemetry); }
@@ -727,9 +729,11 @@ export function createServer(
   const requestLog = new RequestLog(options.stateDir ?? defaultStateDir());
 
   if (options.portal) {
+    // a Portal that ends on its own is started again only while this server's own token and serve-only allow it
+    options.portal.authorize(portalGuards);
     let resume: Promise<void>;
     try {
-      resume = options.portal.resume({ port: server.port ?? DEFAULT_PORT, tokenSet: token !== "", serveOnly });
+      resume = options.portal.resume({ port: server.port ?? DEFAULT_PORT, ...portalGuards() });
     } catch (error) {
       resume = Promise.reject(error);
     }

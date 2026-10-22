@@ -127,6 +127,13 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         First messages are prompt text: a watch-only device gets 403 read_only. 400
  *         missing_workspace_id / invalid_agent, 404 workspace_not_found, 409 no_folder)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
+ *         (pane.read. `lines` is herdr's uint32: an integer from 0 to 4294967295 written in
+ *         plain decimal digits (leading zeros allowed). Left out it is left out of the RPC, and 0
+ *         is sent as 0: herdr decides what either reads, the server adds no default or cap. Any
+ *         other spelling (blank, signed, fractional such as 0.99999999999999999, exponent such
+ *         as 1e3, non-finite) or a larger value is 400 invalid_lines before any RPC, whatever the
+ *         pane; 400 missing_pane_id / invalid_source / invalid_format; an unknown pane is herdr's
+ *         pane_not_found)
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
  *  POST   /api/pane/scroll { pane_id, offset_from_bottom } -> { scroll } (pane.scroll; herdr
@@ -446,7 +453,8 @@ export interface PortalStatus {
   readonly min_version: string;
   /** `version` is `min_version` or later: Start is offered */
   readonly usable: boolean;
-  readonly phase: "idle" | "starting" | "running" | "stopping" | "error";
+  /** recovering: a Portal that was serving ended on its own and is started again, once, with no address meanwhile */
+  readonly phase: "idle" | "starting" | "running" | "recovering" | "stopping" | "error";
   /** the relay the tunnel uses, or used last; an https origin */
   readonly relay: string | null;
   /** the public address while it runs, without the default port */
