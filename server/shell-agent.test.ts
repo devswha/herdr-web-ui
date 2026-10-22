@@ -290,10 +290,12 @@ it("says why the login shell gave no PATH once each time the reason changes", as
   const warn = spyOn(console, "warn").mockImplementation(() => undefined);
   try {
     const results: (string | null)[] = [];
-    while (answers.length > 0) {
+    // one read a minute apart for each answer: bounded, so a locator that stops probing fails instead of spinning
+    for (let round = 0; round < 10; round += 1) {
       results.push(await locator.executable("gjc"));
       clock += 60_000;
     }
+    expect(answers).toHaveLength(0);
     // a miss stays a miss: only the runs that found the PATH offer gjc
     expect(results).toEqual([null, null, null, null, f.gjc, f.gjc, null, null, null, null]);
     // one line per change of reason, none for a repeat, and again after the PATH was found
@@ -396,6 +398,40 @@ it.skipIf(Bun.which("setsid") === null)("reads the PATH printed after the shell 
   // what arrives after the exit still counts against the output limit
   const flood = afterExit("yes x | head -c 200000;");
   expect((await once(loginPathProbe({ shell: flood.shell, env: flood.env, timeoutMs: 5000 }))).path).toBeNull();
+});
+
+it.skipIf(Bun.which("setsid") === null)("answers with the PATH when a process outside the group keeps the output open", async () => {
+  // the profile leaves a process in a session of its own holding stdout and stderr; the shell exits
+  // only once it says, through a FIFO, that it left the group, so the group kill cannot end it
+  const f = fixture(`mkfifo "${"$"}HOME/left"; setsid /bin/sh -c 'echo > "$HOME/left"; exec sleep 30' & echo $! > "${"$"}HOME/held.pid"; read _ < "${"$"}HOME/left"`);
+  let held = 0;
+  try {
+    const result = await once(loginPathProbe({ shell: f.shell, env: f.env, timeoutMs: 2000, graceMs: 100 }));
+    held = Number(readFileSync(join(f.home, "held.pid"), "utf8"));
+    // the pipes never close: the PATH read by exit is the answer, not a timeout's miss
+    expect(result).toEqual({ path: `${f.loginBin}:/usr/bin:/bin` });
+    expect(await running(held)).toBe(true);
+  } finally {
+    if (held === 0 && existsSync(join(f.home, "held.pid"))) held = Number(readFileSync(join(f.home, "held.pid"), "utf8"));
+    if (held > 0) try { process.kill(held, "SIGKILL"); } catch { /* gone */ }
+  }
+});
+
+it("clears every timer it set once it answered", async () => {
+  const f = fixture();
+  const set = spyOn(globalThis, "setTimeout");
+  const cleared = spyOn(globalThis, "clearTimeout");
+  try {
+    expect(await once(loginPathProbe({ shell: f.shell, env: f.env, graceMs: 1000 }))).toEqual({ path: `${f.loginBin}:/usr/bin:/bin` });
+    const timers = set.mock.results.map((result) => result.value as unknown);
+    // the timeout, and the wait for close after the exit
+    expect(timers.length).toBeGreaterThanOrEqual(2);
+    const clearedTimers = new Set(cleared.mock.calls.map(([timer]) => timer as unknown));
+    for (const timer of timers) expect(clearedTimers.has(timer)).toBe(true);
+  } finally {
+    set.mockRestore();
+    cleared.mockRestore();
+  }
 });
 
 it("Windows does not invoke a Unix login shell", async () => {
