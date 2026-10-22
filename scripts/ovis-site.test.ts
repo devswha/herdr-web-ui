@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fail, files, read, repo } from "./source-scan.ts";
@@ -53,8 +53,8 @@ const hreflangs = (file: string): string[] =>
 
 describe("ovis.sh pages", () => {
   it("finds the pages", () => {
-    expect(PAGES).toContain(HOME);
-    expect(indexable).toContain(HOME);
+    fail(PAGES.includes(HOME) ? [] : [HOME], "These tests read the home page at this path; point HOME in scripts/ovis-site.test.ts at where it is now:");
+    fail(indexable.includes(HOME) ? [] : [HOME], "The home page must stay in search: take <meta name=\"robots\" content=\"noindex\"> out of its <head>:");
   });
 
   it("each name one absolute https://ovis.sh canonical, their own address when indexable", () => {
@@ -126,7 +126,8 @@ describe("ovis-site/sitemap.xml", () => {
       const want = file && existsSync(join(repo, file)) ? hreflangs(file) : [];
       return JSON.stringify(alternates) === JSON.stringify(want) ? [] : [`${loc}: has ${JSON.stringify(alternates)}, the page has ${JSON.stringify(want)}`];
     });
-    if (urls.some((url) => url.alternates.length)) expect(sitemap).toContain("xmlns:xhtml=\"http://www.w3.org/1999/xhtml\"");
+    fail(urls.some((url) => url.alternates.length) && !sitemap.includes("xmlns:xhtml=\"http://www.w3.org/1999/xhtml\"") ? ["ovis-site/sitemap.xml"] : [],
+      "A sitemap with <xhtml:link> entries declares their namespace: add xmlns:xhtml=\"http://www.w3.org/1999/xhtml\" to its <urlset>:");
     fail(offenders, "Give each <url> in ovis-site/sitemap.xml one <xhtml:link rel=\"alternate\" hreflang=\"…\" href=\"…\"/> per hreflang link of its page, and none for a page without them.");
   });
 });
@@ -142,7 +143,8 @@ describe("ovis.sh structured data", () => {
       try { JSON.parse(body); return []; } catch (error) { return [`${file}: JSON-LD block ${index + 1}: ${(error as Error).message}`]; }
     }));
     fail(offenders, "Each <script type=\"application/ld+json\"> holds valid JSON, with any \"<\" written as \\u003c.");
-    expect(blocks(HOME).length).toBe(1);
+    const count = blocks(HOME).length;
+    fail(count === 1 ? [] : [`${HOME} has ${count}`], "Keep exactly one <script type=\"application/ld+json\"> in the home page, holding the whole @graph:");
   });
 
   it("names the site, its maker, the app and the FAQ, linked by @id, with nothing the repo does not state", () => {
@@ -162,19 +164,35 @@ describe("ovis.sh structured data", () => {
     fail(refs, "Each {\"@id\": …} reference names a node of the same @graph:");
     fail(unstated, "Leave out ratings, reviews, versions, dates and download links: the repo states none of them, and a stale one is worse than none. Remove:");
     fail(oldRepo, "Use https://github.com/devswha/ovis for the repository:");
+    const siteNames = [node("WebSite")?.["alternateName"] ?? []].flat() as string[];
+    fail(siteNames.filter((name) => /herdr[ -]web[ -]ui/i.test(name)),
+      "Google may show the WebSite node's alternateName as the site's name in results: keep the old name off it (\"ovis.sh\" is the fallback). The old name belongs only on the SoftwareApplication node. Remove:");
     const app = node("SoftwareApplication")!;
-    expect(app["offers"]).toMatchObject({ price: "0" });
-    expect(app["isAccessibleForFree"]).toBe(true);
-    expect(app["license"]).toBe("https://github.com/devswha/ovis/blob/main/LICENSE");
-    expect(existsSync(join(repo, "LICENSE"))).toBe(true);
-    expect(existsSync(join(repo, "ovis-site", new URL(app["image"]).pathname))).toBe(true);
+    const license = "https://github.com/devswha/ovis/blob/main/LICENSE";
+    fail([
+      app["offers"]?.["price"] !== "0" && `offers is ${JSON.stringify(app["offers"])}`,
+      app["isAccessibleForFree"] !== true && `isAccessibleForFree is ${JSON.stringify(app["isAccessibleForFree"])}`,
+      app["license"] !== license && `license is ${JSON.stringify(app["license"])}`,
+      !existsSync(join(repo, "LICENSE")) && "the repository has no LICENSE file",
+    ].filter((problem): problem is string => !!problem),
+      `The SoftwareApplication node says Ovis is free under the repository's license: keep "offers": {"@type": "Offer", "price": "0", …}, "isAccessibleForFree": true and "license": "${license}", with LICENSE in the repository:`);
+    const image = app["image"];
+    const imageFile = typeof image === "string" ? fileOf(image) : undefined;
+    fail(imageFile && existsSync(join(repo, imageFile)) ? [] : [`image is ${JSON.stringify(image)}`],
+      `The SoftwareApplication image must be an absolute ${ORIGIN}/ address of a file in ovis-site/:`);
   });
 
   it("repeats the visible FAQ word for word", () => {
     const page = html(HOME);
-    const items = [...page.matchAll(/<details class="faq-item"[^>]*>\s*<summary>\s*<span>([\s\S]*?)<\/span>[\s\S]*?<\/summary>\s*<div class="faq-answer">([\s\S]*?)<\/div>\s*<\/details>/g)]
-      .map(([, question, answer]) => ({ name: visible(question!), text: visible(answer!) }));
-    expect(items.length).toBe(page.split("<details class=\"faq-item\"").length - 1);
+    // each item on its own, from its opening tag to the next </details>, so one item off the shape
+    // is named instead of being read together with the next
+    const shape = /^<details class="faq-item"[^>]*>\s*<summary>\s*<span>([\s\S]*?)<\/span>[\s\S]*?<\/summary>\s*<div class="faq-answer">([\s\S]*?)<\/div>\s*<\/details>$/;
+    const parsed = page.split("<details class=\"faq-item\"").slice(1)
+      .map((rest) => `<details class="faq-item"${rest.split("</details>")[0]}</details>`)
+      .map((block, index) => ({ block, index, match: shape.exec(block) }));
+    fail(parsed.filter(({ match }) => !match).map(({ block, index }) => `FAQ item ${index + 1}: ${visible(block).slice(0, 80)}`),
+      `Keep each FAQ item in ${HOME} in this shape so the FAQPage check can read it: <details class="faq-item"><summary><span>question</span>…</summary><div class="faq-answer">answer</div></details>. These did not parse:`);
+    const items = parsed.map(({ match }) => ({ name: visible(match![1]!), text: visible(match![2]!) }));
     const shown = new Map(items.map((item) => [item.name, item.text]));
     const marked = (node("FAQPage")?.["mainEntity"] ?? []) as Record<string, any>[];
     const names = marked.map((question) => question["name"]);
@@ -194,7 +212,7 @@ describe("ovis.sh translations", () => {
   const raw = /<script type="application\/json" id="i18n-data">([\s\S]*?)<\/script>/.exec(html(HOME))?.[1] ?? "";
 
   it("keep #i18n-data on one line, with < written as \\u003c", () => {
-    expect(raw.length).toBeGreaterThan(0);
+    fail(raw ? [] : [HOME], "The page script reads its translations from <script type=\"application/json\" id=\"i18n-data\">; keep that tag in the home page:");
     fail([raw.includes("\n") && "it spans several lines", raw.includes("<") && "it holds a raw \"<\""].filter((problem): problem is string => !!problem),
       `Keep the #i18n-data JSON in ${HOME} on one line and write each "<" as \\u003c, as the rest of it does:`);
   });
@@ -221,12 +239,13 @@ describe("ovis-site/llms.txt", () => {
   };
 
   it("opens as llmstxt.org asks: the name as H1, then a blockquote summary", () => {
-    expect(llms.startsWith("# Ovis\n\n> ")).toBe(true);
-    expect(llms).toContain("\n## Docs\n");
+    fail([!llms.startsWith("# Ovis\n\n> ") && "it does not open with \"# Ovis\", a blank line and a \"> \" summary", !llms.includes("\n## Docs\n") && "it has no \"## Docs\" section"]
+      .filter((problem): problem is string => !!problem),
+      "ovis-site/llms.txt follows llmstxt.org: \"# Ovis\" on the first line, a blank line, the one-paragraph summary as a \"> \" blockquote, then the details and a \"## Docs\" list of links:");
   });
 
   it("links only to ovis.sh paths and repository files that exist", () => {
-    expect(links.length).toBeGreaterThan(5);
+    fail(links.length > 5 ? [] : [`${links.length} links found`], "This test found almost no links in ovis-site/llms.txt: keep the docs as [name](https://…) Markdown links, or update the link pattern in this test:");
     const offenders = links.flatMap((url) => {
       if (url.startsWith(`${ORIGIN}/`) || url === ORIGIN) return served(url) ? [] : [`${url}: no file in ovis-site/ and no rule in ovis-site/_redirects`];
       const blob = /^https:\/\/github\.com\/devswha\/ovis\/blob\/main\/(.+)$/.exec(url);
@@ -238,7 +257,7 @@ describe("ovis-site/llms.txt", () => {
 
   it("names the herdr version the plugin requires", () => {
     const required = /^min_herdr_version = "([^"]+)"/m.exec(read("herdr-plugin.toml"))?.[1];
-    expect(required).toBeTruthy();
+    fail(required ? [] : ["herdr-plugin.toml"], "This test reads the herdr version Ovis needs from a min_herdr_version = \"…\" line in herdr-plugin.toml; point it at where that version is now:");
     fail(llms.includes(`herdr](https://github.com/herdrdev/herdr) ${required} or newer`) ? [] : [`herdr ${required}`],
       "ovis-site/llms.txt says which herdr Ovis needs: make it read \"[herdr](https://github.com/herdrdev/herdr) <min_herdr_version> or newer\", with the version from herdr-plugin.toml:");
   });
@@ -261,8 +280,9 @@ describe("ovis-site/_headers", () => {
   it("keeps the pages.dev copies and README.md out of search", () => {
     fail(["https://:project.pages.dev/*", "https://:version.:project.pages.dev/*", "/README.md"].filter((url) => !noindexRules.includes(url)),
       "Keep these rules in ovis-site/_headers, each with an indented \"X-Robots-Tag: noindex\" line under it:");
-    expect(matches("https://:project.pages.dev/*", "https://ovis.pages.dev/privacy/")).toBe(true);
-    expect(matches("https://:version.:project.pages.dev/*", "https://feat-x.ovis.pages.dev/")).toBe(true);
+    fail([["https://:project.pages.dev/*", "https://ovis.pages.dev/privacy/"], ["https://:version.:project.pages.dev/*", "https://feat-x.ovis.pages.dev/"]]
+      .filter(([pattern, url]) => !matches(pattern!, url!)).map(([pattern, url]) => `${pattern} does not match ${url}`),
+      "matches() in scripts/ovis-site.test.ts no longer follows Cloudflare's _headers matching, so the noindex checks cannot be trusted; fix it:");
   });
 
   it("never puts noindex on an ovis.sh page", () => {
