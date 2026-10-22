@@ -224,6 +224,13 @@ it("hung or oversized login probe is killed and reaped", async () => {
   const noisy = fixture(`echo $$ > "${"$"}HOME/shell.pid"; head -c 200000 /dev/zero | tr '\\\\0' x`);
   expect(await loginPathProbe({ shell: noisy.shell, env: noisy.env, timeoutMs: 5000 })(new AbortController().signal)).toBeNull();
   expect(await running(Number(await written(join(noisy.home, "shell.pid"))))).toBe(false);
+  // stderr counts against the same limit: a flood on stderr alone, and one split across both streams
+  const loud = fixture(`echo $$ > "${"$"}HOME/shell.pid"; head -c 200000 /dev/zero | tr '\\\\0' x >&2`);
+  expect(await loginPathProbe({ shell: loud.shell, env: loud.env, timeoutMs: 5000 })(new AbortController().signal)).toBeNull();
+  expect(await running(Number(await written(join(loud.home, "shell.pid"))))).toBe(false);
+  const mixed = fixture(`echo $$ > "${"$"}HOME/shell.pid"; head -c 40000 /dev/zero | tr '\\\\0' x; head -c 40000 /dev/zero | tr '\\\\0' y >&2`);
+  expect(await loginPathProbe({ shell: mixed.shell, env: mixed.env, timeoutMs: 5000 })(new AbortController().signal)).toBeNull();
+  expect(await running(Number(await written(join(mixed.home, "shell.pid"))))).toBe(false);
 
   // a chatty profile under the limit is fine; a shell that is not there or fails says nothing
   const chatty = fixture("echo 'PATH=/not/this'; echo __HERDR_WEB_LOGIN_PATH_END__");

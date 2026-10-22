@@ -72,14 +72,14 @@ export interface LoginPathProbe {
 /**
  * Runs `shell -l -c` once with the fixed script and reads the PATH its profile sets. The shell runs
  * in a process group of its own, so a profile that leaves a child behind is killed with it; at
- * `timeoutMs`, past `maxBytes` of output or on `signal` the group is killed and the shell reaped
- * before this answers null.
+ * `timeoutMs`, past `maxBytes` of output (stdout and stderr together) or on `signal` the group is
+ * killed and the shell reaped before this answers null.
  */
 export function loginPathProbe(options: { shell: string; env?: Record<string, string | undefined>; timeoutMs?: number; maxBytes?: number }): LoginPathProbe {
   const { shell, env = process.env, timeoutMs = 2000, maxBytes = 64 * 1024 } = options;
   return (signal) => new Promise((resolve) => {
     if (signal.aborted) { resolve(null); return; }
-    const child = spawn(shell, ["-l", "-c", LOGIN_PATH_SCRIPT], { env, stdio: ["ignore", "pipe", "ignore"], detached: true });
+    const child = spawn(shell, ["-l", "-c", LOGIN_PATH_SCRIPT], { env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     const chunks: Buffer[] = [];
     let bytes = 0;
     let failed = false;
@@ -94,11 +94,14 @@ export function loginPathProbe(options: { shell: string; env?: Record<string, st
       signal.removeEventListener("abort", kill);
       resolve(answer);
     };
-    child.stdout!.on("data", (chunk: Buffer) => {
+    // both streams share one budget; only stdout carries the PATH
+    const count = (chunk: Buffer): boolean => {
       bytes += chunk.length;
-      if (bytes > maxBytes) kill();
-      else chunks.push(chunk);
-    });
+      if (bytes > maxBytes && !failed) kill();
+      return !failed;
+    };
+    child.stdout!.on("data", (chunk: Buffer) => { if (count(chunk)) chunks.push(chunk); });
+    child.stderr!.on("data", count);
     // a shell that cannot be run never exits: its error is the answer
     child.on("error", () => done(null));
     // exit, not close: a grandchild that kept the pipe open is gone with the group, and the shell is reaped here
