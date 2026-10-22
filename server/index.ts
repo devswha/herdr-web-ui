@@ -27,7 +27,7 @@ import { claudePaneSession } from "./conversation.ts";
 import { processAlive } from "./omo-status.ts";
 import { omoRuns, omoTasks } from "./omo-tasks.ts";
 import { claudeSubagents, within } from "./claude-subagents.ts";
-import { SHELL_AGENTS, shellAgentExecutable } from "./shell-agent.ts";
+import { SHELL_AGENTS, ShellAgentLocator } from "./shell-agent.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
 import { fileResponse, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
 import { findProjectFavicon } from "./project-favicon.ts";
@@ -225,6 +225,8 @@ export function createServer(
     terminalAttach?: boolean | (() => Promise<boolean>);
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer, or a probe to run in place of that one. */
     sidecar?: boolean | (() => boolean);
+    /** where omo and gjc are found for the offer and the start (server/shell-agent.ts); unset, this server's PATH alone. The real entrypoint adds its user's login shell; tests pass a fixture one. */
+    shellAgents?: ShellAgentLocator;
   } = {},
 ): ServerInstance {
   /**
@@ -257,6 +259,8 @@ export function createServer(
   /** what lets Portal open an address: this server's own values, never a request's */
   const portalGuards = () => ({ tokenSet: token !== "", serveOnly });
 
+  const shellAgents = options.shellAgents ?? new ShellAgentLocator({ probe: null });
+  shellAgents.start();
   const openCodeState = new OpenCodePromptState();
   const draftTimer = setInterval(() => openCodeState.prune(), 60_000);
   draftTimer.unref();
@@ -529,10 +533,13 @@ export function createServer(
           kinds.add("omp");
           kinds.add("claude");
           // not herdr kinds: offered where this server can run them (see shell-agent.ts)
-          for (const kind of Object.keys(SHELL_AGENTS)) if (shellAgentExecutable(kind)) kinds.add(kind);
+          // the locator the start asks too, so what is offered is what starts
+          const shellStarted = new Set<string>();
+          for (const kind of Object.keys(SHELL_AGENTS)) if (await shellAgents.executable(kind)) shellStarted.add(kind);
+          for (const kind of shellStarted) kinds.add(kind);
           const agents: AgentKind[] = [...kinds]
-            // an agent's command is its kind; the pane's shell may carry another PATH, as for omo and gjc above
-            .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind, installed: Bun.which(kind, { PATH: process.env["PATH"] ?? "" }) !== null }))
+            // an agent's command is its kind; herdr starts the others in its own environment, so only this server's PATH speaks for them
+            .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind, installed: shellStarted.has(kind) || Bun.which(kind, { PATH: process.env["PATH"] ?? "" }) !== null }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
           return jsonResponse({ agents });
         } catch (error) {
@@ -584,7 +591,7 @@ export function createServer(
         const receipt = orderSequence.moved();
         void machines?.refreshLocal();
         return receipt;
-      });
+      }, shellAgents);
       if (workspaceResponse) return workspaceResponse;
 
       if (pathname === "/api/plugins/actions") {
@@ -771,6 +778,7 @@ export function createServer(
         registration?.close();
         closeCodexDaemonSources();
       });
+      void shellAgents.stop();
       server.stop(true);
       requestLog.close();
     },
@@ -785,7 +793,7 @@ if (import.meta.main) {
   const portal = new PortalService({ stateDir: defaultStateDir() });
   let instance: ReturnType<typeof createServer>;
   try {
-    instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true, herdrProfiles: readHerdrProfiles });
+    instance = createServer({ updates, herdrUpdate: new HerdrUpdater(), portal, telemetry, registerBridge: true, herdrProfiles: readHerdrProfiles, shellAgents: new ShellAgentLocator() });
   } catch (err) {
     const { code, syscall } = err as { code?: string; syscall?: string };
     // only the bind itself: a permission error reading a state file keeps its own message and path

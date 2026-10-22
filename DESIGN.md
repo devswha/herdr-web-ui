@@ -1207,7 +1207,15 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   note is dim, red for an expired sign-in or a failed request.
 
 ### New workspace dialog
-- Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
+- Agent select comes from `GET /api/agents`; shell-only is always available. The bridge offers the
+  agents it types into the pane's shell itself (omo, gjc) exactly where it can start them: its own
+  PATH first, then on Unix the PATH its user's login shell sets, read by one bounded login-shell run
+  at start and every minute from the server's own timer (`server/shell-agent.ts` ShellAgentLocator),
+  and the start types the same absolute path the offer found. A server run as a service with a bare
+  PATH therefore still offers an agent installed under `~/.local/bin` or a version manager. The
+  agents herdr starts keep their own environment's answer. The picker itself is unchanged; this
+  follows the bridge's actual launch, not another app's installation discovery, which neither the
+  Codex app nor Claude Code documents. Directory defaults to
   the selected pane cwd and name is an optional workspace label. **Browse** updates Directory as
   each folder opens (`onFolder`), so **Start** uses the path shown in the browser even when
   **Use this folder** was not pressed; Directory keeps the `~/…` form for a folder under home, as

@@ -25,6 +25,7 @@ import { TailnetIdentitySource } from "./tailscale.ts";
 import { forgetTranscriptState } from "./conversation.ts";
 import type { RepoDiffFileList, RepoDiffFilePatch, SessionHistoryResponse } from "../shared/protocol.ts";
 import { PendingInputError, PendingInputs } from "./pending-input.ts";
+import { loginPathProbe, ShellAgentLocator, type LoginPathProbe } from "./shell-agent.ts";
 
 /**
  * Contract test for Ovis's HTTP + WS surface.
@@ -1336,6 +1337,72 @@ describe("workspace and discovery endpoints", () => {
       rmSync(bin, { recursive: true, force: true });
     }
   });
+
+  it.skipIf(process.platform === "win32")("offers a shell agent found only on its login shell's PATH, starts that same executable, and keeps hits and misses until the next run", async () => {
+    // a service PATH without gjc, and a test-owned login shell whose -l run puts it on PATH: no dotfile is read
+    const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-login-path-"));
+    const home = join(root, "home"), serviceBin = join(root, "service bin"), loginBin = join(root, "login bin");
+    for (const dir of [home, serviceBin, loginBin]) mkdirSync(dir);
+    const gjc = join(loginBin, "gjc");
+    const pidFile = join(root, "gjc.pid");
+    // the fixture agent says who it is, then stays in front of the pane under its own path
+    const writeGjc = () => writeFileSync(gjc, `#!/bin/bash\necho "$$" > '${pidFile}.tmp' && mv '${pidFile}.tmp' '${pidFile}'\nexec -a "$0" sleep 600\n`, { mode: 0o755 });
+    writeGjc();
+    const shell = join(root, "login-shell");
+    writeFileSync(shell, `#!/bin/sh\nif [ "$1" = "-l" ]; then PATH='${loginBin}:/usr/bin:/bin'; export PATH; shift; echo 'fixture motd'; fi\n[ "$1" = "-c" ] && exec /bin/sh -c "$2"\nexit 64\n`, { mode: 0o755 });
+    const real = loginPathProbe({ shell, env: { HOME: home, PATH: serviceBin } });
+    let runs = 0;
+    const probe: LoginPathProbe = (signal) => { runs += 1; return real(signal); };
+    let tick: () => void = () => undefined;
+    const shellAgents = new ShellAgentLocator({ servicePath: () => serviceBin, probe, schedule: (refresh) => { tick = refresh; return () => undefined; } });
+    const state = mkdtempSync(join(tmpdir(), "herdr-web-ui-login-path-state-"));
+    const app = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: state, shellAgents });
+    const url = `http://127.0.0.1:${app.port}`;
+    const kinds = async () => ((await (await fetch(`${url}/api/agents`)).json()) as { agents: AgentKind[] }).agents;
+    const owned = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-login-path" });
+    let launchedPid: number | null = null;
+    try {
+      // concurrent first reads share the warm-up run
+      const reads = await Promise.all(Array.from({ length: 6 }, kinds));
+      for (const agents of reads) {
+        expect(agents).toContainEqual({ kind: "gjc", label: "Gajae Code", installed: true });
+        expect(agents.map((agent) => agent.kind)).not.toContain("omo");
+        // the wire shape is unchanged: kind, label and installed, nothing of where it was found
+        for (const agent of agents) expect(Object.keys(agent).sort()).toEqual(["installed", "kind", "label"]);
+      }
+      expect(JSON.stringify(reads)).not.toContain(root);
+      expect(runs).toBe(1);
+
+      // the start types the absolute path the offer found, quoted: the fixture runs under it
+      const res = await fetch(`${url}/api/tab/create`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workspace_id: owned.workspace.workspace_id, agent: { kind: "gjc" } }) });
+      expect(res.status).toBe(200);
+      const tab = await res.json() as WorkspaceCreated;
+      expect(tab).toMatchObject({ agent_started: true });
+      launchedPid = Number(readFileSync(pidFile, "utf8").trim());
+      const info = await herdrRpc<{ process_info: { foreground_processes: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: tab.pane_id });
+      expect(info.process_info.foreground_processes).toContainEqual(expect.objectContaining({ pid: launchedPid, argv: [gjc, "600"] }));
+      // neither the reads nor the start ran a login shell of their own
+      expect(runs).toBe(1);
+
+      // a removed executable is offered no more, and nothing else takes its place before the next run
+      rmSync(gjc);
+      expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
+      tick();
+      expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
+      // back again: the kept miss holds until the timer's next run sees it
+      writeGjc();
+      expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
+      tick();
+      expect(await kinds()).toContainEqual({ kind: "gjc", label: "Gajae Code", installed: true });
+      expect(runs).toBe(3);
+    } finally {
+      if (launchedPid !== null) try { process.kill(launchedPid, "SIGKILL"); } catch { /* gone with its pane */ }
+      app.stop();
+      await workspaceClose(owned.workspace.workspace_id);
+      rmSync(root, { recursive: true, force: true });
+      rmSync(state, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("makes one folder for the folder browser, and refuses names, folders and origins it must not", async () => {
     const root = mkdtempSync(join(tmpdir(), "ovis-mkdir-"));
