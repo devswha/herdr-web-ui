@@ -1432,9 +1432,12 @@ export function PaneTerminal({
     // and the one xterm is parsing finishes with no clipboard write. Its callback still runs, and
     // its own owner and generation checks keep it off the new output. An OSC the old output left
     // open in xterm is guarded as a replayed one: its callback decides for a frame still parsing.
+    // The frame gate read those dropped frames as they came, so their stream ends there too: a
+    // synchronized update one opened would otherwise keep every later frame from settling.
     const retireOutput = (): void => {
       outputOwner++;
       outputFrames.length = 0;
+      frameGateRef.current.reset();
       if (!writingOutput) replayOscOpen = oscMayCopy();
     };
     retireOutputRef.current = retireOutput;
@@ -1452,7 +1455,7 @@ export function PaneTerminal({
         peakInFlight = Math.max(peakInFlight, inFlight);
         write(data, () => { inFlight--; callback?.(); });
       };
-      Object.assign(host, { outputProbe: () => ({ ...term.oscStringState(), parsingReplay, replayOscOpen, retired: writingOutput && parsingOwner !== outputOwner, queued: outputFrames.length, inFlight, peakInFlight, writes, written }) });
+      Object.assign(host, { outputProbe: () => ({ ...term.oscStringState(), parsingReplay, replayOscOpen, retired: writingOutput && parsingOwner !== outputOwner, queued: outputFrames.length, inFlight, peakInFlight, writes, written, frameSettled: frameGateRef.current.current }) });
     }
 
     // OSC 52: the pane program asked the terminal to set the clipboard - the pty

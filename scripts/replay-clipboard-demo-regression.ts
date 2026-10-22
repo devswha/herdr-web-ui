@@ -20,7 +20,7 @@ import { buildDemoApp } from "./demo-build.ts";
 import { chromePath } from "./chrome-path.ts";
 
 interface Step { data: string; replay?: true }
-interface Probe { open: boolean; id: number; idComplete: boolean; parsingReplay: boolean; replayOscOpen: boolean; retired: boolean; queued: number; inFlight: number; peakInFlight: number; writes: number; written: string }
+interface Probe { open: boolean; id: number; idComplete: boolean; parsingReplay: boolean; replayOscOpen: boolean; retired: boolean; queued: number; inFlight: number; peakInFlight: number; writes: number; written: string; frameSettled: boolean }
 interface Ack { type: string; pane_id: string; stream_id: string; offset: number; socket: number; copies: number; probe: Probe | null }
 interface Fixture {
   copies: string[];
@@ -442,6 +442,9 @@ try {
       // the old output's live OSC 52 is still open when it is retired: the new output's first live
       // frame ends it, and that copy is the old output's
       { name: "live OSC 52 left open in flight, a live copy queued", steps: [L(`${ESC}]52;c;c3RhbGU=`), L(STALE_COPY)], replayOscOpen: true, next: [L(`${BEL}${LIVE_COPY}`)] },
+      // the queued frame that is dropped opened a synchronized update (DEC mode 2026) xterm never
+      // parsed: the frame gate (lib/inputRow.ts FrameGate) forgets it, so the new output's frames settle
+      { name: "a frame opening a synchronized update queued", steps: [L("pending"), L(`${ESC}[?2026hhalf a frame`)], replayOscOpen: false },
     ];
     const context = await newContext(browser, url);
     try {
@@ -488,7 +491,9 @@ try {
         assert.deepEqual(nextCopies, ["live"], `${test.name}: the new output's live copy works`);
         assert.deepEqual(next.acks.map((ack) => ack.offset), next.pushed.map((step) => step.offset), `${test.name}: one ACK per new frame`);
         assert.equal(await ready(), 1, `${test.name}: the new output marks itself ready`);
-        report["reconnect-replay"]!.push({ name: `pending write at reconnect: ${test.name}`, pending: { inFlight: held.inFlight, queued: held.queued }, afterDisconnect: { queued: retired.queued, inFlight: retired.inFlight, retired: retired.retired }, copies, acksAfterDisconnect: acks.length - before.length, writesAfterRelease: after.writes - held.writes, replayOscOpen: after.replayOscOpen, readyFromOldCallback: readyAfterOld > 0, nextCopies });
+        const settledNext = (await probeOf(page)).frameSettled;
+        assert.equal(settledNext, true, `${test.name}: the new output's frames settle, whatever the dropped frames opened`);
+        report["reconnect-replay"]!.push({ name: `pending write at reconnect: ${test.name}`, pending: { inFlight: held.inFlight, queued: held.queued }, afterDisconnect: { queued: retired.queued, inFlight: retired.inFlight, retired: retired.retired }, copies, acksAfterDisconnect: acks.length - before.length, writesAfterRelease: after.writes - held.writes, replayOscOpen: after.replayOscOpen, readyFromOldCallback: readyAfterOld > 0, nextCopies, frameSettled: settledNext });
         console.log(`PASS pending write at reconnect: ${test.name}`);
       }
 
