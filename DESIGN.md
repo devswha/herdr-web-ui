@@ -15,8 +15,8 @@ default, light follows the same hierarchy, and comfortable or compact density ch
 changing information architecture. A new browser starts on the Codex theme (dark and light), which
 draws this hierarchy in Codex's neutral surfaces and blue accent; amber, charcoal, Catppuccin and
 herdr's built-in themes are picked in Settings → Appearance → Dark theme and Light theme. Amber
-stays the base every theme block overrides, the look before settings load, and the look a browser
-keeps when it saved a theme while amber was the default. Settings are saved on a user's first
+stays the base every theme block overrides and the look a browser keeps when it saved a theme
+while amber was the default; the saved theme, not amber, is the page's first frame (see Rules). Settings are saved on a user's first
 change, so a browser that never changed one moves to Codex with everyone new.
 
 The sidebar is one grid: a leading cell that says who or what a row is (the coding agent's brand
@@ -170,7 +170,7 @@ The theme blocks of `src/styles.css` are the theme table and the one place a the
 edited: `:root` is dark amber, `[data-theme="light"]` is light amber and
 `[data-theme="<mode>"][data-palette="<id>"]` is every other entry. `bun run generate:themes`
 (`scripts/generate-themes.ts`) reads them and writes the copies: `src/lib/themes.generated.ts`
-(the supported entries with their roles, xterm colors and panel color), the amber table above
+(the supported entries with their roles, xterm colors, panel color and page surface `bg`), the amber table above
 between its `GENERATED THEMES` markers, the `theme-color` tag in `index.html` and the manifest's
 `theme_color` and `background_color`. Never edit those copies by hand; `--check` fails when one
 is stale. The tables list amber's UI roles and every light row's terminal ANSI colours; read
@@ -449,6 +449,15 @@ blocks of `src/styles.css`.
 - Tints are named tokens; components do not introduce ad hoc translucent state colors.
 - `theme: "system"` follows `prefers-color-scheme`; `src/lib/settings.ts` writes the resolved
   `data-theme`, `color-scheme`, and matching PWA `<meta name="theme-color">`.
+- The saved theme is drawn from the page's first frame. `src/theme-bootstrap.ts`, a same-origin
+  classic script in `<head>` ahead of the stylesheet and the app (`assets/theme-bootstrap-<hash>.js`,
+  placed by `scripts/theme-bootstrap-build.ts`; never inline, the policy is `script-src 'self'`),
+  reads both stored records through `src/lib/themeBoot.ts`, the reading `loadSettings` uses, and
+  writes the row's `data-theme`, `data-palette`, `color-scheme`, `theme-color` and its `--bg` as the
+  root background, which covers a frame painted before the stylesheet. `applyToDocument` removes that
+  background, so the theme blocks own it from then on. This is a boot-correctness fix and follows no
+  other app's behavior: the appearance is the one documented above (Codex by default), now shown from
+  the first frame instead of after amber until the app starts.
 
 ## 3. Typography
 
@@ -894,6 +903,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 
 ### Pill (`.pill`)
 - Mono metadata at `--chip-h`. Offline is the one header pill that stays, and uses danger tokens. A deep link waiting for its PC's roster says **Opening link…** in the same `.header-note` pill (`role="status"`) until it lands or its failure note replaces it. That status stays in the document while there is no note, clipped and empty (`.visually-hidden`, never `display: none`, as `.conn-live`), and the words of a page that opens with a link land a frame after it: a live region that appears together with its content is not announced. The `.header-note` pill carries a sentence, so it is set in the interface face (`--font-ui`), not the mono one. A deep link that could not open what it named, and Copy link, say so in a plain `.header-note` pill for a moment (8 s, 1.6 s for Link copied). The note takes the flexible context's place and ellipsizes when narrow, keeping the lens and More controls in view.
+- This PC's herdr status follows its health reads, and one failed read is no outage: it says **Status unknown** in a
+  plain `.pill-stale` (the neutral pill, no danger tokens), its tooltip naming the last herdr that answered. A second
+  failed read in a row says **herdr unavailable** in the offline pill's danger style; neither claims herdr stopped, since
+  a failed read is not proof of that. An answer ends the failed reads before it; one that lands late keeps those after
+  it. Another PC's **herdr offline** still comes from its bridge.
+  What a PC's herdr can do (terminal attach, the mirror, a pane's default lens) is its last answer and never changes on a
+  failed read, so a Windows PC keeps its chat lens. The pills follow the app's own connection chip and header pills
+  rather than another app's policy; at `<=480px` both go with the other header pills.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**
@@ -1107,6 +1124,27 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   open; always on touch; not drawn on a desktop, where a right-click opens the menu). Inline server failures
   stay beside their workspace. A repository's workspace moves past the
   next or previous group with its worktrees, and a worktree moves among its siblings only.
+  A dropped order shows at once and stays until herdr is known to have it, drawn in the same rows
+  and look (the Codex app's sidebar, as the rest of this list): nothing new is shown while it
+  waits. Each move's answer names it in that PC's server's order (`order_epoch`, `moved_seq`), and
+  each roster says how many moves its server had confirmed when the read began (`read_seq`). The
+  drag's order gives way to the first full roster of the same server read after its last move,
+  whatever order that roster shows (another browser's later move included), and a roster read
+  before it never brings the old order back, while names, status and added or closed workspaces
+  still update. A roster from another server lifetime changes the order only after that PC's
+  server, asked after the move, proves it restarted. That question
+  (`GET /api/machines?verify_source_boot`) costs a remote PC one health call, and its load is bounded
+  by the manager alone: at most one call in flight per PC, started at least 1000 ms after the last,
+  with every other asker joining it or refused with 503 and `Retry-After: 1`. The browser's
+  coalescing and the 15-second deadline do not by themselves bound it, and this is no general HTTP
+  or DoS protection. Agent of Empires keeps a dragged order for a
+  fixed time; a time window ends before a slow move lands or holds a stale order after it, so here
+  the operation's own evidence ends it and no clock is read. Only the newest drag of a PC rolls
+  back or reports its own failure. A PC whose bridge predates this (until the next remote bundle
+  release) gets the old behaviour back from the first roster loaded after its moves settle, so it
+  can show an older cached order until the next full roster, event or poll. A drag whose moves were
+  answered partly with and partly without these numbers waits for both: a roster of the same server
+  at its last numbered move, loaded after the moves settle.
 - A workspace is pinned from its row menu (**Pin workspace** / **Unpin workspace**, first in the
   menu), as Paseo pins a chat: pinned workspaces leave their place and stand first in their PC's
   list, in the order they were pinned, in the Agents list's card (`.sidebar-pinned`, under the same **Pinned** caption), with no mark
@@ -2238,7 +2276,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   the address and QR code as the Phone group draws them over a Relay row with Stop; otherwise one
   hint for what blocks it (no token, serve-only, no `portal` or an old one, with a link to get it)
   or a wide Relay row whose text field and Start stack on a phone. Starting and stopping are one
-  dim status line; a failure is the server's sentence over Portal's own lines, folded.
+  dim status line, at body size (`--fs-md`, `--fs-lg` under a finger) since it is what Portal is
+  doing now; a failure is the server's sentence over Portal's own lines, folded.
+- A Portal that was serving and ends on its own is started again once by the server, on the same
+  relay, port and identity: the address goes, the same dim status line says **Recovering…**
+  with Stop still offered (disabled on a watch-only device), and a second exit or a restart
+  that may not go ahead is the usual failure. The precedent is operational, not a coding-agent
+  app's: Cloudflare Tunnel's service unit restarts on failure
+  ([`Restart=on-failure`](https://github.com/cloudflare/cloudflared/blob/733bfb93/cmd/cloudflared/linux_service.go)),
+  without limit. This differs on purpose: one restart, in the existing status row with no new
+  control or setting, so a tunnel that keeps failing says so instead of looping.
 - The running versions are always written, since the sidebar carries none. Updates opens with
   **Running vX.Y.Z (commit)**: the server's version and commit, or the client's own build version
   before the server answers and where it names neither. While the server runs another version than
@@ -2246,6 +2293,16 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   **herdr** section opens with
   **Running herdr X.Y.Z**; where herdr cannot be updated from here (Windows, an older server) the
   section is that line alone, from the health check.
+- An app update installs only the release the person was shown. **Update and restart** in Settings
+  and **Update** / **Try again** on the header line send the commit of the offer they were drawn
+  with; a release published in between installs nothing, and both places say so in one sentence
+  whose action is **Check for updates** (the header's **Try again** checks), so the new release is
+  read before it is installed. Under a server that cannot install by commit (an older supervisor)
+  **Update and restart** stays disabled with a restart sentence and **How to restart** beside it,
+  and the header line says the same as a wrapping warning line. No Codex or Claude app precedent
+  for update consent is established here: this keeps Ovis's existing controls and their places and
+  applies Agent of Empires' rule that consent covers one immutable offer, not a coding-agent-app
+  pattern.
 - Subscription usage keeps its meter preferences first, then an **Accounts** header with a dim total
   count and one **Add account** button (Plus + label). With meters off, one note follows it without
   provider placeholders; the configured hub connection remains available. With meters on, provider cards are ordered Claude,

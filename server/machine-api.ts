@@ -1,4 +1,4 @@
-import type { MachineEvent, SetupAction, SetupRequest } from "../shared/machines.ts";
+import type { MachineEvent, MachineRoster, SetupAction, SetupRequest } from "../shared/machines.ts";
 import type { AgentRowTokens } from "../shared/pane-tokens.ts";
 import type { SharedPreferences } from "../shared/preferences.ts";
 import type { PanePromptResponse } from "../shared/protocol.ts";
@@ -61,7 +61,22 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
   if (nonCanonicalPath(url.pathname)) return fail("not_found", "not found", 404);
   const parts = url.pathname.slice("/api/machines".length).split("/").filter(Boolean);
   try {
-    if (!parts.length && request.method === "GET") { setRequestRoute("/api/machines"); return jsonResponse({ machines: manager.list() }); }
+    if (!parts.length && request.method === "GET") {
+      setRequestRoute("/api/machines");
+      const asked = url.searchParams.getAll("verify_source_boot");
+      if (asked.length === 0) return jsonResponse({ machines: manager.list() } satisfies MachineRoster);
+      if (asked.length > 1 || asked[0] === "") return fail("invalid_query", "verify_source_boot names one PC", 400);
+      const machineId = asked[0]!;
+      const proof = await manager.verifySourceBoot(machineId, request.signal);
+      if ("refused" in proof) {
+        if (proof.refused === "unknown") return fail("machine_not_found", "PC not found", 404);
+        const response = fail("source_unverified", proof.refused === "interval" ? "This PC's server was asked a moment ago; ask again shortly" : "This PC's server could not be verified now", 503);
+        response.headers.set("cache-control", "no-store");
+        if (proof.refused === "interval") response.headers.set("retry-after", "1");
+        return response;
+      }
+      return jsonResponse({ machines: manager.list(), verified_source_boot: { machine_id: machineId, boot_id: proof.boot_id } } satisfies MachineRoster, 200, { "cache-control": "no-store" });
+    }
     if (parts[0] === "events" && parts.length === 1 && request.method === "GET") {
       setRequestRoute("/api/machines/events");
       let stop: (() => void) | undefined;
@@ -181,8 +196,11 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
       const target = new URL(`${endpoint.url}/api/${path}${url.search}`);
       if (watchedPrompt) target.searchParams.set("plan", "0");
       const untrack = manager.trackTerminal(id, () => abort.abort());
+      // a move's PC reads its roster again once the move is confirmed, so its receipt is soon shown
+      const moved = path === "workspace/move" && request.method === "POST" ? manager.refreshAfterMove(id) : null;
       try {
         const response = await fetch(target, { method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "error", signal: AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(path === "worktree/create" ? 165_000 : 75_000)]) });
+        if (moved && response.ok) moved();
         const etag = response.headers.get("etag");
         // held whole before it is passed on (and parsed, for a watcher's prompt), so only up to a size
         let body: Uint8Array<ArrayBuffer> | null = response.status === 304 ? null : await readCapped(response, watchedPrompt ? REMOTE_LIMITS.watchedPrompt : REMOTE_LIMITS.proxy);
