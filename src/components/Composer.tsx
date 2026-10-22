@@ -97,6 +97,8 @@ export interface ComposerProps {
   notices?: ReactNode;
   /** the connection's confirmed role; PaneTerminal mounts no composer for observers */
   role?: ClientRole;
+  /** a terminal command's peek has the pane: the composer stays, with its draft, but takes no input */
+  inert?: boolean;
   /** opens the folder's earlier sessions instead of submitting /resume */
   onOpenHistory?: () => void;
   /** opens the New tab dialog on this pane's workspace, to start another agent with its model, effort, skills
@@ -245,6 +247,7 @@ export function Composer({
   greeting = null,
   notices = null,
   role = "interact",
+  inert = false,
   onOpenHistory,
   onOpenNewSession,
   cwd = null,
@@ -1046,7 +1049,7 @@ export function Composer({
   }, [menuOpen, menuId, selectedIndex, choices]);
 
   return (
-    <div className={`composer${notices ? " has-notices" : ""}`} role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined}>
+    <div className={`composer${notices ? " has-notices" : ""}`} role="group" aria-label={t("Message composer")} data-dictating={dictation.voice.state !== "idle" ? "" : undefined} inert={inert || undefined}>
       {greeting}
       {notices}
       {/* no Tab key on a phone: the suggestion can be a chip there that fills the box, when Settings asks for it */}
