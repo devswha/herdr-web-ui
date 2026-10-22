@@ -24,9 +24,8 @@ import { badRequest, errorResponse, jsonResponse, setRequestRoute } from "./http
 import { requestOrigin, serveStatic } from "./static.ts";
 import { compressResponse } from "./compress.ts";
 import { claudePaneSession } from "./conversation.ts";
-import { processAlive } from "./omo-status.ts";
-import { omoRuns, omoTasks } from "./omo-tasks.ts";
-import { claudeSubagents, within } from "./claude-subagents.ts";
+import { handleTasksRequest } from "./tasks-routes.ts";
+import { within } from "./claude-subagents.ts";
 import { SHELL_AGENTS, ShellAgentLocator } from "./shell-agent.ts";
 import { claudeSessionTempDir } from "./claude-store.ts";
 import { fileResponse, findFile, crossSiteFileRead, forgetPageMedia, pageMediaResponse, pageMediaSource, PAGE_MEDIA_PATH } from "./file-view.ts";
@@ -186,7 +185,7 @@ export function createServer(
     /** herdr's config.toml, for its sidebar rows (server/herdr-sidebar.ts); unset, where herdr itself reads it. Tests pass a temp file. */
     herdrConfigPath?: string;
     registerBridge?: boolean;
-    /** PLUGIN_ACTION_WAIT_MS; a test shortens it to see a run that outlasts the wait */
+    /** PLUGIN_ACTION_WAIT_MS in server/plugin-routes.ts; a test shortens it to see a run that outlasts the wait */
     pluginActionWaitMs?: number;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
@@ -588,29 +587,8 @@ export function createServer(
       const paneResponse = await handlePaneRequest(request, url, pathname, options);
       if (paneResponse) return paneResponse;
 
-      if (pathname === "/api/pane/omo-tasks") {
-        setRequestRoute(pathname);
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        const session = omo.sessionOf(paneId);
-        // server_time: the browser's clock can differ from this PC's, and the list says how long tasks ran
-        const server_time = new Date().toISOString();
-        if (session === null) {
-          // a Claude pane's subagents, read from its session's files; nothing for any other pane.
-          // Its transcript is found here if the background lookup has not got to it yet
-          // (for a second at most: a slow herdr answers with what is known, and the next ask has the rest)
-          // An unknown pane costs a fresh herdr lookup too; the client bounds its discovery retries.
-          if (claudeAgents.sessionOf(paneId) === null) {
-            await within(1000, (async () => {
-              await claudeAgents.ensure(await paneGet(paneId));
-            })());
-          }
-          const claude = claudeAgents.sessionOf(paneId);
-          return jsonResponse({ tasks: claude === null ? [] : claudeSubagents(claude.path, claude.live, Date.now(), claude.startedAt), runs: [], server_time });
-        }
-        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });
-      }
+      const tasksResponse = await handleTasksRequest(request, url, pathname, { omo, claudeAgents });
+      if (tasksResponse) return tasksResponse;
 
       if (pathname === "/api/pane/plan") {
         setRequestRoute(pathname);
