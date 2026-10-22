@@ -42,8 +42,8 @@ const isExecutableFile = (path: string): boolean => {
   } catch { return false; }
 };
 
-const LOGIN_PATH_START = "__HERDR_WEB_LOGIN_PATH__";
-const LOGIN_PATH_END = "__HERDR_WEB_LOGIN_PATH_END__";
+const LOGIN_PATH_START = "__OVIS_LOGIN_PATH__";
+const LOGIN_PATH_END = "__OVIS_LOGIN_PATH_END__";
 /** The fixed text the login shell runs: no request's kind or argument is ever part of it. printenv prints PATH joined by `:` in fish too. */
 const LOGIN_PATH_SCRIPT = `printf '\\n%s\\n' ${LOGIN_PATH_START}; printenv PATH; printf '%s\\n' ${LOGIN_PATH_END}`;
 

@@ -134,7 +134,7 @@ try {
       const errors: string[] = [];
       try {
         await context.addInitScript((c) => {
-          localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: c.language, theme: c.theme }));
+          localStorage.setItem("ovis:settings", JSON.stringify({ language: c.language, theme: c.theme }));
           Object.assign(window, { agentsCase: c });
         }, agentsCase);
         const page = await context.newPage();

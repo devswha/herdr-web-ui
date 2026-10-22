@@ -127,10 +127,10 @@ function written(file: string, timeoutMs = 5000): Promise<string> {
 }
 
 it("reads the login PATH between its markers, whatever the profile prints around them", () => {
-  expect(parseLoginPath("motd\n__HERDR_WEB_LOGIN_PATH__\n/a:/b\n__HERDR_WEB_LOGIN_PATH_END__\nbye\n")).toBe("/a:/b");
+  expect(parseLoginPath("motd\n__OVIS_LOGIN_PATH__\n/a:/b\n__OVIS_LOGIN_PATH_END__\nbye\n")).toBe("/a:/b");
   expect(parseLoginPath("/a:/b\n")).toBeNull();
-  expect(parseLoginPath("__HERDR_WEB_LOGIN_PATH__\n/a\nno end\n")).toBeNull();
-  expect(parseLoginPath("__HERDR_WEB_LOGIN_PATH__\n\n__HERDR_WEB_LOGIN_PATH_END__\n")).toBeNull();
+  expect(parseLoginPath("__OVIS_LOGIN_PATH__\n/a\nno end\n")).toBeNull();
+  expect(parseLoginPath("__OVIS_LOGIN_PATH__\n\n__OVIS_LOGIN_PATH_END__\n")).toBeNull();
 });
 
 it("service miss resolves the same executable for offer and start", async () => {
@@ -233,7 +233,7 @@ it("hung or oversized login probe is killed and reaped", async () => {
   expect(await running(Number(await written(join(mixed.home, "shell.pid"))))).toBe(false);
 
   // a chatty profile under the limit is fine; a shell that is not there or fails says nothing
-  const chatty = fixture("echo 'PATH=/not/this'; echo __HERDR_WEB_LOGIN_PATH_END__");
+  const chatty = fixture("echo 'PATH=/not/this'; echo __OVIS_LOGIN_PATH_END__");
   expect(await loginPathProbe({ shell: chatty.shell, env: chatty.env })(new AbortController().signal)).toBe(`${chatty.loginBin}:/usr/bin:/bin`);
   expect(await loginPathProbe({ shell: join(chatty.root, "no-such-shell"), env: chatty.env })(new AbortController().signal)).toBeNull();
   const failing = fixture("exit 3");
