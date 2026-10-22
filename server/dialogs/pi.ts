@@ -112,10 +112,12 @@ function parsePiModel(screen: string): ParsedPrompt | null {
   });
 }
 
+export const PI_THINKING_HINT_LINES = 6;
+
 /** Thinking uses the model selector's footer, but only visibly offered level rows are choices. */
 function parsePiThinking(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (_, index) => PI_MODEL_HINT_RE.test(wrapped(lines, index)));
+  const hintIndex = findLastIndex(lines, (_, index) => PI_MODEL_HINT_RE.test(wrapped(lines, index, PI_THINKING_HINT_LINES)));
   if (hintIndex < 0) return null;
   const headingIndex = findLastIndex(lines.slice(0, hintIndex), (line) => cleanLine(line) === "Thinking Level");
   if (headingIndex < 0) return null;

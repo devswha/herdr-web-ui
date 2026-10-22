@@ -3091,7 +3091,7 @@ const PI_THINKING_HINT = "Enter to select · Ctrl+S to set as default · Escape/
 function piThinking(at = 1, narrow = false, levels = ["off", "medium", "max"], query = ""): string {
   return ["Thinking Level", "", "Shift+Tab cycles thinking levels in-session", "", `> ${query}`, "",
     ...levels.map((level, index) => `${index === at ? "→" : " "} ${level === "medium" ? "✓" : " "} ${level}${narrow ? "" : `    ${level === "max" ? "Maximum reasoning · default" : "Reasoning description"}`}`), "",
-    narrow ? "Enter to select · Ctrl+S to\nset as default ·\nEscape/Ctrl+C to cancel" : PI_THINKING_HINT,
+    narrow ? "  Enter to\nselect ·\nCtrl+S to set\nas default ·\nEscape/Ctrl+C\nto cancel" : PI_THINKING_HINT,
     "────────────────────────────", "/tmp/fictional", "0.0%/215k (auto)",
   ].join("\n");
 }
@@ -3122,6 +3122,7 @@ describe("pi's thinking selector", () => {
       piThinking(0, true, []), piThinking(0, true, ["unknown"]), screen.replace("Thinking Level", "Models"),
       screen.replace("> ", "search: "), screen.replace(PI_THINKING_HINT, "Enter to select"),
       screen.replace("→ ✓ medium", "  ✓ medium"), screen + "\nAnswer output\nMore output\n> next message",
+      piThinking(1, true) + "\nAnswer output\nMore output\n> next message",
       screen.replace("    max", "    unknown"),
     ]) expect(parseInteractivePrompt("pi", drawn)).toBeNull();
   });
