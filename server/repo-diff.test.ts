@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -343,10 +343,22 @@ describe("bounds", () => {
     writeFileSync(join(onPath, "false"), `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
     chmodSync(join(onPath, "false"), 0o755);
     rmSync(marker, { force: true });
-    await withEnvironment("PATH", `${onPath}${delimiter}${process.env["PATH"] ?? ""}`, async () => {
-      expect((await repoDiffFiles(hooked, query())).files.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
-      for (const path of ["a.txt", "b.txt"]) expect((await repoDiffFile(hooked, query({ path }))).patch).toStartWith(`diff --git a/${path} b/${path}\n`);
-    });
+    const spawn = spyOn(Bun, "spawn");
+    try {
+      await withEnvironment("PATH", `${onPath}${delimiter}${process.env["PATH"] ?? ""}`, async () => {
+        expect((await repoDiffFiles(hooked, query())).files.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
+        for (const path of ["a.txt", "b.txt"]) expect((await repoDiffFile(hooked, query({ path }))).patch).toStartWith(`diff --git a/${path} b/${path}\n`);
+      });
+      // the stand-in above only runs on git before 2.36, so the value itself is checked on any git
+      const argvs = (spawn.mock.calls as unknown as [string[]][]).map(([argv]) => argv).filter((argv) => argv[0] === "git");
+      expect(argvs.length).toBeGreaterThan(0);
+      for (const argv of argvs) {
+        expect(argv[argv.indexOf("core.fsmonitor=") - 1]).toBe("-c");
+        expect(argv).not.toContain("core.fsmonitor=false");
+      }
+    } finally {
+      spawn.mockRestore();
+    }
     expect(existsSync(marker)).toBeFalse();
   });
 
@@ -361,9 +373,10 @@ describe("bounds", () => {
     // that repository has no commit to compare with, and its info/exclude would leave b.txt out
     mkdirSync(join(foreign, ".git", "info"), { recursive: true });
     writeFileSync(join(foreign, ".git", "info", "exclude"), "b.txt\n");
+    const head = git(own, "rev-parse", "HEAD").trim();
     await withEnvironment("GIT_COMMON_DIR", join(foreign, ".git"), async () => {
       const list = await repoDiffFiles(own, query());
-      expect(list.repository.head).toBe(git(own, "rev-parse", "HEAD").trim());
+      expect(list.repository.head).toBe(head);
       expect(list.files.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
       expect((await repoDiffFile(own, query({ path: "a.txt" }))).patch).toContain("\n+two\n");
     });
