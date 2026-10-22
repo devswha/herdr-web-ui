@@ -100,10 +100,16 @@ it("names a launch directory only for an absolute cwd, never resolved against th
 it("tells omp's own package installs from an omp session", () => {
   expect(isOmpHelper(["/home/u/.bun/bin/omp", "add", "--cwd", "/home/u/.omp/cache/eval-js/environments/e1", "--ignore-scripts", "lodash"])).toBe(true);
   expect(isOmpHelper(["/home/u/.bun/bin/omp", "install", "--cwd", "/home/u/.omp/runtimes/tts", "--production"])).toBe(true);
+  // its workers, from the compiled binary or from its script under an interpreter
+  expect(isOmpHelper(["/home/u/.bun/bin/omp", "__omp_worker_tts"])).toBe(true);
+  expect(isOmpHelper(["bun", "/opt/omp/dist/omp.js", "__omp_worker_stt"])).toBe(true);
   // a message that starts with the word, or another program's install, is no helper
   expect(isOmpHelper(["omp", "add", "tests"])).toBe(false);
   expect(isOmpHelper(["omp", "--cwd", "/a", "add"])).toBe(false);
   expect(isOmpHelper(["bun", "add", "--cwd", "/a"])).toBe(false);
+  // a worker's name after an option is a session's message
+  expect(isOmpHelper(["omp", "--cwd", "/a", "__omp_worker_tts"])).toBe(false);
+  expect(isOmpHelper(["bun", "__omp_worker_tts"])).toBe(false);
 });
 
 it("reads omp's breadcrumb, whose transcript starts with a title record before the header", () => {
@@ -326,6 +332,7 @@ describe("an omp pane's chat", () => {
     const helpers = [
       { pid: install.pid, name: "omp", argv: [binary, "add", "--cwd", env, "--ignore-scripts", "lodash"] },
       { pid: install.pid, name: "omp", argv: [binary, "install", "--cwd", runtime, "--production"] },
+      { pid: install.pid, name: "omp", argv: [binary, "__omp_worker_tts"] },
     ];
     // a plain omp in the pane's directory
     const plain = await standIn([], [storeTranscript(pane.cwd!)]);
@@ -341,6 +348,40 @@ describe("an omp pane's chat", () => {
       processes = [helper, { pid: launched.pid, name: "omp", argv: launched.argv }];
       expect(await chat()).toEqual(synthetic);
     }
+  });
+
+  it.skipIf(process.platform !== "linux")("on WSL a helper whose argv only procfs has leaves the chat as it was", async () => {
+    const binary = join(home, "bin", "omp");
+    const env = join(home, ".omp/cache/eval-js/environments/e1");
+    mkdirSync(env, { recursive: true });
+    const install = await standIn([], [], { cwd: env });
+    const target = join(home, "B");
+    mkdirSync(target);
+    const launched = await standIn(["--cwd", target], [storeTranscript(target)], { moveTo: target });
+    let helperArgv: string[] = [];
+    const wsl = spyOn(ompProbe, "isWsl").mockReturnValue(true);
+    const probe = spyOn(ompProbe, "ompProcessMemory").mockImplementation(async (pid: number) =>
+      ({ argv: pid === install.pid ? helperArgv : launched.argv, environ: [] }));
+    restores.push(() => wsl.mockRestore(), () => probe.mockRestore());
+    for (const argv of [[binary, "add", "--cwd", env, "--ignore-scripts", "lodash"], [binary, "__omp_worker_tts"]]) {
+      helperArgv = argv;
+      // herdr leaves out the argv of a process it takes for an agent, so the helper is read back
+      processes = [{ pid: install.pid, name: "omp" }, { pid: launched.pid, name: "omp", argv: launched.argv }];
+      probe.mockClear();
+      expect(await chat()).toEqual(synthetic);
+      expect(probe).toHaveBeenCalledWith(install.pid, true);
+    }
+  });
+
+  it.skipIf(process.platform !== "linux")("two sessions in herdr's directory show no chat, even with one under the --cwd", async () => {
+    const target = join(home, "B");
+    mkdirSync(target);
+    const held = [storeTranscript(pane.cwd!), storeTranscript(pane.cwd!, "2026-10-02_s2.jsonl"), storeTranscript(target)];
+    const omp = await standIn(["--cwd", target], held, { moveTo: target });
+    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
+    expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBeNull();
+    forgetTranscriptState();
+    await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
   });
 
   it("reads the transcript herdr names in an `omp --profile` store", async () => {

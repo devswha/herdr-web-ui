@@ -17,12 +17,18 @@ export function isOmpProcess(argv: readonly string[]): boolean {
 }
 
 /**
- * One of omp's own helpers: the compiled binary runs itself as bun to install packages
+ * One of omp's own helpers, started in the foreground process group of the omp that started it
+ * and holding no session: a worker (`omp __omp_worker_<name>`, such as the speech ones, which are
+ * not detached), or the compiled binary running itself as bun to install packages
  * (`omp add --cwd <env> ...` for its eval tool, `omp install --cwd <runtime> ...` for its side
- * runtimes) in the foreground process group of the omp that started it. It holds no session.
+ * runtimes).
  */
 export function isOmpHelper(argv: readonly string[]): boolean {
-  return OMP_EXECUTABLE.test(argv[0] ?? "") && (argv[1] === "add" || argv[1] === "install") && argv[2] === "--cwd";
+  if (!isOmpProcess(argv)) return false;
+  const compiled = OMP_EXECUTABLE.test(argv[0] ?? "");
+  // omp sends a first word naming a worker to that worker, never to a session
+  if ((argv[compiled ? 1 : 2] ?? "").startsWith("__omp_worker_")) return true;
+  return compiled && (argv[1] === "add" || argv[1] === "install") && argv[2] === "--cwd";
 }
 
 /**
