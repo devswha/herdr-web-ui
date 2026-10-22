@@ -177,17 +177,32 @@ export function isolate(base: Record<string, string | undefined>, kept: string |
 
 /**
  * Stops every herdr server the run's sessions directory holds, trying each one even after another
- * failed, and throws what failed. A session without its socket has no server left: herdr removes
- * the socket when its server stops, and answers a stop for it with an error.
+ * failed, and throws what failed. A crash or SIGKILL can leave a stale socket behind: after a
+ * failed stop, only a missing socket or a refused connection proves the session stopped.
  */
-export function stopSessions(
+export async function stopSessions(
   sessions: string,
   stop: (session: string) => { error?: Error; status: number | null; signal: NodeJS.Signals | null; stderr?: string | null },
-): void {
+  probe: (socket: string) => Promise<void> = (socket) => new Promise((resolve, reject) => {
+    const client = connect(socket);
+    client.once("connect", () => { client.destroy(); resolve(); });
+    client.once("error", reject);
+    client.setTimeout(2_000, () => client.destroy(new Error("session socket probe timed out")));
+  }),
+): Promise<void> {
   const failed: string[] = [];
   for (const session of existsSync(sessions) ? readdirSync(sessions).sort() : []) {
-    if (!existsSync(join(sessions, session, "herdr.sock"))) continue;
+    const socket = join(sessions, session, "herdr.sock");
+    if (!existsSync(socket)) continue;
     const result = stop(session);
+    if (!result.error && !result.signal && result.status === 0) continue;
+    try { await probe(socket); }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ECONNREFUSED" || code === "ENOENT") continue;
+      failed.push(`${session} (stop failed and socket state is unproven: ${errorText(error)})`);
+      continue;
+    }
     const said = result.stderr?.trim().replace(/\s+/g, " ").slice(0, 200);
     if (result.error) failed.push(`${session} (${result.error.message})`);
     else if (result.signal) failed.push(`${session} (herdr server stop was terminated by ${result.signal})`);
@@ -204,10 +219,10 @@ export interface Teardown { failures: string[]; retained: string | null }
  * fails. The directory is removed only when nothing failed, `earlier` (process groups that would
  * not end) included; otherwise it is kept, and named, so what was left behind can be looked at.
  */
-export function teardown(stops: readonly (() => void)[], isolation: Pick<Isolation, "dir" | "remove"> | null, earlier: readonly string[] = []): Teardown {
+export async function teardown(stops: readonly (() => void | Promise<void>)[], isolation: Pick<Isolation, "dir" | "remove"> | null, earlier: readonly string[] = []): Promise<Teardown> {
   const failures: string[] = [];
   for (const stop of stops) {
-    try { stop(); } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    try { await stop(); } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
   }
   if (!isolation) return { failures, retained: null };
   if (earlier.length > 0 || failures.length > 0) return { failures, retained: isolation.dir };
@@ -419,7 +434,10 @@ export function describeHolders(holders: readonly SlotHolder[]): string {
     : `port ${holder.port}: pid ${holder.heldBy}${holder.checkout ? ` in ${holder.checkout}` : ""}`).join("; ");
 }
 
-export async function main(groupSeams: GroupSeams = {}): Promise<void> {
+export async function main(groupSeams: GroupSeams & {
+  probeSession?: (socket: string) => Promise<void>;
+  scheduleDrainTimeout?: (expire: () => void, ms: number) => () => void;
+} = {}): Promise<void> {
   let todo: ReturnType<typeof plan>;
   const args = process.argv.slice(2);
   try { todo = plan(args); } catch (error) { console.error((error as Error).message); process.exit(2); }
@@ -436,7 +454,7 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
   const reports = process.env["CHECK_REPORT"] || process.env["CHECK_DIR"] ? [paths.reportPath] : [];
   // Teardown: herdr sessions to stop, then the isolated state to remove. What fails here (a process
   // group that would not end included) fails the run and keeps the state for diagnosis.
-  const stops: (() => void)[] = [];
+  const stops: (() => void | Promise<void>)[] = [];
   let isolated: Isolation | null = null;
   const teardownFailures: string[] = [];
   let retained: string | null = null;
@@ -445,18 +463,16 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
     teardownFailures.push(message);
     console.error(`check: ${message}`);
   };
-  let cleaned = false;
-  const cleanup = (): void => {
-    if (cleaned) return;
-    cleaned = true;
-    const result = teardown(stops, isolated, teardownFailures);
+  let cleaning: Promise<void> | null = null;
+  const cleanup = (): Promise<void> => cleaning ??= (async () => {
+    const result = await teardown(stops, isolated, teardownFailures);
     for (const failure of result.failures) console.error(`check: teardown failed: ${failure}`);
     teardownFailures.push(...result.failures);
     if (result.retained) {
       retained = result.retained;
       console.error(`check: teardown failed; kept ${result.retained} for diagnosis`);
     }
-  };
+  })();
   if (needsHerdr || resources.length > 0 || reports.length > 0) {
     try {
       let slots: number;
@@ -580,7 +596,7 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
   try { persistReport(paths.reportPath, report, logDirectory); }
   catch (error) {
     console.error(`check: could not create report ${paths.reportPath}: ${(error as Error).message}`);
-    cleanup();
+    await cleanup();
     process.exit(1);
   }
   console.log(`check: report ${paths.reportPath}`);
@@ -608,6 +624,19 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
   // outlive it (a command that exits while something it started runs on, with or without the
   // output pipes): what is left is ended when the step ends, and again before the teardown.
   const owned = new Set<number>();
+  const endingGroups = new Map<number, Promise<GroupOutcome>>();
+  const endTracked = (group: number, signal: NodeJS.Signals): Promise<GroupOutcome> => {
+    const pending = endingGroups.get(group);
+    if (pending) return pending;
+    const result = endGroup(group, signal, groupSeams).then((outcome) => {
+      owned.delete(group);
+      endingGroups.delete(group);
+      if (outcome.result !== "gone") groupFailed(outcome);
+      return outcome;
+    });
+    endingGroups.set(group, result);
+    return result;
+  };
   /** Ends what is left in an owned group; true when processes were left in it. */
   const endOwned = async (group: number): Promise<boolean> => {
     if (!owned.has(group)) return false;
@@ -617,9 +646,8 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
       try { (groupSeams.kill ?? process.kill)(-group, 0); left = true; }
       catch (error) { left = (error as NodeJS.ErrnoException).code !== "ESRCH"; }
       if (left) {
-        const outcome = await endGroup(group, "SIGTERM", groupSeams);
-        if (outcome.result !== "gone") groupFailed(outcome);
-        else console.error(`check: ended processes left running in step process group ${group}`);
+        const outcome = await endTracked(group, "SIGTERM");
+        if (outcome.result === "gone") console.error(`check: ended processes left running in step process group ${group}`);
       }
     }
     owned.delete(group);
@@ -704,31 +732,38 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
           // The step runs in a process group of its own, and a lane starts processes of its own
           // in it: the whole group gets the signal, and has ended before the herdr and the
           // directory it uses are taken away.
-          const outcomes = await Promise.all([...owned].map((group) => endGroup(group, signal, groupSeams)));
+          const outcomes = await Promise.all([...owned].map((group) => endTracked(group, signal)));
           const stuck = outcomes.filter((outcome) => outcome.result !== "gone");
-          for (const outcome of stuck) groupFailed(outcome);
           // A step whose group ended settles at once. One that could not be stopped may never
           // settle: its failure is recorded, and the run ends without it, keeping its state.
           if (stuck.length === 0) {
             // Even a gone group can leave output held outside it. Never wait indefinitely for
             // step/log completion after interruption; keep evidence if draining cannot finish.
-            let timer: ReturnType<typeof setTimeout> | undefined;
+            let cancelTimeout: (() => void) | undefined;
             try {
               await Promise.race([
                 Promise.all([activeStepFinished, concurrentUnitFinished]),
                 new Promise<never>((_, reject) => {
-                  timer = setTimeout(() => reject(new Error("interrupted step output did not finish draining")), OUTPUT_DRAIN_GRACE_MS + END_GRACE_MS + KILL_GRACE_MS);
+                  const expire = () => reject(new Error("interrupted step output did not finish draining"));
+                  if (groupSeams.scheduleDrainTimeout) {
+                    cancelTimeout = groupSeams.scheduleDrainTimeout(expire, OUTPUT_DRAIN_GRACE_MS + END_GRACE_MS + KILL_GRACE_MS);
+                  } else {
+                    const timer = setTimeout(expire, OUTPUT_DRAIN_GRACE_MS + END_GRACE_MS + KILL_GRACE_MS);
+                    cancelTimeout = () => clearTimeout(timer);
+                  }
                 }),
               ]);
             } finally {
-              clearTimeout(timer);
+              cancelTimeout?.();
             }
           }
         } catch (error) {
-          teardownFailures.push(`could not end the interrupted steps: ${(error as Error).message}`);
+          const failure = `could not end the interrupted steps: ${(error as Error).message}`;
+          teardownFailures.push(failure);
+          console.error(`check: ${failure}`);
         } finally {
           // interrupted keeps its own code; a teardown failure is in the report beside it
-          cleanup();
+          await cleanup();
           finalize("interrupted", signal === "SIGINT" ? 130 : 143);
           process.exit(signal === "SIGINT" ? 130 : 143);
         }
@@ -939,7 +974,7 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
       const shardCount = /^\d+$/.test(shards) ? Number(shards) : Number.NaN;
       report.toolchain.herdrTestShards = Number.isSafeInteger(shardCount) ? shardCount : null;
       saveReport();
-      stops.push(() => stopSessions(isolation.sessions, (session) => spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: ["ignore", "ignore", "pipe"], encoding: "utf8", timeout: 10_000 })));
+      stops.push(() => stopSessions(isolation.sessions, (session) => spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: ["ignore", "ignore", "pipe"], encoding: "utf8", timeout: 10_000 }), groupSeams.probeSession));
       console.log(`\ncheck: herdr session ${env["HERDR_TEST_SESSION"]}, config and state in ${isolation.dir}`);
       console.log("check: running unit tests, integration and browser in parallel");
 
@@ -1012,7 +1047,7 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
       report.toolchain.herdrTestShards = Number.isSafeInteger(shardCount) ? shardCount : null;
       saveReport();
       // every session in the run's own config directory is the run's: the browser scripts leave theirs running
-      stops.push(() => stopSessions(isolation.sessions, (session) => spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: ["ignore", "ignore", "pipe"], encoding: "utf8", timeout: 10_000 })));
+      stops.push(() => stopSessions(isolation.sessions, (session) => spawnSync(herdr, ["--session", session, "server", "stop"], { env, stdio: ["ignore", "ignore", "pipe"], encoding: "utf8", timeout: 10_000 }), groupSeams.probeSession));
       console.log(`\ncheck: herdr session ${env["HERDR_TEST_SESSION"]}, config and state in ${isolation.dir}`);
       if (todo.command) {
         if (todo.build) code = await build(env);
@@ -1037,7 +1072,7 @@ export async function main(groupSeams: GroupSeams = {}): Promise<void> {
         try { await endOwned(group); }
         catch (error) { teardownFailures.push(`could not end step process group ${group}: ${(error as Error).message}`); }
       }
-      cleanup();
+      await cleanup();
     }
   }
   if (ending) return;
