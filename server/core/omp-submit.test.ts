@@ -85,12 +85,23 @@ const startedNow = async (): Promise<number> => {
     }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   fresh = child;
-  const reader = child.stdout.getReader();
-  const ready = await reader.read();
-  reader.releaseLock();
-  expect(new TextDecoder().decode(ready.value)).toBe("READY\n");
+  expect(await firstLine(child.stdout)).toBe("READY\n");
   return child.pid;
 };
+/** The first line a fixture prints: stdout can arrive in more than one chunk, so read up to the newline. */
+async function firstLine(stdout: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stdout.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (!text.includes("\n")) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`the fixture's stdout ended before a full line: ${JSON.stringify(text)}`);
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally { reader.releaseLock(); }
+  return text;
+}
 async function until(what: string, done: () => boolean): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (!done()) {
