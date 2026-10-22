@@ -852,15 +852,27 @@ export async function fetchMachines(signal?: AbortSignal): Promise<Machine[]> {
 /**
  * GET /api/machines?verify_source_boot: the roster, and the boot id of the server behind `machineId`
  * proved during this very request (shared/protocol.ts). Null when the server proves nothing: a
- * refusal, or an older server that ignored the query. Bounded, and ended by `signal`.
+ * refusal, or an older server that ignored the query. Bounded to 20 s, and ended by `signal`.
  */
 export async function verifySourceBoot(machineId: string, signal: AbortSignal): Promise<{ machines: Machine[]; boot_id: string } | null> {
   const path = `/api/machines?verify_source_boot=${encodeURIComponent(machineId)}`;
-  const response = await fetch(path, { signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]), cache: "no-store" });
-  if (!response.ok) return null;
-  const body = (await response.json()) as MachineRoster;
-  const proof = body.verified_source_boot;
-  return proof?.machine_id === machineId && typeof proof.boot_id === "string" && proof.boot_id !== "" ? { machines: body.machines, boot_id: proof.boot_id } : null;
+  // joined by hand: AbortSignal.any needs Safari 17.4, and without this check a PC's order never
+  // leaves an old epoch after its server restarts
+  const bounded = new AbortController();
+  const end = () => bounded.abort();
+  const timer = setTimeout(end, 20_000);
+  if (signal.aborted) end();
+  else signal.addEventListener("abort", end, { once: true });
+  try {
+    const response = await fetch(path, { signal: bounded.signal, cache: "no-store" });
+    if (!response.ok) return null;
+    const body = (await response.json()) as MachineRoster;
+    const proof = body.verified_source_boot;
+    return proof?.machine_id === machineId && typeof proof.boot_id === "string" && proof.boot_id !== "" ? { machines: body.machines, boot_id: proof.boot_id } : null;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", end);
+  }
 }
 export async function machineRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(`/api/machines${path}`, { method, headers: { "content-type": "application/json", "x-herdr-machine": "1" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
