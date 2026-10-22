@@ -371,14 +371,19 @@ try {
       await mode("Light");
       assert.equal((await nextPut(e)).status(), 500);
       await alert.waitFor();
-      await e.page.evaluate(() => {
-        Reflect.set(window, "__preferencesStreamLost", new Promise<void>((resolve) => window.addEventListener("preferences-test-stream-lost", () => resolve(), { once: true })));
-      });
-      const port = server.port;
-      server.stop();
-      const deadline = Promise.withResolvers<never>();
-      const lostTimer = setTimeout(() => deadline.reject(new Error("the event stream never reported its loss")), 120_000);
-      try { await Promise.race([e.page.evaluate(() => Reflect.get(window, "__preferencesStreamLost") as Promise<void>), deadline.promise]); } finally { clearTimeout(lostTimer); }
+      /** the server goes away, until the page's own EventSource reports the loss; its port, to serve again */
+      const loseStream = async (): Promise<number> => {
+        await e.page.evaluate(() => {
+          Reflect.set(window, "__preferencesStreamLost", new Promise<void>((resolve) => window.addEventListener("preferences-test-stream-lost", () => resolve(), { once: true })));
+        });
+        const port = server.port;
+        server.stop();
+        const deadline = Promise.withResolvers<never>();
+        const lostTimer = setTimeout(() => deadline.reject(new Error("the event stream never reported its loss")), 120_000);
+        try { await Promise.race([e.page.evaluate(() => Reflect.get(window, "__preferencesStreamLost") as Promise<void>), deadline.promise]); } finally { clearTimeout(lostTimer); }
+        return port;
+      };
+      const port = await loseStream();
       const atDisconnect = e.puts.length;
       await quiet();
       assert.equal(e.puts.length, atDisconnect, "a lost event stream cancels the wait for the next save");
@@ -397,6 +402,42 @@ try {
       const lost = { scenario: "disconnected-while-refused", putsBeforeDisconnect: atDisconnect - putsAtStart, putsWhileDisconnected: 0, putsAfterReopen: e.puts.length - atDisconnect, server: (await held()).settings["theme"], secondClient: "light", mostPutsAtOnce: mostAtOnce };
       if (qaDir) writeFileSync(join(qaDir, "disconnected-while-refused.json"), JSON.stringify(lost, null, 2));
       console.log(`PASS disconnected-while-refused ${JSON.stringify(lost)}`);
+
+      // retry-during-automatic-send: Retry pressed while the automatic retry is on its way is used up
+      // when that save confirms everything; an edit made once the stream is lost then waits for its reopening
+      const putsFirst = e.puts.length;
+      failing = true;
+      await mode("Dark");
+      assert.equal((await nextPut(e)).status(), 500);
+      await alert.waitFor();
+      failing = false;
+      onWay = Promise.withResolvers<void>();
+      hold = Promise.withResolvers<void>();
+      await e.page.clock.runFor(5_600);
+      await onWay.promise;
+      assert.equal(e.puts.length, putsFirst + 2);
+      await retry.click();
+      const confirmedAnswer = e.page.waitForResponse(isPut);
+      hold.resolve();
+      hold = null;
+      assert.equal((await confirmedAnswer).status(), 200);
+      await alert.waitFor({ state: "detached" });
+      const portAgain = await loseStream();
+      const atLoss = e.puts.length;
+      await mode("Light");
+      await quiet();
+      assert.equal(e.puts.length, atLoss, "a Retry already answered authorizes no later send while the stream is lost");
+      const reopenedAgain = [e.page, f.page].map((page) => page.waitForResponse((response) => response.url().endsWith("/api/machines/events"), { timeout: 120_000 }));
+      server = serve(portAgain);
+      await Promise.all(reopenedAgain);
+      assert.equal((await nextPut(e)).status(), 200);
+      await settingsHold(f.page, { theme: "light" });
+      await quiet();
+      assert.equal(e.puts.length, atLoss + 1, "the reopened stream sends the edit once");
+      assert.equal(mostAtOnce, 1);
+      const used = { scenario: "retry-during-automatic-send", putsBeforeRetryAnswer: atLoss - putsFirst, putsWhileDisconnected: 0, putsAfterReopen: e.puts.length - atLoss, server: (await held()).settings["theme"], secondClient: "light", mostPutsAtOnce: mostAtOnce };
+      if (qaDir) writeFileSync(join(qaDir, "retry-during-automatic-send.json"), JSON.stringify(used, null, 2));
+      console.log(`PASS retry-during-automatic-send ${JSON.stringify(used)}`);
       for (const opened of [e, f]) await opened.context.close();
     } finally {
       await workspaceClose(pinnedWorkspace).catch((error) => { if (error?.code !== "workspace_not_found") throw error; });

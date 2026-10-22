@@ -578,6 +578,60 @@ describe("preferences sync real send path", () => {
     expect(store.get().settings).toMatchObject({ darkTheme: "tokyo-night", lightTheme: "catppuccin" });
   });
 
+  it("a Retry pressed while a save is on its way lets nothing go on its own once that save confirms everything", async () => {
+    const client = await open();
+    refuse = unwritable();
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await send();
+    expect(client.saveError).not.toBeNull();
+    // the automatic retry is on its way when the user presses Retry
+    const gate = Promise.withResolvers<void>();
+    releaseAnswer = () => gate.promise;
+    await act(async () => { jest.advanceTimersByTime(5_000); });
+    await windows();
+    expect(bodies.length).toBe(2);
+    await act(async () => { client.retry(); });
+    expect(client.retrying).toBe(true);
+    const answered = nextAnswer();
+    await act(async () => { gate.resolve(); await answered; });
+    releaseAnswer = undefined;
+    expect([client.saveError, client.retrying]).toEqual([null, false]);
+
+    // that answer confirmed everything: the Retry is used up, so an edit made once the stream is lost stays here
+    await act(async () => { client.disconnected(); });
+    await act(async () => { client.update({ darkTheme: "gruvbox" }); });
+    await longWait();
+    expect(bodies.length).toBe(2);
+    expect(client.settings.darkTheme).toBe("gruvbox");
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
+    await send();
+    expect([bodies.length, store.get().settings.darkTheme]).toEqual([3, "gruvbox"]);
+  });
+
+  it("a Retry pressed while a save is on its way that is then refused sends once, at once, even with the stream lost", async () => {
+    const client = await open();
+    refuse = unwritable();
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await send();
+    const gate = heldRefusal();
+    await act(async () => { jest.advanceTimersByTime(5_000); });
+    await windows();
+    expect(bodies.length).toBe(2);
+    await act(async () => { client.disconnected(); client.retry(); });
+    await act(async () => { gate.resolve(); });
+    await act(async () => {});
+    // the Retry still owes its own send: it goes in the next send window, not after a wait
+    expect([refusals, client.retrying]).toEqual([2, true]);
+    expect(retryWaits()).toEqual([]);
+    await send();
+    expect([refusals, client.retrying]).toEqual([3, false]);
+    expect(retryWaits()).toEqual([]);
+    // and then it is used up: a later edit stays here while the stream is lost
+    await act(async () => { client.update({ lightTheme: "catppuccin" }); });
+    await longWait();
+    expect([bodies.length, client.paused]).toEqual([3, false]);
+  });
+
   it("a refusal that arrives while the event stream is down sets no wait, and goes when it reopens", async () => {
     const client = await open();
     const gate = heldRefusal();

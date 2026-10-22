@@ -155,7 +155,8 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   // the event stream is lost: the server is likely unreachable, so nothing is sent until it reopens
   const [streamLost, setStreamLost] = useState(false);
   const streamLostRef = useRef(false);
-  // the user's Retry goes once even while the stream is lost; the send it starts clears this
+  // the user's Retry goes once even while the stream is lost; the send it starts clears this, and so
+  // does an answer that leaves nothing unsent (a Retry pressed while a save was on its way)
   const userRetry = useRef(false);
   // the baseline is a ref: a document that changes nothing here still moves what is pending
   const [, setTaken] = useState(0);
@@ -202,6 +203,7 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   /** sending stopped for good (a watching device, a server without the route): nothing is unconfirmed */
   const standDown = useCallback(() => {
     failures.current = 0;
+    userRetry.current = false;
     setSaveError(null);
     setPaused(false);
     setRetrying(false);
@@ -264,7 +266,10 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
         failures.current = 0;
         setRetrying(false);
         // the status stays while a change made during the send is unconfirmed; it goes out now
-        if (preferencesChange(base.current, latest.current) === null) setSaveError(null);
+        if (preferencesChange(base.current, latest.current) === null) {
+          userRetry.current = false;
+          setSaveError(null);
+        }
         setAttempt((count) => count + 1);
       }).catch((error: unknown) => {
         settled();
@@ -281,8 +286,11 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
           // the same refusal every RETRY_MS is one state, not a render each time
           const next = userErrorMessage(error);
           setSaveError((before) => before !== null && before.message === next.message && before.detail === next.detail ? before : next);
-          setRetrying(false);
           failures.current += 1;
+          // a Retry pressed while this save was on its way still owes its own send: it goes now, not after the wait
+          if (userRetry.current && failures.current < PAUSE_AFTER) { setAttempt((count) => count + 1); return; }
+          userRetry.current = false;
+          setRetrying(false);
           if (failures.current >= PAUSE_AFTER) setPaused(true);
           else if (live.current && !streamLostRef.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
         }
