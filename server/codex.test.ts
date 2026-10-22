@@ -421,7 +421,8 @@ describe("Codex rollout resolution", () => {
     expect(interactive({ id: thread }, `rollout-2026-10-20T09-00-00-${thread}_${other}.jsonl`)).toBe(true);
     expect(interactive({ id: other }, `rollout-2026-10-20T09-00-00-${thread}_${other}.jsonl`)).toBe(false);
     // malformed identities and headers
-    for (const payload of [{ id: 1 }, { id: "" }, { id: "not-a-thread" }, { id: [thread] }, { session_id: { id: thread } }, [], "header", null, undefined]) {
+    for (const payload of [{ id: 1 }, { id: "" }, { id: "not-a-thread" }, { id: [thread] }, { session_id: { id: thread } },
+      { id: null }, { id: null, session_id: thread }, { id: thread, session_id: null }, [], "header", null, undefined]) {
       expect([payload, interactive(payload)]).toEqual([payload, false]);
     }
     // a name without a UUID has nothing to contradict, but the ids still must agree
@@ -475,6 +476,15 @@ describe("Codex rollout resolution", () => {
     expect(codexRolloutPath(path, home)).toBeNull();
     write(256 * 1024, false);
     expect(codexRolloutPath(path, home)).toBeNull();
+    // byte boundaries: whole JSON that fills the read is not proof its line ends there
+    const line = `${JSON.stringify({ type: "session_meta", payload: { id: thread, source: "cli" } })}`;
+    const exact = (body: string) => { writeFileSync(path, body); return codexRolloutPath(path, home); };
+    expect(exact(`${line.padEnd(256 * 1024 - 1, " ")}\n{"type":"event_msg"}\n`)).toBe(path);
+    expect(exact(`${line.padEnd(256 * 1024, " ")}\n{"type":"event_msg"}\n`)).toBeNull();
+    expect(exact(`${line.padEnd(256 * 1024 + 1, " ")}\n`)).toBeNull();
+    expect(exact(`${line.padEnd(256 * 1024, " ")}{"parent_thread_id":"${thread}"}\n`)).toBeNull();
+    // a file that is only its header, without a newline, ends within the read
+    expect(exact(line.padEnd(256 * 1024 - 1, " "))).toBe(path);
   });
 
   it("reads the Windows paths Codex stores with the \\\\?\\ prefix as the plain ones herdr reports (#518)", () => {

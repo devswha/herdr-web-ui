@@ -202,6 +202,23 @@ describe("listSessions", () => {
     expect(listSessions("codex", CWD, { home, env: {} })).toEqual([]);
   });
 
+  it("refuses an explicit null identity in live and history alike", () => {
+    const home = newHome();
+    const day = join(home, ".codex", "sessions", "2026", "10", "20");
+    mkdirSync(day, { recursive: true });
+    const thread = "01a0d000-0000-7000-8000-0000000000dd";
+    const path = join(day, `rollout-2026-10-20T09-00-00-${thread}.jsonl`);
+    const base = { id: thread, session_id: thread, cwd: CWD, source: "cli", thread_source: "user" };
+    const eligible = (payload: unknown) => {
+      writeFileSync(path, `${JSON.stringify({ type: "session_meta", payload })}\n`);
+      return [codexRolloutPath(path, join(home, ".codex")) !== null, listSessions("codex", CWD, { home, env: {} }).map((row) => row.resume?.argv)];
+    };
+    expect(eligible(base)).toEqual([true, [["codex", "resume", thread]]]);
+    // a null id or session_id is present and not a thread: neither path takes it
+    expect(eligible({ ...base, session_id: null })).toEqual([false, []]);
+    expect(eligible({ ...base, id: null })).toEqual([false, []]);
+  });
+
   it("lists a genuine fork apart from any child, as a thread of its own", () => {
     const home = newHome();
     const day = join(home, ".codex", "sessions", "2026", "10", "20");

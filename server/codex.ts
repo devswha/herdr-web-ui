@@ -432,15 +432,17 @@ export async function paneCodexHome(paneId: string, configured?: string): Promis
 
 /**
  * A rollout's first line, parsed, when it is a session_meta; null when the file is not a rollout.
- * Throws when that line is not JSON, a line longer than the read included: what it holds past
- * the read cannot be checked.
+ * Throws when that line is not JSON, or when it does not end within the read (no newline in a
+ * full read): what it holds past the read cannot be checked, even when the part read parses.
  */
 function rolloutMetaLine(path: string): RecordValue | null {
   const fd = openSync(path, "r");
   try {
     const buffer = Buffer.alloc(256 * 1024);
     const length = readSync(fd, buffer, 0, buffer.length, 0);
-    const header = record(JSON.parse(buffer.subarray(0, length).toString("utf8").split("\n")[0]!));
+    const end = buffer.subarray(0, length).indexOf(0x0a);
+    if (end === -1 && length === buffer.length) throw new Error("rollout header longer than the read");
+    const header = record(JSON.parse(buffer.subarray(0, end === -1 ? length : end).toString("utf8")));
     return header.type === "session_meta" ? header : null;
   } finally { closeSync(fd); }
 }
@@ -466,7 +468,7 @@ const ROLLOUT_NAME = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f]{8}-
  * when its own id matches its file.
  *
  * `id` and `session_id` (the root session, which is the thread itself unless it is a child,
- * openai/codex#29327), when present, must be strings that name the same thread, and with a
+ * openai/codex#29327), when present (null included), must be strings that name the same thread, and with a
  * canonical file name that file's UUID, in any letter case. This proves the file is the thread it
  * says, not that a self-consistent child is a parent. A name without a UUID, or a header without
  * ids, has nothing to contradict.
@@ -478,7 +480,8 @@ export function interactiveCodexRollout(payload: unknown, fileName: string): boo
   if (present(meta.source) && meta.source !== "cli" && meta.source !== "vscode") return false;
   if (present(meta.thread_source) && meta.thread_source !== "user") return false;
   if (present(meta.parent_thread_id) || present(meta.agent_role)) return false;
-  const ids = [meta.id, meta.session_id].filter(present);
+  // a child marker may be null; an identity that is there must name a thread
+  const ids = [meta.id, meta.session_id].filter((id) => id !== undefined);
   if (ids.some((id) => typeof id !== "string")) return false;
   const key = (id: string) => UUID.test(id) ? id.toLowerCase() : id;
   const named = ROLLOUT_NAME.exec(fileName)?.[1]?.toLowerCase();
