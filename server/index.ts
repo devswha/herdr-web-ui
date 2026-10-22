@@ -225,7 +225,7 @@ export function createServer(
     terminalAttach?: boolean | (() => Promise<boolean>);
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer, or a probe to run in place of that one. */
     sidecar?: boolean | (() => boolean);
-    /** where omo and gjc are found for the offer and the start (server/shell-agent.ts); unset, this server's PATH alone. The real entrypoint adds its user's login shell; tests pass a fixture one. */
+    /** where omo and gjc are found for the offer and the start (server/shell-agent.ts); unset, this server's PATH alone. The real entrypoints (this file's and remote-entry.ts) add their user's login shell; tests pass a fixture one. */
     shellAgents?: ShellAgentLocator;
   } = {},
 ): ServerInstance {
