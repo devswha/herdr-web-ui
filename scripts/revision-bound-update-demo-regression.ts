@@ -322,6 +322,31 @@ async function behaviour(browser: Browser, url: string): Promise<Record<string, 
     receipts["old_supervisor"] = { capability: false, header: RESTART, settings_install_disabled: true, posts: fixture.posts.length - posted };
     console.log("PASS under an older supervisor no install is sent, and both places ask for a restart");
 
+    // failure, then recovery: the tab last read a server that installs by revision, which then
+    // restarted under an older supervisor. Its Update is refused for want of the capability, and
+    // the line asks for a restart. Once the server reports the capability again (restarted under a
+    // supervisor that has it), the refusal is over and the offer installs from here again
+    fixture.status = offer();
+    fixture.notes = notesFor(A, "9.9.9");
+    await page.goto(url);
+    await line.getByText("Ovis v9.9.9 is available.", { exact: true }).waitFor();
+    fixture.held.set("tab-1", offer());
+    fixture.status = offer(A, "9.9.9", { revision_bound_install: undefined });
+    sent = fixture.next("/api/updates/install");
+    await line.getByRole("button", { name: "Update", exact: true }).click();
+    const unbound = await sent;
+    assert.deepEqual([unbound.tab, unbound.body, unbound.status, unbound.code], ["tab-1", { expected_revision: A }, 409, "update_restart_required"], "the server without the capability refuses the install");
+    fixture.held.delete("tab-1");
+    await line.getByText(RESTART, { exact: true }).waitFor();
+    fixture.status = offer();
+    await line.getByText(RESTART, { exact: true }).waitFor({ state: "detached" });
+    sent = fixture.next("/api/updates/install");
+    await line.getByRole("button", { name: "Try again", exact: true }).click();
+    const recovered = await sent;
+    assert.deepEqual([recovered.tab, recovered.body, recovered.status], ["tab-1", { expected_revision: A }, 202], "the restarted server installs the offer by its revision");
+    receipts["restart_recovered"] = { refused: unbound.code, after_restart: { body: recovered.body, status: recovered.status } };
+    console.log("PASS a refusal for want of the capability ends once the server reports it again");
+
     // observe-only: a watching device sees the offer, and its press changes nothing on the server
     fixture.status = offer();
     fixture.notes = notesFor(A, "9.9.9");

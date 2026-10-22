@@ -164,11 +164,12 @@ export function offeredRevision(status: UpdateStatus | null): string | null {
  * Why an install cannot go ahead from here, where the controls tell it in their own words:
  * `offer-changed` when another release came on offer than the one asked for (the request's own
  * refusal, or the install's check after it was accepted), `restart` when an update is on offer
- * that this server cannot install by its revision.
+ * that this server cannot install by its revision. A refusal for want of that capability ends
+ * once the status reports it again: a restart under a supervisor that installs by revision.
  */
 export function updateFailure(requestCode: string | null, status: UpdateStatus | null): "offer-changed" | "restart" | null {
   if (requestCode === "update_offer_changed" || (status?.phase === "error" && status.error_code === "update_offer_changed")) return "offer-changed";
-  if (requestCode === "update_restart_required") return "restart";
+  if (requestCode === "update_restart_required" && status?.revision_bound_install !== true) return "restart";
   if (status?.managed && status.available && !status.blocked_reason && status.latest_revision && status.revision_bound_install !== true) return "restart";
   return null;
 }
