@@ -35,10 +35,10 @@ preview address. Cloudflare serves `404.html` for a missing page and `/privacy` 
 ## Keep in step with the app
 
 - The privacy policy states what the app keeps (the saved PC addresses and each PC's sign-in
-  cookie), that the camera only reads the pairing QR code, and what herdr web UI's anonymous usage
+  cookie), that the camera only reads the pairing QR code, and what the Ovis server's anonymous usage
   counts hold (docs/guide.md, "Anonymous usage counts"). Change it, and its date, in both
   languages when any of those changes, before the release that changes them.
-- The support page names app labels (**Scan QR code**, **Forget**, **Change PC**) and web UI
+- The support page names app labels (**Scan QR code**, **Forget**, **Change PC**) and Ovis server
   settings (**Settings → Phone & devices**, **Settings → About**); keep them matching the app.
 - The screenshots in `assets/demo/` come from the demo build (`bun scripts/demo-build.ts <dir>`),
   never from a real session: English, light and dark theme, desktop at 1440×900 and phone at
