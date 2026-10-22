@@ -76,11 +76,10 @@ const pluginCommands = [
 
 const pluginTerminalCommands = ["tasks", "dag", "btw"] as const;
 
-// The second line holds the Senpi screens that wait for a key: the share selector, the trust selector and the
-// "Replace current session?" confirmation of /import <path> (modes/interactive/interactive-mode.js 8090, 6916, 8040).
+// The second line holds the Senpi selectors that wait for a key: share and trust (modes/interactive/interactive-mode.js 8090, 6916).
 const terminalCommands = [
   "settings", "tree", "thinking", "scoped-models", "favorite-models", "login", "logout", "fork", "resume", "sessions",
-  "share", "trust", "import",
+  "share", "trust",
 ] as const;
 
 const terminalForm = [{ match: "bare", interaction: "terminal" }] as const;
@@ -171,7 +170,9 @@ export const source: AgentCommandSource = {
     "scoped-models": [...terminalForm], "favorite-models": [...terminalForm],
     login: [...terminalForm], logout: [...terminalForm], fork: [...terminalForm],
     resume: [...terminalForm], sessions: [...terminalForm],
-    share: [...terminalForm], trust: [...terminalForm], import: [...terminalForm],
+    share: [...terminalForm], trust: [...terminalForm],
+    // bare /import prints its usage; /import <path> asks "Replace current session with …?" (interactive-mode.js 8034-8040)
+    import: [{ match: "bare", interaction: "unknown" }, { match: "other", interaction: "terminal" }],
     // bare opens an inline "Rename session" text input; given a name it is stored in the session (interactive-mode.js 8173-8194)
     rename: [...terminalForm, { match: "other", interaction: "none" }], name: [...terminalForm, { match: "other", interaction: "none" }],
   },
