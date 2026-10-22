@@ -7,9 +7,9 @@ import { FrameGate, inputRowState, readScreen, readsInputRow, type InputRowState
 import { matchHerdrWidths } from "./terminalWidths.ts";
 import { SCREEN_AUTO_RETURN, watchReturn } from "./terminalPeek.ts";
 
-// Recorded screens and frames (server/fixtures/input-rows/README.md), fed through the real xterm
+// Recorded screens and frames (src/lib/fixtures-input-rows/README.md; kept out of server/ so remote bundles do not carry them), fed through the real xterm
 // buffer: the adapter (readScreen) is the one the pane uses.
-const FIXTURES = join(import.meta.dir, "../../server/fixtures/input-rows");
+const FIXTURES = join(import.meta.dir, "fixtures-input-rows");
 const CLAUDE = join(import.meta.dir, "../../server/fixtures");
 
 const parse = (term: Terminal, data: string): Promise<void> => new Promise((resolve) => term.write(data, resolve));
