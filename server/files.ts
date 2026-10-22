@@ -36,14 +36,15 @@ function gitEnvironment(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     // a repository the server itself was started inside (a hook, a test runner) is not the one asked about
-    if (value === undefined || name === "GIT_DIR" || name === "GIT_WORK_TREE" || name === "GIT_INDEX_FILE" || name === "GIT_EXTERNAL_DIFF" || name === "GIT_PAGER") continue;
+    if (value === undefined || name === "GIT_DIR" || name === "GIT_WORK_TREE" || name === "GIT_INDEX_FILE" || name === "GIT_COMMON_DIR" || name === "GIT_EXTERNAL_DIFF" || name === "GIT_PAGER") continue;
     env[name] = value;
   }
   return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" };
 }
 
 function gitListArgv(cwd: string): string[] {
-  return [gitList.git, "--no-pager", "--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", cwd, "ls-files", "-z", "-co", "--exclude-standard"];
+  // an empty core.fsmonitor turns the hook off in every git: before 2.36, `false` names a program to run
+  return [gitList.git, "--no-pager", "--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor=", "-C", cwd, "ls-files", "-z", "-co", "--exclude-standard"];
 }
 
 /** Split only a listing read whole: one whose last name lacks its NUL was cut short, so none of it is used. */

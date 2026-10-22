@@ -1,17 +1,21 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
 import { clearFileCache, filesNamed, GIT_LIST_DEADLINE_MS, GIT_LIST_MAX_BYTES, paneFiles, setGitListOptions } from "./files.ts";
 
 const roots: string[] = [];
-const inheritedGitDir = process.env["GIT_DIR"];
+/** what a test may set for the code under test to read; each is put back as it was */
+const SET_BY_TESTS = ["GIT_DIR", "GIT_COMMON_DIR", "PATH"] as const;
+const inherited = SET_BY_TESTS.map((name) => [name, process.env[name]] as const);
 afterEach(() => {
   clearFileCache();
   setGitListOptions();
-  if (inheritedGitDir === undefined) delete process.env["GIT_DIR"];
-  else process.env["GIT_DIR"] = inheritedGitDir;
+  for (const [name, value] of inherited) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -199,7 +203,7 @@ function heldGit() {
   };
 }
 
-const INERT_ARGV = ["--no-pager", "--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor=false"];
+const INERT_ARGV = ["--no-pager", "--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor="];
 
 describe("git inventories", () => {
   it("isolates both Git inventories from inherited repository variables", async () => {
@@ -229,6 +233,30 @@ describe("git inventories", () => {
     expect(listed).not.toContain("foreign-only.txt");
     expect(foreignNamed).toEqual([]);
     expect(api).toEqual(["src/api.ts"]);
+  });
+
+  it("keeps an inherited common directory's excludes and config out of both inventories", async () => {
+    const root = fixture();
+    gitRepository(root);
+    // deeper than the walk goes, so only git's own listing can find it
+    const buried = "deep/1/2/3/4/5/6/buried.txt";
+    mkdirSync(join(root, buried, ".."), { recursive: true });
+    writeFileSync(join(root, buried), "deep");
+    const foreign = mkdtempSync(join(tmpdir(), "files-foreign-"));
+    roots.push(foreign);
+    expect(Bun.spawnSync(["git", "init", "-q", foreign]).exitCode).toBe(0);
+    // that repository would leave out src/api.ts by its info/exclude, and buried.txt by its configured excludes file
+    mkdirSync(join(foreign, ".git", "info"), { recursive: true });
+    writeFileSync(join(foreign, ".git", "info", "exclude"), "src/api.ts\n");
+    writeFileSync(join(foreign, "excludes"), "buried.txt\n");
+    expect(Bun.spawnSync(["git", "-C", foreign, "config", "core.excludesFile", join(foreign, "excludes")]).exitCode).toBe(0);
+
+    process.env["GIT_COMMON_DIR"] = join(foreign, ".git");
+    const listed = await paneFiles(root, "", 100);
+    expect(listed).toContain("src/api.ts");
+    expect(listed).toContain(buried);
+    expect(listed).not.toContain("README.md");
+    expect(filesNamed(root, "buried.txt")).toEqual([buried]);
   });
 
   it("hands both subprocess APIs the inert argv, environment, cap and deadline", async () => {
@@ -264,12 +292,19 @@ describe("git inventories", () => {
     const hook = fakeGit((folder) => `touch "${folder}/ran"\nexit 1`);
     expect(Bun.spawnSync(["git", "-C", root, "config", "core.fsmonitor", hook.git]).exitCode).toBe(0);
     const config = readFileSync(join(root, ".git", "config"), "utf8");
+    // git before 2.36 reads core.fsmonitor=false as a hook named `false`, found on PATH
+    const onPath = mkdtempSync(join(tmpdir(), "files-path-"));
+    roots.push(onPath);
+    writeFileSync(join(onPath, "false"), `#!/bin/sh\ntouch "${onPath}/ran"\nexit 1\n`);
+    chmodSync(join(onPath, "false"), 0o755);
+    process.env["PATH"] = `${onPath}${delimiter}${process.env["PATH"] ?? ""}`;
 
     const files = await paneFiles(root, "", 100);
     expect(files).toContain("src/components/PromptCard.tsx");
     expect(files).not.toContain("README.md");
     expect(filesNamed(root, "PromptCard.tsx")).toEqual(["src/components/PromptCard.tsx"]);
     expect(existsSync(join(hook.folder, "ran"))).toBe(false);
+    expect(existsSync(join(onPath, "ran"))).toBe(false);
     expect(readFileSync(join(root, ".git", "config"), "utf8")).toBe(config);
   });
 
