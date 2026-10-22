@@ -9,7 +9,7 @@ import { CompletionTracker } from "./completion.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 import { bridgeAgentNews, MachineManager, SOURCE_CHECK_INTERVAL_MS } from "./machines.ts";
 import type { PushService } from "./push.ts";
-import { RemoteResponseTooLarge } from "./remote-json.ts";
+import { REMOTE_LIMITS, RemoteResponseTooLarge } from "./remote-json.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { while (cleanups.length) cleanups.pop()!(); });
@@ -638,12 +638,12 @@ describe("a bridge's agent news (#555)", () => {
 const paired = (epoch: string, seq: number, agent_status = "working"): SessionSnapshot => ({ ...snapshot(agent_status), order_epoch: epoch, read_seq: seq });
 /** /api/health answers the test releases, counted as they start */
 function gatedHealth() {
-  const calls: { request: Request; answer(boot: string | null, status?: number): void }[] = [];
+  const calls: { request: Request; answer(boot: string | null, status?: number): void; reply(response: Response): void }[] = [];
   let started = 0;
   let woken: (() => void) | null = null;
   const handler = (request: Request) => new Promise<Response>((resolve) => {
     started++;
-    calls.push({ request, answer: (boot, status = 200) => resolve(Response.json({ ok: true, web_ui: { boot_id: boot, revision: null } }, { status })) });
+    calls.push({ request, answer: (boot, status = 200) => resolve(Response.json({ ok: true, web_ui: { boot_id: boot, revision: null } }, { status })), reply: resolve });
     woken?.();
   });
   const next = async () => {
@@ -818,6 +818,32 @@ describe("workspace order evidence through the manager", () => {
     expect(await check).toBeNull();
     expect(remoteOf(manager)).toMatchObject({ source_boot_id: "R1", snapshot: { order_epoch: "R1", read_seq: 2 } });
     expect(pairs).not.toContain("R2:0");
+  });
+
+  it("a health answer past its ceiling proves nothing, and one at it proves the epoch", async () => {
+    let clock = 0;
+    const { manager, runtime, send, setHealth } = await remoteFixture({ now: () => clock });
+    const health = gatedHealth();
+    setHealth(health.handler);
+    /** a health answer naming `boot`, padded with whitespace to exactly `total` bytes and sent without a length */
+    const sized = (boot: string, total: number) => {
+      const json = JSON.stringify({ ok: true, web_ui: { boot_id: boot, revision: null } });
+      return new Response(new Blob([`{${" ".repeat(total - json.length)}${json.slice(1)}`]).stream());
+    };
+    const pairs = remotePairs(manager);
+    send({ type: "snapshot", snapshot: paired("R", 0) });
+    const over = await health.next();
+    const check = (runtime as unknown as { verification?: { promise: Promise<string | null> } }).verification!.promise;
+    over.reply(sized("R", REMOTE_LIMITS.health + 1));
+    expect(await check).toBeNull();
+    expect(remoteOf(manager)?.source_boot_id).toBeUndefined();
+    expect(pairs).toEqual([]);
+    // the next roster asks again once the interval allows it, and an answer exactly at the ceiling is read
+    clock = SOURCE_CHECK_INTERVAL_MS;
+    const proved = published(manager, (machines) => machines.some((machine) => machine.id === "remote" && machine.source_boot_id === "R" && machine.snapshot?.order_epoch === "R"));
+    send({ type: "snapshot", snapshot: paired("R", 0) });
+    (await health.next()).reply(sized("R", REMOTE_LIMITS.health));
+    await proved;
   });
 
   it("a validation superseded in the same generation publishes nothing", async () => {

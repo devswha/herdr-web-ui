@@ -12,6 +12,8 @@ export const REMOTE_LIMITS = {
   bridgeIdentity: 64 * KiB,
   /** a bridge's error answer, read only for its code */
   bridgeError: 8 * KiB,
+  /** GET /api/health: read for the boot id of the server that answers */
+  health: 64 * KiB,
   /** the release's bundle manifest */
   bundleManifest: MiB,
   /** GET /api/session: a whole session snapshot */

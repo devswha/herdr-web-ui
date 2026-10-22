@@ -919,8 +919,8 @@ export class MachineManager {
     call.promise = (async () => {
       try {
         const response = await fetch(`${endpoint.url}/api/health`, { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15_000)]) });
-        if (!current() || !response.ok) return null;
-        const boot = ((await response.json()) as { web_ui?: { boot_id?: unknown } } | null)?.web_ui?.boot_id;
+        if (!current() || !response.ok) { await discard(response); return null; }
+        const boot = (await readCappedJson<{ web_ui?: { boot_id?: unknown } } | null>(response, REMOTE_LIMITS.health))?.web_ui?.boot_id;
         if (!current() || typeof boot !== "string" || boot === "") return null;
         this.proved(runtime, boot);
         return boot;
