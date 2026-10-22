@@ -75,12 +75,23 @@ folder and home, so its rows are never native and never verified.
 ## The terminal group
 
 Some commands only make sense in the terminal: pickers the chat has no reader for, pagers, or
-reports the agent never writes to its transcript. Rows with `visibility: "terminal"`, or with a
+reports the agent never writes to its transcript. The rule for a row: a typed form that leaves a
+screen waiting for a key (a picker, panel, form, confirmation, prompt or editor) that no reader
+turns into a card is `terminal`. The form decides, so Claude Code's bare `/fast` is a terminal
+command while `/fast off` is an ordinary send. A command that prints and returns to the agent's
+input stays an ordinary send, even when what it printed reaches only the screen. Check a new
+row by sending it in an isolated session of the pinned version, and read the command's own
+definition instead when it signs in, buys, uploads or installs: Claude Code's `/ide` installs
+the editor extension on the PC, and agy updates its own binary when it starts. Rows with
+`visibility: "terminal"`, or with a
 bare form whose interaction is `terminal`, are listed apart in the composer under Terminal
-commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one, or typing it and pressing
-send, keeps the draft and offers two actions: **Open Terminal**, which only switches the lens, and
-**Run in Terminal**, which sends it through the usual path and then switches. Chat never sends a
-terminal command on its own.
+commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one inserts it like any other
+completion. Send/Enter sends it through the usual path and, once accepted, opens this browser's
+Terminal lens. A dismissible command hint offers **Back to Chat**, restoring the reader's place;
+it stays until dismissed or the lens is left, without a timer. Busy commands wait in the existing
+queue: only an explicit **Send now** switches views, never automatic delivery. A refusal or
+unconfirmed send keeps the draft and note. View-only devices never send or switch, and no action
+moves herdr's focus. `/resume` keeps opening **Earlier sessions…**.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any
@@ -92,8 +103,10 @@ other command. No other row a source finds is ever hidden.
 the text by the same per-agent syntax the composer uses
 ([`shared/skill-syntax.ts`](../shared/skill-syntax.ts)). Recording an outcome never delays the
 send: delivery comes first and tracking catches up. The pane's outcomes ride on
-`GET /api/pane/prompt` as `outcomes`, and the chat shows each one as a chip under its bubble
-([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)).
+`GET /api/pane/prompt` as `outcomes`. Ordinary commands show a chip under their bubble
+([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)). Terminal-only commands instead show one
+quiet **Ran in terminal** row with **Open Terminal**, without chips or unconfirmed previews.
+Recognized Hermes informational result cards remain available.
 
 | State | Means | Set by |
 | --- | --- | --- |
@@ -138,15 +151,15 @@ move it, how it commits, and when it gives up to the terminal. Running a plan al
 screen again before the committing key and refuses when the prompt changed; `rereadMoves`, set
 for `each-move` readers and for list readers, adds a check after each move as well.
 
-Readers that show results in Chat today include Claude Code's `/goal` status card and its
-`/rewind` steps, Hermes's informational results, and the steps of omp's `/handoff` that can be
+Readers that show results in Chat today include Claude Code's `/goal` status card,
+Hermes's informational results, and the steps of omp's `/handoff` that can be
 answered from a card. A step that needs an editor or native editing ends as `terminal-required`
 and keeps the draft.
 
-Rewinding from a message is Claude Code only: `POST /api/pane/rewind` walks its `/rewind` list
-key by key, each key sent once the screen shows the one before it worked, and the chat follows
-the restored conversation. Grok and agy keep their own rewind in the terminal, because nothing
-reads their input box and a draft there could join the command.
+A message with Claude Code, grok or Antigravity offers **Rewind in terminal**. It opens the
+pane's terminal with a hint to run the agent's own `/rewind`, sends nothing and keeps drafts.
+Rewind dialogs are answered only in the terminal. Chat follows the native transcript's active
+branch when the agent records it; Claude Code records that branch on the next prompt or command.
 
 ## Earlier sessions
 
@@ -229,5 +242,5 @@ There is no single place for a new agent. These files each need it:
 These are tracked as issues rather than built: sending a command through an agent's own API, a
 link between a Codex pane and its thread, opt-in companions that would let an agent report its
 own runtime commands, probes that are certified free of side effects, versions for the nine
-agents whose stores do not record one, translations of card labels the server writes, rewind
-for more agents, and skill activity rows for Grok, agy and Devin.
+agents whose stores do not record one, translations of card labels the server writes,
+and skill activity rows for Grok, agy and Devin.

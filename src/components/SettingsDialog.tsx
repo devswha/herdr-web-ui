@@ -340,6 +340,8 @@ function ChatPage() {
   const { settings, update } = useSettings();
   const t = useT();
   const touch = useMediaQuery("(pointer: coarse)");
+  // the same query Composer.tsx hides the New tab button by
+  const compactComposer = useMediaQuery("(max-width: 640px), (pointer: coarse)");
   return (
     <>
       <SettingsGroup>
@@ -372,6 +374,12 @@ function ChatPage() {
         <SettingsRow label={t("Send queued messages automatically")} description={t("A message sent while the agent works goes by itself when the turn ends. When off, it waits until you press Send now.")}>
           <Toggle label={t("Send queued messages automatically")} checked={settings.autoSendQueued} onChange={(autoSendQueued) => update({ autoSendQueued })} />
         </SettingsRow>
+        {/* the button is drawn in a wide, mouse-driven window only (Composer.tsx), so it is offered only there */}
+        {!compactComposer && (
+          <SettingsRow label={t("New tab button")} description={t("A button in the message box opens New tab with an agent… on the pane's workspace. The tab menu offers it either way.")}>
+            <Toggle label={t("New tab button")} checked={settings.composerNewTabButton} onChange={(composerNewTabButton) => update({ composerNewTabButton })} />
+          </SettingsRow>
+        )}
         {touch && (
           <SettingsRow label={t("Suggestion chip")} description={t("A chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.")}>
             <Toggle label={t("Suggestion chip")} checked={settings.suggestionChip} onChange={(suggestionChip) => update({ suggestionChip })} />
