@@ -18,6 +18,12 @@ describe("isClaudeProcess", () => {
     // the native build as herdr reports it run from its lowercase `claude` launcher: the executable match
     expect(isClaudeProcess({ name: "2.1.306", argv0: "claude", argv: ["claude"] })).toBe(true);
   });
+
+  it("knows the native build typed as Claude on a case-insensitive Mac disk", () => {
+    // recorded on macOS 27 (case-insensitive APFS): `Claude` finds the ~/.local/bin/claude link, so
+    // herdr's name is the versioned binary behind it and argv0/argv[0] keep the typed `Claude`
+    expect(isClaudeProcess({ name: "2.1.999", argv0: "Claude", argv: ["Claude", "42"] })).toBe(true);
+  });
 });
 
 describe("claudeProcessSession", () => {
