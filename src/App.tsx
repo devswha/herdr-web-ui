@@ -1833,6 +1833,7 @@ export function App() {
                         view={item ? lensOf(item) : slotView}
                         // the composer's way to the terminal: the selected pane's lens, or the pane's own remembered one
                         onOpenTerminal={item ? () => { if (active && item.pane_id === selectedPaneId) setView("terminal"); else pickView(machineId, item.pane_id, "terminal"); } : undefined}
+                        onOpenChat={item ? () => { if (active && item.pane_id === selectedPaneId) setView("chat"); else pickView(machineId, item.pane_id, "chat"); } : undefined}
                         // /resume lists the pane's own agent's sessions, and only for an agent whose store is read
                         onOpenHistory={item && sessionHistoryAgent(item.agent) !== null ? () => actions.openSessionHistory({ machineId, workspaceId: item.workspace_id, agent: item.agent, scope: "pane" }) : undefined}
                         // the composer's new-agent button: the New tab dialog on this pane's workspace, as the tab menu opens it

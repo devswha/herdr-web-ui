@@ -17,6 +17,7 @@ import { HerdrProfileState, herdrMachineId } from "./herdr-profile-state.ts";
 import { sameSshSession, type HerdrMachineProfile } from "./herdr-profiles.ts";
 import { validateTarget } from "./machine-security.ts";
 import { detectHost, HERDR_INSTALL_CMD } from "./remote-host.ts";
+import { discard, readCappedJson, REMOTE_LIMITS } from "./remote-json.ts";
 import { SshConnection } from "./ssh.ts";
 
 interface StoredMachine { id: string; name: string; target: SshTarget; enabled: boolean; snapshot?: SessionSnapshot | null }
@@ -688,8 +689,8 @@ export class MachineManager {
     await ssh.forward(port, descriptor.port);
     const endpoint = { url: `http://127.0.0.1:${port}`, token: descriptor.token };
     const response = await fetch(`${endpoint.url}/api/bridge`, { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(verificationFailure(response.status, await response.json().catch(() => null)));
-    const identity: BridgeIdentity = await response.json();
+    if (!response.ok) throw new Error(verificationFailure(response.status, await readCappedJson(response, REMOTE_LIMITS.bridgeError).catch(() => null)));
+    const identity = await readCappedJson<BridgeIdentity>(response, REMOTE_LIMITS.bridgeIdentity);
     // An approved replacement only reads this stable identity endpoint. It never uses the
     // old bridge's pane protocol; the new bridge must pass the strict version check below.
     if (!forReplacement && (identity.bridge_protocol !== BRIDGE_PROTOCOL || identity.bundle_version !== REMOTE_BUNDLE_VERSION)) {
@@ -723,8 +724,8 @@ export class MachineManager {
         const revision = runtime.snapshotRevision;
         try {
           const r = await fetch(endpoint.url + "/api/session", { headers: { authorization: `Bearer ${endpoint.token}` }, signal: AbortSignal.timeout(15_000) });
-          if (!r.ok) throw new Error(`Remote herdr unavailable (${r.status})`);
-          const { snapshot } = await r.json() as { snapshot: SessionSnapshot };
+          if (!r.ok) { await discard(r); throw new Error(`Remote herdr unavailable (${r.status})`); }
+          const { snapshot } = await readCappedJson<{ snapshot: SessionSnapshot }>(r, REMOTE_LIMITS.sessionSnapshot);
           if (generation !== runtime.generation || this.stopped) return;
           if (revision !== runtime.snapshotRevision) { runtime.refreshQueued = true; continue; }
           runtime.machine.snapshot = snapshot; runtime.machine.error = null;
