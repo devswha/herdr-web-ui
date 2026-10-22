@@ -102,7 +102,7 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   review stands in: its findings and how each was resolved go in a PR comment before the merge.
 - A move-only PR (files moved or split, imports updated, no behaviour change) does not wait for
   CodeRabbit: it merges on its checks once its diff shows only moved code and import paths
-  (`git diff --color-moved`). Every PR merged without a CodeRabbit review says so in a comment,
-  and any other PR merges on its checks and the maintainer.
+  (`git diff --color-moved origin/main...HEAD`). Every PR merged without a CodeRabbit review
+  says so in a comment, and any other PR merges on its checks and the maintainer.
 - Changelog entries go in `changelog.d/` fragments ([format](changelog.d/README.md)), not
   CHANGELOG.md; only a release folds them in.
