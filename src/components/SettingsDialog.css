@@ -159,10 +159,14 @@
   gap: var(--space-2) var(--space-3);
 }
 
+/* never narrower than its longest unbreakable phrase (the Korean copy joins its negative predicate
+   with no-break spaces), so a large text size moves Retry below the words instead of drawing them
+   under it; a phrase wider than the whole row still breaks (break-word, unlike anywhere, leaves
+   that minimum as it is) */
 .settings-save-local > p {
   flex: 1 1 12rem;
-  min-width: 0;
   margin: 0;
+  overflow-wrap: break-word;
   color: var(--text-dim);
   font-size: var(--fs-md);
 }
