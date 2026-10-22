@@ -825,11 +825,8 @@ describe("workspace order evidence through the manager", () => {
     const { manager, runtime, send, setHealth } = await remoteFixture({ now: () => clock });
     const health = gatedHealth();
     setHealth(health.handler);
-    /** a health answer naming `boot`, padded with whitespace to exactly `total` bytes and sent without a length */
-    const sized = (boot: string, total: number) => {
-      const json = JSON.stringify({ ok: true, web_ui: { boot_id: boot, revision: null } });
-      return new Response(new Blob([`{${" ".repeat(total - json.length)}${json.slice(1)}`]).stream());
-    };
+    /** a health answer naming `boot`, padded with whitespace to exactly `total` bytes and streamed without a length, so the bytes are counted */
+    const sized = (boot: string, total: number) => new Response(padded({ ok: true, web_ui: { boot_id: boot, revision: null } }, total).stream);
     const pairs = remotePairs(manager);
     send({ type: "snapshot", snapshot: paired("R", 0) });
     const over = await health.next();
