@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The two required workflows that run on pushes to main: each push gets its own concurrency group, so a
-// later merge never replaces (pending) or cancels (running) the run that says whether the earlier one broke main.
-const workflows = ["ci.yml", "windows-install.yml"];
+// ci.yml is the workflow that runs on pushes to main (windows-install.yml has no push trigger): each push gets
+// its own concurrency group, so a later merge never replaces the queued run that says whether the earlier one broke main.
+const workflows = ["ci.yml"];
 
 function concurrency(file: string): { group: string; cancel: string } {
   const text = readFileSync(join(import.meta.dir, "..", ".github", "workflows", file), "utf8");

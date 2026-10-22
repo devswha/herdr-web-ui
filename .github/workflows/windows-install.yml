@@ -28,8 +28,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # one group per main commit, as in ci.yml: no merge's run is replaced by the next push
-  group: windows-install-${{ github.event_name == 'push' && github.sha || github.ref }}
+  group: windows-install-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   install:
