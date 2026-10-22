@@ -46,8 +46,9 @@ try {
   const url = (pane: string): string => `http://127.0.0.1:${server.port}/herdr-web-ui/demo/app/?pane=${encodeURIComponent(pane)}`;
   mkdirSync(evidence, { recursive: true });
 
-  /** The chat lens over one pane: a pane switched away from keeps a hidden frame, so the owner tells them apart. */
-  const chatStack = (page: Page, pane: string): Locator => page.locator(`.terminal-stack.is-chat[data-pane-owner="${pane}"]`);
+  /** The chat lens over one pane: a pane switched away from keeps a hidden frame, so the owner tells them apart. A terminal command's peek shows the grid over it. */
+  const chatStack = (page: Page, pane: string): Locator => page.locator(`.terminal-stack.is-chat:not(.is-peek)[data-pane-owner="${pane}"]`);
+  const peekStack = (page: Page, pane: string): Locator => page.locator(`.terminal-stack.is-chat.is-peek[data-pane-owner="${pane}"]`);
   /** The pane's chat log, once the chat lens shows it; the sidebar's row names its pane first. */
   const chatOf = async (page: Page, pane: string): Promise<Locator> => {
     const row = page.locator(`.pane-select[title^="${pane} —"]`).first();
@@ -116,10 +117,11 @@ try {
           await page.screenshot({ path: shot("context-done"), animations: "disabled" });
           console.log(`PASS ${label}: /context shows accepted, then done on the transcript, on one bubble`);
 
-          // /btw is answered on the screen alone: one send opens Terminal, and returning leaves
-          // one quiet command row, without an outcome chip or an unconfirmed screen preview.
+          // /btw is answered on the screen alone: one send opens a peek of the terminal over the
+          // chat, and returning leaves one quiet command row, without an outcome chip or an
+          // unconfirmed screen preview.
           await send(page, "/btw is the retry test flaky on CI too?");
-          await chatStack(page, panes.flaky).waitFor({ state: "detached" });
+          await peekStack(page, panes.flaky).waitFor();
           await page.locator(".terminal-banner-command").waitFor();
           await page.screenshot({ path: shot("btw-terminal"), animations: "disabled" });
           await page.getByRole("button", { name: "Back to Chat", exact: true }).click();
@@ -134,16 +136,18 @@ try {
           await back.locator(".chat-bubble-body", { hasText: "and one more question for the transcript" }).waitFor();
           await back.locator(".chat-turn-agent").last().getByText("This is the demo, so nothing ran", { exact: false }).waitFor();
           assert.equal(await btw.locator(".chat-outcome, details").count(), 0, "later preview updates cannot restore outcome UI");
-          console.log(`PASS ${label}: /btw opens Terminal and keeps one quiet row without outcome UI`);
+          console.log(`PASS ${label}: /btw opens a peek and keeps one quiet row without outcome UI`);
 
           if (!(width <= 480)) {
             await btw.getByRole("button", { name: "Open Terminal", exact: true }).focus();
             await page.keyboard.press("Enter");
-            await chatStack(page, panes.flaky).waitFor({ state: "detached" });
-            assert.equal(await page.locator(".terminal-banner-command").count(), 0);
+            await peekStack(page, panes.flaky).waitFor();
+            await page.locator(".terminal-banner-command").getByText("/btw ran", { exact: true }).waitFor();
+            assert.equal(await page.locator(".terminal-banner-command").getByText("Chat may come back when you close it", { exact: true }).count(), 0, "a row's peek is ended by hand");
+            await page.getByRole("button", { name: "Back to Chat", exact: true }).click();
             const again = await chatOf(page, panes.flaky);
             assert.equal(await again.locator(".chat-terminal-command").count(), 1);
-            console.log(`PASS ${label}: the row's keyboard action opens Terminal without a new hint`);
+            console.log(`PASS ${label}: the row's keyboard action opens a peek that Back to Chat ends`);
           }
 
           // an inline $review to the Codex pane, once its approval card is answered, shows its chip

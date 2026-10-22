@@ -22,6 +22,8 @@ import { arrangeNotices, dismissNotice, NO_DISMISSALS, settleDismissed, type Dis
 import { hermesCtrlCTooSoon, stopKey } from "../lib/hermesStop.ts";
 import { type DraftRefusal, MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, agentDisplayLabel, composerDelivery, composerMessage, composerPayload, pendingActionUncertain, submitNote, submitNotTyped, submitRefusal, typedTerminalCommand } from "../lib/compose.ts";
 import { usePaneCommands } from "../lib/usePaneCommands.ts";
+import { autoReturnArmed, paneLensFlags, returnBlocked, type PeekRequest, type TerminalPeek } from "../lib/terminalPeek.ts";
+import { outcomeCommand } from "../lib/outcomeChip.ts";
 import { afterRead, afterSend, afterSettled, composerLift, greetingMemory, rememberGreeting, greetingFits, greetingFolder, roomOverComposer, showsGreeting, type ChatRead } from "../lib/greeting.ts";
 import { DETACHED, usePaneBranch } from "../lib/paneBranch.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
@@ -128,10 +130,14 @@ export interface PaneTerminalProps {
   machineName?: string;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
-  /** switches this pane to its terminal lens: where the chat's composer sends a terminal command on */
+  /** switches this pane to its terminal lens, and saves it (Keep Terminal, the rewind hint) */
   onOpenTerminal?: () => void;
-  /** returns from the command hint through the ordinary local lens switch */
-  onOpenChat?: () => void;
+  /** the terminal command's peek this pane shows (lib/terminalPeek.ts): its terminal over its chat */
+  peek?: TerminalPeek | null;
+  /** opens a peek over this pane's chat; none: this pane cannot show one (not the selected pane, no terminal) */
+  onPeek?: (request: PeekRequest) => void;
+  /** ends the peek named (the chat comes back); a peek replaced since is left alone */
+  onEndPeek?: (peek: TerminalPeek) => void;
   /** opens the folder's earlier sessions for the pane's agent (App's SessionHistory): the composer's /resume */
   onOpenHistory?: () => void;
   /** opens the New tab dialog on the pane's workspace (App's NewSessionDialog): the composer's new-agent button */
@@ -200,7 +206,9 @@ export function PaneTerminal({
   palette,
   role = "interact",
   onOpenTerminal,
-  onOpenChat,
+  peek: peekProp = null,
+  onPeek,
+  onEndPeek,
   onOpenHistory,
   onOpenNewSession,
   onRoleAck,
@@ -237,12 +245,26 @@ export function PaneTerminal({
   const { answerPanePrompt, uploadPaneImage } = useMachineApi();
   const uploadFileRef = useRef(uploadPaneImage);
   uploadFileRef.current = uploadPaneImage;
-  const chatView = view === "chat";
+  // the peek is this pane's only (App passes it to the selected pane alone; this guards a pane switch's render)
+  const peek = peekProp !== null && peekProp.paneId === paneId && peekProp.machineId === machineId ? peekProp : null;
+  const peekRef = useRef(peek); peekRef.current = peek;
+  // chatMounted: the chat, its composer, queue and prompt dock are there (the Chat lens, a peek
+  // included). chatView: the chat covers the grid; everything that sizes, focuses or types into the
+  // grid follows it, so a peek shows and drives the grid as the terminal lens does
+  const { chatMounted, gridCovered: chatView } = paneLensFlags(view, peek);
+  const chatMountedRef = useRef(chatMounted); chatMountedRef.current = chatMounted;
   const [findOpen, setFindOpen] = useState(false);
   const [terminal, setTerminal] = useState<Terminal | null>(null);
   const [searchState, setSearchState] = useState<TerminalSearchState | null>(null);
   const viewportIntent = useMemo(() => new ViewportIntentGate(), [machineId, paneId]);
   const viewportSearching = useSyncExternalStore(viewportIntent.subscribe, viewportIntent.isSearching, viewportIntent.isSearching);
+  // A find bar left open under the Terminal lens is not the peek's: the peek opens without it, or it
+  // would take the focus, the first Escape (the agent's) and a grid row. One opened in the peek stays.
+  const [findPeek, setFindPeek] = useState(peek);
+  if (findPeek !== peek) {
+    setFindPeek(peek);
+    if (peek !== null && findOpen) setFindOpen(false);
+  }
   const findOpenRef = useRef(findOpen);
   findOpenRef.current = findOpen;
   const lastFindRequest = useRef(findRequest);
@@ -301,6 +323,7 @@ export function PaneTerminal({
   const stalledRef = useRef(false);
   // the server answered terminal_unsupported (a bridge too old to mirror): the lens is a notice, the chat still works
   const [unsupported, setUnsupported] = useState(false);
+  const unsupportedRef = useRef(unsupported); unsupportedRef.current = unsupported;
   // another web bridge has this pane's terminal: the server waits for it and says attach-resumed
   const [held, setHeldState] = useState(false);
   // what the socket handlers read mid-stream: stdin, onData and the composer's submit
@@ -420,20 +443,35 @@ export function PaneTerminal({
   const [rewindHint, setRewindHint] = useState<string | null>(null);
   const rewindInTerminal = useCallback(() => { setRewindHint(paneId); onOpenTerminal?.(); }, [paneId, onOpenTerminal]);
   useEffect(() => { if (chatView) setRewindHint(null); }, [chatView]);
-  const [commandHint, setCommandHint] = useState<{ pane: string; command: string } | null>(null);
-  useEffect(() => { setCommandHint(null); }, [paneId]);
-  useEffect(() => { if (chatView || !presented) setCommandHint(null); }, [chatView, presented]);
-  // Only the explicit send's own receipt may switch this view. A pending snapshot/removal never
+  const onPeekRef = useRef(onPeek); onPeekRef.current = onPeek;
+  const onEndPeekRef = useRef(onEndPeek); onEndPeekRef.current = onEndPeek;
+  // The outcome ids this pane's chat last read (its prompt poll). A send notes them as it leaves, so
+  // its own outcome is the newest unread one with its text, whenever a later poll lists it
+  // (lib/terminalPeek.ts sentOutcome); a poll landing between the send and its receipt cannot hide it.
+  const knownOutcomesRef = useRef<{ pane: string; ids: readonly string[] } | null>(null);
+  const onChatOutcomes = useCallback((pane: string, ids: readonly string[]) => { knownOutcomesRef.current = { pane, ids }; }, []);
+  const knownOutcomes = (pane: string | null): readonly string[] | null => pane !== null && knownOutcomesRef.current?.pane === pane ? knownOutcomesRef.current.ids : null;
+  // Only the explicit send's own receipt may open a peek. A pending snapshot/removal never
   // does, and a receipt arriving after navigation cannot pull the reader back to its old pane.
   // read at the receipt, not at the send: a catalog that arrives in between still counts
   const commandsRef = useRef(commands);
   commandsRef.current = commands;
-  const showSentCommand = useCallback((pane: string, text: string) => {
+  const agentRef = useRef(agent); agentRef.current = agent;
+  const showSentCommand = useCallback((pane: string, text: string, known: readonly string[] | null) => {
     const command = typedTerminalCommand(commandsRef.current, text);
-    if (command === null || paneRef.current !== pane || !activeRef.current || !presentedRef.current
-      || !chatViewRef.current || observeRef.current) return;
-    setCommandHint({ pane, command: `${command.trigger ?? "/"}${command.name}` });
-    onOpenTerminal?.();
+    const open = onPeekRef.current;
+    if (command === null || open === undefined || paneRef.current !== pane || !activeRef.current || !presentedRef.current || !shownRef.current
+      || !chatMountedRef.current || observeRef.current || heldRef.current || endedRef.current || unsupportedRef.current) return;
+    // a phone's keyboard goes down with the message box it served; the grid fits once it has gone
+    if (coarseRef.current) stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.blur();
+    open({ command: `${command.trigger ?? "/"}${command.name}`, text, knownOutcomeIds: known, auto: known !== null && autoReturnArmed(agentRef.current, text, command.name) });
+  }, []);
+  // A chat row's or chip's Open Terminal: a peek the reader ends by hand. Without one (another
+  // pane's tile, a PC with no terminal) the terminal lens opens, as it did before.
+  const peekOutcome = useCallback((text: string) => {
+    const open = onPeekRef.current;
+    if (open === undefined || heldRef.current || unsupportedRef.current) { onOpenTerminal?.(); return; }
+    open({ command: outcomeCommand(text), text: null, knownOutcomeIds: null, auto: false });
   }, [onOpenTerminal]);
   const setDraft = useCallback((value: InputDraft | ((previous: InputDraft) => InputDraft)) => {
     const owner = paneRef.current ? paneStorageId(machineId, paneRef.current) : null;
@@ -460,6 +498,41 @@ export function PaneTerminal({
   // Explicit sends refresh immediately; continuous transcript invalidations are rate-limited.
   const [chatRefresh, setChatRefresh] = useState(0);
   const [chatInvalidation, setChatInvalidation] = useState(0);
+  // a peek whose screen closed while held input, the find bar or a composition (in the grid, or in
+  // the input line the return would unmount) was in the way: it is left to the reader, and the head
+  // stops saying the chat may come back
+  const [manualPeek, setManualPeek] = useState<TerminalPeek | null>(null);
+  const autoPeek = peek !== null && peek.auto && manualPeek !== peek ? peek : null;
+  const onCommandScreenClosed = useCallback((closed: TerminalPeek) => {
+    if (peekRef.current !== closed) return;
+    const pane = paneRef.current;
+    if (returnBlocked({ heldDraft: pane !== null && draftHeldForRef.current === pane, findOpen: findOpenRef.current,
+      composing: composingRef.current || compositionCommitPendingRef.current || lineComposingRef.current })) { setManualPeek(closed); return; }
+    onEndPeekRef.current?.(closed);
+  }, []);
+  // The agent ended or the tab was put away: the chat is back for when it shows again.
+  useEffect(() => { if (peek !== null && (ended || !presented)) onEndPeekRef.current?.(peek); }, [peek, ended, presented]);
+  // Every end of a peek back to the chat: the hidden grid lets go of the keyboard (it has no Chat
+  // guard of its own, and keys typed after the return would reach the pane), and a desktop's typing
+  // goes back to the message box of the same pane (another pane's composer focuses itself, or not,
+  // as a pane switch decides). A phone's keyboard stays down. Keep Terminal (or the header's
+  // Terminal) keeps the grid, and gives it the keyboard its button took.
+  const shownPeekRef = useRef<TerminalPeek | null>(null);
+  useLayoutEffect(() => {
+    const was = shownPeekRef.current;
+    shownPeekRef.current = peek;
+    if (was === null || peek !== null) return;
+    if (!chatMounted) {
+      if (activeRef.current && was.paneId === paneRef.current && !coarseRef.current && !modalOpen() && !findOpenRef.current) termRef.current?.focus();
+      return;
+    }
+    termRef.current?.blur();
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && stackRef.current?.contains(focused)) focused.blur();
+    if (activeRef.current && was.paneId === paneRef.current && !coarseRef.current && !modalOpen()) {
+      stackRef.current?.querySelector<HTMLTextAreaElement>(".composer-text")?.focus({ preventScroll: true });
+    }
+  }, [peek, chatMounted]);
   // an older bridge pushes no transcript changes: the chat reads at the former 2s cadence
   const [conversationPushes, setConversationPushes] = useState(false);
   const onConversationWatch = useCallback((pane: string, enabled: boolean) => {
@@ -1215,9 +1288,10 @@ export function PaneTerminal({
         setChatSent((current) => current + 1);
         setChatRefresh((current) => current + 1);
       }
-      // Ignore late invalidations for a detached pane or a chat no longer on screen.
+      // Ignore late invalidations for a detached pane or a chat no longer mounted. A peek keeps the
+      // chat mounted under the grid: its reads go on, and Claude's note of a closed panel brings it back.
       if (message.type === "conversation-changed" && message.pane_id === paneRef.current
-        && chatViewRef.current && document.visibilityState !== "hidden") {
+        && chatMountedRef.current && document.visibilityState !== "hidden") {
         setChatInvalidation((current) => current + 1);
       }
       if (paneRef.current) setInputReady(socket.canInput(paneRef.current));
@@ -1238,7 +1312,7 @@ export function PaneTerminal({
       if (message.type === "pty-data") {
         if (message.pane_id !== paneRef.current || releasedRef.current) return;
         // A chat showing herdr's scrollback has no native file to watch: output invalidates it.
-        if (chatViewRef.current) chatOutputRef.current?.();
+        if (chatMountedRef.current) chatOutputRef.current?.();
         // raw pty bytes: append, never repaint, so xterm keeps the screen and selection
         const acknowledge = socket.outputAcknowledgement(message);
         const owner = message.pane_id;
@@ -2235,7 +2309,8 @@ export function PaneTerminal({
     // app), only this grid fits, and the refit takes the pane once the user is here
     const pane = paneRef.current;
     if (pane && term && sizesPty() && inUse()) socketRef.current?.resize(pane, term.cols, term.rows, true);
-    if (activeRef.current && !autoSelected && !coarseRef.current && !modalOpen() && !findOpenRef.current) term?.focus();
+    // a peek opened from what the reader just sent or pressed: its keys (Escape above all) go to the agent
+    if (activeRef.current && (!autoSelected || peekRef.current !== null) && !coarseRef.current && !modalOpen() && !findOpenRef.current) term?.focus();
   }, [chatView]);
 
   // hidden behind another pane of its split, the pane keeps the size the pty has; shown again, it
@@ -2490,10 +2565,11 @@ export function PaneTerminal({
 
   const sendComposerText = useCallback((text: string, delivery: "queue" | "immediate" = "immediate"): false | Promise<true | string> => {
     const pane = paneRef.current;
+    const known = knownOutcomes(pane);
     const result = submitComposerMessage(text, delivery);
     return result === null ? false : result.then((answer) => {
       if (!answer.ok) return submitNote(answer.code, answer.message, agent);
-      if (pane !== null && answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, text);
+      if (pane !== null && answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, text, known);
       return true;
     });
   }, [submitComposerMessage, agent, showSentCommand]);
@@ -2753,10 +2829,11 @@ export function PaneTerminal({
       const delivery: SubmitDelivery = queued === "queue" && !settings.autoSendQueued ? "hold" : queued;
       // Send anyway answered a box seen at once: an agent that started working since would queue it unchecked
       if (sendAnyway && delivery !== "immediate") return t("Not sent: the agent started working since. Check the terminal, then send again.");
+      const known = knownOutcomes(pane);
       const result = submitComposerMessage(text, delivery, delivery === "immediate" ? clearDraft : undefined, sendAnyway);
       return result === null ? false : result.then((answer) => {
         if (!answer.ok) return submitRefusal(answer.code, answer.message, answer.draft, answer.box, agent);
-        if (pane !== null && delivery === "immediate" && answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, text);
+        if (pane !== null && delivery === "immediate" && answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, text, known);
         return true;
       });
     },
@@ -2792,6 +2869,7 @@ export function PaneTerminal({
               && frame.removed?.some((item) => item.id === id && item.outcome === "sent")) delivered = true;
           });
           try {
+            const known = knownOutcomes(pane);
             const result = socket?.pendingAction(pane, id, action, message.resendGeneration ?? 0);
             // offline: no frame left (the row shows submitNote's wording, not this message)
             if (!result) {
@@ -2801,7 +2879,7 @@ export function PaneTerminal({
             // as a composer send: the pane keeps its connection and lease until the receipt settles
             const releaseSubmit = submitRetention?.retain(pane);
             const answer = await result.finally(() => releaseSubmit?.());
-            if (answer.ok && action === "steer" && delivered) showSentCommand(pane, message.text);
+            if (answer.ok && action === "steer" && delivered) showSentCommand(pane, message.text, known);
             if (!answer.ok) pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, pendingActionUncertain(answer.code, message.state),
               action === "steer" ? message.resendGeneration ?? 0 : undefined);
           } finally {
@@ -2814,6 +2892,7 @@ export function PaneTerminal({
           if (!pendingMessages.unconfirm(owner, id)) {
             return;
           }
+          const known = knownOutcomes(pane);
           const result = submitComposerMessage(message.text, "immediate", undefined, false, id, message.resendGeneration ?? 0);
           if (!result) {
             pendingMessages.fail(owner, id, { code: "not_transmitted", message: "the connection dropped before this message was sent" }, false);
@@ -2822,7 +2901,7 @@ export function PaneTerminal({
           const answer = await result;
           if (answer.ok) {
             pendingMessages.removeCopy(owner, id);
-            if (answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, message.text);
+            if (answer.pending === undefined && !answer.unconfirmed) showSentCommand(pane, message.text, known);
           }
           else pendingMessages.fail(owner, id, { code: answer.code, message: answer.message }, !submitNotTyped(answer.code), message.resendGeneration ?? 0);
         }
@@ -2922,7 +3001,15 @@ export function PaneTerminal({
 
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
-    <div ref={stackRef} className={`terminal-stack${chatView ? " is-chat" : ""}${greeted ? " is-greeted" : ""}`} data-pane-owner={paneId === null ? undefined : paneStorageId(machineId, paneId)} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}
+    // is-peek: a terminal command's peek shows the grid over the still-mounted chat (PaneTerminal.css)
+    // A press on the peek's dimmed, inert composer lands on the stack itself: it keeps the keyboard
+    // in the grid, so Escape still reaches the agent, instead of handing focus to the pane frame
+    <div ref={stackRef} className={`terminal-stack${chatMounted ? " is-chat" : ""}${peek !== null ? " is-peek" : ""}${greeted ? " is-greeted" : ""}`} data-pane-owner={paneId === null ? undefined : paneStorageId(machineId, paneId)} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}
+      onMouseDown={peek !== null && !coarse ? (event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        termRef.current?.focus();
+      } : undefined}
       data-pane-content={!chatView && paneId !== null && active && presented && shown && connected && outputReady && parsedTarget === outputTarget && !held && !ended && !released && !unsupported && !outputError ? presentationKey : undefined}>
       {paneId === null && restoreError !== null && (
         <div className="terminal-placeholder is-restore-error" role="status">
@@ -2987,11 +3074,21 @@ export function PaneTerminal({
             <button type="button" className="icon-button" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={() => setRewindHint(null)}><X aria-hidden="true" /></button>
           </div>
         )}
-        {paneId !== null && !chatView && commandHint?.pane === paneId && (
+        {/* the peek's head: no grid row of its own, no focus trap and no Escape of its own (Escape is the
+            agent's). Keep Terminal saves the terminal lens, which ends the peek */}
+        {paneId !== null && peek !== null && (
           <div className="terminal-banner terminal-banner-command" role="status">
-            <span className="terminal-command-label"><SquareTerminal aria-hidden="true" /><span title={commandHint.command}>{t("{command} ran", { command: commandHint.command })}</span></span>
-            <button type="button" className="btn btn-ghost" onClick={onOpenChat}><ArrowLeft aria-hidden="true" />{t("Back to Chat")}</button>
-            <button type="button" className="icon-button" aria-label={t("Dismiss")} title={t("Dismiss")} onClick={() => setCommandHint(null)}><X aria-hidden="true" /></button>
+            <span className="terminal-command-label">
+              <SquareTerminal aria-hidden="true" />
+              <span className="terminal-command-words">
+                <span title={peek.command}>{t("{command} ran", { command: peek.command })}</span>
+                {autoPeek !== null && <span className="terminal-command-note">{t("Chat may come back when you close it")}</span>}
+              </span>
+            </span>
+            <span className="terminal-command-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => onEndPeek?.(peek)}><ArrowLeft aria-hidden="true" />{t("Back to Chat")}</button>
+              {onOpenTerminal && <button type="button" className="btn btn-ghost" onClick={onOpenTerminal}>{t("Keep Terminal")}</button>}
+            </span>
           </div>
         )}
         {paneId !== null && !ended && connected && !draftIsEmpty(draft) && !noticesDocked && (
@@ -3042,8 +3139,10 @@ export function PaneTerminal({
           </div>
         )}
       </div>
+      {/* its own key: under a peek it is the Composer's sibling, which is keyed by the pane too, and
+          two siblings with one key leave stray copies of the bar in the stack */}
       {presented && findOpen && !chatView && paneId !== null && (
-        <FindBar key={paneId} paneId={paneId} viewportIntent={viewportIntent} onResult={setSearchState} activePane={active} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
+        <FindBar key={`find:${paneId}`} paneId={paneId} viewportIntent={viewportIntent} onResult={setSearchState} activePane={active} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
           onClose={() => { setFindOpen(false); if (activeRef.current && !coarse) termRef.current?.focus(); }} />
       )}
       <div className="terminal-surface">
@@ -3060,7 +3159,7 @@ export function PaneTerminal({
           onApplicationPage={sendApplicationPage}
           enabled={presented && connected && outputReady && !chatView && !held && !ended && !released && !unsupported}
           interactive={!observing && !secretActive && !viewportSearching} search={searchState} onError={setInputError} />}
-        {paneId !== null && chatView && (
+        {paneId !== null && chatMounted && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">
               <p>{t("The chat can't be shown. The terminal still works.")}</p>
@@ -3101,7 +3200,11 @@ export function PaneTerminal({
             promptDock={promptDock}
             onPromptAnswered={onPromptAnswered}
             title={title}
-            onOpenTerminal={onOpenTerminal}
+            onOpenTerminal={onOpenTerminal ? peekOutcome : undefined}
+            covered={peek !== null}
+            peek={autoPeek}
+            onCommandScreenClosed={onCommandScreenClosed}
+            onOutcomes={onChatOutcomes}
             interactive={!observing && role === "interact"}
             onRewindInTerminal={onOpenTerminal ? rewindInTerminal : undefined}
           />
@@ -3110,8 +3213,9 @@ export function PaneTerminal({
       </div>
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
           Codex question known (heldByOpenQueue), and Send now must not type into one */}
-      {presented && paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
-        <section className={`composer-queue${readyForQueue ? " is-ready" : ""}${heldHidden ? " is-folded" : ""}`} aria-label={t("Queued messages")}>
+      {/* under a peek the composer's column stays, inert: the grid has the keyboard */}
+      {presented && paneId !== null && chatMounted && !observing && !ended && queueOwner !== null && queued.length > 0 && (
+        <section className={`composer-queue${readyForQueue ? " is-ready" : ""}${heldHidden ? " is-folded" : ""}`} aria-label={t("Queued messages")} inert={peek !== null || undefined}>
           {(() => {
             // one caption line: the sentence says the state
             const caption = <>
@@ -3177,9 +3281,10 @@ export function PaneTerminal({
           </ol>
         </section>
       )}
-      {presented && paneId !== null && chatView && !observing && queueOwner !== null && pending.length > 0 && <PendingMessages
+      {presented && paneId !== null && chatMounted && !observing && queueOwner !== null && pending.length > 0 && <PendingMessages
         key={`pending-${queueOwner}`}
         active={active}
+        inert={peek !== null}
         messages={pending.map((message) => !message.serverOwned || pendingMessages.isOwned(queueOwner, message.id, pendingScopeRef.current)
           ? message : { ...message, serverOwned: false, state: "uncertain" as const })}
         connected={connected}
@@ -3194,13 +3299,14 @@ export function PaneTerminal({
           open), directly over the input card, on the same column. ChatView renders the card into
           it. It is a live region of its own, since the card is no longer inside the transcript's
           log: a prompt that arrives is announced, as it was there. */}
-      {presented && paneId !== null && chatView && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" />}
+      {presented && paneId !== null && chatMounted && <div className="prompt-dock" ref={setPromptDock} aria-live="polite" inert={peek !== null || undefined} />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
-      {presented && paneId !== null && chatView && !secretActive && !observing && !ended && (
+      {presented && paneId !== null && chatMounted && !secretActive && !observing && !ended && (
         <Composer
           key={paneId}
           paneId={paneId}
+          inert={peek !== null}
           cwd={cwd}
           branch={branchWord === DETACHED ? t("Detached HEAD") : branchWord}
           worktreeRepo={worktreeRepo}

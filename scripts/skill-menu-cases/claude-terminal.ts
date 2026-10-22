@@ -26,7 +26,9 @@ const TERMINAL_ROWS = ["config", "cost", "doctor", "help", "resume", "status", "
 export const expect = async ({ page, width, scheme, box, menu, scenario, clear, rowNames, menuFits, rowsBrief, submits }: CaseRun): Promise<void> => {
   const tag = `${scheme}-${width}`;
   const send = page.getByRole("button", { name: "Send message", exact: true });
-  const chat = page.locator(".terminal-stack.is-chat");
+  // the Chat lens, and a terminal command's peek over it: the chat stays mounted under the grid
+  const chat = page.locator(".terminal-stack.is-chat:not(.is-peek)");
+  const peek = page.locator(".terminal-stack.is-chat.is-peek");
   const hint = page.locator(".terminal-banner-command");
   const back = async (): Promise<void> => {
     await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
@@ -58,10 +60,12 @@ export const expect = async ({ page, width, scheme, box, menu, scenario, clear, 
     await capture();
   });
 
-  await scenario(`Enter sends then opens Terminal at ${tag}`, `terminal-${tag}.png`, async (capture) => {
+  await scenario(`Enter sends then opens a peek at ${tag}`, `terminal-${tag}.png`, async (capture) => {
     await box.press("Enter");
     await hint.waitFor();
     assert.equal(await chat.count(), 0);
+    assert.equal(await peek.count(), 1, "the terminal shows over the chat, which stays mounted");
+    assert.equal(await hint.getByText("Chat may come back when you close it", { exact: true }).count(), 1, "the head says Claude's /config may come back by itself");
     assert.deepEqual(await submits(), ["/config "]);
     const geometry = await hint.evaluate((node) => {
       const box = node.getBoundingClientRect();
@@ -86,24 +90,27 @@ export const expect = async ({ page, width, scheme, box, menu, scenario, clear, 
     assert.equal(await row.locator(".chat-outcome, .chat-bubble, .chat-outcome-preview").count(), 0);
     assert.equal(await row.getByRole("button", { name: "Open Terminal", exact: true }).count(), 1);
     await capture();
+    // the row's Open Terminal opens a peek the reader ends by hand, and sends nothing
     await row.getByRole("button", { name: "Open Terminal", exact: true }).click();
-    await chat.waitFor({ state: "detached" });
-    assert.equal(await hint.count(), 0, "leaving the lens cleared the hint");
+    await peek.waitFor();
+    await hint.getByText("/config ran", { exact: true }).waitFor();
+    assert.equal(await hint.getByText("Chat may come back when you close it", { exact: true }).count(), 0);
     assert.deepEqual(await submits(), ["/config "]);
-    await back();
+    await hint.getByRole("button", { name: "Back to Chat", exact: true }).click();
+    await chat.waitFor();
+    assert.equal(await hint.count(), 0, "the chat's return clears the head");
   });
 
-  await scenario(`typed send and dismiss keep grid size at ${tag}`, `dismissed-${tag}.png`, async (capture) => {
+  await scenario(`typed send and Keep Terminal at ${tag}`, `kept-${tag}.png`, async (capture) => {
     await page.locator('.composer-status[data-status="done"], .composer-status[data-status="idle"]').waitFor();
     await box.fill("/config");
     await send.click();
     await hint.waitFor();
-    const grid = page.locator(".terminal-stack:not(.is-chat) .xterm-screen");
-    const before = await grid.boundingBox();
-    assert.ok(before, "the terminal grid is rendered");
-    await hint.getByRole("button", { name: "Dismiss", exact: true }).click();
-    await hint.waitFor({ state: "detached" });
-    assert.deepEqual(await grid.boundingBox(), before, "dismissing the overlay changes no grid geometry");
+    // shown, not only laid out: under the chat the grid keeps its box with content-visibility hidden
+    assert.ok(await page.locator(".terminal-stack.is-peek .xterm-screen").isVisible(), "the terminal grid shows over the chat");
+    await hint.getByRole("button", { name: "Keep Terminal", exact: true }).click();
+    await page.locator(".terminal-stack:not(.is-chat) .xterm-screen").waitFor();
+    assert.equal(await hint.count(), 0, "the terminal lens has no peek head");
     assert.deepEqual(await submits(), ["/config ", "/config"]);
     await capture();
     await back();

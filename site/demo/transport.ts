@@ -30,7 +30,6 @@ import commandsFixture from "./fixtures/commands.json";
 import panesFixture from "./fixtures/panes.json";
 import terminalFixture from "./fixtures/terminal.json";
 
-const DEMO_VERSION = "demo";
 /** Only an explicit `demo logs` command starts this fictional retained history. */
 const histories = new Map<string, DemoHistory>();
 const terminalGrids = new Map<string, { cols: number; rows: number }>();
@@ -328,8 +327,167 @@ function conversationChanged(paneId: string): void {
   for (const socket of sockets) socket.push({ type: "conversation-changed", pane_id: paneId, signature: `demo:${revision}` });
 }
 
+// ---- workspace order (server/order-sequence.ts) -------------------------------------------------
+// Each fictional PC's server keeps one move counter per lifetime: a read carries the count when it
+// starts, a confirmed move takes the next number. The regression script holds reads, cached GETs,
+// SSE rosters, move answers and boot proofs apart through `window.__herdrDemoOrder`, so each can
+// arrive in any order; the app itself only ever sees the answers.
+// The roster is the fictional manager's (server/machines.ts): it publishes a PC's snapshot of an
+// epoch only once its own sideband health call proved that epoch (`accepted`), keeps the last one it
+// accepted until then, and names the proved boot in source_boot_id.
+interface DemoOrder { epoch: string; seq: number; legacy: boolean; accepted: string; cached: SessionSnapshot | null }
+const orders = new Map<string, DemoOrder>();
+function orderOf(machineId: string): DemoOrder {
+  let order = orders.get(machineId);
+  if (!order) { const epoch = crypto.randomUUID(); order = { epoch, seq: 0, legacy: false, accepted: epoch, cached: null }; orders.set(machineId, order); }
+  return order;
+}
+/** a PC's roster as its server reads it now: the read's pair is taken when it starts */
+function readSnapshot(machine: Machine): SessionSnapshot | null {
+  if (!machine.snapshot) return null;
+  const order = orderOf(machine.id);
+  return order.legacy ? structuredClone(machine.snapshot) : { ...structuredClone(machine.snapshot), order_epoch: order.epoch, read_seq: order.seq };
+}
+function readRoster(): Machine[] {
+  return machines.map((machine) => {
+    const order = orderOf(machine.id);
+    const { source_boot_id: _proof, ...rest } = machine;
+    if (order.legacy) return { ...rest, snapshot: readSnapshot(machine) };
+    // a restart its manager has not proved yet: the cache keeps the last accepted server's read
+    if (order.epoch !== order.accepted) return { ...rest, snapshot: structuredClone(order.cached), source_boot_id: order.accepted };
+    order.cached = readSnapshot(machine);
+    return { ...rest, snapshot: structuredClone(order.cached), source_boot_id: order.accepted };
+  });
+}
+/** answer: proof with a fresh roster; proof-only: proof whose roster has no entry for the PC yet; refuse: the health call fails */
+type VerifyMode = "answer" | "proof-only" | "hold" | "refuse";
+/** the manager's per-PC health-call admission: one call in flight, starts SOURCE_CHECK_INTERVAL_MS apart */
+interface Admission { inflight: Promise<VerifyMode> | null; lastStart: number | null }
+const admissions = new Map<string, Admission>();
+const admissionOf = (machineId: string): Admission => {
+  let admission = admissions.get(machineId);
+  if (!admission) { admission = { inflight: null, lastStart: null }; admissions.set(machineId, admission); }
+  return admission;
+};
+const orderControl = {
+  /** rosters read now, delivered later by the script */
+  held: [] as Machine[][],
+  /** answers the next GET /api/machines gives instead of a fresh read (a cache that lags) */
+  cachedGets: [] as Machine[][],
+  /** plain GET /api/machines answers wait for releaseGet() while this is set; each is read when it arrives */
+  holdGets: false,
+  gets: [] as (() => void)[],
+  /** moves to let through before the next one is refused (null: none refused) */
+  failAfter: null as number | null,
+  /** the admission's monotonic clock, in ms: only the script moves it */
+  clock: 0,
+  /** SSE rosters wait while this is set: publication is held apart from the move's receipt */
+  holdSse: false,
+  /** move answers wait for release() while this is set */
+  holdMoves: false,
+  moves: [] as (() => void)[],
+  verifyMode: "answer" as VerifyMode,
+  verifies: [] as { machineId: string; release(mode?: VerifyMode): void }[],
+  log: [] as { kind: string; machine_id?: string; epoch?: string; seq?: number; at: number }[],
+};
+function note(kind: string, detail: { machine_id?: string; epoch?: string; seq?: number } = {}): void {
+  orderControl.log.push({ kind, ...detail, at: orderControl.log.length });
+}
+function publishRoster(roster: Machine[] = readRoster()): void {
+  note("publication", { machine_id: local.id, epoch: roster[0]?.snapshot?.order_epoch, seq: roster[0]?.snapshot?.read_seq });
+  emitSse({ type: "machines", machines: roster });
+}
+const unverified = (headers: Record<string, string> = {}) => json({ error: { code: "source_unverified", message: "This PC's server could not be verified now" } }, 503, { "cache-control": "no-store", ...headers });
+/**
+ * GET /api/machines?verify_source_boot=<id>: the PC's boot, asked of its server during this request.
+ * Admitted like the manager's (server/machines.ts sourceCheck): an asker that finds a call in flight
+ * waits for it and is refused, and one within the interval of the last start is refused at once.
+ */
+async function verifySourceBoot(machineId: string): Promise<Response> {
+  if (machineId === "") return error("invalid_query", "verify_source_boot names one PC", 400);
+  const machine = machines.find((candidate) => candidate.id === machineId);
+  if (!machine) return error("machine_not_found", "PC not found", 404);
+  note("verify-request", { machine_id: machineId });
+  const admission = admissionOf(machineId);
+  if (admission.inflight) {
+    await admission.inflight;
+    note("verify-joined", { machine_id: machineId });
+    return unverified();
+  }
+  if (admission.lastStart !== null && orderControl.clock - admission.lastStart < 1000) {
+    note("verify-interval", { machine_id: machineId });
+    return unverified({ "retry-after": "1" });
+  }
+  admission.lastStart = orderControl.clock;
+  note("verify-start", { machine_id: machineId });
+  const call = orderControl.verifyMode === "hold"
+    ? new Promise<VerifyMode>((resolve) => { orderControl.verifies.push({ machineId, release: (next = "answer") => resolve(next) }); })
+    : Promise.resolve(orderControl.verifyMode);
+  admission.inflight = call;
+  const mode = await call;
+  admission.inflight = null;
+  const order = orderOf(machineId);
+  note(`verify-${mode}`, { machine_id: machineId, epoch: order.epoch });
+  if (mode === "refuse" || order.legacy) return unverified();
+  // the health call proved the server that answers now: the manager accepts its epoch
+  order.accepted = order.epoch;
+  const roster = readRoster();
+  return json({ machines: mode === "proof-only" ? roster.filter((candidate) => candidate.id !== machineId) : roster, verified_source_boot: { machine_id: machineId, boot_id: order.epoch } }, 200, { "cache-control": "no-store" });
+}
+(window as unknown as { __herdrDemoOrder: unknown }).__herdrDemoOrder = {
+  /** a roster read now, for later delivery; its index */
+  hold: () => orderControl.held.push(readRoster()) - 1,
+  deliverSse: (index: number) => { const roster = orderControl.held[index]!; note("publication", { machine_id: local.id, epoch: roster[0]?.snapshot?.order_epoch, seq: roster[0]?.snapshot?.read_seq }); emitSse({ type: "machines", machines: roster }); },
+  cacheNextGet: (index: number) => { orderControl.cachedGets.push(orderControl.held[index]!); },
+  holdSse: (on: boolean) => { orderControl.holdSse = on; },
+  publish: () => publishRoster(),
+  holdMoves: (on: boolean) => { orderControl.holdMoves = on; },
+  releaseMove: () => { orderControl.moves.shift()?.(); },
+  /** stop holding move answers and answer every held one */
+  releaseAllMoves: () => { orderControl.holdMoves = false; for (const release of orderControl.moves.splice(0)) release(); },
+  pendingMoves: () => orderControl.moves.length,
+  verifyMode: (mode: VerifyMode) => { orderControl.verifyMode = mode; },
+  releaseVerify: (mode?: VerifyMode) => { orderControl.verifies.shift()?.release(mode); },
+  pendingVerifies: () => orderControl.verifies.length,
+  /** the PC's server restarts: a new epoch, counted from 0 again, which its manager has not proved yet */
+  restart: (machineId = local.id) => { const order = orderOf(machineId); order.epoch = crypto.randomUUID(); order.seq = 0; return order.epoch; },
+  /** the manager's own sideband health call proves the PC's current server: passive proof only */
+  proveSource: (machineId = local.id) => { const order = orderOf(machineId); order.accepted = order.epoch; note("sideband-proof", { machine_id: machineId, epoch: order.epoch }); },
+  /** move the admission clock on */
+  advance: (ms: number) => { orderControl.clock += ms; },
+  holdGets: (on: boolean) => { orderControl.holdGets = on; },
+  /** answer the oldest held GET /api/machines */
+  releaseGet: () => { orderControl.gets.shift()?.(); },
+  releaseAllGets: () => { orderControl.holdGets = false; for (const release of orderControl.gets.splice(0)) release(); },
+  pendingGets: () => orderControl.gets.length,
+  /** let `skip` moves through, then refuse the next one without moving anything */
+  failMove: (skip = 0) => { orderControl.failAfter = skip; },
+  /** the PC's server is one from before order evidence: no pairs, no receipts' numbers, no proof */
+  legacy: (on: boolean, machineId = local.id) => { orderOf(machineId).legacy = on; },
+  /** another client moves a workspace: herdr's order and the counter change, nothing is published */
+  otherClientMove: (workspaceId: string, insertIndex: number) => {
+    const snap = snapshot();
+    const order = movedTabOrder(snap.workspaces.map((workspace) => workspace.workspace_id), workspaceId, insertIndex);
+    if (order) snap.workspaces.sort((a, b) => order.indexOf(a.workspace_id) - order.indexOf(b.workspace_id));
+    snap.workspaces.forEach((workspace, index) => { workspace.number = index + 1; });
+    orderOf(local.id).seq++;
+  },
+  /** a second fictional PC, with its own server and order */
+  addPc: () => {
+    if (machines.some((machine) => machine.id === "laptop")) return "laptop";
+    machines.push({ ...structuredClone(local), id: "laptop", name: "laptop", kind: "ssh" } as Machine);
+    publishRoster();
+    return "laptop";
+  },
+  /** a pane's status patch on the local PC: no full roster */
+  status: (paneId: string, status: AgentStatus) => setStatus(paneId, status),
+  epoch: (machineId = local.id) => orderOf(machineId).epoch,
+  seq: (machineId = local.id) => orderOf(machineId).seq,
+  log: () => orderControl.log,
+};
+
 function structureChanged(): void {
-  emitSse({ type: "machines", machines });
+  if (!orderControl.holdSse) publishRoster();
   emitSse({ type: "machine-message", machine_id: local.id, message: { type: "session-changed" } });
   for (const socket of sockets) socket.push({ type: "session-changed" });
 }
@@ -468,6 +626,28 @@ function terminalPreview(paneId: string, text: string, name: string): string {
 
 const now = () => new Date().toISOString();
 
+/**
+ * What Claude Code records when one of its panels closes (a `local_command` answer, which the chat
+ * reads as a local-command notice), for the demo's terminal commands, as Claude Code 2.1.306 wrote
+ * them. A command whose close leaves no record (`/doctor` here) is not listed: its terminal stays
+ * until the reader leaves it.
+ */
+const CLAUDE_PANEL_CLOSED: Record<string, string> = {
+  config: "Config dialog dismissed", status: "Settings dialog dismissed", cost: "Settings dialog dismissed", help: "Help dialog dismissed",
+};
+/** the panel a terminal command left open in each Claude pane, by what its close records */
+const openPanels = new Map<string, string>();
+
+/** Escape typed into a Claude pane closes the panel a terminal command opened, and Claude records that it did. */
+function closeClaudePanel(paneId: string, text: string): void {
+  const closed = openPanels.get(paneId);
+  const chat = chats.get(keyOfPane.get(paneId) ?? "");
+  if (closed === undefined || chat === undefined || text !== "\x1b") return;
+  openPanels.delete(paneId);
+  chat.turns.push({ role: "user", ts: now(), parts: [{ kind: "notice", text: closed, source: "local-command" }] });
+  conversationChanged(paneId);
+}
+
 /** The bridge takes one accepted pending message when the current mock turn finishes. */
 /**
  * The first messages create requests queued for new panes' agents (`first_message`), by pane, as the
@@ -538,6 +718,8 @@ function submitToChat(paneId: string, text: string): void {
   const command = sentCommand(paneId, text);
   if (command?.form?.interaction === "terminal") {
     const outcome = recordOutcome(paneId, text, "terminal-required");
+    const closes = agentOf(paneId) === "claude" ? CLAUDE_PANEL_CLOSED[command.name] : undefined;
+    if (closes !== undefined) openPanels.set(paneId, closes); else openPanels.delete(paneId);
     setTimeout(() => { outcome.preview = terminalPreview(paneId, text, command.name); outcome.updated_at = now(); }, OUTCOME_PREVIEW_MS);
     return;
   }
@@ -706,6 +888,20 @@ const PLUGINS: PluginActions[] = [
   ] },
 ];
 
+const NO_PORTAL: PortalStatus = { supported: false, version: null, min_version: "v2.6.1", usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null };
+/**
+ * The demo opens no public address, so its Portal section stays hidden. A QA script may stage a
+ * fictional status (a recovering Portal, say) as JSON in sessionStorage["herdr-web-ui:demo-portal"]
+ * before the app loads; starting and stopping stay refused either way.
+ */
+function demoPortal(): PortalStatus {
+  try {
+    const staged = window.sessionStorage.getItem("herdr-web-ui:demo-portal");
+    if (staged !== null) return { ...NO_PORTAL, supported: true, ...(JSON.parse(staged) as Partial<PortalStatus>) };
+  } catch { /* storage blocked or not JSON: the section stays hidden */ }
+  return NO_PORTAL;
+}
+
 async function route(url: URL, method: string, init: RequestInit | undefined, input: RequestInfo | URL): Promise<Response> {
   const path = url.pathname;
   const query = url.searchParams;
@@ -714,10 +910,18 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/health") {
     const auth = { required: false, authenticated: true };
     if (query.get("scope") === "bridge") return json({ ok: true, auth, bridge_protocol: 1 });
-    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { boot_id: DEMO_VERSION, revision: null } });
+    return json({ ok: true, herdr: { version: "0.9.0", protocol: 22, terminal_attach: true }, auth, web_ui: { boot_id: orderOf(local.id).epoch, revision: null } });
   }
-  if (path === "/api/machines") return json({ machines });
-  if (path === "/api/session") return json({ snapshot: snapshot() });
+  if (path === "/api/machines") {
+    const asked = query.getAll("verify_source_boot");
+    if (asked.length > 1) return error("invalid_query", "verify_source_boot names one PC", 400);
+    if (asked.length === 1) return verifySourceBoot(asked[0]!);
+    note("read-start", { machine_id: local.id, epoch: orderOf(local.id).epoch, seq: orderOf(local.id).seq });
+    const roster = orderControl.cachedGets.shift() ?? readRoster();
+    if (orderControl.holdGets) await new Promise<void>((resolve) => orderControl.gets.push(resolve));
+    return json({ machines: roster });
+  }
+  if (path === "/api/session") return json({ snapshot: readSnapshot(local) });
   if (path === "/api/agents") return json(agentsFixture);
   if (path === "/api/integrations") return json({ integrations: integrationsFixture } satisfies IntegrationsResponse);
   if (path === "/api/updates") return json({ managed: false, auto_update: false, phase: "idle", current_revision: null, latest_revision: null, current_version: __APP_VERSION__, latest_version: null, available: false, checked_at: null, blocked_reason: null, error: null }, 200, { "cache-control": "no-store" });
@@ -731,8 +935,7 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
   if (path === "/api/seen") return method === "POST" ? new Response(null, { status: 204 }) : json({ finishes: [] }, 200, { "cache-control": "no-store" });
   if (path === "/api/telemetry") return json({ error: { code: "not_found", message: "This server sends no telemetry" } }, 404, { "cache-control": "no-store" });
   if (path === "/api/herdr/update") return json({ supported: false, phase: "idle", server_version: null, binary_version: null, stale: false, output: null, finished_at: null }, 200, { "cache-control": "no-store" });
-  // the demo opens no public address: the Portal section stays hidden
-  if (path === "/api/portal") return json({ supported: false, version: null, min_version: "v2.6.1", usable: false, phase: "idle", relay: null, url: null, blocked: null, error: null, output: null } satisfies PortalStatus, 200, { "cache-control": "no-store" });
+  if (path === "/api/portal") return json(demoPortal(), 200, { "cache-control": "no-store" });
   if (path === "/api/portal/start" || path === "/api/portal/stop") return error("portal_unsupported", "The demo opens no public address.", 409);
   if (path === "/api/access") return json({ port: 7317, tailscale: { state: "running", dns_name: "workstation.example.ts.net", serving_url: "https://workstation.example.ts.net", serve_command: null, serve_url: null } });
   if (path === "/api/usage") return json(usageReport(), 200, { "cache-control": "no-store" });
@@ -1188,12 +1391,22 @@ async function route(url: URL, method: string, init: RequestInit | undefined, in
     const snap = snapshot();
     const workspace = snap.workspaces.find((w) => w.workspace_id === body["workspace_id"]);
     if (!workspace) return error("not_found", "no such workspace", 404);
+    if (orderControl.failAfter !== null && orderControl.failAfter-- === 0) {
+      orderControl.failAfter = null;
+      note("move-refused", { machine_id: local.id });
+      return error("herdr_error", "herdr refused the move", 500);
+    }
     const ids = snap.workspaces.map((workspace) => workspace.workspace_id);
     const order = movedTabOrder(ids, workspace.workspace_id, Number(body["insert_index"] ?? 0));
     if (order) snap.workspaces.sort((a, b) => order.indexOf(a.workspace_id) - order.indexOf(b.workspace_id));
     snap.workspaces.forEach((w, i) => { w.number = i + 1; });
+    // confirmed: the receipt's number is taken before anything else waits
+    const counter = orderOf(local.id);
+    const receipt = { order_epoch: counter.epoch, moved_seq: ++counter.seq };
+    note("move", { machine_id: local.id, epoch: receipt.order_epoch, seq: receipt.moved_seq });
     structureChanged();
-    return json({ ok: true });
+    if (orderControl.holdMoves) await new Promise<void>((resolve) => orderControl.moves.push(resolve));
+    return json(counter.legacy ? { ok: true } : { ok: true, ...receipt });
   }
   if (path === "/api/workspace/directories" && method === "POST") {
     // New folder: the demo has no disk, so the folder opens empty and is not listed again
@@ -1311,7 +1524,7 @@ class DemoEventSource extends EventTarget {
     super();
     this.url = url;
     sseListeners.add(this.listener);
-    setTimeout(() => { this.onopen?.(new Event("open")); this.listener(new MessageEvent("message", { data: JSON.stringify({ type: "machines", machines } satisfies MachineEvent) })); }, 30);
+    setTimeout(() => { this.onopen?.(new Event("open")); this.listener(new MessageEvent("message", { data: JSON.stringify({ type: "machines", machines: readRoster() } satisfies MachineEvent) })); }, 30);
   }
   close(): void { this.readyState = 2; sseListeners.delete(this.listener); }
 }
@@ -1402,7 +1615,7 @@ class DemoSocket extends EventTarget {
       const open = new Event("open");
       this.onopen?.(open);
       this.dispatchEvent(open);
-      this.push({ type: "snapshot", snapshot: snapshot(), features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch", "ping"], connection: this.connection });
+      this.push({ type: "snapshot", snapshot: readSnapshot(local)!, features: ["submit", "pending-input", "pending-hold", "secret-input", "input-ready", "conversation-watch", "ping"], connection: this.connection });
     }, 20);
     this.timers.add(opening);
   }
@@ -1523,7 +1736,12 @@ class DemoSocket extends EventTarget {
         }
         break;
       // a Stop (`stop`) is typed like any key: the demo has no pty for a following message to overtake
-      case "input": if (message.pane_id && message.text !== undefined) this.typed(message.pane_id, message.text); break;
+      case "input":
+        if (message.pane_id && message.text !== undefined) {
+          if (this.mode === "interact") closeClaudePanel(message.pane_id, message.text);
+          this.typed(message.pane_id, message.text);
+        }
+        break;
       case "keys": if (message.pane_id) for (const key of message.keys ?? []) this.typed(message.pane_id, chordText(key)); break;
       case "secret":
         if (message.id !== undefined && message.pane_id) this.push({ type: "secret-result", id: message.id, pane_id: message.pane_id, ok: false, code: "prompt_changed" });
