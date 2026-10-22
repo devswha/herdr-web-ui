@@ -20,7 +20,8 @@ import { openSettingsPage } from "./settings-page.ts";
 // app; no herdr session is opened.
 // REVISION_UPDATE_RECEIPTS: a JSON file for the install requests and status receipts seen.
 // UPDATE_CONSENT_SHOTS: a directory for the capture matrix (phone and desktop, light and dark,
-// Korean), with its manifest and measurements.
+// Korean), with its manifest and measurements. VISUAL_QA_CHECKLIST: a checklist path the manifest
+// names, when set.
 const app = mkdtempSync(join(tmpdir(), "herdr-revision-update-demo-"));
 const repo = join(import.meta.dir, "..");
 const A = "a1".repeat(20), B = "b2".repeat(20);
@@ -546,7 +547,7 @@ async function captures(browser: Browser, url: string, dir: string): Promise<voi
     "remote-pc-offline": "the update controls are this server's own; a remote PC that is offline is drawn in its sidebar group (src/components/MachineSidebar.tsx .machine-offline), which this change does not touch, and the demo has no offline PC. The update states with no reachable status are captured as unreachable",
     "empty": "captured as unmanaged (no managed install: no control drawn), up-to-date (managed, nothing on offer: Update and restart disabled) and unreachable (status read fails: no control drawn)",
   };
-  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ head, checklist_path: "/home/devswha/.nvm/versions/node/v24.18.0/lib/node_modules/omo-ai/plugin/skills/visual-qa/SKILL.md", not_applicable: notApplicable, shots }, null, 2));
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ head, ...(process.env["VISUAL_QA_CHECKLIST"] ? { checklist_path: process.env["VISUAL_QA_CHECKLIST"] } : {}), not_applicable: notApplicable, shots }, null, 2));
   writeFileSync(join(dir, "measurements.json"), JSON.stringify({ head, measurements }, null, 2));
   console.log(`PASS captured ${shots.length} states into ${dir}`);
 }
