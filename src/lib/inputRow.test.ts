@@ -73,6 +73,10 @@ function watch(agent: string, states: readonly (InputRowState | null)[]): { arme
 // What each recorded screen shows of the agent's input row: idle and closed are ready, every screen
 // an allow-listed command opens is not (gone, or covered where the row stays drawn under it).
 const EXPECTED: Record<string, Record<string, InputRowState>> = {
+  // the still-open guard's reported case: /btw's answer, recorded on Claude Code 2.1.308 under both renderers
+  claude: {
+    "btw-open-119": "gone", "btw-closed-119": "ready", "btw-open-fullscreen-119": "gone", "btw-closed-fullscreen-119": "ready",
+  },
   codex: {
     "permissions-idle-120": "ready", "permissions-idle-40": "ready", "permissions-open-120": "gone", "permissions-open-40": "gone",
     "permissions-closed-120": "ready", "permissions-closed-40": "ready",

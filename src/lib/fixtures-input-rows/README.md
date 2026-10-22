@@ -13,7 +13,7 @@ its screen held open, then closed with Escape (or `q` for Codex's `/diff` pager)
   line as `{cols, rows, data}`. Each frame is one synchronized-update block, as the attach stream
   draws it.
 
-Versions: Codex 0.163.0, omp 18.8.7, pi 0.86.0, gjc 0.18.12, OmO 5.1.40 (`omo`), Hermes Agent
+Versions: Claude Code 2.1.308 (`claude/btw-*`, signed out, so the answer is an API error; default and fullscreen renderers), Codex 0.163.0, omp 18.8.7, pi 0.86.0, gjc 0.18.12, OmO 5.1.40 (`omo`), Hermes Agent
 0.21.5 (classic CLI), Devin 3000.11.92, Antigravity CLI 1.4.4 (`agy`), Grok 1.0.67.
 
 Redacted: account emails read `user@example.test` and account plans `(plan 00)` / `(Demo plan    )`,
