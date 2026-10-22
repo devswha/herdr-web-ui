@@ -13,6 +13,8 @@ interface Props {
   /** the pane's agent, which names the input a refusal is about */
   agent?: string | null;
   blocked: boolean;
+  /** a terminal command's peek has the pane: the rows stay, taking no input */
+  inert?: boolean;
   unsaved: boolean;
   isBusy: (id: string) => boolean;
   onSendNow: (id: string) => Promise<void>;
@@ -33,7 +35,7 @@ export function pendingStatus(message: Pick<PendingMessageView, "state" | "error
 }
 
 /** Pending text is separate from the transcript; Send now acts on its ID, never on its text. */
-export function PendingMessages({ messages, active = true, connected, agent, blocked, unsaved, isBusy, onSendNow, onDiscard }: Props) {
+export function PendingMessages({ messages, active = true, connected, agent, blocked, inert = false, unsaved, isBusy, onSendNow, onDiscard }: Props) {
   const t = useT();
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -46,7 +48,7 @@ export function PendingMessages({ messages, active = true, connected, agent, blo
       ?? stack.querySelector<HTMLTextAreaElement>(".composer-text");
     next?.focus({ preventScroll: true });
   };
-  return <ol ref={rootRef} className="pending-messages" aria-label={t("Queued messages")}>
+  return <ol ref={rootRef} className="pending-messages" aria-label={t("Queued messages")} inert={inert || undefined}>
     {unsaved && <li className="pending-message-note" role="status">{t("Queue could not be saved. Keep this tab open or copy the messages before reloading.")}</li>}
     {messages.map((message) => {
       const busy = isBusy(message.id) || message.state === "sending";

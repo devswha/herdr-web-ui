@@ -82,6 +82,7 @@ run_script scripts/grok-chat-browser-qa.ts
 run_script scripts/omo-chat-browser-qa.ts
 run_script scripts/omo-plan-browser-regression.ts
 run_script scripts/agent-skill-menu-demo-regression.ts
+run_script scripts/terminal-autoswitch-demo-regression.ts
 run_script scripts/agy-chat-browser-qa.ts
 run_script scripts/gjc-status-browser-regression.ts
 run_script scripts/math-browser-qa.ts

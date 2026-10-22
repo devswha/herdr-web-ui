@@ -75,12 +75,43 @@ folder and home, so its rows are never native and never verified.
 ## The terminal group
 
 Some commands only make sense in the terminal: pickers the chat has no reader for, pagers, or
-reports the agent never writes to its transcript. Rows with `visibility: "terminal"`, or with a
+reports the agent never writes to its transcript. The rule for a row: a typed form that leaves a
+screen waiting for a key (a picker, panel, form, confirmation, prompt or editor) that no reader
+turns into a card is `terminal`. The form decides, so Claude Code's bare `/fast` is a terminal
+command while `/fast off` is an ordinary send. A command that prints and returns to the agent's
+input stays an ordinary send, even when what it printed reaches only the screen. Check a new
+row by sending it in an isolated session of the pinned version, and read the command's own
+definition instead when it signs in, buys, uploads or installs: Claude Code's `/ide` installs
+the editor extension on the PC, and agy updates its own binary when it starts. Rows with
+`visibility: "terminal"`, or with a
 bare form whose interaction is `terminal`, are listed apart in the composer under Terminal
-commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one, or typing it and pressing
-send, keeps the draft and offers two actions: **Open Terminal**, which only switches the lens, and
-**Run in Terminal**, which sends it through the usual path and then switches. Chat never sends a
-terminal command on its own.
+commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one inserts it like any other
+completion. Send/Enter sends it through the usual path and, once accepted, opens a terminal peek
+([`src/lib/terminalPeek.ts`](../src/lib/terminalPeek.ts)): the pane's own terminal over the
+chat's transcript, in this browser only. The chat stays mounted under it, where it was; the pane's
+lens and the address stay Chat, nothing attaches anew and herdr's focus never moves. On a desktop
+the composer stays under the terminal, dimmed and inert, and the terminal takes the keys; on a
+phone the key bar takes the composer's place. Busy commands wait in the existing queue: only an
+explicit **Send now** opens a peek, never automatic delivery. A refusal or unconfirmed send keeps
+the draft and note. View-only devices never send or peek. `/resume` keeps opening **Earlier
+sessions…**.
+
+The peek's head says what ran and offers **Back to Chat** and **Keep Terminal** (which keeps the
+Terminal lens). The header's Chat, Mod+Shift+J, a phone's Back, another pane and a reload end it
+too. Escape belongs to the agent. Claude Code's chat can come back by itself: when one of its
+panels closes, Claude writes a `local_command` answer ("Settings dialog dismissed"), and a
+local-command notice written after the send's own outcome was created ends the peek. Only the
+commands Claude Code 2.1.306 was recorded answering that way at close, sent bare, arm it: `/usage`,
+`/cost`, `/status`, `/stats`, `/help`, `/config`, `/theme`, `/permissions`, `/hooks`, `/skills`,
+`/workflows`, `/passes`, `/resume`, `/powerup` and `/fast` (each only where the catalog lists it
+as a terminal command, since no other command opens a peek). `/diff` writes its answer when its
+panel opens, `/export`, `/plugin`, `/mobile`, `/autocompact`, `/add-dir`, `/mcp` and
+`/scroll-speed` write entries the chat does not show, `/sandbox` and `/tasks` write nothing, and a
+custom or unknown command is unrecorded: those come back by hand. Under Claude's fullscreen
+renderer most panels write nothing at close, and a session writes nothing before its first
+message, so the peek never waits for the answer, and its head says the chat may come back, never
+that it will. Held terminal input, the terminal's find bar or an IME composition in the grid or
+its input line leave the return to the reader. Every other agent's peek ends by hand.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any
@@ -92,8 +123,11 @@ other command. No other row a source finds is ever hidden.
 the text by the same per-agent syntax the composer uses
 ([`shared/skill-syntax.ts`](../shared/skill-syntax.ts)). Recording an outcome never delays the
 send: delivery comes first and tracking catches up. The pane's outcomes ride on
-`GET /api/pane/prompt` as `outcomes`, and the chat shows each one as a chip under its bubble
-([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)).
+`GET /api/pane/prompt` as `outcomes`. Ordinary commands show a chip under their bubble
+([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)). Terminal-only commands instead show one
+quiet **Ran in terminal** row with **Open Terminal**, which opens a peek ended by hand, without
+chips or unconfirmed previews.
+Recognized Hermes informational result cards remain available.
 
 | State | Means | Set by |
 | --- | --- | --- |

@@ -33,6 +33,14 @@ Messages say only what the person needs now, not everything the app knows:
 - Only waiting: one muted phrase, in one place ("Connecting…"); never the same state twice on screen.
 - Causes, internals and conditions stay folded away (a Details toggle) or appear only when they
   apply. A known cause is the sentence ("PC disk is full"); a generic fallback never pushes it aside.
+- Another PC's answer the server will not hold (past its size ceiling, or unreadable where a
+  watcher's prompt must be redacted, `server/remote-json.ts`) is said in one of two fixed sentences
+  in the user's language, never with any of the answer, its address or its size. They sit where
+  each surface already puts the server's words: a PC's state line, its setup dialog's error
+  (`machineErrorText`), and the Details of any request the PC proxy refused (`errorFrom` in
+  `lib/api.ts`, by the 502 code). Nothing new is drawn. None of the reference apps (the Codex and
+  Claude apps, Paseo, T3 Code) relays a second PC's bridge, so there is no app precedent to follow;
+  this applies the known-cause rule above.
 - One situation, one message, one place.
 - The resting screen is calm: a destructive control looks neutral until it asks to confirm;
   danger color is for the moment of risk. PC removal is the exception: its red tint and border
@@ -794,7 +802,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
   Initial focus is placed in the opening commit, before paint, so a menu restoring the terminal
-  cannot leave the first Escape or typed key going to the pane beneath the dialog.
+  cannot leave the first Escape or typed key going to the pane beneath the dialog. A terminal
+  command's peek over the chat is no dialog: its Escape is the agent's, in the grid (see the
+  composer's terminal commands).
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
   and a failure shows inside it. A no gives the focus back to what opened it. A refusal the owner
@@ -1353,7 +1363,7 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 ### Session history (`.session-modal`)
 - From a workspace row's menu, **Earlier sessions…** (lucide `History`, beside Rename workspace),
   and from the chat: picking `/resume` in the `/` menu's Terminal commands opens it at once, and the
-  terminal command's row over the composer offers **Earlier sessions…** beside Open Terminal. The
+  same command typed and sent opens the list without sending anything. The
   dialog is the worktree dialog's anatomy: **Agent** is the New workspace dialog's picker
   (`AgentPicker`: each agent with its mark, its chevron inset like the app's other controls, no
   Shell entry; Escape on its open list closes the list, the next one the dialog) of the PC's
@@ -1537,7 +1547,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   branch once the agent records it; it never guesses a restore from a dialog's wording. The
   hover placement follows the message actions of the Claude and Codex apps; the terminal handoff
   deliberately differs from their native rewind controls because this bridge does not own them.
-- A command sent from the chat says what became of it under its bubble (`.chat-outcome`,
+- A terminal-only command sent from Chat is one quiet right-aligned row, not a bubble:
+  `SquareTerminal`, the command in mono `--fs-sm`, **Ran in terminal** in `--text-dim`,
+  and one **Open Terminal** text button, which opens a terminal peek over the chat (see the
+  composer's terminal commands). It has no outcome chip or unconfirmed output preview.
+  The same row replaces a matching native user turn, so the command never appears twice.
+  Recognized informational result cards, including Hermes, keep their existing presentation.
+- An ordinary command sent from the chat says what became of it under its bubble (`.chat-outcome`,
   `lib/outcomeChip.ts`): one quiet `--fs-xs` line in `--text-dim` on the message's side, a 14px
   glyph and the state in words, read as a `role="status"` live region. It follows the delivery
   receipt messaging apps put under a sent bubble (iMessage's Delivered / Read; Claude's remote
@@ -1955,7 +1971,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   content on a narrow viewport), with the actions trailing rather than leading so the last of
   them, the one that sends, stays over Send. With no input card (view
   only, ended, a secret prompt) the pills stay where the terminal lens draws them, and a notice
-  keeps a phone's card docked: it never floats over the transcript.
+  keeps a phone's card docked: it never floats over the transcript. Under a terminal command's
+  peek the grid shows, so they are its pills again.
 - Held messages (`.composer-queue`) are quiet rows on the input card's column, above it: the
   card's width and gutter at every window width, no tint and no box. One `--border` hairline
   above the group, then one caption line in `--text-dim` at `--fs-xs` (a clock and the sentence
@@ -1988,22 +2005,64 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   typed query too (`.composer-menu-badge`: the `.badge` primitive in the quiet register, `--text-dim`
   on `--bg-elevated`, never shrunk; the description beside it gives way). A row the agent's own
   menu hides (`agent-hidden`) is never listed, and typed by hand it is sent like any text. The
-  chat never sends a terminal command on its own: picking one keeps the draft and a row in the
-  notices' anatomy (`ComposerNotices`, its group labelled **Terminal command**) stands over the
-  card, lucide `SquareTerminal`, then `/config runs in the terminal; the chat cannot show what it
-  does.` with the command in mono, and two ways on in the held rows' buttons: **Open Terminal**
-  (the pane's terminal lens, nothing sent) and **Run in Terminal** (the usual send, then the
-  terminal lens once the send is acknowledged; a refusal keeps the text and its note here), then
-  the row's X. For `/resume` the row leads with **Earlier sessions…** (Session history), and
-  picking it from the menu opens that list at once. Typing such a command by hand and pressing Send shows the same row instead of
-  sending; Escape or the X puts it away with the text kept, and Send brings it back. A
-  connection that only observes has no composer at all (PaneTerminal mounts none for it, see
-  Role), so it sees neither the group nor the row; the composer still takes the connection's
-  `role`, and `terminalCommandActions` never offers Run in Terminal to one that observes. Both
-  buttons are in the Tab order, the row is a `role="status"` row, and a phone's card stays docked
-  while it shows, as with any notice. The split follows VS Code's Copilot Chat, whose shell code blocks carry **Insert into
-  Terminal** (and, later, **Run in Terminal**) rather than running the command from the chat
-  (microsoft/vscode #196990, #227707); here the draft stays exactly as the user wrote it.
+  menu inserts a terminal command like any other completion; Send/Enter submits it through the
+  ordinary input path. There is no extra composer notice or confirmation button.
+  `/resume` opens **Earlier sessions…** instead.
+- Only an accepted direct send or an explicit **Send now** of a terminal command opens a
+  **terminal peek** (`lib/terminalPeek.ts`): the pane's own attached grid over the chat's
+  transcript, in the box the hidden grid already holds. It is this browser's state alone: the
+  lens stays Chat (the header keeps Chat pressed; `herdr-web-ui:view:<pane>` and `?view=` are not
+  written), nothing attaches anew and herdr's focus never moves. Queue acceptance and automatic
+  delivery open none, refused or unconfirmed sends keep the draft and existing note, and a
+  view-only device has no composer to open one from. The chat stays mounted under the grid
+  (`visibility: hidden`), keeping its layout, reading position and reads. A `--hairline` ring in
+  `--accent` marks the grid as a passing view; it snaps open and closed, with no motion. On a
+  desktop the composer, held messages and prompt card stay where they are, dimmed and `inert`,
+  and the grid takes the focus as the terminal lens's does. Where the key bar shows (a coarse
+  pointer, or `768px` and under) the key bar takes the composer's place and the composer is
+  `display: none`, still mounted with its draft: the message box is blurred on the accepted
+  receipt, so a phone's keyboard drops, and the grid is not focused.
+- The peek's head stands in the terminal banner column and takes no grid row, in the rewind
+  hint's anatomy (neutral elevated surface, hairline, `--radius-md`, `--fs-xs`, `--space-2`
+  gaps, existing button targets): **/command ran** (truncated, whole in its title), under it
+  **Chat may come back when you close it** when the return is armed (a possibility, never a
+  promise: Claude may record no close), then **Back to Chat** and **Keep Terminal**, which move
+  under the words when the pane is narrow. It has no focus trap, no Escape of its own and no dialog
+  role: Escape, Tab and the arrows are the agent's. The inert composer is no dictation target, so
+  Mod+Shift+Space and the Escape that cancels a recording stay the terminal's. A find bar left open
+  under the Terminal lens closes when a peek opens; Find in terminal during a peek searches the
+  peek's grid and keeps the peek.
+- Back to Chat, the header's Chat, Mod+Shift+J (which ends the peek instead of switching
+  lenses), a split half's lens button (which says the chat during a peek), a phone's Back (at
+  `640px` and under, as a sheet's), another pane and a reload end the peek; so do the agent ending
+  and the tab being put away. A sheet or Settings opened over a phone's peek closes back onto it
+  (by its own close or by Back): the peek's history entry is made again, and only the next Back is
+  the peek's (`lib/sheetHistory.ts`: the peek is a sheet that stays under what opens over it).
+  Keep Terminal and the header's Terminal save the terminal lens, which ends it with the grid kept
+  and focused. Every end back to the chat blurs the grid (keys typed after it reach no pty) and, on
+  a desktop, focuses the message box; the chat is where it was. The quiet row's and an outcome
+  chip's **Open Terminal** open a peek the reader ends by hand.
+- Claude Code's chat can come back by itself. When one of its panels closes, Claude records a
+  `local_command` answer ("Settings dialog dismissed"); a local-command notice timed after the
+  send's own outcome (its `created_at`: both times are the PC's clock, never the browser's) ends
+  the peek. Only a bare command Claude was recorded answering that way at close arms it
+  (`CLAUDE_AUTO_RETURN`: `/usage`, `/cost`, `/status`, `/stats`, `/help`, `/config`, `/theme`,
+  `/permissions`, `/hooks`, `/skills`, `/workflows`, `/passes`, `/resume`, `/powerup`, `/fast`).
+  `/diff` records when its panel opens, `/export`, `/mcp`, `/plugin` and the like record nothing
+  the chat reads, and custom commands are unrecorded: they return by hand. The send's own outcome
+  is the newest one with its text the chat had not read as it left, so an identical send just
+  before it, closed already, cannot end it. Held terminal input, the find bar or an IME
+  composition in the grid or its input line leave the return to the reader. There is no timer and
+  no key is sent: a record that never comes (Claude's fullscreen renderer writes none for most
+  panels, nor does a session before its first message) leaves the peek until the reader ends it.
+  Every other agent returns by hand.
+- The peek follows Warp's full-screen handoff of an interactive program
+  ([Warp's agent workflow](https://docs.warp.dev/agents/)), where the program takes over the
+  conversation's area and the conversation is back as it was when the program exits, and Zed's
+  terminal panel, which comes up over the workspace without disturbing the buffer under it. Unlike
+  both it keeps the composer under the grid, inert, and comes back only on the agent's own record,
+  because the pty is the agent's own and this bridge cannot see a panel close. No code or pixels
+  are copied.
 - A pane whose rows carry `trigger: "@"` (OpenCode v2 skills, which it takes as `@skill-id`
   attachments) lists them in the `@` menu under a **Skills** heading before the **Files** group
   (the listbox is then **Skills and files**), a bare `@` opens that menu, and picking one inserts

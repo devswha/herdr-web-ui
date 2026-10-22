@@ -23,7 +23,8 @@ import { usePreferencesSync } from "./lib/preferencesSync.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
-import { sheetSteppedOff } from "./lib/sheetHistory.ts";
+import { sheetSteppedOff, usePhoneSheetBack } from "./lib/sheetHistory.ts";
+import { peekFor, type PeekRequest, type TerminalPeek } from "./lib/terminalPeek.ts";
 import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
 import { copyText } from "./lib/clipboard.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -304,6 +305,13 @@ export function App() {
   const [notificationViewTarget, setNotificationViewTarget] = useState<NotificationTarget | null>(
     () => notificationTargetFromSearch(window.location.search),
   );
+  // a terminal command's peek (lib/terminalPeek.ts): the selected pane's terminal over its chat, this
+  // browser's alone and never stored. Whatever clears the lens drawn over the pane's own clears it too
+  const [terminalPeek, setTerminalPeek] = useState<TerminalPeek | null>(null);
+  // a late end (a Back to Chat after the peek was replaced) leaves the newer peek alone
+  const endPeek = useCallback((peek?: TerminalPeek) => {
+    setTerminalPeek((current) => peek === undefined || current === peek ? null : current);
+  }, []);
   // the place a link named, settled against the PC's roster once it is in (lib/deepLink.ts resolveLink)
   const pendingLink = useRef<AppLink | null>(initialLink && (initialLink.pane || initialLink.workspace || fileFromLink(initialLink)) ? initialLink : null);
   // state, not only the ref: what waits on the link landing (the address, its file) runs again when it does
@@ -755,7 +763,7 @@ export function App() {
       })) {
         selectionHint.current = null;
         setSelectedPaneId(message.pane_id);
-        setNotificationViewTarget(null);
+        setNotificationViewTarget(null); setTerminalPeek(null);
         setAutoSelected(true);
       }
       if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
@@ -860,6 +868,7 @@ export function App() {
     setSelectedMachineId(machineId); setSelectedPaneId(paneId); setAutoSelected(false); setDrawerOpen(false);
     setOutputStopped(false);
     setNotificationViewTarget(view && paneId !== null ? { machine_id: machineId, pane_id: paneId, view } : null);
+    setTerminalPeek(null);
     // this browser's choice only: herdr's focus, its TUI and every other device stay where they are
     storeSelection(machineId, paneId);
     // a pane picked (a tapped notification, the sidebar, Back) before a link landed supersedes the link
@@ -928,7 +937,7 @@ export function App() {
       if (hint && hint.machine === selectedMachineId && hint.pane === selectedPaneId) {
         const landed = resolveLink(current, { workspace: hint.workspace, workspaceSlug: null, pane: hint.pane });
         if (landed.note) setHeaderNote(landed.note);
-        setNotificationViewTarget(null);
+        setNotificationViewTarget(null); setTerminalPeek(null);
         setSelectedPaneId(landed.pane ?? fallback(current));
         setAutoSelected(true);
         return;
@@ -946,7 +955,7 @@ export function App() {
     pendingLink.current = null; pendingFile.current = null; setLinkLanded(true);
     selectionHint.current = null;
     setSelectedPaneId(paneId);
-    setNotificationViewTarget(null);
+    setNotificationViewTarget(null); setTerminalPeek(null);
     setAutoSelected(!focusInput);
     setDrawerOpen(false);
   }, []);
@@ -1025,6 +1034,8 @@ export function App() {
   if (lens.key !== lensKey) {
     if (selectedPaneId !== null) view = storedView(lenses, viewPicks, selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach);
     setLens({ key: lensKey, view });
+    // another pane, PC or lens default: the peek was the previous pane's
+    if (terminalPeek !== null) setTerminalPeek(null);
   }
   // a tapped alert's lens is drawn over the pane's own, never stored: once it is gone (the pane or
   // its lens picked by hand) the pane is back on the lens it had. A shell has no conversation to
@@ -1067,7 +1078,7 @@ export function App() {
 
   const setView = useCallback(
     (next: PaneView) => {
-      setNotificationViewTarget(null);
+      setNotificationViewTarget(null); setTerminalPeek(null);
       setLens((current) => ({ ...current, view: next }));
       setAutoSelected(false);
       if (selectedPaneId === null) return;
@@ -1075,6 +1086,9 @@ export function App() {
     },
     [selectedPaneId, selectedMachineId, pickView],
   );
+  // on a phone a peek is a step of its own: Back takes the chat back, as it closes a sheet. It stays
+  // up under a sheet or Settings opened over it: their close, or a Back, comes back to the peek
+  usePhoneSheetBack(() => endPeek(), terminalPeek !== null, true);
 
   // The split view (lib/split.ts): drawn only where the sidebar stands beside the pane, and only
   // while a pane is selected; a narrower window shows the active half alone and keeps the split
@@ -1402,7 +1416,8 @@ export function App() {
         if (next) selectPane(next.pane_id);
       },
       setView,
-      toggleView: () => { setView(view === "chat" ? "terminal" : "chat"); setDrawerOpen(false); },
+      // a peek shows the terminal over the chat: the shortcut takes the chat back, the lens stays Chat
+      toggleView: () => { if (terminalPeek !== null) endPeek(); else setView(view === "chat" ? "terminal" : "chat"); setDrawerOpen(false); },
       focusInput: () => paneControls.current?.focusInput(),
       scrollPage: (direction) => paneControls.current?.scrollPage(direction),
       openNewSession: () => {
@@ -1442,7 +1457,9 @@ export function App() {
       agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
       openFind: () => {
         if (selectedPaneId === null) return;
-        setView("terminal");
+        // a peek already shows the pane's terminal: find searches it there, and the peek (its return,
+        // and the lens and address under it) stays
+        if (terminalPeek?.paneId !== selectedPaneId || terminalPeek.machineId !== selectedMachineId) setView("terminal");
         setDrawerOpen(false);
         setFindRequest((request) => ({ paneId: selectedPaneId, serial: request.serial + 1 }));
       },
@@ -1488,7 +1505,7 @@ export function App() {
         void zoomPane(paneId, mode, machineId).then(() => void load()).catch((err) => layoutRefused("pane zoom failed", err));
       } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, terminalPeek, endPeek, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.run, enableNotifications, load, layoutRefused, lenses],
   );
 
   useShortcuts(actions, locked === false);
@@ -1758,7 +1775,12 @@ export function App() {
             // one pane's panel keeps the page's own id, whichever slot draws it
             const slotPanelId = !splitOn || slot === "a" ? PANE_TABPANEL_ID : `${PANE_TABPANEL_ID}-${slot}`;
             const slotPanelLabel = active ? tabPanelLabel : paneTabPanelLabel(slotSnapshot, pane, t);
+            // a peek shows this half's terminal over its chat: the half's lens button says the chat,
+            // and takes it back, as the palette's toggle and Mod+Shift+J do
+            const slotPeek = active && pane ? peekFor(terminalPeek, slot, machineId, pane.pane_id) : null;
+            const shownView: PaneView = slotPeek !== null ? "terminal" : slotView;
             const toggleSlotView = (): void => {
+              if (slotPeek !== null) { endPeek(slotPeek); return; }
               const next = slotView === "chat" ? "terminal" : "chat";
               if (active) setView(next); else if (pane) pickView(machineId, pane.pane_id, next);
             };
@@ -1771,8 +1793,8 @@ export function App() {
                 event.dataTransfer.setData(PANE_DRAG_TYPE, paneDragData({ machineId, paneId }));
               }}>
               {machines.length > 1 && <span className="pane-slot-machine">{machine?.name ?? machineId}</span>}
-              {pane && <button type="button" className="icon-button pane-slot-action" aria-label={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} title={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} onClick={toggleSlotView}>
-                {slotView === "chat" ? <SquareTerminal /> : <MessageSquare />}
+              {pane && <button type="button" className="icon-button pane-slot-action" aria-label={t(shownView === "chat" ? "Show the terminal" : "Show the chat")} title={t(shownView === "chat" ? "Show the terminal" : "Show the chat")} onClick={toggleSlotView}>
+                {shownView === "chat" ? <SquareTerminal /> : <MessageSquare />}
               </button>}
               <button type="button" className="icon-button pane-slot-action" aria-label={t("Close this half")} title={t("Close this half")} onClick={() => closeSlot(slot)}>
                 <X />
@@ -1844,6 +1866,10 @@ export function App() {
                         view={item ? lensOf(item) : slotView}
                         // the composer's way to the terminal: the selected pane's lens, or the pane's own remembered one
                         onOpenTerminal={item ? () => { if (active && item.pane_id === selectedPaneId) setView("terminal"); else pickView(machineId, item.pane_id, "terminal"); } : undefined}
+                        // a terminal command's peek, for the active half's selected pane alone (lib/terminalPeek.ts)
+                        peek={active && item?.pane_id === selectedPaneId ? peekFor(terminalPeek, slot, machineId, item.pane_id) : null}
+                        onPeek={active && item && item.pane_id === selectedPaneId && attach ? (request: PeekRequest) => setTerminalPeek({ ...request, slot, machineId, paneId: item.pane_id }) : undefined}
+                        onEndPeek={endPeek}
                         // /resume lists the pane's own agent's sessions, and only for an agent whose store is read
                         onOpenHistory={item && sessionHistoryAgent(item.agent) !== null ? () => actions.openSessionHistory({ machineId, workspaceId: item.workspace_id, agent: item.agent, scope: "pane" }) : undefined}
                         // the composer's new-agent button: the New tab dialog on this pane's workspace, as the tab menu opens it
@@ -1948,7 +1974,9 @@ export function App() {
       {viewing !== null && !fileDocked && <MachineContext.Provider value={viewing.machineId}>
         <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path, presentation })} onKind={reportFileKind} onTogglePresentation={toggleFilePresentation} keyboardActive={!settingsOpen} />
       </MachineContext.Provider>}
-      <CommandPalette key={selectedMachineId} machines={machines} onSelect={selectTarget} open={paletteOpen} initialQuery={paletteQuery} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId} view={view} actions={actions} />
+      <CommandPalette key={selectedMachineId} machines={machines} onSelect={selectTarget} open={paletteOpen} initialQuery={paletteQuery} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId}
+        // a peek shows the terminal: its toggle says Switch to chat, which ends the peek
+        view={terminalPeek !== null ? "terminal" : view} actions={actions} />
     </div></MachineContext.Provider></MachineSessionsProvider>
   );
 }
