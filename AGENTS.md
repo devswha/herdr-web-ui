@@ -92,9 +92,15 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   only after a commit that changes behaviour in `server/`, `src/` or `shared/`, an HTTP/WS
   contract or a workflow. A rebase, changelog fragment, docs, comment or test-only commit gets
   none.
-- A rate-limited review still shows a passing CodeRabbit check; its "Review limit reached"
-  comment means no review ran. A PR touching `--takeover`, observe permissions, queued input,
-  authentication, an HTTP/WS contract or a workflow waits for a real review. Any other PR says
-  in a comment that CodeRabbit did not review it, and merges on its checks and the maintainer.
+- A rate-limited or skipped review still shows a passing CodeRabbit check; its "Review limit
+  reached" or "Review skipped" comment means no review ran. CodeRabbit skips a PR of more than
+  150 files, so a PR that needs a review stays under that.
+- A PR touching `--takeover`, observe permissions, queued input, authentication, an HTTP/WS
+  contract or a workflow waits for a real review. When CodeRabbit skips it, a code-review agent's
+  review stands in: its findings and how each was resolved go in a PR comment before the merge.
+- A move-only PR (files moved or split, imports updated, no behaviour change) does not wait for
+  CodeRabbit: it merges on its checks once its diff shows only moved code and import paths
+  (`git diff --color-moved`). Every PR merged without a CodeRabbit review says so in a comment,
+  and any other PR merges on its checks and the maintainer.
 - Changelog entries go in `changelog.d/` fragments ([format](changelog.d/README.md)), not
   CHANGELOG.md; only a release folds them in.
