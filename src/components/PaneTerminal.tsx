@@ -3002,7 +3002,14 @@ export function PaneTerminal({
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
     // is-peek: a terminal command's peek shows the grid over the still-mounted chat (PaneTerminal.css)
+    // A press on the peek's dimmed, inert composer lands on the stack itself: it keeps the keyboard
+    // in the grid, so Escape still reaches the agent, instead of handing focus to the pane frame
     <div ref={stackRef} className={`terminal-stack${chatMounted ? " is-chat" : ""}${peek !== null ? " is-peek" : ""}${greeted ? " is-greeted" : ""}`} data-pane-owner={paneId === null ? undefined : paneStorageId(machineId, paneId)} data-direct-typing={coarse && directTyping && !chatView ? "" : undefined}
+      onMouseDown={peek !== null && !coarse ? (event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        termRef.current?.focus();
+      } : undefined}
       data-pane-content={!chatView && paneId !== null && active && presented && shown && connected && outputReady && parsedTarget === outputTarget && !held && !ended && !released && !unsupported && !outputError ? presentationKey : undefined}>
       {paneId === null && restoreError !== null && (
         <div className="terminal-placeholder is-restore-error" role="status">

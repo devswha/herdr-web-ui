@@ -286,6 +286,14 @@ try {
       await send(page, "/config");
       await expectPeek(true, "/config");
       await capture(page, `${tag}-peek-auto`);
+      if (!touch) {
+        // a press on the dimmed composer keeps the keyboard in the grid, so Escape still reaches the agent
+        const dimmed = await chat(page).locator(".composer").boundingBox();
+        assert.ok(dimmed);
+        await page.mouse.click(dimmed.x + dimmed.width / 2, dimmed.y + dimmed.height / 2);
+        assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("xterm-helper-textarea") === true), true,
+          "a press on the inert composer leaves the grid focused");
+      }
       await pressEscape();
       await expectReturned();
       await chat(page).getByRole("log").locator(".chat-notice-label", { hasText: "Config dialog dismissed" }).last().waitFor();
