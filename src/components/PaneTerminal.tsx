@@ -1433,7 +1433,8 @@ export function PaneTerminal({
     // its own owner and generation checks keep it off the new output. An OSC the old output left
     // open in xterm is guarded as a replayed one: its callback decides for a frame still parsing.
     // The frame gate read those dropped frames as they came, so their stream ends there too: a
-    // synchronized update one opened would otherwise keep every later frame from settling.
+    // synchronized update one opened would otherwise keep later frames from settling until
+    // another synchronized update closed.
     const retireOutput = (): void => {
       outputOwner++;
       outputFrames.length = 0;
