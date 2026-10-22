@@ -4,8 +4,7 @@ The Ovis artwork is the sleeping sheep on navy that the native apps and
 [ovis.sh](https://ovis.sh) use: `app/assets/icon-only.png` (the app icon),
 `app/assets/ovis-sheep.png` (the sheep on transparent) and ovis.sh's link preview
 `ovis-site/assets/og-icon.png`. Exports preserve the artwork. `icon-source.png` here is the
-earlier ram artwork, still read by `scripts/readme-media/banner.ts` and `scripts/film/` until the
-README banner and the film are made again.
+earlier ram artwork, still read by `scripts/film/` until the film is made again.
 
 Run `bun scripts/generate-brand.ts` to regenerate the web app's icons, favicon,
 Apple touch icon, notification badge and social preview from them. This optional
