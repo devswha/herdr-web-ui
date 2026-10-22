@@ -290,6 +290,64 @@ it("rejects a mismatched reply id", async () => {
   expect(await herdrRpc<unknown>("fixture.read", {}, path)).toEqual({ ok: true });
 });
 
+it("takes an error under the ids herdr 0.9.0 and 0.9.1 give it as herdr's own", async () => {
+  // herdr 0.9.0 and 0.9.1 answer a request they cannot deserialize with an empty id, and refuse an
+  // events.subscribe with `<id>:sub:<n>:probe`; 0.9.2 and later echo the request's id
+  const diagnostics = captureDiagnostics();
+  const unknown = { code: "invalid_request", message: "invalid request: unknown variant `pane.clear`" };
+  const gone = { code: "pane_not_found", message: "pane pane-9 not found" };
+  let reply: (id: string) => unknown = () => null;
+  const { path } = await peer((request, { socket }) => socket.end(`${JSON.stringify(reply(request.id))}\n`));
+  reply = () => ({ id: "", error: unknown });
+  const invalid = await rejection(herdrRpc<unknown>("pane.clear", { pane_id: "pane-1" }, path));
+  expect([invalid.code, invalid.message]).toEqual([unknown.code, unknown.message]);
+  reply = (id) => ({ id: `${id}:sub:0:probe`, error: gone });
+  const probe = await rejection(herdrRpc("fixture.read", {}, path));
+  expect([probe.code, probe.message]).toEqual([gone.code, gone.message]);
+  // herdr's errors, not transport failures
+  expect(diagnostics.records()).toEqual([]);
+
+  // only an error may carry those ids, and only this request's probe id
+  const foreign: [string, (id: string) => unknown][] = [
+    ["reply to another request", () => ({ id: "", result: { stolen: true } })],
+    ["reply to another request", (id) => ({ id: `${id}:sub:0:probe`, result: { stolen: true } })],
+    ["reply to another request", () => ({ id: "", result: null, error: unknown })],
+    ["reply to another request", () => ({ id: "br-someone-else:sub:0:probe", error: gone })],
+    ["reply to another request", (id) => ({ id: `${id}:probe`, error: gone })],
+    ["malformed error", () => ({ id: "", error: { code: "invalid_request" } })],
+  ];
+  for (const [reason, build] of foreign) {
+    reply = build;
+    const error = await rejection(herdrRpc("fixture.read", {}, path));
+    expect([error.code, error.message]).toEqual(["bad_frame", expect.stringContaining(`(${reason}, `)]);
+  }
+
+  // a subscription refused by herdr 0.9.0 or 0.9.1 reports herdr's error, as one from 0.9.2 does
+  type Script = (id: string, socket: Socket) => void;
+  let script: Script = () => {};
+  const { path: streamPath } = await peer((request, { socket }) => script(request.id, socket));
+  const refusals: [(id: string) => string, { code: string; message: string }][] = [[(id) => `${id}:sub:0:probe`, gone], [() => "", unknown]];
+  for (const [replyId, error] of refusals) {
+    script = (id, socket) => socket.end(`${JSON.stringify({ id: replyId(id), error })}\n`);
+    const refused = subscriber(streamPath);
+    await within(refused.closedOnce, 5_000, `closing after herdr's ${error.code}`);
+    expect(refused.errors.map((e) => [(e as HerdrError).code, e.message])).toEqual([[error.code, error.message]]);
+    expect([refused.started(), refused.closes()]).toEqual([0, 1]);
+  }
+  // and after the acknowledgement, an error under its probe id leaves the stream open
+  script = (id, socket) => socket.write(`${ack(id)}${JSON.stringify({ id: `${id}:sub:1:probe`, error: gone })}\n${JSON.stringify(event(1))}\n`);
+  const open = subscriber(streamPath, 1);
+  await within(open.allEvents, 5_000, "the event after herdr's error");
+  expect(open.errors.map((e) => [(e as HerdrError).code, e.message])).toEqual([[gone.code, gone.message]]);
+  expect([open.started(), open.closes(), open.events]).toEqual([1, 0, [event(1)] as never]);
+  // an acknowledgement still needs the subscribe's own id
+  script = (_id, socket) => socket.write(ack(""));
+  const unacknowledged = subscriber(streamPath);
+  await within(unacknowledged.closedOnce, 5_000, "closing on an acknowledgement with an empty id");
+  expect(unacknowledged.errors.map((e) => [(e as HerdrError).code, e.message])).toEqual([["bad_frame", expect.stringContaining("(reply to another request, ")]]);
+  expect(unacknowledged.started()).toBe(0);
+}, 30_000);
+
 it("bounds bytes before a newline or UTF-8 decoding", async () => {
   const encode = (text: string) => new TextEncoder().encode(text);
   const read = (limit: number, chunks: Uint8Array[]) => {

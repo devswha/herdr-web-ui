@@ -128,15 +128,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type Reply = { result: unknown } | { error: { code: string; message: string } };
 
 /**
+ * Whether `replyId` is how herdr 0.9.0 and 0.9.1, still supported, address an error to request
+ * `id`: they answer a request they cannot deserialize with an empty id, and refuse an
+ * events.subscribe with `<id>:sub:<n>:probe`; 0.9.2 and later echo the request's id. One connection
+ * carries one request, so such an error can only answer it.
+ */
+function isOlderHerdrErrorId(replyId: unknown, id: string): boolean {
+  return replyId === "" || (typeof replyId === "string" && replyId.startsWith(`${id}:sub:`));
+}
+
+/**
  * The reply to request `id` in a parsed line, or why the line is not one: herdr's envelope is an
  * object whose string `id` is the request's, with exactly one of `result` (which may be null) and
- * `error` (an object with string `code` and `message`). Fields herdr adds later are allowed.
+ * `error` (an object with string `code` and `message`). An error may also carry an id of herdr
+ * 0.9.0 or 0.9.1 (isOlderHerdrErrorId). Fields herdr adds later are allowed.
  */
 function readReply(frame: unknown, id: string): Reply | string {
   if (!isRecord(frame)) return "not an object";
-  if (frame["id"] !== id) return "reply to another request";
   const hasResult = Object.hasOwn(frame, "result");
-  if (hasResult === Object.hasOwn(frame, "error")) return hasResult ? "both result and error" : "neither result nor error";
+  const hasError = Object.hasOwn(frame, "error");
+  if (frame["id"] !== id && !(hasError && !hasResult && isOlderHerdrErrorId(frame["id"], id))) return "reply to another request";
+  if (hasResult === hasError) return hasResult ? "both result and error" : "neither result nor error";
   if (hasResult) return { result: frame["result"] };
   const error = frame["error"];
   if (!isRecord(error) || typeof error["code"] !== "string" || typeof error["message"] !== "string") return "malformed error";
