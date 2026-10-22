@@ -768,6 +768,41 @@ describe("workspace order evidence through the manager", () => {
     expect(remoteOf(manager)?.snapshot).toMatchObject({ order_epoch: "R2", read_seq: 0, panes: [{ agent_status: "blocked" }] });
   });
 
+  it("a snapshot held for health cannot overwrite a status heard while it waited", async () => {
+    let clock = 0;
+    const { manager, drive, remote, runtime, send, setHealth } = await remoteFixture({ now: () => clock });
+    const health = gatedHealth();
+    setHealth(health.handler);
+    remote.set(paired("R1", 3));
+    await drive.refresh(runtime);
+    (await health.next()).answer("R1");
+    await published(manager, (machines) => machines.some((machine) => machine.id === "remote" && machine.source_boot_id === "R1"));
+    clock = SOURCE_CHECK_INTERVAL_MS;
+    // the new server's current roster, which the status frame's follow-up read returns
+    remote.set(paired("R2", 1, "blocked"));
+    remote.hold();
+    send({ type: "snapshot", snapshot: paired("R2", 0, "working") });
+    const call = await health.next();
+    const statusHeard = new Promise<void>((resolve) => {
+      const stop = manager.subscribe((event) => { if (event.type === "machine-message" && event.message.type === "pane-status") { stop(); resolve(); } });
+    });
+    send({ type: "pane-status", pane_id: "fixture:p1", agent_status: "blocked" });
+    await statusHeard;
+    await remote.held();
+    expect(remoteOf(manager)?.snapshot).toMatchObject({ order_epoch: "R1", read_seq: 3, panes: [{ agent_status: "blocked" }] });
+    const pairs = remotePairs(manager);
+    const proved = published(manager, (machines) => machines.some((machine) => machine.id === "remote" && machine.source_boot_id === "R2"));
+    call.answer("R2");
+    await proved;
+    // the held snapshot is published with its order pair, and with the status heard while it waited
+    expect(remoteOf(manager)?.snapshot).toMatchObject({ order_epoch: "R2", read_seq: 0, panes: [{ agent_status: "blocked" }] });
+    const current = published(manager, (machines) => machines.some((machine) => machine.id === "remote" && machine.snapshot?.read_seq === 1));
+    remote.finish();
+    await current;
+    expect(remoteOf(manager)?.snapshot).toMatchObject({ order_epoch: "R2", read_seq: 1, panes: [{ agent_status: "blocked" }] });
+    expect(pairs.filter((pair) => pair.startsWith("R2:"))).toEqual(["R2:0", "R2:1"]);
+  });
+
   it("concurrent verification queries start one health call", async () => {
     const { manager, setHealth } = await remoteFixture();
     const health = gatedHealth();
