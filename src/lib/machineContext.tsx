@@ -2,8 +2,12 @@ import { createContext, useContext, useMemo } from "react";
 import * as api from "./api.ts";
 import type { CreateWorktreeRequest, OpenWorktreeRequest, PaneDirection, PluginActionRequest, RemoveWorktreeRequest, SessionHistoryAgent, SplitPaneDirection } from "../../shared/protocol.ts";
 import type { ZoomMode } from "./layoutMap.ts";
+import { ReorderCoordinator } from "./workspaceOrder.ts";
 export const MachineContext = createContext("local");
 export const useMachineId = () => useContext(MachineContext);
+/** App's workspace order for every PC (lib/workspaceOrder.ts); a Sidebar outside App gets its own */
+export const ReorderContext = createContext(new ReorderCoordinator());
+export const useReorderCoordinator = () => useContext(ReorderContext);
 /** Bound functions retain their owner across an async upload or a fast PC switch. */
 export function useMachineApi() {
   const id = useMachineId();

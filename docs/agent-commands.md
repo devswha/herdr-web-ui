@@ -75,15 +75,87 @@ folder and home, so its rows are never native and never verified.
 ## The terminal group
 
 Some commands only make sense in the terminal: pickers the chat has no reader for, pagers, or
-reports the agent never writes to its transcript. Rows with `visibility: "terminal"`, or with a
+reports the agent never writes to its transcript. The rule for a row: a typed form that leaves a
+screen waiting for a key (a picker, panel, form, confirmation, prompt or editor) that no reader
+turns into a card is `terminal`. The form decides, so Claude Code's bare `/fast` is a terminal
+command while `/fast off` is an ordinary send. A command that prints and returns to the agent's
+input stays an ordinary send, even when what it printed reaches only the screen. Check a new
+row by sending it in an isolated session of the pinned version, and read the command's own
+definition instead when it signs in, buys, uploads or installs: Claude Code's `/ide` installs
+the editor extension on the PC, and agy updates its own binary when it starts. Rows with
+`visibility: "terminal"`, or with a
 bare form whose interaction is `terminal`, are listed apart in the composer under Terminal
 commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one inserts it like any other
-completion. Send/Enter sends it through the usual path and, once accepted, opens this browser's
-Terminal lens. A dismissible command hint offers **Back to Chat**, restoring the reader's place;
-it stays until dismissed or the lens is left, without a timer. Busy commands wait in the existing
-queue: only an explicit **Send now** switches views, never automatic delivery. A refusal or
-unconfirmed send keeps the draft and note. View-only devices never send or switch, and no action
-moves herdr's focus. `/resume` keeps opening **Earlier sessions…**.
+completion. Send/Enter sends it through the usual path and, once accepted, opens a terminal peek
+([`src/lib/terminalPeek.ts`](../src/lib/terminalPeek.ts)): the pane's own terminal over the
+chat's transcript, in this browser only. The chat stays mounted under it, where it was; the pane's
+lens and the address stay Chat, nothing attaches anew and herdr's focus never moves. On a desktop
+the composer stays under the terminal, dimmed and inert, and the terminal takes the keys; on a
+phone the key bar takes the composer's place. Busy commands wait in the existing queue: only an
+explicit **Send now** opens a peek, never automatic delivery. A refusal or unconfirmed send keeps
+the draft and note. View-only devices never send or peek. `/resume` keeps opening **Earlier
+sessions…**.
+
+The peek's head says what ran and offers **Back to Chat** and **Keep Terminal** (which keeps the
+Terminal lens). The header's Chat, Mod+Shift+J, a phone's Back, another pane and a reload end it
+too. Escape belongs to the agent. Claude Code's chat can come back by itself: when one of its
+panels closes, Claude writes a `local_command` answer ("Settings dialog dismissed"), and a
+local-command notice written after the send's own outcome was created ends the peek. Only the
+commands Claude Code 2.1.306 was recorded answering that way at close, sent bare, arm it: `/usage`,
+`/cost`, `/status`, `/stats`, `/help`, `/config`, `/theme`, `/permissions`, `/hooks`, `/skills`,
+`/workflows`, `/passes`, `/resume`, `/powerup` and `/fast` (each only where the catalog lists it
+as a terminal command, since no other command opens a peek). `/diff` writes its answer when its
+panel opens, `/export`, `/plugin`, `/mobile`, `/autocompact`, `/add-dir`, `/mcp` and
+`/scroll-speed` write entries the chat does not show, `/sandbox` and `/tasks` write nothing, and a
+custom or unknown command is unrecorded: those come back by hand. Under Claude's fullscreen
+renderer most panels write nothing at close, and a session writes nothing before its first
+message, so the peek never waits for the answer, and its head says the chat may come back, never
+that it will. Held terminal input, the terminal's find bar or an IME composition in the grid or
+its input line leave the return to the reader.
+
+The other agents write nothing when a picker or panel closes, and herdr reports those screens as
+idle, so their chat comes back from the screen instead
+([`src/lib/inputRow.ts`](../src/lib/inputRow.ts)): each draws its own empty input row again when
+the screen closes. One recognizer per agent reads the terminal's bottom rows off whole frames
+(never inside one of herdr's synchronized-update blocks, nor between a resize and the agent's
+redraw; when the pane's grid changes size, the first frame for it, which may be herdr's own of
+the old screen reflowed, neither arms nor ends the peek). The peek arms once the row has gone, or
+been covered by a panel drawn over it, after the send, and ends on the first frame that shows it
+back, empty. It arms only when the row was read empty as the command left, and only for the
+commands each agent was recorded hiding and redrawing it for, sent bare:
+
+| Agent (version recorded) | Comes back by itself after | Arms on |
+|---|---|---|
+| Codex (0.163.0) | `/permissions`, `/theme`, `/statusline`, `/resume`, `/review`, `/rename`, `/new`, `/fork`, `/usage`, `/diff` (closed with `q`), `/cd <folder>` it does not trust yet | row gone |
+| omp (18.8.7) | `/settings`, `/hotkeys`, `/tree`, `/resume`, `/extensions`, `/agents`, `/usage`, `/context`, `/btw` | row gone or covered |
+| pi (0.86.0) | `/settings`, `/tree`, `/resume`, `/scoped-models` | row gone |
+| gjc (0.18.12) | `/settings`, `/theme`, `/tree`, `/resume`, `/sessions`, `/transcript`, `/routing` | row gone |
+| OmO (5.1.40) | `/settings`, `/tree`, `/thinking`, `/scoped-models`, `/favorite-models`, `/sessions`, `/resume`, `/rename`, `/share`, `/trust` | row gone |
+| Hermes classic CLI (0.21.5) | `/model`, `/reload-mcp`, `/new`, `/reset`, `/clear` | row covered only: it draws the empty row for a moment before every screen |
+| Devin (3000.11.92) | `/model`, `/models`, `/config`, `/resume`, `/theme`, `/shortcuts`, `/mode`, `/btw` | row gone |
+| agy (1.4.4) | `/model`, `/resume`, `/config`, `/permissions`, `/mcp`, `/skills`, `/usage`, `/context`, `/help`, `/tasks`, `/rewind`, `/artifact`, `/codesearch`, `/diff`, `/changelog` | row gone or covered |
+| Grok (1.0.67) | `/settings`, `/sessions`, `/resume`, `/plugins`, `/skills`, `/hooks`, `/help`, `/usage`, `/context`, `/history` | row gone or covered |
+
+A command that prints and keeps the row (Codex `/status`, omp `/plan`, pi `/hotkeys`, Devin
+`/mcp`…) never arms; one that hands the screen to `$EDITOR` (Hermes `/prompt`, agy `/open`) or
+closes onto text in the row (Hermes `/palette`, Grok `/model`, Codex `/mention`) is left to the
+reader. Codex's `/side` and `/btw` come back by hand: their side thread draws a composer of its
+own. So does OpenCode, whose in-session layout was not recorded, and every unrecorded command
+or agent.
+
+A peek ended by hand while its command's screen is still open (Claude Code's `/btw` answer, a
+picker left up) leaves the next message to be typed into that screen, where it does nothing.
+Where the agent has a recognizer (Claude Code's reads its input box between the screen's last
+two rules) and it read the empty row as the peek began, the composer then says **/command is
+still open in the terminal** (**A screen is still open in the terminal** after a peek opened
+from a chat row, where the reader may have opened another), with **Show terminal**. Send keeps
+the message and says it was not sent, with **Send anyway** to send it once; a quick reply and a
+queued message's **Send now** are held the same way, without it. A command on the list whose
+screen had not opened yet when the reader left (gjc's `/sessions` keeps its empty box for 10 to
+15 seconds while it loads) gets the notice once a frame shows the screen, unless the agent starts
+a turn first. The notice goes as soon as a frame shows the row back, or with another pane, agent
+or session; a peek left for another pane sets none. Messages the PC delivers by itself at the end
+of a turn are not held. Nothing is typed to close the screen.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any
@@ -97,7 +169,8 @@ the text by the same per-agent syntax the composer uses
 send: delivery comes first and tracking catches up. The pane's outcomes ride on
 `GET /api/pane/prompt` as `outcomes`. Ordinary commands show a chip under their bubble
 ([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)). Terminal-only commands instead show one
-quiet **Ran in terminal** row with **Open Terminal**, without chips or unconfirmed previews.
+quiet **Ran in terminal** row with **Open Terminal**, which opens a peek ended by hand, without
+chips or unconfirmed previews.
 Recognized Hermes informational result cards remain available.
 
 | State | Means | Set by |

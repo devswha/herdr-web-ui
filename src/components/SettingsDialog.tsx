@@ -70,6 +70,11 @@ export interface SettingsDialogProps {
   onEnableNotifications: () => Promise<boolean>;
   /** the last change the server refused to save (lib/preferencesSync.ts); null once a save lands */
   saveError: UserError | null;
+  /** three saves failed in a row: nothing is sent until Retry, a reconnect or a longer wait */
+  savePaused: boolean;
+  /** a Retry of that save is waiting for its answer */
+  saveRetrying: boolean;
+  onRetrySave: () => void;
   /** a file preview is open beneath: the dialog is drawn above it */
   overPreview?: boolean;
 }
@@ -1003,20 +1008,26 @@ function SettingsCrash({ onClose, overPreview }: { onClose: () => void; overPrev
 
 /**
  * A change the server refused to save, on whichever page is open: the plain sentence (lib/userError.ts),
- * the server's own words behind Details. It stays until a save lands; the change is sent again
- * every few seconds meanwhile (lib/preferencesSync.ts).
+ * the server's own words behind Details, and where the change is now with the Retry that sends it.
+ * It stays until a save lands; the change is sent again every few seconds meanwhile, and after three
+ * failures on Retry, a reconnect or once a longer wait ends (lib/preferencesSync.ts). Only this page
+ * holds the change until then: a reload takes the server's values again.
  */
-function SaveFailure({ error }: { error: UserError }) {
+function SaveFailure({ error, paused, retrying, onRetry }: { error: UserError; paused: boolean; retrying: boolean; onRetry: () => void }) {
   const t = useT();
-  return <div className="settings-save-error" role="alert">
+  return <div className="settings-save-error" role="alert" data-paused={paused || undefined}>
     {error.detail === null ? <p>{error.message}</p> : <details className="settings-details">
       <summary>{error.message}<span className="settings-details-toggle">{t("Details")}</span></summary>
       <code>{error.detail}</code>
     </details>}
+    <div className="settings-save-local">
+      <p>{retrying ? t("Sending the change to the server…") : t("Not saved on the server yet; reloading or closing this page can undo the change.")}</p>
+      <button type="button" className="btn" disabled={retrying} aria-busy={retrying} onClick={onRetry}>{t("Retry")}</button>
+    </div>
   </div>;
 }
 
-function OpenSettingsDialog({ section = null, linkPage = null, linkSection = null, onPage, onClose, onUsageLogin, actions, updates, auth, herdrVersion, onEnableNotifications, saveError, overPreview = false }: SettingsDialogProps) {
+function OpenSettingsDialog({ section = null, linkPage = null, linkSection = null, onPage, onClose, onUsageLogin, actions, updates, auth, herdrVersion, onEnableNotifications, saveError, savePaused, saveRetrying, onRetrySave, overPreview = false }: SettingsDialogProps) {
   const t = useT();
   const narrow = useNarrow();
   // opened by Forward, the dialog shows what that entry of the history showed
@@ -1160,7 +1171,7 @@ function OpenSettingsDialog({ section = null, linkPage = null, linkSection = nul
             </div>
           </nav>
         )}
-        {page !== null && <div key={page} ref={settingsBodyRef} id="settings-panel" className="modal-body settings-body" role="tabpanel" aria-label={label(page)} hidden={keyBarOpen}>{saveError !== null && <SaveFailure error={saveError} />}{body()}</div>}
+        {page !== null && <div key={page} ref={settingsBodyRef} id="settings-panel" className="modal-body settings-body" role="tabpanel" aria-label={label(page)} hidden={keyBarOpen}>{saveError !== null && <SaveFailure error={saveError} paused={savePaused} retrying={saveRetrying} onRetry={onRetrySave} />}{body()}</div>}
         {keyBarOpen && <div className="modal-body settings-key-bar-body"><KeyBarSettings /></div>}
       </section>
     </div>
