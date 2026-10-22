@@ -65,13 +65,17 @@ export function SessionHistory({ workspace, panes, agent: firstAgent, recent = N
   useSheetSwipe(surface, pending ? null : onClose);
   usePhoneSheetBack(() => { if (pending) return false; onClose(); });
   const opener = useRef<HTMLElement | null>(null);
+  const placed = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // the dialog holds the focus from its first paint: an Escape pressed at once closes it rather
+    // than going to the message box it was opened from
+    picker.current?.focus({ preventScroll: true });
+    placed.current = picker.current;
     return () => { if (opener.current?.isConnected) opener.current.focus({ preventScroll: true }); };
   }, []);
   // the first row's button takes the focus once the rows are in; until then the agent field. Focus
   // the user moved meanwhile (Tab to Cancel, the field opened) stays where they put it
-  const placed = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const active = document.activeElement;
