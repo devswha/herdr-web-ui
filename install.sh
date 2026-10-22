@@ -20,14 +20,32 @@
 #   OVIS_TAILSCALE_HTTPS_PORT=<port>   serve the app on that HTTPS port only, keeping 443 free
 set -eu
 
-REPO="devswha/herdr-web-ui"
-PLUGIN="devswha.herdr-web-ui"
+REPO="devswha/ovis"
+PLUGIN="devswha.ovis"
+# the id before the rename: an install under it moves to PLUGIN, keeping its config
+LEGACY_PLUGIN="devswha.herdr-web-ui"
 BIN_DIR="$HOME/.local/bin"
 NODE_DIR="$HOME/.local/share/ovis/node"
 # Official digests from nodejs.org/dist/v22.23.2/SHASUMS256.txt, as scripts/build-remote-bundle.ts pins them
 NODE_VERSION="v22.23.2"
 
 say() { printf '%s\n' "Ovis: $*"; }
+
+# shellcheck disable=SC2016 # JavaScript, not shell
+plugin_root() { herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === process.argv[1])?.plugin_root ?? "")' "$1"; }
+
+# herdr keeps a plugin's config by its id: the old id's env files (the token among them) go to
+# the new id's dir unless it has its own, with their owner-only mode
+adopt_legacy_config() {
+  old=$(herdr plugin config-dir "$LEGACY_PLUGIN" 2>/dev/null </dev/null) || return 0
+  new=$(herdr plugin config-dir "$PLUGIN" 2>/dev/null </dev/null) || return 0
+  [ ! -e "$new/env" ] && [ ! -e "$new/.env" ] || return 0
+  for name in env .env; do
+    [ -e "$old/$name" ] || continue
+    mkdir -p "$new"
+    cp -p "$old/$name" "$new/$name"
+  done
+}
 # a clickable address in a terminal (OSC 8); $terminal is set once, since $(link …) runs in a pipe
 # shellcheck disable=SC1003 # the backslashes end OSC 8 escapes (ESC \\), no quote is escaped
 link() { if [ "$terminal" = 1 ]; then printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$1" "$1"; else printf '%s' "$1"; fi; }
@@ -260,6 +278,17 @@ main() {
   node_major=$(node --version 2>/dev/null | sed -n 's/^v\([0-9][0-9]*\).*/\1/p')
   [ "${node_major:-0}" -ge 18 ] || install_node
 
+  legacy_root=""
+  if herdr plugin list 2>/dev/null | grep -q "$LEGACY_PLUGIN "; then
+    legacy_root=$(plugin_root "$LEGACY_PLUGIN")
+    say "moving the installed plugin to its Ovis id; its settings and token come along"
+    # stopped first: removed with its server up, the old checkout would keep serving, and the new
+    # id's start would find the port answering and leave it
+    if [ -n "$legacy_root" ] && ! bun "$legacy_root/scripts/plugin.ts" stop </dev/null >/dev/null 2>&1; then
+      fail "could not stop the server of the old id, so nothing was moved. Stop it (herdr plugin action invoke $LEGACY_PLUGIN.stop, or restart herdr), then run this again."
+    fi
+  fi
+
   if herdr plugin list 2>/dev/null | grep -q "$PLUGIN "; then
     say "already installed as a herdr plugin; Settings → Updates keeps it current"
   else
@@ -280,8 +309,13 @@ main() {
     fi
   fi
 
-  root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "'"$PLUGIN"'")?.plugin_root ?? "")')
+  root=$(plugin_root "$PLUGIN")
   [ -n "$root" ] || fail "herdr does not list the plugin after installing it; see: herdr plugin list"
+
+  if herdr plugin list 2>/dev/null | grep -q "$LEGACY_PLUGIN "; then
+    adopt_legacy_config
+    herdr plugin uninstall "$LEGACY_PLUGIN" </dev/null >/dev/null || fail "could not remove the plugin's old id; run: herdr plugin uninstall $LEGACY_PLUGIN"
+  fi
 
   if herdr status server --json 2>/dev/null | grep -q '"running":true'; then
     # the action only queues the start (its output goes to herdr's plugin log), so wait for it here

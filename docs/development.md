@@ -408,13 +408,12 @@ in the historical table above. They were taken with a 2 s push-read bound; the b
 - `compose.ts` draws every output frame on a canvas: a backdrop, a browser window or a phone, the frame under an eased camera, and a vector cursor with click ripples or touch rings. It writes `demo-*.mp4` (1920×1200 and 1080×1920, 30 fps) and a GIF of each. Stills get the same window or phone on a transparent background.
 
 The MP4s are not committed: GitHub plays a README video only from an upload (`github.com/user-attachments/…`), so drop them into an issue or PR comment and use the link it gives.
-The website's page is built from the README's own artifacts: it downloads the README's top video (listed in `scripts/build-site.ts`, `videos`, so a new top video needs its link changed there as well), shows the feature grid's clips linking to their uploads (the same list of links is in `site/index.html` and `site/zh/index.html`), and uses `docs/screenshots/install.png`.
 The README's feature grid shows a looping ~7-second cut of each feature video (`docs/media/readme/*.webp`, 800×450, 15 fps), each linking to its upload. Cut one with
 `ffmpeg -ss <start> -t <seconds> -i clip.mp4 -vf "fps=15,scale=800:450:force_original_aspect_ratio=increase:flags=lanczos,crop=800:450" -c:v libwebp_anim -loop 0 -quality 72 -compression_level 6 -an out.webp`;
 the scale and crop fill 800×450 from any source aspect. Start on a sharp frame, not mid camera move. The top video stays a GitHub upload so it plays at full quality.
 
-The user guide's gallery and the retained banner assets are rendered from the film's stills (below): `bun scripts/readme-media/banner.ts [banner] [og] [look]`
-draws `banner.html` in headless Chrome into `docs/media/banner.png` (1920×800), `site/assets/og.png` (1280×640) and
+The user guide's gallery and the retained banner assets are rendered from the film's stills (below): `bun scripts/readme-media/banner.ts [banner] [look]`
+draws `banner.html` in headless Chrome into `docs/media/banner.png` (1920×800) and
 `docs/media/look-{chat,prompt,terminal}.png` (1760×1150), each quantized to 256 colours. `docs/media/chat-loop.gif`
 comes from `scripts/film/render.ts loop`.
 
@@ -422,14 +421,14 @@ comes from `scripts/film/render.ts loop`.
 
 The film (`site/media/herdr-web-ui-film.mp4`, 56 s) and chat loop (`site/media/chat-loop.mp4`, with the README's
 `docs/media/chat-loop.gif`) are the real client on the demo's fixtures, recorded and composited by `scripts/film/`.
-Raw footage and renders go to `_film/` (gitignored); only the outputs under `site/media/`, `site/assets/` and
-`docs/media/` are committed. Needs ffmpeg and Chrome at `/usr/bin/google-chrome` (`CHROME_PATH` otherwise).
+Raw footage and renders go to `_film/` (gitignored); only the outputs under `docs/media/` are committed.
+herdrweb.dev no longer publishes `site/media/` (it forwards to ovis.sh), so the film and loop MP4s wait for a
+home on ovis.sh. Needs ffmpeg and Chrome at `/usr/bin/google-chrome` (`CHROME_PATH` otherwise).
 
 ```bash
 bun run build:site                              # the demo the takes are recorded from
 bun scripts/film/capture.ts [stills] [rec] [stepped] [R10 R11 … | still names]   # _film/footage/
-bun scripts/film/site-assets.ts                 # site/assets/*.webp|jpg|png from the stills
-bun scripts/readme-media/banner.ts              # banner, og.png, look-*.png from the stills
+bun scripts/readme-media/banner.ts              # banner, look-*.png from the stills
 bun scripts/film/render.ts film                 # site/media/herdr-web-ui-film.{mp4,jpg}
 bun scripts/film/render.ts loop                 # site/media/chat-loop.{mp4,jpg}, docs/media/chat-loop.gif
 bun scripts/film/render.ts check                # acceptance frame grabs, sizes, loop seam
@@ -445,27 +444,19 @@ bun scripts/film/render.ts check                # acceptance frame grabs, sizes,
 - `render.ts` renders frames in parallel Chromes and encodes once. `render.ts report` prints the shot table with the
   maximum magnification (never above 1 source px per output px); `render.ts stills 8 13.6 …` grabs single frames.
 - After a re-capture, re-check what was placed by hand on the frames (the header of `render.ts` lists it), then
-  re-render. `build-site.ts` fails if a file in `site/media/` is over 4 MB (the film: 24 MB) or one in `site/assets/`
-  is over 750 KB.
+  re-render.
 
 ## Website
 
-<https://herdrweb.dev/> is `site/index.html`, a static page with desktop and phone
-demos, a screenshot gallery, supported agents, phone setup and a comparison table. `site/zh/index.html`
-is the same page in Simplified Chinese at `/zh/`, linked from the header; a change to one page belongs in
-the other. `bun run build:site`
-assembles it into `_site/` with icons, the social preview and scaled screenshots from `docs/screenshots/`.
-The two demo videos come from local `docs/screenshots/*.mp4` when present, otherwise the README's uploads;
-ffmpeg creates their poster frames. Without ffmpeg, the page omits unavailable posters.
+The project's website is <https://ovis.sh/>, served from `ovis-site/`. <https://herdrweb.dev/> (GitHub
+Pages, built from `site/`) keeps only what installed users and CI fetch from it: `install.sh`,
+`install.ps1` and the browser demo at `/demo/`. Its home page (`site/index.html`, and `site/zh/index.html`
+at `/zh/`) is a page whose canonical link, meta refresh and script forward to
+<https://ovis.sh/>; ovis.sh hands `/install.sh`, `/install.ps1` and `/demo/` back to herdrweb.dev
+(`ovis-site/_redirects`). `bun run build:site` assembles `_site/`: those pages, the Google site
+verification file, the installers, the favicons and the demo. It writes no sitemap.
 
-For search engines the build also writes `sitemap.xml` (the page only: the demo is `noindex`) and copies
-the page's FAQ rows (`<div class="qa">`) into its head as FAQPage structured data, so edit a question in
-the page and the data follows. The SoftwareApplication data is written in the page's head by hand.
-
-The build also copies the retained `site/assets/` and `site/media/` files, including the film linked
-from the README and its chat loop. These remain available at their existing URLs even though the
-homepage uses the desktop and phone demos.
-`.github/workflows/pages.yml` installs ffmpeg when the runner lacks it and runs after CI completes
+`.github/workflows/pages.yml` runs after CI completes
 on `main`, or on manual dispatches from `main`. A completed CI run only builds and deploys when it
 succeeded for a push from this repository; PR runs and forks cannot publish. It builds that CI run's
 head SHA without running validation again. Manual dispatches run reusable CI validation and the site
@@ -547,7 +538,7 @@ before it uploads it, and its log shows totals only.
 It needs two repository secrets (Settings → Secrets and variables → Actions); without them the run
 says so and ends green:
 
-- `GROWTH_METRICS_TOKEN`: a fine-grained personal access token for devswha/herdr-web-ui only, with
+- `GROWTH_METRICS_TOKEN`: a fine-grained personal access token for devswha/ovis only, with
   the repository permissions **Administration: Read-only** (the traffic endpoints need it) and
   **Metadata: Read-only**. Such a token expires within a year: put the expiry date in the token's
   name. An expired or wrong token turns the run red (exit 1 for no access to the repository, exit
@@ -559,7 +550,7 @@ says so and ends green:
 Artifacts are kept 90 days. To read one:
 
 ```sh
-gh run download <run-id> -R devswha/herdr-web-ui -n growth-snapshot-<run-id>
+gh run download <run-id> -R devswha/ovis -n growth-snapshot-<run-id>
 GROWTH_SNAPSHOT_KEY=… openssl enc -d -aes-256-cbc -pbkdf2 -pass env:GROWTH_SNAPSHOT_KEY -in growth.tar.gz.enc | tar xzf -
 ```
 
@@ -785,5 +776,5 @@ input regression matrix.
 | [`scripts/`](../scripts/) | Plugin lifecycle, type generation, remote bundles, README media, the film and browser checks |
 | [`public/`](../public/) | PWA manifest, service worker and icons |
 | [`docs/`](.) | Remote PCs, updates, flow control, chat audit, brand assets and README media (`docs/media/`) |
-| [`site/`](../site/) | The website, built by `scripts/build-site.ts` and deployed by GitHub Pages |
+| [`site/`](../site/) | herdrweb.dev (the installers, the browser demo and pages that forward to ovis.sh), built by `scripts/build-site.ts` and deployed by GitHub Pages |
 | [`DESIGN.md`](../DESIGN.md) | Design tokens and UI conventions |

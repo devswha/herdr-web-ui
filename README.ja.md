@@ -19,8 +19,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT ライセンス"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub スター数"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="最新リリース"></a>
+  <a href="https://github.com/devswha/ovis/stargazers"><img src="https://img.shields.io/github/stars/devswha/ovis?labelColor=333333&color=666666&logo=github" alt="GitHub スター数"></a>
+  <a href="https://github.com/devswha/ovis/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/ovis?label=release&labelColor=333333&color=666666" alt="最新リリース"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="インストール可能な PWA"></a>
 </p>
@@ -113,7 +113,7 @@ irm https://ovis.sh/install.ps1 | iex
 herdr 0.9.0+、Bun 1.4+、Node 18+ がすでにそろっている場合は、プラグインだけをインストールできます。Windows では Node は不要です。
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install devswha/ovis
 ```
 
 古い herdr は先に更新・再起動してください。各手順と問題の対処方法は [INSTALL.md](INSTALL.md) を参照してください。
@@ -191,8 +191,8 @@ Grok のチャットは Linux のみで、プロセスが保持するセッシ�
 ## 開発
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
-cd herdr-web-ui
+git clone https://github.com/devswha/ovis.git
+cd ovis
 bun install
 
 bun run server      # API + WebSocket on :7317

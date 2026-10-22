@@ -19,8 +19,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT license"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
+  <a href="https://github.com/devswha/ovis/stargazers"><img src="https://img.shields.io/github/stars/devswha/ovis?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/devswha/ovis/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/ovis?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="Installable PWA"></a>
 </p>
@@ -113,7 +113,7 @@ irm https://ovis.sh/install.ps1 | iex
 herdr 0.9.0 이상, Bun 1.4 이상, Node 18 이상이 이미 있다면 플러그인만 설치해도 됩니다. Windows에서는 Node가 필요 없습니다.
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install devswha/ovis
 ```
 
 오래된 herdr는 먼저 업데이트하고 다시 시작해야 합니다. 단계별 설치와 문제 해결은 [INSTALL.md](INSTALL.md)를 보세요.
@@ -193,8 +193,8 @@ Grok 채팅은 Linux에서 프로세스가 보유한 세션이 하나뿐이고 h
 ## 개발
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
-cd herdr-web-ui
+git clone https://github.com/devswha/ovis.git
+cd ovis
 bun install
 
 bun run server      # API + WebSocket, :7317

@@ -76,14 +76,14 @@ On a first install it mentions a GitHub star, once, unless the account the [gh C
 the plugin's **Phone setup** action inside herdr to see the address, QR and a pairing code.
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install devswha/ovis
 ```
 
 **From a checkout:**
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
-cd herdr-web-ui
+git clone https://github.com/devswha/ovis.git
+cd ovis
 bun install
 bun run start
 ```
@@ -116,12 +116,12 @@ tab, and you type in whichever half is active; the other half shows that tab at 
 
 ### In a terminal
 
-**The phone address, again:** run the one-line installer again. On a PC where the app is installed it installs nothing and prints the address and its QR code, serving the app to your tailnet first if nothing does yet. It finds the version that actually runs: herdr's plugin directory keeps the version first installed, and **Settings → Updates** runs newer ones from `~/.config/herdr-web-ui/updates`. From a checkout, `bun scripts/plugin.ts phone` does the same.
+**The phone address, again:** run the one-line installer again. On a PC where the app is installed it installs nothing and prints the address and its QR code, serving the app to your tailnet first if nothing does yet. It finds the version that actually runs: herdr's plugin directory keeps the version first installed, and **Settings → Updates** runs newer ones from `~/.config/ovis/updates`. From a checkout, `bun scripts/plugin.ts phone` does the same.
 
 **A pairing code, on a PC with no browser of its own:**
 
 ```bash
-root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "devswha.herdr-web-ui")?.plugin_root ?? "")')
+root=$(herdr plugin list --json | bun -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.result.plugins.find((p) => p.plugin_id === "devswha.ovis")?.plugin_root ?? "")')
 bun "$root/scripts/plugin.ts" pair   # plugin install
 bun scripts/plugin.ts pair           # from a checkout
 ```
@@ -129,19 +129,20 @@ bun scripts/plugin.ts pair           # from a checkout
 `pair` prints the code, the address the phone opens when Tailscale serves one, and that address as a QR code. Neither is a herdr action: herdr keeps an action's output in its log, and a pairing code belongs on the screen. The actions start, stop and report on the server:
 
 ```bash
-herdr plugin action invoke devswha.herdr-web-ui.start    # leaves a running server alone
-herdr plugin action invoke devswha.herdr-web-ui.status
-herdr plugin action invoke devswha.herdr-web-ui.phone    # visible phone setup pane
-herdr plugin action invoke devswha.herdr-web-ui.stop
+herdr plugin action invoke devswha.ovis.start    # leaves a running server alone
+herdr plugin action invoke devswha.ovis.status
+herdr plugin action invoke devswha.ovis.phone    # visible phone setup pane
+herdr plugin action invoke devswha.ovis.stop
 ```
 
-Its PID and log live under `HERDR_PLUGIN_STATE_DIR`. For persistent settings (see [Configuration](#configuration)), add `KEY=value` lines to the `env` file (no dot) in the directory that `herdr plugin config-dir devswha.herdr-web-ui` prints. A plugin checkout from 0.3.25 on also reads `.env` there, which wins where both set a key; an older one needs a plugin reinstall first, since in-app updates do not replace the checkout. The plugin's `status` prints the files it read. Protect that file if it holds a token.
+Its PID and log live under `HERDR_PLUGIN_STATE_DIR`. For persistent settings (see [Configuration](#configuration)), add `KEY=value` lines to the `env` file (no dot) in the directory that `herdr plugin config-dir devswha.ovis` prints. A plugin checkout from 0.3.25 on also reads `.env` there, which wins where both set a key; an older one needs a plugin reinstall first, since in-app updates do not replace the checkout. The plugin's `status` prints the files it read. Protect that file if it holds a token.
 
 ### Uninstall
 
 ```bash
-herdr plugin action invoke devswha.herdr-web-ui.stop
-herdr plugin uninstall devswha.herdr-web-ui
+# an install from before the rename runs, or is registered, under its old id until the installer moves it
+herdr plugin action invoke devswha.ovis.stop || herdr plugin action invoke devswha.herdr-web-ui.stop
+herdr plugin uninstall devswha.ovis || herdr plugin uninstall devswha.herdr-web-ui
 tailscale serve --https=<port> off    # the port the installer printed, if it served the app
 ```
 
@@ -510,10 +511,10 @@ An update is built and typechecked in a private checkout while the current serve
 After a herdr plugin reinstall, or a `git pull` and a build, in the checkout the app runs from, reloading the page cannot bring the update in: the server keeps running its old code. The page says so on its next status read, in place of the **Reload app** notice, and asks you to restart Ovis on the PC. The notice goes away once it restarts:
 
 ```sh
-herdr plugin action invoke devswha.herdr-web-ui.stop    # plugin install
-herdr plugin action invoke devswha.herdr-web-ui.start
-herdr plugin action invoke devswha.herdr-web-ui.stop-windows    # on Windows
-herdr plugin action invoke devswha.herdr-web-ui.start-windows
+herdr plugin action invoke devswha.ovis.stop    # plugin install
+herdr plugin action invoke devswha.ovis.start
+herdr plugin action invoke devswha.ovis.stop-windows    # on Windows
+herdr plugin action invoke devswha.ovis.start-windows
 ```
 
 From a checkout, stop `bun run start` and run it again.
@@ -692,7 +693,7 @@ The chat needs the agent's own session file. Check that the agent runs in a herd
 <details>
 <summary><b>The colors look too dark, or the light theme looks dark, in Samsung Internet.</b></summary>
 
-Samsung Internet has a forced dark mode that repaints every page, including one that brings its own light and dark themes, as this app does. A light theme comes out dark, and a dark one is darkened a second time: similar shades run together, and the bars of the plan meters can look empty. Turn off **Force dark mode for web content** (**웹 콘텐츠에 어두운 화면 모드 강제 적용**) in Samsung Internet's settings, or open the app in Chrome. Reported on a Galaxy Tab S7+ ([#451](https://github.com/devswha/herdr-web-ui/issues/451)).
+Samsung Internet has a forced dark mode that repaints every page, including one that brings its own light and dark themes, as this app does. A light theme comes out dark, and a dark one is darkened a second time: similar shades run together, and the bars of the plan meters can look empty. Turn off **Force dark mode for web content** (**웹 콘텐츠에 어두운 화면 모드 강제 적용**) in Samsung Internet's settings, or open the app in Chrome. Reported on a Galaxy Tab S7+ ([#451](https://github.com/devswha/ovis/issues/451)).
 </details>
 
 <details>

@@ -21,8 +21,8 @@ Ovis, the browser and phone client for herdr.
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT license"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
+  <a href="https://github.com/devswha/ovis/stargazers"><img src="https://img.shields.io/github/stars/devswha/ovis?labelColor=333333&color=666666&logo=github" alt="GitHub stars"></a>
+  <a href="https://github.com/devswha/ovis/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/ovis?label=release&labelColor=333333&color=666666" alt="Latest release"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="Installable PWA"></a>
 </p>
@@ -113,7 +113,7 @@ Requires [Git for Windows](https://git-scm.com/download/win). Installs missing h
 Already have herdr 0.9.0+, Bun 1.4+ and Node 18+ (Node isn't needed on Windows)? Install just the plugin:
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install devswha/ovis
 ```
 
 An older herdr has to be updated and restarted first. [INSTALL.md](INSTALL.md) walks through each step and what to do when one fails.
@@ -181,8 +181,8 @@ Helping someone install the app? Follow [INSTALL.md](INSTALL.md). For repository
 ## development
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
-cd herdr-web-ui
+git clone https://github.com/devswha/ovis.git
+cd ovis
 bun install
 
 bun run server      # API + WebSocket on :7317

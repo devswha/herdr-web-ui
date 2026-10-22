@@ -19,8 +19,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-666666?labelColor=333333" alt="MIT 许可证"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/stargazers"><img src="https://img.shields.io/github/stars/devswha/herdr-web-ui?labelColor=333333&color=666666&logo=github" alt="GitHub 星标数"></a>
-  <a href="https://github.com/devswha/herdr-web-ui/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/herdr-web-ui?label=release&labelColor=333333&color=666666" alt="最新版本"></a>
+  <a href="https://github.com/devswha/ovis/stargazers"><img src="https://img.shields.io/github/stars/devswha/ovis?labelColor=333333&color=666666&logo=github" alt="GitHub 星标数"></a>
+  <a href="https://github.com/devswha/ovis/releases/latest"><img src="https://img.shields.io/github/v/release/devswha/ovis?label=release&labelColor=333333&color=666666" alt="最新版本"></a>
   <a href="https://github.com/herdrdev/herdr"><img src="https://img.shields.io/badge/herdr-0.9.0%2B-666666?labelColor=333333" alt="herdr 0.9.0+"></a>
   <a href="docs/guide.md#on-your-phone"><img src="https://img.shields.io/badge/PWA-installable-666666?labelColor=333333" alt="可安装的 PWA"></a>
 </p>
@@ -113,7 +113,7 @@ irm https://ovis.sh/install.ps1 | iex
 已安装 herdr 0.9.0+、Bun 1.4+ 和 Node 18+（Windows 无需 Node）？只需安装插件：
 
 ```bash
-herdr plugin install devswha/herdr-web-ui
+herdr plugin install devswha/ovis
 ```
 
 旧版 herdr 必须先更新并重启。[INSTALL.md](INSTALL.md) 说明了各步操作及失败时的处理方法。
@@ -185,8 +185,8 @@ Grok 聊天仅支持 Linux，并要求进程只持有一个会话，且与 herdr
 ## 开发
 
 ```bash
-git clone https://github.com/devswha/herdr-web-ui.git
-cd herdr-web-ui
+git clone https://github.com/devswha/ovis.git
+cd ovis
 bun install
 
 bun run server      # API + WebSocket on :7317
