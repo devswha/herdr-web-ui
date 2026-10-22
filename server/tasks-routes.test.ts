@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import * as herdr from "./herdr/client.ts";
 import { HerdrError } from "./herdr/client.ts";
 import { createServer } from "./index.ts";
+import { handleTasksRequest } from "./tasks-routes.ts";
 
 describe("GET /api/pane/omo-tasks", () => {
   let server: ReturnType<typeof createServer>;
@@ -52,6 +53,27 @@ describe("GET /api/pane/omo-tasks", () => {
     } finally {
       answer();
       get.mockRestore();
+    }
+  });
+});
+
+describe("handleTasksRequest with an OmO session", () => {
+  it("answers the session's tasks from its records, and asks the Claude tracker nothing", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "ovis-tasks-omo-"));
+    try {
+      const dir = join(cwd, ".omo", "senpi-task", "tasks");
+      mkdirSync(dir, { recursive: true });
+      const started = new Date(Date.now() - 60_000).toISOString();
+      writeFileSync(join(dir, "st_1.json"), JSON.stringify({ task_id: "st_1", parent_session_id: "session-1", host_pid: process.pid, status: "running", task_summary: "index the repo", started_at: started }));
+      const claudeAgents = { sessionOf: () => { throw new Error("not asked"); }, ensure: async () => { throw new Error("not asked"); } };
+      const response = await handleTasksRequest(new Request("http://localhost/api/pane/omo-tasks?pane_id=w1:p1"), new URL("http://localhost/api/pane/omo-tasks?pane_id=w1:p1"), "/api/pane/omo-tasks", { omo: { sessionOf: (paneId) => paneId === "w1:p1" ? { cwd, sessionId: "session-1" } : null }, claudeAgents });
+      expect(response?.status).toBe(200);
+      const body = await response!.json() as { tasks: { id: string; title: string; status: string }[]; runs: unknown[] };
+      expect(body.tasks.map((task) => [task.id, task.title, task.status])).toEqual([["st_1", "index the repo", "running"]]);
+      expect(body.runs).toEqual([]);
+      expect(await handleTasksRequest(new Request("http://localhost/api/pane/plan"), new URL("http://localhost/api/pane/plan"), "/api/pane/plan", { omo: { sessionOf: () => null }, claudeAgents })).toBeNull();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
   });
 });
