@@ -239,6 +239,7 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
     attachment.clients.delete(client);
     attachment.stalled.delete(client);
     attachment.grids.delete(client);
+    if (attachment.kind === "mirror") attachment.unscreened.delete(client);
     if (attachment.driver === client) attachment.driver = undefined;
     if (attachment.clients.size === 0) closeAttachment(paneId);
     else reconcileOutput(paneId);
@@ -357,6 +358,8 @@ export function createTerminalRegistry({ options, clients, stopped, terminalAtta
         // a tail that lost the stream's start may miss what was drawn once: herdr draws it again
         if (attachment.kind !== "mirror" && attachment.ready && !attachment.held && attachment.replay.truncated) requestRepaint(message.pane_id);
       }
+      // a mirror not read yet has no screen from before to hand over: its first screen is this client's replay
+      if (!alreadyAttached && !replay && attachment.kind === "mirror") attachment.unscreened.add(client);
       // a pane waiting for another web bridge to let go says so to each newcomer, too
       if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
       reconcileOutput(message.pane_id);
