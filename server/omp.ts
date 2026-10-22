@@ -3,12 +3,12 @@
  * Herdr deliberately omits recognized agents' argv on WSL to avoid blocking procfs reads.
  * Recover process identity outside the bridge, then use the open transcript or breadcrumb.
  */
-import { isAbsolute, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { paneProcessInfo } from "./herdr/client.ts";
 import { heldTranscript, runsAgent } from "./gjc-runtime.ts";
 import { processEnviron } from "./omo.ts";
-import { isWsl, ompProcessCwd, ompProcessMemory, processStartTicks } from "./omp-process.ts";
+import { isWsl, ompProcessMemory } from "./omp-process.ts";
 
 const OMP_EXECUTABLE = /(^|[\\/])omp(?:\.exe|\.[cm]?js)?$/i;
 
@@ -16,50 +16,76 @@ export function isOmpProcess(argv: readonly string[]): boolean {
   return runsAgent(argv, OMP_EXECUTABLE);
 }
 
-/** omp's options that take the next word as their value, even one that looks like an option. */
+/**
+ * One of omp's own helpers: the compiled binary runs itself as bun to install packages
+ * (`omp add --cwd <env> ...` for its eval tool, `omp install --cwd <runtime> ...` for its side
+ * runtimes) in the foreground process group of the omp that started it. It holds no session.
+ */
+export function isOmpHelper(argv: readonly string[]): boolean {
+  return OMP_EXECUTABLE.test(argv[0] ?? "") && (argv[1] === "add" || argv[1] === "install") && argv[2] === "--cwd";
+}
+
+/**
+ * omp's options that take the next word as their value, whatever it looks like. Its other options
+ * take at most a word that does not look like an option, so they never hide `--cwd` or a store option.
+ */
 const VALUE_OPTIONS = new Set([
-  "--cwd", "--profile", "--alias", "--session-dir", "--config", "--add-dir", "--mode", "--fork", "--provider", "--model",
-  "--smol", "--slow", "--goal", "--prewalk-into", "--plan-yolo-into", "--max-time", "--service-tier", "--api-key",
-  "--system-prompt", "--system-prompt-template", "--append-system-prompt", "--provider-session-id", "--prompt-cache-key",
-  "--models", "--tools", "--thinking", "--export", "--hook", "--extension", "-e", "--trusted-extension", "--plugin-dir",
-  "--skills", "--approval-mode",
+  "--cwd", "--session-dir", "--config", "--add-dir", "--mode", "--fork", "--provider", "--model", "--smol", "--slow",
+  "--goal", "--plan", "--prewalk-into", "--plan-yolo-into", "--max-time", "--service-tier", "--api-key", "--system-prompt",
+  "--system-prompt-template", "--append-system-prompt", "--provider-session-id", "--prompt-cache-key", "--models",
+  "--tools", "--thinking", "--export", "--hook", "--extension", "-e", "--trusted-extension", "--plugin-dir", "--skills",
+  "--approval-mode",
 ]);
-/** Options that take the next word only when it does not look like an option. */
-const OPTIONAL_VALUE_OPTIONS = new Set(["--plan", "--resume", "-r", "--session"]);
 
 /** What an omp command line says about where it keeps its session: the last of each option wins. */
 export interface OmpLaunch { profile: string | null; sessionDir: boolean; cwd: string | null }
 
 /**
  * The store options of omp's own argv (as the process has it, never a shell string), read the way
- * omp reads them: up to `--`, an option's value consumed with it, the last one winning. null when
- * `--cwd` or `--profile` comes without a value: nothing then says where the session is.
+ * omp 18.8.7 reads them. A first pass takes `--profile` and `--alias` out, up to `--`; a second
+ * reads the rest, where an option's value is consumed with it and a free `--` ends the options.
+ * `cwd` is null when no `--cwd` names a directory: omp ignores a trailing one without a value and
+ * stays where it started on an empty one. null when omp would refuse to start: a profile or alias
+ * option without its name.
  */
 export function ompLaunch(argv: readonly string[]): OmpLaunch | null {
-  const launch: OmpLaunch = { profile: null, sessionDir: false, cwd: null };
+  let profile: string | null = null;
+  const rest: string[] = [];
   // a bun or node interpreter comes first, then omp's script
   for (let at = OMP_EXECUTABLE.test(argv[0] ?? "") ? 1 : 2; at < argv.length; at++) {
-    let word = argv[at]!;
+    const word = argv[at]!;
+    if (word === "--") { rest.push(...argv.slice(at)); break; }
+    const option = /^--(?:profile|alias)(?==|$)/.exec(word)?.[0];
+    if (option) {
+      const value = word === option ? argv[++at] : word.slice(option.length + 1);
+      if (!value || word === option && value.startsWith("-")) return null;
+      if (option === "--profile") profile = value;
+      continue;
+    }
+    rest.push(word);
+    // this pass lets `--plan` take only a word that does not look like an option
+    if (VALUE_OPTIONS.has(word) && word !== "--plan" && at + 1 < argv.length) rest.push(argv[++at]!);
+  }
+  let cwd = "", sessionDir = false;
+  for (let at = 0; at < rest.length; at++) {
+    let word = rest[at]!;
     let value: string | undefined;
-    if (word === "--") break;
     const equals = word.startsWith("--") ? word.indexOf("=") : -1;
     if (equals > 0) { value = word.slice(equals + 1); word = word.slice(0, equals); }
-    else if (VALUE_OPTIONS.has(word)) value = argv[++at];
-    else if (OPTIONAL_VALUE_OPTIONS.has(word) && argv[at + 1] && !argv[at + 1]!.startsWith("-")) at++;
-    if (word === "--session-dir") launch.sessionDir = true;
-    else if (word === "--cwd" || word === "--profile") {
-      if (!value) return null;
-      if (word === "--cwd") launch.cwd = value; else launch.profile = value;
-    }
+    if (word === "--") break;
+    if (equals < 0 && VALUE_OPTIONS.has(word)) value = rest[++at];
+    // a moved store counts even without its value: omp's environment can move it too
+    if (word === "--session-dir") sessionDir = true;
+    else if (word === "--cwd" && value !== undefined) cwd = value;
   }
-  return launch;
+  return { profile, sessionDir, cwd: cwd || null };
 }
 
 /**
  * The agent directory one omp process keeps its sessions and terminal breadcrumbs in:
  * ~/.omp/agent, or ~/.omp/profiles/<name>/agent under `--profile <name>` or OMP_PROFILE (the flag
  * wins). null when `--session-dir` moved its sessions anywhere at all, the profile name could
- * leave ~/.omp/profiles, or its argv cannot be read the way omp reads it.
+ * leave ~/.omp/profiles, or omp would not start with this argv.
  */
 export function ompAgentDir(argv: readonly string[], environ: readonly string[] | null, home: string): string | null {
   const launch = ompLaunch(argv);
@@ -70,36 +96,37 @@ export function ompAgentDir(argv: readonly string[], environ: readonly string[] 
 }
 
 /**
- * Whether a relative `--cwd` is resolved at all. omp 18.8.7 resolves it against the directory it
- * starts in and then changes into the result (scripts/omp-relative-cwd-probe.ts), so its process
- * directory is no proof of the base once it runs: such a value finds no transcript.
+ * The directory an omp process's `--cwd` names by itself: an absolute value, resolved the way omp
+ * resolves it before it changes into it and writes it in its session header. null without one, and
+ * for a relative value: omp resolved that against the directory it started in, which nothing
+ * records once it has moved, and the result is its live directory already.
  */
-export const OMP_RELATIVE_CWD = false;
-
-export interface OmpHeldOptions {
-  home?: string;
-  /**
-   * herdr's foreground cwd for the pane. It is the omp process's own directory only when herdr
-   * names that process the pane's foreground process and no other omp runs there.
-   */
-  foregroundCwd?: string | null;
-  /** Resolve a relative `--cwd` against the omp process's proven directory (OMP_RELATIVE_CWD). */
-  relativeCwd?: boolean;
+export function ompLaunchDir(argv: readonly string[]): string | null {
+  const cwd = ompLaunch(argv)?.cwd ?? null;
+  if (cwd === null) return null;
+  // a Windows path without a drive would take the server's own
+  const absolute = process.platform === "win32" ? /^(?:[a-z]:[\\/]|[\\/]{2}[^\\/])/i.test(cwd) : cwd.startsWith("/");
+  return absolute ? resolve(cwd) : null;
 }
 
 /**
  * The transcript the pane's omp process holds open or last pointed its terminal breadcrumb at, or
- * null. `cwd` is the session directory of a process started without `--cwd`; one started with it
- * keeps its session under its last `--cwd`, never under the pane's or the shell's directory.
+ * null. `cwd` is the pane's live directory, herdr's foreground cwd where it reports one: omp changes
+ * into its `--cwd` when it starts and into a resumed session's project later, and names that
+ * directory in its session header, so the live one is matched first. An absolute `--cwd` is tried
+ * only when that finds nothing (herdr reports a directory that is not omp's own, or none), and
+ * only when every omp process in the pane started with the same one. omp's helpers count for neither.
  */
-export async function ompHeldTranscript(paneId: string, cwd: string, { home = process.env["HOME"] ?? "", foregroundCwd = null, relativeCwd = OMP_RELATIVE_CWD }: OmpHeldOptions = {}): Promise<string | null> {
+export async function ompHeldTranscript(paneId: string, cwd: string, home = process.env["HOME"] ?? ""): Promise<string | null> {
   const info = await paneProcessInfo(paneId).catch(() => null);
-  const omps: { pid: number; agentDir: string; cwd: string | null }[] = [];
+  let agentDir: string | null = null;
+  const pids: number[] = [];
+  const launchDirs = new Set<string | null>();
   const environs = new Map<number, readonly string[]>();
   for (const foreground of info?.foreground_processes ?? []) {
     if (typeof foreground.pid !== "number") continue;
     let argv = Array.isArray(foreground.argv) ? foreground.argv.map(String) : [];
-    if (argv.length > 0 && !isOmpProcess(argv)) continue;
+    if (argv.length > 0 && (!isOmpProcess(argv) || isOmpHelper(argv))) continue;
     // Herdr omits a recognized agent's argv on WSL; there, and only there, procfs memory reads
     // may block, so they go through the helper. Elsewhere herdr's argv and a direct read hold.
     const probe = process.platform === "linux" && (argv.length === 0 || isWsl());
@@ -110,39 +137,21 @@ export async function ompHeldTranscript(paneId: string, cwd: string, { home = pr
       if (argv.length === 0) argv = memory.argv;
       environ = memory.environ;
     }
-    if (!isOmpProcess(argv)) continue;
-    const agentDir = ompAgentDir(argv, environ ?? processEnviron(foreground.pid), home);
-    // a moved store or an unreadable command line: nothing says which session the pane shows
-    if (agentDir === null) return null;
-    omps.push({ pid: foreground.pid, agentDir, cwd: ompLaunch(argv)!.cwd });
+    if (!isOmpProcess(argv) || isOmpHelper(argv)) continue;
+    const dir = ompAgentDir(argv, environ ?? processEnviron(foreground.pid), home);
+    // a moved store, or two omp processes keeping different ones: nothing says which the pane shows
+    if (dir === null || agentDir !== null && dir !== agentDir) return null;
+    agentDir = dir;
+    pids.push(foreground.pid);
+    launchDirs.add(ompLaunchDir(argv));
     if (environ !== undefined) environs.set(foreground.pid, environ);
   }
-  if (omps.length === 0) return null;
-  /** Processes whose directory came from herdr, by the start time they had then. */
-  const starts = new Map<number, string>();
-  let route: { agentDir: string; cwd: string } | null = null;
-  for (const omp of omps) {
-    let effective: string | null;
-    if (omp.cwd === null) effective = cwd;
-    else if (isAbsolute(omp.cwd)) effective = resolve(omp.cwd);
-    else if (!relativeCwd || process.platform === "win32") effective = null;
-    else {
-      let base: string | null = null;
-      const start = processStartTicks(omp.pid);
-      if (omps.length === 1 && info?.foreground_process_group_id === omp.pid && start !== null && typeof foregroundCwd === "string" && isAbsolute(foregroundCwd)) {
-        base = foregroundCwd;
-        starts.set(omp.pid, start);
-      }
-      base ??= await ompProcessCwd(omp.pid);
-      effective = base === null ? null : resolve(base, omp.cwd);
-    }
-    // two omp processes keeping different stores or directories: nothing says which the pane shows
-    if (effective === null || route !== null && (route.agentDir !== omp.agentDir || route.cwd !== effective)) return null;
-    route = { agentDir: omp.agentDir, cwd: effective };
-  }
+  if (agentDir === null) return null;
   // a probed process's environment stands in for gjcTerminal's /proc read, which could block too
-  const path = heldTranscript(route!.agentDir, route!.cwd, omps.map((omp) => omp.pid), (pid) => environs.get(pid)).path;
-  // herdr's directory was this process's own only if the pid still names the same process
-  for (const [pid, start] of starts) if (processStartTicks(pid) !== start) return null;
-  return path;
+  const environOf = (pid: number) => environs.get(pid);
+  const live = heldTranscript(agentDir, cwd, pids, environOf);
+  if (live.found > 0) return live.path;
+  const [launchDir] = launchDirs;
+  if (launchDirs.size !== 1 || !launchDir || launchDir === cwd) return null;
+  return heldTranscript(agentDir, launchDir, pids, environOf).path;
 }

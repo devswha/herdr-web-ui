@@ -1,8 +1,5 @@
 import { expect, it, spyOn } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createOmpCwdProbe, createOmpProcessProbe, lsofCwd, ompCwdCommand, processStartTicks } from "./omp-process.ts";
+import { createOmpProcessProbe, processStartTicks } from "./omp-process.ts";
 
 it.skipIf(process.platform !== "linux")("reads a live process's arguments and only the environment omp lookups need", async () => {
   const env = { PATH: process.env["PATH"] ?? "", OMP_PROFILE: "personal", TMUX: "/tmp/tmux-1/default,1,0", TMUX_PANE: "%3", SECRET_TOKEN: "do-not-pass" };
@@ -78,91 +75,4 @@ it.skipIf(process.platform !== "linux")("rejects malformed or excessive helper o
   const read = createOmpProcessProbe({ command: () => { starts++; return []; } });
   for (const pid of [-1, 0, 1.5, Number.NaN]) expect(await read(pid, true)).toBeNull();
   expect(starts).toBe(0);
-});
-
-it.skipIf(process.platform !== "linux")("reads a live process's own directory afresh on every lookup", async () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "omp-cwd-probe-")));
-  const target = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-  try {
-    let starts = 0;
-    const read = createOmpCwdProbe({ command: (pid) => { starts++; return ompCwdCommand(pid, "linux"); } });
-    expect(await read(target.pid)).toBe(dir);
-    // never cached: a process may change directory between lookups
-    expect(await read(target.pid)).toBe(dir);
-    expect(starts).toBe(2);
-    // concurrent lookups of one process start share one read
-    const first = read(target.pid);
-    expect(read(target.pid)).toBe(first);
-    expect(await first).toBe(dir);
-    expect(starts).toBe(3);
-    expect(await read(2147483647)).toBeNull();
-  } finally { target.kill(); await target.exited; rmSync(dir, { recursive: true, force: true }); }
-});
-
-it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("a directory procfs denies is unreadable", async () => {
-  // init's directory is closed to other users
-  expect(await createOmpCwdProbe()(1)).toBeNull();
-});
-
-it("a reused pid or a deleted directory gives no directory", async () => {
-  const answer = (start: string, cwd: string) => [process.execPath, "-e", `console.log(JSON.stringify({start:${JSON.stringify(start)},cwd:${JSON.stringify(cwd)}}))`];
-  // the helper read a process that started at another time
-  expect(await createOmpCwdProbe({ platform: "linux", startTicks: () => "5", command: () => answer("6", "/a") })(42)).toBeNull();
-  // the pid named another process by the time the helper answered
-  let ticks = "5";
-  const reused = createOmpCwdProbe({ platform: "linux", startTicks: () => ticks, command: () => { ticks = "7"; return answer("5", "/a"); } });
-  expect(await reused(42)).toBeNull();
-  expect(await createOmpCwdProbe({ platform: "linux", startTicks: () => "5", command: () => answer("5", "/a (deleted)") })(42)).toBeNull();
-  expect(await createOmpCwdProbe({ platform: "linux", startTicks: () => "5", command: () => answer("5", "relative") })(42)).toBeNull();
-  expect(await createOmpCwdProbe({ platform: "linux", startTicks: () => "5", command: () => answer("5", "/a b/$(c)") })(42)).toBe("/a b/$(c)");
-  // a process already gone spawns no helper
-  let starts = 0;
-  expect(await createOmpCwdProbe({ platform: "linux", startTicks: () => null, command: () => { starts++; return answer("5", "/a"); } })(42)).toBeNull();
-  expect(starts).toBe(0);
-});
-
-it("takes macOS's directory only from one lsof answer for that process", async () => {
-  expect(lsofCwd("p42\nfcwd\nn/Users/u/project dir\n", 42)).toBe("/Users/u/project dir");
-  expect(lsofCwd("", 42)).toBeNull();
-  expect(lsofCwd("p42\nfcwd\n", 42)).toBeNull();
-  expect(lsofCwd("p42\nfcwd\nn/a\nfcwd\nn/b\n", 42)).toBeNull();
-  expect(lsofCwd("p43\nfcwd\nn/a\n", 42)).toBeNull();
-  expect(lsofCwd("p42\nfcwd\nn/a\np43\nfcwd\nn/b\n", 42)).toBeNull();
-  expect(lsofCwd("p42\nfcwd\nnrelative\n", 42)).toBeNull();
-  const answer = (value: unknown) => [process.execPath, "-e", `console.log(${JSON.stringify(JSON.stringify(value))})`];
-  const darwin = (value: unknown) => createOmpCwdProbe({ platform: "darwin", command: () => answer(value) })(42);
-  expect(await darwin({ start: "Tue Oct 21 10:00:00 2026", lsof: "p42\nfcwd\nn/Users/u/a\n" })).toBe("/Users/u/a");
-  // no start time: the helper saw the process change or vanish while lsof ran
-  expect(await darwin({ start: "", lsof: "p42\nfcwd\nn/Users/u/a\n" })).toBeNull();
-  expect(await darwin({ start: "Tue Oct 21 10:00:00 2026", lsof: "p42\nfcwd\n" })).toBeNull();
-  expect(await darwin({ start: "Tue Oct 21 10:00:00 2026", lsof: "p42\nfcwd\nn/a\nfcwd\nn/b\n" })).toBeNull();
-  expect(ompCwdCommand(42, "darwin").join(" ")).toContain("lsof");
-});
-
-it("reads no process directory on Windows", async () => {
-  let starts = 0;
-  const read = createOmpCwdProbe({ platform: "win32", command: () => { starts++; return [process.execPath, "-e", "console.log('{}')"]; } });
-  expect(await read(42)).toBeNull();
-  expect(starts).toBe(0);
-});
-
-it.skipIf(process.platform !== "linux")("directory reads keep the deadline, output bound and helper slots of memory reads", async () => {
-  const warn = spyOn(console, "warn").mockImplementation(() => {});
-  try {
-    const stall = [process.execPath, "-e", "setInterval(() => {}, 1000)"];
-    // one slot, taken by a stuck memory read: the directory read spawns nothing
-    const slots = { live: 0, warned: false };
-    let starts = 0;
-    const memory = createOmpProcessProbe({ timeoutMs: 100, maxProcesses: 1, slots, startTicks: () => "1", command: () => stall });
-    const cwd = createOmpCwdProbe({ timeoutMs: 100, maxProcesses: 1, slots, startTicks: () => "1", command: () => { starts++; return stall; } });
-    const stuck = memory(1, true);
-    expect(await cwd(2)).toBeNull();
-    expect(starts).toBe(0);
-    expect(await stuck).toBeNull();
-    // a stalled directory read misses its deadline
-    const deadline = createOmpCwdProbe({ timeoutMs: 100, startTicks: () => "1", command: () => stall });
-    expect(await Promise.race([deadline(3), new Promise((resolve) => setTimeout(() => resolve("deadline missed"), 1000))])).toBeNull();
-    const excessive = createOmpCwdProbe({ startTicks: () => "1", command: () => [process.execPath, "-e", "console.log('x'.repeat(1024*1024+1))"] });
-    expect(await excessive(4)).toBeNull();
-  } finally { warn.mockRestore(); }
 });

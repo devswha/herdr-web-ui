@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { forgetTranscriptState, paneConversation } from "./conversation.ts";
 import * as herdr from "./herdr/client.ts";
 import { terminalBreadcrumb } from "./gjc-runtime.ts";
-import { isOmpProcess, ompAgentDir, ompHeldTranscript, ompLaunch } from "./omp.ts";
+import { isOmpHelper, isOmpProcess, ompAgentDir, ompHeldTranscript, ompLaunch, ompLaunchDir } from "./omp.ts";
 import * as ompProbe from "./omp-process.ts";
 import * as omo from "./omo.ts";
 
@@ -38,8 +38,9 @@ it("keeps a process's sessions where its profile puts them, and nowhere it canno
   expect(ompAgentDir(["omp", "--profile", ".."], null, home)).toBeNull();
   expect(ompAgentDir(["omp", "--profile", "a/../../x"], null, home)).toBeNull();
   expect(ompAgentDir(["omp", "--profile"], null, home)).toBeNull();
-  // a cwd option without its value leaves omp's directory unknown
-  expect(ompAgentDir(["omp", "--cwd"], null, home)).toBeNull();
+  // omp ignores a cwd option without its value, so it says nothing about the store
+  expect(ompAgentDir(["omp", "--cwd"], null, home)).toBe("/home/u/.omp/agent");
+  expect(ompAgentDir(["omp", "--cwd", "--profile", "work"], null, home)).toBe("/home/u/.omp/agent");
 });
 
 it("reads omp's cwd and store options from its argv the way omp does", () => {
@@ -51,7 +52,7 @@ it("reads omp's cwd and store options from its argv the way omp does", () => {
     [["omp", "--cwd", "/a", "--profile=work", "--cwd", "rel/dir", "--profile", "home"], { profile: "home", sessionDir: false, cwd: "rel/dir" }],
     // nothing after the terminator is an option
     [["omp", "--cwd", "/a", "--", "--cwd", "/b"], { profile: null, sessionDir: false, cwd: "/a" }],
-    [["omp", "--", "--cwd=/b", "--session-dir", "/s"], { profile: null, sessionDir: false, cwd: null }],
+    [["omp", "--", "--cwd=/b", "--session-dir", "/s", "--profile", "work"], { profile: null, sessionDir: false, cwd: null }],
     // paths with spaces and shell metacharacters are literal words of argv
     [["omp", "--cwd", "/p/with space/$(rm -rf x);*|`y`"], { profile: null, sessionDir: false, cwd: "/p/with space/$(rm -rf x);*|`y`" }],
     [["omp", "--cwd=/a=b c"], { profile: null, sessionDir: false, cwd: "/a=b c" }],
@@ -60,24 +61,49 @@ it("reads omp's cwd and store options from its argv the way omp does", () => {
     [["omp", "--model", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: null }],
     [["omp", "--system-prompt", "--cwd=/a", "--cwd", "/b"], { profile: null, sessionDir: false, cwd: "/b" }],
     [["omp", "--cwd", "--", "--cwd", "/b"], { profile: null, sessionDir: false, cwd: "/b" }],
+    // `--plan` takes the next word too, once the profile options are out
+    [["omp", "--plan", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: null }],
+    [["omp", "--plan", "--profile", "work", "--cwd", "/a"], { profile: "work", sessionDir: false, cwd: null }],
+    [["omp", "--plan", "--", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: "/a" }],
     // an optional value is never an option
     [["omp", "--resume", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: "/a" }],
-    [["omp", "--plan", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: "/a" }],
     [["omp", "-r", "abc", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: "/a" }],
     // a message that mentions the option is one word, not the option
     [["omp", "fix --cwd /x", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: "/a" }],
     // interpreter-launched: options start after omp's script
     [["bun", "/opt/omp/dist/omp.js", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: "/a" }],
     [["omp", "--session-dir=/s", "--cwd", "/a"], { profile: null, sessionDir: true, cwd: "/a" }],
-    // a missing or empty value, last or not, leaves the directory unknown
-    [["omp", "--cwd"], null],
-    [["omp", "--cwd="], null],
-    [["omp", "--cwd", ""], null],
-    [["omp", "--cwd", "/a", "--cwd="], null],
-    [["omp", "--cwd=", "--cwd", "/a"], null],
+    // omp ignores a trailing cwd option and stays where it started on an empty one
+    [["omp", "--cwd"], { profile: null, sessionDir: false, cwd: null }],
+    [["omp", "--cwd", "/a", "--cwd"], { profile: null, sessionDir: false, cwd: "/a" }],
+    [["omp", "--cwd="], { profile: null, sessionDir: false, cwd: null }],
+    [["omp", "--cwd", ""], { profile: null, sessionDir: false, cwd: null }],
+    [["omp", "--cwd", "/a", "--cwd="], { profile: null, sessionDir: false, cwd: null }],
+    [["omp", "--cwd=", "--cwd", "/a"], { profile: null, sessionDir: false, cwd: "/a" }],
+    [["omp", "--cwd", "", "/b"], { profile: null, sessionDir: false, cwd: null }],
+    // omp refuses to start without a profile name
     [["omp", "--profile="], null],
+    [["omp", "--profile"], null],
+    [["omp", "--profile", "--cwd", "/a"], null],
   ];
   for (const [argv, expected] of cases) expect([argv, ompLaunch(argv)]).toEqual([argv, expected]);
+});
+
+it("names a launch directory only for an absolute cwd, never resolved against the server's own", () => {
+  expect(ompLaunchDir(["omp", "--cwd", "/a/b/../c/"])).toBe("/a/c");
+  expect(ompLaunchDir(["omp", "--cwd=/a", "--cwd", "rel"])).toBeNull();
+  expect(ompLaunchDir(["omp", "--cwd", "../a"])).toBeNull();
+  expect(ompLaunchDir(["omp", "--cwd", ""])).toBeNull();
+  expect(ompLaunchDir(["omp"])).toBeNull();
+});
+
+it("tells omp's own package installs from an omp session", () => {
+  expect(isOmpHelper(["/home/u/.bun/bin/omp", "add", "--cwd", "/home/u/.omp/cache/eval-js/environments/e1", "--ignore-scripts", "lodash"])).toBe(true);
+  expect(isOmpHelper(["/home/u/.bun/bin/omp", "install", "--cwd", "/home/u/.omp/runtimes/tts", "--production"])).toBe(true);
+  // a message that starts with the word, or another program's install, is no helper
+  expect(isOmpHelper(["omp", "add", "tests"])).toBe(false);
+  expect(isOmpHelper(["omp", "--cwd", "/a", "add"])).toBe(false);
+  expect(isOmpHelper(["bun", "add", "--cwd", "/a"])).toBe(false);
 });
 
 it("reads omp's breadcrumb, whose transcript starts with a title record before the header", () => {
@@ -108,7 +134,6 @@ describe("an omp pane's chat", () => {
   let savedHome: string | undefined;
   let agentSession: unknown;
   let processes: { pid: number; name?: string; argv?: string[] }[] = [];
-  let groupId: number | undefined;
   let pane: HerdrPane;
   const restores: Array<() => void> = [];
   const transcript = (cwd: string) => [
@@ -128,7 +153,7 @@ describe("an omp pane's chat", () => {
     const snapshot = spyOn(herdr, "sessionSnapshot").mockImplementation(async () => ({ panes: [pane] } as SessionSnapshot));
     const rpc = spyOn(herdr, "herdrRpc").mockImplementation(async (method: string) => {
       if (method === "agent.get") return { agent: { agent_session: agentSession } } as never;
-      if (method === "pane.process_info") return { process_info: { foreground_processes: processes, foreground_process_group_id: groupId } } as never;
+      if (method === "pane.process_info") return { process_info: { foreground_processes: processes } } as never;
       throw new Error(`unexpected RPC: ${method}`);
     });
     restores.push(() => snapshot.mockRestore(), () => rpc.mockRestore());
@@ -139,7 +164,6 @@ describe("an omp pane's chat", () => {
     rmSync(home, { recursive: true, force: true });
     agentSession = undefined;
     processes = [];
-    groupId = undefined;
     forgetTranscriptState();
   });
 
@@ -152,16 +176,17 @@ describe("an omp pane's chat", () => {
     return path;
   };
   /**
-   * An omp stand-in that holds `held` open, started in `cwd` (through a wrapper that changes to
-   * `wrapperCd` first, when given), answering once it is ready. Killed and reaped after the test.
+   * An omp stand-in that holds `held` open, started in `cwd` and then moved into `moveTo`, the way
+   * omp changes into its `--cwd` or a resumed session's project, answering once it is ready.
+   * Killed and reaped after the test.
    */
-  const standIn = async (options: string[], held: string[], { cwd, wrapperCd, env }: { cwd?: string; wrapperCd?: string; env?: Record<string, string> } = {}) => {
+  const standIn = async (options: string[], held: string[], { cwd, moveTo, env }: { cwd?: string; moveTo?: string; env?: Record<string, string> } = {}) => {
     const script = join(home, "bin", "omp.js");
     mkdirSync(join(home, "bin"), { recursive: true });
-    writeFileSync(script, `for (const file of ${JSON.stringify(held)}) require("node:fs").openSync(file, "a"); console.log("ready"); setInterval(() => {}, 1000);`);
+    const move = moveTo === undefined ? "" : `process.chdir(${JSON.stringify(moveTo)}); `;
+    writeFileSync(script, `${move}for (const file of ${JSON.stringify(held)}) require("node:fs").openSync(file, "a"); console.log("ready"); setInterval(() => {}, 1000);`);
     const argv = [process.execPath, script, ...options];
-    const command = wrapperCd === undefined ? argv : ["sh", "-c", 'cd "$1" && shift && exec "$@"', "sh", wrapperCd, ...argv];
-    const child = Bun.spawn(command, { cwd, env: env ? { ...process.env, ...env } : undefined, stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+    const child = Bun.spawn(argv, { cwd, env: env ? { ...process.env, ...env } : undefined, stdout: "pipe", stderr: "ignore", stdin: "ignore" });
     reaped.push(async () => { child.kill(); await child.exited; });
     const first = await Promise.race([
       child.stdout.getReader().read(),
@@ -172,6 +197,8 @@ describe("an omp pane's chat", () => {
   };
   const reaped: Array<() => Promise<void>> = [];
   afterEach(async () => { for (const reap of reaped.splice(0)) await reap(); });
+  /** The directory herdr reports as a process's foreground cwd: its own, as procfs has it. */
+  const liveDir = (pid: number) => readlinkSync(`/proc/${pid}/cwd`);
   const chat = async () => {
     forgetTranscriptState();
     const answer = await paneConversation(pane.pane_id);
@@ -179,173 +206,141 @@ describe("an omp pane's chat", () => {
     return answer.turns.map((turn) => turn.parts[0]);
   };
   const synthetic = [{ kind: "text" as const, text: "synthetic question" }, { kind: "text" as const, text: "synthetic answer" }];
+  const otherAgent = { agent: "claude", kind: "id", value: "a-claude-session" };
 
-  it.skipIf(process.platform !== "linux")("held OMP uses the last cwd before the terminator", async () => {
+  it.skipIf(process.platform !== "linux")("a relative --cwd finds the session in the directory omp moved into", async () => {
+    const a = join(home, "A"), rel = join(a, "rel");
+    mkdirSync(rel, { recursive: true });
+    const path = storeTranscript(rel);
+    const omp = await standIn(["--cwd", "rel"], [path], { cwd: a, moveTo: rel });
+    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
+    pane.cwd = a;
+    pane.foreground_cwd = liveDir(omp.pid);
+    expect(pane.foreground_cwd).toBe(rel);
+    for (const session of [undefined, otherAgent]) {
+      agentSession = session;
+      expect(await chat()).toEqual(synthetic);
+    }
+    // without herdr's directory nothing proves where omp started, so no base is guessed for it
+    pane.foreground_cwd = null;
+    agentSession = undefined;
+    forgetTranscriptState();
+    await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
+  });
+
+  it.skipIf(process.platform !== "linux")("an absolute --cwd follows omp into a resumed session's project", async () => {
+    const x = join(home, "X"), y = join(home, "Y");
+    mkdirSync(x); mkdirSync(y);
+    // the session it started with, no longer open
+    storeTranscript(x, "2026-10-01_first.jsonl");
+    const path = storeTranscript(y);
+    const omp = await standIn(["--cwd", x], [path], { moveTo: y });
+    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
+    pane.foreground_cwd = liveDir(omp.pid);
+    expect(pane.foreground_cwd).toBe(y);
+    expect(await chat()).toEqual(synthetic);
+    // the same through the breadcrumb omp rewrote for the resumed session
+    for (const reap of reaped.splice(0)) await reap();
+    const crumb = await standIn(["--cwd", x], [], { moveTo: y, env: { TMUX: "/tmp/tmux-1/default,1,0", TMUX_PANE: "%4244" } });
+    mkdirSync(join(home, ".omp/agent/terminal-sessions"));
+    writeFileSync(join(home, ".omp/agent/terminal-sessions/tmux-%4244"), `${y}\n${path}\n`);
+    processes = [{ pid: crumb.pid, name: "omp", argv: crumb.argv }];
+    expect(await chat()).toEqual(synthetic);
+  });
+
+  it.skipIf(process.platform !== "linux")("an absolute --cwd finds the session when herdr's directory is not omp's own", async () => {
     const target = join(home, "B");
     mkdirSync(target);
     const path = storeTranscript(target);
-    // a more recent session of the pane's own directory is no answer for this process
+    // a session of the pane's own directory is no answer for this process
     storeTranscript(pane.cwd!, "2026-10-02_decoy.jsonl");
     for (const options of [
       ["--cwd", "/elsewhere", `--cwd=${target}`],
       ["--cwd=/elsewhere", "--cwd", `${target}/`, "--", "--cwd", pane.cwd!],
     ]) {
-      const omp = await standIn(options, [path]);
+      const omp = await standIn(options, [path], { moveTo: target });
       processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-      for (const session of [undefined, { agent: "claude", kind: "id", value: "a-claude-session" }]) {
-        agentSession = session;
-        expect(await chat()).toEqual(synthetic);
+      // herdr reports the directory of a wrapper that started omp, or none
+      for (const foreground of [pane.cwd, null]) {
+        pane.foreground_cwd = foreground;
+        for (const session of [undefined, otherAgent]) {
+          agentSession = session;
+          expect(await chat()).toEqual(synthetic);
+        }
       }
       for (const reap of reaped.splice(0)) await reap();
     }
     // the same through the terminal breadcrumb of a process that holds nothing open
-    const omp = await standIn(["--cwd", "/elsewhere", `--cwd=${target}`], [], { env: { TMUX: "/tmp/tmux-1/default,1,0", TMUX_PANE: "%4243" } });
+    const omp = await standIn(["--cwd", "/elsewhere", `--cwd=${target}`], [], { moveTo: target, env: { TMUX: "/tmp/tmux-1/default,1,0", TMUX_PANE: "%4243" } });
     mkdirSync(join(home, ".omp/agent/terminal-sessions"));
     writeFileSync(join(home, ".omp/agent/terminal-sessions/tmux-%4243"), `${target}\n${path}\n`);
     processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
+    pane.foreground_cwd = pane.cwd;
+    agentSession = undefined;
     expect(await chat()).toEqual(synthetic);
     expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBe(path);
   });
 
-  it.skipIf(process.platform !== "linux")("missing cwd operand cannot select a transcript", async () => {
-    // the pane's own directory holds the session the process has open, and so does B's
+  it.skipIf(process.platform !== "linux")("an empty or trailing --cwd leaves omp where it started", async () => {
     const path = storeTranscript(pane.cwd!);
-    const b = join(home, "B");
-    mkdirSync(b);
-    const pathB = storeTranscript(b);
-    for (const options of [["--cwd"], ["--cwd="], ["--cwd", ""], ["--cwd", pane.cwd!, "--cwd="], ["--cwd", "", b]]) {
-      const omp = await standIn(options, [path, pathB]);
+    for (const options of [["--cwd"], ["--cwd="], ["--cwd", ""], ["--cwd", "/elsewhere", "--cwd="], ["--cwd", "", "/elsewhere"]]) {
+      const omp = await standIn(options, [path], { cwd: pane.cwd! });
       // herdr's argv, and none (WSL), where the empty operand is read back from procfs
       for (const argv of [omp.argv, undefined]) {
         processes = [{ pid: omp.pid, name: "omp", argv }];
-        forgetTranscriptState();
-        await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
-        expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBeNull();
+        expect(await chat()).toEqual(synthetic);
       }
       for (const reap of reaped.splice(0)) await reap();
     }
+    // an empty operand read back from procfs never turns the message after it into a directory
+    const b = join(home, "B");
+    mkdirSync(b);
+    const omp = await standIn(["--cwd", "", b], [storeTranscript(b)], { cwd: pane.cwd! });
+    processes = [{ pid: omp.pid, name: "omp" }];
+    expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBeNull();
   });
 
-  it.skipIf(process.platform !== "linux")("conflicting OMP routing tuples fail closed", async () => {
+  it.skipIf(process.platform !== "linux")("omp processes that started in different directories show no chat", async () => {
     const b = join(home, "B"), c = join(home, "C");
     mkdirSync(b); mkdirSync(c);
-    const pathB = storeTranscript(b), pathC = storeTranscript(c);
-    // a decoy recent transcript of the pane's directory, held open too
-    const decoy = storeTranscript(pane.cwd!, "2026-10-02_decoy.jsonl");
-    const first = await standIn(["--cwd", b], [pathB, decoy]);
-    const second = await standIn([`--cwd=${c}`], [pathC, decoy]);
-    processes = [{ pid: first.pid, name: "omp", argv: first.argv }, { pid: second.pid, name: "omp", argv: second.argv }];
-    groupId = first.pid;
-    const opened = spyOn(fs, "openSync");
-    restores.push(() => opened.mockRestore());
-    await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
-    // two relative values resolved against two proven directories disagree just the same
-    const a = join(home, "A");
-    mkdirSync(join(a, "rel"), { recursive: true });
-    const pathA = storeTranscript(join(a, "rel"));
-    const third = await standIn(["--cwd", "rel"], [pathA, decoy], { cwd: a });
-    const fourth = await standIn(["--cwd", "rel"], [decoy], { cwd: pane.cwd! });
-    processes = [{ pid: third.pid, name: "omp", argv: third.argv }, { pid: fourth.pid, name: "omp", argv: fourth.argv }];
-    groupId = third.pid;
-    expect(await ompHeldTranscript(pane.pane_id, pane.cwd!, { relativeCwd: true, foregroundCwd: a })).toBeNull();
-    // an empty final operand on one of them fails the same way
-    processes = [{ pid: first.pid, name: "omp", argv: first.argv }, { pid: second.pid, name: "omp", argv: [...second.argv, "--cwd="] }];
-    expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBeNull();
-    // nothing was read from any candidate, the decoy of the pane's directory least of all
-    expect(opened.mock.calls.some(([file]) => [pathA, pathB, pathC, decoy].includes(String(file)))).toBe(false);
-  });
-
-  it.skipIf(process.platform !== "linux")("relative OMP cwd resolves against its proven process cwd", async () => {
-    const a = join(home, "A"), stale = join(home, "Y");
-    mkdirSync(join(a, "rel"), { recursive: true }); mkdirSync(join(stale, "rel"), { recursive: true });
-    const path = storeTranscript(join(a, "rel")), decoy = storeTranscript(join(stale, "rel"));
-    const omp = await standIn(["--cwd", "rel"], [path, decoy], { cwd: a });
-    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-    pane.cwd = stale; pane.foreground_cwd = stale;
-    expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: stale })).toBe(path);
-    // the same through herdr's foreground cwd, when herdr names this process the foreground one
-    const probe = spyOn(ompProbe, "ompProcessCwd");
-    restores.push(() => probe.mockRestore());
-    groupId = omp.pid;
-    expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: a })).toBe(path);
-    expect(probe).not.toHaveBeenCalled();
-    // shipped off: omp changes into its --cwd, so its directory proves no base
-    expect(await ompHeldTranscript(pane.pane_id, stale, { foregroundCwd: a })).toBeNull();
-    await expect(chat()).rejects.toThrow("no_session_path");
-  });
-
-  it.skipIf(process.platform !== "linux")("wrapper cd wins over stale pane cwd", async () => {
-    const x = join(home, "X"), stale = join(home, "Y");
-    mkdirSync(join(x, "rel"), { recursive: true }); mkdirSync(join(stale, "rel"), { recursive: true });
-    const path = storeTranscript(join(x, "rel")), decoy = storeTranscript(join(stale, "rel"));
-    const omp = await standIn(["--cwd", "rel"], [path, decoy], { cwd: stale, wrapperCd: x });
-    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-    expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: stale })).toBe(path);
-  });
-
-  it.skipIf(process.platform !== "linux")("foreground cwd requires the identified OMP pid", async () => {
-    const a = join(home, "A"), stale = join(home, "Y");
-    mkdirSync(join(a, "rel"), { recursive: true }); mkdirSync(join(stale, "rel"), { recursive: true });
-    const path = storeTranscript(join(a, "rel")), decoy = storeTranscript(join(stale, "rel"));
-    const omp = await standIn(["--cwd", "rel"], [path, decoy], { cwd: a });
-    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-    const probe = spyOn(ompProbe, "ompProcessCwd");
-    restores.push(() => probe.mockRestore());
-    // herdr's foreground process is another one: its directory is not omp's, the probe answers
-    for (const other of [process.pid, undefined]) {
-      groupId = other;
-      probe.mockClear();
-      expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: stale })).toBe(path);
-      expect(probe).toHaveBeenCalledWith(omp.pid);
+    const first = await standIn(["--cwd", b], [storeTranscript(b)]);
+    const second = await standIn([`--cwd=${c}`], [storeTranscript(c)]);
+    const plain = await standIn([], []);
+    for (const pair of [[first, second], [first, plain]]) {
+      processes = pair.map((omp) => ({ pid: omp.pid, name: "omp", argv: omp.argv }));
+      forgetTranscriptState();
+      await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
     }
-    // herdr names omp, but a second omp runs in the pane: no single owner of that directory
-    groupId = omp.pid;
-    const second = await standIn(["--cwd", "rel"], [path], { cwd: a });
-    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }, { pid: second.pid, name: "omp", argv: second.argv }];
-    probe.mockClear();
-    expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: stale })).toBe(path);
-    expect(probe).toHaveBeenCalledWith(omp.pid);
-    // herdr's directory must be absolute
-    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-    probe.mockClear();
-    expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: "Y" })).toBe(path);
-    expect(probe).toHaveBeenCalledWith(omp.pid);
+    // two sessions of the live directory are no answer either
+    const one = await standIn([], [storeTranscript(pane.cwd!)]);
+    const other = await standIn([], [storeTranscript(pane.cwd!, "2026-10-02_s2.jsonl")]);
+    processes = [one, other].map((omp) => ({ pid: omp.pid, name: "omp", argv: omp.argv }));
+    expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBeNull();
   });
 
-  it.skipIf(process.platform !== "linux")("unreadable or Windows process cwd refuses relative values", async () => {
-    const stale = join(home, "Y");
-    mkdirSync(join(stale, "rel"), { recursive: true });
-    const decoy = storeTranscript(join(stale, "rel"));
-    const omp = await standIn(["--cwd", "rel"], [decoy], { cwd: stale });
-    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-    groupId = process.pid;
-    // the probe cannot read the directory (procfs denial, lsof without one answer, a reused pid)
-    const probe = spyOn(ompProbe, "ompProcessCwd").mockResolvedValue(null);
-    restores.push(() => probe.mockRestore());
-    expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: stale })).toBeNull();
-    expect(probe).toHaveBeenCalledWith(omp.pid);
-    // Windows: no process directory is read, and herdr's is no proof either
-    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
-    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
-    try {
-      probe.mockClear();
-      groupId = omp.pid;
-      expect(await ompHeldTranscript(pane.pane_id, stale, { relativeCwd: true, foregroundCwd: stale })).toBeNull();
-      expect(probe).not.toHaveBeenCalled();
-    } finally { Object.defineProperty(process, "platform", platform); }
-  });
-
-  it.skipIf(process.platform !== "linux")("absolute OMP cwd needs no readable process cwd", async () => {
+  it.skipIf(process.platform !== "linux")("omp's own package installs leave the chat as it was", async () => {
+    const binary = join(home, "bin", "omp");
+    const env = join(home, ".omp/cache/eval-js/environments/e1"), runtime = join(home, ".omp/runtimes/tts");
+    mkdirSync(env, { recursive: true }); mkdirSync(runtime, { recursive: true });
+    const install = await standIn([], [], { cwd: env });
+    const helpers = [
+      { pid: install.pid, name: "omp", argv: [binary, "add", "--cwd", env, "--ignore-scripts", "lodash"] },
+      { pid: install.pid, name: "omp", argv: [binary, "install", "--cwd", runtime, "--production"] },
+    ];
+    // a plain omp in the pane's directory
+    const plain = await standIn([], [storeTranscript(pane.cwd!)]);
+    for (const helper of helpers) {
+      processes = [{ pid: plain.pid, name: "omp", argv: plain.argv }, helper];
+      expect(await chat()).toEqual(synthetic);
+    }
+    // an absolute --cwd that herdr's directory does not show, listed after the helper
     const target = join(home, "B");
     mkdirSync(target);
-    const path = storeTranscript(target);
-    const omp = await standIn(["--cwd", "rel", "--cwd", target], [path]);
-    processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-    const probe = spyOn(ompProbe, "ompProcessCwd").mockResolvedValue(null);
-    restores.push(() => probe.mockRestore());
-    expect(await ompHeldTranscript(pane.pane_id, pane.cwd!, { relativeCwd: true })).toBe(path);
-    expect(await chat()).toEqual(synthetic);
-    expect(probe).not.toHaveBeenCalled();
+    const launched = await standIn(["--cwd", target], [storeTranscript(target)], { moveTo: target });
+    for (const helper of helpers) {
+      processes = [helper, { pid: launched.pid, name: "omp", argv: launched.argv }];
+      expect(await chat()).toEqual(synthetic);
+    }
   });
 
   it("reads the transcript herdr names in an `omp --profile` store", async () => {

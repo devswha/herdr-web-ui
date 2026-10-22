@@ -1654,18 +1654,16 @@ export function ompSessionStore(value: unknown, home: string, paths: PlatformPat
 
 /**
  * omp's transcript: herdr hands over the absolute path, accepted only inside the user's own
- * stores. When herdr names none (or another agent's session), the pane's omp process does:
- * `cwd` is the session directory of one started without `--cwd`, and herdr's `foregroundCwd` is
- * its process directory only when herdr names it the pane's foreground process.
+ * stores. When herdr names none (or another agent's session), the pane's omp process does.
  */
-async function ompTranscriptPath(paneId: string, cwd: string, foregroundCwd: string | null | undefined): Promise<string> {
+async function ompTranscriptPath(paneId: string, cwd: string): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { kind?: unknown; value?: unknown } } }>("agent.get", { target: paneId });
   const session = info.agent.agent_session;
   const path = session?.kind === "path" && typeof session.value === "string" ? session.value : null;
   // a Windows bridge starts with HOME set to the profile directory (remote-entry.ts)
   const store = ompSessionStore(path, process.env["HOME"] ?? "");
   if (path === null || store === null) {
-    const held = await ompHeldTranscript(paneId, cwd, { foregroundCwd });
+    const held = await ompHeldTranscript(paneId, cwd);
     if (held === null) throw new ConversationUnavailable("no_session_path");
     return held;
   }
@@ -1751,7 +1749,7 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
       observeClaudeIdentity(path, pid);
       return { source: "claude-transcript", path };
     }
-    if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId, sessionCwd, pane.foreground_cwd) };
+    if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId, sessionCwd) };
     if (agent === "gjc") return { source: "gjc-transcript", path: await gjcTranscriptPath(paneId, sessionCwd) };
     // pi's own label only routes pi: an omo pane was taken above, by its process tree.
     if (agent === "pi") {
