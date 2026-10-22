@@ -464,8 +464,12 @@ build in parallel against the dispatch SHA, and deployment requires both to succ
 Deployments are serialized. Immediately before deploying,
 the workflow checks that the validated SHA is still the latest `main` commit; it fails closed if it is
 stale or that check cannot be completed. This does not change the separate Release workflow.
-The standalone `main` CI supplies the validation for each main push, preserving its independent CI
-history while the Website workflow waits for its successful completion.
+The standalone `main` CI supplies that validation. Its push runs share one concurrency group: the
+running one finishes, and a newer push cancels the one still waiting, so a burst of merges runs
+main's checks at most twice and the newest run covers the merges in between. The Website workflow
+deploys only after a successful push run of main's newest commit; a cancelled run's Website run
+skips building. Re-running an older main run while a newer one waits cancels the newer one, and
+main's newest commit then waits for the next push or a manual Pages run.
 
 ### The browser demo
 
