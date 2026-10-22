@@ -2,7 +2,7 @@
  * Ovis read its settings from HERDR_WEB_* variables before the rename to OVIS_*. Installs keep
  * those in herdr's plugin env file, shell profiles and service units, so each one still works:
  * an OVIS_* variable that is not set takes the value of its old name, and one that is set wins.
- * Imported first by every entry point, before any module reads its settings.
+ * Entry points apply it to their own environment through adopt-legacy-env.ts.
  */
 
 const LEGACY_PREFIX = "HERDR_WEB_";
@@ -23,4 +23,17 @@ export function adoptLegacyEnv(env: Record<string, string | undefined>): void {
   }
 }
 
-adoptLegacyEnv(process.env);
+/**
+ * Merges environment layers in order, a later one winning, each mapped on its own first: an old
+ * name set in a later layer (a settings file) wins over the new name an earlier layer (the
+ * parent's environment) got from its own old name.
+ */
+export function mergeEnvLayers(layers: Record<string, string | undefined>[]): Record<string, string | undefined> {
+  const merged: Record<string, string | undefined> = {};
+  for (const layer of layers) {
+    const own = { ...layer };
+    adoptLegacyEnv(own);
+    Object.assign(merged, own);
+  }
+  return merged;
+}

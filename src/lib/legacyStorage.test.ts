@@ -10,9 +10,13 @@ class MemoryStorage implements Storage {
   clear(): void { this.items.clear(); }
 }
 
-// the module moves window's stores as it loads; a test window keeps that step away from Bun's own
-(globalThis as { window?: unknown }).window = { localStorage: new MemoryStorage(), sessionStorage: new MemoryStorage() };
-const { adoptLegacyStorage } = await import("./legacyStorage.ts");
+// the module moves window's stores as it loads; a test window keeps that step away from Bun's own,
+// and is taken away again so later test files see the global they expect
+const host = globalThis as { window?: unknown };
+const previousWindow = host.window;
+host.window = { localStorage: new MemoryStorage(), sessionStorage: new MemoryStorage() };
+const { adoptLegacyStorage, adoptLegacyStores } = await import("./legacyStorage.ts");
+if (previousWindow === undefined) delete host.window; else host.window = previousWindow;
 
 describe("browser storage from before the rename", () => {
   it("moves every app key to its new name and leaves other sites' keys alone", () => {
@@ -36,5 +40,12 @@ describe("browser storage from before the rename", () => {
     expect(storage.getItem("ovis:settings")).toBe("new");
     // gone, so a draft cleared under the new name never comes back from the old one
     expect(storage.getItem("herdr-web-ui:settings")).toBeNull();
+  });
+
+  it("moves what storage there is where a WebView has local storage turned off", () => {
+    const session = new MemoryStorage();
+    session.setItem("herdr-web-ui:selection", "w1:p1");
+    expect(() => adoptLegacyStores({ localStorage: null, sessionStorage: session })).not.toThrow();
+    expect(session.getItem("ovis:selection")).toBe("w1:p1");
   });
 });

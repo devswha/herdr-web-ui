@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { adoptLegacyEnv, ovisName } from "./legacy-env.ts";
+import { adoptLegacyEnv, mergeEnvLayers, ovisName } from "./legacy-env.ts";
 
 describe("settings under their names from before the rename", () => {
   it("fill an unset OVIS_* variable", () => {
@@ -20,5 +20,13 @@ describe("settings under their names from before the rename", () => {
   it("map only the app's own prefix", () => {
     expect(ovisName("HERDR_WEB_STATE_DIR")).toBe("OVIS_STATE_DIR");
     expect(ovisName("HERDR_TEST_SESSION")).toBeNull();
+  });
+
+  it("let a settings file's old name win over the parent's, as the file always did", () => {
+    // herdr started the plugin with the token it was given first; the user then changed it in the plugin's env file
+    const merged = mergeEnvLayers([{ HERDR_WEB_TOKEN: "first" }, { HERDR_WEB_TOKEN: "changed" }]);
+    expect(merged["OVIS_TOKEN"]).toBe("changed");
+    expect(mergeEnvLayers([{ OVIS_TOKEN: "parent" }, { HERDR_WEB_TOKEN: "file" }])["OVIS_TOKEN"]).toBe("file");
+    expect(mergeEnvLayers([{ HERDR_WEB_TOKEN: "parent" }, { OVIS_TOKEN: "file" }])["OVIS_TOKEN"]).toBe("file");
   });
 });

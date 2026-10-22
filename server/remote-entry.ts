@@ -1,6 +1,6 @@
 // The bundle is launched only through SSH. Keep it alive after the tunnel closes;
 // herdr owns the terminal processes and no disconnect should terminate their work.
-import "./legacy-env.ts";
+import "./adopt-legacy-env.ts";
 import { createServer } from "./index.ts";
 import { bridgeIdentity, descriptorLive, descriptorPath, registerBridge } from "./bridge.ts";
 import { acquireOwnerDirectory } from "./owner-guard.ts";

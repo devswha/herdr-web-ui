@@ -20,7 +20,7 @@
  *   token and any overrides are read from `env` and `.env` in HERDR_PLUGIN_CONFIG_DIR.
  */
 
-import { adoptLegacyEnv } from "../server/legacy-env.ts";
+import { mergeEnvLayers } from "../server/legacy-env.ts";
 import { defaultStateDir } from "../server/update-state.ts";
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -106,8 +106,7 @@ const CONFIG_FILES = ENV_FILES.map((name) => join(CONFIG_DIR, name)).filter((fil
 const fileVars = CONFIG_FILES.map(readEnvFile);
 /** keys both files set to different values: `.env` wins, which someone editing `env` would not expect */
 const shadowed = fileVars.length === 2 ? Object.keys(fileVars[0]!).filter((key) => key in fileVars[1]! && fileVars[0]![key] !== fileVars[1]![key]) : [];
-const env = { ...process.env, ...Object.assign({}, ...fileVars) as Record<string, string> };
-adoptLegacyEnv(env);
+const env = mergeEnvLayers([process.env, ...fileVars]);
 /** HERDR_SOCKET the user put in the config files: it names the session to show, so herdr's own socket does not replace it */
 const configuredSocket = fileVars.some((vars) => (vars["HERDR_SOCKET"] ?? "") !== "");
 const PATH_KEY = platform() === "win32" ? Object.keys(env).sort().find(key => key.toLowerCase() === "path") ?? "PATH" : "PATH";

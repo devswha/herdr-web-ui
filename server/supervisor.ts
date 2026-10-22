@@ -4,12 +4,12 @@
  * after an install passes its health check the supervisor exits with HANDOVER_EXIT and the
  * launcher starts the new release's supervisor. `root` is always the source checkout.
  */
-import "./legacy-env.ts";
+import "./adopt-legacy-env.ts";
 import { mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { readUpdateIpcRequest } from "../shared/update.ts";
-import { defaultStateDir, HANDOVER_EXIT, updateStateDir } from "./update-state.ts";
+import { defaultStateDir, HANDOVER_EXIT, moveLegacyStateDir, updateStateDir } from "./update-state.ts";
 import { herdrSocketPath } from "./herdr/client.ts";
 import { acquireOwnerDirectory } from "./owner-guard.ts";
 import { Updater, type Release } from "./updater.ts";
@@ -20,6 +20,7 @@ export async function runSupervisor(root = resolve(import.meta.dir, "..")) {
   const host = process.env["HOST"] ?? "127.0.0.1";
   const probeHost = host === "0.0.0.0" ? "127.0.0.1" : host === "::" ? "[::1]" : host.includes(":") ? `[${host}]` : host;
   const origin = `http://${probeHost}:${port}`;
+  moveLegacyStateDir();
   const appStateDir = resolve(defaultStateDir());
   const socketPath = resolve(herdrSocketPath());
   const stateDir = updateStateDir(root, port);

@@ -1,4 +1,4 @@
-import "./legacy-env.ts";
+import "./adopt-legacy-env.ts";
 import { handleWorkspaceRequest } from "./workspace-routes.ts";
 import { connectionData, createCore, type SocketData } from "./core/index.ts";
 import { ClientConnectionLog } from "./client-connection-log.ts";
@@ -45,6 +45,7 @@ import {
   sessionSnapshot,
 } from "./herdr/client.ts";
 import { type AlertTiming, defaultStateDir, handlePushRequest } from "./push.ts";
+import { moveLegacyStateDir } from "./update-state.ts";
 import { handlePromptRequest, OpenCodePromptState } from "./prompt.ts";
 import { attachableIdentity } from "./pty/sidecar.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
@@ -785,6 +786,7 @@ export function createServer(
 }
 
 if (import.meta.main) {
+  moveLegacyStateDir();
   const updates = connectUpdater();
   const version = (JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8")) as { version: string }).version;
   const telemetry = new Telemetry({ stateDir: defaultStateDir(), version, env: process.env, fetch, previousVersion: () => updates.installed().previous_version });

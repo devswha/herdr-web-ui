@@ -23,11 +23,17 @@ export function adoptLegacyStorage(storage: Storage): void {
   }
 }
 
-for (const area of ["localStorage", "sessionStorage"] as const) {
-  try {
-    adoptLegacyStorage(window[area]);
-  } catch (error) {
-    // storage turned off (a private window, a blocked site) has nothing to move
-    if (!(error instanceof DOMException)) throw error;
+export function adoptLegacyStores(stores: { localStorage: Storage | null; sessionStorage: Storage | null }): void {
+  for (const area of ["localStorage", "sessionStorage"] as const) {
+    try {
+      // null in a WebView with DOM storage turned off
+      const storage = stores[area];
+      if (storage) adoptLegacyStorage(storage);
+    } catch (error) {
+      // storage blocked (a private window, a site setting) has nothing to move
+      if (!(error instanceof DOMException)) throw error;
+    }
   }
 }
+
+adoptLegacyStores(window);

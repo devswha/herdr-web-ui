@@ -5,12 +5,12 @@
  * checkout's, if a new one exits before it is ready. Keep this file small: it is the one piece
  * an update cannot replace while it runs; only a restart from the source checkout does.
  */
-import "./legacy-env.ts";
+import "./adopt-legacy-env.ts";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
-import { HANDOVER_EXIT, updateStateDir } from "./update-state.ts";
+import { HANDOVER_EXIT, moveLegacyStateDir, updateStateDir } from "./update-state.ts";
 
 /** The active release's supervisor, when it is still the build of this checkout's revision. */
 function releaseSupervisor(root: string, stateDir: string): string | null {
@@ -26,6 +26,7 @@ function releaseSupervisor(root: string, stateDir: string): string | null {
 
 export async function runManaged(root = resolve(import.meta.dir, "..")) {
   root = resolve(root);
+  moveLegacyStateDir();
   const stateDir = updateStateDir(root, Number(process.env["PORT"] ?? DEFAULT_PORT));
   const own = join(import.meta.dir, "supervisor.ts");
   let child: ReturnType<typeof Bun.spawn> | null = null;
