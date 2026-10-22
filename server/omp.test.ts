@@ -208,14 +208,20 @@ describe("an omp pane's chat", () => {
   });
 
   it.skipIf(process.platform !== "linux")("missing cwd operand cannot select a transcript", async () => {
-    // the pane's own directory holds the session the process has open
+    // the pane's own directory holds the session the process has open, and so does B's
     const path = storeTranscript(pane.cwd!);
-    for (const options of [["--cwd"], ["--cwd="], ["--cwd", ""], ["--cwd", pane.cwd!, "--cwd="]]) {
-      const omp = await standIn(options, [path]);
-      processes = [{ pid: omp.pid, name: "omp", argv: omp.argv }];
-      forgetTranscriptState();
-      await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
-      expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBeNull();
+    const b = join(home, "B");
+    mkdirSync(b);
+    const pathB = storeTranscript(b);
+    for (const options of [["--cwd"], ["--cwd="], ["--cwd", ""], ["--cwd", pane.cwd!, "--cwd="], ["--cwd", "", b]]) {
+      const omp = await standIn(options, [path, pathB]);
+      // herdr's argv, and none (WSL), where the empty operand is read back from procfs
+      for (const argv of [omp.argv, undefined]) {
+        processes = [{ pid: omp.pid, name: "omp", argv }];
+        forgetTranscriptState();
+        await expect(paneConversation(pane.pane_id)).rejects.toThrow("no_session_path");
+        expect(await ompHeldTranscript(pane.pane_id, pane.cwd!)).toBeNull();
+      }
       for (const reap of reaped.splice(0)) await reap();
     }
   });
