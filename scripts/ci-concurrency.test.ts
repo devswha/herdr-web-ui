@@ -2,25 +2,39 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// ci.yml is the workflow that runs on pushes to main (windows-install.yml has no push trigger): each push gets
-// its own concurrency group, so a later merge never replaces the queued run that says whether the earlier one broke main.
-const workflows = ["ci.yml"];
+// ci.yml is the workflow that runs on pushes to main (windows-install.yml has no push trigger). Each push gets its
+// own concurrency group, so a later merge never replaces the queued run that says whether the earlier one broke main;
+// a pull request keeps one group per branch and cancels its superseded run.
+type Workflow = { on: { push?: { branches?: string[] } }; concurrency: { group: string; "cancel-in-progress": string } };
+const ci = Bun.YAML.parse(readFileSync(join(import.meta.dir, "..", ".github", "workflows", "ci.yml"), "utf8")) as Workflow;
 
-function concurrency(file: string): { group: string; cancel: string } {
-  const text = readFileSync(join(import.meta.dir, "..", ".github", "workflows", file), "utf8");
-  const block = text.match(/^concurrency:\n((?:[ \t]+.*\n)+)/m)?.[1] ?? "";
-  return {
-    group: block.match(/^\s+group:\s*(.+)$/m)?.[1]?.trim() ?? "",
-    cancel: block.match(/^\s+cancel-in-progress:\s*(.+)$/m)?.[1]?.trim() ?? "",
-  };
+type Context = { workflow: string; event_name: string; ref: string; sha: string };
+// evaluates the ${{ }} parts of a concurrency value: only github.* lookups, ==, && and || with string literals
+function evaluate(template: string, github: Context): string {
+  return template.replace(/\$\{\{([^}]*)\}\}/g, (_, expression: string) => {
+    const js = expression.trim().replace(/github\.(\w+)/g, (_m, key: keyof Context) => JSON.stringify(github[key]));
+    if (!/^[\s"'\w./-]*(?:(?:==|&&|\|\|)[\s"'\w./-]*)*$/.test(js)) throw new Error(`unexpected expression: ${expression}`);
+    return String(new Function(`return (${js});`)());
+  });
 }
 
-describe("main push concurrency", () => {
-  for (const file of workflows) {
-    it(`${file}: a push is grouped by its commit, a pull request by its branch`, () => {
-      const { group, cancel } = concurrency(file);
-      expect(group).toContain("github.event_name == 'push' && github.sha || github.ref");
-      expect(cancel).toBe("${{ github.event_name == 'pull_request' }}");
-    });
-  }
+const push = (sha: string): Context => ({ workflow: "CI", event_name: "push", ref: "refs/heads/main", sha });
+const pr = (sha: string): Context => ({ workflow: "CI", event_name: "pull_request", ref: "refs/pull/7/merge", sha });
+
+describe("ci.yml concurrency", () => {
+  it("runs on pushes to main", () => {
+    expect(ci.on.push?.branches).toContain("main");
+  });
+
+  it("gives every push to main its own group that no other push cancels", () => {
+    const groups = ["a1", "b2", "c3"].map((sha) => evaluate(ci.concurrency.group, push(sha)));
+    expect(new Set(groups).size).toBe(3);
+    expect(evaluate(ci.concurrency["cancel-in-progress"], push("a1"))).toBe("false");
+  });
+
+  it("keeps one group per pull request and cancels its superseded run", () => {
+    expect(evaluate(ci.concurrency.group, pr("a1"))).toBe(evaluate(ci.concurrency.group, pr("b2")));
+    expect(evaluate(ci.concurrency.group, pr("a1"))).toContain("CI");
+    expect(evaluate(ci.concurrency["cancel-in-progress"], pr("a1"))).toBe("true");
+  });
 });
