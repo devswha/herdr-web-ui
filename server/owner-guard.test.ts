@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { acquireOwnerDirectory, guardLibrary, guardPath, OwnerGuardReleaseFailed, OwnerGuardUnavailable, withOwnerGuard } from "./owner-guard.ts";
-import { parseOwnerRecord } from "./process-owner.ts";
+import { parseOwnerRecord, readProcessBirth } from "./process-owner.ts";
 
 const windows = process.platform === "win32";
 const ERRORS = { running: "already running", starting: "another start" };
@@ -148,6 +148,14 @@ function unrelated() {
   return other;
 }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+/** Signal 0 to `pid` is refused (EPERM), as another user's or a protected process refuses it; every other PID is probed for real. */
+function refusing(pid: number) {
+  const kill = process.kill.bind(process);
+  return spyOn(process, "kill").mockImplementation(((target: number, signal?: NodeJS.Signals | number) => {
+    if (target === pid) throw Object.assign(new Error(`kill ${target} EPERM`), { code: "EPERM" });
+    return kill(target, signal);
+  }) as typeof process.kill);
+}
 /** The lock a crashed owner left, whose PID another process now holds. */
 function staleLock(lock: string, pid: number) {
   mkdirSync(lock);
@@ -170,6 +178,43 @@ describe("owner guard", () => {
     lease.release();
     expect(existsSync(lock)).toBe(false);
     expect(existsSync(guardPath(lock))).toBe(true);
+  });
+
+  it("reclaims a lock whose PID a process it may not signal now holds", () => {
+    // regression: a refused probe (EPERM) once kept the lock, so a start failed for as long as
+    // another user's process (or, after a forced Windows shutdown, a SYSTEM service) held the PID
+    const other = unrelated();
+    const lock = join(root, "supervisor.lock");
+    staleLock(lock, other.pid);
+    const reading = readProcessBirth(other.pid);
+    if (reading.state !== "identified") throw new Error(`no birth for ${other.pid}`);
+    const refused = refusing(other.pid);
+    try {
+      const lease = acquireOwnerDirectory(lock, ERRORS);
+      expect(ownerOf(lock)).toEqual(lease.record);
+      lease.release();
+      // control: refused, but of the recorded birth, the owner is live
+      mkdirSync(lock);
+      writeFileSync(join(lock, "pid"), String(other.pid));
+      writeFileSync(join(lock, "owner.json"), JSON.stringify({ pid: other.pid, generation: "refused-owner", birth: reading.birth }));
+      expect(() => acquireOwnerDirectory(lock, ERRORS)).toThrow(`already running (lock ${lock}, owner pid ${other.pid} generation refused-owner)`);
+    } finally { refused.mockRestore(); }
+    expect(alive(other.pid)).toBe(true);
+  });
+
+  it.skipIf(!windows)("reclaims a lock whose PID a process this user cannot open now holds", () => {
+    // the System process refuses every caller's probe; CIM still reads its creation time, as main's
+    // check did, for a record with a birth and for an older version's PID-only one alike
+    const lock = join(root, "supervisor.lock");
+    staleLock(lock, 4);
+    acquireOwnerDirectory(lock, ERRORS).release();
+    mkdirSync(lock);
+    writeFileSync(join(lock, "pid"), "4");
+    // control: written after that process started, the PID-only record may still be its own
+    expect(() => acquireOwnerDirectory(lock, ERRORS)).toThrow(`already running (lock ${lock}, owner pid 4)`);
+    utimesSync(join(lock, "pid"), new Date("2001-01-01T00:00:00Z"), new Date("2001-01-01T00:00:00Z"));
+    acquireOwnerDirectory(lock, ERRORS).release();
+    expect(existsSync(lock)).toBe(false);
   });
 
   it("keeps live, legacy and unknown owners", () => {

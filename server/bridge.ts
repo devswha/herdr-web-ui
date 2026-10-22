@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { BRIDGE_PROTOCOL, REMOTE_BUNDLE_VERSION, type BridgeIdentity } from "../shared/machines.ts";
 import { HerdrError, herdrSocketPath, ping } from "./herdr/client.ts";
 import { OwnerGuardUnavailable, withOwnerGuard } from "./owner-guard.ts";
-import { newOwnerRecord, ownerGone, type ProcessBirth } from "./process-owner.ts";
+import { newOwnerRecord, ownerGone, probeProcess, type ProcessBirth } from "./process-owner.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 
 /** `generation` and `birth` identify the registering process beyond its PID; older bridges wrote neither. */
@@ -29,9 +29,18 @@ export async function bridgeIdentity(sidecar = sidecarAvailable()): Promise<Brid
   const info = attachableIdentity(await ping(), sidecar);
   return { pid: process.pid, managed_remote: process.env["HERDR_WEB_REMOTE"] === "1", bridge_protocol: BRIDGE_PROTOCOL, bundle_version: REMOTE_BUNDLE_VERSION, socket_path: socket, socket_id: `${stat.dev}:${stat.ino}`, herdr: info };
 }
-/** Whether the bridge a descriptor names still runs: a PID now held by a process of another birth does not count. */
+/**
+ * Whether the bridge a descriptor names still runs: a PID now held by a process of another birth
+ * does not count. Outside Windows neither does a PID this user may not signal (EPERM), whatever
+ * birth was recorded: every bridge in this user's registry runs as this user, so that is someone
+ * else's process. The app's own check (`kill -0`, remote-host.ts) takes it for gone too and starts
+ * a bridge, which must not then find the old one live. On Windows a logon session of this same user
+ * may refuse the probe, so there only the birth decides.
+ */
 export function descriptorLive(descriptor: Pick<BridgeDescriptor, "pid" | "birth">): boolean {
-  return Number.isSafeInteger(descriptor.pid) && descriptor.pid > 0 && !ownerGone(descriptor);
+  if (!Number.isSafeInteger(descriptor.pid) || descriptor.pid <= 0) return false;
+  if (process.platform !== "win32" && probeProcess(descriptor.pid) === "denied") return false;
+  return !ownerGone(descriptor);
 }
 
 /** One reading of the descriptor file; equal readings mean nobody replaced it in between. */

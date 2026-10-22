@@ -88,6 +88,12 @@ describe("remote entry startup lock", () => {
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]).finally(() => clearTimeout(deadline));
     return { code, output: out + err, serving };
   }
+  /** Signal 0 to `pid` is refused in the entry (EPERM), as another user's process refuses it. */
+  function refusing(pid: number): string {
+    const preload = join(home, "refuse-signal.ts");
+    writeFileSync(preload, `const kill = process.kill.bind(process);\nprocess.kill = ((target, signal) => { if (target === ${pid}) throw Object.assign(new Error("kill EPERM"), { code: "EPERM" }); return kill(target, signal); });\n`);
+    return preload;
+  }
   /** A herdr that answers only ping, at the socket the entry looks for. */
   function fakeHerdr(): { socket: string; stop(): void } {
     const socket = join(home, "config", "herdr", "herdr.sock");
@@ -168,6 +174,22 @@ describe("remote entry startup lock", () => {
     expect(run.output).toContain(`Another bridge is starting; retry shortly (lock ${lock}, owner pid ${reused.pid} generation earlier-start; the file lock could not be loaded`);
     expect(run.output).not.toContain(join(home, "missing-herdr"));
     expect(readFileSync(join(lock, "owner.json"), "utf8")).toBe(owner);
+    expect(alive(reused.pid)).toBe(true);
+  }, 60_000);
+
+  it("starts over a registered bridge whose PID a process it may not signal now holds", async () => {
+    // regression: a refused probe (EPERM) once read as a live bridge, so after a reboot that handed
+    // the old bridge's PID to another user's process the entry exited without starting one, while
+    // the app, whose own kill -0 is refused too, waited for a new descriptor in vain
+    const reused = other();
+    const preload = refusing(reused.pid);
+    // an older version's descriptor has no birth: outside Windows the refusal alone proves it someone else's
+    for (const fields of [{ birth: earlierBirth }, ...(process.platform === "win32" ? [] : [{}])]) {
+      writeFileSync(descriptor, JSON.stringify({ port: 1, token: "registered-secret", pid: reused.pid, generation: "g", ...fields, socket_path: "s", bridge_protocol: 1, bundle_version: "v" }));
+      const run = await start(preload);
+      expect(run.output).toContain(join(home, "missing-herdr"));
+      expect(run.code).not.toBe(0);
+    }
     expect(alive(reused.pid)).toBe(true);
   }, 60_000);
 

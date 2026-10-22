@@ -53,9 +53,11 @@ function birthValue(pid: number): string | null {
       return ps.exitCode === 0 ? parseLstart(ps.stdout.toString()) : null;
     }
     if (process.platform === "win32") {
-      // the creation time Windows records for the process; StartTime throws for a protected process, which leaves it unknown
+      // the creation time Windows records for the process, read through CIM as windows-processes.ts
+      // reads it: CIM has it for every process, while Get-Process StartTime throws for one this user
+      // cannot open (a SYSTEM, elevated or other session's process) unless it runs elevated
       const ps = Bun.spawnSync(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-        `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p) { ([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds() }`],
+        `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}' -ErrorAction SilentlyContinue; if ($p -and $p.CreationDate) { ([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds() }`],
       { stdin: "ignore", stdout: "pipe", stderr: "ignore", timeout: 10_000, windowsHide: true });
       const value = ps.exitCode === 0 ? ps.stdout.toString().trim() : "";
       return /^\d+$/.test(value) ? value : null;
@@ -113,15 +115,16 @@ export function parseOwnerRecord(text: string): OwnerRecord | null {
 
 /**
  * Whether the recorded owner is proved gone: its PID is free, or a process of another birth runs
- * there. A matching birth, an unreadable one, a refused probe (EPERM), a record without a birth
- * (written by an older version) and a malformed or foreign recorded birth all leave the owner live.
- * `birth` is whatever was persisted: it is validated here, never trusted.
+ * there. A matching birth, an unreadable one, a record without a birth (written by an older
+ * version) and a malformed or foreign recorded birth all leave the owner live. A refused probe
+ * (EPERM: another user's, a protected or another logon session's process) proves nothing by
+ * itself, so the births decide then too: after a reboot or a forced shutdown such a process often
+ * holds the old PID. `birth` is whatever was persisted: it is validated here, never trusted.
  */
 export function ownerGone(owner: { pid: number; birth?: unknown }): boolean {
-  const probe = probeProcess(owner.pid);
-  if (probe === "absent") return true;
+  if (probeProcess(owner.pid) === "absent") return true;
   const recorded = parseBirth(owner.birth);
-  if (probe === "denied" || !recorded || recorded.platform !== process.platform) return false;
+  if (!recorded || recorded.platform !== process.platform) return false;
   const reading = readProcessBirth(owner.pid);
   return reading.state === "absent" || (reading.state === "identified" && reading.birth.value !== recorded.value);
 }
