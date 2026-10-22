@@ -261,6 +261,8 @@ export const ZH: Record<string, string> = {
   "connecting": "正在连接",
   "herdr offline": "herdr 离线",
   "Start herdr on this PC, or check HERDR_SOCKET.": "请在此电脑上启动 herdr，或检查 HERDR_SOCKET。",
+  "The other PC's answer was larger than this app accepts": "另一台电脑的响应超出了此应用可接受的大小",
+  "The other PC's answer could not be read": "无法读取另一台电脑的响应",
   "Browse files": "浏览文件",
   "Copy link": "复制链接",
   "Link copied": "已复制链接",

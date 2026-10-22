@@ -7,6 +7,7 @@ import { MachineManager } from "./machines.ts";
 import { canSendSecret, sameOrigin } from "./machine-security.ts";
 import { isJsonObject, jsonResponse, setRequestRoute } from "./http.ts";
 import { crossSiteFileRead } from "./file-view.ts";
+import { parseJson, readCapped, REMOTE_LIMITS, RemoteResponseInvalid, RemoteResponseTooLarge } from "./remote-json.ts";
 
 const fail = (code: string, message: string, status: number) => jsonResponse({ error: { code, message } }, status);
 
@@ -31,6 +32,16 @@ function transportFailure(id: string, path: string, error: unknown): Response {
   return timedOut
     ? fail("machine_timeout", "The PC did not answer in time; retry after reconnecting", 504)
     : fail("machine_unavailable", "The PC connection was interrupted; retry after reconnecting", 502);
+}
+
+/**
+ * An answer this app will not pass on: too large to hold, or unreadable where it must be redacted.
+ * Its fixed message names none of it; the browser shows it in the UI language by the code (src/lib/api.ts).
+ */
+function unusableAnswer(id: string, path: string, error: RemoteResponseTooLarge | RemoteResponseInvalid): Response {
+  const tooLarge = error instanceof RemoteResponseTooLarge;
+  console.error(`machine proxy ${id}${path}: ${tooLarge ? "answer too large" : "answer unreadable"}`);
+  return fail(tooLarge ? "remote_response_too_large" : "remote_response_invalid", error.message, 502);
 }
 
 export async function handleMachineRequest(request: Request, manager: MachineManager, onRevoke?: (close: () => void) => () => void,
@@ -173,9 +184,10 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
       try {
         const response = await fetch(target, { method: request.method, headers, body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body, redirect: "error", signal: AbortSignal.any([request.signal, abort.signal, AbortSignal.timeout(path === "worktree/create" ? 165_000 : 75_000)]) });
         const etag = response.headers.get("etag");
-        let body = response.status === 304 ? null : await response.arrayBuffer();
+        // held whole before it is passed on (and parsed, for a watcher's prompt), so only up to a size
+        let body: Uint8Array<ArrayBuffer> | null = response.status === 304 ? null : await readCapped(response, watchedPrompt ? REMOTE_LIMITS.watchedPrompt : REMOTE_LIMITS.proxy);
         if (watchedPrompt && response.ok && body) {
-          const answer = JSON.parse(new TextDecoder().decode(body)) as PanePromptResponse;
+          const answer = parseJson<PanePromptResponse>(body);
           if (answer.prompt?.plan_file !== undefined) {
             // the body is the plan file's text and the screen's is not in the answer: the card keeps
             // its question and options, without a body
@@ -183,12 +195,15 @@ export async function handleMachineRequest(request: Request, manager: MachineMan
             answer.prompt = { ...card, body: null };
           }
           if (answer.outcomes) answer.outcomes = answer.outcomes.map(({ preview: _preview, result_text: _resultText, ...outcome }) => outcome);
-          body = new TextEncoder().encode(JSON.stringify(answer)).buffer as ArrayBuffer;
+          body = new TextEncoder().encode(JSON.stringify(answer));
         }
         return new Response(body, { status: response.status, headers: {
           "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store", ...(etag ? { etag } : {}),
         } });
-      } catch (error) { return transportFailure(id, path, error); }
+      } catch (error) {
+        if (error instanceof RemoteResponseTooLarge || error instanceof RemoteResponseInvalid) return unusableAnswer(id, path, error);
+        return transportFailure(id, path, error);
+      }
       finally { untrack(); }
     }
     return fail("not_found", "Unknown PC endpoint", 404);

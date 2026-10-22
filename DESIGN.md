@@ -33,6 +33,14 @@ Messages say only what the person needs now, not everything the app knows:
 - Only waiting: one muted phrase, in one place ("Connecting…"); never the same state twice on screen.
 - Causes, internals and conditions stay folded away (a Details toggle) or appear only when they
   apply. A known cause is the sentence ("PC disk is full"); a generic fallback never pushes it aside.
+- Another PC's answer the server will not hold (past its size ceiling, or unreadable where a
+  watcher's prompt must be redacted, `server/remote-json.ts`) is said in one of two fixed sentences
+  in the user's language, never with any of the answer, its address or its size. They sit where
+  each surface already puts the server's words: a PC's state line, its setup dialog's error
+  (`machineErrorText`), and the Details of any request the PC proxy refused (`errorFrom` in
+  `lib/api.ts`, by the 502 code). Nothing new is drawn. None of the reference apps (the Codex and
+  Claude apps, Paseo, T3 Code) relays a second PC's bridge, so there is no app precedent to follow;
+  this applies the known-cause rule above.
 - One situation, one message, one place.
 - The resting screen is calm: a destructive control looks neutral until it asks to confirm;
   danger color is for the moment of risk. PC removal is the exception: its red tint and border

@@ -259,6 +259,8 @@ export const JA: Record<string, string> = {
   "connecting": "接続しています",
   "herdr offline": "herdr オフライン",
   "Start herdr on this PC, or check HERDR_SOCKET.": "この PC で herdr を起動するか、HERDR_SOCKET を確認してください。",
+  "The other PC's answer was larger than this app accepts": "別の PC の応答が、このアプリで受け取れるサイズを超えています",
+  "The other PC's answer could not be read": "別の PC の応答を読み取れませんでした",
   "Browse files": "ファイルを参照",
   "Copy link": "リンクをコピー",
   "Link copied": "リンクをコピーしました",

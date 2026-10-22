@@ -3593,6 +3593,38 @@ describe("PC management API", () => {
     expect((await fetch(`${base()}/api/machines/missing/pane/read?pane_id=p1`)).status).toBe(503);
     expect((await fetch(`${base()}/api/machines/missing/auth`)).status).toBe(404);
   });
+  it("answers another PC's oversized or unreadable answer with a safe 502", async () => {
+    const secret = "fixture-contract-secret";
+    let serve = () => new Response("{}");
+    const peer = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => serve() });
+    const url = `http://127.0.0.1:${peer.port}`;
+    const manager = { endpoint: (id: string) => id === "capped-remote" ? { url, token: "contract-token" } : undefined, trackTerminal: () => () => {} } as unknown as MachineManager;
+    const ask = (machine: string, path: string, readOnly = false) => handleMachineRequest(new Request(`http://127.0.0.1/api/machines/${machine}/${path}`), manager, undefined, undefined, readOnly);
+    const logged: string[] = [];
+    const error = spyOn(console, "error").mockImplementation((...args: unknown[]) => { logged.push(args.join(" ")); });
+    try {
+      // a watcher's prompt is parsed to remove what it may not see, so it is held to 1 MiB
+      serve = () => new Response(`{"prompt":null,"restored":"${secret}${"x".repeat(1024 * 1024)}"}`);
+      const large = await ask("capped-remote", "pane/prompt?pane_id=p1", true);
+      expect(large.status).toBe(502);
+      const tooLarge = await large.json() as ApiError;
+      expect(tooLarge.error.code).toBe("remote_response_too_large");
+      serve = () => new Response(`{"prompt":{"plan_file":"${secret}"`);
+      const unreadable = await ask("capped-remote", "pane/prompt?pane_id=p1", true);
+      expect(unreadable.status).toBe(502);
+      const invalid = await unreadable.json() as ApiError;
+      expect(invalid.error.code).toBe("remote_response_invalid");
+      for (const text of [JSON.stringify(tooLarge), JSON.stringify(invalid), logged.join("\n")]) {
+        expect(text).not.toContain(secret);
+        expect(text).not.toContain(url);
+        expect(text).not.toContain("contract-token");
+      }
+      // a disconnected PC is refused before any request leaves for it
+      const offline = await ask("missing", "session");
+      expect(offline.status).toBe(503);
+      expect((await offline.json() as ApiError).error.code).toBe("machine_offline");
+    } finally { error.mockRestore(); peer.stop(true); }
+  });
   it("gates PC metadata, setup and SSE behind the existing token", async () => {
     const stateDir = mkdtempSync(join(tmpdir(), "herdr-machine-auth-"));
     const gated = createServer({ port: 0, token: "machine-test-secret", stateDir });
