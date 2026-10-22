@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adoptLegacyDir, defaultStateDir } from "./update-state.ts";
+import { adoptLegacyDir, defaultStateDir, moveLegacyStateDir } from "./update-state.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -76,6 +76,17 @@ describe("the state dir from before the rename", () => {
     adoptLegacyDir(join(config, "herdr-web-ui"), join(config, "ovis"));
     expect(defaultStateDir({ XDG_CONFIG_HOME: config })).toBe(join(config, "ovis"));
     expect(existsSync(join(config, "herdr-web-ui"))).toBe(false);
+  });
+
+  it("is moved once per process, and not at all under OVIS_STATE_DIR", () => {
+    const [skipped, first, later] = [configHome(), configHome(), configHome()];
+    for (const config of [skipped, first, later]) withDevices(join(config, "herdr-web-ui"));
+    moveLegacyStateDir({ XDG_CONFIG_HOME: skipped, OVIS_STATE_DIR: "/srv/ovis" });
+    moveLegacyStateDir({ XDG_CONFIG_HOME: first });
+    moveLegacyStateDir({ XDG_CONFIG_HOME: later });
+    expect(lstatSync(join(skipped, "herdr-web-ui")).isDirectory()).toBe(true);
+    expect(lstatSync(join(first, "herdr-web-ui")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(later, "herdr-web-ui")).isDirectory()).toBe(true);
   });
 
   it("gives way to OVIS_STATE_DIR", () => {

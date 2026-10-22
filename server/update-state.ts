@@ -28,8 +28,15 @@ const isDir = (path: string): boolean => {
 
 /** The dir under its name from before the rename, when it still holds state of its own. */
 function holdsOwnState(legacy: string, next: string): boolean {
-  if (!isDir(legacy) || readdirSync(legacy).length === 0) return false;
-  return !isDir(next) || realpathSync(legacy) !== realpathSync(next);
+  try {
+    if (!isDir(legacy) || readdirSync(legacy).length === 0) return false;
+    return !isDir(next) || realpathSync(legacy) !== realpathSync(next);
+  } catch (error) {
+    // ENOENT: another process of this install is moving it right now. An old dir this process
+    // cannot read is not one it can use; the new one then reports what it cannot write.
+    if (["ENOENT", "EACCES", "EPERM", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+    throw error;
+  }
 }
 
 /** Where the state is now; moves nothing. The old dir wins while it holds state of its own. */
@@ -58,18 +65,24 @@ export function moveLegacyStateDir(env: Record<string, string | undefined> = pro
  */
 export function adoptLegacyDir(legacy: string, next: string): void {
   if (!holdsOwnState(legacy, next)) return;
-  if (isDir(next)) {
-    if (readdirSync(next).length > 0) {
-      console.error(`both ${legacy} and ${next} hold files, so the state in ${legacy} stays in use; move what you keep into one of them`);
+  try {
+    // an empty dir at the new name gives way; one with files of its own stays
+    if (isDir(next)) rmdirSync(next);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // ENOENT: another process of this install removed it first, and the move goes on
+    if (code !== "ENOENT") {
+      if (holdsOwnState(legacy, next)) console.error(code === "ENOTEMPTY" || code === "EEXIST"
+        ? `both ${legacy} and ${next} hold files, so the state in ${legacy} stays in use; move what you keep into one of them`
+        : `cannot move ${legacy} to ${next}, so the old state dir stays in use: ${(error as Error).message}`);
       return;
     }
-    rmdirSync(next);
   }
   try {
     renameSync(legacy, next);
   } catch (error) {
     // another process of this install moved it first
-    if ((error as NodeJS.ErrnoException).code === "ENOENT" && isDir(next)) return;
+    if (!holdsOwnState(legacy, next)) return;
     console.error(`cannot move ${legacy} to ${next}, so the old state dir stays in use: ${(error as Error).message}`);
     return;
   }
