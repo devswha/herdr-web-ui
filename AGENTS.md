@@ -84,6 +84,8 @@ to change. Also read [server/AGENTS.md](server/AGENTS.md) and [src/AGENTS.md](sr
   the Release run is done.
 - Required checks: Fast checks, Integration and browser, Native Windows install. Resolve review
   threads before merging (branch protection does not enforce it).
+- Run `bun run check fast` before every push, and push a PR's commits together: each push to a
+  PR cancels its CI run in progress and starts every job again.
 - CodeRabbit's reviews are rationed per PR author, and agents open their PRs as one account:
   opening a PR, a push and each `@coderabbitai review` spend one, and past about 80 in a week
   one comes back per hour. Open verified work ready for review, not as a draft: the merge pass
