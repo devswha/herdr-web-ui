@@ -743,12 +743,18 @@ describe("workspace order evidence through the manager", () => {
     send({ type: "snapshot", snapshot: paired("R1", 0) });
     const stale = await health.next();
     // the same generation, but another endpoint answers for the PC now
+    const check = (runtime as unknown as { verification?: { promise: Promise<string | null> } }).verification!.promise;
     const generation = runtime.generation;
     runtime.endpoint = { ...runtime.endpoint! };
+    const pairs = remotePairs(manager);
     stale.answer("R1");
+    // asserted once the health answer has been handled, not merely sent
+    expect(await check).toBeNull();
     await heard(manager, send);
     expect(runtime.generation).toBe(generation);
     expect(remoteOf(manager)?.source_boot_id).toBeUndefined();
+    expect(remoteOf(manager)?.snapshot?.order_epoch).toBeUndefined();
+    expect(pairs).toEqual([]);
   });
 
   it("a proven source restart replaces the cache with the new server's read", async () => {
