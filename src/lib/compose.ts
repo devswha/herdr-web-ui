@@ -58,8 +58,10 @@ export function pendingActionUncertain(code: string, state: string): boolean {
 /**
  * A send refused over Claude's terminal input box: the note, and either the one-row draft a send may
  * clear first (`draft`), or, where the server named none but showed the box, a send anyway (`anyway`).
+ * `plain`: the note stands without its Send anyway (a screen a terminal peek left open), so a quick
+ * reply, which offers none, shows it as it is.
  */
-export type DraftRefusal = { note: string; draft: string } | { note: string; anyway: true };
+export type DraftRefusal = { note: string; draft: string } | { note: string; anyway: true; plain?: boolean };
 
 /**
  * submitNote, or a DraftRefusal when the server named a draft it can clear (SubmitResult's `draft`)

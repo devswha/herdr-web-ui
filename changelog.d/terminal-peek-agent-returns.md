@@ -8,6 +8,7 @@
 
 ### Fixed
 - Going back to the chat while a terminal command's screen is still open (Claude Code's `/btw`
-  answer, a picker left up) no longer lets the next message be typed into that screen and do
-  nothing: the composer says the command is still open in the terminal, with Show terminal, and
-  Send keeps the message until the screen closes or you choose Send anyway.
+  answer, a picker left up) no longer lets the next message from the message box be typed into
+  that screen and do nothing, for Claude Code and the agents above (not OpenCode): the composer
+  says the command is still open in the terminal, with Show terminal, and Send (or a queued
+  message's Send now) keeps the message until the screen closes or you choose Send anyway.

@@ -2041,7 +2041,9 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   again when the screen closes. One recognizer per agent reads the grid's bottom rows (and the
   cell attributes a placeholder needs: Codex's dim, Hermes' italic, gjc's and Devin's colour) off
   whole frames only: never inside one of herdr's synchronized-update blocks, nor between a resize
-  and the agent's redraw for it. The return arms on the first frame whose row an open screen hid
+  and the agent's redraw for it (when the pane's grid changes size, the first frame for it, which
+  may be herdr's own of the old screen reflowed, a box cut at its borders, neither arms nor ends
+  the peek). The return arms on the first frame whose row an open screen hid
   (or covered, for omp, agy and Grok, whose panels can leave it drawn under them; Hermes, which
   draws its row again for a moment before every screen, arms on a covered row only), and ends the
   peek on the first frame that shows the row back, empty, by Back to Chat's own path. A screen
@@ -2058,8 +2060,13 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   row of `.composer-notices`) with **Show terminal**, which opens a peek the reader ends by hand.
   Send then keeps the message and says **Not sent: /command is still open in the terminal.** with
   **Send anyway**, which sends it once, as an ordinary send (never over a box the server showed);
-  the next Send is held again. The notice goes on the first whole frame that shows the row back,
-  with another pane, agent, terminal or session, or when dismissed. No key is sent to close
+  the next Send is held again. A quick reply and a queued or held message's Send now are held with
+  the same note and no Send anyway. A peek opened from a chat row names no command (**A screen is
+  still open in the terminal**): the reader may have opened another screen there. A listed command
+  whose screen had not opened when the reader left (gjc's `/sessions` loads for seconds behind its
+  empty box) leaves a silent guard that the first frame showing its screen turns into the notice,
+  and that a turn of the agent drops. The notice goes on the first whole frame that shows the row
+  back, with another pane, agent, terminal or session, or when dismissed. No key is sent to close
   anything. Claude Code has a recognizer for this (its box between the screen's last two rules,
   as `server/prompt.ts` reads it) while its own return stays on its record. It follows the
   composer's refusal of a Claude box that may not be empty and t3code's composer banner stack;

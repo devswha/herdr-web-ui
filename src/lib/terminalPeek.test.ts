@@ -70,9 +70,9 @@ describe("screenReturnArmed", () => {
   // the commands each agent's recording showed hiding the row and drawing it back at its close (SYNTHESIS, 2026-10-22)
   const RECORDED: Record<string, string[]> = {
     codex: ["permissions", "theme", "statusline", "resume", "review", "rename", "new", "fork", "usage", "diff"],
-    omp: ["settings", "hotkeys", "tree", "resume", "extensions", "agents", "usage", "context", "btw", "switch"],
+    omp: ["settings", "hotkeys", "tree", "resume", "extensions", "agents", "usage", "context", "btw"],
     pi: ["settings", "tree", "resume", "scoped-models"],
-    gjc: ["settings", "theme", "tree", "resume", "sessions", "transcript", "routing", "model"],
+    gjc: ["settings", "theme", "tree", "resume", "sessions", "transcript", "routing"],
     omo: ["settings", "tree", "thinking", "scoped-models", "favorite-models", "sessions", "resume", "rename", "share", "trust"],
     hermes: ["model", "reload-mcp", "new", "reset", "clear"],
     devin: ["model", "models", "config", "resume", "theme", "shortcuts", "mode", "btw"],
@@ -100,7 +100,9 @@ describe("screenReturnArmed", () => {
     const manual: [string, string][] = [["codex", "status"], ["codex", "vim"], ["codex", "mention"], ["codex", "side"], ["codex", "btw"], ["codex", "goal"],
       ["omp", "plan"], ["omp", "copy"], ["pi", "hotkeys"], ["pi", "session"], ["gjc", "hotkeys"], ["gjc", "btw"], ["omo", "tasks"], ["omo", "btw"],
       ["hermes", "palette"], ["hermes", "prompt"], ["hermes", "compose"], ["hermes", "resume"], ["devin", "mcp"], ["devin", "status"], ["agy", "open"],
-      ["grok", "model"], ["grok", "theme"], ["grok", "status"]];
+      ["grok", "model"], ["grok", "theme"], ["grok", "status"],
+      // Chat answers these with its own model card: they never open a peek
+      ["omp", "switch"], ["gjc", "model"]];
     for (const [agent, command] of manual) expect([agent, command, screenReturnArmed(agent, `/${command}`, command)]).toEqual([agent, command, false]);
   });
 

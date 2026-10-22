@@ -601,16 +601,18 @@ try {
       assert.equal(await page.evaluate((pane) => localStorage.getItem(`herdr-web-ui:view:${pane}`), panes.omp), "chat");
       console.log(`PASS ${tag}: omp's /settings comes back to Chat by itself once its editor's row is drawn again`);
 
-      // omp's /copy prints over the row and is not on omp's list: the row's frames bring nothing back
+      // omp's /copy is not on omp's list (the head promises nothing) and only prints above the row,
+      // which stays drawn: no frame arms the return, so the peek stays until the reader leaves it
       await sendIn(panes.omp, "/copy");
       await of(panes.omp).peek.waitFor();
       await hint(page).getByText("/copy ran", { exact: true }).waitFor();
       assert.equal(await hint(page).getByText(AUTO_NOTE, { exact: true }).count(), 0, "/copy comes back by hand");
       await screen(panes.omp, "Nothing to copy yet.").waitFor();
       await escapeIn(panes.omp);
-      // the frame Escape drew (the printed line gone, the row still there) has been parsed: the peek stays
+      // the frame Escape drew (the printed line gone, the row still there) has been parsed: a row that
+      // never went arms nothing (the allow list itself is the head's note above and terminalPeek.test.ts)
       await screen(panes.omp, "Nothing to copy yet.").waitFor({ state: "detached" });
-      assert.equal(await of(panes.omp).peek.count(), 1, "a command off the list keeps its peek after the row is back");
+      assert.equal(await of(panes.omp).peek.count(), 1, "a row that was never hidden keeps the peek");
       await backToChat(panes.omp);
       assert.equal(await page.locator(".composer-notice", { hasText: "is still open in the terminal" }).count(), 0, "the row is back: no still-open notice");
       console.log(`PASS ${tag}: omp's /copy, off the list, stays until the reader leaves it`);

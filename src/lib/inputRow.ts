@@ -426,11 +426,16 @@ const SYNC = /\u001b\[\?2026([hl])/g;
  * and a read of its stream can end inside one: a frame is read only once its block has closed. A
  * grid resized here (a fit, a phone peek's narrower grid, a pane's grid adopted) holds the old
  * screen until the agent draws again for the new one: from the resize on, nothing is read until a
- * whole frame has come for the new grid, written after the pane's grid said it was that size. A
- * stream drawn without blocks (a mirrored pane's whole screens) counts each chunk as a frame.
+ * whole frame has come for the new grid, written after the pane's grid said it was that size. When
+ * the pane's grid itself changes size, herdr may first draw the old screen again, reflowed for the
+ * new size (an idle box cut at its borders reads as gone), before the agent's own redraw, or both
+ * may come as one frame: the first frame after it is `reflowing`, read when asked but never taken
+ * as a change of screen. A stream drawn without blocks (a mirrored pane's whole screens) counts each
+ * chunk as a frame.
  *
  * `enqueue` is called as a chunk is written (xterm parses later, in order), `settle` in its write
- * callback, `resized` on every resize of the grid and `reset` where the stream starts over.
+ * callback, `resized` on every resize of the grid, `reflowed` when the pane's grid changes size and
+ * `reset` where the stream starts over.
  */
 export class FrameGate {
   private open = false;
@@ -440,6 +445,8 @@ export class FrameGate {
   private epoch = 0;
   private settledEpoch = -1;
   private last = false;
+  private reflow = false;
+  private reflowFrame = false;
 
   enqueue(data: string, geometry: boolean): FrameStamp {
     const text = this.carry + data;
@@ -463,6 +470,9 @@ export class FrameGate {
       if (stamp.whole) this.settledEpoch = this.epoch;
       else settled = false;
     }
+    // the first frame for the pane's new size: maybe herdr's reflow of the old screen, the agent's redraw after it
+    this.reflowFrame = settled && this.reflow;
+    if (settled) this.reflow = false;
     this.last = settled;
     return settled;
   }
@@ -472,16 +482,32 @@ export class FrameGate {
     this.last = false;
   }
 
+  /** the pane's grid changed size (pane-geometry): the next frame that settles is `reflowing` */
+  reflowed(): void {
+    this.reflow = true;
+    this.last = false;
+  }
+
   /** the stream starts over (another pane, a reconnect, a terminal reset): a block it cut is gone */
   reset(): void {
     this.open = false;
     this.carry = "";
     this.synced = false;
+    this.reflow = false;
     this.resized();
   }
 
   /** the screen as parsed so far is a settled frame: the last chunk settled, and nothing resized since */
   get current(): boolean {
     return this.last;
+  }
+
+  /**
+   * The current frame is the first since the pane's grid changed size: possibly herdr's own redraw
+   * of the old screen, reflowed. It may be read, but no screen opened or closed by it: a watched
+   * peek neither arms nor comes back on it.
+   */
+  get reflowing(): boolean {
+    return this.last && this.reflowFrame;
   }
 }

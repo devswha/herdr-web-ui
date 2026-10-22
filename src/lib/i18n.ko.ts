@@ -1075,6 +1075,8 @@ export const KO: Record<string, string> = {
   "{command} is still open in the terminal": "{command} 화면이 아직 터미널에 열려 있습니다",
   "Show terminal": "터미널 보기",
   "Not sent: {command} is still open in the terminal.": "보내지 않음: {command} 화면이 아직 터미널에 열려 있습니다.",
+  "A screen is still open in the terminal": "터미널에 화면이 아직 열려 있습니다",
+  "Not sent: a screen is still open in the terminal.": "보내지 않음: 터미널에 화면이 아직 열려 있습니다.",
   "Terminal commands": "터미널 명령",
   "Skills and files": "스킬과 파일",
   "Background result delivered": "백그라운드 결과 도착",

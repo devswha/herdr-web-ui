@@ -118,17 +118,18 @@ idle, so their chat comes back from the screen instead
 ([`src/lib/inputRow.ts`](../src/lib/inputRow.ts)): each draws its own empty input row again when
 the screen closes. One recognizer per agent reads the terminal's bottom rows off whole frames
 (never inside one of herdr's synchronized-update blocks, nor between a resize and the agent's
-redraw). The peek arms once the row has gone, or been covered by a panel drawn over it, after the
-send, and ends on the first frame that shows it back, empty. It arms only when the row was read
-empty as the command left, and only for the commands each agent was recorded hiding and redrawing
-it for, sent bare:
+redraw; when the pane's grid changes size, the first frame for it, which may be herdr's own of
+the old screen reflowed, neither arms nor ends the peek). The peek arms once the row has gone, or
+been covered by a panel drawn over it, after the send, and ends on the first frame that shows it
+back, empty. It arms only when the row was read empty as the command left, and only for the
+commands each agent was recorded hiding and redrawing it for, sent bare:
 
 | Agent (version recorded) | Comes back by itself after | Arms on |
 |---|---|---|
 | Codex (0.163.0) | `/permissions`, `/theme`, `/statusline`, `/resume`, `/review`, `/rename`, `/new`, `/fork`, `/usage`, `/diff` (closed with `q`), `/cd <folder>` it does not trust yet | row gone |
-| omp (18.8.7) | `/settings`, `/hotkeys`, `/tree`, `/resume`, `/extensions`, `/agents`, `/usage`, `/context`, `/btw`, `/switch` | row gone or covered |
+| omp (18.8.7) | `/settings`, `/hotkeys`, `/tree`, `/resume`, `/extensions`, `/agents`, `/usage`, `/context`, `/btw` | row gone or covered |
 | pi (0.86.0) | `/settings`, `/tree`, `/resume`, `/scoped-models` | row gone |
-| gjc (0.18.12) | `/settings`, `/theme`, `/tree`, `/resume`, `/sessions`, `/transcript`, `/routing`, `/model` | row gone |
+| gjc (0.18.12) | `/settings`, `/theme`, `/tree`, `/resume`, `/sessions`, `/transcript`, `/routing` | row gone |
 | OmO (5.1.40) | `/settings`, `/tree`, `/thinking`, `/scoped-models`, `/favorite-models`, `/sessions`, `/resume`, `/rename`, `/share`, `/trust` | row gone |
 | Hermes classic CLI (0.21.5) | `/model`, `/reload-mcp`, `/new`, `/reset`, `/clear` | row covered only: it draws the empty row for a moment before every screen |
 | Devin (3000.11.92) | `/model`, `/models`, `/config`, `/resume`, `/theme`, `/shortcuts`, `/mode`, `/btw` | row gone |
@@ -146,9 +147,15 @@ A peek ended by hand while its command's screen is still open (Claude Code's `/b
 picker left up) leaves the next message to be typed into that screen, where it does nothing.
 Where the agent has a recognizer (Claude Code's reads its input box between the screen's last
 two rules) and it read the empty row as the peek began, the composer then says **/command is
-still open in the terminal**, with **Show terminal**. Send keeps the message and says it was not
-sent, with **Send anyway** to send it once. The notice goes as soon as a frame shows the row back,
-or with another pane, agent or session. Nothing is typed to close the screen.
+still open in the terminal** (**A screen is still open in the terminal** after a peek opened
+from a chat row, where the reader may have opened another), with **Show terminal**. Send keeps
+the message and says it was not sent, with **Send anyway** to send it once; a quick reply and a
+queued message's **Send now** are held the same way, without it. A command on the list whose
+screen had not opened yet when the reader left (gjc's `/sessions` keeps its empty box for 10 to
+15 seconds while it loads) gets the notice once a frame shows the screen, unless the agent starts
+a turn first. The notice goes as soon as a frame shows the row back, or with another pane, agent
+or session; a peek left for another pane sets none. Messages the PC delivers by itself at the end
+of a turn are not held. Nothing is typed to close the screen.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any

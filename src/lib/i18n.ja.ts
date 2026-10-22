@@ -1077,6 +1077,8 @@ export const JA: Record<string, string> = {
   "{command} is still open in the terminal": "{command} がまだターミナルで開いています",
   "Show terminal": "ターミナルを表示",
   "Not sent: {command} is still open in the terminal.": "未送信: {command} がまだターミナルで開いています。",
+  "A screen is still open in the terminal": "ターミナルで画面がまだ開いています",
+  "Not sent: a screen is still open in the terminal.": "未送信: ターミナルで画面がまだ開いています。",
   "Terminal commands": "ターミナルコマンド",
   "Skills and files": "スキルとファイル",
   "Background result delivered": "バックグラウンドの結果が届きました",

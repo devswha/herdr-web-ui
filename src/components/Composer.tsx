@@ -904,7 +904,9 @@ export function Composer({
     setNote(null);
     // a quick reply is not the box's text, so its note offers no send over a draft
     const settle = (result: boolean | string | DraftRefusal): void => {
-      if (mounted.current && typeof result !== "boolean") setNote(typeof result === "string" ? result : submitNote("input_draft", result.note));
+      if (mounted.current && typeof result !== "boolean") {
+        setNote(typeof result === "string" ? result : "plain" in result && result.plain === true ? result.note : submitNote("input_draft", result.note));
+      }
     };
     if (!composerDrafts.begin(draftKey)) return;
     try {

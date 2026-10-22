@@ -1079,6 +1079,8 @@ export const ZH: Record<string, string> = {
   "{command} is still open in the terminal": "{command} 仍在终端中打开",
   "Show terminal": "显示终端",
   "Not sent: {command} is still open in the terminal.": "未发送：{command} 仍在终端中打开。",
+  "A screen is still open in the terminal": "终端中仍有界面打开",
+  "Not sent: a screen is still open in the terminal.": "未发送：终端中仍有界面打开。",
   "Terminal commands": "终端命令",
   "Skills and files": "技能和文件",
   "Background result delivered": "后台结果已送达",

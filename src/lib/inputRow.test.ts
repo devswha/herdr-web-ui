@@ -270,6 +270,34 @@ describe("FrameGate", () => {
     gate.reset();
     expect(gate.settle(gate.enqueue(`${OPEN}fresh${CLOSE}`, true), true)).toBe(true);
   });
+
+  test("when the pane's grid changes size, its first frame (maybe herdr's reflow of the old screen) reads but is marked", () => {
+    const gate = new FrameGate();
+    expect(gate.settle(gate.enqueue(`${OPEN}idle${CLOSE}`, true), true)).toBe(true);
+    expect(gate.reflowing).toBe(false);
+    // pane-geometry with a new size, then this terminal's grid follows it
+    gate.reflowed();
+    expect(gate.current).toBe(false);
+    gate.resized();
+    expect(gate.settle(gate.enqueue(`${OPEN}old screen, reflowed${CLOSE}`, true), true)).toBe(true);
+    expect(gate.reflowing).toBe(true);
+    expect(gate.settle(gate.enqueue(`${OPEN}the agent's redraw${CLOSE}`, true), true)).toBe(true);
+    expect(gate.reflowing).toBe(false);
+    // the grid this terminal drives: its own resize first, the pane's grid after
+    gate.resized();
+    expect(gate.settle(gate.enqueue(`${OPEN}before the pane's size${CLOSE}`, false), true)).toBe(false);
+    gate.reflowed();
+    expect(gate.settle(gate.enqueue(`${OPEN}old screen, reflowed${CLOSE}`, true), true)).toBe(true);
+    expect(gate.reflowing).toBe(true);
+    // a chunk cut inside the next frame is not current, nor reflowing
+    expect(gate.settle(gate.enqueue(`${OPEN}half`, true), true)).toBe(false);
+    expect(gate.reflowing).toBe(false);
+    // a stream that starts over has no reflow of its own
+    gate.reflowed();
+    gate.reset();
+    expect(gate.settle(gate.enqueue(`${OPEN}fresh${CLOSE}`, true), true)).toBe(true);
+    expect(gate.reflowing).toBe(false);
+  });
 });
 
 describe("recorded frame streams", () => {
@@ -323,6 +351,42 @@ describe("recorded frame streams", () => {
     expect(watch("gjc", sequence)).toEqual({ armed: false, returnedAt: null, manualAt: null });
     const loaded = [...sequence.slice(0, 2), await recorded("gjc", "settings-open-119"), await recorded("gjc", "sessions-closed-119")];
     expect(watch("gjc", loaded)).toEqual({ armed: true, returnedAt: 3, manualAt: null });
+  });
+
+  test("a phone peek's resize: herdr's reflowed frame of gjc's loading /sessions neither arms nor returns", async () => {
+    const loading = readFileSync(join(FIXTURES, "gjc", "sessions-open-loading10s-119.ansi"), "utf8").replace(/\r/g, "").split("\n").slice(0, 40);
+    // herdr's own frame for the new grid: the old screen, reflowed to 40 columns (its box cut at the borders)
+    const old = terminal(119);
+    await parse(old, loading.map((row, index) => `\u001b[${index + 1};1H${row}`).join(""));
+    old.resize(40, 40);
+    await parse(old, "");
+    const reflowed = Array.from({ length: 40 }, (_, y) => old.buffer.active.getLine(old.buffer.active.baseY + y)!.translateToString(true));
+    old.dispose();
+    expect(inputRowState("gjc", await screenOf(reflowed.join("\n"), 40))).toBe("gone");
+    // gjc's own redraw at 40 columns: still its empty box (the recorded one after a close stands in for it)
+    const redrawn = readFileSync(join(FIXTURES, "gjc", "settings-closed-40.ansi"), "utf8").replace(/\r/g, "").split("\n").slice(0, 40);
+    const frame = (rows: readonly string[]): string => `\u001b[?2026h\u001b[2J${rows.map((row, index) => `\u001b[${index + 1};1H${row}`).join("")}\u001b[?2026l`;
+    const term = terminal(119);
+    const gate = new FrameGate();
+    term.onResize(() => gate.resized());
+    // as the pane takes its frames (PaneTerminal onInputRowFrame): a reflowing one changes nothing
+    const states: InputRowState[] = [];
+    const write = async (data: string): Promise<void> => {
+      const stamp = gate.enqueue(data, true);
+      await parse(term, data);
+      if (gate.settle(stamp, true) && !gate.reflowing) states.push(inputRowState("gjc", readScreen(term.buffer.active, term.cols, term.rows))!);
+    };
+    await write(frame(loading));
+    // pane-geometry: the pty took 40 columns, and this grid follows
+    gate.reflowed();
+    term.resize(40, 40);
+    await write(frame(reflowed));
+    await write(frame(redrawn));
+    term.dispose();
+    expect(states).toEqual(["ready", "ready"]);
+    expect(watch("gjc", states)).toEqual({ armed: false, returnedAt: null, manualAt: null });
+    // read, the reflowed frame would have armed the watch and the redraw brought the chat back before the sessions opened
+    expect(watch("gjc", ["ready", "gone", "ready"])).toEqual({ armed: true, returnedAt: 2, manualAt: null });
   });
 
   test("a screen that closes onto text in the row leaves the return to the reader", async () => {

@@ -1811,8 +1811,9 @@ class DemoSocket extends EventTarget {
       for (const socket of sockets) if (socket === this || socket.attached.has(paneId)) socket.push({ type: "pane-geometry", pane_id: paneId, cols: cols!, rows: rows! });
     }
     if (histories.get(paneId)?.resize(cols!, rows!)) redrawHistory(paneId);
-    // an agent draws its screen again for the new grid
-    else if (before?.cols !== cols || before?.rows !== rows) drawAgentScreen(paneId);
+    // like herdr: its own frame of the pane for the new grid first (the screen it holds, reflowed),
+    // then the agent's redraw; the browser takes no screen change from the first (src/lib/inputRow.ts FrameGate)
+    else if (before?.cols !== cols || before?.rows !== rows) { drawAgentScreen(paneId); drawAgentScreen(paneId); }
   }
 
   /** the pane's agent screen, when it draws one, for the pane's grid */

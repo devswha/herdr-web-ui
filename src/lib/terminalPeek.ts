@@ -119,8 +119,10 @@ const NONE: ReadonlySet<string> = new Set();
  *   prints, keeps the row and never arms. /diff is a pager that `q` closes.
  * - Hermes' classic CLI draws its row again, empty, for a moment after every slash command, before the
  *   screen opens: only a covered row (a picker over it, a confirmation in its place) arms it.
- * - omp's /switch, agy's and Grok's panels and /context at 119 columns leave the row drawn under the
- *   screen: a covered row arms these too.
+ * - agy's and Grok's panels and omp's /context at 119 columns leave the row drawn under the screen:
+ *   a covered row arms these too.
+ * - omp's bare /switch and gjc's bare /model were recorded too, but Chat answers them with its own
+ *   model card (server/skills): they never reach the terminal, so they are not listed.
  * OpenCode is not here: only its home screen was recorded, not the in-session layout its screens
  * open over.
  */
@@ -131,13 +133,13 @@ export const SCREEN_AUTO_RETURN: Readonly<Record<string, ScreenReturn>> = {
     arm: GONE,
   },
   omp: {
-    bare: new Set(["settings", "hotkeys", "tree", "resume", "extensions", "agents", "usage", "context", "btw", "switch"]),
+    bare: new Set(["settings", "hotkeys", "tree", "resume", "extensions", "agents", "usage", "context", "btw"]),
     withArguments: NONE,
     arm: GONE_OR_COVERED,
   },
   pi: { bare: new Set(["settings", "tree", "resume", "scoped-models"]), withArguments: NONE, arm: GONE },
   gjc: {
-    bare: new Set(["settings", "theme", "tree", "resume", "sessions", "transcript", "routing", "model"]),
+    bare: new Set(["settings", "theme", "tree", "resume", "sessions", "transcript", "routing"]),
     withArguments: NONE,
     arm: GONE,
   },
