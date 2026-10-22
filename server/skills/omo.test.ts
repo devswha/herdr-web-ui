@@ -398,6 +398,11 @@ describe("OmO command catalog", () => {
     expect(source.forms?.btw).toEqual([{ match: "bare", interaction: "terminal" }]);
     expect(source.forms?.model).toEqual([{ match: "bare", interaction: "dialog", dialog: "omo-model" }]);
     expect(source.terminalBound).toContain("sessions");
+    // Senpi's share and trust selectors and the /import <path> confirmation wait for a key
+    for (const name of ["share", "trust", "import"]) expect(source.terminalBound).toContain(name);
+    // a bare /rename or /name opens a text input; with a name it is stored
+    for (const name of ["rename", "name"]) expect(source.forms?.[name]).toEqual([{ match: "bare", interaction: "terminal" }, { match: "other", interaction: "none" }]);
+    for (const name of ["new", "clone", "compact", "export"]) expect(source.terminalBound).not.toContain(name);
   });
 
   test("compiles scanner metadata into terminal visibility and static provenance", () => {

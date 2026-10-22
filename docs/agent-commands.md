@@ -75,7 +75,15 @@ folder and home, so its rows are never native and never verified.
 ## The terminal group
 
 Some commands only make sense in the terminal: pickers the chat has no reader for, pagers, or
-reports the agent never writes to its transcript. Rows with `visibility: "terminal"`, or with a
+reports the agent never writes to its transcript. The rule for a row: a typed form that leaves a
+screen waiting for a key (a picker, panel, form, confirmation, prompt or editor) that no reader
+turns into a card is `terminal`. The form decides, so Claude Code's bare `/fast` is a terminal
+command while `/fast off` is an ordinary send. A command that prints and returns to the agent's
+input stays an ordinary send, even when what it printed reaches only the screen. Check a new
+row by sending it in an isolated session of the pinned version, and read the command's own
+definition instead when it signs in, buys, uploads or installs: Claude Code's `/ide` installs
+the editor extension on the PC, and agy updates its own binary when it starts. Rows with
+`visibility: "terminal"`, or with a
 bare form whose interaction is `terminal`, are listed apart in the composer under Terminal
 commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one inserts it like any other
 completion. Send/Enter sends it through the usual path and, once accepted, opens this browser's
