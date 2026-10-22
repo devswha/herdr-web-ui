@@ -17,8 +17,12 @@ Versions: Codex 0.163.0, omp 18.8.7, pi 0.86.0, gjc 0.18.12, OmO 5.1.40 (`omo`),
 0.21.5 (classic CLI), Devin 3000.11.92, Antigravity CLI 1.4.4 (`agy`), Grok 1.0.67.
 
 Redacted: account emails read `user@example.test` and account plans `(plan 00)` / `(Demo plan    )`,
-both at their original width so the layout is unchanged; session and request ids are zeroed. In the
-observe frames an email drawn in pieces was mapped piece by piece, and each frame was replayed to
-check that none is left. Screens that list the account's own sessions, usage, MCP servers or
-status card (Codex `/status`, gjc `/sessions` open, Devin `/status` and `/mcp`, agy `/resume` and
-`/usage`) are not here. The scratch folder paths under the temporary directory are kept.
+both at their original width so the layout is unchanged; session and request ids are zeroed. The
+Codex screens that still show an earlier `/status` card above the composer (the 40-column ones,
+`diff-closed-q-120` and `diff-send-120`) read `00000` credits and a weekly limit that resets
+`0:00 AM on 01 Jan`, with the session id all zeros. In the observe frames an email or id drawn in
+pieces was mapped piece by piece (where herdr's diff skipped a cell the zeroed text no longer
+matched, the frame writes it out), and each frame was replayed to check that none is left.
+Screens opened to list the account's own sessions, usage, MCP servers or status (Codex `/status`,
+gjc `/sessions` open, Devin `/status` and `/mcp`, agy `/resume` and `/usage`) are not here. The
+scratch folder paths under the temporary directory are kept.
