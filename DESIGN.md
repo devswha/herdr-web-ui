@@ -903,6 +903,14 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 
 ### Pill (`.pill`)
 - Mono metadata at `--chip-h`. Offline is the one header pill that stays, and uses danger tokens. A deep link waiting for its PC's roster says **Opening link…** in the same `.header-note` pill (`role="status"`) until it lands or its failure note replaces it. That status stays in the document while there is no note, clipped and empty (`.visually-hidden`, never `display: none`, as `.conn-live`), and the words of a page that opens with a link land a frame after it: a live region that appears together with its content is not announced. The `.header-note` pill carries a sentence, so it is set in the interface face (`--font-ui`), not the mono one. A deep link that could not open what it named, and Copy link, say so in a plain `.header-note` pill for a moment (8 s, 1.6 s for Link copied). The note takes the flexible context's place and ellipsizes when narrow, keeping the lens and More controls in view.
+- This PC's herdr status follows its health reads, and one failed read is no outage: it says **Status unknown** in a
+  plain `.pill-stale` (the neutral pill, no danger tokens), its tooltip naming the last herdr that answered. A second
+  failed read in a row says **herdr unavailable** in the offline pill's danger style; neither claims herdr stopped, since
+  a failed read is not proof of that. An answer ends the failed reads before it; one that lands late keeps those after
+  it. Another PC's **herdr offline** still comes from its bridge.
+  What a PC's herdr can do (terminal attach, the mirror, a pane's default lens) is its last answer and never changes on a
+  failed read, so a Windows PC keeps its chat lens. The pills follow the app's own connection chip and header pills
+  rather than another app's policy; at `<=480px` both go with the other header pills.
 
 ### Sidebar roster row and footer
 - No top bar. The sidebar opens with the plan panel (when Settings puts it there), the PC workspace groups and a separate **Agents** list spanning the connected PCs. A workspace starts from the `+` on its PC's header, or from the **New workspace**

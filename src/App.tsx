@@ -3,6 +3,7 @@ import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Searc
 
 import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
 import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, shareSeen, signOut, splitPane, zoomPane, type HealthInfo } from "./lib/api.ts";
+import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
 import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
 import { PaneCanvas } from "./components/PaneCanvas.tsx";
@@ -268,7 +269,15 @@ export function App() {
     focusWorkspaceListToggle();
   }, []);
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
-  const [health, setHealth] = useState<HealthInfo | null>(null);
+  // this PC's health reads (lib/healthPresentation.ts): its newest answer is what its herdr can do,
+  // the failed reads since then only change what the header says
+  const healthBook = useRef<HealthBook<HealthInfo>>(new Map());
+  const healthReads = useRef(0);
+  const [localHealth, setLocalHealth] = useState<{ confirmed: HealthInfo | null; failures: number }>({ confirmed: null, failures: 0 });
+  const health = localHealth.confirmed;
+  const localFreshness = healthFreshness(localHealth);
+  // what the app says about this PC beyond its herdr's capabilities: kept through one failed read, as the header's details are
+  const shownHealth = localFreshness === "unavailable" ? null : health;
   const [error, setError] = useState<string | null>(null);
   // a palette layout call a PC's bridge could not take: a line over the pane, gone after a moment as the tab strip's is
   const [layoutNotice, setLayoutNotice] = useState<string | null>(null);
@@ -570,7 +579,13 @@ export function App() {
   const loadHealth = useCallback(async () => {
     try { const next = await fetchBridgeHealth(); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); }
     catch { /* retain the gate while the connection server restarts */ }
-    try { const next = await fetchHealth(); setHealth((previous) => sameData(previous, next) ? previous : next); } catch { setHealth(null); }
+    const read = ++healthReads.current;
+    const answer = await fetchHealth().then((value) => ({ ok: true, value }) as const, () => ({ ok: false }) as const);
+    const book = applyHealthRead(healthBook.current, "local", read, answer);
+    if (book === healthBook.current) return;
+    healthBook.current = book;
+    const { confirmed, failures } = machineHealth(book, "local");
+    setLocalHealth((previous) => sameData(previous, { confirmed, failures }) ? previous : { confirmed, failures });
   }, []);
   const snapshotRequests = useRef(new SnapshotRequests());
   const load = useCallback(async () => {
@@ -1003,12 +1018,16 @@ export function App() {
     // a pick of another pane of a zoomed tab lands on herdr's zoomed one too: herdr shows only it
   }, [selectedMachineId, selectedPaneId, selectedLayout?.zoomed, selectedLayout?.focused_pane_id]);
   const targetHerdr = selectedMachineId === "local" ? health?.herdr : selectedMachine?.herdr;
+  // the herdr the header names as current: this PC's last answer only while it is still shown (through one
+  // failed read, not once unavailable), though its capabilities stay in targetHerdr
+  const shownHerdr = selectedMachineId === "local" ? shownHealth?.herdr : targetHerdr;
   const selectedTitle = selectedPane ? displayPaneTitle(selectedPane) : null;
   // the tab that governs the pane region, so the strip's tabs and the pane they select are
   // one thing to a screen reader (A4); null while no tab owns this pane
   const tabPanelLabel = paneTabPanelLabel(snapshot, selectedPane, t);
   const selectedAgent = selectedPane?.agent ?? null;
-  // unknown herdr (offline, or a server that predates the flag) counts as attach-capable
+  // a herdr not heard from yet (or a server that predates the flag) counts as attach-capable; a failed
+  // health read keeps this PC's last answer (lib/healthPresentation.ts)
   // a server that repaints the pane's screen instead (terminal_mirror) has a terminal lens too
   const terminalAttach = targetHerdr?.terminal_attach !== false || targetHerdr?.terminal_mirror === true;
 
@@ -1680,10 +1699,16 @@ export function App() {
           <ConnectionChip
             connected={connected}
             word={connWord}
-            title={[connected ? null : connWord, targetHerdr ? t("herdr {version} · protocol {protocol}", { version: targetHerdr.version, protocol: targetHerdr.protocol }) : null].filter((part) => part !== null).join(" · ") || undefined}
+            title={[connected ? null : connWord, shownHerdr ? t("herdr {version} · protocol {protocol}", { version: shownHerdr.version, protocol: shownHerdr.protocol }) : null].filter((part) => part !== null).join(" · ") || undefined}
           />
           {/* the Host's herdr is away: the step to take is on that PC (the sidebar's state line says the same) */}
-          {!targetHerdr && <span className="pill pill-offline" title={selectedMachineId === "local" ? t("Start herdr on this PC, or check HERDR_SOCKET.") : undefined}>{t("herdr offline")}</span>}
+          {/* this PC's herdr is told by its health reads: one failed read is unknown, a second unavailable, and
+              neither is proof that herdr stopped. Another PC's is told by its bridge (the roster) */}
+          {selectedMachineId !== "local"
+            ? !targetHerdr && <span className="pill pill-offline">{t("herdr offline")}</span>
+            : localFreshness === "unknown"
+              ? <span className="pill pill-stale" title={health ? t("The last health check failed. Last seen: herdr {version} · protocol {protocol}", { version: health.herdr.version, protocol: health.herdr.protocol }) : t("The health check failed")}>{t("Status unknown")}</span>
+              : localFreshness === "unavailable" && <span className="pill pill-offline" title={t("Start herdr on this PC, or check HERDR_SOCKET.")}>{t("herdr unavailable")}</span>}
           <span className="header-more">
             <button
               type="button"
@@ -1741,7 +1766,7 @@ export function App() {
         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
-        {health?.lan_exposure && <LanExposureNotice host={health.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}
+        {shownHealth?.lan_exposure && <LanExposureNotice host={shownHealth.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}
         {/* the pane's tab, or two tabs side by side (lib/split.ts): a tab dragged down out of its strip,
             or a sidebar row dragged over this area, opens its pane in the half it is dropped on */}
         <div ref={paneAreaRef} className={`pane-split${splitOn ? " is-split" : ""}`} onDragEnterCapture={paneDragOver} onDragOverCapture={paneDragOver} onDragLeave={paneDragLeave} onDropCapture={paneDrop}>
@@ -1943,7 +1968,7 @@ export function App() {
         setFilesOpen(false);
         selectTargetRef.current(machineId, paneId);
       }} />
-      <SettingsDialog auth={auth} herdrVersion={health?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} onUsageLogin={(paneId) => { closeSettings(); selectTarget("local", paneId, "terminal"); void load(); }} actions={actions} updates={updates} onEnableNotifications={enableNotifications} saveError={settingsSaveError} overPreview={(viewing !== null && !fileDocked) || diffViewing !== null} />
+      <SettingsDialog auth={auth} herdrVersion={shownHealth?.herdr?.version ?? null} open={settingsOpen} section={settingsSection} linkPage={settingsLinkPage} linkSection={settingsLinkSection} onPage={onSettingsPage} onClose={closeSettings} onUsageLogin={(paneId) => { closeSettings(); selectTarget("local", paneId, "terminal"); void load(); }} actions={actions} updates={updates} onEnableNotifications={enableNotifications} saveError={settingsSaveError} overPreview={(viewing !== null && !fileDocked) || diffViewing !== null} />
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} paneId={selectedPane.pane_id} viewing={(viewing !== null && !fileDocked) || diffViewing !== null} onOpenFile={viewFile}
           onOpenDiff={(comparison, file) => openDiff({ machineId: selectedMachineId, paneId: selectedPane.pane_id, directory: selectedPane.foreground_cwd ?? selectedPane.cwd ?? null, ...comparison, path: file.path, oldPath: file.old_path })}
