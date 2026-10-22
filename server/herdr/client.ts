@@ -68,14 +68,15 @@ function nextId(): string {
  * and 2,000 panes, with every pane's agent and every tab's layout, is 3,598,115 bytes of JSON; its
  * reply line adds 58 bytes of envelope, the request id and the newline, 3,598,174 bytes plus the id
  * (under 3,598,200; about 1,800 bytes a pane; server/herdr/seam.test.ts builds it and checks this sum).
- * Twice each of those stays far below the floors, so the floors stand: 64 MiB for pane.read and
- * session.snapshot (server/herdr/seam.test.ts answers both at exactly that size), 16 MiB for every
- * other reply and for each line of an event stream. A subscription has no lifetime total: only
- * each of its lines is bounded.
+ * Twice each of those stays far below the floors, so the floors stand: 64 MiB for pane.read,
+ * pane.selection.read (any range of the same history pane.read reads) and session.snapshot
+ * (server/herdr/seam.test.ts answers each at exactly that size), 16 MiB for every other reply and
+ * for each line of an event stream. A subscription has no lifetime total: only each of its lines
+ * is bounded.
  */
 export const LARGE_REPLY_BYTES = 64 * 1024 * 1024;
 export const LINE_BYTES = 16 * 1024 * 1024;
-const LARGE_REPLY_METHODS = new Set(["pane.read", "session.snapshot"]);
+const LARGE_REPLY_METHODS = new Set(["pane.read", "pane.selection.read", "session.snapshot"]);
 
 /**
  * Splits incoming bytes into newline-terminated lines of at most `limit` bytes each.

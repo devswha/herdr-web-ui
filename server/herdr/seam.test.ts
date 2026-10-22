@@ -348,6 +348,12 @@ it("accepts largest supported pane and snapshot replies", async () => {
   expect(read.text.length).toBeGreaterThan(LINE_BYTES);
   expect((read as unknown as { added_later: number }).added_later).toBe(1);
 
+  // pane.selection.read returns any range of the same history, so it has the same ceiling
+  reply = ({ id }) => exactLine(LARGE_REPLY_BYTES, (pad) => ({ id, result: { type: "pane_selection", text: `${screen.repeat(1000)}${pad}` } }));
+  const selection = await herdrRpc<{ text: string }>("pane.selection.read", { pane_id: "pane-1", anchor: { row: 0, col: 0 }, cursor: { row: 9, col: 0 } }, path, 30_000);
+  expect(selection.text.startsWith(screen.repeat(1000))).toBe(true);
+  expect(selection.text.length).toBeGreaterThan(LINE_BYTES);
+
   // The snapshot sizing evidence in client.ts: a schema-complete snapshot of 25 workspaces of 8 tabs
   // of 10 panes (2,000 panes, with every pane's agent and every tab's layout) is 3,598,115 bytes of
   // JSON. Its whole reply line before padding is that plus 58 bytes of envelope
@@ -370,12 +376,12 @@ it("accepts largest supported pane and snapshot replies", async () => {
   expect(2 * unpadded).toBeLessThan(8 * 1024 * 1024);
   expect(snapshot).toEqual({ ...full, added_later: expect.any(String) } as never);
 
-  // the large ceiling is for those two methods only: the same 64 MiB answer to any other fails
+  // the large ceiling is for those three methods only: the same 64 MiB answer to any other fails
   const ordinary = await rejection(herdrRpc("pane.get", { pane_id: "pane-1" }, path, 30_000));
   expect(ordinary.code).toBe("bad_frame");
   expect(ordinary.message).toContain(`over the ${LINE_BYTES}-byte line limit`);
-  expect(connections).toHaveLength(3);
-  expect(requests.map((r) => r.method)).toEqual(["pane.read", "session.snapshot", "pane.get"]);
+  expect(connections).toHaveLength(4);
+  expect(requests.map((r) => r.method)).toEqual(["pane.read", "pane.selection.read", "session.snapshot", "pane.get"]);
 }, 120_000);
 
 it("keeps subscriptions alive beyond the aggregate line cap", async () => {
