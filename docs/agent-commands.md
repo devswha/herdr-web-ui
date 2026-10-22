@@ -86,12 +86,32 @@ the editor extension on the PC, and agy updates its own binary when it starts. R
 `visibility: "terminal"`, or with a
 bare form whose interaction is `terminal`, are listed apart in the composer under Terminal
 commands ([`src/lib/compose.ts`](../src/lib/compose.ts)). Picking one inserts it like any other
-completion. Send/Enter sends it through the usual path and, once accepted, opens this browser's
-Terminal lens. A dismissible command hint offers **Back to Chat**, restoring the reader's place;
-it stays until dismissed or the lens is left, without a timer. Busy commands wait in the existing
-queue: only an explicit **Send now** switches views, never automatic delivery. A refusal or
-unconfirmed send keeps the draft and note. View-only devices never send or switch, and no action
-moves herdr's focus. `/resume` keeps opening **Earlier sessions…**.
+completion. Send/Enter sends it through the usual path and, once accepted, opens a terminal peek
+([`src/lib/terminalPeek.ts`](../src/lib/terminalPeek.ts)): the pane's own terminal over the
+chat's transcript, in this browser only. The chat stays mounted under it, where it was; the pane's
+lens and the address stay Chat, nothing attaches anew and herdr's focus never moves. On a desktop
+the composer stays under the terminal, dimmed and inert, and the terminal takes the keys; on a
+phone the key bar takes the composer's place. Busy commands wait in the existing queue: only an
+explicit **Send now** opens a peek, never automatic delivery. A refusal or unconfirmed send keeps
+the draft and note. View-only devices never send or peek. `/resume` keeps opening **Earlier
+sessions…**.
+
+The peek's head says what ran and offers **Back to Chat** and **Keep Terminal** (which keeps the
+Terminal lens). The header's Chat, Mod+Shift+J, a phone's Back, another pane and a reload end it
+too. Escape belongs to the agent. Claude Code's chat can come back by itself: when one of its
+panels closes, Claude writes a `local_command` answer ("Settings dialog dismissed"), and a
+local-command notice written after the send's own outcome was created ends the peek. Only the
+commands Claude Code 2.1.306 was recorded answering that way at close, sent bare, arm it: `/usage`,
+`/cost`, `/status`, `/stats`, `/help`, `/config`, `/theme`, `/permissions`, `/hooks`, `/skills`,
+`/workflows`, `/passes`, `/resume`, `/powerup` and `/fast` (each only where the catalog lists it
+as a terminal command, since no other command opens a peek). `/diff` writes its answer when its
+panel opens, `/export`, `/plugin`, `/mobile`, `/autocompact`, `/add-dir`, `/mcp` and
+`/scroll-speed` write entries the chat does not show, `/sandbox` and `/tasks` write nothing, and a
+custom or unknown command is unrecorded: those come back by hand. Under Claude's fullscreen
+renderer most panels write nothing at close, and a session writes nothing before its first
+message, so the peek never waits for the answer, and its head says the chat may come back, never
+that it will. Held terminal input, the terminal's find bar or an IME composition in the grid or
+its input line leave the return to the reader. Every other agent's peek ends by hand.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any
@@ -105,7 +125,8 @@ the text by the same per-agent syntax the composer uses
 send: delivery comes first and tracking catches up. The pane's outcomes ride on
 `GET /api/pane/prompt` as `outcomes`. Ordinary commands show a chip under their bubble
 ([`src/lib/outcomeChip.ts`](../src/lib/outcomeChip.ts)). Terminal-only commands instead show one
-quiet **Ran in terminal** row with **Open Terminal**, without chips or unconfirmed previews.
+quiet **Ran in terminal** row with **Open Terminal**, which opens a peek ended by hand, without
+chips or unconfirmed previews.
 Recognized Hermes informational result cards remain available.
 
 | State | Means | Set by |

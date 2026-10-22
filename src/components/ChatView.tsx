@@ -67,6 +67,7 @@ import { invalidatePaneCommands } from "../lib/paneCommandCache.ts";
 import { noteCatalogChanges, outcomeChip, outcomeCommand, outcomeLabel, outcomeNote, outcomeResultText, outcomeRows, type OutcomeState } from "../lib/outcomeChip.ts";
 import { typedTerminalCommand } from "../lib/compose.ts";
 import { usePaneCommands } from "../lib/usePaneCommands.ts";
+import { commandScreenClosed, sentOutcome, type TerminalPeek } from "../lib/terminalPeek.ts";
 
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 // How long after scroll input an upward move still counts as the reader's own.
@@ -179,8 +180,16 @@ export interface ChatViewProps {
   onPromptAnswered?: (toMessageBox: boolean) => void;
   /** the pane's own name, as App's header shows it: the log is named by it, never by the pane id */
   title?: string | null;
-  /** switches the pane to its terminal lens, where a command the chat cannot follow runs; none: the pane has no terminal to show */
-  onOpenTerminal?: () => void;
+  /** shows the pane's terminal for a command sent from here (a peek over this chat), where a command the chat cannot follow runs; none: the pane has no terminal to show */
+  onOpenTerminal?: (text: string) => void;
+  /** a peek shows the pane's terminal over this chat: the chat stays mounted and reading, but presents nothing and pages nothing */
+  covered?: boolean;
+  /** the peek that comes back to the chat by itself, watched here: the transcript and the outcomes say when its screen closed */
+  peek?: TerminalPeek | null;
+  /** the agent recorded that the peek's command screen closed (lib/terminalPeek.ts commandScreenClosed) */
+  onCommandScreenClosed?: (peek: TerminalPeek) => void;
+  /** the outcome ids each prompt read lists: a send notes them, to know its own outcome among later ones */
+  onOutcomes?: (paneId: string, ids: readonly string[]) => void;
   /** this connection may type into the pane (it is no watching device or observer): only then can a message be rewound to */
   interactive?: boolean;
   /** a message's "Rewind in terminal" (Claude Code, grok, agy): the pane opens its terminal with a hint to run the agent's own rewind; nothing is sent */
@@ -638,10 +647,10 @@ function UserMessage({ text, skills = null }: { text: string; skills?: SkillMatc
   </div>;
 }
 
-/** Where a chip's action goes: the waiting card, or the terminal lens. Null: nothing to go to (no card up, no terminal). */
+/** Where a chip's action goes: the waiting card, or the pane's terminal for the command sent. Null: nothing to go to (no card up, no terminal). */
 interface OutcomeActions {
   answer: (() => void) | null;
-  terminal: (() => void) | null;
+  terminal: ((text: string) => void) | null;
   commands?: readonly SlashCommand[];
 }
 
@@ -656,7 +665,7 @@ function TerminalCommandRow({ outcome, actions }: { outcome: CommandOutcome; act
     <SquareTerminal aria-hidden="true" />
     <code title={outcome.text}>{outcomeCommand(outcome.text)}</code>
     <span>· {t("Ran in terminal")}</span>
-    {actions?.terminal && <button type="button" className="chat-outcome-action" onClick={actions.terminal}>{t("Open Terminal")}</button>}
+    {actions?.terminal && <button type="button" className="chat-outcome-action" onClick={() => actions.terminal?.(outcome.text)}>{t("Open Terminal")}</button>}
   </article>;
 }
 
@@ -673,7 +682,8 @@ function OutcomeChip({ outcome, actions }: { outcome: CommandOutcome; actions: O
   const t = useT();
   const chip = outcomeChip(outcome);
   const Icon = OUTCOME_ICONS[chip.state];
-  const action = chip.action === "answer" ? actions?.answer ?? null : chip.action === "terminal" ? actions?.terminal ?? null : null;
+  const terminal = actions?.terminal ?? null;
+  const action = chip.action === "answer" ? actions?.answer ?? null : chip.action === "terminal" && terminal !== null ? () => terminal(outcome.text) : null;
   // a recognized result shows what the agent printed; the unconfirmed preview of the same screen goes
   const preview = outcome.result_text ? "" : outcome.preview ?? "";
   const [dismissed, setDismissed] = useChatRowToggle(`outcome-result:${outcome.id}`, false);
@@ -945,7 +955,7 @@ function TerminalFallback({ paneId, visible }: { paneId: string; visible: boolea
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, presentationKey, finishEpoch, finishId, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered, title = null, onOpenTerminal, interactive = false, onRewindInTerminal }: ChatViewProps) {
+export const ChatView = memo(function ChatView({ paneId, presentationKey, finishEpoch, finishId, active = true, visible: paneVisible = true, pageScroll, refreshKey, invalidationKey = 0, onConversationWatch, conversationPushes = false, onTerminalOutput, sentKey = 0, connected, ended, agent, agentStatus, onMetadata, onRead, greeted = false, onPrompt, onSuggestion, onRestored, promptRefreshKey = 0, pendingAnswer = null, onPendingAnswerDone, promptDock = null, onPromptAnswered, title = null, onOpenTerminal, covered = false, peek = null, onCommandScreenClosed, onOutcomes, interactive = false, onRewindInTerminal }: ChatViewProps) {
   const t = useT();
   const { fetchPaneConversation, peekPaneConversation, fetchPanePromptState, fetchPaneTranscript } = useMachineApi();
   const { settings } = useSettings();
@@ -1010,6 +1020,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
   const [restored, setRestored] = useState<string | null>(null);
   // the pane's tracked command sends, read with the prompt (lib/outcomeChip.ts draws them)
   const [outcomes, setOutcomes] = useState<CommandOutcome[]>([]);
+  const onOutcomesRef = useRef(onOutcomes);
+  onOutcomesRef.current = onOutcomes;
   /** the outcomes whose catalog change this chat has already answered with a fresh command read */
   const catalogNoted = useRef(new Set<string>());
   // a read begun before the latest send answers for the turn before it: its suggestion is dropped
@@ -1371,6 +1383,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
           setPrompt((current) => current?.id === next.prompt?.id ? current : next.prompt);
           // unchanged outcomes keep their objects: the turns carrying them are not re-rendered
           setOutcomes((current) => JSON.stringify(current) === JSON.stringify(next.outcomes) ? current : next.outcomes);
+          onOutcomesRef.current?.(paneId, next.outcomes.map((outcome) => outcome.id));
           noteCatalogChanges(next.outcomes, catalogNoted.current, () => invalidatePaneCommands(paneId, machineId));
           if (sentKeyRef.current === sent) {
             onSuggestionRef.current?.(paneId, next.suggestion);
@@ -1566,7 +1579,8 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     measureEnd();
   };
   useLayoutEffect(() => {
-    if (!pageScroll) return;
+    // under a peek the page keys and the shortcuts page the terminal (TerminalViewportTools)
+    if (!pageScroll || covered) return;
     const scroll = (direction: -1 | 1) => {
       const node = scroller.current;
       if (!node) return;
@@ -1710,6 +1724,21 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     control?.focus();
   }, [promptDock]);
   const promptUp = prompt !== null;
+  // A peek that comes back by itself (lib/terminalPeek.ts): once a prompt read lists the send's own
+  // outcome its time is kept (the bridge lists an outcome for a while only), and a local-command
+  // notice the agent wrote after it says the command's screen closed (read in every loaded turn: a
+  // burst of later turns can move it out of the newest page)
+  const peekSentAt = useRef<{ peek: TerminalPeek; at: string } | null>(null);
+  useEffect(() => {
+    if (peek === null || onCommandScreenClosed === undefined) return;
+    let at = peekSentAt.current?.peek === peek ? peekSentAt.current.at : null;
+    if (at === null) {
+      at = sentOutcome(peek, outcomes)?.created_at ?? null;
+      if (at === null) return;
+      peekSentAt.current = { peek, at };
+    }
+    if (commandScreenClosed(peek, agent, at, turns)) onCommandScreenClosed(peek);
+  }, [peek, outcomes, turns, agent, onCommandScreenClosed]);
   const outcomeActions = useMemo((): OutcomeActions => ({ answer: promptUp ? focusPrompt : null, terminal: onOpenTerminal ?? null, commands }), [promptUp, focusPrompt, onOpenTerminal, commands]);
   // Nothing is typed: drafts and the agent's own rewind remain in the terminal.
   const offered = rewindOffer({ agent, interactive, connected, ended, conversation: state.source === "conversation" });
@@ -1781,7 +1810,7 @@ export const ChatView = memo(function ChatView({ paneId, presentationKey, finish
     : away && <button type="button" className="btn chat-new-messages chat-virtual-jump is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>;
   return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><ImageViewerContext.Provider value={openViewer}>
     {/* a reader away from the end has not seen the answer a finish lands there: presented only at the end */}
-    <div className="chat-frame" data-pane-content={active && visible && connected && !ended && loaded && error === null && !away && !newMessages
+    <div className="chat-frame" data-pane-content={active && visible && !covered && connected && !ended && loaded && error === null && !away && !newMessages
       && endPresentation?.state === state && endPresentation.key === presentationKey
       && (agentStatus !== "done" || conversationFinishPresented({ source: state.conversationSource, turns: state.turns }))
       && readPresentation === presentationKey && (state.source === "conversation" ? ChatTimeline !== null : agent === null) ? presentationKey : undefined}>
