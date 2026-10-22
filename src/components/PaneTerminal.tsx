@@ -69,7 +69,10 @@ import { finalStep, HERDR_MOUSE_SCROLL_LINES, wheelSteps } from "../lib/wheelSte
 import { attachTerminalWheel, canPanTerminalGrid } from "../lib/terminalWheel.ts";
 import { visibleTerminalInputBounds } from "../lib/terminalViewport.ts";
 
-/** Build-time constant: on only in the browser lane's demo build (lib/crashProbe.ts). */
+/**
+ * Build-time constant: on only in the browser lane's demo build (lib/crashProbe.ts). Read it through
+ * `typeof`: fixture bundles built with Bun.build (scripts/chat-history-fixture.tsx) do not define it.
+ */
 declare const __HERDR_TEST_HOOKS__: boolean;
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
@@ -1210,7 +1213,7 @@ export function PaneTerminal({
       if (!writingOutput) replayOscOpen = oscMayCopy();
     };
     retireOutputRef.current = retireOutput;
-    if (__HERDR_TEST_HOOKS__) {
+    if (typeof __HERDR_TEST_HOOKS__ === "boolean" && __HERDR_TEST_HOOKS__) {
       // browser scripts read the parse state and count xterm writes in flight (never in a release build)
       let inFlight = 0;
       let peakInFlight = 0;
