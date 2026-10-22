@@ -897,7 +897,8 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - This PC's herdr status follows its health reads, and one failed read is no outage: it says **Status unknown** in a
   plain `.pill-stale` (the neutral pill, no danger tokens), its tooltip naming the last herdr that answered. A second
   failed read in a row says **herdr unavailable** in the offline pill's danger style; neither claims herdr stopped, since
-  a failed read is not proof of that. Any answer clears it. Another PC's **herdr offline** still comes from its bridge.
+  a failed read is not proof of that. An answer ends the failed reads before it; one that lands late keeps those after
+  it. Another PC's **herdr offline** still comes from its bridge.
   What a PC's herdr can do (terminal attach, the mirror, a pane's default lens) is its last answer and never changes on a
   failed read, so a Windows PC keeps its chat lens. The pills follow the app's own connection chip and header pills
   rather than another app's policy; at `<=480px` both go with the other header pills.
