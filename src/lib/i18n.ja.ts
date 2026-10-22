@@ -154,13 +154,11 @@ const BASE: Record<string, string> = {
   "Reload app": "アプリを再読み込み",
   "Details": "詳細",
 
-  // ---- key bar ----
 
   // ---- prompt card ----
   "Submit": "送信",
   "Recommended": "推奨",
 
-  // ---- markdown ----
 
   // ---- composer ----
   "Drag to resize · double-click to reset": "ドラッグでサイズ変更 · ダブルクリックでリセット",
@@ -181,7 +179,6 @@ const BASE: Record<string, string> = {
   "Discard": "破棄",
   "Held message — review and send": "保持中のメッセージ。確認して送信してください",
 
-  // ---- install help ----
 
   // ---- voice input ----
   "Dictate (hold)": "音声入力（長押し）",
@@ -210,7 +207,6 @@ const BASE: Record<string, string> = {
   "Try again; if it keeps failing, restart Ovis on the PC.": "もう一度お試しください。失敗が続く場合は PC で Ovis を再起動してください。",
   "The server cannot save settings: check that its state folder is writable.": "サーバーが設定を保存できません。サーバーの状態フォルダーに書き込めるか確認してください。",
 
-  // ---- sign-in ----
 
   // ---- devices ----
   "Loading…": "読み込んでいます…",

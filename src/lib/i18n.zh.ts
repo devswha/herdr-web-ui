@@ -156,13 +156,11 @@ const BASE: Record<string, string> = {
   "Reload app": "重新加载应用",
   "Details": "详情",
 
-  // ---- key bar ----
 
   // ---- prompt card ----
   "Submit": "提交",
   "Recommended": "推荐",
 
-  // ---- markdown ----
 
   // ---- composer ----
   "Drag to resize · double-click to reset": "拖动以调整大小 · 双击重置",
@@ -183,7 +181,6 @@ const BASE: Record<string, string> = {
   "Discard": "丢弃",
   "Held message — review and send": "保留的消息。请检查后发送",
 
-  // ---- install help ----
 
   // ---- voice input ----
   "Dictate (hold)": "听写（按住）",
@@ -212,7 +209,6 @@ const BASE: Record<string, string> = {
   "Try again; if it keeps failing, restart Ovis on the PC.": "请重试；如果一直失败，请在电脑上重启 Ovis。",
   "The server cannot save settings: check that its state folder is writable.": "服务器无法保存设置：请检查其状态文件夹是否可写。",
 
-  // ---- sign-in ----
 
   // ---- devices ----
   "Loading…": "正在加载…",

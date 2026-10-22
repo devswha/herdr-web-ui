@@ -152,13 +152,11 @@ const BASE: Record<string, string> = {
   "Reload app": "앱 새로 고침",
   "Details": "자세히",
 
-  // ---- key bar ----
 
   // ---- prompt card ----
   "Submit": "제출",
   "Recommended": "추천",
 
-  // ---- markdown ----
 
   // ---- composer ----
   "Drag to resize · double-click to reset": "끌어서 크기 조절 · 두 번 클릭하면 초기화",
@@ -179,7 +177,6 @@ const BASE: Record<string, string> = {
   "Discard": "버리기",
   "Held message — review and send": "보관된 메시지. 확인하고 보내세요",
 
-  // ---- install help ----
 
   // ---- voice input ----
   "Dictate (hold)": "받아쓰기 (길게 누르기)",
@@ -208,7 +205,6 @@ const BASE: Record<string, string> = {
   "Try again; if it keeps failing, restart Ovis on the PC.": "다시 시도하고, 계속 실패하면 PC에서 Ovis를 다시 시작하세요.",
   "The server cannot save settings: check that its state folder is writable.": "서버가 설정을 저장할 수 없습니다. 서버의 상태 폴더에 쓸 수 있는지 확인하세요.",
 
-  // ---- sign-in ----
 
   // ---- devices ----
   "Loading…": "불러오는 중…",
