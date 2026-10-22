@@ -286,12 +286,13 @@ describe("OpenCode v2 native service", () => {
     writeFileSync(join(nativeRoot, "screen.txt"), recorded("first-selected"));
     writeFileSync(join(nativeRoot, "accepted.txt"), recorded("accepted"));
     writeFileSync(standIn, `#!${process.execPath}
-const { appendFileSync, readFileSync } = require("node:fs");
+const { appendFileSync, readFileSync, statSync } = require("node:fs");
 let typed = "";
 process.stdin.setRawMode(true);
 process.stdin.on("data", (chunk) => {
   appendFileSync(${JSON.stringify(typedLog)}, chunk);
-  fetch(readFileSync(${JSON.stringify(join(nativeRoot, "fake.url"))}, "utf8") + "/test/typed", { method: "POST", headers: { "x-typed-start": String(typed.length) }, body: chunk }).catch(() => {});
+  const start = statSync(${JSON.stringify(typedLog)}).size - chunk.length;
+  fetch(readFileSync(${JSON.stringify(join(nativeRoot, "fake.url"))}, "utf8") + "/test/typed", { method: "POST", headers: { "x-typed-start": String(start) }, body: chunk }).catch(() => {});
   const before = typed;
   typed += chunk.toString("latin1");
   if (!before.endsWith("@effect") && typed.endsWith("@effect")) process.stdout.write("\\u001b[2J\\u001b[H" + readFileSync(${JSON.stringify(join(nativeRoot, "screen.txt"))}, "utf8"));
