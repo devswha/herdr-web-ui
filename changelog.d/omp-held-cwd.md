@@ -1,5 +1,4 @@
 ### Fixed
-- An omp pane started with an absolute `--cwd` shows its chat again when herdr names no session
-  file: the session is matched against omp's last `--cwd` before `--`, not the pane's directory, and
-  a missing value or two omp processes in different directories show no chat rather than a guess. A
-  relative `--cwd` still shows none, since omp changes into it and leaves no proof of its base.
+- An omp pane started with an absolute `--cwd` shows its chat when herdr names no session file
+  and the directory herdr reports is not omp's own, such as the shell's or a symlink's real path:
+  the session is still looked up in omp's live directory first, then under that `--cwd`.
