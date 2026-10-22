@@ -65,7 +65,7 @@ export const expect = async ({ page, width, scheme, box, menu, scenario, clear, 
     await hint.waitFor();
     assert.equal(await chat.count(), 0);
     assert.equal(await peek.count(), 1, "the terminal shows over the chat, which stays mounted");
-    assert.equal(await hint.getByText("Chat comes back when you close it", { exact: true }).count(), 1, "Claude's /config comes back by itself");
+    assert.equal(await hint.getByText("Chat may come back when you close it", { exact: true }).count(), 1, "the head says Claude's /config may come back by itself");
     assert.deepEqual(await submits(), ["/config "]);
     const geometry = await hint.evaluate((node) => {
       const box = node.getBoundingClientRect();
@@ -94,7 +94,7 @@ export const expect = async ({ page, width, scheme, box, menu, scenario, clear, 
     await row.getByRole("button", { name: "Open Terminal", exact: true }).click();
     await peek.waitFor();
     await hint.getByText("/config ran", { exact: true }).waitFor();
-    assert.equal(await hint.getByText("Chat comes back when you close it", { exact: true }).count(), 0);
+    assert.equal(await hint.getByText("Chat may come back when you close it", { exact: true }).count(), 0);
     assert.deepEqual(await submits(), ["/config "]);
     await hint.getByRole("button", { name: "Back to Chat", exact: true }).click();
     await chat.waitFor();
@@ -106,8 +106,8 @@ export const expect = async ({ page, width, scheme, box, menu, scenario, clear, 
     await box.fill("/config");
     await send.click();
     await hint.waitFor();
-    const grid = page.locator(".terminal-stack.is-peek .xterm-screen");
-    assert.ok(await grid.boundingBox(), "the terminal grid is rendered");
+    // shown, not only laid out: under the chat the grid keeps its box with content-visibility hidden
+    assert.ok(await page.locator(".terminal-stack.is-peek .xterm-screen").isVisible(), "the terminal grid shows over the chat");
     await hint.getByRole("button", { name: "Keep Terminal", exact: true }).click();
     await page.locator(".terminal-stack:not(.is-chat) .xterm-screen").waitFor();
     assert.equal(await hint.count(), 0, "the terminal lens has no peek head");

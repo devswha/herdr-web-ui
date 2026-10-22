@@ -67,9 +67,18 @@ describe("autoReturnArmed", () => {
 });
 
 describe("sentOutcome", () => {
-  test("is the first outcome with the sent text the chat had not read", () => {
+  test("is the outcome with the sent text the chat had not read", () => {
     const own = outcome("o2", "/usage", SENT);
-    expect(sentOutcome(peek, [outcome("o1", "/status", SENT), own, outcome("o3", "/usage", SENT)])).toBe(own);
+    expect(sentOutcome(peek, [outcome("o1", "/status", SENT), own, outcome("o3", "/status", SENT)])).toBe(own);
+  });
+
+  test("passes over an identical send just before it that no read had listed yet", () => {
+    // /usage sent, closed (its notice written), and sent again before the next prompt read: both
+    // outcomes are new to this peek, and the earlier one's notice must not end it
+    const earlier = outcome("o2", "/usage", "2026-10-22T00:59:58.000Z");
+    const own = outcome("o3", "/usage", SENT);
+    expect(sentOutcome(peek, [earlier, own])).toBe(own);
+    expect(commandScreenClosed(peek, "claude", sentOutcome(peek, [earlier, own])!.created_at, [notice("2026-10-22T00:59:59.000Z")])).toBe(false);
   });
 
   test("passes over an older identical send", () => {

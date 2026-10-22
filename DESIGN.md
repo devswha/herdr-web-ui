@@ -1996,28 +1996,37 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
 - The peek's head stands in the terminal banner column and takes no grid row, in the rewind
   hint's anatomy (neutral elevated surface, hairline, `--radius-md`, `--fs-xs`, `--space-2`
   gaps, existing button targets): **/command ran** (truncated, whole in its title), under it
-  **Chat comes back when you close it** when the return is automatic, then **Back to Chat** and
-  **Keep Terminal**, which move under the words when the pane is narrow. It has no focus trap, no
-  Escape of its own and no dialog role: Escape, Tab and the arrows are the agent's.
+  **Chat may come back when you close it** when the return is armed (a possibility, never a
+  promise: Claude may record no close), then **Back to Chat** and **Keep Terminal**, which move
+  under the words when the pane is narrow. It has no focus trap, no Escape of its own and no dialog
+  role: Escape, Tab and the arrows are the agent's. The inert composer is no dictation target, so
+  Mod+Shift+Space and the Escape that cancels a recording stay the terminal's. A find bar left open
+  under the Terminal lens closes when a peek opens; Find in terminal during a peek searches the
+  peek's grid and keeps the peek.
 - Back to Chat, the header's Chat, Mod+Shift+J (which ends the peek instead of switching
-  lenses), a phone's Back (at `640px` and under, as a sheet's), another pane and a reload end the
-  peek; so do the agent ending and the tab being put away. Keep Terminal and the header's
-  Terminal save the terminal lens, which ends it with the grid kept and focused. Every end back
-  to the chat blurs the grid (keys typed after it reach no pty) and, on a desktop, focuses the
-  message box; the chat is where it was. The quiet row's and an outcome chip's **Open Terminal**
-  open a peek the reader ends by hand.
-- Claude Code's chat comes back by itself. When one of its panels closes, Claude records a
+  lenses), a split half's lens button (which says the chat during a peek), a phone's Back (at
+  `640px` and under, as a sheet's), another pane and a reload end the peek; so do the agent ending
+  and the tab being put away. A sheet or Settings opened over a phone's peek closes back onto it
+  (by its own close or by Back): the peek's history entry is made again, and only the next Back is
+  the peek's (`lib/sheetHistory.ts`: the peek is a sheet that stays under what opens over it).
+  Keep Terminal and the header's Terminal save the terminal lens, which ends it with the grid kept
+  and focused. Every end back to the chat blurs the grid (keys typed after it reach no pty) and, on
+  a desktop, focuses the message box; the chat is where it was. The quiet row's and an outcome
+  chip's **Open Terminal** open a peek the reader ends by hand.
+- Claude Code's chat can come back by itself. When one of its panels closes, Claude records a
   `local_command` answer ("Settings dialog dismissed"); a local-command notice timed after the
   send's own outcome (its `created_at`: both times are the PC's clock, never the browser's) ends
   the peek. Only a bare command Claude was recorded answering that way at close arms it
   (`CLAUDE_AUTO_RETURN`: `/usage`, `/cost`, `/status`, `/stats`, `/help`, `/config`, `/theme`,
   `/permissions`, `/hooks`, `/skills`, `/workflows`, `/passes`, `/resume`, `/powerup`, `/fast`).
   `/diff` records when its panel opens, `/export`, `/mcp`, `/plugin` and the like record nothing
-  the chat reads, and custom commands are unrecorded: they return by hand. Held terminal input,
-  the find bar or an IME composition in the grid leave the return to the reader. There is no
-  timer and no key is sent: a record that never comes (Claude's fullscreen renderer writes none
-  for most panels, nor does a session before its first message) leaves the peek until the reader
-  ends it. Every other agent returns by hand.
+  the chat reads, and custom commands are unrecorded: they return by hand. The send's own outcome
+  is the newest one with its text the chat had not read as it left, so an identical send just
+  before it, closed already, cannot end it. Held terminal input, the find bar or an IME
+  composition in the grid or its input line leave the return to the reader. There is no timer and
+  no key is sent: a record that never comes (Claude's fullscreen renderer writes none for most
+  panels, nor does a session before its first message) leaves the peek until the reader ends it.
+  Every other agent returns by hand.
 - The peek follows Warp's full-screen handoff of an interactive program
   ([Warp's agent workflow](https://docs.warp.dev/agents/)), where the program takes over the
   conversation's area and the conversation is back as it was when the program exits, and Zed's

@@ -32,6 +32,9 @@ window.sentFrames = [];
 window.receiptMode = "normal";
 window.releaseReceipt = null;
 window.discardOnSteer = false;
+// traversals landed: a sheet's step off its entry, or a Back
+window.pops = 0;
+window.addEventListener("popstate", () => { window.pops += 1; });
 })();</script><script src="/demo-transport.js"></script><script>(() => {
 const Socket = window.WebSocket;
 window.WebSocket = function(...args) {
@@ -92,9 +95,9 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
 } });
 const browser = await chromium.launch({ executablePath: chromePath(), headless: true, args: ["--no-sandbox"] });
 const owner = panes.flaky;
-const AUTO_NOTE = "Chat comes back when you close it";
+const AUTO_NOTE = "Chat may come back when you close it";
 type Frame = { type: string; pane_id?: string; text?: string };
-type PeekWindow = Window & { sentFrames: Frame[]; chatLog?: Element | null; promptReads: number };
+type PeekWindow = Window & { sentFrames: Frame[]; chatLog?: Element | null; promptReads: number; pops: number };
 /** the pane's stack, whichever lens it shows */
 const stack = (page: Page) => page.locator(`.terminal-stack[data-pane-owner="${owner}"]`);
 /** the chat is mounted: the Chat lens, a peek over it included */
@@ -166,8 +169,8 @@ try {
         assert.equal(await hint(page).getByText(AUTO_NOTE, { exact: true }).count(), auto ? 1 : 0, `${command}: the head says whether the chat comes back by itself`);
         assert.deepEqual(await lens(page), chatLens, "a peek writes no lens or address, and the header keeps Chat pressed");
         assert.deepEqual(await logState(page), { same: true, visibility: "hidden" }, "the chat stays mounted under the grid, hidden");
-        const grid = await stack(page).locator(".xterm-screen").boundingBox();
-        assert.ok(grid && grid.width > 0 && grid.height > 0, "the grid shows");
+        // shown, not only laid out: under the chat the grid keeps its box with content-visibility hidden
+        assert.ok(await stack(page).locator(".xterm-screen").isVisible(), "the grid shows");
         if (touch) {
           // the key bar takes the composer's place; the composer stays mounted, with its draft
           assert.equal(await chat(page).locator(".composer").evaluate((node) => getComputedStyle(node).display), "none");
@@ -316,6 +319,26 @@ try {
         await expectReturned();
         assert.equal(new URL(page.url()).searchParams.get("pane"), owner, "Back stays on the pane");
         console.log(`PASS ${tag}: a phone's Back ends the peek`);
+
+        // a sheet over the peek (the header's More) closes back onto it, by its Cancel or by Back:
+        // the peek's own entry is made again, and only the next Back is the peek's
+        await send(page, "/doctor");
+        await expectPeek(false, "/doctor");
+        const overPeek = async (way: string, close: () => Promise<unknown>) => {
+          await page.locator(".header-more-button").click();
+          await page.locator(".row-sheet-cancel").waitFor();
+          const pops = await page.evaluate(() => (window as unknown as PeekWindow).pops);
+          await close();
+          await page.locator(".row-sheet-cancel").waitFor({ state: "detached" });
+          await page.waitForFunction((pops) => (window as unknown as PeekWindow).pops > pops, pops);
+          await page.waitForFunction(() => typeof (history.state as Record<string, unknown> | null)?.["herdr-web-ui:sheet"] === "string");
+          assert.equal(await peek(page).count(), 1, `${way} leaves the peek under the menu`);
+        };
+        await overPeek("the menu's Cancel", () => page.locator(".row-sheet-cancel").click());
+        await overPeek("Back with the menu up", () => page.goBack());
+        await page.goBack();
+        await expectReturned();
+        console.log(`PASS ${tag}: a sheet over the peek closes back onto it`);
       }
 
       const keepWays: [string, () => Promise<void>][] = [
@@ -338,6 +361,54 @@ try {
         await noteLog(page);
       }
       console.log(`PASS ${tag}: Keep Terminal and the header's Terminal end the peek and keep the terminal lens`);
+
+      if (!touch) {
+        // a find bar left open under the Terminal lens is not the peek's: it would take the focus,
+        // the first Escape (the agent's) and a grid row
+        await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+        await chat(page).waitFor({ state: "detached" });
+        await page.keyboard.press("Control+Shift+F");
+        await stack(page).locator(".find-bar input").waitFor();
+        await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+        await chat(page).locator(".composer").waitFor();
+        await noteLog(page);
+        // the composer is a dictation target in the chat (the mic shows), and none under a peek
+        assert.equal(await chat(page).locator(".composer .voice-mic").count(), 1);
+        await send(page, "/doctor");
+        await expectPeek(false, "/doctor");
+        assert.equal(await stack(page).locator(".find-bar").count(), 0, "the peek opens without the terminal lens's find bar");
+        const dictationTaken = await page.evaluate(() => {
+          const init = { key: " ", code: "Space", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true };
+          const down = new KeyboardEvent("keydown", init);
+          window.dispatchEvent(down);
+          window.dispatchEvent(new KeyboardEvent("keyup", init));
+          return down.defaultPrevented;
+        });
+        assert.equal(dictationTaken, false, "Mod+Shift+Space dictates into no inert composer");
+        await hint(page).getByRole("button", { name: "Back to Chat", exact: true }).click();
+        await expectReturned();
+        console.log(`PASS ${tag}: a peek leaves the terminal lens's find bar behind, and its inert composer takes no dictation`);
+
+        // find in a peek searches its terminal: the peek, the lens and the address stay, and with the
+        // find bar open Claude's closed panel leaves the return to the reader
+        await send(page, "/config");
+        await expectPeek(true, "/config");
+        await page.keyboard.press("Control+Shift+F");
+        await stack(page).locator(".find-bar input").waitFor();
+        assert.equal(await peek(page).count(), 1, "find keeps the peek");
+        assert.deepEqual(await lens(page), chatLens, "find in a peek writes no lens or address");
+        await stack(page).locator(".xterm-screen").click();
+        await pressEscape();
+        await hint(page).getByText(AUTO_NOTE, { exact: true }).waitFor({ state: "detached" });
+        assert.equal(await peek(page).count(), 1, "the find bar leaves the return to the reader");
+        // the bar is the composer's sibling under a peek: re-renders leave one bar, not copies of it
+        assert.equal(await stack(page).locator(".find-bar").count(), 1, "one find bar");
+        await stack(page).locator(".find-bar input").press("Escape");
+        await stack(page).locator(".find-bar").waitFor({ state: "detached" });
+        await hint(page).getByRole("button", { name: "Back to Chat", exact: true }).click();
+        await expectReturned();
+        console.log(`PASS ${tag}: find in a peek keeps it, and an open find bar leaves the return manual`);
+      }
 
       // the quiet row's Open Terminal: a peek the reader ends by hand
       await chat(page).getByRole("log").locator(".chat-terminal-command", { hasText: "/doctor" }).last().getByRole("button", { name: "Open Terminal", exact: true }).click();
@@ -406,6 +477,27 @@ try {
       assert.deepEqual(await page.evaluate("window.sentFrames.filter(frame => frame.type === 'focus' || frame.type === 'take-over')"), []);
       assert.deepEqual(await page.evaluate("window.focusCalls"), [], "no peek moves herdr's focus");
 
+      if (touch) {
+        // an IME composition in the input line leaves the return to the reader: the chat coming
+        // back would unmount the line mid-word
+        await send(page, "/config");
+        await expectPeek(true, "/config");
+        const direct = stack(page).locator('.key-bar .key[data-key="direct"]');
+        await direct.click();
+        const line = stack(page).locator(".terminal-input textarea");
+        await line.waitFor();
+        await line.dispatchEvent("compositionstart", { data: "" });
+        await pressEscape();
+        await hint(page).getByText(AUTO_NOTE, { exact: true }).waitFor({ state: "detached" });
+        assert.equal(await peek(page).count(), 1, "a composition in the input line keeps the peek");
+        await line.dispatchEvent("compositionend", { data: "" });
+        await direct.click();
+        await line.waitFor({ state: "detached" });
+        await hint(page).getByRole("button", { name: "Back to Chat", exact: true }).click();
+        await expectReturned();
+        console.log(`PASS ${tag}: a composition in the input line leaves the return manual`);
+      }
+
       // a peek is this page's alone: a reload lands on Chat
       await send(page, "/doctor");
       await expectPeek(false, "/doctor");
@@ -430,6 +522,39 @@ try {
       console.log(`PASS ${tag}: watch-only stays in Chat without a composer; no focus or takeover frames`);
     } finally { await context.close(); }
   }
+
+  // a split half's own lens button: during a peek it says the chat and takes it back, as the
+  // palette's toggle and Mod+Shift+J do, and saves no terminal lens
+  const context = await browser.newContext({ viewport: { width: 1280, height: 844 }, locale: "en-US" });
+  try {
+    await context.addInitScript(({ pane, other }) => {
+      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", theme: "light", darkTheme: "amber", lightTheme: "amber", autoSendQueued: true }));
+      localStorage.setItem(`herdr-web-ui:view:${pane}`, "chat");
+      sessionStorage.setItem("herdr-web-ui:split", JSON.stringify({ other: { machineId: "local", paneId: other }, bSide: "right", active: "a" }));
+    }, { pane: owner, other: panes.api });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => { errors.push(error.message); console.error(error.message); });
+    page.setDefaultTimeout(10_000);
+    await page.goto(`${server.url}?pane=${encodeURIComponent(owner)}`);
+    await chat(page).locator(".composer").waitFor();
+    const half = page.locator(".pane-slot.is-active");
+    await half.getByRole("button", { name: "Show the terminal", exact: true }).waitFor();
+    await box(page).fill("/conf");
+    await page.locator('.menu-item[data-terminal]').first().waitFor();
+    await box(page).fill("");
+    await page.waitForFunction(() => (window as unknown as PeekWindow).promptReads > 0);
+    await box(page).fill("/doctor");
+    await chat(page).getByRole("button", { name: "Send message", exact: true }).click();
+    await peek(page).waitFor();
+    await half.getByRole("button", { name: "Show the chat", exact: true }).click();
+    await peek(page).waitFor({ state: "detached" });
+    await chat(page).locator(".composer").waitFor();
+    assert.equal(await page.evaluate((pane) => localStorage.getItem(`herdr-web-ui:view:${pane}`), owner), "chat", "the half's button ends the peek without saving the terminal lens");
+    await half.getByRole("button", { name: "Show the terminal", exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+    console.log("PASS split: a half's lens button says the chat during a peek and ends it");
+  } finally { await context.close(); }
 } finally {
   await browser.close();
   server.stop(true);

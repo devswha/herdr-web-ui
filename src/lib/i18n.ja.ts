@@ -1071,7 +1071,7 @@ export const JA: Record<string, string> = {
   "Back to Chat": "チャットに戻る",
   "Open Terminal": "ターミナルを開く",
   "Keep Terminal": "ターミナルのままにする",
-  "Chat comes back when you close it": "閉じるとチャットに戻ります",
+  "Chat may come back when you close it": "閉じるとチャットに戻ることがあります",
   "Terminal commands": "ターミナルコマンド",
   "Skills and files": "スキルとファイル",
   "Background result delivered": "バックグラウンドの結果が届きました",

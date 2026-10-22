@@ -90,18 +90,20 @@ sessions…**.
 
 The peek's head says what ran and offers **Back to Chat** and **Keep Terminal** (which keeps the
 Terminal lens). The header's Chat, Mod+Shift+J, a phone's Back, another pane and a reload end it
-too. Escape belongs to the agent. Claude Code's chat comes back by itself: when one of its panels
-closes, Claude writes a `local_command` answer ("Settings dialog dismissed"), and a local-command
-notice written after the send's own outcome was created ends the peek. Only the commands Claude
-Code 2.1.306 was recorded answering that way at close, sent bare, arm it: `/usage`, `/cost`,
-`/status`, `/stats`, `/help`, `/config`, `/theme`, `/permissions`, `/hooks`, `/skills`,
-`/workflows`, `/passes`, `/resume`, `/powerup` and `/fast`. `/diff` writes its answer when its
+too. Escape belongs to the agent. Claude Code's chat can come back by itself: when one of its
+panels closes, Claude writes a `local_command` answer ("Settings dialog dismissed"), and a
+local-command notice written after the send's own outcome was created ends the peek. Only the
+commands Claude Code 2.1.306 was recorded answering that way at close, sent bare, arm it: `/usage`,
+`/cost`, `/status`, `/stats`, `/help`, `/config`, `/theme`, `/permissions`, `/hooks`, `/skills`,
+`/workflows`, `/passes`, `/resume`, `/powerup` and `/fast` (each only where the catalog lists it
+as a terminal command, since no other command opens a peek). `/diff` writes its answer when its
 panel opens, `/export`, `/plugin`, `/mobile`, `/autocompact`, `/add-dir`, `/mcp` and
 `/scroll-speed` write entries the chat does not show, `/sandbox` and `/tasks` write nothing, and a
 custom or unknown command is unrecorded: those come back by hand. Under Claude's fullscreen
 renderer most panels write nothing at close, and a session writes nothing before its first
-message, so the peek never waits for the answer. Held terminal input, the terminal's find bar or
-an IME composition in it leave the return to the reader. Every other agent's peek ends by hand.
+message, so the peek never waits for the answer, and its head says the chat may come back, never
+that it will. Held terminal input, the terminal's find bar or an IME composition in the grid or
+its input line leave the return to the reader. Every other agent's peek ends by hand.
 
 Rows marked `agent-hidden` mirror the agent's own menu, which hides them (Claude Code's
 `/heapdump`, for instance). They are left out of the menu too, but typing one sends it like any

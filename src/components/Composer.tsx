@@ -558,10 +558,12 @@ export function Composer({
     highlightedSearchKey.current = searchKey;
   }
 
-  // dictation lands at the caret without taking focus (a phone's keyboard stays as it was)
+  // dictation lands at the caret without taking focus (a phone's keyboard stays as it was). An inert
+  // box (under a peek) is no dictation target: Mod+Shift+Space and the Escape that cancels a
+  // recording stay the terminal's
   const dictation = useDictation({
     mode: "chat",
-    active,
+    active: active && !inert,
     connected,
     phone: mobile,
     polish: settings.voicePolishChat,

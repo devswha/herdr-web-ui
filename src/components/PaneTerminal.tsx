@@ -258,6 +258,13 @@ export function PaneTerminal({
   const [searchState, setSearchState] = useState<TerminalSearchState | null>(null);
   const viewportIntent = useMemo(() => new ViewportIntentGate(), [machineId, paneId]);
   const viewportSearching = useSyncExternalStore(viewportIntent.subscribe, viewportIntent.isSearching, viewportIntent.isSearching);
+  // A find bar left open under the Terminal lens is not the peek's: the peek opens without it, or it
+  // would take the focus, the first Escape (the agent's) and a grid row. One opened in the peek stays.
+  const [findPeek, setFindPeek] = useState(peek);
+  if (findPeek !== peek) {
+    setFindPeek(peek);
+    if (peek !== null && findOpen) setFindOpen(false);
+  }
   const findOpenRef = useRef(findOpen);
   findOpenRef.current = findOpen;
   const lastFindRequest = useRef(findRequest);
@@ -439,7 +446,7 @@ export function PaneTerminal({
   const onPeekRef = useRef(onPeek); onPeekRef.current = onPeek;
   const onEndPeekRef = useRef(onEndPeek); onEndPeekRef.current = onEndPeek;
   // The outcome ids this pane's chat last read (its prompt poll). A send notes them as it leaves, so
-  // its own outcome is the first new one with its text, whenever a later poll lists it
+  // its own outcome is the newest unread one with its text, whenever a later poll lists it
   // (lib/terminalPeek.ts sentOutcome); a poll landing between the send and its receipt cannot hide it.
   const knownOutcomesRef = useRef<{ pane: string; ids: readonly string[] } | null>(null);
   const onChatOutcomes = useCallback((pane: string, ids: readonly string[]) => { knownOutcomesRef.current = { pane, ids }; }, []);
@@ -491,15 +498,16 @@ export function PaneTerminal({
   // Explicit sends refresh immediately; continuous transcript invalidations are rate-limited.
   const [chatRefresh, setChatRefresh] = useState(0);
   const [chatInvalidation, setChatInvalidation] = useState(0);
-  // a peek whose screen closed while held input, the find bar or a composition was in the way: it is
-  // left to the reader, and the head stops saying the chat comes back
+  // a peek whose screen closed while held input, the find bar or a composition (in the grid, or in
+  // the input line the return would unmount) was in the way: it is left to the reader, and the head
+  // stops saying the chat may come back
   const [manualPeek, setManualPeek] = useState<TerminalPeek | null>(null);
   const autoPeek = peek !== null && peek.auto && manualPeek !== peek ? peek : null;
   const onCommandScreenClosed = useCallback((closed: TerminalPeek) => {
     if (peekRef.current !== closed) return;
     const pane = paneRef.current;
     if (returnBlocked({ heldDraft: pane !== null && draftHeldForRef.current === pane, findOpen: findOpenRef.current,
-      composing: composingRef.current || compositionCommitPendingRef.current })) { setManualPeek(closed); return; }
+      composing: composingRef.current || compositionCommitPendingRef.current || lineComposingRef.current })) { setManualPeek(closed); return; }
     onEndPeekRef.current?.(closed);
   }, []);
   // The agent ended or the tab was put away: the chat is back for when it shows again.
@@ -3067,7 +3075,7 @@ export function PaneTerminal({
               <SquareTerminal aria-hidden="true" />
               <span className="terminal-command-words">
                 <span title={peek.command}>{t("{command} ran", { command: peek.command })}</span>
-                {autoPeek !== null && <span className="terminal-command-note">{t("Chat comes back when you close it")}</span>}
+                {autoPeek !== null && <span className="terminal-command-note">{t("Chat may come back when you close it")}</span>}
               </span>
             </span>
             <span className="terminal-command-actions">
@@ -3124,8 +3132,10 @@ export function PaneTerminal({
           </div>
         )}
       </div>
+      {/* its own key: under a peek it is the Composer's sibling, which is keyed by the pane too, and
+          two siblings with one key leave stray copies of the bar in the stack */}
       {presented && findOpen && !chatView && paneId !== null && (
-        <FindBar key={paneId} paneId={paneId} viewportIntent={viewportIntent} onResult={setSearchState} activePane={active} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
+        <FindBar key={`find:${paneId}`} paneId={paneId} viewportIntent={viewportIntent} onResult={setSearchState} activePane={active} focusRequest={findRequest} disabled={!connected || held || ended || released || !outputReady}
           onClose={() => { setFindOpen(false); if (activeRef.current && !coarse) termRef.current?.focus(); }} />
       )}
       <div className="terminal-surface">

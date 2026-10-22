@@ -79,14 +79,21 @@ export function autoReturnArmed(agent: string | null, text: string, command: str
 }
 
 /**
- * The send's own outcome: the first one with the sent text that the chat had not read when the
- * text left. An older identical send was read already and is passed over; none listed yet is null.
+ * The send's own outcome: the newest one with the sent text that the chat had not read when the
+ * text left (the bridge lists them oldest first). An older identical send was read already and is
+ * passed over; so is one sent just before that no read had listed yet, whose earlier close notice
+ * would otherwise end this peek at once. A later identical send (another device's) is taken
+ * instead, which only leaves the return to the reader. None listed yet is null.
  */
 export function sentOutcome(peek: PeekRequest, outcomes: readonly CommandOutcome[]): CommandOutcome | null {
   if (peek.text === null || peek.knownOutcomeIds === null) return null;
   const known = new Set(peek.knownOutcomeIds);
   const text = peek.text.trim();
-  return outcomes.find((outcome) => !known.has(outcome.id) && outcome.text.trim() === text) ?? null;
+  for (let index = outcomes.length - 1; index >= 0; index -= 1) {
+    const outcome = outcomes[index]!;
+    if (!known.has(outcome.id) && outcome.text.trim() === text) return outcome;
+  }
+  return null;
 }
 
 /**
@@ -108,7 +115,7 @@ export interface ReturnBlockers {
   heldDraft: boolean;
   /** the terminal's find bar is open */
   findOpen: boolean;
-  /** an IME composition is under way in the grid */
+  /** an IME composition is under way in the grid or in its input line (the return would unmount the line) */
   composing: boolean;
 }
 

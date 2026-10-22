@@ -1075,8 +1075,9 @@ export function App() {
     },
     [selectedPaneId, selectedMachineId, pickView],
   );
-  // on a phone a peek is a step of its own: Back takes the chat back, as it closes a sheet
-  usePhoneSheetBack(() => endPeek(), terminalPeek !== null);
+  // on a phone a peek is a step of its own: Back takes the chat back, as it closes a sheet. It stays
+  // up under a sheet or Settings opened over it: their close, or a Back, comes back to the peek
+  usePhoneSheetBack(() => endPeek(), terminalPeek !== null, true);
 
   // The split view (lib/split.ts): drawn only where the sidebar stands beside the pane, and only
   // while a pane is selected; a narrower window shows the active half alone and keeps the split
@@ -1445,7 +1446,9 @@ export function App() {
       agentStarted: (machineId, paneId) => lenses.startedAgent(paneStorageId(machineId, paneId), window.matchMedia?.("(pointer: coarse)").matches === true),
       openFind: () => {
         if (selectedPaneId === null) return;
-        setView("terminal");
+        // a peek already shows the pane's terminal: find searches it there, and the peek (its return,
+        // and the lens and address under it) stays
+        if (terminalPeek?.paneId !== selectedPaneId || terminalPeek.machineId !== selectedMachineId) setView("terminal");
         setDrawerOpen(false);
         setFindRequest((request) => ({ paneId: selectedPaneId, serial: request.serial + 1 }));
       },
@@ -1761,7 +1764,12 @@ export function App() {
             // one pane's panel keeps the page's own id, whichever slot draws it
             const slotPanelId = !splitOn || slot === "a" ? PANE_TABPANEL_ID : `${PANE_TABPANEL_ID}-${slot}`;
             const slotPanelLabel = active ? tabPanelLabel : paneTabPanelLabel(slotSnapshot, pane, t);
+            // a peek shows this half's terminal over its chat: the half's lens button says the chat,
+            // and takes it back, as the palette's toggle and Mod+Shift+J do
+            const slotPeek = active && pane ? peekFor(terminalPeek, slot, machineId, pane.pane_id) : null;
+            const shownView: PaneView = slotPeek !== null ? "terminal" : slotView;
             const toggleSlotView = (): void => {
+              if (slotPeek !== null) { endPeek(slotPeek); return; }
               const next = slotView === "chat" ? "terminal" : "chat";
               if (active) setView(next); else if (pane) pickView(machineId, pane.pane_id, next);
             };
@@ -1774,8 +1782,8 @@ export function App() {
                 event.dataTransfer.setData(PANE_DRAG_TYPE, paneDragData({ machineId, paneId }));
               }}>
               {machines.length > 1 && <span className="pane-slot-machine">{machine?.name ?? machineId}</span>}
-              {pane && <button type="button" className="icon-button pane-slot-action" aria-label={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} title={t(slotView === "chat" ? "Show the terminal" : "Show the chat")} onClick={toggleSlotView}>
-                {slotView === "chat" ? <SquareTerminal /> : <MessageSquare />}
+              {pane && <button type="button" className="icon-button pane-slot-action" aria-label={t(shownView === "chat" ? "Show the terminal" : "Show the chat")} title={t(shownView === "chat" ? "Show the terminal" : "Show the chat")} onClick={toggleSlotView}>
+                {shownView === "chat" ? <SquareTerminal /> : <MessageSquare />}
               </button>}
               <button type="button" className="icon-button pane-slot-action" aria-label={t("Close this half")} title={t("Close this half")} onClick={() => closeSlot(slot)}>
                 <X />

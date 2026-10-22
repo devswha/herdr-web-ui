@@ -143,7 +143,7 @@ try {
             await page.keyboard.press("Enter");
             await peekStack(page, panes.flaky).waitFor();
             await page.locator(".terminal-banner-command").getByText("/btw ran", { exact: true }).waitFor();
-            assert.equal(await page.locator(".terminal-banner-command").getByText("Chat comes back when you close it", { exact: true }).count(), 0, "a row's peek is ended by hand");
+            assert.equal(await page.locator(".terminal-banner-command").getByText("Chat may come back when you close it", { exact: true }).count(), 0, "a row's peek is ended by hand");
             await page.getByRole("button", { name: "Back to Chat", exact: true }).click();
             const again = await chatOf(page, panes.flaky);
             assert.equal(await again.locator(".chat-terminal-command").count(), 1);

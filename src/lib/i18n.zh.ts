@@ -1073,7 +1073,7 @@ export const ZH: Record<string, string> = {
   "Back to Chat": "返回聊天",
   "Open Terminal": "打开终端",
   "Keep Terminal": "保留终端",
-  "Chat comes back when you close it": "关闭后返回聊天",
+  "Chat may come back when you close it": "关闭后可能会返回聊天",
   "Terminal commands": "终端命令",
   "Skills and files": "技能和文件",
   "Background result delivered": "后台结果已送达",
