@@ -16,11 +16,14 @@ const PAGE = `<!doctype html>
 </html>
 `;
 
+// a browser script's fixture page, which it builds through vite.config.ts (scripts/math-browser-qa.ts and others)
+const UNTITLED_PAGE = '<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/main.ts"></script></body></html>';
+
 /** A page, an app module and a worker, built by Vite with this plugin and the worker stamp, as vite.config.ts orders them. */
-async function buildFixture(base: string): Promise<{ html: string; files: string[]; worker: string; boot: string }> {
+async function buildFixture(base: string, page: string = PAGE): Promise<{ html: string; files: string[]; worker: string; boot: string }> {
   const root = mkdtempSync(join(tmpdir(), "herdr-theme-boot-build-"));
   try {
-    writeFileSync(join(root, "index.html"), PAGE);
+    writeFileSync(join(root, "index.html"), page);
     writeFileSync(join(root, "main.ts"), "document.body.dataset['app'] = 'on';\nimport './main.css';\n");
     writeFileSync(join(root, "main.css"), "body { margin: 0; }\n");
     mkdirSync(join(root, "public"));
@@ -53,8 +56,18 @@ describe("theme boot script build", () => {
     expect(html.indexOf(tag)).toBeGreaterThan(html.indexOf('name="theme-color"'));
     expect(html.indexOf(tag)).toBeLessThan(html.indexOf('rel="stylesheet"'));
     expect(html.indexOf(tag)).toBeLessThan(html.indexOf('type="module"'));
-    expect(() => injectBootstrap("<head></head>", "/x.js")).toThrow("exactly one </title>");
     expect(() => injectBootstrap("<head><title>a</title><title>b</title></head>", "/x.js")).toThrow("exactly one </title>");
+    expect(() => injectBootstrap("<head></head><body><title>a</title></body>", "/x.js")).toThrow("exactly one </title>");
+  });
+
+  test("a page with no title, like a browser script's fixture, is left as it is", () => {
+    expect(injectBootstrap("<head></head>", "/x.js")).toBe("<head></head>");
+    expect(injectBootstrap(UNTITLED_PAGE, "/x.js")).toBe(UNTITLED_PAGE);
+  });
+
+  test("the app's own page gets it", () => {
+    const html = injectBootstrap(readFileSync(join(import.meta.dir, "..", "index.html"), "utf8"), "/x.js");
+    expect(html).toContain('</title>\n    <script src="/x.js"></script>');
   });
 
   test("its file name changes with its contents", async () => {
@@ -93,4 +106,10 @@ describe("theme boot script build", () => {
       expect(worker).toMatch(/^const BUILD = "[0-9a-f]{12}";$/m);
     }, 60_000);
   }
+
+  test("a build of a page with no title succeeds and leaves the page without it", async () => {
+    const { html } = await buildFixture("/", UNTITLED_PAGE);
+    expect(html).not.toContain("theme-bootstrap-");
+    expect(html).toContain('type="module"');
+  }, 60_000);
 });

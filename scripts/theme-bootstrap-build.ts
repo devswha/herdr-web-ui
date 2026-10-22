@@ -42,12 +42,15 @@ const TITLE_END = "</title>";
 
 /**
  * The page with the script right after its <title>: below the theme-color meta it updates, above
- * the stylesheet and the module scripts Vite adds at the end of <head>.
+ * the stylesheet and the module scripts Vite adds at the end of <head>. A page with no title is
+ * left as it is: the browser scripts build title-less fixture pages through vite.config.ts, and
+ * only the app's own page, which has one, reads a saved theme.
  */
 export function injectBootstrap(html: string, src: string): string {
   const at = html.indexOf(TITLE_END);
+  if (at === -1) return html;
   const head = html.indexOf("</head>");
-  if (at === -1 || html.indexOf(TITLE_END, at + 1) !== -1 || head === -1 || at > head) throw new Error(`index.html must hold exactly one ${TITLE_END} inside <head>`);
+  if (html.indexOf(TITLE_END, at + 1) !== -1 || head === -1 || at > head) throw new Error(`index.html must hold exactly one ${TITLE_END} inside <head>`);
   const end = at + TITLE_END.length;
   return `${html.slice(0, end)}\n    <script src="${src}"></script>${html.slice(end)}`;
 }
