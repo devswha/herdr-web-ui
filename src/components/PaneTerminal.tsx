@@ -585,6 +585,9 @@ export function PaneTerminal({
   // its screen (the agent's arm set) turns it into one. It goes with another peek, pane, agent,
   // terminal or session, and once the agent works on a turn.
   const pendingOpenRef = useRef<StillOpen | null>(null);
+  // A peek ended by hand while the screen read nothing (a cut frame, or a blank one): the next whole
+  // frame decides, the row back clearing it and anything else making the notice; no frame, no notice
+  const undecidedOpenRef = useRef<StillOpen | null>(null);
   // the history the pane's chat read last: a new one (/new, /resume, a clear) is another session
   const chatHistoryRef = useRef<{ pane: string; history: string | undefined } | null>(null);
   // the still-open note the composer shows, whose Send anyway is one send past the guard (composerSend)
@@ -592,11 +595,16 @@ export function PaneTerminal({
   // a whole frame of the pane's stream was parsed (the write callback): the watch and the guard read it
   const onInputRowFrame = useCallback(() => {
     const pending = pendingOpenRef.current;
-    if (watchRef.current === null && stillOpenRef.current === null && pending === null) return;
+    const undecided = undecidedOpenRef.current;
+    if (watchRef.current === null && stillOpenRef.current === null && pending === null && undecided === null) return;
     // herdr's first frame for the pane's new size may be its old screen reflowed: no screen opened or closed
     if (frameGateRef.current.reflowing) return;
     const state = inputRowNow();
     if (state === null || state === "unknown") return;
+    if (undecided !== null) {
+      undecidedOpenRef.current = null;
+      if (state !== "ready" && undecided.pane === paneRef.current && undecided.agent === agentRef.current) setStillOpen(undecided);
+    }
     if (state === "ready" && stillOpenRef.current !== null) setStillOpen(null);
     // the command's screen opened after its peek ended: now it would take the next message
     if (pending !== null) {
@@ -607,13 +615,14 @@ export function PaneTerminal({
     watchFrame(state);
   }, [inputRowNow, watchFrame, setStillOpen]);
   const onInputRowFrameRef = useRef(onInputRowFrame); onInputRowFrameRef.current = onInputRowFrame;
-  useLayoutEffect(() => { setStillOpen(null); pendingOpenRef.current = null; stillOpenNotedRef.current = false; }, [paneId, terminalId, setStillOpen]);
+  useLayoutEffect(() => { setStillOpen(null); pendingOpenRef.current = null; undecidedOpenRef.current = null; stillOpenNotedRef.current = false; }, [paneId, terminalId, setStillOpen]);
   useEffect(() => {
     if (stillOpenRef.current !== null && stillOpenRef.current.agent !== agent) setStillOpen(null);
     if (pendingOpenRef.current !== null && pendingOpenRef.current.agent !== agent) pendingOpenRef.current = null;
+    if (undecidedOpenRef.current !== null && undecidedOpenRef.current.agent !== agent) undecidedOpenRef.current = null;
   }, [agent, setStillOpen]);
   // a turn began: whatever the command was loading, the agent has moved on
-  useEffect(() => { if (agentStatus === "working") pendingOpenRef.current = null; }, [agentStatus]);
+  useEffect(() => { if (agentStatus === "working") { pendingOpenRef.current = null; undecidedOpenRef.current = null; } }, [agentStatus]);
   // what the composer and the queue say when the screen would take a send
   const stillOpenNote = useCallback((open: StillOpen): string => open.named
     ? t("Not sent: {command} is still open in the terminal.", { command: open.command })
@@ -636,7 +645,7 @@ export function PaneTerminal({
     const was = shownPeekRef.current;
     shownPeekRef.current = peek;
     // another peek: what the last one left pending is its own again
-    if (peek !== null) pendingOpenRef.current = null;
+    if (peek !== null) { pendingOpenRef.current = null; undecidedOpenRef.current = null; }
     if (was === null || peek !== null) return;
     if (!chatMounted) {
       if (activeRef.current && was.paneId === paneRef.current && !coarseRef.current && !modalOpen() && !findOpenRef.current) termRef.current?.focus();
@@ -654,7 +663,8 @@ export function PaneTerminal({
       if (state === "ready") {
         setStillOpen(null);
         if (watched !== null && !watched.armed && watched.agent === agentRef.current) pendingOpenRef.current = open;
-      } else if (state !== null) setStillOpen(open);
+      } else if (state === "unknown") undecidedOpenRef.current = open;
+      else if (state !== null) setStillOpen(open);
     }
     termRef.current?.blur();
     const focused = document.activeElement;
@@ -688,6 +698,8 @@ export function PaneTerminal({
       if (open !== null && open.pane === pane && read.history !== undefined && open.history !== undefined && read.history !== open.history) setStillOpen(null);
       const pending = pendingOpenRef.current;
       if (pending !== null && pending.pane === pane && read.history !== undefined && pending.history !== undefined && read.history !== pending.history) pendingOpenRef.current = null;
+      const undecided = undecidedOpenRef.current;
+      if (undecided !== null && undecided.pane === pane && read.history !== undefined && undecided.history !== undefined && read.history !== undecided.history) undecidedOpenRef.current = null;
       chatHistoryRef.current = { pane, history: read.history };
     }
     const owner = paneStorageId(machineId, pane);
