@@ -489,12 +489,18 @@ describe("running Portal", () => {
     const portalDir = join(stateDir, "portal");
     mkdirSync(portalDir, { recursive: true, mode: 0o700 });
     const identityPath = join(portalDir, "identity.json");
-    const unrelated = Bun.spawn(["sh", "-c", "while :; do sleep 0.1; done", "sh", "expose", "--identity-path", identityPath], {
-      stdin: "ignore", stdout: "ignore", stderr: "ignore",
+    const unrelated = Bun.spawn(["sh", "-c", "echo READY; while :; do sleep 0.1; done", "sh", "expose", "--identity-path", identityPath], {
+      stdin: "ignore", stdout: "pipe", stderr: "ignore",
     });
     writeFileSync(join(portalDir, "state.json"), JSON.stringify({ enabled: true, relay: RELAY, port: 7317, pid: unrelated.pid }));
     const service = new PortalService({ stateDir, fetch: relay() });
     try {
+      // until the shell runs its script, /proc/<pid>/cmdline can still show the parent's argv or be empty mid-exec
+      const reader = unrelated.stdout.getReader();
+      try {
+        const ready = await bounded(reader.read(), "unrelated shell executed its script");
+        expect(new TextDecoder().decode(ready.value)).toBe("READY\n");
+      } finally { reader.releaseLock(); }
       await service.resume({ port: 7317, tokenSet: false, serveOnly: false });
       expect(alive(unrelated.pid)).toBe(true);
     } finally {
