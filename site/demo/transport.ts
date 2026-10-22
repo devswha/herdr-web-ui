@@ -468,6 +468,28 @@ function terminalPreview(paneId: string, text: string, name: string): string {
 
 const now = () => new Date().toISOString();
 
+/**
+ * What Claude Code records when one of its panels closes (a `local_command` answer, which the chat
+ * reads as a local-command notice), for the demo's terminal commands, as Claude Code 2.1.306 wrote
+ * them. A command whose close leaves no record (`/doctor` here) is not listed: its terminal stays
+ * until the reader leaves it.
+ */
+const CLAUDE_PANEL_CLOSED: Record<string, string> = {
+  config: "Config dialog dismissed", status: "Settings dialog dismissed", cost: "Settings dialog dismissed", help: "Help dialog dismissed",
+};
+/** the panel a terminal command left open in each Claude pane, by what its close records */
+const openPanels = new Map<string, string>();
+
+/** Escape typed into a Claude pane closes the panel a terminal command opened, and Claude records that it did. */
+function closeClaudePanel(paneId: string, text: string): void {
+  const closed = openPanels.get(paneId);
+  const chat = chats.get(keyOfPane.get(paneId) ?? "");
+  if (closed === undefined || chat === undefined || text !== "\x1b") return;
+  openPanels.delete(paneId);
+  chat.turns.push({ role: "user", ts: now(), parts: [{ kind: "notice", text: closed, source: "local-command" }] });
+  conversationChanged(paneId);
+}
+
 /** The bridge takes one accepted pending message when the current mock turn finishes. */
 /**
  * The first messages create requests queued for new panes' agents (`first_message`), by pane, as the
@@ -538,6 +560,8 @@ function submitToChat(paneId: string, text: string): void {
   const command = sentCommand(paneId, text);
   if (command?.form?.interaction === "terminal") {
     const outcome = recordOutcome(paneId, text, "terminal-required");
+    const closes = agentOf(paneId) === "claude" ? CLAUDE_PANEL_CLOSED[command.name] : undefined;
+    if (closes !== undefined) openPanels.set(paneId, closes); else openPanels.delete(paneId);
     setTimeout(() => { outcome.preview = terminalPreview(paneId, text, command.name); outcome.updated_at = now(); }, OUTCOME_PREVIEW_MS);
     return;
   }
@@ -1523,7 +1547,12 @@ class DemoSocket extends EventTarget {
         }
         break;
       // a Stop (`stop`) is typed like any key: the demo has no pty for a following message to overtake
-      case "input": if (message.pane_id && message.text !== undefined) this.typed(message.pane_id, message.text); break;
+      case "input":
+        if (message.pane_id && message.text !== undefined) {
+          if (this.mode === "interact") closeClaudePanel(message.pane_id, message.text);
+          this.typed(message.pane_id, message.text);
+        }
+        break;
       case "keys": if (message.pane_id) for (const key of message.keys ?? []) this.typed(message.pane_id, chordText(key)); break;
       case "secret":
         if (message.id !== undefined && message.pane_id) this.push({ type: "secret-result", id: message.id, pane_id: message.pane_id, ok: false, code: "prompt_changed" });
