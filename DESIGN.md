@@ -2307,20 +2307,24 @@ Alert rows of the table above from the `--droplet-*` roles in `src/styles.css`.
   its fixed diagnostic is logged and returned by the hub status endpoint, never its saved key.
 - A shared setting or pin the server refused to save is one alert at the top of whichever page is
   open, never a mark on each row: the sentence in `--status-blocked` with the server's own words
-  behind Details, then a dim "Saved on this device; not confirmed on the server." at the reading
-  size (14 px, 15 px under a finger) and one `.btn` Retry, which wraps below the words on a phone.
-  While Retry's save is on the way the sentence says "sending it to the server" and Retry is
-  disabled, dimmed by its color rather than faded so it stays legible; a mouse's press draws the
-  amber edge of a pressed icon button, a finger's fills it as a pressed settings row fills. Korean
-  keeps each clause on one line. The
-  change is sent again every few seconds; after three failures in a row sending pauses until Retry
-  or the event stream reopens, and edits made meanwhile go out with the next send. While the event
-  stream is lost nothing is resent on its own (only Retry goes, once); its reopening sends what is
-  unsent, in the same one chain. The alert clears
-  only when nothing unsent is left. This follows the app's actionable-error rule (one sentence and
-  the control that does it, causes folded) as drawn in the Codex theme; it differs from AoE's
-  per-field retry store because Ovis shares one ordered change set, so Retry resends the current
-  change, never an old request body.
+  behind Details, then a dim "Not saved on the server yet; reloading or closing this page can undo
+  the change." at the reading size (14 px, 15 px under a finger) and one `.btn` Retry, which wraps
+  below the words on a phone. It never claims the change is kept on this device: only the open page
+  holds it, and a reload takes the server's values again. While Retry's save is on the way the
+  sentence says "Sending the change to the server…" and Retry is disabled, dimmed by its color
+  rather than faded so it stays legible; a mouse's press draws the amber edge of a pressed icon
+  button, a finger's fills it as a pressed settings row fills. Korean keeps each predicate and short
+  phrase on one line.
+  The change is sent again every few seconds; after three failures in a row sending pauses until
+  Retry, the event stream reopens or a longer wait ends (a minute, doubling up to five), and edits
+  made meanwhile go out with the next send. A refused change gives way where another browser saved
+  the same setting or the pins meanwhile, so a late send never overwrites the newer value. While the
+  event stream is lost nothing is resent on its own (only Retry goes, once); its reopening sends
+  what is unsent, in the same one chain. A stream the browser gives up on (a proxy's 502) holds
+  nothing back, and the app opens a new one. The alert clears only when nothing unsent is left. This
+  follows the app's actionable-error rule (one sentence and the control that does it, causes folded)
+  as drawn in the Codex theme; it differs from AoE's per-field retry store because Ovis shares one
+  ordered change set, so Retry resends the current change, never an old request body.
 
 ### Terminal host, key bar and drawer
 - **Find in terminal** in the header's More menu and Mod+Shift+F opens a find bar above the

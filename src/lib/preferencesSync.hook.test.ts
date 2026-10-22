@@ -53,6 +53,7 @@ describe("preferences sync real send path", () => {
     retry: () => void;
     resubscribed: () => void;
     disconnected: () => void;
+    closed: () => void;
     /** render again, with `syncEnabled` as it is now */
     rerender: () => void;
   }
@@ -136,7 +137,7 @@ describe("preferences sync real send path", () => {
     records.clear();
     records.set("herdr-web-ui:settings", JSON.stringify(raw));
     const unmounted = () => { throw new Error("not mounted"); };
-    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: unmounted, receive: unmounted, saveError: null, paused: false, retrying: false, retry: unmounted, resubscribed: unmounted, disconnected: unmounted, rerender: unmounted };
+    const client: Client = { settings: sanitizeSettings(raw), rendered: { id: "amber", mode: "dark" }, update: unmounted, receive: unmounted, saveError: null, paused: false, retrying: false, retry: unmounted, resubscribed: unmounted, disconnected: unmounted, closed: unmounted, rerender: unmounted };
     function Probe() {
       const context = useSettings();
       client.settings = context.settings;
@@ -150,6 +151,7 @@ describe("preferences sync real send path", () => {
       client.retry = sync.retry;
       client.resubscribed = sync.resubscribed;
       client.disconnected = sync.disconnected;
+      client.closed = sync.closed;
       return null;
     }
     const tree = () => createElement(SettingsProvider, null, createElement(Probe));
@@ -654,5 +656,114 @@ describe("preferences sync real send path", () => {
     await send();
     expect([bodies.length, answers, client.saveError]).toEqual([2, 1, null]);
     expect(store.get().settings.darkTheme).toBe("tokyo-night");
+  });
+
+  /** the paused saves' longer waits that are set and not yet cleared or run */
+  const pauseWaits = () => [...waits.values()].filter((ms) => ms >= 60_000);
+
+  it("a stream the browser gave up on holds nothing back: what is unsent goes, and its refusal shows with Retry", async () => {
+    const client = await open();
+    await act(async () => { client.disconnected(); });
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await longWait();
+    expect(bodies.length).toBe(0);
+    // the reconnect got a proxy's 502: the browser never reconnects this stream, so nothing waits for it
+    refusing = unwritable;
+    await act(async () => { client.closed(); });
+    await send();
+    expect(refusals).toBe(1);
+    expect([client.saveError?.message, client.paused]).toEqual(["The server cannot save settings: check that its state folder is writable.", false]);
+    expect(retryWaits()).toEqual([5_000]);
+    refusing = null;
+    await act(async () => { jest.advanceTimersByTime(5_000); });
+    await send();
+    expect([answers, client.saveError]).toEqual([1, null]);
+    expect(store.get().settings.darkTheme).toBe("tokyo-night");
+    // App's new stream opens with the same document: nothing is left to send
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
+    await longWait();
+    expect(bodies.length).toBe(2);
+  });
+
+  it("a paused save goes once more on its own after a longer wait, doubling up to five minutes, and lands once the server can write", async () => {
+    const client = await open();
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); });
+    await failSaves(3);
+    expect([client.paused, pauseWaits()]).toEqual([true, [60_000]]);
+    // an edit made while paused waits too, and joins the next send
+    await act(async () => { client.update({ lightTheme: "catppuccin" }); });
+    await act(async () => { jest.advanceTimersByTime(58_000); });
+    await windows();
+    expect(refusals).toBe(3);
+    for (const [index, wait] of [60_000, 120_000, 240_000, 300_000, 300_000].entries()) {
+      expect([client.paused, pauseWaits()]).toEqual([true, [wait]]);
+      if (index > 0) {
+        await act(async () => { jest.advanceTimersByTime(wait - 1_000); });
+        await windows();
+        expect(refusals).toBe(3 + index);
+      }
+      await act(async () => { jest.advanceTimersByTime(index > 0 ? 1_000 : 1_400); });
+      await send();
+      expect([refusals, client.paused]).toEqual([4 + index, true]);
+    }
+    expect(bodies.at(-1)?.settings).toMatchObject({ darkTheme: "tokyo-night", lightTheme: "catppuccin" });
+
+    refusing = null;
+    await act(async () => { jest.advanceTimersByTime(300_000); });
+    await send();
+    expect([answers, client.saveError, client.paused, pauseWaits()]).toEqual([1, null, false, []]);
+    expect(store.get().settings).toMatchObject({ darkTheme: "tokyo-night", lightTheme: "catppuccin" });
+  });
+
+  /** this client's change refused three times (the theme's sides and a pin), on a server that already shares pins */
+  async function pausedWithPin(): Promise<Client> {
+    await act(async () => { setSidebarPins(["pc:w2:p3"]); });
+    store.set({ settings: {}, pins: ["pc:w2:p3"] });
+    const client = await open();
+    refusing = unwritable;
+    await act(async () => { client.update({ darkTheme: "tokyo-night", lightTheme: "catppuccin" }); setSidebarPins(["pc:w2:p3", "local:w1:p1"]); });
+    await failSaves(3);
+    expect(client.paused).toBe(true);
+    return client;
+  }
+
+  it("a newer value another browser saves while a refused change is paused wins here, and the change sent later leaves it", async () => {
+    const client = await pausedWithPin();
+    // another browser saves its own dark theme and pins; the event stream brings them at once
+    await act(async () => { store.set({ settings: { darkTheme: "gruvbox" }, pins: ["pc:w2:p3", "pc:w2:p4"] }); });
+    expect(client.settings.darkTheme).toBe("gruvbox");
+    expect(client.saveError).not.toBeNull();
+    refusing = null;
+    // much later the stream reopens: what goes is only what nobody changed elsewhere
+    await act(async () => { jest.advanceTimersByTime(30_000); });
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
+    await send();
+    expect(bodies.at(-1)).toEqual({ settings: { lightTheme: "catppuccin" } });
+    expect(store.get()).toMatchObject({ settings: { darkTheme: "gruvbox", lightTheme: "catppuccin" }, pins: ["pc:w2:p3", "pc:w2:p4"] });
+    expect([client.saveError, client.paused]).toEqual([null, false]);
+
+    // once a save lands, a change made here goes over what arrives before it is sent, as always
+    await act(async () => { client.update({ darkTheme: "tokyo-night" }); store.set({ settings: { darkTheme: "everforest" } }); });
+    await send();
+    expect(store.get().settings.darkTheme).toBe("tokyo-night");
+  });
+
+  it("a refused change resent when the event stream reopens never overwrites what another browser saved while it was lost", async () => {
+    const client = await pausedWithPin();
+    await act(async () => { client.disconnected(); });
+    // the stream is down: another browser's save does not reach this one
+    clients.splice(clients.indexOf(client), 1);
+    store.set({ settings: { darkTheme: "gruvbox" }, pins: ["pc:w2:p3", "pc:w2:p4"] });
+    expect(client.settings.darkTheme).toBe("tokyo-night");
+    refusing = null;
+    // it reopens: the server's document, sent as it opens, comes before the resent change
+    clients.push(client);
+    await act(async () => { client.resubscribed(); client.receive(store.get()); });
+    await send();
+    expect(bodies.at(-1)).toEqual({ settings: { lightTheme: "catppuccin" } });
+    expect(store.get()).toMatchObject({ settings: { darkTheme: "gruvbox", lightTheme: "catppuccin" }, pins: ["pc:w2:p3", "pc:w2:p4"] });
+    expect(client.settings.darkTheme).toBe("gruvbox");
+    expect([client.saveError, client.paused]).toEqual([null, false]);
   });
 });

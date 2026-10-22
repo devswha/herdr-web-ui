@@ -48,6 +48,22 @@ describe("preferences sync", () => {
     expect(preferencesChange(overtaken.base, { settings: { ...light, theme: "dark" }, pins: [] })).toBeNull();
   });
 
+  it("a refused change gives way where another browser saved the same setting or the pins since, and stays elsewhere", () => {
+    // refused here: dark tokyo-night, the light side and a pin; meanwhile another browser saved its own dark theme and pins
+    const local: Settings = sanitizeSettings({ ...DEFAULT_SETTINGS, darkTheme: "tokyo-night", lightTheme: "catppuccin-latte" });
+    const known = base(DEFAULT_SETTINGS, ["pc:w2:p3"]);
+    const remote = { revision: 4, settings: { darkTheme: "gruvbox", palette: "gruvbox", lightTheme: DEFAULT_SETTINGS.lightTheme }, pins: ["pc:w2:p3", "pc:w2:p4"] };
+    const refused = takePreferences(known, { settings: local, pins: ["local:w1:p1"] }, remote, null, false, true);
+    expect(refused.patch).toEqual({ darkTheme: "gruvbox", palette: "gruvbox" });
+    expect(refused.pins).toEqual(["pc:w2:p3", "pc:w2:p4"]);
+    // what is left unsent is only what nobody changed elsewhere: the light side
+    expect(preferencesChange(refused.base, { settings: sanitizeSettings({ ...local, ...refused.patch }), pins: refused.pins! })).toEqual({ settings: { lightTheme: "catppuccin-latte" } });
+    // not refused (about to be sent): the change made here stays and goes out over them
+    const pending = takePreferences(known, { settings: local, pins: ["local:w1:p1"] }, remote, null);
+    expect(pending.patch).toEqual({});
+    expect(pending.pins).toBeNull();
+  });
+
   it("leaves a value this browser cannot read, and does not send its own back", () => {
     const taken = takePreferences(base(DEFAULT_SETTINGS, null), { settings: DEFAULT_SETTINGS, pins: [] }, { revision: 1, settings: { theme: "purple", agentMarks: "yes", palette: "catppuccin", darkTheme: "catppuccin", lightTheme: "future-theme" } }, null);
     expect(taken.patch).toEqual({ palette: "catppuccin", darkTheme: "catppuccin" });

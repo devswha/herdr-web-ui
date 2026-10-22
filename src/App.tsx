@@ -21,6 +21,7 @@ import { useRecentResumes } from "./lib/useRecentResumes.ts";
 import { forgetSessionHistoryProbesOfPcsAway } from "./lib/useSessionHistoryOffered.ts";
 import { passingFolder, recentDirectories } from "./lib/recent-directories.ts";
 import { usePreferencesSync } from "./lib/preferencesSync.ts";
+import { keepEventStream } from "./lib/eventStream.ts";
 import { TabStrip } from "./components/TabStrip.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { loadedOnSettingsEntry, onSettingsHistory, recordSettings, settingsEntry } from "./lib/settingsHistory.ts";
@@ -558,10 +559,11 @@ export function App() {
   const pushOnRef = useRef(pushOn);
   pushOnRef.current = pushOn;
   // the shared settings and pins, the same in every browser of this server, once the app is in
-  const { receive: receivePreferences, saveError: settingsSaveError, paused: settingsSavePaused, retrying: settingsSaveRetrying, retry: retrySettingsSave, resubscribed: preferencesResubscribed, disconnected: preferencesDisconnected } = usePreferencesSync(locked === false);
+  const { receive: receivePreferences, saveError: settingsSaveError, paused: settingsSavePaused, retrying: settingsSaveRetrying, retry: retrySettingsSave, resubscribed: preferencesResubscribed, disconnected: preferencesDisconnected, closed: preferencesClosed } = usePreferencesSync(locked === false);
   const receivePreferencesRef = useRef(receivePreferences); receivePreferencesRef.current = receivePreferences;
   const preferencesResubscribedRef = useRef(preferencesResubscribed); preferencesResubscribedRef.current = preferencesResubscribed;
   const preferencesDisconnectedRef = useRef(preferencesDisconnected); preferencesDisconnectedRef.current = preferencesDisconnected;
+  const preferencesClosedRef = useRef(preferencesClosed); preferencesClosedRef.current = preferencesClosed;
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   // last-seen agent status per pane: the baseline that decides whether a push is news
@@ -712,12 +714,7 @@ export function App() {
       id: machine.id,
       snapshot: machine.snapshot && { panes: machine.snapshot.panes.map((pane) => ({ pane_id: pane.pane_id, agent_status: alertStatus(pane.agent_status, (pane as HerdrPane).background_wait) })) },
     }));
-    const events = new EventSource("/api/machines/events");
-    // opened or reopened: a shared-settings save paused by failures gets a new round
-    events.onopen = () => preferencesResubscribedRef.current();
-    // lost (the browser reconnects by itself): a shared-settings save waits for that instead of retrying
-    events.onerror = () => preferencesDisconnectedRef.current();
-    events.onmessage = (event) => {
+    const onMessage = (event: MessageEvent<string>) => {
       let payload: MachineEvent;
       try { payload = JSON.parse(event.data); } catch { return; }
       if (payload.type === "preferences") { receivePreferencesRef.current(payload.preferences); return; }
@@ -789,7 +786,16 @@ export function App() {
       }
       if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
     };
-    return () => events.close();
+    return keepEventStream("/api/machines/events", {
+      // opened or reopened: a shared-settings save paused by failures gets a new round
+      opened: () => preferencesResubscribedRef.current(),
+      // lost (the browser reconnects by itself): a shared-settings save waits for that instead of retrying
+      lost: () => preferencesDisconnectedRef.current(),
+      // the browser gave up on it (a proxy's 502 during a restart): saves stop waiting for it while a new
+      // one is opened (after a 401 the next poll locks the app, which ends this effect and its wait)
+      closed: () => preferencesClosedRef.current(),
+      message: onMessage,
+    });
   }, [locked, scheduleRefetch, dropIn, chime, reorderCoordinator]);
 
   const handleServerMessage = useCallback((message: ServerMessage) => {

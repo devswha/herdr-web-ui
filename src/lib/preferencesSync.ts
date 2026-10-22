@@ -6,9 +6,13 @@
  * settings rest; another browser's arrives as a `preferences` event, and the server sends its whole
  * document each time the event stream opens, so a reconnected page catches up. Last write wins,
  * setting by setting: a change made here and not yet sent stays, and goes out over what arrived.
- * After three failed saves in a row, sending pauses until the user asks for Retry or the event stream
- * reopens; the change stays on this device meanwhile, and edits made then go out with it. While the
- * event stream is lost, nothing goes out on its own either: its reopening sends what is unsent.
+ * After three failed saves in a row, sending pauses: the change stays in this page, edits made then
+ * join it, and it goes again on Retry, when the event stream reopens, or once a longer wait ends (each
+ * refusal after the pause doubles it). Once the server refuses a save, what is unsent here (edits made
+ * since included) gives way where another browser saved the same setting (or the pins) since: sent
+ * late, it would overwrite the newer value. While the event stream is lost, nothing goes out on its
+ * own either: its reopening sends what is unsent. A stream the browser gave up on (App opens a new
+ * one) holds nothing back.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { mirrorPalette, SHARED_SETTING_KEYS, type PreferencesChange, type SharedPreferences, type SharedSettingKey } from "../../shared/preferences.ts";
@@ -21,8 +25,14 @@ import { userErrorMessage, type UserError } from "./userError.ts";
 const SEND_AFTER_MS = 600;
 /** a request that failed on the way (the network, a restart) is tried again after this */
 const RETRY_MS = 5_000;
-/** failed saves in a row after which sending waits for Retry or a reopened event stream */
+/** failed saves in a row after which sending waits for Retry, a reopened event stream or a longer wait */
 const PAUSE_AFTER = 3;
+/** the first of those longer waits: a paused change goes once more on its own after it */
+const PAUSED_RETRY_MS = 60_000;
+/** each refusal after the pause doubles the wait, up to this */
+const PAUSED_RETRY_MAX_MS = 5 * 60_000;
+/** how long a paused change waits before it goes once more, after `failures` failed saves in a row */
+const pausedWait = (failures: number): number => Math.min(PAUSED_RETRY_MS * 2 ** Math.max(0, failures - PAUSE_AFTER), PAUSED_RETRY_MAX_MS);
 
 type Shared = Partial<Record<SharedSettingKey, unknown>>;
 /** What this browser last knew the server to hold; `pins` is null while the server has held none. */
@@ -59,11 +69,14 @@ export interface Taken {
  * cannot read (a newer release's value stays the others'). `inFlight` is the change the document
  * answers: a value the server took is no longer this browser's own, so the document's stands (a
  * document from before the change landed is held until the answer, lib/preferencesSync.ts). With
- * `force` (a watching device, which sends nothing) every value is taken. The
+ * `force` (a watching device, which sends nothing) every value is taken. With `refused` (the server
+ * refused this browser's change and has not taken one since) an unsent value gives way where the
+ * document's differs from `base`: another browser saved that setting after the change was made, and
+ * the change, sent late, would overwrite the newer value. The
  * baseline takes the server's values either way. The first pins the server holds join this browser's:
  * nobody loses pins when a server begins sharing them; after that the last write wins.
  */
-export function takePreferences(base: Baseline, local: Local, remote: SharedPreferences, inFlight: PreferencesChange | null, force = false): Taken {
+export function takePreferences(base: Baseline, local: Local, remote: SharedPreferences, inFlight: PreferencesChange | null, force = false, refused = false): Taken {
   const settings: Shared = { ...base.settings };
   const patch: Record<string, unknown> = {};
   const incoming = { ...remote.settings };
@@ -81,8 +94,9 @@ export function takePreferences(base: Baseline, local: Local, remote: SharedPref
     if (!same(sanitizeSettings({ [key]: value })[key], value)) continue;
     const sent = inFlight !== null && key in inFlight.settings && same(inFlight.settings[key], local.settings[key]);
     const edited = !same(local.settings[key], base.settings[key]) && !sent;
+    const overtaken = refused && !same(value, base.settings[key]);
     settings[key] = value;
-    if (force || !edited) patch[key] = value;
+    if (force || !edited || overtaken) patch[key] = value;
   }
   // Palette is a derived mirror, not an independent local edit. A legacy document with no
   // sides must not overwrite a device's migrated System pair or provoke a correcting PUT.
@@ -93,7 +107,8 @@ export function takePreferences(base: Baseline, local: Local, remote: SharedPref
     else {
       const sent = inFlight?.pins !== undefined && same(inFlight.pins, local.pins);
       const edited = !same(local.pins, base.pins) && !sent;
-      if (force || !edited) pins = [...remote.pins];
+      const overtaken = refused && !same(remote.pins, base.pins);
+      if (force || !edited || overtaken) pins = [...remote.pins];
     }
   }
   return { base: { settings, pins: remote.pins === undefined ? base.pins : [...remote.pins] }, patch: patch as Partial<Settings>, pins };
@@ -108,7 +123,7 @@ export interface PreferencesSync {
    * meanwhile, until `paused`. A watching device and a server without the route are not refusals.
    */
   saveError: UserError | null;
-  /** three saves failed in a row: nothing is sent until `retry` or `resubscribed` */
+  /** three saves failed in a row: nothing is sent until `retry`, `resubscribed` or a longer wait ends */
   paused: boolean;
   /** a Retry is waiting for its save's answer */
   retrying: boolean;
@@ -116,8 +131,10 @@ export interface PreferencesSync {
   retry(): void;
   /** the event stream opened again (App's EventSource): a paused change gets a new round */
   resubscribed(): void;
-  /** the event stream was lost (App's EventSource): no save goes out on its own until `resubscribed` */
+  /** the event stream was lost (App's EventSource): no save goes out on its own until `resubscribed` or `closed` */
   disconnected(): void;
+  /** the browser gave up on the event stream (EventSource CLOSED, App opens a new one): saves stop waiting for it */
+  closed(): void;
 }
 
 export function usePreferencesSync(enabled: boolean): PreferencesSync {
@@ -150,6 +167,12 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   // the wait before a failed save goes again; a ref, so an answer that arrives after its effect was
   // cleaned up still sets a timer the next cleanup, a pause or unmounting cancels
   const retryTimer = useRef<number | undefined>(undefined);
+  // a paused save's longer wait, which ends the pause for one more send; apart from `retryTimer`,
+  // since the send effect's cleanup (it runs again as the pause begins) must not cancel it
+  const pauseTimer = useRef<number | undefined>(undefined);
+  // the server refused this browser's change (or it was lost on the way) and has taken none since: a
+  // newer value another browser saves meanwhile wins over the unsent one here (takePreferences)
+  const refused = useRef(false);
   // mounted and enabled: an answer that arrives after either ended is still read, but sets no wait
   const live = useRef(false);
   // the event stream is lost: the server is likely unreachable, so nothing is sent until it reopens
@@ -164,7 +187,7 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   const absorb = useCallback((remote: SharedPreferences) => {
     if (off.current || (loadedRef.current && remote.revision <= revision.current)) return;
     revision.current = Math.max(revision.current, remote.revision);
-    const taken = takePreferences(base.current, latest.current, remote, inFlight.current, readOnly.current);
+    const taken = takePreferences(base.current, latest.current, remote, inFlight.current, readOnly.current, refused.current);
     base.current = taken.base;
     // a second document in the same tick compares against what this one set, not the last render
     latest.current = { settings: sanitizeSettings({ ...latest.current.settings, ...taken.patch }), pins: taken.pins ?? latest.current.pins };
@@ -203,6 +226,8 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   /** sending stopped for good (a watching device, a server without the route): nothing is unconfirmed */
   const standDown = useCallback(() => {
     failures.current = 0;
+    refused.current = false;
+    window.clearTimeout(pauseTimer.current);
     userRetry.current = false;
     setSaveError(null);
     setPaused(false);
@@ -213,6 +238,7 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   const resume = useCallback(() => {
     if (off.current || readOnly.current) return;
     failures.current = 0;
+    window.clearTimeout(pauseTimer.current);
     setPaused(false);
     setAttempt((count) => count + 1);
   }, []);
@@ -224,6 +250,9 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
     setRetrying(true);
     resume();
   }, [resume, standDown]);
+  // the server's own document comes first on a (re)opened stream (server/machine-api.ts queues it
+  // before answering), well within the send wait, so a paused change gives way to a newer value
+  // saved elsewhere before it goes again (takePreferences' `refused`)
   const resubscribed = useCallback(() => {
     streamLostRef.current = false;
     setStreamLost(false);
@@ -233,6 +262,12 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
     streamLostRef.current = true;
     setStreamLost(true);
     window.clearTimeout(retryTimer.current);
+  }, []);
+  // no reopening to wait for (a proxy's 502 during a restart, a 401): what is unsent goes on the usual
+  // waits again, so a refusal shows with its Retry; App's new stream calls `resubscribed` once it opens
+  const closed = useCallback(() => {
+    streamLostRef.current = false;
+    setStreamLost(false);
   }, []);
 
   const change = loaded ? preferencesChange(base.current, { settings, pins }) : null;
@@ -244,7 +279,7 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
   useEffect(() => {
     if (!enabled) return;
     live.current = true;
-    return () => { live.current = false; window.clearTimeout(retryTimer.current); };
+    return () => { live.current = false; window.clearTimeout(retryTimer.current); window.clearTimeout(pauseTimer.current); };
   }, [enabled]);
   useEffect(() => {
     if (!enabled || !loaded || off.current || readOnly.current || paused || pending === null || inFlight.current !== null) return;
@@ -254,6 +289,8 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
       const body = JSON.parse(pending) as PreferencesChange;
       inFlight.current = body;
       savePreferences(body).then((saved) => {
+        // the server took this change: an unsent edit made meanwhile goes over what arrived, as any does
+        refused.current = false;
         // An older server silently drops new names. Acknowledge exactly what was sent, not
         // today's local value: an edit made while the request was in flight still goes next.
         for (const key of SHARED_SETTING_KEYS) {
@@ -272,6 +309,9 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
         }
         setAttempt((count) => count + 1);
       }).catch((error: unknown) => {
+        // a document held while this was on its way is read as one that came after the refused change
+        // (a watching device, a server without the route and an undone change stand down, which clears it)
+        refused.current = true;
         settled();
         if (error instanceof ApiError && error.status === 403) {
           readOnly.current = true;
@@ -291,13 +331,17 @@ export function usePreferencesSync(enabled: boolean): PreferencesSync {
           if (userRetry.current && failures.current < PAUSE_AFTER) { setAttempt((count) => count + 1); return; }
           userRetry.current = false;
           setRetrying(false);
-          if (failures.current >= PAUSE_AFTER) setPaused(true);
-          else if (live.current && !streamLostRef.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
+          if (failures.current >= PAUSE_AFTER) {
+            setPaused(true);
+            // the pause ends for one more send after a longer wait, so a server that can write again
+            // gets the change without a Retry; a lost stream holds that send until it reopens
+            if (live.current) pauseTimer.current = window.setTimeout(() => setPaused(false), pausedWait(failures.current));
+          } else if (live.current && !streamLostRef.current) retryTimer.current = window.setTimeout(() => setAttempt((count) => count + 1), RETRY_MS);
         }
       });
     }, SEND_AFTER_MS);
     return () => { window.clearTimeout(timer); window.clearTimeout(retryTimer.current); };
   }, [enabled, loaded, paused, streamLost, pending, attempt, absorb, settled, standDown]);
 
-  return { receive, saveError, paused, retrying, retry, resubscribed, disconnected };
+  return { receive, saveError, paused, retrying, retry, resubscribed, disconnected, closed };
 }

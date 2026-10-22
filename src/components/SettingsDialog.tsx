@@ -70,7 +70,7 @@ export interface SettingsDialogProps {
   onEnableNotifications: () => Promise<boolean>;
   /** the last change the server refused to save (lib/preferencesSync.ts); null once a save lands */
   saveError: UserError | null;
-  /** three saves failed in a row: nothing is sent until Retry or a reconnect */
+  /** three saves failed in a row: nothing is sent until Retry, a reconnect or a longer wait */
   savePaused: boolean;
   /** a Retry of that save is waiting for its answer */
   saveRetrying: boolean;
@@ -1010,8 +1010,8 @@ function SettingsCrash({ onClose, overPreview }: { onClose: () => void; overPrev
  * A change the server refused to save, on whichever page is open: the plain sentence (lib/userError.ts),
  * the server's own words behind Details, and where the change is now with the Retry that sends it.
  * It stays until a save lands; the change is sent again every few seconds meanwhile, and after three
- * failures only on Retry or a reconnect (lib/preferencesSync.ts). Only this page holds the change until
- * then: a reload takes the server's values again.
+ * failures on Retry, a reconnect or once a longer wait ends (lib/preferencesSync.ts). Only this page
+ * holds the change until then: a reload takes the server's values again.
  */
 function SaveFailure({ error, paused, retrying, onRetry }: { error: UserError; paused: boolean; retrying: boolean; onRetry: () => void }) {
   const t = useT();
